@@ -647,7 +647,15 @@ export function buildTodayActivity(date) {
     };
 }
 
-export function buildCalendarRange(from, to) {
+/**
+ * The library calendar's rows: every scheduled topic of an active project that
+ * touches `from`..`to`, PLUS every topic still open after its last day,
+ * whatever its dates. The calendar shows late work once, on today
+ * (`splitLateTasks`, src/utils/tree.ts); fetched by range alone, a topic that
+ * ended before the three periods on screen was never sent, and a library weeks
+ * behind showed one late chip. `today` is the learner's day; a gate pins it.
+ */
+export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
     const tasks = db.prepare(`
         SELECT n.id AS nodeId, n.project_id AS projectId, n.title,
                ${LEAF_STATUS} AS status,
@@ -657,15 +665,14 @@ export function buildCalendarRange(from, to) {
         WHERE ${WORK_LEAF}
           AND n.scheduled_start IS NOT NULL
           AND n.scheduled_end IS NOT NULL
-          AND n.scheduled_start <= ?
-          AND n.scheduled_end >= ?
+          AND ((n.scheduled_start <= ? AND n.scheduled_end >= ?)
+            OR (n.scheduled_end < ? AND ${LEAF_STATUS} NOT IN ('completed', 'skipped')))
         ORDER BY n.scheduled_start ASC, n.position ASC
-    `).all(to, from);
+    `).all(to, from, today);
     // The library calendar names a late topic the learner already knows
     // "ready to prove" (`isReadyToProve`, src/utils/tree.ts, adds the date).
     // Asked only of topics ending today or earlier, as the nodes payload is.
     const gate = getGateConfig();
-    const today = studyToday();
     for (const t of tasks) {
         t.provable = t.status !== 'completed' && t.status !== 'skipped'
             && t.scheduled_end <= today && canProve(t.nodeId, gate);
@@ -680,24 +687,38 @@ export function buildCalendarRange(from, to) {
 
     // A project measured in cards stores no topic dates (its schedule is a
     // window), so its days come from the plan — the same sections the
-    // project's own calendar shows, so the two calendars agree.
+    // project's own calendar shows, so the two calendars agree. A section
+    // past its end with cards not yet met is late like a topic.
     const titleOf = db.prepare('SELECT title FROM nodes WHERE id = ?');
     for (const p of projects) {
-        if (!p.start_date || !p.deadline || p.start_date > to || p.deadline < from) continue;
+        if (!p.start_date || !p.deadline) continue;
+        // Nothing on screen, and nothing can be late before the window opens.
+        if ((p.start_date > to || p.deadline < from) && p.start_date >= today) continue;
         const plan = cardPlan(p.id);
         if (!plan) continue;
         for (const s of plan) {
-            if (s.start > to || s.end < from) continue;
+            const status = s.cards > 0 && s.seen >= s.cards ? 'completed' : s.seen > 0 ? 'in_progress' : 'not_started';
+            const touches = s.start <= to && s.end >= from;
+            const late = s.end < today && status !== 'completed';
+            if (!touches && !late) continue;
             tasks.push({
                 nodeId: s.nodeId,
                 projectId: p.id,
                 title: titleOf.get(s.nodeId)?.title ?? '',
-                status: s.cards > 0 && s.seen >= s.cards ? 'completed' : s.seen > 0 ? 'in_progress' : 'not_started',
+                status,
                 scheduled_start: s.start,
                 scheduled_end: s.end,
             });
         }
     }
 
-    return { projects: projects.map(({ id, name, color }) => ({ id, name, color })), tasks };
+    // `scheduled`: the course filter above the calendar lists every course
+    // that has dates, so its row does not change as the learner pages through
+    // periods where one course has nothing.
+    return {
+        projects: projects.map(({ id, name, color, start_date, deadline }) => ({
+            id, name, color, scheduled: !!(start_date && deadline),
+        })),
+        tasks,
+    };
 }
