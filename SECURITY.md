@@ -713,6 +713,50 @@ while nobody runs it nothing here changes.
   - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
     `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
     password.
+- **It is shipped, never started.** The desktop app and the Docker image carry `mcp/`, but
+  the app does not run it and nothing listens for it. A harness starts it.
+
+### The mastery check and the card review in the agent's window
+
+Two tools, `mastery_check` and `review_cards`, open a view that a host which draws MCP Apps
+(Claude, for one) shows in its own window (`mcp/views/`). The learner takes the check or rates
+the cards there. The host's model only asks for it, and is told when it opened and how it ended.
+
+- **The model never sees a question, an answer or a key.** The check is drawn by the app
+  (`server/agentSittings.js`, the app's own draw), graded by the app, and written through the
+  same function as the app's own gate dialog (`server/masteryCheck.js`), once per sitting. A
+  card is rated by the app's own scheduler and written by the same function as the review
+  screen (`server/cardWrite.js`). Keys and explanations leave the app only after the whole
+  check is submitted, and only to the view.
+- **The sitting is a random token** (24 random bytes), held in the app's memory for at most
+  two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
+  in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to
+  the model. Seven tools that only the view calls (`check_*`, `review_*`) carry
+  `visibility: ["app"]`; they are listed only to a host whose `initialize` says it draws
+  views, and each refuses a host that does not. A host that does not draw views gets a link
+  that opens the topic in Terramentor instead.
+- **Residual risk: a host that breaks those two rules.** A host that shows a tool result's
+  `_meta` to its model, and also lets the model call the view's own tools, would let that
+  model read the questions of an open check (never their keys before submission) and submit
+  it for the learner. The answers would still be graded and recorded by the app, and a check
+  passed that way counts like any other: the app cannot tell who pressed the buttons in the
+  host's window.
+- **A view can reach nothing but its host.** Each view is one HTML document with its script
+  and style inline. Its own Content-Security-Policy allows exactly that script and that style
+  by their SHA-256 hashes, and `default-src`, `connect-src`, `frame-src`, `form-action` and
+  `base-uri` are `'none'`: it loads no file, makes no request and talks only to the window
+  that framed it, by `postMessage`, ignoring messages from any other window. The page text
+  it shows is built from text nodes; no string from the library is parsed as markup or run as
+  code. `tools/mcp-gates.mjs` reads both documents back and checks each of these.
+- **The host's own policy can replace the view's.** A host that writes its own
+  Content-Security-Policy into the frame ahead of the document makes the browser ignore the
+  view's. MCP Inspector 2.13 does this, and its own policy also forbids every connection. So
+  "no network" does not rest on the view's policy alone: the view's script contains no
+  `fetch`, socket, beacon, image, worker or navigation, and `tools/mcp-gates.mjs` fails if one
+  appears.
+- **No new outbound connection.** The views make none; the MCP server still talks to
+  `TERRAMENTOR_URL` only. A free-text answer in the check is graded by the model connected in
+  Settings, exactly as in the app's own check.
 
 ## Verifying the no-telemetry claim
 

@@ -173,7 +173,8 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
 - [Why it exists](CoreIdea.md): what this is for, and what it is not.
 - [Why it works](docs/WHY_IT_WORKS.md): the research behind the loop, and its limits.
 - [MCP server](docs/MCP.md): let Claude Code, Claude Desktop, VS Code or Cursor read your
-  library and tell it how you answered.
+  library and tell it how you answered. Where that app can show it, you take the mastery check
+  or a card review right in its window.
 - [Architecture](docs/ARCHITECTURE.md): React and TypeScript, Node and SQLite, and why. Start
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.
