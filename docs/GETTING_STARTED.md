@@ -40,7 +40,7 @@ A new library opens on four short steps before anything else:
    service; or point it at a server on your own computer (Ollama, LM Studio, llama.cpp), which
    only teaches well on a large graphics card. Then pick a model from the list: a recent one from
    a major lab, and a fast, low-cost one is enough for most subjects.
-4. **Done**, and on to your first project. In the desktop app this step also offers **Start when I
+4. **You're set up**, and on to your first project. In the desktop app this step also offers **Start when I
    sign in**, off unless you tick it. On Windows the app then runs in the background from sign-in,
    so your phone can reach it; on macOS and Linux it opens its window, and stays reachable after
    you close it only with **Keep running in the background** on as well. It is the same switch as
@@ -96,7 +96,8 @@ hosted model; on a model running on your own computer the next one waits its tur
 
 ## Scheduling and pace
 
-Set a start date and a deadline with **Set Schedule**, and the app spreads the work across your
+Set a start date and a deadline with **Set dates** on the project's card in Projects (or **Set
+Schedule** at the top of the project), and the app spreads the work across your
 topics, weighted by depth, so a topic with ten sub-topics gets more days than a single idea.
 
 **Pace** compares what you have actually closed against what the schedule expected by today. It is

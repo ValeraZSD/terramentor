@@ -84,8 +84,8 @@ pointer file, then the per-user folder above.
 The app updates itself, in two presses:
 
 1. When a check finds a newer version (Settings → Library & about → About → *Check now*,
-   or *Check daily*), a button appears at the top of the window, **Update
-   available**. Resting the pointer on it shows what the new version changes;
+   or *Check daily*), a button appears at the top of the window: **Update to**
+   and the new version's number (**Update available** on the nightly channel). Resting the pointer on it shows what the new version changes;
    on a phone, a tap opens a dialog with the same list. Press it and the new
    version downloads in the background. The press first asks GitHub once more,
    so it is always the newest release that downloads. Only the files that
