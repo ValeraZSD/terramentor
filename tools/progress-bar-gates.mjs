@@ -48,10 +48,13 @@ const ok = (name, cond, detail) => { checked++; if (!cond) findings.push({ name,
 const THIN = /\bh-(?:0\.5|1|1\.5|2|2\.5|3|4)\b/;
 // A grey track, or one tinted with the accent (`bg-accent/10`), which is as faint.
 const TRACK_BG = /\bbg-(?:slate|gray|zinc|neutral|stone|white|accent)(?:-\d+)?(?:\/\d+)?(?![\w-])/;
-const isHandTrack = (cls) => THIN.test(cls) && /(?:^|[\s"'`])rounded(?:-full|-sm)?(?=[\s"'`,)]|$)/.test(cls)
+// Any rounding size, unprefixed (a `sm:rounded-3xl` dialog is not a track).
+const ROUNDED = /(?:^|[\s"'`])rounded(?:-(?:sm|md|lg|xl|2xl|3xl|full))?(?=[\s"'`,)]|$)/;
+const isHandTrack = (cls) => THIN.test(cls) && ROUNDED.test(cls)
     && TRACK_BG.test(cls) && /\boverflow-hidden\b/.test(cls);
-// A percentage width in any spelling: `${p}%`, p + '%', '40%'.
-const PCT_WIDTH = /width:\s*(?:`[^`]*%`|[^,}\n]*['"]%['"]|['"][\d.]+%['"])/;
+// A percentage width in any spelling: `${p}%`, p + '%', '40%', on ? '40%' : 0.
+// A `${...}` is stepped over whole, so a comma inside it does not end the value.
+const PCT_WIDTH = /(?<![\w-])width:\s*(?:\$\{[^}]*\}|[^,}\n])*%/;
 const isHandFill = (cls, tag) => /\bh-full\b/.test(cls) && PCT_WIDTH.test(tag);
 
 /** Where the JSX expression or string starting at `i` ends: braces are
@@ -82,6 +85,19 @@ function tagEnd(text, at) {
     return text.length;
 }
 
+/** Where the tag holding `at` starts: the nearest `<` that opens an element
+ *  and does not sit inside an attribute's `{...}` (as `x < 3` would). */
+function tagStart(text, at) {
+    for (let j = at; j > 0;) {
+        j = text.lastIndexOf('<', j - 1);
+        if (j < 0) return 0;
+        if (!/[A-Za-z]/.test(text[j + 1] ?? '')) continue;
+        const between = text.slice(j, at);
+        if ((between.match(/\{/g) ?? []).length === (between.match(/\}/g) ?? []).length) return j;
+    }
+    return 0;
+}
+
 /** Finds hand-made tracks and fills in one file's text; returns [{line, what}].
  *  Every `className=` is read: its value whole (a list split over lines or
  *  built with `cx(...)` included), and the whole tag around it, from its `<`,
@@ -95,10 +111,10 @@ function scan(text) {
         for (; counted < at; counted++) if (text[counted] === '\n') line++;
         const valueAt = at + 'className='.length;
         const cls = text.slice(valueAt, exprEnd(text, valueAt));
-        const open = text.lastIndexOf('<', at);
-        const tag = text.slice(open < 0 ? 0 : open, tagEnd(text, valueAt));
+        const tag = text.slice(tagStart(text, at), tagEnd(text, valueAt));
         const before = lines.slice(Math.max(0, line - 13), line).join('\n');
-        const inTrack = /<ProgressTrack\b/.test(before);
+        // Exempt only a fill whose nearest ProgressTrack is still open.
+        const inTrack = before.lastIndexOf('<ProgressTrack') > before.lastIndexOf('</ProgressTrack>');
         if (isHandTrack(cls)) out.push({ line, what: 'track' });
         else if (isHandFill(cls, tag) && !inTrack) out.push({ line, what: 'fill' });
     }
@@ -129,7 +145,15 @@ ok('fixture: an accent-tinted track is caught',
 // Pins the tag reader above: one that cut at the first `>` would stop at `=>`.
 ok('fixture: an arrow function in the tag does not end it early',
     scan('<div className={cx("h-full", on && "bg-accent")} onClick={() => go(1)} style={{ width: `${p}%` }} />').length === 1);
-
+ok('fixture: a track rounded by another size is caught',
+    scan('<div className="h-2 rounded-md bg-slate-200 overflow-hidden">').length === 1);
+ok('fixture: a width chosen by a ternary is caught',
+    scan('<div className="h-full bg-accent" style={{ width: on ? \'40%\' : \'0%\' }} />').length === 1
+    && scan('<div className="h-full bg-accent" style={{ width: on ? `${p}%` : 0 }} />').length === 1);
+ok('fixture: a comparison in an earlier attribute does not hide the style',
+    scan('<div style={{ width: `${p}%` }} data-small={x < 3} className="h-full bg-accent" />').length === 1);
+ok('fixture: a fill after a closed ProgressTrack is caught',
+    scan('<ProgressTrack size="lg" />\n</ProgressTrack>\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
 const files = globSync('src/**/*.tsx', { cwd: ROOT }).map((f) => f.split(path.sep).join('/')).filter((f) => f !== COMPONENT);
 for (const file of files) {
     const text = readFileSync(path.join(ROOT, file), 'utf8');
@@ -208,6 +232,9 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
     const { accentSolidTriplet, accentFgTriplet, DEFAULT_ACCENT_RGB, DEFAULT_ACCENT_FG_DARK_RGB } =
         await import(pathToFileURL(path.join(ROOT, 'src/utils/color.ts')).href);
     const { ACCENT_COLORS, THEME_TINTS } = { ACCENT_COLORS: listOf(src, 'ACCENT_COLORS'), THEME_TINTS: listOf(src, 'THEME_TINTS') };
+    // A parse miss would leave only white and the default accent to measure.
+    ok('ColorField lists project colours to measure', ACCENT_COLORS.length > 0, 'ACCENT_COLORS parsed to nothing');
+    ok('ColorField lists theme tints to measure', THEME_TINTS.length > 0, 'THEME_TINTS parsed to nothing');
     const parsed = ok('ProgressBar exports PROGRESS_TRACK as a literal string', typeof PROGRESS_TRACK === 'string')
         & ok('PROGRESS_FILL parses to exactly the six tones', JSON.stringify(Object.keys(PROGRESS_FILL).sort()) === JSON.stringify([...TONES].sort()),
             Object.keys(PROGRESS_FILL).join(', ') || 'nothing parsed');
@@ -306,7 +333,7 @@ function listOf(_src, name) {
 const C = { r: '\x1b[31m', g: '\x1b[32m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' };
 console.log(`\n${C.b}Progress bars${C.x} ${C.d}(${files.length} files, ${ROOT === HERE ? 'this checkout' : ROOT})${C.x}\n`);
 if (!findings.length) {
-    console.log(`  ${C.g}${checked} passed, 0 failed${C.x} ${C.d}· every bar is ui/ProgressBar; track seen and fills at 3:1 on every surface, theme and tint${C.x}\n`);
+    console.log(`  ${C.g}${checked} passed, 0 failed${C.x} ${C.d}· no hand-made track or fill outside ui/ProgressBar; track seen, fills at 3:1 on every surface, theme and tint${C.x}\n`);
 } else {
     console.log(`  ${checked - findings.length} passed, ${findings.length} failed\n`);
     for (const f of findings.slice(0, 40)) console.log(`  ${C.r}${f.name}${C.x}\n        ${C.d}${f.detail ?? ''}${C.x}`);

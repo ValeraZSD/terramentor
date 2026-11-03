@@ -13,7 +13,9 @@ import { cx } from './vocabulary';
  *
  * **The empty part is a soft solid pill, the fill a darker pill inside it.**
  * The value is carried by the FILL, which clears 3:1 (WCAG 1.4.11) against
- * both the surface and the empty track. The track only has to be SEEN: a
+ * the surface, and 2.5:1 against the empty track (3:1 on the default theme;
+ * on a tinted page the accent itself is ~3.6:1, so no visible track keeps
+ * 3:1 beside it). The track only has to be SEEN: a
  * translucent slate, so it keeps the same step on every tinted surface, at
  * about 1.4:1. A 1px outline at 3:1 was tried first (3 Nov 2026) and rejected
  * as dated ("Windows XP"); a solid track at 3:1 would be as dark as the fill.
@@ -120,7 +122,7 @@ export default function ProgressBar({
                 })}
         >
             <div
-                className={cx('h-full shrink-0 transition-[width]', !flush && 'rounded-full', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
+                className={cx('h-full shrink-0 transition-[width] motion-reduce:transition-none',!flush && 'rounded-full', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
                 style={{ width: `${Math.max(minVisible, (v / safeMax) * 100)}%` }}
             />
         </ProgressTrack>
