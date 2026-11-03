@@ -11,13 +11,18 @@
 //      clipped) or its own fill (an `h-full` box whose width is a percentage).
 //      A chart that only looks like a bar (a calibration row, a replay
 //      timeline) draws its track with `PROGRESS_TRACK`, so it is visible too.
-//   2. CONTRAST, measured, composited, WCAG 1.4.11 (3:1 for a graphic):
-//      - the track's outline against every SURFACE a bar sits on;
-//      - every fill tone against the same surfaces;
-//      - every fill against the empty track beside it;
+//   2. CONTRAST, measured, composited:
+//      - the empty track is SEEN on every SURFACE a bar sits on (TRACK_FLOOR);
+//      - every fill tone clears 3:1 (WCAG 1.4.11) against the same surfaces,
+//        and stands apart from the empty track beside it (EDGE_FLOOR);
 //      in light and dark, under each of the 16 theme tints, and for the accent
 //      fill under each of the 16 project colours plus the default. The same
 //      arithmetic is run first on the OLD chapter-end track, which must fail.
+//      The track is not held to 3:1: that takes a mid-grey track as dark as
+//      the fill, or a 1px outline, which he rejected as dated (3 Nov 2026).
+//      And fill-vs-track is not 3:1 on every tint: on a tinted page the accent
+//      fill itself clears only ~3.6:1, so no track that can be seen leaves 3:1
+//      between them. The value is still read at 3:1 from fill against surface.
 //
 //   node tools/progress-bar-gates.mjs              # human report
 //   node tools/progress-bar-gates.mjs --worst      # the tightest pair per check
@@ -171,6 +176,13 @@ const ratio = (a, b) => { const x = relLum(a), y = relLum(b); return (Math.max(x
 const over = (top, alpha, base) => top.map((c, i) => c * alpha + base[i] * (1 - alpha));
 const triplet = (s) => s.trim().split(/\s+/).map(Number);
 const TONES = ['accent', 'success', 'warning', 'danger', 'info', 'neutral'];
+// The least step between the empty track and its surface. The old chapter-end
+// track measured 1.03:1 and could not be seen; the shipped one measures 1.37:1
+// on that card, and at worst 1.34:1 (light) and 1.29:1 (dark, black tint).
+const TRACK_FLOOR = 1.25;
+// The least step between a fill and the empty track beside it: 3:1 on the
+// default theme, at worst 2.54:1 (light, lavender tint) and 2.62:1 (dark).
+const EDGE_FLOOR = 2.5;
 
 // The negative control: the OLD chapter-end track (slate-100 on an accent/5
 // card over white, default theme and accent) run through the same arithmetic
@@ -180,7 +192,7 @@ const TONES = ['accent', 'success', 'warning', 'danger', 'info', 'neutral'];
     const ramp = themeRamp('light', '#ffffff');
     const card = over([14, 116, 144], 0.05, hexRgb(ramp.white));
     const old = ratio(hexRgb(ramp['100']), card);
-    ok('control: the old chapter-end track measures under 3:1 on its card', old < 3, old.toFixed(2));
+    ok('control: the old chapter-end track measures under the floor on its card', old < TRACK_FLOOR, old.toFixed(2));
     ok('control: black on white measures 21:1', Math.abs(ratio([0, 0, 0], [255, 255, 255]) - 21) < 0.01);
 }
 
@@ -189,16 +201,14 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
 } else {
     const src = readFileSync(path.join(ROOT, COMPONENT), 'utf8');
     // Read as text: Node strips types but does not compile JSX.
-    const half = (name) => src.match(new RegExp(`export const ${name} = '([^']+)'`))?.[1];
-    const washClasses = half('PROGRESS_TRACK_WASH'), ringClasses = half('PROGRESS_TRACK_RING');
-    const PROGRESS_TRACK = washClasses && ringClasses ? `${washClasses} ${ringClasses}` : undefined;
+    const PROGRESS_TRACK = src.match(/export const PROGRESS_TRACK = '([^']+)'/)?.[1];
     const fillBody = src.match(/export const PROGRESS_FILL[^=]*= \{([\s\S]*?)\};/)?.[1] ?? '';
     const PROGRESS_FILL = Object.fromEntries([...fillBody.matchAll(/(\w+): '([^']+)'/g)].map((m) => [m[1], m[2]]));
     const { themeRamp } = await import(pathToFileURL(path.join(ROOT, 'src/utils/themeRamp.ts')).href);
     const { accentSolidTriplet, accentFgTriplet, DEFAULT_ACCENT_RGB, DEFAULT_ACCENT_FG_DARK_RGB } =
         await import(pathToFileURL(path.join(ROOT, 'src/utils/color.ts')).href);
     const { ACCENT_COLORS, THEME_TINTS } = { ACCENT_COLORS: listOf(src, 'ACCENT_COLORS'), THEME_TINTS: listOf(src, 'THEME_TINTS') };
-    const parsed = ok('ProgressBar exports PROGRESS_TRACK_WASH and PROGRESS_TRACK_RING as literal strings', typeof PROGRESS_TRACK === 'string')
+    const parsed = ok('ProgressBar exports PROGRESS_TRACK as a literal string', typeof PROGRESS_TRACK === 'string')
         & ok('PROGRESS_FILL parses to exactly the six tones', JSON.stringify(Object.keys(PROGRESS_FILL).sort()) === JSON.stringify([...TONES].sort()),
             Object.keys(PROGRESS_FILL).join(', ') || 'nothing parsed');
     // The shape half skips this file, so the file itself must draw the track
@@ -232,9 +242,8 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
 
     for (const mode of ['light', 'dark']) {
         const wash = pick(PROGRESS_TRACK, 'bg')[mode];
-        const ring = pick(PROGRESS_TRACK, 'ring')[mode];
-        ok(`${mode}: the track has a wash and an outline`, wash && ring, PROGRESS_TRACK);
-        if (!wash || !ring) continue;
+        ok(`${mode}: the track has a fill colour`, wash, PROGRESS_TRACK);
+        if (!wash) continue;
         for (const tint of tints) {
             const ramp = themeRamp(mode, tint);
             for (const accent of accents) {
@@ -261,10 +270,9 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
                     }
                     const ctx = `${mode}, tint ${tint}, accent ${accent ?? 'default'}, on ${sname}`;
                     const empty = over(colour(wash[0])[0], wash[1], surface);
-                    const edge = over(colour(ring[0])[0], ring[1], empty);
-                    const rTrack = ratio(edge, surface);
-                    note(`${mode} track outline vs surface`, rTrack, ctx);
-                    ok(`track outline ≥ 3:1 (${ctx})`, rTrack >= 3, rTrack.toFixed(2));
+                    const rTrack = ratio(empty, surface);
+                    note(`${mode} empty track vs surface`, rTrack, ctx);
+                    ok(`empty track ≥ ${TRACK_FLOOR}:1 on the surface (${ctx})`, rTrack >= TRACK_FLOOR, rTrack.toFixed(2));
                     for (const [tone, classes] of Object.entries(PROGRESS_FILL)) {
                         if (tone !== 'accent' && accent) continue; // status fills do not depend on the project colour
                         const [fname, falpha] = pick(classes, 'bg')[mode];
@@ -274,7 +282,7 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
                             note(`${mode} ${tone} fill vs surface`, rS, ctx);
                             note(`${mode} ${tone} fill vs empty track`, rE, ctx);
                             ok(`${tone} fill ≥ 3:1 on the surface (${ctx})`, rS >= 3, rS.toFixed(2));
-                            ok(`${tone} fill ≥ 3:1 against the empty track (${ctx})`, rE >= 3, rE.toFixed(2));
+                            ok(`${tone} fill ≥ ${EDGE_FLOOR}:1 against the empty track (${ctx})`, rE >= EDGE_FLOOR, rE.toFixed(2));
                         }
                     }
                 }
@@ -298,7 +306,7 @@ function listOf(_src, name) {
 const C = { r: '\x1b[31m', g: '\x1b[32m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' };
 console.log(`\n${C.b}Progress bars${C.x} ${C.d}(${files.length} files, ${ROOT === HERE ? 'this checkout' : ROOT})${C.x}\n`);
 if (!findings.length) {
-    console.log(`  ${C.g}${checked} passed, 0 failed${C.x} ${C.d}· every bar is ui/ProgressBar; track and fills clear 3:1 on every surface, theme and tint${C.x}\n`);
+    console.log(`  ${C.g}${checked} passed, 0 failed${C.x} ${C.d}· every bar is ui/ProgressBar; track seen and fills at 3:1 on every surface, theme and tint${C.x}\n`);
 } else {
     console.log(`  ${checked - findings.length} passed, ${findings.length} failed\n`);
     for (const f of findings.slice(0, 40)) console.log(`  ${C.r}${f.name}${C.x}\n        ${C.d}${f.detail ?? ''}${C.x}`);

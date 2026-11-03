@@ -7,7 +7,7 @@ import { onActivateKey } from '../../utils/a11y';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { DashboardSection } from './DashboardSection';
-import ProgressBar, { PROGRESS_TRACK_RING, PROGRESS_TRACK_WASH } from '../ui/ProgressBar';
+import ProgressBar, { PROGRESS_TRACK } from '../ui/ProgressBar';
 
 /** From this list width a phase is ONE row (title, bar, count), in rem so
  *  `ui_scale` moves it with the type. Below it the bar goes under the title. */
@@ -145,10 +145,10 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                         title={segment.title}
                         /* A tick is a TOPIC, not a slice of a track, and a
                            focusable control besides. An unfinished one is an
-                           empty progress track (`ui/ProgressBar`'s wash and
-                           ring, 3:1 on the card): a slot cut into the card,
-                           and the emerald as what fills it. A slate-200
-                           hairline measured 1.2:1 and drew no slot at all. */
+                           empty progress track (`ui/ProgressBar`'s
+                           PROGRESS_TRACK): a slot in the card, and the
+                           emerald as what fills it. A slate-100 tick with a
+                           slate-200 hairline measured 1.2:1 and drew no slot. */
                         className={`h-full min-w-0 flex-1 cursor-pointer rounded-sm ${segment.completed
                             ? (segment.skipped
                                 /* Skipped is CLOSED, so it must out-ink an
@@ -156,10 +156,10 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                                    emerald that means proven. */
                                 ? 'bg-slate-600 dark:bg-slate-300'
                                 : 'bg-emerald-500 dark:bg-emerald-500')
-                            : PROGRESS_TRACK_WASH
+                            : PROGRESS_TRACK
                         } ${segment.id === selectedNodeId
                             ? 'ring-2 ring-inset ring-slate-700 dark:ring-white'
-                            : `hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white${segment.completed ? '' : ` ${PROGRESS_TRACK_RING}`}`
+                            : 'hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white'
                         }`}
                     />
                 ))}

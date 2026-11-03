@@ -11,23 +11,19 @@ import { cx } from './vocabulary';
  * not a short bar, it was nothing at all (Terramentor, 3 Nov 2026, the
  * chapter-end card).
  *
- * **The empty part is OUTLINED.** A track filled dark enough to clear 3:1
- * against its surface (WCAG 1.4.11) would be a mid grey, as dark as the fill
- * itself, and the line between done and not done would disappear instead. So
- * the track keeps a faint wash and draws its full length as a 1px inset ring
- * that clears 3:1 on every surface a bar sits on, in every theme tint; the
- * fill, painted over the ring, clears 3:1 against the same surfaces.
- * `progress-bar-gates.mjs` measures both, composited, against the list of
- * surfaces in that file, and refuses a hand-made track anywhere else.
+ * **The empty part is a soft solid pill, the fill a darker pill inside it.**
+ * The value is carried by the FILL, which clears 3:1 (WCAG 1.4.11) against
+ * both the surface and the empty track. The track only has to be SEEN: a
+ * translucent slate, so it keeps the same step on every tinted surface, at
+ * about 1.4:1. A 1px outline at 3:1 was tried first (3 Nov 2026) and rejected
+ * as dated ("Windows XP"); a solid track at 3:1 would be as dark as the fill.
+ * `progress-bar-gates.mjs` measures all of it, composited, against the list
+ * of surfaces in that file, and refuses a hand-made track anywhere else.
  */
 
-/** The empty part. Literal class strings, because Tailwind only emits what it
- *  can read, and because the gate parses them back into colours. */
-export const PROGRESS_TRACK_WASH = 'bg-slate-500/10 dark:bg-slate-400/10';
-export const PROGRESS_TRACK_RING = 'ring-1 ring-inset ring-slate-500/90 dark:ring-slate-400/80';
-/** Both halves, for a track. A slot that is selected or hovered (a phase's
- *  topic ticks) takes the wash and swaps the ring for its own. */
-export const PROGRESS_TRACK = `${PROGRESS_TRACK_WASH} ${PROGRESS_TRACK_RING}`;
+/** The empty part. A literal class string, because Tailwind only emits what
+ *  it can read, and because the gate parses it back into a colour. */
+export const PROGRESS_TRACK = 'bg-slate-500/25 dark:bg-slate-400/20';
 
 /** What a fill MEANS, not a colour. `accent` is the theme's text accent, which
  *  is already solved per theme and per project colour to be legible on the
@@ -124,7 +120,7 @@ export default function ProgressBar({
                 })}
         >
             <div
-                className={cx('h-full shrink-0 transition-[width]', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
+                className={cx('h-full shrink-0 transition-[width]', !flush && 'rounded-full', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
                 style={{ width: `${Math.max(minVisible, (v / safeMax) * 100)}%` }}
             />
         </ProgressTrack>
