@@ -115,8 +115,10 @@ function tagStart(text, at) {
  *  above; a self-closing one, or one closed since, is not. */
 function insideTrack(text, at) {
     const head = text.slice(0, at);
-    const open = head.lastIndexOf('<ProgressTrack');
-    if (open < 0 || open < head.lastIndexOf('</ProgressTrack>')) return false;
+    const last = (re) => [...head.matchAll(re)].at(-1)?.index ?? -1;
+    // The whole name (not `<ProgressTrackLegend`); a close may be spaced.
+    const open = last(/<ProgressTrack(?=[\s>/])/g);
+    if (open < 0 || open < last(/<\/ProgressTrack\s*>/g)) return false;
     const end = tagEnd(text, open + 1);
     return end <= at && text[end - 2] !== '/';
 }
@@ -177,6 +179,10 @@ ok('fixture: a fill after a self-closing ProgressTrack is caught',
     scan('<ProgressTrack size="lg" />\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
 ok('fixture: a fill far below its open ProgressTrack is let through',
     scan(`<ProgressTrack size="lg">${'\n{/* a line */}'.repeat(20)}\n<div className="h-full bg-accent" style={{ width: \`\${p}%\` }} />`).length === 0);
+ok('fixture: a fill after a spaced closing ProgressTrack is caught',
+    scan('<ProgressTrack size="lg">\n</ProgressTrack >\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
+ok('fixture: another component whose name starts ProgressTrack is not a track',
+    scan('<ProgressTrackLegend items={xs}>\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
 ok('fixture: a track rounded by an arbitrary value is caught',
     scan('<div className="h-2 rounded-[4px] bg-slate-200 overflow-hidden">').length === 1);
 ok('fixture: a quoted "<" before className does not hide the style',
