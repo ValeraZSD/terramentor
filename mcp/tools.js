@@ -237,8 +237,9 @@ function registerViews(server, appFor) {
         title: 'Take a mastery check',
         description: 'Open a topic\'s mastery check for the learner: questions drawn from the topic\'s checked bank, graded and '
             + 'recorded by Terramentor. It is the only way an agent can have a topic proved. Where this host draws app views the learner takes it '
-            + 'right here; you never see its questions or answers, only that it is open and then the score. Elsewhere the answer '
-            + 'is a link that opens the topic in Terramentor. Never answer it for the learner.',
+            + 'right here; you never see its questions or answers. This answer says only that it is open: the view passes the '
+            + 'score on once the learner submits, if this host gives a view\'s updates to you, and get_mastery shows the recorded '
+            + 'result either way. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
         inputSchema: z.object({
             topic: topicRef.describe('The topic\'s nodeId (from project_state or find_in_library), or its title.'),
         }),
@@ -265,7 +266,8 @@ function registerViews(server, appFor) {
         title: 'Review due cards',
         description: 'Open a review of the learner\'s due cards, in one project or across every active project. Where this host '
             + 'draws app views the learner reviews them right here, rating each card, and Terramentor schedules it; you never see '
-            + 'the cards, only how the session ended. Elsewhere the answer says how many are due and links to them in Terramentor.',
+            + 'the cards. This answer says only that it is open: the view passes on how the session ended, if this host gives a '
+            + 'view\'s updates to you. Elsewhere the answer says how many are due and links to them in Terramentor.',
         inputSchema: z.object({
             project: z.string().max(200).optional().describe('A projectId or (part of) a project\'s name. Leave out for every active project.'),
         }),

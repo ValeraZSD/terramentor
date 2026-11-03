@@ -723,7 +723,8 @@ while nobody runs it nothing here changes.
 
 Two tools, `mastery_check` and `review_cards`, open a view that a host which draws MCP Apps
 (Claude, for one) shows in its own window (`mcp/views/`). The learner takes the check or rates
-the cards there. The host's model only asks for it, and is told when it opened and how it ended.
+the cards there. The host's model only asks for it, and is told when it opened, and how it
+ended if the host passes a view's updates on to it.
 
 - **The model never sees a question, an answer or a key.** The check is drawn by the app
   (`server/agentSittings.js`, the app's own draw), graded by the app, and written through the

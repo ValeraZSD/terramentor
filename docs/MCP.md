@@ -119,8 +119,10 @@ Terramentor's own screen inside its window:
   with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
   Terramentor's scheduler handles each card exactly as the review screen in the app does.
 
-The agent never sees a question, an answer or a card. It is told that the check opened, then
-its score, or how many cards you reviewed.
+The agent never sees a question, an answer or a card. It is told that the check opened. The
+screen then passes on your score, or how many cards you reviewed, to an app that hands a
+screen's updates to its model; MCP lets an app refuse them. Either way the check's result is
+recorded, and `get_mastery` shows it.
 
 **Which apps show it.** The screen is an MCP App, an extension of MCP that a client may or may
 not draw. One that does not get a link that opens the topic, or your due cards, in Terramentor.

@@ -212,10 +212,16 @@ const TM = (() => {
         return result.structuredContent || {};
     }
 
-    /** What the host's model should know now (the score, once the learner finished). */
+    /**
+     * What the host's model should know now (the score, once the learner
+     * finished). The only way it reaches the model: mastery_check and
+     * review_cards answered before there was a result. The spec has a host
+     * pass it on (SHOULD) and lets it refuse; on such a host the model is told
+     * nothing here, and get_mastery reads the check's recorded result.
+     */
     function tellModel(text, structuredContent) {
         request('ui/update-model-context', { content: [{ type: 'text', text }], ...(structuredContent ? { structuredContent } : {}) })
-            .catch(() => { /* a host without model context still has the tool's own answer */ });
+            .catch(() => { /* refused: the result is recorded in the app all the same */ });
     }
 
     /** The handshake; `onToolResult` gets every tool result the host sends this view. */

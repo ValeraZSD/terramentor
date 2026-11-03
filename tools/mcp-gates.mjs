@@ -941,6 +941,12 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('the model sees no question, no key and no token', !BANK.some(b => modelSees.includes(b.question)) && !leaksAKey({ c: started?.result?.content, s: started?.result?.structuredContent })
         && !modelSees.includes(sit), modelSees.slice(0, 300));
     ok('the model is told it must not answer the check itself', /must not/i.test(textOf(started)));
+    // The score reaches the model only through the view's context update,
+    // which a host may refuse: no promise of it, and the way to read it anyway.
+    ok('neither the tool nor its answer promises the score; both name get_mastery for the recorded result',
+        /get_mastery/.test(textOf(started)) && /get_mastery/.test(byName.mastery_check?.description || '')
+        && !/then the score/.test(byName.mastery_check?.description || '') && !/only how the session ended/.test(byName.review_cards?.description || ''),
+    `${textOf(started).slice(-120)} | ${byName.mastery_check?.description}`);
 
     const shown = await hostCall('check_questions', { sitting: sit });
     const qs = data(shown).questions || [];

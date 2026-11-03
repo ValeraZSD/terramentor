@@ -268,7 +268,8 @@ export function startCheck({ topic }) {
         token, ...where, count: questions.length, language: uiLanguage(),
         text: `A mastery check of ${questions.length} questions on "${node.title}" is open for the learner in the view. `
             + 'You cannot see its questions or answers and must not try to answer them: the learner answers in the view, '
-            + 'Terramentor grades the answers and records the result. Wait for the learner to finish.',
+            + 'Terramentor grades the answers and records the result. Wait for the learner to finish. '
+            + 'If the score does not reach you, get_mastery shows the recorded result.',
     };
 }
 
