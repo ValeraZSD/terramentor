@@ -66,6 +66,10 @@ on:
       - tools/first-visit-smoke.sh
       - Dockerfile
       - desktop/**
+      # The MCP server ships in both packages and is started against each.
+      - mcp/**
+      - tools/mcp-smoke.mjs
+      - tools/lib/runtimeSources.mjs
 
 # Read-only by default; only the jobs that actually publish grant write, and
 # only the scope they need (image → packages, release → contents). Workflow-wide

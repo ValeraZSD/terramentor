@@ -45,9 +45,10 @@
 //      host's colours a fill and its text together or not at all, and no key
 //      or explanation leaves the server before the check is submitted. The
 //      check is drawn, graded and written by the app (one evidence row per
-//      sitting, a second or racing submit writes nothing), a failed check
-//      completes nothing, a card is rated only after its answer is shown and
-//      once per presentation, Undo restores it, and a rating in the view
+//      sitting, a second submit or one racing the grading writes nothing and
+//      asks the checker nothing), a failed check completes nothing, a card is
+//      rated only after its answer is shown and once per presentation, Undo
+//      restores every field the rating wrote, and a rating in the view
 //      writes exactly the evidence the same rating writes in the app: card
 //      evidence, never an assessment.
 
@@ -95,7 +96,7 @@ if (!DB_PATH.startsWith(scratch)) { console.error(`refusing: the library is ${DB
  * a host-context change. Returns the colour variables the view set on its
  * root, and with `changed` also the ones it had set `before` it.
  */
-async function hostColours(html, vars, changed) {
+async function hostColours(html, vars, changed, { foreign = false } = {}) {
     const NAMES = ['--color-background-primary', '--color-text-primary', '--color-background-inverse', '--color-text-inverse'];
     const sent = [];
     const { window } = new JSDOM(html, {
@@ -117,7 +118,10 @@ async function hostColours(html, vars, changed) {
         if (!await until(() => sent.some(m => m.method === 'ui/notifications/initialized'))) return { error: 'no initialized notification' };
         if (!changed) return read();
         const before = read();
-        reply({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { styles: { variables: changed } } });
+        const change = { jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { styles: { variables: changed } } };
+        // `foreign`: the same message from a window that is not the host.
+        if (foreign) window.dispatchEvent(new window.MessageEvent('message', { data: change, source: null }));
+        else reply(change);
         return { ...read(), before };
     } finally {
         window.close();
@@ -827,6 +831,16 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         ok(`${uri}: a pair sent whole is used, and a later change carrying half of it drops both`,
             halfLater.before['--color-background-inverse'] === '#c9cdd6' && halfLater.before['--color-text-inverse'] === '#131519'
             && halfLater['--color-background-inverse'] === '' && halfLater['--color-text-inverse'] === '', JSON.stringify(halfLater));
+        // Only the window that framed the view is its host: the same change
+        // from any other window is ignored.
+        const PAIR = { '--color-background-inverse': '#c9cdd6', '--color-text-inverse': '#131519' };
+        const NEW_PAIR = { '--color-background-inverse': '#204060', '--color-text-inverse': '#f0f0f0' };
+        const fromHost = await hostColours(html, PAIR, NEW_PAIR);
+        const fromElsewhere = await hostColours(html, PAIR, NEW_PAIR, { foreign: true });
+        ok(`${uri}: a message from its host is taken, the same message from any other window is ignored`,
+            fromHost['--color-background-inverse'] === '#204060' && fromHost['--color-text-inverse'] === '#f0f0f0'
+            && fromElsewhere['--color-background-inverse'] === '#c9cdd6' && fromElsewhere['--color-text-inverse'] === '#131519',
+            JSON.stringify({ fromHost, fromElsewhere }));
     }
 
     // A bank of checked questions on a topic nothing else has measured.
@@ -892,13 +906,13 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const early = await hostCall('check_complete', { sitting: sit });
     ok('a failed check does not complete its topic', isErr(early) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status !== 'completed');
 
-    // A passed check, submitted twice at once.
+    // A passed check.
     const second = await hostCall('mastery_check', { topic: checkedTopic });
     const sit2 = sittingOf(second);
     const qs2 = data(await hostCall('check_questions', { sitting: sit2 })).questions || [];
-    const both = await Promise.all([1, 2].map(() => hostCall('check_submit', { sitting: sit2, answers: answersFor(qs2, [0, 1, 2, 3, 4]) })));
-    ok('two submits racing on one sitting are one check', both.every(m => data(m).result?.passed === true) && checkEvidence() === evidenceBeforeCheck + 2,
-        `${checkEvidence() - evidenceBeforeCheck} rows; ${JSON.stringify(both.map(m => data(m).result?.score))}`);
+    const passedCheck = await hostCall('check_submit', { sitting: sit2, answers: answersFor(qs2, [0, 1, 2, 3, 4]) });
+    ok('a passed check writes one more evidence row', data(passedCheck).result?.passed === true && checkEvidence() === evidenceBeforeCheck + 2,
+        `${checkEvidence() - evidenceBeforeCheck} rows; ${JSON.stringify(data(passedCheck).result?.score)}`);
     // The completion is the app's own, with no override: take the evidence
     // away (as a reported question re-scoring the check would) and the app's
     // gate refuses it, though the sitting still says passed.
@@ -915,6 +929,60 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('a passed check completes its topic through the app\'s own gate', !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed', textOf(done).slice(0, 200));
     const crossed = await hostCall('review_next', { sitting: sit2 });
     ok('a check\'s token is not a review\'s', isErr(crossed));
+
+    // Two submits racing on one sitting while the first is still being graded.
+    // Every key above is graded locally, which is over before the second
+    // request is read; an open answer goes to the checker, here a local stub
+    // that takes its time and counts what it is asked.
+    const raced = addNode('Beats', section, { position: 6 });
+    const RACE_BANK = [
+        { uuid: 'race-mc', type: 'multiple_choice', question: 'Forks of 440 Hz and 444 Hz sound together. How often does the loudness swell?', options: ['4 times a second', '440 times a second', '884 times a second', 'Never'], correct_answer: '4 times a second', explanation: 'The difference.' },
+        { uuid: 'race-tf', type: 'true_false', question: 'Two waves of the same frequency make no beats.', correct_answer: 'True', explanation: 'No difference, no beats.' },
+        { uuid: 'race-num', type: 'numeric', question: 'Strings at 256 Hz and 260 Hz sound together. How many beats a second?', correct_answer: '4', unit: 'Hz', explanation: '260 - 256.' },
+        { uuid: 'race-fill', type: 'fill_in', question: 'Two strings are in tune when their beats ___.', correct_answer: 'vanish', explanation: 'Equal pitch.' },
+        { uuid: 'race-open', type: 'short_answer', question: 'What decides how often beats are heard?', correct_answer: 'the difference between the two frequencies', explanation: 'The beat frequency.' },
+    ];
+    const RACE_RIGHT = ['4 times a second', 'True', '4', 'vanish', 'how far apart the two pitches are'];
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(raced, 'Beats', JSON.stringify(RACE_BANK));
+    const racedEvidence = () => db.prepare("SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").get(raced).n;
+    let checkerCalls = 0;
+    const checker = createServer((req, res) => {
+        req.resume();
+        req.on('end', () => {
+            checkerCalls++;
+            setTimeout(() => {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ correct: true, explanation: 'That is the beat frequency.' }) } }] }));
+            }, 800);
+        });
+    });
+    await new Promise(r => checker.listen(0, '127.0.0.1', r));
+    const AI_ENV = ['AI_PROVIDER', 'AI_BASE_URL', 'AI_MODEL'];
+    const envBefore = Object.fromEntries(AI_ENV.map(k => [k, process.env[k]]));
+    const enabledBefore = db.prepare("SELECT value FROM settings WHERE key = 'ai_enabled'").get()?.value;
+    try {
+        process.env.AI_PROVIDER = 'openai';
+        process.env.AI_BASE_URL = `http://127.0.0.1:${checker.address().port}/v1`;
+        process.env.AI_MODEL = 'stub-checker';
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_enabled', 'true')").run();
+        const sit3 = sittingOf(await hostCall('mastery_check', { topic: raced }));
+        const qs3 = data(await hostCall('check_questions', { sitting: sit3 })).questions || [];
+        const answers3 = qs3.map(q => RACE_RIGHT[RACE_BANK.findIndex(b => b.question === q.question)]);
+        const before = racedEvidence();
+        const racing = await Promise.all([1, 2].map(() => hostCall('check_submit', { sitting: sit3, answers: answers3 })));
+        const scores = racing.map(m => data(m).result?.score);
+        // Neither answer is the "already submitted" one: both arrived while the
+        // first was still being graded, so the race really overlapped.
+        ok('two submits racing on one sitting while it is graded are one check: one checker call, one score, one evidence row',
+            qs3.length === RACE_BANK.length && checkerCalls === 1 && racing.every(m => !isErr(m) && data(m).result?.passed === true && data(m).duplicate !== true)
+            && scores[0] === RACE_BANK.length && scores[1] === scores[0] && racedEvidence() === before + 1,
+            `${qs3.length} questions; ${checkerCalls} checker calls; scores ${JSON.stringify(scores)}; ${racedEvidence() - before} rows; duplicate ${JSON.stringify(racing.map(m => data(m).duplicate ?? null))}`);
+    } finally {
+        for (const k of AI_ENV) { if (envBefore[k] === undefined) delete process.env[k]; else process.env[k] = envBefore[k]; }
+        if (enabledBefore === undefined) db.prepare("DELETE FROM settings WHERE key = 'ai_enabled'").run();
+        else db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_enabled', ?)").run(enabledBefore);
+        checker.close();
+    }
 
     // The card review: a topic with cards and nothing else.
     const carded = addNode('Resonance', section, { position: 4 });
@@ -938,9 +1006,15 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('the answer side comes with what each rating would schedule', String(revealed.card?.back || '').length > 0
         && ['again', 'hard', 'good', 'easy'].every(r => typeof revealed.intervals?.[r] === 'string'), JSON.stringify(revealed).slice(0, 300));
     const logBefore = reviewRows();
+    // Every field a review writes, as it stood before the rating: Undo must
+    // put back all of them, not only the ones that are easy to see.
+    const { SRS_STATE_FIELDS } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    const schedulerOf = (id) => db.prepare(`SELECT ${SRS_STATE_FIELDS.join(', ')} FROM flashcards WHERE id = ?`).get(id);
+    const beforeRating = schedulerOf(card.cardId);
     const rated = await hostCall('review_rate', { sitting: rs, presentationId: card.presentationId, rating: 'easy' });
     const cardAfter = db.prepare('SELECT review_count, next_review FROM flashcards WHERE id = ?').get(card.cardId);
-    ok('a rating is the app\'s: logged and scheduled', !isErr(rated) && reviewRows() === logBefore + 1 && cardAfter.review_count === 1 && cardAfter.next_review > '2026-01-05');
+    ok('a rating is the app\'s: logged and scheduled', !isErr(rated) && reviewRows() === logBefore + 1 && cardAfter.review_count === 1
+        && cardAfter.next_review > '2026-01-05T09:00:00.000Z', JSON.stringify(cardAfter));
     // Red: the same presentation rated twice.
     const twice = await hostCall('review_rate', { sitting: rs, presentationId: card.presentationId, rating: 'again' });
     ok('a second rating of one presentation writes nothing', !isErr(twice) && data(twice).duplicate === true && reviewRows() === logBefore + 1
@@ -948,6 +1022,10 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const undone = data(await hostCall('review_undo', { sitting: rs }));
     ok('Undo restores the card and takes its rating out of the log, and shows the card again', undone.undone === true && reviewRows() === logBefore
         && db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(card.cardId).review_count === 0 && undone.card?.cardId === card.cardId, JSON.stringify(undone).slice(0, 300));
+    const afterUndo = schedulerOf(card.cardId);
+    const unrestored = SRS_STATE_FIELDS.filter(k => afterUndo[k] !== beforeRating[k]);
+    ok(`Undo puts back every field the rating wrote (${SRS_STATE_FIELDS.length})`, SRS_STATE_FIELDS.length >= 10 && unrestored.length === 0,
+        unrestored.map(k => `${k}: ${JSON.stringify(beforeRating[k])} → ${JSON.stringify(afterUndo[k])}`).join('; '));
     // Every card rated Easy, as fast as a script can.
     for (let n = 0; n < 40; n++) {
         const next = data(await hostCall('review_next', { sitting: rs }));
