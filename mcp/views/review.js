@@ -16,6 +16,7 @@
         busy: false,
         notice: '',
         told: false,
+        project: '',
     };
 
     TM.start({ name: 'terramentor-card-review', onToolResult });
@@ -49,6 +50,8 @@
                 view = await callTool('review_next', { sitting: state.sitting });
             }
             state.view = view;
+            // The finished session has no card to name its course; keep the last one's.
+            if (view.card && view.card.project) state.project = view.card.project;
             state.phase = view.done ? 'done' : 'card';
             if (view.done && !state.told) {
                 state.told = true;
@@ -84,10 +87,11 @@
     }
 
     function header(v) {
+        const course = (v && v.card && v.card.project) || state.project;
         return h('header', { class: 'head head-row' },
             h('div', {},
                 h('p', { class: 'eyebrow' }, t('Flashcard Review')),
-                h('h1', { class: 'title' }, (v && v.card && v.card.project) || '')),
+                course ? h('h1', { class: 'title' }, course) : null),
             h('div', { class: 'head-side' },
                 v ? h('span', { class: 'muted' }, `${v.reviewed}/${v.total}`) : null,
                 h('button', {

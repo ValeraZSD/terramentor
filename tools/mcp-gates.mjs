@@ -41,7 +41,8 @@
 //  10. The views: a host that draws MCP App views gets a mastery check and a
 //      card review in its own window; one that does not gets a link to the
 //      topic and no sitting. The view tools are listed to the view alone, each
-//      view is one document under a CSP of hashes with no network, and no key
+//      view is one document under a CSP of hashes with no network, takes the
+//      host's colours a fill and its text together or not at all, and no key
 //      or explanation leaves the server before the check is submitted. The
 //      check is drawn, graded and written by the app (one evidence row per
 //      sitting, a second or racing submit writes nothing), a failed check
@@ -58,6 +59,7 @@ import { join, dirname, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = join(repoRoot, 'mcp', 'index.js');
@@ -86,6 +88,41 @@ const ok = (label, cond, extra = '') => {
 };
 
 if (!DB_PATH.startsWith(scratch)) { console.error(`refusing: the library is ${DB_PATH}, not the scratch one`); process.exit(2); }
+
+/**
+ * Run a view in jsdom as its host would: answer its ui/initialize with these
+ * theme variables in a dark host context, then send `changed` (if given) as
+ * a host-context change. Returns the colour variables the view set on its
+ * root, and with `changed` also the ones it had set `before` it.
+ */
+async function hostColours(html, vars, changed) {
+    const NAMES = ['--color-background-primary', '--color-text-primary', '--color-background-inverse', '--color-text-inverse'];
+    const sent = [];
+    const { window } = new JSDOM(html, {
+        runScripts: 'dangerously',
+        pretendToBeVisual: true,
+        beforeParse(w) {
+            w.postMessage = (msg) => { sent.push(msg); };
+            w.ResizeObserver = class { observe() {} disconnect() {} };
+        },
+    });
+    const read = () => Object.fromEntries(NAMES.map(n => [n, window.document.documentElement.style.getPropertyValue(n)]));
+    const reply = (data) => window.dispatchEvent(new window.MessageEvent('message', { data, source: window }));
+    const until = async (test) => { for (let i = 0; i < 200 && !test(); i++) await new Promise(r => setTimeout(r, 10)); return test(); };
+    try {
+        await until(() => sent.some(m => m.method === 'ui/initialize'));
+        const init = sent.find(m => m.method === 'ui/initialize');
+        if (!init) return { error: 'the view never asked for ui/initialize' };
+        reply({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: init.params.protocolVersion, hostContext: { theme: 'dark', styles: { variables: vars } } } });
+        if (!await until(() => sent.some(m => m.method === 'ui/notifications/initialized'))) return { error: 'no initialized notification' };
+        if (!changed) return read();
+        const before = read();
+        reply({ jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { styles: { variables: changed } } });
+        return { ...read(), before };
+    } finally {
+        window.close();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // The library: one course, two topics and a section, a lesson, private notes,
@@ -772,6 +809,24 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         ok(`${uri}: no string becomes code or markup (eval, Function, innerHTML, document.write)`,
             !scripts.some(s => /\beval\s*\(|new\s+Function\b|\bFunction\s*\(|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write|setTimeout\s*\(\s*['"`]/.test(s)));
         ok(`${uri}: no address outside the document`, !/(?:src|href)\s*=\s*["']?(?:https?:)?\/\//i.test(html));
+        // A host may write its own CSP ahead of the document, and the browser
+        // then ignores the view's (MCP Inspector 2.13 does). The code itself
+        // must open nothing, so "no network" does not rest on our policy.
+        const opener = /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|new\s+Image\b|\bWorker\s*\(|importScripts|window\.open\b|\blocation\s*(?:\.href\s*)?=|\.(?:src|href|action)\s*=/;
+        ok(`${uri}: the view's code opens no connection of its own (fetch, sockets, beacons, images, workers, navigation)`,
+            !scripts.some(s => opener.test(s)), scripts.map(s => opener.exec(s)?.[0]).filter(Boolean).join(', '));
+
+        // The host's colours come in pairs: MCP Inspector 2.13 sends a white
+        // --color-text-inverse with no --color-background-inverse, and the
+        // view's own near-white dark fill under it hid the primary button.
+        const halfSent = await hostColours(html, { '--color-background-primary': '#131519', '--color-text-primary': '#c9cdd6', '--color-text-inverse': '#fff' });
+        ok(`${uri}: a host's text colour sent without its fill is dropped; a whole pair is used`,
+            halfSent['--color-text-inverse'] === '' && halfSent['--color-background-inverse'] === ''
+            && halfSent['--color-background-primary'] === '#131519' && halfSent['--color-text-primary'] === '#c9cdd6', JSON.stringify(halfSent));
+        const halfLater = await hostColours(html, { '--color-background-inverse': '#c9cdd6', '--color-text-inverse': '#131519' }, { '--color-text-inverse': '#fff' });
+        ok(`${uri}: a pair sent whole is used, and a later change carrying half of it drops both`,
+            halfLater.before['--color-background-inverse'] === '#c9cdd6' && halfLater.before['--color-text-inverse'] === '#131519'
+            && halfLater['--color-background-inverse'] === '' && halfLater['--color-text-inverse'] === '', JSON.stringify(halfLater));
     }
 
     // A bank of checked questions on a topic nothing else has measured.

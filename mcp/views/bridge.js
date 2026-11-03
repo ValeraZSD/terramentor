@@ -96,6 +96,23 @@ const TM = (() => {
     });
 
     // ---- theme and size
+    // A fill and the text drawn on it are taken from the host only as a pair.
+    // A host that sends one half (MCP Inspector 2.13 sends --color-text-inverse
+    // in both themes, never --color-background-inverse) would otherwise put
+    // its white text on the view's own fallback fill, which is near-white in
+    // dark mode. Half a pair is dropped, so both halves fall back together.
+    const COLOUR_PAIRS = [
+        ['--color-background-primary', '--color-text-primary'],
+        ['--color-background-inverse', '--color-text-inverse'],
+    ];
+    function halfPairs(vars) {
+        const half = new Set();
+        for (const [fill, text] of COLOUR_PAIRS) {
+            if ((typeof vars[fill] === 'string') !== (typeof vars[text] === 'string')) { half.add(fill); half.add(text); }
+        }
+        return half;
+    }
+
     function applyContext(ctx) {
         const root = document.documentElement;
         if (ctx.theme === 'dark' || ctx.theme === 'light') {
@@ -104,9 +121,12 @@ const TM = (() => {
         }
         const vars = ctx.styles && ctx.styles.variables;
         if (vars && typeof vars === 'object') {
+            const half = halfPairs(vars);
             for (const [name, value] of Object.entries(vars)) {
+                if (half.has(name)) continue;
                 if (/^--[A-Za-z0-9-]{1,64}$/.test(name) && typeof value === 'string' && value.length <= 400) root.style.setProperty(name, value);
             }
+            for (const name of half) root.style.removeProperty(name);
         }
         if (!appLanguage && typeof ctx.locale === 'string') setLanguage(ctx.locale);
     }
