@@ -166,6 +166,8 @@ const VIDEOS = {
     // YouTube keeping this machine out at the player itself.
     vidThrottle: { status: 429 },
     vidRefused1: { status: 403 },
+    // A player answer far past any real one (the cap is 4 MB).
+    vidHugeAns1: { huge: true },
 };
 
 const seen = [];
@@ -174,12 +176,13 @@ let pageHold = Promise.resolve();
 function fakeFetch(raw, init = {}) {
     const url = new URL(String(raw));
     const headers = Object.fromEntries(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
-    seen.push({ url: url.href, host: url.hostname, method: init.method || 'GET', headers, body: init.body });
+    seen.push({ url: url.href, host: url.hostname, method: init.method || 'GET', headers, body: init.body, allowRedirect: init.allowRedirect });
     const html = (body, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
     if (url.hostname === 'www.youtube.com' && url.pathname === '/youtubei/v1/player') {
         const body = JSON.parse(init.body);
         const v = VIDEOS[body.videoId];
         if (v?.status) return Promise.resolve(new Response('', { status: v.status }));
+        if (v?.huge) return Promise.resolve(new Response(`{"pad":"${'x'.repeat(5 * 1024 * 1024)}"}`, { status: 200, headers: { 'content-type': 'application/json' } }));
         if (!v) return Promise.resolve(new Response(JSON.stringify(ytPlayer({ status: 'ERROR', reason: 'This video is unavailable' })), { status: 200 }));
         // The caption URL each client hands out is its own, so an empty body can
         // be served to one client and text to the next.
@@ -207,6 +210,11 @@ function fakeFetch(raw, init = {}) {
         if (url.pathname === '/down') return Promise.reject(new TypeError('fetch failed'));
         if (url.pathname === '/tiny') return Promise.resolve(html(`<html><head><title>Tip</title></head><body><article><p>${SENTENCES[0]}</p></article></body></html>`));
         if (url.pathname === '/held') return pageHold.then(() => html(PAGE_HTML));
+        // A page served as a download, 3.5 MB of it before its last line.
+        if (url.pathname === '/mislabelled') {
+            return Promise.resolve(new Response(`<!doctype html><html><head><title>Big page</title></head><body><article><p>${prose(20)}</p>${' '.repeat(3.5 * 1024 * 1024)}<p>PAST_THE_PAGE_LIMIT</p></article></body></html>`,
+                { status: 200, headers: { 'content-type': 'application/octet-stream' } }));
+        }
     }
     if (url.hostname === 'files.example') {
         if (url.pathname === '/guide.pdf') return Promise.resolve(new Response(LEASH_PDF, { status: 200, headers: { 'content-type': 'application/pdf' } }));
@@ -409,6 +417,8 @@ r = await read('https://files.example/huge.pdf');
 ok('a file over the 25 MB limit is refused before its body is read', r.ok === false && r.reason === 'too_large', r);
 r = await read('https://files.example/endless.pdf');
 ok('a body that never ends is cut at the limit', r.ok === false && r.reason === 'too_large', r);
+r = await read('https://money.example/mislabelled');
+ok('a page served under another type is read as a page, and no further than 3 MB of it', r.ok === true && r.kind === 'page' && r.text.includes(SENTENCES[0]) && !r.text.includes('PAST_THE_PAGE_LIMIT'), r.reason || r.text?.slice(-80));
 
 // ---- 5. YouTube ------------------------------------------------------------------------
 section('5. a YouTube video is read from its captions, every edge case named');
@@ -449,6 +459,18 @@ ok('every YouTube request goes to youtube.com, with no cookie', seen.length > 10
 r = await yt('vidThrottle');
 const refused = await yt('vidRefused1');
 ok('a player that answers 429 or 403 is the token wall too, not "no connection"', r.ok === false && r.reason === 'token_wall' && r.fix === 'transcript' && refused.reason === 'token_wall', [r.reason, refused.reason]);
+r = await yt('vidHugeAns1');
+ok('a player answer past its size limit is not "no connection, try again" either', r.ok === false && r.reason === 'token_wall' && r.fix === 'transcript', r.reason);
+seen.length = 0;
+await yt('vidManual01');
+{
+    const capt = seen.find(s => s.url.includes('/api/timedtext'));
+    const allow = capt?.allowRedirect;
+    ok('a caption fetch may be redirected only within youtube.com, over https',
+        typeof allow === 'function' && allow(new URL('https://www.youtube.com/api/timedtext?v=x')) === true
+        && allow(new URL('https://evil.example/api/timedtext')) === false && allow(new URL('http://www.youtube.com/api/timedtext')) === false,
+        typeof allow);
+}
 
 // ---- 6. size --------------------------------------------------------------------------
 section('6. the size of a source decides the course');
@@ -457,6 +479,17 @@ let mono = true;
 for (let w = 250, prev = 0; w < 50000; w += 250) { const n = short.topicCountFor(w); if (n < prev || n < 3 || n > 8) mono = false; prev = n; }
 ok('the count never falls as a source grows, and stays in 3–8', mono);
 ok('too little is a note, a book is too much, between is a short course', short.sizeOf(120) === 'too-small' && short.sizeOf(2000) === 'ok' && short.sizeOf(60000) === 'too-big');
+{
+    // Hundreds of parts share the source's budget; they do not each claim a
+    // floor that adds up to twice it.
+    const { buildSourceMap } = await import('../server/sourceMap.js');
+    const material = await import('../server/sourceMaterial.js');
+    const many = Array.from({ length: 450 }, (_, i) => `# Part ${i + 1}\n\n${prose(3, i)}`).join('\n\n');
+    const map = buildSourceMap({ text: many, kind: 'text', filename: 'many.md' });
+    const block = material.shortBlock(material.creationSources([{ id: 'many', title: 'Many parts', file_type: 'text', content: many, map }])).user;
+    ok('a source of 400 parts stays inside the short course\'s budget', map.sections.length >= 400 && block.length <= material.SOURCE_BUDGET.short + 400,
+        [map.sections.length, block.length, material.SOURCE_BUDGET.short]);
+}
 
 // ---- 7. the real routes -----------------------------------------------------------------
 section('7. read, create, list, feed: through the real routes');
@@ -580,16 +613,34 @@ list = await api('GET', '/api/short-courses');
 ok('and comes back when it is one level again', list.json.courses.some(x => x.id === pid));
 
 // A busy library: one dated course with many overdue topics.
-// Its dates are counted from the learner's today, so the case holds on any day.
+// Its dates and the feed's today come from one pinned instant, never the clock.
 const { studyToday } = await import('../server/studyDay.js');
-const dayFrom = (n) => new Date(Date.parse(`${studyToday()}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+const NOW = Date.parse('2026-06-15T12:00:00Z');
+const dayFrom = (n) => new Date(Date.parse(`${studyToday({ now: NOW })}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 const busy = (await api('POST', '/api/projects', { name: 'Busy course' })).json;
 db.prepare('UPDATE projects SET start_date = ?, deadline = ? WHERE id = ?').run(dayFrom(-60), dayFrom(300), busy.id);
 for (let i = 0; i < 12; i++) db.prepare('INSERT INTO nodes (project_id, title, position, scheduled_start, scheduled_end) VALUES (?, ?, ?, ?, ?)').run(busy.id, `Overdue ${i}`, i, dayFrom(-60), dayFrom(-59));
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', pid2);
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', normal.id);
-const focus = getFocusNodes({ maxTotal: 6, maxPerProject: 6 }).focus;
+const focus = getFocusNodes({ maxTotal: 6, maxPerProject: 6, now: NOW }).focus;
 ok('on a busy day the short course still gets its standing slot', focus.some(f => f.projectId === pid) && focus.some(f => f.projectId === busy.id), focus.map(f => f.projectName));
+{
+    // A short course still being written (or one whose writing failed) has no
+    // topic to serve, so it holds no slot either.
+    // Only this one short course stays active, so the reservation is not
+    // already at its cap and one more standing course would show.
+    const setStatus = db.prepare('UPDATE projects SET status = ? WHERE id = ?');
+    const others = db.prepare("SELECT id FROM projects WHERE made_from IS NOT NULL AND COALESCE(status, 'active') = 'active' AND id != ?").all(pid).map(r => r.id);
+    for (const id of others) setStatus.run('archived', id);
+    const busyBefore = getFocusNodes({ maxTotal: 6, maxPerProject: 6, now: NOW }).focus.filter(f => f.projectId === busy.id).length;
+    const empty = (await api('POST', '/api/projects', { name: 'Still being written' })).json;
+    db.prepare('UPDATE projects SET made_from = ? WHERE id = ?').run(JSON.stringify({ kind: 'page', url: 'https://money.example/empty' }), empty.id);
+    const withEmpty = getFocusNodes({ maxTotal: 6, maxPerProject: 6, now: NOW }).focus;
+    ok('a short course with no topic yet takes no slot from scheduled work', busyBefore === 5 && withEmpty.filter(f => f.projectId === busy.id).length === busyBefore && !withEmpty.some(f => f.projectId === empty.id),
+        [busyBefore, withEmpty.map(f => f.projectName)]);
+    setStatus.run('archived', empty.id);
+    for (const id of others) setStatus.run('active', id);
+}
 
 // ---- 8. never from a title ----------------------------------------------------------------
 section('8. unreadable never builds from a title unasked; "write it from the title" names no video');
@@ -649,12 +700,22 @@ const fileCourse = c.json.projectId;
 let n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { attachmentId: att, name: 'Teaching a puppy to walk on a loose leash', topics: proposed, once: true });
 ok('a second press on the same card finds the course it made', c.status === 200 && c.json?.existed === true && c.json.projectId === fileCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c);
+ok('its course remembers which file of the chat it was', JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?').get(fileCourse).made_from).attachment === Number(att));
+// Another conversation, another file that happens to share the name.
+const conv2 = db.prepare("INSERT INTO chat_conversations (title, created_at, updated_at) VALUES ('Puppy again', ?, ?)").run(new Date().toISOString(), new Date().toISOString()).lastInsertRowid;
+const att2 = db.prepare(`INSERT INTO chat_attachments (conversation_id, message_id, name, kind, file_type, mime, file_hash, file_size, page_count, content, created_at)
+    VALUES (?, NULL, 'loose-leash.pdf', 'document', 'pdf', 'application/pdf', ?, ?, 4, '', ?)`).run(conv2, hash, size, new Date().toISOString()).lastInsertRowid;
+c = await api('POST', '/api/short-courses', { attachmentId: att2, name: 'Teaching a puppy to walk on a loose leash', topics: proposed, once: true });
+ok('another chat\'s file of the same name is another source: a new course', c.status === 200 && !c.json?.existed && c.json.projectId !== fileCourse && await waitBuilt(c.json.projectId), c.json);
+n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
 ok('a link the assistant prepared is read and built in one press', c.status === 200 && !c.json.existed && await waitBuilt(c.json.projectId), c);
 const linkCourse = c.json.projectId;
 n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'money.example/index-funds', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
 ok('pressed again, the same link (as typed or in full) is the same course', c.json?.existed === true && c.json.projectId === linkCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c);
+c = await api('POST', '/api/short-courses', { url: 'https://www.money.example/index-funds/', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
+ok('…and with www. or a trailing slash, as the card judges it too', c.json?.existed === true && c.json.projectId === linkCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c.json);
 c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, again', topics: ['A', 'B', 'C'], once: true, icon: 'Test Tube', color: 'not a colour' });
 ok('another card with another name is another course', c.status === 200 && !c.json.existed && c.json.projectId !== linkCourse && await waitBuilt(c.json.projectId), c);
 // The icon is a name ProjectIcon draws; an unknown one was painted as its
@@ -679,6 +740,13 @@ ok('a book is too big, and says whether a model is there to write it', bookRead.
 ok('its chapters are offered, each with its words', bookRead.chapters?.length === 3 && bookRead.chapters.every(ch => ch.words > 10000 && /Chapter/.test(ch.title)), bookRead.chapters);
 ok('and the file as the New course dialog takes it, for a full course', bookRead.staged?.id === bookRead.stagedId && bookRead.staged.ok === true, bookRead.staged);
 ok('picking no chapter is refused', (await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, parts: [] })).status === 400);
+{
+    // The assistant's card goes straight to Create: a whole book is still not one short course.
+    const before = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+    const whole = await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, name: 'The whole book' });
+    ok('a whole book with no chapter picked is refused, whichever door it came by, and makes nothing',
+        whole.status === 413 && whole.json?.reason === 'too_big' && db.prepare('SELECT COUNT(*) c FROM projects').get().c === before, [whole.status, whole.json]);
+}
 bodies.length = 0;
 c = await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, parts: [bookRead.chapters[1].part] });
 ok('one chapter picked becomes a short course', c.status === 200 && await waitBuilt(c.json.projectId), c);
@@ -718,6 +786,24 @@ ok('…from the chapter picked, not the whole book', retryPrompt.includes('CHAPT
     ['ONE', 'TWO', 'THREE'].filter(w => retryPrompt.includes(`CHAPTER_${w}_MARK`)));
 ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT title FROM nodes WHERE project_id = ? AND is_note = 0 ORDER BY position, id').all(failedId).map(n => n.title)) === JSON.stringify(shownTopics),
     db.prepare('SELECT title FROM nodes WHERE project_id = ? AND is_note = 0 ORDER BY position, id').all(failedId).map(n => n.title));
+{
+    // Its chapters no longer found in its source: Retry refuses, rather than
+    // writing the whole book under the chapter's name.
+    const lostForm = new FormData();
+    lostForm.append('file', new Blob([book], { type: 'text/markdown' }), 'money-book.md');
+    const lostRead = await (await fetch(`${base}/api/short-courses/read-file`, { method: 'POST', body: lostForm })).json();
+    shortAnswer = 'fail';
+    const lost = await api('POST', '/api/short-courses', { stagedId: lostRead.stagedId, parts: [lostRead.chapters?.[1]?.part], name: 'Chapter two, lost' });
+    const lostId = lost.json?.projectId;
+    await waitBuilt(lostId);
+    shortAnswer = 'four';
+    const from = JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?').get(lostId).made_from);
+    db.prepare('UPDATE projects SET made_from = ? WHERE id = ?').run(JSON.stringify({ ...from, parts: [[book.length + 10, book.length + 20]] }), lostId);
+    bodies.length = 0;
+    const again = await api('POST', `/api/short-courses/${lostId}/retry`);
+    ok('Retry whose chapters are not found again refuses, and asks no model', again.status === 409 && bodies.length === 0
+        && db.prepare('SELECT ai_generating FROM projects WHERE id = ?').get(lostId).ai_generating === 0, [again.status, bodies.length]);
+}
 setSetting.run('ai_enabled', 'false');
 const offRead = await api('POST', '/api/short-courses/read', { url: 'https://money.example/index-funds' });
 ok('with AI off a link is still read, and says no model can write it', offRead.json?.ok === true && offRead.json.ai === false, offRead.json);
@@ -730,7 +816,19 @@ section('10. the assistant\'s ```short block');
 const esbuild = require('esbuild');
 const outWrites = join(scratch, 'assistantWrites.mjs');
 await esbuild.build({ entryPoints: [join(ROOT, 'src/utils/assistantWrites.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outWrites, logLevel: 'silent' });
-const { splitWriteBlocks, shortCourseMade, shownAddress } = await import(pathToFileURL(outWrites).href);
+const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace, liveOutcome } = await import(pathToFileURL(outWrites).href);
+// The card's "Already one of your short courses" and the server's `once` are one rule.
+{
+    const addresses = ['https://money.example/index-funds', 'https://www.money.example/index-funds/', 'http://M.Money.Example/a/b//?z=1&a=2',
+        'https://money.example/?id=7', 'https://youtu.be/AAAAAAAAAAA?si=x', 'https://m.youtube.com/watch?v=AAAAAAAAAAA&t=40s',
+        'https://www.youtube.com/shorts/BBBBBBBBBBB', 'https://www.youtube.com/watch?v=short', 'file 7', 'javascript:alert(1)', ''];
+    const differ = typeof short.sourcePlace === 'function' ? addresses.filter(u => cardPlace(u) !== short.sourcePlace(u)) : addresses;
+    ok('the card and the server tell two links apart the same way', typeof short.sourcePlace === 'function' && differ.length === 0, differ);
+}
+ok('a card pressed here says Created until its course is deleted, then offers Create again', typeof liveOutcome === 'function' && (() => {
+    const o = { state: 'saved', projectId: 5 };
+    return liveOutcome(o, []) === o && liveOutcome(o, [{ id: 5 }]) === o && liveOutcome(o, [{ id: 6 }]) === undefined;
+})());
 // A card read again (a reload) finds the course it made, by the server's own
 // `once` rule, so it says so instead of offering Create a second time.
 {
@@ -738,11 +836,12 @@ const { splitWriteBlocks, shortCourseMade, shownAddress } = await import(pathToF
     const found = (name, from, file) => shortCourseMade(rows, { name, from }, file)?.id;
     ok('a card read again finds the course its link made', found('Index funds', 'https://money.example/index-funds') === linkCourse, found('Index funds', 'https://money.example/index-funds'));
     ok('...written with www. or a trailing slash too', found('Index funds', 'https://www.money.example/index-funds/') === linkCourse);
-    ok('...and the course its file made', found('Teaching a puppy to walk on a loose leash', 'file 7', 'loose-leash.pdf') === fileCourse);
+    ok('...and the course its file made', found('Teaching a puppy to walk on a loose leash', 'file 7', { id: Number(att), name: 'loose-leash.pdf' }) === fileCourse);
     ok('another name, another page or another file is not that course',
         found('Index funds, part two', 'https://money.example/index-funds') === undefined
         && found('Index funds', 'https://money.example/bonds') === undefined
-        && found('Teaching a puppy to walk on a loose leash', 'file 7', 'other.pdf') === undefined);
+        && found('Teaching a puppy to walk on a loose leash', 'file 7', { id: Number(att), name: 'other.pdf' }) === undefined);
+    ok('another chat\'s file of the same name is not that course', found('Teaching a puppy to walk on a loose leash', 'file 9', { id: 987654, name: 'loose-leash.pdf' }) === undefined);
     // Every YouTube video is /watch: the video is in the query.
     const videoRows = [{ id: 9001, name: 'A talk', made_from: JSON.stringify({ kind: 'video', url: 'https://www.youtube.com/watch?v=AAAAAAAAAAA' }) }];
     const madeVideo = (from) => shortCourseMade(videoRows, { name: 'A talk', from })?.id;
@@ -761,6 +860,9 @@ ok('the card\'s address is all of it: site, path and query, no scheme',
     const cardSource = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8').replace(/\r\n/g, '\n');
     ok('…and the card prints it whole, wrapped, never cut to the site', /shownAddress\(s\.from\)/.test(cardSource)
         && /name: address \|\| s\.from/.test(cardSource) && /att \? 'truncate' : 'break-all'/.test(cardSource) && !/new URL\(s\.from\)\.hostname/.test(cardSource));
+    ok('…and reads its own outcome through liveOutcome, its file by id and name, a whole book by its reason',
+        /liveOutcome\(outcomes\.get\(key\), projects\)/.test(cardSource) && /shortCourseMade\(projects, s, att \? \{ id: att\.id, name: att\.name \} : null\)/.test(cardSource)
+        && /reason === 'too_big'/.test(cardSource));
 }
 const w = splitWriteBlocks('Yes.\n\n```short\nname: Leash walking\nfrom: file 12\nicon: heart\ntopics:\n- Why puppies pull\n- Reward the spot\n- Stop and go\n```\n');
 ok('a block gives its name, source and topics, and leaves the prose', w.shorts.length === 1 && w.shorts[0].name === 'Leash walking' && w.shorts[0].from === 'file 12' && w.shorts[0].topics.length === 3 && w.body.trim() === 'Yes.', w);
@@ -790,6 +892,10 @@ ok('a video with no captions offers a course from its title, said to be without 
     stripSource.includes('{t("Write it from the title")}') && !stripSource.includes('"Write it from the topic"')
     && /no_captions: k\("[^"]*from its title alone, without the video\."\)/.test(readFileSync(join(ROOT, 'src/components/shortCourses/readReasons.ts'), 'utf8')));
 ok('a row counts its topics as topics, the word the read used', stripSource.includes('t("{{done}} / {{total}} topics done"') && !stripSource.includes('/ {{total}} items"'));
+ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(stripSource));
+ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(stripSource) && !/<textarea\b/.test(stripSource));
+ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
+    /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
 
 await new Promise(res => server.close(res));
 await new Promise(res => stub.close(res));
