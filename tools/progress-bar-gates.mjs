@@ -41,29 +41,61 @@ const ok = (name, cond, detail) => { checked++; if (!cond) findings.push({ name,
 // ---------------------------------------------------------------------------
 
 const THIN = /\bh-(?:0\.5|1|1\.5|2|2\.5|3|4)\b/;
-const GREY = /\bbg-(?:slate|gray|zinc|neutral|stone|white)(?:-\d+)?(?:\/\d+)?\b/;
+// A grey track, or one tinted with the accent (`bg-accent/10`), which is as faint.
+const TRACK_BG = /\bbg-(?:slate|gray|zinc|neutral|stone|white|accent)(?:-\d+)?(?:\/\d+)?(?![\w-])/;
 const isHandTrack = (cls) => THIN.test(cls) && /(?:^|[\s"'`])rounded(?:-full|-sm)?(?=[\s"'`,)]|$)/.test(cls)
-    && GREY.test(cls) && /\boverflow-hidden\b/.test(cls);
-const isHandFill = (cls, style) => /\bh-full\b/.test(cls) && /width:\s*`[^`]*%`/.test(style);
+    && TRACK_BG.test(cls) && /\boverflow-hidden\b/.test(cls);
+// A percentage width in any spelling: `${p}%`, p + '%', '40%'.
+const PCT_WIDTH = /width:\s*(?:`[^`]*%`|[^,}\n]*['"]%['"]|['"][\d.]+%['"])/;
+const isHandFill = (cls, tag) => /\bh-full\b/.test(cls) && PCT_WIDTH.test(tag);
+
+/** Where the JSX expression or string starting at `i` ends: braces are
+ *  counted and quoted text skipped, so `=>` or `}` inside it do not end it. */
+function exprEnd(text, i) {
+    let depth = 0;
+    for (let j = i; j < text.length; j++) {
+        const c = text[j];
+        if (c === '"' || c === "'" || c === '`') {
+            if (depth === 0 && j !== i) return j;
+            const close = text.indexOf(c, j + 1);
+            if (close < 0) return text.length;
+            if (depth === 0) return close + 1;
+            j = close;
+        } else if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) return j + 1; }
+    }
+    return text.length;
+}
+
+/** Where the tag holding `at` ends: the first `>` outside an attribute value. */
+function tagEnd(text, at) {
+    for (let j = at; j < text.length; j++) {
+        const c = text[j];
+        if (c === '>') return j + 1;
+        if (c === '{' || c === '"' || c === "'") j = exprEnd(text, j) - 1;
+    }
+    return text.length;
+}
 
 /** Finds hand-made tracks and fills in one file's text; returns [{line, what}].
- *  A class list is read from `className=` to the end of its tag, so a list
- *  split over lines or built with `cx(...)` is read whole. */
+ *  Every `className=` is read: its value whole (a list split over lines or
+ *  built with `cx(...)` included), and the whole tag around it, from its `<`,
+ *  for a `style` written before or after it. */
 function scan(text) {
-    const lines = text.split('\n');
     const out = [];
-    for (let i = 0; i < lines.length; i++) {
-        const at = lines[i].indexOf('className=');
-        if (at < 0) continue;
-        const rest = [lines[i].slice(at), ...lines.slice(i + 1, i + 6)].join(' ');
-        // A plain string ends at its quote; an expression at the tag's end.
-        const cls = rest.startsWith('className="')
-            ? rest.slice(11, rest.indexOf('"', 11))
-            : rest.split(/\}\s*\/?>/)[0];
-        const style = lines.slice(i, i + 4).join(' ');
-        const inTrack = lines.slice(Math.max(0, i - 12), i + 1).some((l) => /<ProgressTrack\b/.test(l));
-        if (isHandTrack(cls)) out.push({ line: i + 1, what: 'track' });
-        else if (isHandFill(cls, style) && !inTrack) out.push({ line: i + 1, what: 'fill' });
+    const lines = text.split('\n');
+    let line = 1, counted = 0;
+    for (const m of text.matchAll(/className=/g)) {
+        const at = m.index;
+        for (; counted < at; counted++) if (text[counted] === '\n') line++;
+        const valueAt = at + 'className='.length;
+        const cls = text.slice(valueAt, exprEnd(text, valueAt));
+        const open = text.lastIndexOf('<', at);
+        const tag = text.slice(open < 0 ? 0 : open, tagEnd(text, valueAt));
+        const before = lines.slice(Math.max(0, line - 13), line).join('\n');
+        const inTrack = /<ProgressTrack\b/.test(before);
+        if (isHandTrack(cls)) out.push({ line, what: 'track' });
+        else if (isHandFill(cls, tag) && !inTrack) out.push({ line, what: 'fill' });
     }
     return out;
 }
@@ -81,6 +113,17 @@ ok('fixture: a fill inside ProgressTrack is let through',
     scan('<ProgressTrack size="lg">\n<div className={`h-full ${c}`} style={{ width: `${w}%` }} />').length === 0);
 ok('fixture: a dot is not a track',
     scan('<span className="w-2 h-2 rounded-full bg-slate-300" />').length === 0);
+ok('fixture: a fill whose width is not a template string is caught',
+    scan('<div className="h-full bg-accent" style={{ width: p + \'%\' }} />').length === 1);
+ok('fixture: a fill with its style written before its class, over lines, is caught',
+    scan('<div\n  style={{ width: `${p}%` }}\n  title="x"\n  data-a="1"\n  data-b="2"\n  className="h-full bg-accent"\n/>').length === 1);
+ok('fixture: a second tag on one line is read too',
+    scan('<span className="text-xs">a</span><div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
+ok('fixture: an accent-tinted track is caught',
+    scan('<div className="h-2 rounded-full bg-accent/10 overflow-hidden">').length === 1);
+// Pins the tag reader above: one that cut at the first `>` would stop at `=>`.
+ok('fixture: an arrow function in the tag does not end it early',
+    scan('<div className={cx("h-full", on && "bg-accent")} onClick={() => go(1)} style={{ width: `${p}%` }} />').length === 1);
 
 const files = globSync('src/**/*.tsx', { cwd: ROOT }).map((f) => f.split(path.sep).join('/')).filter((f) => f !== COMPONENT);
 for (const file of files) {
@@ -158,6 +201,12 @@ if (!existsSync(path.join(ROOT, COMPONENT))) {
     const parsed = ok('ProgressBar exports PROGRESS_TRACK_WASH and PROGRESS_TRACK_RING as literal strings', typeof PROGRESS_TRACK === 'string')
         & ok('PROGRESS_FILL parses to exactly the six tones', JSON.stringify(Object.keys(PROGRESS_FILL).sort()) === JSON.stringify([...TONES].sort()),
             Object.keys(PROGRESS_FILL).join(', ') || 'nothing parsed');
+    // The shape half skips this file, so the file itself must draw the track
+    // and the fill from the constants measured below.
+    ok('ProgressTrack draws PROGRESS_TRACK',
+        /export function ProgressTrack[\s\S]*?className=\{cx\([^\n]*\bPROGRESS_TRACK\b/.test(src));
+    ok('ProgressBar fills with PROGRESS_FILL[tone]',
+        /export default function ProgressBar[\s\S]*?className=\{cx\([^\n]*\bPROGRESS_FILL\[tone\]/.test(src));
     if (parsed) await measure();
 
     async function measure() {
