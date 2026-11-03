@@ -1,5 +1,7 @@
 // The Projects page's short courses: one box to paste a link or drop a file
-// into, and the short courses made from such sources, one compact row each.
+// into, and the short courses being studied, three small cards to a row
+// (projects/CompactCard.tsx). A finished or archived one is on the page's
+// Finished or Archived view instead, with the full courses.
 //
 // A source is READ first (POST /api/short-courses/read): the box then shows
 // what it is and how big, and only Create writes a course. A source that cannot
@@ -22,13 +24,12 @@ import { useStore } from '../../store';
 import type { Project, StagedDocument } from '../../types';
 import { Button, IconButton } from '../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
-import { cx, FIELD_BASE, FOCUS_RING } from '../ui/vocabulary';
+import { cx, FIELD_BASE } from '../ui/vocabulary';
 import Checkbox from '../Checkbox';
-import { ProjectIcon } from '../ProjectIcon';
 import ProgressRing from '../ProgressRing';
 import ConnectAIActions from '../ConnectAIActions';
 import { MAX_FILE_BYTES } from '../creation/SourceFiles';
-import { useAccentVars } from '../../hooks/useAccentVars';
+import { CompactCard, COMPACT_GRID } from '../projects/CompactCard';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { freeColour } from '../../utils/freeColour';
@@ -469,11 +470,10 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     );
 }
 
-function Row({ row, project, narrow, onChanged }: {
+function ShortCard({ row, project, onChanged }: {
     row: ShortCourseRow;
     /** The same course in the store: the one progress number every surface shows. */
     project: Project | undefined;
-    narrow: boolean;
     onChanged: () => void;
 }) {
     const { t } = useTranslation();
@@ -484,7 +484,6 @@ function Row({ row, project, narrow, onChanged }: {
     const deleteProject = useStore(s => s.deleteProject);
     const showConfirm = useStore(s => s.showConfirm);
     const addToast = useStore(s => s.addToast);
-    const accent = useAccentVars(row.color);
     const [menuOpen, setMenuOpen] = useState(false);
     const [retrying, setRetrying] = useState(false);
     const menuRef = useRef<HTMLButtonElement>(null);
@@ -509,9 +508,9 @@ function Row({ row, project, narrow, onChanged }: {
         }
     };
 
-    const archive = async () => {
+    const setStatus = async (status: 'completed' | 'archived') => {
         setMenuOpen(false);
-        if (await updateProject(row.id, { status: 'archived' })) onChanged();
+        if (await updateProject(row.id, { status })) onChanged();
     };
 
     const remove = async () => {
@@ -527,32 +526,8 @@ function Row({ row, project, narrow, onChanged }: {
         onChanged();
     };
 
-    const status = building ? (
-        <span className="inline-flex items-center gap-1.5 text-sm text-accent-fg shrink-0 whitespace-nowrap">
-            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> {t("Writing the topics…")}
-        </span>
-    ) : failed ? (
-        <Button variant="neutral" busy={retrying} className="shrink-0" icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />} onClick={e => { e.stopPropagation(); void retry(); }}>
-            {t("Try again")}
-        </Button>
-    ) : row.state === 'finished' ? (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-3xs font-medium rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 shrink-0">
-            <CheckCircle2 className="w-3 h-3" aria-hidden="true" /> {t("Completed")}
-        </span>
-    ) : (
-        <Button variant="primary" className="shrink-0" icon={<Play className="w-4 h-4" aria-hidden="true" />} title={t("Study {{name}}", { name: row.name })} onClick={e => { e.stopPropagation(); studyProject(row.id); }}>
-            {t("Study")}
-        </Button>
-    );
-
-    // No ring while there is nothing to measure (being written, or not written);
-    // its slot is kept so the status lines up with the Study buttons below.
-    const ring = building || failed
-        ? (narrow ? null : <span className="w-10 shrink-0" aria-hidden="true" />)
-        : <ProgressRing progress={progress} color={progress === 100 ? '#22C55E' : row.color} size={40} />;
-
     const menu = (
-        <div className="shrink-0" onClick={e => e.stopPropagation()}>
+        <>
             <IconButton
                 ref={menuRef}
                 label={t("Course options")}
@@ -569,85 +544,82 @@ function Row({ row, project, narrow, onChanged }: {
                         {t("Open the source")}
                     </MenuItem>
                 )}
-                <MenuItem icon={<Archive className="w-4 h-4" />} onSelect={() => void archive()}>{t("Archive")}</MenuItem>
+                {!building && !failed && (
+                    <MenuItem icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />} onSelect={() => void setStatus('completed')}>{t("Mark completed")}</MenuItem>
+                )}
+                <MenuItem icon={<Archive className="w-4 h-4" />} onSelect={() => void setStatus('archived')}>{t("Archive")}</MenuItem>
                 <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
                 <MenuItem tone="danger" icon={<Trash2 className="w-4 h-4" />} onSelect={() => void remove()}>{t("Delete")}</MenuItem>
             </MenuPopover>
-        </div>
+        </>
     );
 
-    const meta = (
-        <p className={cx('text-sm flex items-center gap-1.5 min-w-0', failed ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400')}>
-            {failed ? (
-                <>
-                    <CircleAlert className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                    <span className="truncate">{t("Its topics could not be written.")}</span>
-                </>
-            ) : (
-                <>
-                    {row.from && <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-                    {row.from && <span className="truncate">{row.from}</span>}
-                    {row.from && !building && <span aria-hidden="true">·</span>}
-                    {!building && <span className="shrink-0">{t("{{done}} / {{total}} topics done", { done: num(done), total: num(total) })}</span>}
-                </>
-            )}
-        </p>
+    const meta = failed ? (
+        <>
+            <CircleAlert className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{t("Its topics could not be written.")}</span>
+        </>
+    ) : row.from ? (
+        <>
+            <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{row.from}</span>
+        </>
+    ) : (
+        <>
+            <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <span className="truncate">{t("Written from its title")}</span>
+        </>
+    );
+
+    // Being written: the line that says so stands where the ring and the
+    // count will be, so nothing moves when they arrive.
+    const reading = building ? (
+        <span className="inline-flex items-center gap-2 text-sm text-accent-fg">
+            <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> {t("Writing the topics…")}
+        </span>
+    ) : failed ? null : (
+        <>
+            <ProgressRing progress={progress} color={progress === 100 ? '#22C55E' : row.color} size={40} />
+            <span className="text-sm text-slate-500 dark:text-slate-400 min-w-0 truncate">
+                {t("{{done}} / {{total}} topics", { done: num(done), total: num(total) })}
+            </span>
+        </>
+    );
+
+    const action = building ? undefined : failed ? (
+        <Button variant="neutral" busy={retrying} icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />} onClick={() => void retry()}>
+            {t("Try again")}
+        </Button>
+    ) : (
+        <Button variant="primary" icon={<Play className="w-4 h-4" aria-hidden="true" />} title={t("Study {{name}}", { name: row.name })} onClick={() => studyProject(row.id)}>
+            {t("Study")}
+        </Button>
     );
 
     return (
-        // The whole row opens the course for the pointer; the keyboard and a
-        // screen reader reach that through the title, as on a project's card.
-        <div
-            data-short="row"
-            style={accent}
-            onClick={() => void openProject(row.id)}
-            className={cx(
-                'rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-[border-color]',
-                narrow ? 'grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center' : 'flex items-center gap-3',
-            )}
-        >
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-accent text-white">
-                <ProjectIcon icon={row.icon} className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 flex-1">
-                <button
-                    type="button"
-                    onClick={e => { e.stopPropagation(); void openProject(row.id); }}
-                    aria-label={t("Open {{name}}", { name: row.name })}
-                    title={row.name}
-                    data-row="title"
-                    className={cx('-mx-1 px-1 block max-w-full text-left rounded font-medium text-slate-900 dark:text-white', narrow ? 'line-clamp-2' : 'truncate', FOCUS_RING)}
-                >
-                    {row.name}
-                </button>
-                {meta}
-            </div>
-            {/* On a phone the actions take their own line, so the title and
-                its source get the whole width beside the tile; the menu
-                closes that line. */}
-            {narrow ? (
-                <div className="col-start-2 flex items-center gap-3">
-                    {status}
-                    {ring}
-                    <div className="ml-auto">{menu}</div>
-                </div>
-            ) : (
-                <>
-                    {status}
-                    {ring}
-                    {menu}
-                </>
-            )}
-        </div>
+        <CompactCard
+            data="short"
+            color={row.color}
+            icon={row.icon}
+            name={row.name}
+            meta={meta}
+            metaTone={failed ? 'warn' : 'plain'}
+            reading={reading}
+            action={action}
+            menu={menu}
+            onOpen={() => void openProject(row.id)}
+        />
     );
 }
 
-export default function ShortCourses({ rows, projects, onChanged, onFullCourse }: {
-    /** null until the list has loaded. */
+export default function ShortCourses({ rows, projects, onChanged, onFullCourse, showBox = true }: {
+    /** The short courses to show (the page has already left out the finished,
+     *  the archived and what a search does not match); null until loaded. */
     rows: ShortCourseRow[] | null;
     projects: Project[];
     onChanged: () => void;
     onFullCourse: (doc: StagedDocument, title: string) => void;
+    showBox?: boolean;
 }) {
     const { t } = useTranslation();
     const ref = useRef<HTMLElement>(null);
@@ -656,13 +628,14 @@ export default function ShortCourses({ rows, projects, onChanged, onFullCourse }
     const list = rows ?? [];
     const byId = new Map(projects.map(p => [p.id, p]));
 
+    if (!showBox && !list.length) return null;
     return (
         <section ref={ref} aria-label={t("Short courses")} className="mb-10">
             <SectionLabel>{list.length ? `${t("Short courses")} · ${list.length}` : t("Short courses")}</SectionLabel>
-            <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />
+            {showBox && <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />}
             {list.length > 0 && (
-                <div className="mt-3 space-y-2">
-                    {list.map(row => <Row key={row.id} row={row} project={byId.get(row.id)} narrow={narrow} onChanged={onChanged} />)}
+                <div className={cx(COMPACT_GRID, showBox && 'mt-4')}>
+                    {list.map(row => <ShortCard key={row.id} row={row} project={byId.get(row.id)} onChanged={onChanged} />)}
                 </div>
             )}
         </section>

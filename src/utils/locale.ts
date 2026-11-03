@@ -98,3 +98,13 @@ export function weekdayName(iso: number): string {
     return new Intl.DateTimeFormat(uiLocale(), { weekday: 'long', timeZone: 'UTC' })
         .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
 }
+
+/**
+ * A day as a record names it: "12 Oct" this year, "12 Oct 2025" before it,
+ * in the interface language. For "Finished 12 Oct" on a finished course.
+ */
+export function dayLabel(iso: string, now: Date = new Date()): string {
+    const d = new Date(iso);
+    const sameYear = d.getFullYear() === now.getFullYear();
+    return new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).format(d);
+}
