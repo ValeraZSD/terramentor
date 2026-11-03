@@ -189,6 +189,8 @@ function finishStaging(stagedId, origin) {
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
             staged: stagedSummary(loadStagedRow(stagedId)),
+            // The chapters picked must come to this many words, as any source must.
+            minWords: SHORT.minWords,
         } : {}),
     };
 }
@@ -373,6 +375,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
 
     let staged = null;
     let readHere = false;
+    let fromAttachment = null;
     let topicTitle = '';
     if (fromTopic && typeof fromTopic === 'object') {
         topicTitle = cleanLine(fromTopic.title, 300);
@@ -389,6 +392,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         if (!read.ok) throw new ShortCourseError(422, 'That file has no text to build a course from.', { reason: read.reason, fix: read.fix });
         staged = loadStaged([read.stagedId])[0];
         readHere = true;
+        fromAttachment = Number(attachmentId);
     } else if (typeof url === 'string' && url.trim()) {
         if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
         const read = await readSource({ url }, { acceptLanguage, signal });
@@ -411,7 +415,12 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     });
     // A few chapters of a book: only those reach the model and are cited.
     const picked = staged && body?.parts != null ? pickParts(staged.content, staged.map, body.parts) : null;
-    if (staged && body?.parts != null && !picked) throw new ShortCourseError(400, 'Pick at least one chapter.');
+    // A source this request read itself is not left staged by a refusal.
+    const refuse = (status, message, extra) => {
+        if (readHere) discardStaged(staged.id);
+        throw new ShortCourseError(status, message, extra);
+    };
+    if (staged && body?.parts != null && !picked) refuse(400, 'Pick at least one chapter.');
     // A page or a transcript is a text file in the vault; the model is told
     // what it really is.
     const asKind = sourceOrigin && ['page', 'video'].includes(sourceOrigin.kind) && staged.file_type === 'text' ? sourceOrigin.kind : staged?.file_type;
@@ -425,6 +434,20 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // same text finds again) and the topics the assistant showed.
     if (picked) madeFrom.parts = chapterRanges(staged.content, picked);
     if (proposed.length) madeFrom.topics = proposed;
+    // Which file of the chat it was: another file of the same name in another
+    // conversation is another source.
+    if (fromAttachment) madeFrom.attachment = fromAttachment;
+
+    // A book is a few of its chapters or a full course, whichever door it came
+    // in by: the strip asks before Create, the assistant's card does not.
+    if (staged && !picked && sizeOf(words) === 'too-big') {
+        refuse(413, 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+    }
+    // Chapters picked are held to the same floor as any source: a preface of a
+    // hundred words is a note, not three topics.
+    if (picked && sizeOf(words) === 'too-small') {
+        refuse(400, 'Too little for a course: pick a longer chapter, or more of them.', { reason: 'too_small' });
+    }
 
     // A second press of the same card that came in while the first was still
     // reading its source: from here to the INSERT nothing waits, so asking
@@ -475,15 +498,37 @@ function chapterRanges(text, picked) {
 /** The short course already made under `name` from this link or chat file, if one was. */
 function existingShortCourse({ name, url, attachmentId }) {
     const link = typeof url === 'string' && url.trim() ? parseLink(url) : null;
-    const file = attachmentId != null && attachmentId !== ''
-        ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(Number(attachmentId) || 0)?.name ?? null
-        : null;
-    if (!link?.ok && !file) return null;
+    const place = link?.ok ? sourcePlace(link.url) : null;
+    const attId = attachmentId != null && attachmentId !== '' ? Number(attachmentId) || 0 : null;
+    const file = attId ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(attId)?.name ?? null : null;
+    if (!place && !file) return null;
     for (const row of db.prepare('SELECT id, made_from FROM projects WHERE made_from IS NOT NULL AND name = ? ORDER BY id DESC').all(name)) {
         const from = parseJson(row.made_from) || {};
-        if (link?.ok ? from.url === link.url : (!from.url && from.file === file)) return row.id;
+        if (place ? sourcePlace(from.url) === place : (!from.url && from.attachment === attId && from.file === file)) return row.id;
     }
     return null;
+}
+
+/**
+ * Which source a link is, for "was a course made from it": a YouTube video by
+ * its id, anything else by host, path and query, `www.`/`m.` and a trailing
+ * slash aside. The client's twin is `sourcePlace` in src/utils/assistantWrites.ts
+ * (the card's "Already one of your short courses"); the two must agree, and
+ * tools/short-course-gates.mjs holds them to it.
+ */
+export function sourcePlace(u) {
+    try {
+        const x = new URL(String(u ?? '').trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const host = x.hostname.toLowerCase().replace(/^(?:www|m)\./, '');
+        const video = host === 'youtu.be' ? x.pathname.slice(1)
+            : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
+                : '';
+        if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
+        // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+    } catch { return null; }
 }
 
 /** Write a short course's topics: one model call, as a background task. */
@@ -501,8 +546,9 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
         run: async ({ emit, signal }) => {
             try {
                 emit({ phase: 'outline', message: 'Writing the topics…', percent: 10 });
+                const sources = src ? shortBlock(src) : null;
                 const prompt = AI_PROMPTS.short_course(promptTitle(title), {
-                    topics: count, proposed, fromTopic, lang, sources: src ? shortBlock(src) : null,
+                    topics: count, proposed, fromTopic, lang, sources,
                 });
                 const answered = {};
                 const text = await structureCall(prompt, { signal, label: 'Short course', answered });
@@ -513,7 +559,7 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                     return { projectId, topics: 0 };
                 }
                 const parsed = parseCreationJson(text);
-                const items = topicsFrom(parsed, { src, proposed });
+                const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
                 if (!items.length) throw new Error('The model wrote no topics for this short course.');
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
@@ -527,8 +573,9 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
 }
 
 /** The topics from the model's answer: titles clean of § marks, cut to eight,
- *  each citing parts of the source (in order, when the model cited none). */
-function topicsFrom(parsed, { src, proposed }) {
+ *  each citing parts of the source (in order, when the model cited none).
+ *  `shown`: the § ids the model was shown, when the source was cut short. */
+function topicsFrom(parsed, { src, proposed, shown }) {
     const raw = Array.isArray(parsed?.topics) ? parsed.topics : Array.isArray(parsed) ? parsed : [];
     let items = raw.map(t => ({
         title: cleanLine(withoutSourceRefs(typeof t === 'string' ? t : t?.title, src), 200),
@@ -548,8 +595,10 @@ function topicsFrom(parsed, { src, proposed }) {
     items = items.slice(0, SHORT.maxTopics);
     if (hasSources(src)) {
         // A topic that cites nothing is given the parts at its place in the
-        // reading order, so its lesson is still taught from the source.
-        const ids = src.sections.map(s => s.id);
+        // reading order, so its lesson is still taught from the source: only
+        // parts the model was shown, never ones its topics were written without.
+        const seen = Array.isArray(shown) ? new Set(shown) : null;
+        const ids = src.sections.map(s => s.id).filter(id => !seen || seen.has(id));
         items.forEach((t, i) => {
             if (t.sections.length) return;
             const a = Math.floor((i * ids.length) / items.length);
@@ -626,6 +675,11 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
             return { id: `doc:${d.id}`, title: d.title, file_type: d.file_type, content: d.content, page_count: d.page_count, map };
         });
         const kept = ranges.length && rows.length === 1 ? rows[0].map.sections.filter(inPicked) : [];
+        // Its chapters not found again (any one of them): writing the whole book,
+        // or fewer chapters than were picked, is not a retry.
+        if (ranges.length && !ranges.every(([a, b]) => kept.some(s => s.start >= a && s.start < b))) {
+            throw new ShortCourseError(409, 'Its chapters could not be found in its source again.');
+        }
         if (kept.length) {
             rows[0].map = { ...rows[0].map, sections: kept };
             words = ranges.reduce((n, [a, b]) => n + wordsOf(rows[0].content.slice(a, b)), 0);

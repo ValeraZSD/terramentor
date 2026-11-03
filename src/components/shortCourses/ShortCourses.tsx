@@ -23,8 +23,9 @@ import { api } from '../../api';
 import { useStore } from '../../store';
 import type { Project, StagedDocument } from '../../types';
 import { Button, IconButton } from '../ui/Button';
+import { TextArea } from '../ui/Field';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
-import { cx, FIELD_BASE } from '../ui/vocabulary';
+import { cx } from '../ui/vocabulary';
 import Checkbox from '../Checkbox';
 import ProgressRing from '../ProgressRing';
 import ConnectAIActions from '../ConnectAIActions';
@@ -273,13 +274,13 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                         </p>
                     </div>
                 </div>
-                <textarea
+                <TextArea
                     aria-label={t("The video's transcript")}
                     value={transcript}
                     onChange={e => setTranscript(e.target.value)}
                     rows={5}
                     autoFocus
-                    className={cx(FIELD_BASE, 'block w-full px-3 py-2 text-sm leading-6 resize-y')}
+                    className="block leading-6 resize-y"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
@@ -297,6 +298,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         const toggle = (part: number, on: boolean) =>
             setBox({ ...box, picked: on ? [...picked, part].sort((a, b) => a - b) : picked.filter(p => p !== part) });
         const words = chapters.filter(c => picked.includes(c.part)).reduce((n, c) => n + c.words, 0);
+        // A preface alone is a note: the server refuses it, so Create waits for more.
+        const tooFew = picked.length > 0 && words < (read.minWords ?? 0);
         return (
             <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -321,10 +324,12 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 </ul>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {picked.length > 0 && (
-                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">{t("{{words}} words", { count: words, words: num(words) })}</span>
+                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                            {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}
+                        </span>
                     )}
                     <Button variant="quiet" onClick={() => setBox({ state: 'read', read })}>{t("Back")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!picked.length}onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
+                    <Button variant="primary" busy={busy} disabled={!picked.length || tooFew} onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
                         {t("Create short course")}
                     </Button>
                 </div>
@@ -347,7 +352,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     enterKeyHint="go"
                     value={text}
                     onChange={e => setText(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void readLink(text); } }}
+                    // Not the Enter that confirms an input method's candidate.
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void readLink(text); } }}
                     // A pasted link is read at once: pasting IS the request.
                     // Typed text waits for Enter or Read.
                     onPaste={e => {
@@ -396,7 +402,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             tile = <Tile><KindIcon className="w-5 h-5" aria-hidden="true" /></Tile>;
             first = read.title;
             if (read.size === 'too-big') {
-                second = t("A whole book: make a full course of it, or pick a few chapters for a short one.");
+                second = t("Too long for one short course: make a full course of it, or pick a few chapters for a short one.");
                 pair = true;
                 actions = (
                     <>

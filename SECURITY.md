@@ -52,11 +52,13 @@ your data at all." Those are different claims and we only make the second one.
   the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
   own machine or network is refused before any connection, a redirect is vetted again), with a
   generic browser `User-Agent` and an `Accept-Language` naming the app's language; a page is
-  read up to 3 MB, a PDF up to 25 MB. A YouTube video is read from its captions: up to three
+  read up to 3 MB, a PDF or other file up to 25 MB (a page served under another type is
+  downloaded under that 25 MB limit, and only its first 3 MB decoded and parsed). A YouTube video is read from its captions: up to three
   requests to YouTube's player API (`www.youtube.com/youtubei/v1/player`, carrying the video's
   id, the app's language as `hl` and the fixed identity of one of YouTube's own apps, never a
   cookie or an account; each answer read up to 4 MB), each followed by at most one request for
-  the caption track it names, which is fetched only if it is on `youtube.com` and read up to
+  the caption track it names, which is fetched only if it is on `youtube.com` (and a redirect
+  only followed if it stays there) and read up to
   8 MB. The site sees your IP address, the address or video read and the language asked for,
   nothing about you or your library; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;

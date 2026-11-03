@@ -261,7 +261,8 @@ export function sourcePlace(u: string): string | null {
             : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
                 : '';
         if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
-        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join('&');
+        // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
         return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
     } catch { return null; }
 }
@@ -286,23 +287,36 @@ export function shownAddress(from: string): string | null {
  * The course a short-course card already made, so a card read again (a reload,
  * another device) says Created instead of offering Create a second time. The
  * server's own `once` rule (`existingShortCourse`): the same name and the same
- * source, a file by its name, a link by `sourcePlace`. The server stays the
- * judge: a press still sends `once`.
+ * source, a file by the chat attachment it was (its id and name), a link by
+ * `sourcePlace`, the server's twin of which it must agree with. The server
+ * stays the judge: a press still sends `once`.
  */
 export function shortCourseMade<P extends { name: string; made_from?: string | null }>(
-    projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, fileName?: string | null,
+    projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, file?: { id: number; name: string } | null,
 ): P | undefined {
     const place = sourcePlace;
-    const wanted = fileName ? null : place(proposal.from);
-    if (!fileName && !wanted) return undefined;
+    const wanted = file ? null : place(proposal.from);
+    if (!file && !wanted) return undefined;
     const name = proposal.name.trim();
     return projects.find(p => {
         if (!p.made_from || p.name.trim() !== name) return false;
-        let from: { url?: string; file?: string } | null = null;
+        let from: { url?: string; file?: string; attachment?: number } | null = null;
         try { from = JSON.parse(p.made_from); } catch { return false; }
         if (!from) return false;
-        return fileName ? !from.url && from.file === fileName : !!from.url && place(from.url) === wanted;
+        return file ? !from.url && from.attachment === file.id && from.file === file.name : !!from.url && place(from.url) === wanted;
     });
+}
+
+/**
+ * A card's remembered Create, while it still holds: once its course has been
+ * seen among the projects, the course gone from them (deleted) means the card
+ * offers Create again rather than Open on nothing. Marks `seen` on the entry.
+ */
+export function liveOutcome<O extends { projectId?: number; seen?: boolean }>(made: O | undefined, projects: { id: number }[]): O | undefined {
+    if (!made || made.projectId == null) return made;
+    const there = projects.some(p => p.id === made.projectId);
+    if (there) made.seen = true;
+    return there || !made.seen ? made : undefined;
 }
 
 /**

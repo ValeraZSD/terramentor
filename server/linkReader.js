@@ -144,6 +144,7 @@ function thrownReason(err, signal) {
     if (err?.name === 'TimeoutError' || /timed? ?out|took longer/i.test(msg)) return 'timeout';
     if (/private or loopback|numeric host|not fetchable|must not contain credentials|metadata address|no hostname|not a valid URL|refused a redirect/i.test(msg)) return 'refused';
     if (/too many redirects/i.test(msg)) return 'site_error';
+    if (/larger than \d+ bytes/i.test(msg)) return 'too_large';
     if (/could not resolve|ENOTFOUND/i.test(msg) || err?.cause?.code === 'ENOTFOUND') return 'no_such_site';
     return 'network';
 }
@@ -247,9 +248,10 @@ async function readPage(link, { lang, signal }) {
             const name = /\.pdf$/i.test(filename) ? filename : `${filename || link.host}.pdf`;
             return { ok: true, kind: 'pdf', url: link.url, host: link.host, title: titleFromFile(name), buffer, filename: name };
         }
-        // A page served under a wrong type still reads as one.
+        // A page served under a wrong type still reads as one, and no more of
+        // it than of a page that said what it was.
         if (/^\s*<(?:!doctype html|html|head|body)\b/i.test(buffer.subarray(0, 512).toString('latin1'))) {
-            return pageResult(link, buffer.toString('utf8'));
+            return pageResult(link, new TextDecoder('utf-8').decode(buffer.subarray(0, PAGE_BYTES)));
         }
         if (READABLE_FILE.test(filename) || /^text\//.test(type)) {
             const name = READABLE_FILE.test(filename) ? filename : `${filename || link.host}.txt`;
@@ -717,12 +719,14 @@ async function readVideo(link, { lang, signal }) {
         } catch (err) {
             // Too many requests or refused: YouTube is keeping this machine
             // out, the token wall by another name. "No connection, try
-            // again" would send the learner back to the same wall.
-            if (err?.status === 429 || err?.status === 403) {
+            // again" would send the learner back to the same wall. So is an
+            // answer far past any real player's size: asking again gets it again.
+            const why = thrownReason(err, signal);
+            if (err?.status === 429 || err?.status === 403 || why === 'too_large') {
                 verdicts.push('token_wall');
                 continue;
             }
-            thrown = thrownReason(err, signal);
+            thrown = why;
             if (thrown === 'cancelled' || thrown === 'refused') break;
             continue;
         }
@@ -746,11 +750,23 @@ async function readVideo(link, { lang, signal }) {
         }
         let body = '';
         try {
-            const res = await fetchImpl(captionUrl(track.baseUrl), { headers: { 'User-Agent': client.ua }, signal: deadline(signal) });
+            // A redirect stays on youtube.com too, or the check above is only of the first address.
+            const res = await fetchImpl(captionUrl(track.baseUrl), {
+                headers: { 'User-Agent': client.ua },
+                allowRedirect: (next) => next.protocol === 'https:' && CAPTION_HOST.test(next.hostname),
+                signal: deadline(signal),
+            });
             if (res.ok) body = await readCappedText(res, CAPTION_BYTES);
             else await res.body?.cancel?.().catch(() => {});
         } catch (err) {
-            thrown = thrownReason(err, signal);
+            const why = thrownReason(err, signal);
+            // Captions sent off youtube.com were not let through: for the
+            // learner that is YouTube not giving them, not "this computer".
+            if (why === 'refused') {
+                emptyBody = true;
+                continue;
+            }
+            thrown = why;
             if (thrown === 'cancelled') break;
             continue;
         }

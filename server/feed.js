@@ -254,7 +254,7 @@ export function normalizeModelQuestion(raw) {
  * then today's scheduled leaves. Only when NOTHING is overdue or due today
  * anywhere does the feed "get ahead" with upcoming/unscheduled leaves.
  */
-export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}) {
+export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now } = {}) {
     const fs = getFeedSettings();
     // One project's own stream is not rationed against its neighbours: the
     // per-project cap exists so six courses share a window, and with five of
@@ -262,7 +262,8 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     const onlyProject = Number.isInteger(projectId) && projectId > 0 ? projectId : null;
     maxTotal = maxTotal ?? fs.focusTotal;
     maxPerProject = maxPerProject ?? (onlyProject ? maxTotal : fs.focusPerProject);
-    const today = studyToday();
+    // `now`: a gate's pinned instant; everyone else asks for the learner's real today.
+    const today = studyToday({ now });
     const projects = db.prepare(`
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
@@ -357,7 +358,9 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     //
     // This was latent for the Inbox too: a capture was equally unreachable on a
     // busy day, which is the opposite of what an inbox is for.
-    const standingInfos = infos.filter(isStanding);
+    // Only one with a topic to serve: a short course still being written, or
+    // one whose writing failed, would hold a slot and fill it with nothing.
+    const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))
         : 0;
