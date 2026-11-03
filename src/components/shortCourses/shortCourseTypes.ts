@@ -2,7 +2,7 @@
 // strip on Projects and the assistant's ```short card read them.
 import type { StagedDocument } from '../../types';
 
-/** Where a source came from: `topic` is "Write it from the topic", no source at all. */
+/** Where a source came from: `topic` is "Write it from the title", no source at all. */
 export type SourceKind = 'video' | 'page' | 'pdf' | 'file' | 'topic';
 
 /** What the way on is for a source that could not be read (linkReader.js FIX). */

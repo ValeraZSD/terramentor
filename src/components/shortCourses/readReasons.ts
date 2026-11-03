@@ -24,7 +24,7 @@ export const READ_REASON: Record<string, string> = {
     video_live: k("This is a live stream, and its captions are not ready until it ends. Paste a transcript, or come back after it ends."),
     video_members: k("This video is for the channel's members only. If you can watch it, paste its transcript."),
     token_wall: k("YouTube did not let the app read the captions. Paste the transcript instead."),
-    no_captions: k("This video has no captions to read. A course can still be written on its topic."),
+    no_captions: k("This video has no captions to read. A course can be written from its title alone, without the video."),
 };
 
 export const READ_REASON_OTHER = k("The link could not be read.");

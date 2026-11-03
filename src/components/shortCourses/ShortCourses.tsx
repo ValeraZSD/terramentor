@@ -4,7 +4,7 @@
 // A source is READ first (POST /api/short-courses/read): the box then shows
 // what it is and how big, and only Create writes a course. A source that cannot
 // be read says why and offers its way on (readReasons.ts, the reader's `fix`):
-// a file instead, Try again, a pasted transcript, or "Write it from the topic"
+// a file instead, Try again, a pasted transcript, or "Write it from the title"
 // for a video with no captions. A whole book offers a few of its chapters, or a
 // full course through the New course dialog; a few lines offer the Inbox.
 //
@@ -32,6 +32,7 @@ import { useAccentVars } from '../../hooks/useAccentVars';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { freeColour } from '../../utils/freeColour';
+import { useCanHover } from '../../utils/platform';
 import { READ_REASON, READ_REASON_OTHER } from './readReasons';
 import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind } from './shortCourseTypes';
 
@@ -112,6 +113,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
     const readLine = useReadLine();
+    // A finger cannot drag a file onto the box, so a touch screen is not told to.
+    const prompt = useCanHover() ? t("Paste a link or drop a file") : t("Paste a link");
     const [box, setBox] = useState<Box>({ state: 'empty' });
     const [text, setText] = useState('');
     const [transcript, setTranscript] = useState('');
@@ -352,8 +355,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                         const pasted = e.clipboardData.getData('text').trim();
                         if (pasted && !text.trim() && !/\s/.test(pasted)) { e.preventDefault(); setText(pasted); void readLink(pasted); }
                     }}
-                    aria-label={t("Paste a link or drop a file")}
-                    placeholder={t("Paste a link or drop a file")}
+                    aria-label={prompt}
+                    placeholder={prompt}
                     className="w-full bg-transparent p-0 border-0 text-base font-medium text-slate-900 dark:text-white placeholder:text-slate-500 dark:placeholder:text-slate-400 outline-none focus:ring-0"
                 />
             );
@@ -381,7 +384,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     : fail.fix === 'transcript'
                         ? <Button variant="primary" onClick={() => setBox({ state: 'transcript', title: fail.title || box.where, url: fail.url ?? box.link })}>{t("Paste the transcript")}</Button>
                         : fail.fix === 'topic' && fail.title
-                            ? <Button variant="primary" busy={busy} onClick={() => void create({ fromTopic: { title: fail.title! } }, null)}>{t("Write it from the topic")}</Button>
+                            ? <Button variant="primary" busy={busy} onClick={() => void create({ fromTopic: { title: fail.title! } }, null)}>{t("Write it from the title")}</Button>
                             : null;
             actions = <>{clearButton}{fix}</>;
             break;
@@ -474,6 +477,7 @@ function Row({ row, project, narrow, onChanged }: {
     onChanged: () => void;
 }) {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     const openProject = useStore(s => s.openProject);
     const studyProject = useStore(s => s.studyProject);
     const updateProject = useStore(s => s.updateProject);
@@ -584,7 +588,7 @@ function Row({ row, project, narrow, onChanged }: {
                     {row.from && <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
                     {row.from && <span className="truncate">{row.from}</span>}
                     {row.from && !building && <span aria-hidden="true">·</span>}
-                    {!building && <span className="shrink-0">{t("{{done}} / {{total}} items", { count: total, done, total })}</span>}
+                    {!building && <span className="shrink-0">{t("{{done}} / {{total}} topics done", { done: num(done), total: num(total) })}</span>}
                 </>
             )}
         </p>
