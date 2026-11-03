@@ -16,7 +16,7 @@ const handleOneFile = (req, res, next) =>
         oneFile.single('file')(req, res, (err) => {
             if (err) {
                 if (err.code === 'LIMIT_FILE_SIZE') return res.json({ ok: false, reason: 'too_large', fix: null });
-                return res.status(400).json({ error: err.message || 'Upload failed' });
+                return res.status(400).json({ error: clientError(err, 400) });
             }
             next();
         }));
@@ -29,7 +29,7 @@ function closedSignal(res) {
 }
 
 function fail(res, e) {
-    if (e instanceof ShortCourseError) return res.status(e.status).json({ error: e.message, ...e.extra });
+    if (e instanceof ShortCourseError) return res.status(e.status).json({ error: clientError(e, e.status), ...e.extra });
     return res.status(500).json({ error: clientError(e, 500) });
 }
 
