@@ -6,9 +6,9 @@
 # quality gates, the Anki format readers). None of them calls a model or the
 # network, so they run anywhere in seconds.
 #
-# CI runs `npm test` and the four steps around it (types, `node --check`, the
-# link-time import, the build); CONTRIBUTING.md lists the same five for a
-# contributor to run locally.
+# CI runs `npm test` and the steps around it (types, `node --check`, the
+# link-time import, the build and, on Windows, the README's pictures);
+# CONTRIBUTING.md lists the same six for a contributor to run locally.
 #
 # The Node matrix is not decoration. The floor declared in package.json
 # `engines` is 24, the newest of the floors the dependencies declare: ts-fsrs
@@ -92,3 +92,14 @@ jobs:
 
       - name: Frontend builds
         run: npm run build
+
+      # The README's pictures against the app just built: tools/docs-shots.mjs
+      # builds an invented course in a scratch library, opens the screen each
+      # picture shows in headless Edge and compares its interface text with the
+      # text recorded when the picture was taken. No model, no network. On the
+      # Windows leg only: the app draws in the system font, and Windows is where
+      # the pictures are recorded, so the same font lays out the same lines.
+      - name: README pictures match the app
+        if: matrix.os == 'windows-latest'
+        timeout-minutes: 15
+        run: node tools/docs-shots.mjs

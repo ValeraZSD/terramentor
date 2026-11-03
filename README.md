@@ -66,7 +66,7 @@ work an exercise on paper, photograph it and have it marked. Before you see a qu
 disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known.
 
-![A passed mastery check, 8 of 9, with one worked answer and one wrong answer explained.](docs/screenshots/prove.webp)
+![A passed mastery check, 8 of 9, with the one wrong answer shown beside the right one and explained.](docs/screenshots/prove.webp)
 
 ### Remember
 
@@ -78,8 +78,8 @@ Anki decks come in with their media and review history and go back out as `.apkg
 
 ### The atlas
 
-Every topic in your library on a planet you can turn, placed by what it is about rather than
-which course it belongs to. Pick a course and it replays the order you finished its topics in,
+Every topic in your library on a map, or on a planet you can turn, placed by what it is about
+rather than which course it belongs to. Pick a course and it replays the order you finished its topics in,
 and can save the replay as a video or a GIF.
 
 ![The course's topics as named territories on a planet, darker where more is proven, beside a list of regions.](docs/screenshots/atlas.webp)
@@ -125,7 +125,7 @@ write weaker lessons, slowly; the ones that teach well want 24 GB of video memor
 is cheap here because a lesson is written once and kept: a fast, low-cost model such as
 GLM-5.3-Flash costs about US$0.20 per day of study.
 
-The first screen connects one: **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you own,
+The welcome screens connect one: **Connect OpenRouter** signs you in at openrouter.ai and brings back a key you own,
 or paste a key for any OpenAI-compatible service, or point it at Ollama, LM Studio or llama.cpp.
 Without a model the app still opens your courses, saved lessons and flashcards.
 
@@ -133,9 +133,10 @@ Without a model the app still opens your courses, saved lessons and flashcards.
 
 Your library is one SQLite file on your own disk, with a folder beside it for documents and card
 media. Nothing reports back to this project. What leaves the machine is what a lesson or an
-answer needs, sent to the model provider you chose, and, while a new course is drafted, web
-searches for reading on its topics (on by default, one switch in Settings). [SECURITY.md](SECURITY.md) lists
-every outbound connection.
+answer needs, sent to the model provider you chose, and web pages: searches for reading on a
+course's topics while it is drafted, and a topic's links read when its lessons are written (both
+on by default, two switches in Settings → AI & Models). [SECURITY.md](SECURITY.md) lists every
+outbound connection.
 
 ## Install
 
