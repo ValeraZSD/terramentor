@@ -539,8 +539,13 @@ const linkCourse = c.json.projectId;
 n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'money.example/index-funds', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
 ok('pressed again, the same link (as typed or in full) is the same course', c.json?.existed === true && c.json.projectId === linkCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c);
-c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, again', topics: ['A', 'B', 'C'], once: true });
+c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, again', topics: ['A', 'B', 'C'], once: true, icon: 'Test Tube', color: 'not a colour' });
 ok('another card with another name is another course', c.status === 200 && !c.json.existed && c.json.projectId !== linkCourse && await waitBuilt(c.json.projectId), c);
+// The icon is a name ProjectIcon draws; an unknown one was painted as its
+// own letters ("book-open" across the tile).
+const look = (id) => db.prepare('SELECT icon, color FROM projects WHERE id = ?').get(id);
+ok('a course given no icon or colour gets the book and the default colour', look(linkCourse).icon === 'book' && look(linkCourse).color === '#3B82F6', look(linkCourse));
+ok('an icon as a model types it is the name it means; a word that is no colour is not kept', look(c.json.projectId).icon === 'testtube' && look(c.json.projectId).color === '#3B82F6', look(c.json.projectId));
 const n0 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'https://www.youtube.com/watch?v=vidNoCapts1', topics: ['A', 'B', 'C'] });
 ok('an unreadable link from the assistant makes nothing and says why', c.status === 422 && c.json?.reason === 'no_captions' && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n0, c);

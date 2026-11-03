@@ -30,6 +30,7 @@ import { getLanguage, getUiLanguage, withLearning } from './language.js';
 import { findLearningLanguage } from './learningLanguage.js';
 import { parseLink, readLink, wordCount } from './linkReader.js';
 import { scheduleNodeSync } from './nodeEmbeddings.js';
+import { projectColour, projectIconName } from './projectFields.js';
 import { addProvenanceFields } from './projectIdentity.js';
 import { scheduleSearchWords } from './searchWords.js';
 import { getSetting } from './settingsStore.js';
@@ -420,7 +421,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     const projectId = Number(db.prepare(`INSERT INTO projects
         (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
         VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects), ?, ?, 1, NULL, ?)`)
-        .run(name.slice(0, 500), '', cleanLine(body?.color, 20) || '#3B82F6', cleanLine(body?.icon, 40) || 'book-open',
+        .run(name.slice(0, 500), '', projectColour(body?.color) || '#3B82F6', projectIconName(body?.icon) || 'book',
             language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
     const claimed = staged ? claimStaged([staged.id], projectId) : new Map();
     const documentIdOf = (n) => claimed.get(src?.docs[n - 1]?.stagedId) ?? null;
