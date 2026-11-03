@@ -25,6 +25,7 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { durationParts } from '../../utils/taskPlace';
 import type { CreationTrack } from '../../api';
 import { plainCause } from '../../utils/failureCause';
+import ProgressBar from '../ui/ProgressBar';
 import { type CreationRun, isRunLive } from './creationRuns';
 
 type StageKey = NonNullable<CreationTrack['stage']>;
@@ -200,11 +201,7 @@ export function RunStatus({ run }: { run: CreationRun }) {
                 </div>
             </div>
             {bar != null && (
-                <div className="mt-3 h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden"
-                    role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(bar * 100)}
-                    aria-label={t("Topics written")}>
-                    <div className="h-full bg-accent rounded-full transition-[width] duration-500" style={{ width: `${Math.max(2, bar * 100)}%` }} />
-                </div>
+                <ProgressBar value={Math.round(bar * 100)} minVisible={2} label={t("Topics written")} className="mt-3" />
             )}
         </section>
     );

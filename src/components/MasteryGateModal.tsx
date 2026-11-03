@@ -15,6 +15,7 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { Button, IconButton } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
@@ -599,12 +600,7 @@ export default function MasteryGateModal({
                                 {keptCount < questions.length && <> · {t('Reported: {{n}}', { n: questions.length - keptCount })}</>}
                             </span>
                         </div>
-                        <div className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                            <div
-                                className="h-full bg-accent transition-all duration-300"
-                                style={{ width: `${keptCount ? (answeredCount / keptCount) * 100 : 100}%` }}
-                            />
-                        </div>
+                        <ProgressBar value={keptCount ? (answeredCount / keptCount) * 100 : 100} decorative />
                     </div>
                 )}
 

@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import Checkbox from './Checkbox';
 import { Button, IconButton } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
+import ProgressBar from './ui/ProgressBar';
 
 /**
  * "Make me the material for all of this" — the exam-week button.
@@ -426,12 +427,7 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                     </Button>
                 )}
             </div>
-            <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${job.total ? Math.round((job.done / job.total) * 100) : 0}%` }}
-                />
-            </div>
+            <ProgressBar value={job.total ? Math.round((job.done / job.total) * 100) : 0} size="sm" decorative className="mt-2" />
             {job.failed > 0 && (
                 <p className="mt-2 text-sm text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />

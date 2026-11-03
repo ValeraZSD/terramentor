@@ -10,6 +10,7 @@ import { useItemReports } from '../../utils/itemReportStore';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { SegmentedControl } from '../ui/SegmentedControl';
 
 interface Props {
@@ -490,12 +491,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         </span>
                     )}
                 </div>
-                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-                    <div
-                        className={seconds ? 'h-full bg-accent transition-[width] duration-100 ease-linear' : 'h-full bg-accent transition-all'}
-                        style={{ width: `${barPct}%` }}
-                    />
-                </div>
+                <ProgressBar value={barPct} size="sm" motion={seconds ? 'linear' : 'smooth'} decorative className="mt-1" />
 
                 {/* The item: its label and prompt, with the flag at its top-right.
                     Both sides are padded alike so a centred prompt stays centred. */}

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useRef } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { ProgressTrack } from '../ui/ProgressBar';
 
 /** Narrowest a legend cell may be, in rem so `ui_scale` moves it with the type:
  *  "Coming back within three weeks" on two lines, a four-digit count. */
@@ -50,19 +51,19 @@ export default function DeckBar({ totals, matureDays }: { totals: DeckData['tota
 
     return (
         <div>
-            <div
-                className="flex h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700"
+            <ProgressTrack
+                size="lg"
                 role="img"
                 aria-label={segments.map(s => `${fmt(s.count)} ${t(s.label)}`).join(', ') || t("No cards")}
             >
                 {segments.map(s => (
                     <div
                         key={s.key}
-                        className={s.bar}
+                        className={`h-full ${s.bar}`}
                         style={{ width: `${Math.max(1.5, (s.count / total) * 100)}%` }}
                     />
                 ))}
-            </div>
+            </ProgressTrack>
 
             {/* Sized by the CONTAINER, not the viewport: with the detail panel
                 open beside it the dashboard is a narrow column on a wide
