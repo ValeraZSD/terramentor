@@ -479,6 +479,7 @@ async function fitScroll(page) {
             for (const q of r.getClientRects()) spans.push([q.top - box.top, q.bottom - box.top]);
         }
         for (const e of s.querySelectorAll('*')) { const q = e.getBoundingClientRect(); if (q.height > 0 && q.height < 120) spans.push([q.top - box.top, q.bottom - box.top]); }
+        // The least scroll that cuts no line at either edge, so the top of the result (the score) stays in view.
         let best = null;
         for (let y = 0; y <= Math.min(240, s.scrollHeight - s.clientHeight); y++) {
             let margin = Infinity;
@@ -490,7 +491,7 @@ async function fitScroll(page) {
                 }
                 if (margin < 0) break;
             }
-            if (margin >= 0 && (!best || margin > best.margin)) best = { y, margin };
+            if (margin >= 2) { best = { y, margin }; break; }
         }
         if (best) s.scrollTop = best.y;
         return best ? best.y : 0;
