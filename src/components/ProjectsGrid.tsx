@@ -336,7 +336,9 @@ export default function ProjectsGrid() {
                                 // A text field, not `type="search"`: Edge and Chrome
                                 // draw their own blue ✕ inside a search field, one
                                 // the app does not style. Ours is the one clear.
-                                <div className="relative flex-1 min-w-[14rem] max-w-sm ml-auto">
+                                // Right of the switch; with no switch it starts the
+                                // line, where the eye begins, not alone at the far end.
+                                <div className={`relative flex-1 min-w-[14rem] max-w-sm${hasRecords ? ' ml-auto' : ''}`}>
                                     <TextInput
                                         ref={findRef}
                                         type="text"
