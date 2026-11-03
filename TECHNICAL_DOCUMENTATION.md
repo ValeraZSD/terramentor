@@ -1064,7 +1064,7 @@ The modules the sections above do not cover, one line each.
 | `version.js` | The update check (see SECURITY.md, *The update check*) |
 | `masteryCheck.js`, `cardWrite.js` | The one write of a mastery check's result (`recordMasteryCheck`, once per attempt id) and of a card's rating (`writeCard`), shared by the app's own routes and an agent's sittings so both write the same rows |
 | `agentSittings.js` | The mastery checks and card reviews an MCP host draws (`mcp/views/`): the app draws, grades and schedules; a sitting is a random token held in memory (two hours idle, 64 at a time) and keys leave only after the check is submitted |
-| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*` and `/api/capture` (`docs/MCP.md`) |
+| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*`, `/api/capture` and `PUT /api/nodes/:id` (the app's own completion gate, which `check_complete` sends after a passed check) (`docs/MCP.md`) |
 
 ## 13. Known gaps
 
