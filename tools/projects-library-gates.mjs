@@ -227,8 +227,8 @@ section('the view round-trips through ?show=');
 
 // ---- 4. one search, the top bar's ---------------------------------------------------
 // A find field of the page's own sat under the top bar's search, which already
-// finds a course in any view and opens it: two searches on one page (his call,
-// 3 Nov 2026). The page has none, however big the library.
+// finds a course in any view and opens it: two searches on one page, the
+// second adding nothing. The page has none, however big the library.
 section('the page has no search of its own: the top bar finds courses');
 for (const where of ['/projects', '/projects?show=finished', '/projects?show=archived']) {
     const pg = await page(where);
