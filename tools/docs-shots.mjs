@@ -38,7 +38,8 @@
  *
  *   { "project": "<course name>",
  *     "study":  { "topic": "<title>", "heading": "<a heading in its lesson>", "uiScale": 100 },
- *     "prove":  { "topic": "<title>", "wrong": "<words from the question to answer wrong, or its number>" },
+ *     "prove":  { "topic": "<title>", "wrong": "<words from the question to answer wrong, or its number>",
+ *                 "seed": <optional whole number, the order the check is asked in> },
  *     "cards":  { "topic": "<title>" },
  *     "prepare": "<optional module, run against the copy before shooting>" }
  *
@@ -81,9 +82,10 @@ async function serveChild({ mode, dir, port }) {
     // The server shuffles a check's questions; a seeded random asks them in the
     // same order on every run, so the wrong answer lands on the same row. The
     // seed starts again at each draw: other requests take numbers from the same
-    // random, and how many arrive before the draw depends on timing.
-    const SEED = 0x9e3779b9;
-    let seed = SEED;
+    // random, and how many arrive before the draw depends on timing. A
+    // library's docs-shots.json may give `prove.seed` to pick the order.
+    let drawSeed = 0x9e3779b9;
+    let seed = drawSeed;
     Math.random = () => {
         seed = (seed + 0x6d2b79f5) | 0;
         let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -93,7 +95,7 @@ async function serveChild({ mode, dir, port }) {
     const { Server } = await import('node:net');
     const emit = Server.prototype.emit;
     Server.prototype.emit = function (event, req, ...rest) {
-        if (event === 'request' && /\/mastery-check\/draw\b/.test(req?.url ?? '')) seed = SEED;
+        if (event === 'request' && /\/mastery-check\/draw\b/.test(req?.url ?? '')) seed = drawSeed;
         return emit.call(this, event, req, ...rest);
     };
     mkdirSync(process.env.VAULT_ROOT, { recursive: true });
@@ -119,6 +121,10 @@ async function serveChild({ mode, dir, port }) {
         put.run('update_check_asked', '1');
         cast = JSON.parse(readFileSync(join(dir, 'docs-shots.json'), 'utf8'));
         cast.ids = resolveCast(db, cast);
+        if (cast.prove?.seed !== undefined) {
+            if (!Number.isInteger(cast.prove.seed)) throw new Error('docs-shots.json: "prove.seed" must be a whole number');
+            drawSeed = cast.prove.seed;
+        }
     }
     await import(pathToFileURL(join(ROOT, 'server', 'index.js')).href);
     process.stdout.write(`DOCS-SHOTS-READY ${JSON.stringify({ dbPath: paths.dbPath, cast })}\n`);
