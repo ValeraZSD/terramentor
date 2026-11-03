@@ -587,7 +587,7 @@ function ShortCard({ row, project, onChanged }: {
         <>
             <ProgressRing progress={progress} color={progress === 100 ? '#22C55E' : row.color} size={40} />
             <span className="text-sm text-slate-500 dark:text-slate-400 min-w-0 truncate">
-                {t("{{done}} / {{total}} topics", { done: num(done), total: num(total) })}
+                {t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) })}
             </span>
         </>
     );

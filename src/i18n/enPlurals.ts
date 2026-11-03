@@ -128,6 +128,8 @@ const enPlurals: Record<string, string> = {
     "{{documents}} documents_other": "{{documents}} documents",
     "{{done}} / {{total}} items_one": "{{done}} / {{total}} item",
     "{{done}} / {{total}} items_other": "{{done}} / {{total}} items",
+    "{{done}} / {{total}} topics_one": "{{done}} / {{total}} topic",
+    "{{done}} / {{total}} topics_other": "{{done}} / {{total}} topics",
     "{{done}} of {{count}} topics finished_one": "{{done}} of {{count}} topic finished",
     "{{done}} of {{count}} topics finished_other": "{{done}} of {{count}} topics finished",
     "{{done}} of {{n}} topics_one": "{{done}} of {{n}} topic",

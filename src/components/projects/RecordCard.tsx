@@ -69,7 +69,7 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
     // or put away.
     const when = !archived && allDone && project.last_done_at
         ? t("Finished {{date}}", { date: dayLabel(project.last_done_at) })
-        : t("{{done}} / {{total}} topics", { done: num(done), total: num(total) });
+        : t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) });
     const meta = (
         <>
             <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
