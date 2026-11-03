@@ -66,7 +66,7 @@ work an exercise on paper, photograph it and have it marked. Before you see a qu
 disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known.
 
-![A passed mastery check, 8 of 9, with one worked answer and one wrong answer explained.](docs/screenshots/prove.webp)
+![A passed mastery check, 8 of 9, with the one wrong answer shown beside the right one and explained.](docs/screenshots/prove.webp)
 
 ### Remember
 
