@@ -15,8 +15,8 @@
 //     per sitting: a second submit gets the first outcome back.
 //   - A card is rated by the app's own scheduler (src/utils/srs.ts, the
 //     learner's fitted weights) and written by `writeCard`
-//     (server/cardWrite.js), once per presentation (`recordOnce`). Its
-//     evidence is the app's card evidence, which can never clear the gate.
+//     (server/cardWrite.js), once per presentation (`recordOnce`). It
+//     writes the same card evidence a review in the app writes, no more.
 //
 // A sitting lives in this process, named by a random token the MCP server
 // hands the view in a tool result's `_meta` (never in text the model reads).
