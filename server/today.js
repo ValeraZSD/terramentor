@@ -654,6 +654,10 @@ export function buildTodayActivity(date) {
  * (`splitLateTasks`, src/utils/tree.ts); fetched by range alone, a topic that
  * ended before the three periods on screen was never sent, and a library weeks
  * behind showed one late chip. `today` is the learner's day; a gate pins it.
+ * The late clause reads the stored status: `LEAF_STATUS` only turns
+ * `not_started` into `in_progress`, so it decides nothing here and would add
+ * two correlated subqueries per row. Measured 2026-11-03 on a scratch library
+ * with 2,400 late topics and 40 finished projects: 16–42 ms a call.
  */
 export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
     const tasks = db.prepare(`
@@ -666,7 +670,7 @@ export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
           AND n.scheduled_start IS NOT NULL
           AND n.scheduled_end IS NOT NULL
           AND ((n.scheduled_start <= ? AND n.scheduled_end >= ?)
-            OR (n.scheduled_end < ? AND ${LEAF_STATUS} NOT IN ('completed', 'skipped')))
+            OR (n.scheduled_end < ? AND COALESCE(n.status, 'not_started') NOT IN ('completed', 'skipped')))
         ORDER BY n.scheduled_start ASC, n.position ASC
     `).all(to, from, today);
     // The library calendar names a late topic the learner already knows
