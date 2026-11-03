@@ -526,7 +526,9 @@ export function checkpointFacts(nodeId, gate) {
     // topic's card must not offer to complete it, and a skipped one must not
     // offer to skip it again.
     const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
-    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus };
+    // The mode as it is NOW: a card composed before the setting changed would
+    // otherwise keep offering the old mode's ways out.
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus, gateMode: gate.mode };
 }
 
 /** Common card fields carried by every node-bound card. */
@@ -893,7 +895,6 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         return {
             key, kind: 'checkpoint', ...cardBase(f),
             ...checkpointFacts(f.nodeId, gate),
-            gateMode: gate.mode,
             scheduledEnd: f.scheduledEnd,
             isOverdue: f.isOverdue,
             deadline: daysLeft != null ? { daysLeft, paceStatus: f.pace?.paceStatus || null } : null,

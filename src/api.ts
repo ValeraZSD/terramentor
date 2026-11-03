@@ -2410,7 +2410,7 @@ export const api = {
     // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
     // the learner answers the topic above it).
     getCheckpointFacts: (nodeId: number) =>
-        request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom' | 'nodeStatus'>>(`/feed/nodes/${nodeId}/checkpoint`),
+        request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom' | 'nodeStatus' | 'gateMode'>>(`/feed/nodes/${nodeId}/checkpoint`),
 
     // Persist an in-session visual repair into the cached card it was read in,
     // so the next load renders the fixed spec instead of repairing again (see
