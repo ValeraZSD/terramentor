@@ -11,7 +11,7 @@
 
 import * as z from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
-import { AppError } from './app.js';
+import { AppError, AppTimeout } from './app.js';
 import { VIEWS, VIEW_MIME, viewHtml } from './views.js';
 
 export const SERVER_NAME = 'terramentor';
@@ -35,6 +35,8 @@ const UI_EXTENSION = 'io.modelcontextprotocol/ui';
 const SITTING = 'terramentor/sitting';
 const LANGUAGE = 'terramentor/language';
 const NOTHING = 'terramentor/nothing';
+/** How long check_submit waits on the grading: open answers go to the answer checker one at a time. */
+const SUBMIT_TIMEOUT_MS = 180_000;
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const PROPOSE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
@@ -319,7 +321,20 @@ function registerViews(server, appFor) {
         description: 'Grade and record the whole check. One answer per question, in order; null for none.',
         shape: { answers: z.array(z.union([z.string().max(20000), z.null()])).max(100) },
     }, async (app, { sitting: token, answers }) => {
-        const r = await app.post('/api/agent/check/submit', { token, answers }, { timeoutMs: 180_000 });
+        let r;
+        try {
+            r = await app.post('/api/agent/check/submit', { token, answers }, { timeoutMs: SUBMIT_TIMEOUT_MS });
+        } catch (err) {
+            // The app grades open answers one at a time and goes on after this
+            // request gives up. A submit sent again waits for that grading and
+            // gets its result (server/agentSittings.js, submitCheck): nothing
+            // is graded or recorded twice.
+            if (err instanceof AppTimeout) {
+                return failure('Terramentor is still grading the answers. Press Submit again in a moment for the result: '
+                    + 'the answers are graded and recorded once.');
+            }
+            throw err;
+        }
         return forView('The check is graded and recorded.', r);
     });
 

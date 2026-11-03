@@ -20,6 +20,9 @@ const KEY_PLACE = 'Terramentor → Settings → Devices & security → API key';
 /** A failure the agent's model can read and pass on: what went wrong and what to do. */
 export class AppError extends Error {}
 
+/** The app took longer than the request may wait: it is running, and may still be working on it. */
+export class AppTimeout extends AppError {}
+
 export const isLoopbackHost = (hostname) => LOOPBACK_HOSTS.has(String(hostname).toLowerCase());
 
 /**
@@ -77,7 +80,11 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
                 signal: AbortSignal.timeout(timeoutMs),
             });
         } catch (err) {
-            const code = err?.cause?.code || (err?.name === 'TimeoutError' ? 'timed out' : '');
+            // A request that waited out its time reached the app; it is not "not running".
+            if (err?.name === 'TimeoutError') {
+                throw new AppTimeout(`Terramentor at ${origin} did not answer within ${Math.round(timeoutMs / 1000)} seconds. It may still be working on it.`);
+            }
+            const code = err?.cause?.code || '';
             throw new AppError(`Terramentor is not running, or this MCP server could not reach it at ${origin}${code ? ` (${code})` : ''}. Start the app, or set TERRAMENTOR_URL to the address it runs on, then try again.`);
         }
 

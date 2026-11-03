@@ -80,7 +80,7 @@ const secrets = await import(B + 'secrets.js');
 const mastery = await import(B + 'mastery.js');
 const { buildTodayData } = await import(B + 'today.js');
 const { getGhostQuestions } = await import(B + 'dailyPlan.js');
-const { appOrigin, AppError } = await import(new URL('../mcp/app.js', import.meta.url).href);
+const { appOrigin, appClient, AppError, AppTimeout } = await import(new URL('../mcp/app.js', import.meta.url).href);
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = '') => {
@@ -602,6 +602,19 @@ console.log('\n--- the key: none without it, and the HTTP listener holds none --
         textOf(rd).slice(0, 200));
     viaRedirect.close();
     redirector.s.close();
+
+    // An app that is running but slow (a check's open answers waiting on the
+    // checker) is not "not running": a request that waited out its time says
+    // it timed out and that the app may still be working on it.
+    const held = [];
+    const slow = await stub((req, res) => { held.push(res); });
+    const slowClient = appClient({ origin: slow.url, keyHint: '' });
+    const timedOut = await slowClient.post('/api/agent/check/submit', {}, { timeoutMs: 300 }).then(() => null, (e) => e);
+    ok('a request the app is slow to answer says it timed out, never that Terramentor is not running',
+        typeof AppTimeout === 'function' && timedOut instanceof AppTimeout && timedOut instanceof AppError && !/not running/i.test(timedOut.message) && /did not answer within/.test(timedOut.message),
+        String(timedOut?.message));
+    for (const res of held) res.destroy();
+    slow.s.close();
 
     const unset = await stub((req, res) => json(res, 401,
         { error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true }));
