@@ -22,6 +22,7 @@ import { CalendarViewMode, CalendarDay } from '../../types';
 import { Chip } from '../ui/Chip';
 import { useIsMobile } from '../../hooks/useMediaQuery';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
+import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { CalendarDays, ChevronRight, ShieldCheck } from 'lucide-react';
@@ -63,6 +64,12 @@ import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } f
 
 /** Study-day shading is a per-project setting, so globally every day is neutral. */
 const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
+
+/** The two kinds of late work, each a group on today and a list in its Day view. */
+const LATE_KINDS = ['overdue', 'ready'] as const;
+type LateKind = typeof LATE_KINDS[number];
+/** How many late topics a group's tooltip names before "…". */
+const LATE_TITLE_NAMES = 5;
 
 export type CalendarScope =
     | { kind: 'project'; projectId: number }
@@ -224,10 +231,21 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         const ids = new Set(remote.tasks.map(t => remote.ownerOf.get(t.nodeId)));
         return remote.projects.filter(p => p.scheduled || ids.has(p.id));
     }, [isProject, remote]);
-    /** The courses picked; none picked = every course. */
-    const [picked, setPicked] = useState<number[]>([]);
+    /** The courses picked; none picked = every course. Only a course still in
+     *  the row counts: one archived while picked would otherwise filter the
+     *  calendar to nothing with no pill pressed, and a row that hides (one
+     *  course left) would leave a filter on that nothing can clear. */
+    const [pickedIds, setPicked] = useState<number[]>([]);
+    const picked = useMemo(() => filterProjects.length > 1
+        ? pickedIds.filter(id => filterProjects.some(p => p.id === id))
+        : [], [pickedIds, filterProjects]);
+    // ...and forgotten, so a course that comes back is not silently re-picked.
+    // Guarded: it writes only when a pick actually left the row.
+    useEffect(() => {
+        if (remote && picked.length !== pickedIds.length) setPicked(picked);
+    }, [remote, picked, pickedIds]);
     const togglePicked = (id: number) =>
-        setPicked(ps => ps.includes(id) ? ps.filter(p => p !== id) : [...ps, id]);
+        setPicked(picked.includes(id) ? picked.filter(p => p !== id) : [...picked, id]);
     const shown = useMemo(() => {
         if (isProject || picked.length === 0 || !remote) return tasks;
         return tasks.filter(t => picked.includes(remote.ownerOf.get(t.nodeId) ?? -1));
@@ -246,6 +264,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             next: assignTasksToDays(fresh(scaffolds.next), late.onDays),
         };
     }, [scaffolds, late]);
+    const todayInView = panels.curr.some(d => d.date === today);
 
     // ---- navigation -------------------------------------------------------
 
@@ -311,13 +330,16 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     }
 
     /** A late group opens the Day view of today, where its topics are listed:
-     *  the group is a count, the list is the day it is owed on. */
-    function openLateList() {
+     *  the group is a count, the list is the day it is owed on. The list sits
+     *  UNDER the day's plan, so the one pressed is brought to the learner. */
+    const [lateTarget, setLateTarget] = useState<LateKind | null>(null);
+    function openLateList(kind: LateKind) {
         const t = todayStr();
         setWeekRefDate(t);
         setViewYear(parseDate(t).getUTCFullYear());
         setViewMonth(parseDate(t).getUTCMonth());
         setViewMode('day');
+        setLateTarget(kind);
     }
 
     const carousel = useSwipeCarousel(prev, next);
@@ -348,6 +370,18 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedNodeId, isProject]);
     useScrollToSelected(isProject ? selectedNodeId : null, bodyRef, [weekRefDate, viewMonth, viewYear, viewMode]);
+
+    // A pressed late group: its list, under the day's plan, is scrolled to the
+    // top of the calendar (only the calendar's own scroller moves) and its
+    // heading takes focus, so a screen reader lands where the eye does.
+    useEffect(() => {
+        if (!lateTarget || viewMode !== 'day') return;
+        setLateTarget(null);
+        const heading = bodyRef.current?.querySelector<HTMLElement>(`[data-late-list="${lateTarget}"] > h3`);
+        if (!heading) return;
+        heading.focus({ preventScroll: true });
+        scrollIntoViewWithin(heading.parentElement, { boundary: rootEl, block: 'start', padding: 12 });
+    }, [lateTarget, viewMode, rootEl]);
 
     /** A click means "show me this topic" — in a workspace that is a selection,
      *  from the global calendar it is a deep link into the owning project. */
@@ -534,8 +568,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         end: t.scheduled_end,
         provable: !!t.provable,
     });
-    const LATE_KINDS = ['overdue', 'ready'] as const;
-    const lateLabel = (kind: typeof LATE_KINDS[number]) => kind === 'overdue'
+    const lateLabel = (kind: LateKind) => kind === 'overdue'
         ? tr("{{count}} overdue", { count: late.overdue.length })
         : tr("{{count}} ready to prove", { count: late.ready.length });
     const lateCount = late.overdue.length + late.ready.length;
@@ -563,15 +596,19 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 key={kind}
                 type="button"
                 data-late-group={kind}
-                onClick={e => { e.stopPropagation(); openLateList(); }}
+                onClick={e => { e.stopPropagation(); openLateList(kind); }}
                 className="block w-full text-left min-w-0"
-                title={list.map(t => t.title).join(' · ')}
+                /* The first few names on hover, never all: a title is read
+                   aloud as the button's description, and 200 late topics
+                   would be 200 names. The list is one press away. */
+                title={list.slice(0, LATE_TITLE_NAMES).map(t => t.title).join(' · ')
+                    + (list.length > LATE_TITLE_NAMES ? ' · …' : '')}
             >
-                <div className={`${shape} ${tone} ${hover}`}>
+                <span className={`${shape} ${tone} ${hover}`}>
                     {kind === 'ready' && <ShieldCheck className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0`} aria-hidden="true" />}
                     <span className={`min-w-0 flex-1 ${compact ? 'truncate' : ''}`}>{lateLabel(kind)}</span>
                     <ChevronRight className={`${compact ? 'w-3 h-3' : 'w-4 h-4'} shrink-0 opacity-70`} aria-hidden="true" />
-                </div>
+                </span>
             </button>
         );
     });
@@ -631,7 +668,8 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                         {owedHere && LATE_KINDS.map(kind => late[kind].length > 0 && (
                                             <span key={kind} data-late-count={kind} title={lateLabel(kind)}
                                                 className={`px-1 leading-4 text-3xs font-bold rounded-full ${kind === 'overdue' ? 'bg-red-600 text-white' : 'bg-accent text-white'}`}>
-                                                {late[kind].length}
+                                                <span aria-hidden="true">{late[kind].length}</span>
+                                                <span className="sr-only">{lateLabel(kind)}</span>
                                             </span>
                                         ))}
                                         {day.tasks.slice(0, 4).map(t => (
@@ -779,11 +817,22 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         const owedHere = day?.date === today && lateCount > 0;
         const heading = 'text-sm font-semibold mb-1.5';
         if (owedHere) {
+            // The day's own plan FIRST. Twenty-four late cards above it pushed
+            // "Planned for today" below the fold at 1280 and off a phone; the
+            // late list the learner pressed is brought to them instead.
             return (
                 <div ref={attachRef ? bodyRef : undefined} className="h-full overflow-y-auto px-3 sm:px-4 py-3 space-y-4">
+                    {(day?.tasks.length ?? 0) > 0 && (
+                        <section data-day-planned>
+                            <h3 className={`${heading} text-slate-600 dark:text-slate-300`}>{tr("Planned for today")}</h3>
+                            <div data-day-list className={DAY_GRID}>
+                                {day!.tasks.map(task => chip(task, false, undefined, true))}
+                            </div>
+                        </section>
+                    )}
                     {LATE_KINDS.map(kind => late[kind].length > 0 && (
                         <section key={kind} data-late-list={kind}>
-                            <h3 className={`${heading} ${kind === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-accent-fg'}`}>
+                            <h3 tabIndex={-1} className={`${heading} outline-none ${kind === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-accent-fg'}`}>
                                 {lateLabel(kind)}
                             </h3>
                             <div data-day-list className={DAY_GRID}>
@@ -791,14 +840,6 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             </div>
                         </section>
                     ))}
-                    {(day?.tasks.length ?? 0) > 0 && (
-                        <section>
-                            <h3 className={`${heading} text-slate-600 dark:text-slate-300`}>{tr("Planned for today")}</h3>
-                            <div data-day-list className={DAY_GRID}>
-                                {day!.tasks.map(task => chip(task, false, undefined, true))}
-                            </div>
-                        </section>
-                    )}
                 </div>
             );
         }
@@ -846,32 +887,36 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                 title={viewLabel}
                 subtitle={subLabel}
                 loading={loading}
-                overdue={late.overdue.length}
+                /* Said once: on screen, today's group already carries it. */
+                overdue={todayInView ? 0 : late.overdue.length}
             />
 
             {/* The course filter — the library calendar only (in a workspace
                 every chip is this project), with two courses or more, and the
                 same row in every view and width. */}
             {filterProjects.length > 1 && (
-                /* Capped: at 160% six project names stacked one per line took ~400
-                   of 812px — the key to the calendar taking half the calendar. */
+                /* A filter, not the place a course name is read: each pill is
+                   capped at 14rem with the whole name in its tooltip (whole names
+                   wrapped two rows at 1280 and five on a phone). A narrow
+                   calendar gets ONE row that scrolls sideways (~300 of a phone's
+                   844px before); a wide one wraps, capped at 22vh. */
                 <div role="group" aria-label={tr("Show courses")} data-course-filter
-                    className="flex flex-wrap items-center gap-1.5 px-3 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 max-h-[22vh] overflow-y-auto">
-                    <Chip tone={picked.length === 0 ? 'accent' : 'neutral'} aria-pressed={picked.length === 0}
+                    className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 border-b border-slate-200 dark:border-slate-700 shrink-0 ${narrow
+                        ? 'flex-nowrap overflow-x-auto overscroll-x-contain [scrollbar-width:thin]'
+                        : 'flex-wrap max-h-[22vh] overflow-y-auto'}`}>
+                    <Chip tone={picked.length === 0 ? 'picked' : 'neutral'} aria-pressed={picked.length === 0}
                         onClick={() => setPicked([])}>
                         {tr("All courses")}
                     </Chip>
                     {filterProjects.map(p => (
-                        /* No width cap. A flat 180px would truncate a long name on
-                           a 2560px screen with half the row empty beside it. The
-                           row WRAPS, so a pill is laid out at its natural width and
-                           only ever cuts when one name is wider than the whole row;
-                           its tooltip then holds the whole name. */
-                        <Chip key={p.id} shrink tone={picked.includes(p.id) ? 'accent' : 'neutral'}
+                        /* `shrink` only where the row wraps: in a one-row scroller a
+                           shrinking pill is squeezed to its dot instead of the row
+                           scrolling. The cap holds either way. */
+                        <Chip key={p.id} shrink={!narrow} className="max-w-[14rem]" tone={picked.includes(p.id) ? 'picked' : 'neutral'}
                             aria-pressed={picked.includes(p.id)} title={p.name}
                             onClick={() => togglePicked(p.id)}
-                            icon={<span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: p.color }} aria-hidden="true" />}>
-                            <span className="truncate">{p.name}</span>
+                            icon={<span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-white/70" style={{ backgroundColor: p.color }} aria-hidden="true" />}>
+                            <span className="min-w-0 truncate">{p.name}</span>
                         </Chip>
                     ))}
                 </div>

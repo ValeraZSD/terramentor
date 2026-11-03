@@ -2,9 +2,10 @@
 //
 // Run:  node tools/calendar-gates.mjs
 //
-// Deterministic, no model, no network, no database: `buildCalendarScaffold` and
+// Deterministic, no model, no network: `buildCalendarScaffold` and
 // `assignTasksToDays` are pure, so this suite bundles the real `src/utils/tree.ts`
-// with esbuild and drives them directly.
+// with esbuild and drives them directly. Section 9 alone opens a database, a
+// scratch one (`DB_PATH` and `VAULT_ROOT` set in-process).
 //
 // Why it exists. Every scheduled topic was drawn on EVERY day of its span, so a
 // week holding six topics scheduled five days each painted thirty chips — the
@@ -24,6 +25,11 @@
 // says about its key, the keys themselves (any layout, once per press, only
 // when the calendar or nothing has focus), focus on arrival, and the widths
 // that switch the layout. It mounts the real components with React in jsdom.
+//
+// Section 8 is late work: a topic past its last day leaves its days and is
+// counted once on today, opening the Day view's list; the course filter.
+// It mounts the real `CalendarView` with the store and the API stubbed.
+// Section 9 is the server sending that late work whatever the range.
 
 import { mkdirSync, mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -701,7 +707,8 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
 // everywhere else: a topic that ended before the period touched no day on
 // screen, so a course 37 days behind showed one late chip, and the Day view of
 // today showed none. Now it leaves its days and sits once on today, as a group
-// that opens the Day view's list; the Today button carries the count; the
+// that opens the Day view's list (under the day's own plan); the Today button
+// carries the count only while today is off screen; the
 // course key is a filter in every view; a long course name is never cut.
 //
 // The real `CalendarView` is mounted in jsdom, with the store and the API
@@ -746,6 +753,9 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         { id: 1, name: LONG, color: '#DC2626', scheduled: true },
         { id: 2, name: 'Linear Algebra', color: '#2563EB', scheduled: true },
         { id: 3, name: 'Spanish B1', color: '#16A34A', scheduled: true },
+        // Dated, with nothing in any period the gate pages through: the row
+        // must still list it, or it would come and go as the learner pages.
+        { id: 4, name: 'Music Theory', color: '#EA580C', scheduled: true },
     ];
     const row = (nodeId, projectId, title, s, e, status = 'not_started', provable = false) =>
         ({ nodeId, projectId, title, status, scheduled_start: s, scheduled_end: e, provable });
@@ -761,7 +771,9 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         row(109, 3, 'Subjunctive', '2026-11-04', '2026-11-04'),
     ];
     const LATE = [101, 102, 103, 104, 105];
-    const NOW = Date.parse('2026-11-04T12:00:00Z');
+    // LOCAL noon: `todayStr()` reads local getters, and UTC noon is already
+    // the 5th in UTC+12 to +14.
+    const NOW = new Date(2026, 10, 4, 12).getTime();
 
     // The store and the API, replaced. The view reads both through these two
     // module paths and nothing else here.
@@ -881,7 +893,13 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         const curr = () => host.querySelector('[data-panel="curr"]') ?? host;
         const ids = (root) => [...root.querySelectorAll('[data-node-id]')].map(e => Number(e.getAttribute('data-node-id')));
         const radio = (name) => [...host.querySelectorAll('[role="radio"]')].find(r => r.textContent.trim() === name);
-        const click = async (el) => { await view.act(async () => { el?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); }); await settle(); };
+        // A miss is a FAIL of its own: a silent no-op would let a later check
+        // test the same view twice and pass.
+        const click = async (el, what = 'a control') => {
+            if (!el) { check(`there is ${what} to press`, false); return; }
+            await view.act(async () => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, detail: 1 })); });
+            await settle();
+        };
         const todayCell = () => curr().querySelector('[data-date="2026-11-04"]');
         const group = (kind, root = todayCell()) => root?.querySelector(`[data-late-group="${kind}"]`);
         const legendNames = () => [...host.querySelectorAll('[role="group"][data-course-filter] button')].map(b => b.textContent.trim());
@@ -901,10 +919,17 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         check('week: work that is not late keeps its day (done Monday, under way from Tuesday, Thursday, today)',
             onDay(106) === '2026-11-02' && onDay(107) === '2026-11-03' && onDay(108) === '2026-11-05' && onDay(109) === T_TODAY,
             JSON.stringify([106, 107, 108, 109].map(onDay)));
-        check('the Today button carries the overdue count', badge() === '4', String(badge()));
+        // Three strangers read "Today 24" beside "24 overdue" as two counts, one
+        // of them "24 things today": the number is said once, where it is.
+        check('the Today button carries no count while today is on screen (the group there says it)',
+            badge() === null, String(badge()));
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        check('…and carries the overdue count once today is off screen, the one way back to it',
+            badge() === '4', String(badge()));
+        await click(host.querySelector('button[aria-label="Previous period"]'));
 
         // -- the group opens the Day view's list -------------------------------
-        await click(group('overdue'));
+        await click(group('overdue'), 'an overdue group on today (week)');
         const dayOn = radio('Day')?.getAttribute('aria-checked') === 'true';
         const list = (kind) => [...(host.querySelector(`[data-panel="curr"] [data-late-list="${kind}"]`)?.querySelectorAll('[data-node-id]') ?? [])]
             .map(e => Number(e.getAttribute('data-node-id')));
@@ -914,11 +939,23 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             JSON.stringify(list('overdue')) === '[101,102,103,104]', JSON.stringify(list('overdue')));
         check('…and the ready ones in their own list', JSON.stringify(list('ready')) === '[105]', JSON.stringify(list('ready')));
         check('…and still the day\'s own work', ids(curr()).includes(109), JSON.stringify(ids(curr())));
+        // Twenty-four red cards above the day's plan pushed "Planned for today"
+        // below the fold at 1280 and off a phone screen: the plan comes first,
+        // and the group the learner pressed is brought to them instead.
+        const planned = curr().querySelector('[data-day-planned]');
+        const firstLate = curr().querySelector('[data-late-list]');
+        check('Day view of today puts the day\'s own plan first, the late lists under it',
+            !!planned && !!firstLate && !!(planned.compareDocumentPosition(firstLate) & window.Node.DOCUMENT_POSITION_FOLLOWING),
+            `${planned ? 'plan' : 'no [data-day-planned]'} / ${firstLate ? 'late' : 'no late list'}`);
+        check('pressing a group lands on ITS list (focus on that list\'s heading)',
+            doc.activeElement?.closest('[data-late-list]')?.getAttribute('data-late-list') === 'overdue',
+            doc.activeElement?.outerHTML.slice(0, 80) ?? 'nothing focused');
         const dayBox = curr().querySelector('[data-day-list]');
         check('Day view uses its width: an auto-fill grid, not one centred column',
             !!dayBox && /auto-fill/.test(dayBox.className) && !curr().querySelector('.max-w-2xl'), dayBox?.className ?? 'no [data-day-list]');
-        check('Day view names the course on every chip, the long one whole',
-            curr().textContent.includes(LONG), 'long course name missing or cut');
+        const named = [101, 102, 103, 107].map(id => curr().querySelector(`[data-node-id="${id}"]`)?.textContent.includes(LONG) ?? false);
+        check('Day view names the course on EVERY chip of it, the long name whole',
+            named.every(Boolean), JSON.stringify(named));
         await click(host.querySelector('button[aria-label="Next period"]'));
         check('the Day view of another day has no late list (it is owed today, not tomorrow)',
             !host.querySelector('[data-panel="curr"] [data-late-list]'));
@@ -930,6 +967,13 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             `drawn: ${monthIds.filter(id => LATE.includes(id))}`);
         check('month: today\'s cell holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
             group('overdue')?.textContent ?? 'none');
+        // The cell itself opens its day as a WEEK on a desktop: the group's
+        // press must not reach it.
+        await click(group('overdue'), 'an overdue group on today (month)');
+        check('month: pressing the group in today\'s cell opens the Day list, not the cell\'s week',
+            radio('Day')?.getAttribute('aria-checked') === 'true' && !!host.querySelector('[data-panel="curr"] [data-late-list="overdue"]'),
+            `day: ${radio('Day')?.getAttribute('aria-checked')}`);
+        await click(radio('Month'));
 
         // -- the course filter, the same in every view ---------------------------
         const names = {};
@@ -937,7 +981,7 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             await resize(w); await click(radio(mode));
             names[`${mode}@${w}`] = legendNames().join(' | ');
         }
-        const want = ['All courses', LONG, 'Linear Algebra', 'Spanish B1'].join(' | ');
+        const want = ['All courses', LONG, 'Linear Algebra', 'Spanish B1', 'Music Theory'].join(' | ');
         check('the course filter is there in every view and width, listing the same courses',
             Object.values(names).every(n => n === want), JSON.stringify(names));
         await resize(1280); await click(radio('Week'));
@@ -948,13 +992,34 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         const only2 = ids(curr());
         check('picking a course shows only its work', only2.includes(108) && !only2.includes(107) && !only2.includes(109),
             JSON.stringify(only2));
-        check('…and the counts follow it (the group, the Today button)',
-            /^1 overdue/.test(group('overdue')?.textContent.trim() ?? '') && badge() === '1',
-            `${group('overdue')?.textContent} / ${badge()}`);
+        check('…and the count follows it', /^1 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
+            `${group('overdue')?.textContent}`);
+        // A tint read as "not picked" to two strangers: the picked pill is FILLED.
+        check('a picked course is filled, and "All courses" is not',
+            /(^|\s)bg-accent(\s|$)/.test(pill('Linear Algebra')?.className ?? '')
+            && !/(^|\s)bg-accent(\s|$)/.test(pill('All courses')?.className ?? 'bg-accent'),
+            `${pill('Linear Algebra')?.className}`);
         await click(pill('Linear Algebra'));
-        check('picking it again shows every course', ids(curr()).includes(107) && badge() === '4', `${badge()}`);
+        check('picking it again shows every course',
+            ids(curr()).includes(107) && /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''), `${group('overdue')?.textContent}`);
         check('a course\'s filter pill carries its whole name (title too, for a phone it no longer fits)',
             pill(LONG)?.getAttribute('title') === LONG);
+        // A picked course that leaves the library (archived while picked)
+        // must not keep filtering everything to nothing with no pill pressed.
+        await click(pill('Linear Algebra'), 'a "Linear Algebra" filter pill');
+        const fullRange = g.__calendarRange;
+        g.__calendarRange = (from, to) => {
+            const r = fullRange(from, to);
+            return { projects: r.projects.filter(p => p.id !== 2), tasks: r.tasks.filter(t => t.projectId !== 2) };
+        };
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        await click(host.querySelector('button[aria-label="Previous period"]'));
+        check('a picked course that is gone stops filtering: every other course shows, "All courses" pressed',
+            /^3 overdue/.test(group('overdue')?.textContent.trim() ?? '') && pill('All courses')?.getAttribute('aria-pressed') === 'true',
+            `${group('overdue')?.textContent} / ${pill('All courses')?.getAttribute('aria-pressed')}`);
+        g.__calendarRange = fullRange;
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        await click(host.querySelector('button[aria-label="Previous period"]'));
 
         // -- a long course name on a wide week's chip ------------------------------
         await resize(2560);
@@ -965,11 +1030,18 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
 
         // -- a phone ------------------------------------------------------------------
         await resize(390); await click(radio('Week'));
+        // Six long names wrapped into five rows took ~300 of a phone's 844px.
+        const filterRow = host.querySelector('[data-course-filter]');
+        check('phone: the course filter is ONE row that scrolls sideways, its pills capped',
+            /\bflex-nowrap\b/.test(filterRow?.className ?? '') && /\boverflow-x-auto\b/.test(filterRow?.className ?? '')
+            && /\bmax-w-/.test(pill(LONG)?.className ?? ''), filterRow?.className ?? 'no filter');
         check('phone week: today\'s row holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
             group('overdue')?.textContent ?? 'none');
         await click(radio('Month'));
         const dot = todayCell()?.querySelector('[data-late-count]');
-        check('phone month: today\'s cell carries the count', dot?.textContent.trim() === '4', dot?.textContent ?? 'none');
+        check('phone month: today\'s cell carries the count, and says what it counts to a screen reader',
+            dot?.querySelector('[aria-hidden="true"]')?.textContent.trim() === '4'
+            && dot?.querySelector('.sr-only')?.textContent.trim() === '4 overdue', dot?.innerHTML ?? 'none');
         unmount(); host.remove();
 
         // -- one course's own calendar ------------------------------------------------
@@ -990,6 +1062,16 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         check('a course\'s own calendar: the same group on today, counting a topic two months late',
             /^2 overdue/.test(g2?.textContent.trim() ?? ''), g2?.textContent ?? 'none');
         check('…and no course filter (one course)', !host2.querySelector('[data-course-filter]'));
+        // Selecting a late topic (the outline beside this calendar) shows TODAY,
+        // where it is drawn, with its group ringed: not its planned week in
+        // September, which no longer holds it.
+        const next2 = host2.querySelector('button[aria-label="Next period"]');
+        for (let i = 0; i < 2; i++) { await view.act(async () => { next2?.dispatchEvent(new window.MouseEvent('click', { bubbles: true, detail: 1 })); }); await settle(); }
+        await view.act(async () => { view.useStore.setState({ selectedNodeId: 201 }); }); await settle();
+        const g2sel = host2.querySelector('[data-panel="curr"] [data-date="2026-11-04"] [data-late-group="overdue"] > span');
+        check('selecting a late topic brings back today, its group ringed',
+            /\bring-accent\b/.test(g2sel?.className ?? ''), g2sel ? g2sel.className : 'today not on screen');
+        await view.act(async () => { view.useStore.setState({ selectedNodeId: null }); }); await settle();
         unmount2(); host2.remove();
 
         // -- an empty library ---------------------------------------------------------

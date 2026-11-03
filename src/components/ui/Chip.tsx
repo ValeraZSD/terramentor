@@ -13,7 +13,7 @@ import { FOCUS_RING, cx } from './vocabulary';
  * `px-2.5 py-1 rounded-full` in the next, `px-2.5 py-1.5` in a third — gives the
  * same kind of thing three heights. One component, one height.
  */
-export type ChipTone = 'neutral' | 'amber' | 'red' | 'accent';
+export type ChipTone = 'neutral' | 'amber' | 'red' | 'accent' | 'picked';
 
 const TONE: Record<ChipTone, string> = {
     neutral: 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 ' +
@@ -23,6 +23,10 @@ const TONE: Record<ChipTone, string> = {
     red: 'bg-red-50 dark:bg-red-900/15 border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300 ' +
         'can-hover:hover:brightness-95 dark:can-hover:hover:brightness-125',
     accent: 'bg-accent/10 border-accent/25 text-accent-fg can-hover:hover:bg-accent/15',
+    // A pressed toggle in a row of toggles (the calendar's course filter). The
+    // `accent` tint read as "not picked" beside white pills, so a picked pill
+    // is FILLED, as the primary button is.
+    picked: 'bg-accent border-accent text-white can-hover:hover:bg-accent/90',
 };
 
 interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className'> {
