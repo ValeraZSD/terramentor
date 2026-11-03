@@ -241,6 +241,7 @@
   "{{width}} × {{height}}, {{fps}} frames a second, {{size}} MB._other": "{{width}} × {{height}}、毎秒{{fps}}フレーム、{{size}} MB。",
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}、毎秒 {{fps}} フレーム。README、チャット、スライドなど、画像が表示できる場所ならどこでも再生されます。",
   "{{withMaterial}}/{{leaves}} written": "{{withMaterial}} / {{leaves}} 作成済み",
+  "{{words}} words_other": "{{words}} 語",
   "/ {{total}} files indexed_other": "/ {{total}} ファイルをインデックス済み",
   "• {{removed}} deleted": "• {{removed}} 削除済み",
   "• {{skipped}} skipped": "• {{skipped}} スキップ済み",

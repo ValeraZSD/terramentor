@@ -241,6 +241,7 @@
   "{{width}} × {{height}}, {{fps}} frames a second, {{size}} MB._other": "{{width}} × {{height}}，每秒 {{fps}} 帧，{{size}} MB。",
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}，每秒 {{fps}} 帧。凡是能显示图片的地方都能播放：README、聊天、幻灯片。",
   "{{withMaterial}}/{{leaves}} written": "{{withMaterial}}/{{leaves}} 已撰写",
+  "{{words}} words_other": "{{words}} 字",
   "/ {{total}} files indexed_other": "/ 已索引 {{total}} 个文件",
   "• {{removed}} deleted": "• {{removed}} 已删除",
   "• {{skipped}} skipped": "• {{skipped}} 已跳过",

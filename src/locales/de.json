@@ -346,6 +346,8 @@
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._one": "{{width}} × {{height}}, {{fps}} Bild pro Sekunde. Läuft überall, wo ein Bild angezeigt wird – in einer README, einem Chat, auf einer Folie.",
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}, {{fps}} Bilder pro Sekunde. Läuft überall, wo ein Bild angezeigt wird – in einer README, einem Chat, auf einer Folie.",
   "{{withMaterial}}/{{leaves}} written": "{{withMaterial}}/{{leaves}} geschrieben",
+  "{{words}} words_one": "{{words}} Wort",
+  "{{words}} words_other": "{{words}} Wörter",
   "/ {{total}} files indexed_one": "/ {{total}} Datei indiziert",
   "/ {{total}} files indexed_other": "/ {{total}} Dateien indiziert",
   "• {{removed}} deleted": "• {{removed}} gelöscht",

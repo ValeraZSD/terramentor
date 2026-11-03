@@ -30,6 +30,7 @@ import ConnectAIActions from '../ConnectAIActions';
 import { MAX_FILE_BYTES } from '../creation/SourceFiles';
 import { useAccentVars } from '../../hooks/useAccentVars';
 import { useElementWidth } from '../../hooks/useElementWidth';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { freeColour } from '../../utils/freeColour';
 import { READ_REASON, READ_REASON_OTHER } from './readReasons';
 import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind } from './shortCourseTypes';
@@ -86,6 +87,7 @@ type Box =
 
 function useReadLine() {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     /** "Video · 12 min · 4 topics": what was read and what it makes. */
     return (read: ShortReadOk, pasted: boolean): string => {
         const what = pasted ? t("Transcript")
@@ -95,7 +97,7 @@ function useReadLine() {
                         : t("Document");
         const size = read.kind === 'video' && read.minutes && !pasted ? t("{{n}} min", { n: read.minutes })
             : read.pages && read.kind !== 'page' ? t("{{count}} pages", { count: read.pages })
-                : t("{{count}} words", { count: read.words });
+                : t("{{words}} words", { count: read.words, words: num(read.words) });
         return [what, size, t("{{count}} topics", { count: read.topics })].join(' · ');
     };
 }
@@ -107,6 +109,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     onFullCourse: (doc: StagedDocument, title: string) => void;
 }) {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
     const readLine = useReadLine();
     const [box, setBox] = useState<Box>({ state: 'empty' });
@@ -306,7 +309,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                                 <Checkbox checked={picked.includes(c.part)} onChange={on => toggle(c.part, on)} />
                                 <span className="min-w-0 flex-1 text-sm text-slate-800 dark:text-slate-100">{c.title}</span>
                                 <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">
-                                    {c.from != null ? t("p. {{from}}", { from: c.from }) : t("{{count}} words", { count: c.words })}
+                                    {c.from != null ? t("p. {{from}}", { from: c.from }) : t("{{words}} words", { count: c.words, words: num(c.words) })}
                                 </span>
                             </label>
                         </li>
@@ -314,7 +317,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 </ul>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {picked.length > 0 && (
-                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">{t("{{count}} words", { count: words })}</span>
+                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">{t("{{words}} words", { count: words, words: num(words) })}</span>
                     )}
                     <Button variant="quiet" onClick={() => setBox({ state: 'read', read })}>{t("Back")}</Button>
                     <Button variant="primary" busy={busy} disabled={!picked.length}onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>

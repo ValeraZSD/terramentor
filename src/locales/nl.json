@@ -346,6 +346,8 @@
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._one": "{{width}} × {{height}}, {{fps}} beeld per seconde. Speelt overal waar een afbeelding werkt: een README, een chat, een dia.",
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}, {{fps}} beelden per seconde. Speelt overal waar een afbeelding werkt: een README, een chat, een dia.",
   "{{withMaterial}}/{{leaves}} written": "{{withMaterial}}/{{leaves}} geschreven",
+  "{{words}} words_one": "{{words}} woord",
+  "{{words}} words_other": "{{words}} woorden",
   "/ {{total}} files indexed_one": "/ {{total}} bestand geïndexeerd",
   "/ {{total}} files indexed_other": "/ {{total}} bestanden geïndexeerd",
   "• {{removed}} deleted": "• {{removed}} verwijderd",

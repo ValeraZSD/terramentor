@@ -360,6 +360,8 @@
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._one": "{{width}} × {{height}}, {{fps}} frame a second. Plays anywhere an image does — a README, a chat, a slide.",
   "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide.",
   "{{withMaterial}}/{{leaves}} written": "{{withMaterial}}/{{leaves}} written",
+  "{{words}} words_one": "{{words}} word",
+  "{{words}} words_other": "{{words}} words",
   "/ {{total}} files indexed_one": "/ {{total}} file indexed",
   "/ {{total}} files indexed_other": "/ {{total}} files indexed",
   "• {{removed}} deleted": "• {{removed}} deleted",

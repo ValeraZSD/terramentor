@@ -222,6 +222,8 @@ const enPlurals: Record<string, string> = {
     "{{width}} × {{height}}, {{fps}} frames a second, {{size}} MB._other": "{{width}} × {{height}}, {{fps}} frames a second, {{size}} MB.",
     "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._one": "{{width}} × {{height}}, {{fps}} frame a second. Plays anywhere an image does — a README, a chat, a slide.",
     "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide._other": "{{width}} × {{height}}, {{fps}} frames a second. Plays anywhere an image does — a README, a chat, a slide.",
+    "{{words}} words_one": "{{words}} word",
+    "{{words}} words_other": "{{words}} words",
     "/ {{total}} files indexed_one": "/ {{total}} file indexed",
     "/ {{total}} files indexed_other": "/ {{total}} files indexed",
     "A sitting of {{n}} from this topic's {{bank}} questions, the ones you have not been asked first_one": "A sitting of {{n}} from this topic's {{bank}} question, the ones you have not been asked first",
