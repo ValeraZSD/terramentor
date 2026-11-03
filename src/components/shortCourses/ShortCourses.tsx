@@ -618,14 +618,13 @@ function ShortCard({ row, project, onChanged }: {
     );
 }
 
-export default function ShortCourses({ rows, projects, onChanged, onFullCourse, showBox = true }: {
-    /** The short courses to show (the page has already left out the finished,
-     *  the archived and what a search does not match); null until loaded. */
+export default function ShortCourses({ rows, projects, onChanged, onFullCourse }: {
+    /** The short courses to show (the page has already left out the finished
+     *  and the archived); null until loaded. */
     rows: ShortCourseRow[] | null;
     projects: Project[];
     onChanged: () => void;
     onFullCourse: (doc: StagedDocument, title: string) => void;
-    showBox?: boolean;
 }) {
     const { t } = useTranslation();
     const ref = useRef<HTMLElement>(null);
@@ -634,16 +633,12 @@ export default function ShortCourses({ rows, projects, onChanged, onFullCourse, 
     const list = rows ?? [];
     const byId = new Map(projects.map(p => [p.id, p]));
 
-    // While the page is filtered the box is HIDDEN, never unmounted: a link
-    // pasted and read, or a file staged, is still there when the filter clears.
     return (
-        <section ref={ref} aria-label={t("Short courses")} className="mb-10" hidden={!showBox && !list.length}>
+        <section ref={ref} aria-label={t("Short courses")} className="mb-10">
             <SectionLabel>{list.length ? `${t("Short courses")} · ${list.length}` : t("Short courses")}</SectionLabel>
-            <div hidden={!showBox}>
-                <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />
-            </div>
+            <SourceBox projects={projects} narrow={narrow} onCreated={onChanged} onFullCourse={onFullCourse} />
             {list.length > 0 && (
-                <div className={cx(COMPACT_GRID, showBox && 'mt-4')}>
+                <div className={cx(COMPACT_GRID, 'mt-4')}>
                     {list.map(row => <ShortCard key={row.id} row={row} project={byId.get(row.id)} onChanged={onChanged} />)}
                 </div>
             )}

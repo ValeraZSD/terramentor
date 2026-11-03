@@ -15,8 +15,7 @@
 //   - Finished and Archived: both kinds, newest first, one press away, with
 //     their counts always on the switch so a course that left Active is never
 //     "gone"; the view is in the address (`?show=finished|archived`);
-//   - a find field from 12 projects that narrows all three views at once, the
-//     counts following it, so a match in another view shows on its segment.
+//   - no find field of its own: the top bar's search finds a course in any view.
 //
 // The REAL ProjectsGrid, ShortCourses and store are bundled into jsdom inside a
 // MemoryRouter; `fetch` answers the library and the short-course list from a
@@ -226,39 +225,26 @@ section('the view round-trips through ?show=');
     odd.close();
 }
 
-// ---- 4. find narrows every view; the counts follow it ---------------------------
-section('find narrows all three views, and the counts follow');
+// ---- 4. one search, the top bar's ---------------------------------------------------
+// A find field of the page's own sat under the top bar's search, which already
+// finds a course in any view and opens it: two searches on one page (his call,
+// 3 Nov 2026). The page has none, however big the library.
+section('the page has no search of its own: the top bar finds courses');
+for (const where of ['/projects', '/projects?show=finished', '/projects?show=archived']) {
+    const pg = await page(where);
+    check(`${where}: no find field of the page's own, with 13 projects`, !pg.find() && !pg.el.querySelector('input[placeholder^="Find"]'));
+    pg.close();
+}
 {
-    const pg = await page('/projects');
-    check('the find field is there with 13 projects', !!pg.find());
-    if (pg.find()) await pg.type('ing');
-    check('typing "ing" leaves the active matches only',
-        same(pg.order(NAMES).slice().sort(), ['Bread baking', 'Puppy training', 'Sailing knots']), pg.order(NAMES).join(', '));
-    check('…and every count follows the filter (Active 3, Finished 1, Archived 1)',
-        pg.count('Active') === 3 && pg.count('Finished') === 1 && pg.count('Archived') === 1,
-        pg.radios().map(b => b.textContent.trim()).join(' | '));
-    if (pg.find()) await pg.type('cafe');
-    check('accents fold: "cafe" finds "Café roasting" in Finished',
-        pg.count('Finished') === 1 && pg.count('Active') === 0, pg.radios().map(b => b.textContent.trim()).join(' | '));
-    check('…and Active says nothing active matches', /No active course matches/.test(pg.text()));
-    const fin = pg.radio('Finished');
-    if (fin) await pg.press(fin);
-    check('the filter holds across a change of view', same(pg.order(NAMES), ['Café roasting']), pg.order(NAMES).join(', '));
-    if (pg.find()) await pg.type('zzz');
-    check('a search with no hits in a view says so', /Nothing here matches/.test(pg.text()));
+    const big = [...LIB, ...Array.from({ length: 40 }, (_, i) => P(100 + i, `Extra course ${i + 1}`))];
+    const pg = await page('/projects', big);
+    check('…nor with 53', !pg.find() && !pg.el.querySelector('input[placeholder^="Find"]'));
     pg.close();
 }
 
 // ---- 5. what a small library does not get --------------------------------------
-section('a small library gets no switch and no find field');
+section('a first library gets no switch');
 {
-    const twelve = LIB.slice(0, 12), eleven = LIB.slice(0, 11);
-    const a = await page('/projects', twelve);
-    check('12 projects: the find field appears', !!a.find());
-    a.close();
-    const b = await page('/projects', eleven);
-    check('11 projects: no find field', !b.find());
-    b.close();
     const onlyActive = LIB.filter(p => p.status === 'active');
     const c = await page('/projects', onlyActive);
     check('nothing finished or archived: no switch to explain', c.radios().length === 0,
@@ -280,26 +266,6 @@ section('the page stays usable when the library changes under it');
     check('…moved back to Active, the page shows Active, not an empty Finished with no way out',
         pg.radios().length === 0 && ACTIVE_FULL.every(n => pg.text().includes(n)) && !/Nothing finished yet/.test(pg.text()),
         pg.text().slice(0, 200));
-    pg.close();
-}
-{
-    // A filter typed at 12 projects, then one deleted: the field goes, and so must the filter.
-    const twelve = LIB.slice(0, 12);
-    const pg = await page('/projects', twelve);
-    if (pg.find()) await pg.type('chem');
-    await pg.setLib(twelve.slice(0, 11));
-    check('the find field gone (11 projects), nothing is filtered by text no one can see',
-        !pg.find() && ACTIVE_FULL.every(n => pg.text().includes(n)), pg.order(NAMES).join(', '));
-    pg.close();
-}
-{
-    // A link typed into the short-course box survives a filter typed and cleared.
-    const pg = await page('/projects');
-    const box = () => pg.el.querySelector('input[aria-label="Paste a link or drop a file"], input[aria-label="Paste a link"]');
-    if (box()) await pg.fill(box(), 'example.org/half-typed');
-    if (pg.find()) { await pg.type('dutch'); await pg.type(''); }
-    check('a half-typed link in the short-course box survives a find typed and cleared',
-        box()?.value === 'example.org/half-typed', box() ? JSON.stringify(box().value) : 'no box');
     pg.close();
 }
 {

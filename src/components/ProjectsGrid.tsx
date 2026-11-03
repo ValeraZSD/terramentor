@@ -31,9 +31,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import { Plus, Search, X } from 'lucide-react';
-import { Button, IconButton } from './ui/Button';
-import { TextInput } from './ui/Field';
+import { Plus } from 'lucide-react';
+import { Button } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { RecordCard } from './projects/RecordCard';
 import { COMPACT_GRID } from './projects/CompactCard';
@@ -69,12 +68,6 @@ const showFrom = (search: string): Show => {
     const v = new URLSearchParams(search).get('show');
     return v === 'finished' || v === 'archived' ? v : 'active';
 };
-
-/** From this many projects the page offers to find one by name. */
-const FIND_FROM = 12;
-
-/** Case and accents aside, so "resume" finds "Résumé". */
-const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 // --------------
 // MAIN COMPONENT
@@ -240,25 +233,18 @@ export default function ProjectsGrid() {
     // Three views of one library. Active is what is being studied, short and
     // full; Finished and Archived hold both kinds as small cards, newest
     // first, one press away with their counts always on the switch, so a
-    // course that left Active is never "gone". The name filter narrows all
-    // three at once and the counts follow it, so a match in another view
-    // shows on that view's segment instead of hiding.
+    // course that left Active is never "gone". Finding a course by name is the
+    // top bar's search, which covers every view: no second field here.
     // A first library has nothing finished or put away: no switch to explain.
     // Without the switch the page is Active whatever the address says, so the
     // last record leaving Finished never strands the learner on an empty view.
     const hasRecords = projects.some(p => p.status === 'completed' || p.status === 'archived');
-    const canFind = projects.length >= FIND_FROM;
     const show: Show = hasRecords ? showFrom(location.search) : 'active';
     const setShow = (next: Show) => navigate(next === 'active' ? '/projects' : `/projects?show=${next}`, { replace: true });
-    const [query, setQuery] = useState('');
-    const findRef = useRef<HTMLInputElement>(null);
-    // A filter whose field is gone (the library fell under 12) filters nothing.
-    const q = canFind ? fold(query.trim()) : '';
-    const matches = (name: string) => !q || fold(name).includes(q);
     const byId = new Map(projects.map(p => [p.id, p]));
     const isActive = (p: Project) => (p.status ?? 'active') === 'active';
 
-    const activeProjects = projects.filter(p => isActive(p) && !onStrip(p) && matches(p.name));
+    const activeProjects = projects.filter(p => isActive(p) && !onStrip(p));
     // What needs the learner first: the one being written (just made), then
     // those under way (last studied first), then those not begun (newest
     // first), and last the ones done to the end and kept in Active.
@@ -266,13 +252,13 @@ export default function ProjectsGrid() {
         r.state === 'building' || r.state === 'failed' ? 0 : r.state === 'studying' ? 1 : r.state === 'ready' ? 2 : 3;
     const activeShort = (shortRows ?? []).filter(r => {
         const p = byId.get(r.id);
-        return (!p || isActive(p)) && matches(r.name);
+        return !p || isActive(p);
     }).sort((a, b) => stage(a) - stage(b)
         || (byId.get(b.id)?.last_done_at ?? '').localeCompare(byId.get(a.id)?.last_done_at ?? '')
         || b.id - a.id);
     const recent = (a: Project, b: Project) => (b.last_done_at ?? '').localeCompare(a.last_done_at ?? '') || b.id - a.id;
-    const finishedProjects = projects.filter(p => p.status === 'completed' && matches(p.name)).sort(recent);
-    const archivedProjects = projects.filter(p => p.status === 'archived' && matches(p.name))
+    const finishedProjects = projects.filter(p => p.status === 'completed').sort(recent);
+    const archivedProjects = projects.filter(p => p.status === 'archived')
         .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '') || b.id - a.id);
     const counts: Record<Show, number> = {
         active: activeProjects.length + activeShort.length,
@@ -313,72 +299,29 @@ export default function ProjectsGrid() {
                         </Button>
                     </div>
 
-                    {(hasRecords || canFind) && (
-                        // The switch and the name filter: one line where the page
-                        // is wide; on a phone the filter wraps under the switch
-                        // and takes the whole line.
-                        <div className="flex flex-wrap items-center gap-3 mb-8">
-                            {hasRecords && (
-                                <SegmentedControl<Show>
-                                    label={t("Which courses")}
-                                    onPage
-                                    value={show}
-                                    onChange={setShow}
-                                    options={(['active', 'finished', 'archived'] as const).map(v => ({
-                                        value: v,
-                                        label: (
-                                            <span className="inline-flex items-baseline gap-1.5">
-                                                {v === 'active' ? t("Active") : v === 'finished' ? t("Finished") : t("Archived")}
-                                                <span className="tabular-nums text-slate-600 dark:text-slate-400">{counts[v]}</span>
-                                            </span>
-                                        ),
-                                    }))}
-                                />
-                            )}
-                            {canFind && (
-                                // A text field, not `type="search"`: Edge and Chrome
-                                // draw their own blue ✕ inside a search field, one
-                                // the app does not style. Ours is the one clear.
-                                // Right of the switch; with no switch it starts the
-                                // line, where the eye begins, not alone at the far end.
-                                // It wraps under the switch below 14rem, and is never
-                                // wider than the line (a 14rem floor ran off a phone
-                                // at 160% interface scale).
-                                <div className={`relative flex-1 basis-56 min-w-0 max-w-sm${hasRecords ? ' ml-auto' : ''}`}>
-                                    <TextInput
-                                        ref={findRef}
-                                        type="text"
-                                        role="searchbox"
-                                        enterKeyHint="search"
-                                        icon={<Search className="w-4 h-4" aria-hidden="true" />}
-                                        value={query}
-                                        onChange={e => setQuery(e.target.value)}
-                                        onKeyDown={e => {
-                                            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); setQuery(''); }
-                                        }}
-                                        placeholder={t("Find a course…")}
-                                        aria-label={t("Find a course…")}
-                                        className={query ? 'pr-10 touch:pr-12' : undefined}
-                                    />
-                                    {query && (
-                                        <IconButton
-                                            size="sm"
-                                            className="absolute right-1 top-1/2 -translate-y-1/2"
-                                            // Clearing keeps the caret in the field.
-                                            onMouseDown={e => e.preventDefault()}
-                                            onClick={() => { setQuery(''); findRef.current?.focus(); }}
-                                            label={t("Clear")}
-                                            icon={<X className="w-4 h-4" aria-hidden="true" />}
-                                        />
-                                    )}
-                                </div>
-                            )}
+                    {hasRecords && (
+                        <div className="mb-8">
+                            <SegmentedControl<Show>
+                                label={t("Which courses")}
+                                onPage
+                                value={show}
+                                onChange={setShow}
+                                options={(['active', 'finished', 'archived'] as const).map(v => ({
+                                    value: v,
+                                    label: (
+                                        <span className="inline-flex items-baseline gap-1.5">
+                                            {v === 'active' ? t("Active") : v === 'finished' ? t("Finished") : t("Archived")}
+                                            <span className="tabular-nums text-slate-600 dark:text-slate-400">{counts[v]}</span>
+                                        </span>
+                                    ),
+                                }))}
+                            />
                         </div>
                     )}
 
                     {show === 'active' && (
                         <>
-                            <ShortCourses rows={shortRows ? activeShort : null} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} showBox={!q} />
+                            <ShortCourses rows={shortRows ? activeShort : null} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} />
                             {activeProjects.length > 0 && (
                                 <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
                             )}
@@ -416,12 +359,7 @@ export default function ProjectsGrid() {
 
                             {/* Not before the short courses' list is in: until then
                                 a library of short courses only counts zero. */}
-                            {q && shortRows !== null && counts.active === 0 && (
-                                <p className="py-12 text-center text-slate-500 dark:text-slate-400">
-                                    {t("No active course matches “{{query}}”.", { query: query.trim() })}
-                                </p>
-                            )}
-                            {!q && shortRows !== null && projects.length > 0 && counts.active === 0 && (
+                            {shortRows !== null && projects.length > 0 && counts.active === 0 && (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
                                     {t("Nothing in progress. Paste a link above for a short course, or start a new project.")}
                                 </p>
@@ -434,8 +372,7 @@ export default function ProjectsGrid() {
                         if (!items.length) {
                             return (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
-                                    {q ? t("Nothing here matches “{{query}}”.", { query: query.trim() })
-                                        : show === 'finished' ? t("Nothing finished yet. A course you finish moves here.")
+                                    {show === 'finished' ? t("Nothing finished yet. A course you finish moves here.")
                                             : t("Nothing archived. A course you archive leaves Active and waits here.")}
                                 </p>
                             );
