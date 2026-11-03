@@ -48,8 +48,9 @@ const ok = (name, cond, detail) => { checked++; if (!cond) findings.push({ name,
 const THIN = /\bh-(?:0\.5|1|1\.5|2|2\.5|3|4)\b/;
 // A grey track, or one tinted with the accent (`bg-accent/10`), which is as faint.
 const TRACK_BG = /\bbg-(?:slate|gray|zinc|neutral|stone|white|accent)(?:-\d+)?(?:\/\d+)?(?![\w-])/;
-// Any rounding size, unprefixed (a `sm:rounded-3xl` dialog is not a track).
-const ROUNDED = /(?:^|[\s"'`])rounded(?:-(?:sm|md|lg|xl|2xl|3xl|full))?(?=[\s"'`,)]|$)/;
+// Any rounding size, named or arbitrary (`rounded-[4px]`), unprefixed (a
+// `sm:rounded-3xl` dialog is not a track).
+const ROUNDED = /(?:^|[\s"'`])rounded(?:-(?:sm|md|lg|xl|2xl|3xl|full)|-\[[^\]\s]+\])?(?=[\s"'`,)]|$)/;
 const isHandTrack = (cls) => THIN.test(cls) && ROUNDED.test(cls)
     && TRACK_BG.test(cls) && /\boverflow-hidden\b/.test(cls);
 // A percentage width in any spelling: `${p}%`, p + '%', '40%', on ? '40%' : 0.
@@ -85,17 +86,39 @@ function tagEnd(text, at) {
     return text.length;
 }
 
+/** True when the text from a candidate `<` up to `at` leaves no `{...}` and
+ *  no quoted value open: a `<` inside `x < 3` or `title="<b"` does. */
+function closesCleanly(between) {
+    let depth = 0, quote = '';
+    for (const c of between) {
+        if (quote) { if (c === quote) quote = ''; }
+        else if (c === '{') depth++;
+        else if (c === '}') depth--;
+        else if (depth === 0 && (c === '"' || c === "'")) quote = c;
+    }
+    return depth === 0 && !quote;
+}
+
 /** Where the tag holding `at` starts: the nearest `<` that opens an element
- *  and does not sit inside an attribute's `{...}` (as `x < 3` would). */
+ *  and does not sit inside an attribute's `{...}` or quoted value. */
 function tagStart(text, at) {
     for (let j = at; j > 0;) {
         j = text.lastIndexOf('<', j - 1);
         if (j < 0) return 0;
         if (!/[A-Za-z]/.test(text[j + 1] ?? '')) continue;
-        const between = text.slice(j, at);
-        if ((between.match(/\{/g) ?? []).length === (between.match(/\}/g) ?? []).length) return j;
+        if (closesCleanly(text.slice(j, at))) return j;
     }
     return 0;
+}
+
+/** Is a `<ProgressTrack>` still open at `at`? The nearest one, however far
+ *  above; a self-closing one, or one closed since, is not. */
+function insideTrack(text, at) {
+    const head = text.slice(0, at);
+    const open = head.lastIndexOf('<ProgressTrack');
+    if (open < 0 || open < head.lastIndexOf('</ProgressTrack>')) return false;
+    const end = tagEnd(text, open + 1);
+    return end <= at && text[end - 2] !== '/';
 }
 
 /** Finds hand-made tracks and fills in one file's text; returns [{line, what}].
@@ -104,7 +127,6 @@ function tagStart(text, at) {
  *  for a `style` written before or after it. */
 function scan(text) {
     const out = [];
-    const lines = text.split('\n');
     let line = 1, counted = 0;
     for (const m of text.matchAll(/className=/g)) {
         const at = m.index;
@@ -112,11 +134,8 @@ function scan(text) {
         const valueAt = at + 'className='.length;
         const cls = text.slice(valueAt, exprEnd(text, valueAt));
         const tag = text.slice(tagStart(text, at), tagEnd(text, valueAt));
-        const before = lines.slice(Math.max(0, line - 13), line).join('\n');
-        // Exempt only a fill whose nearest ProgressTrack is still open.
-        const inTrack = before.lastIndexOf('<ProgressTrack') > before.lastIndexOf('</ProgressTrack>');
         if (isHandTrack(cls)) out.push({ line, what: 'track' });
-        else if (isHandFill(cls, tag) && !inTrack) out.push({ line, what: 'fill' });
+        else if (isHandFill(cls, tag) && !insideTrack(text, at)) out.push({ line, what: 'fill' });
     }
     return out;
 }
@@ -154,6 +173,14 @@ ok('fixture: a comparison in an earlier attribute does not hide the style',
     scan('<div style={{ width: `${p}%` }} data-small={x < 3} className="h-full bg-accent" />').length === 1);
 ok('fixture: a fill after a closed ProgressTrack is caught',
     scan('<ProgressTrack size="lg" />\n</ProgressTrack>\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
+ok('fixture: a fill after a self-closing ProgressTrack is caught',
+    scan('<ProgressTrack size="lg" />\n<div className="h-full bg-accent" style={{ width: `${p}%` }} />').length === 1);
+ok('fixture: a fill far below its open ProgressTrack is let through',
+    scan(`<ProgressTrack size="lg">${'\n{/* a line */}'.repeat(20)}\n<div className="h-full bg-accent" style={{ width: \`\${p}%\` }} />`).length === 0);
+ok('fixture: a track rounded by an arbitrary value is caught',
+    scan('<div className="h-2 rounded-[4px] bg-slate-200 overflow-hidden">').length === 1);
+ok('fixture: a quoted "<" before className does not hide the style',
+    scan('<div style={{ width: `${p}%` }} title="<b" className="h-full bg-accent" />').length === 1);
 const files = globSync('src/**/*.tsx', { cwd: ROOT }).map((f) => f.split(path.sep).join('/')).filter((f) => f !== COMPONENT);
 for (const file of files) {
     const text = readFileSync(path.join(ROOT, file), 'utf8');
