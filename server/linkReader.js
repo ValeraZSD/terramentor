@@ -283,7 +283,7 @@ function looksScripted(html, text) {
 }
 
 function pageResult(link, html) {
-    const page = mainText(html);
+    const page = mainText(html, { host: link.host });
     if (looksScripted(html, page.text)) return fail(link, 'scripted', { title: page.title });
     if (!page.text.trim()) return fail(link, 'no_text', { title: page.title });
     return { ok: true, kind: 'page', url: link.url, host: link.host, title: page.title || link.host, text: page.text };
@@ -482,7 +482,10 @@ function metaContent(html, key) {
     return '';
 }
 
-function pageTitle(html) {
+/** A site's name reduced to letters and digits, so "Wikipedia" meets "wikipedia". */
+const siteKey = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+function pageTitle(html, host = '') {
     const og = metaContent(html, 'og:title') || metaContent(html, 'twitter:title');
     const raw = og || /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] || '';
     let title = decodeEntities(raw).replace(/\s+/g, ' ').trim();
@@ -490,6 +493,15 @@ function pageTitle(html) {
         // "Article name | Site" / "Article name - Site": the site's name off.
         const cut = title.replace(/\s+[|–—·•]\s+[^|–—·•]{1,60}$/, '').replace(/\s+-\s+[^-]{1,40}$/, '').trim();
         if (cut.length >= 8) title = cut;
+    } else {
+        // An og:title carries the site's name only sometimes ("Index fund -
+        // Wikipedia"), so there the tail goes only when it IS that name: the
+        // page's og:site_name, or a label of its host.
+        const tail = /\s+(?:[|–—·•]|-)\s+([^|–—·•-]{1,60})$/.exec(title);
+        const names = new Set([siteKey(decodeEntities(metaContent(html, 'og:site_name'))),
+            ...String(host).toLowerCase().split('.').slice(0, -1).filter(l => l.length >= 3 && l !== 'www')]);
+        names.delete('');
+        if (tail && names.has(siteKey(tail[1])) && tail.index >= 8) title = title.slice(0, tail.index).trim();
     }
     return title.slice(0, 300);
 }
@@ -498,13 +510,13 @@ function pageTitle(html) {
  * The main text of a page as Markdown-ish lines: `#` headings at their level,
  * `-` list items, paragraphs apart, a `<pre>` fenced. Exported for the gate.
  */
-export function mainText(html) {
+export function mainText(html, { host = '' } = {}) {
     const s = String(html || '');
     const tree = parseHtml(s);
     measure(tree);
     const { root, whole } = mainRoot(tree);
     const text = textBlocks(root, whole).map(formatBlock).filter(Boolean).join('\n\n');
-    return { title: pageTitle(s), text };
+    return { title: pageTitle(s, host), text };
 }
 
 // ---- a YouTube video -----------------------------------------------------------------------

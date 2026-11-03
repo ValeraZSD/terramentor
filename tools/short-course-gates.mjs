@@ -309,6 +309,10 @@ ok('the title is the page\'s own, entities decoded, the site name off', page.tit
 ok('headings stand on their own lines', /\n## Why fees matter\n/.test(page.text) && /\n## Rebalancing once a year\n/.test(page.text), page.text.slice(0, 300));
 ok('the article\'s paragraphs and list items are kept', page.text.includes(SENTENCES[2]) && /Low cost… always/.test(page.text) && /Broad spread of companies/.test(page.text));
 ok('menus, cookie banner, sidebar, footer and scripts are not', !/NAV_LINK_TEXT|COOKIE_BANNER_TEXT|ASIDE_TEXT|FOOTER_TEXT|SCRIPT_SECRET|color:red/.test(page.text), page.text.match(/NAV_LINK_TEXT|COOKIE_BANNER_TEXT|ASIDE_TEXT|FOOTER_TEXT|SCRIPT_SECRET|color:red/)?.[0]);
+const ogPage = (og, extra = '') => `<html><head><meta property="og:title" content="${og}">${extra}</head><body><p>${SENTENCES[0]}</p></body></html>`;
+ok('an og:title loses a tail that is the site\'s host ("Index fund - Wikipedia")', reader.mainText(ogPage('Index fund - Wikipedia'), { host: 'en.wikipedia.org' }).title === 'Index fund');
+ok('…or its og:site_name', reader.mainText(ogPage('Rebalancing a portfolio | The Money Desk', '<meta property="og:site_name" content="The Money Desk">'), { host: 'money.example' }).title === 'Rebalancing a portfolio');
+ok('…and keeps a tail that is part of the title', reader.mainText(ogPage('Rust - the language guide'), { host: 'docs.example' }).title === 'Rust - the language guide');
 const plain = reader.mainText(NO_ARTICLE_HTML);
 ok('with no <article> or <main>, the paragraphs are found and the menu is not', plain.text.includes(SENTENCES[0]) && !/MENU_ONE|FOOT_TEXT/.test(plain.text));
 
