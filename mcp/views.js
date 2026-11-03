@@ -36,7 +36,7 @@ const CHECK_STRINGS = [
 ];
 const REVIEW_STRINGS = [
     'Flashcard Review', 'Reveal answer', 'How well did you know this?', 'Again', 'Hard', 'Good', 'Easy',
-    'Undo the last rating', 'This card was reviewed again since, so that rating stays.', 'Session Complete!',
+    'Undo', 'Undo the last rating', 'This card was reviewed again since, so that rating stays.', 'Session Complete!',
     'You reviewed {{count}} flashcards', '{{count}} cards are still being learned and come back {{readyIn}}.',
     'Show them now anyway', 'No Cards Due', 'Question', 'Answer',
 ];

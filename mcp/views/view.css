@@ -91,6 +91,8 @@ button { font: inherit; color: inherit; }
 }
 .button.primary { background: var(--tm-strong-bg); color: var(--tm-strong-text); border-color: var(--tm-strong-bg); }
 .button.wide { width: 100%; }
+.button.with-icon { display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; }
+.button.with-icon .icon { width: 16px; height: 16px; }
 .icon-button {
     width: 36px;
     height: 36px;

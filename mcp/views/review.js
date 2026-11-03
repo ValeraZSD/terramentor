@@ -94,10 +94,12 @@
                 course ? h('h1', { class: 'title' }, course) : null),
             h('div', { class: 'head-side' },
                 v ? h('span', { class: 'muted' }, `${v.reviewed}/${v.total}`) : null,
-                h('button', {
-                    type: 'button', class: 'icon-button', 'data-focus': 'undo', disabled: !(v && v.rated > 0) || state.busy,
+                // As in the app's own review: a worded button, there only
+                // while a rating can be taken back, never a greyed icon.
+                v && v.rated > 0 ? h('button', {
+                    type: 'button', class: 'button with-icon', 'data-focus': 'undo', disabled: state.busy,
                     'aria-label': t('Undo the last rating'), title: `${t('Undo the last rating')} (Z)`, onClick: undo,
-                }, icon('undo'))));
+                }, icon('undo'), h('span', {}, t('Undo'))) : null));
     }
 
     function cardScreen(v) {
