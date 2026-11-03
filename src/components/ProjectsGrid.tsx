@@ -21,7 +21,6 @@ import {
     TouchSensor,
     useSensor,
     useSensors,
-    useDroppable,
     MeasuringStrategy,
 } from '@dnd-kit/core';
 import {
@@ -32,8 +31,12 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import { Plus } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { Button } from './ui/Button';
+import { SegmentedControl } from './ui/SegmentedControl';
+import { cx, FIELD_BASE } from './ui/vocabulary';
+import { RecordCard } from './projects/RecordCard';
+import { COMPACT_GRID } from './projects/CompactCard';
 import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
@@ -44,32 +47,6 @@ import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
 import { endDropFlash, endDropFlashIf, flashAfterDrop } from '../utils/dropFlash';
-
-// A *leaf* drop zone shown for an empty section while dragging, so a project can
-// be dropped in to change its status. It must NOT wrap a SortableContext —
-// nesting a droppable around sortable items makes dnd-kit's rect measurement
-// loop ("Maximum update depth exceeded").
-function EmptyDropZone({
-    status,
-    label,
-}: {
-    status: ProjectStatusValue;
-    label: string;
-}) {
-    const { t } = useTranslation();
-    const { setNodeRef, isOver } = useDroppable({ id: `status:${status}` });
-    return (
-        <div
-            ref={setNodeRef}
-            className={`rounded-xl border-2 border-dashed py-8 text-center text-sm transition-colors ${isOver
-                ? 'border-accent text-accent-fg bg-accent/5'
-                : 'border-slate-300 dark:border-slate-600 text-slate-400'
-                }`}
-        >
-            {t("Drop here to mark as {{label}}", { label })}
-        </div>
-    );
-}
 
 /**
  * The card grid. `auto-fill` with a floor, never a viewport breakpoint: the
@@ -85,6 +62,19 @@ function EmptyDropZone({
  * and the footer pinned to the bottom (`mt-auto`), the rows stay level.
  */
 const GRID = 'grid auto-rows-fr gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,21.25rem),1fr))]';
+
+/** Which of the page's three views is open: `?show=` in the URL, Active by default. */
+type Show = 'active' | 'finished' | 'archived';
+const showFrom = (search: string): Show => {
+    const v = new URLSearchParams(search).get('show');
+    return v === 'finished' || v === 'archived' ? v : 'active';
+};
+
+/** From this many projects the page offers to find one by name. */
+const FIND_FROM = 12;
+
+/** Case and accents aside, so "resume" finds "Résumé". */
+const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 // --------------
 // MAIN COMPONENT
@@ -246,10 +236,45 @@ export default function ProjectsGrid() {
     // one, so none flashes into the grid and out again.
     const shortIds = new Set((shortRows ?? []).map(r => r.id));
     const onStrip = (p: Project) => (shortRows ? shortIds.has(p.id) : !!p.made_from && p.status !== 'archived');
-    const gridProjects = projects.filter(p => !onStrip(p));
-    const activeProjects = gridProjects.filter(p => (p.status ?? 'active') === 'active');
-    const completedProjects = gridProjects.filter(p => p.status === 'completed');
-    const archivedProjects = gridProjects.filter(p => p.status === 'archived');
+
+    // Three views of one library. Active is what is being studied, short and
+    // full; Finished and Archived hold both kinds as small cards, newest
+    // first, one press away with their counts always on the switch, so a
+    // course that left Active is never "gone". The name filter narrows all
+    // three at once and the counts follow it, so a match in another view
+    // shows on that view's segment instead of hiding.
+    const show = showFrom(location.search);
+    const setShow = (next: Show) => navigate(next === 'active' ? '/projects' : `/projects?show=${next}`, { replace: true });
+    const [query, setQuery] = useState('');
+    const q = fold(query.trim());
+    const matches = (name: string) => !q || fold(name).includes(q);
+    const byId = new Map(projects.map(p => [p.id, p]));
+    const isActive = (p: Project) => (p.status ?? 'active') === 'active';
+
+    const activeProjects = projects.filter(p => isActive(p) && !onStrip(p) && matches(p.name));
+    // What needs the learner first: the one being written (just made), then
+    // those under way (last studied first), then those not begun (newest
+    // first), and last the ones done to the end and kept in Active.
+    const stage = (r: ShortCourseRow) =>
+        r.state === 'building' || r.state === 'failed' ? 0 : r.state === 'studying' ? 1 : r.state === 'ready' ? 2 : 3;
+    const activeShort = (shortRows ?? []).filter(r => {
+        const p = byId.get(r.id);
+        return (!p || isActive(p)) && matches(r.name);
+    }).sort((a, b) => stage(a) - stage(b)
+        || (byId.get(b.id)?.last_done_at ?? '').localeCompare(byId.get(a.id)?.last_done_at ?? '')
+        || b.id - a.id);
+    const recent = (a: Project, b: Project) => (b.last_done_at ?? '').localeCompare(a.last_done_at ?? '') || b.id - a.id;
+    const finishedProjects = projects.filter(p => p.status === 'completed' && matches(p.name)).sort(recent);
+    const archivedProjects = projects.filter(p => p.status === 'archived' && matches(p.name))
+        .sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '') || b.id - a.id);
+    const counts: Record<Show, number> = {
+        active: activeProjects.length + activeShort.length,
+        finished: finishedProjects.length,
+        archived: archivedProjects.length,
+    };
+    // A first library has nothing finished or put away: no switch to explain.
+    const hasRecords = projects.some(p => p.status === 'completed' || p.status === 'archived');
+    const canFind = projects.length >= FIND_FROM;
 
     // ------
     // RENDER
@@ -284,85 +309,113 @@ export default function ProjectsGrid() {
                         </Button>
                     </div>
 
-                    <ShortCourses rows={shortRows} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} />
-                    {activeProjects.length > 0 && (
-                        <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
+                    {(hasRecords || canFind) && (
+                        // The switch and the name filter: one line where the page
+                        // is wide; on a phone the filter wraps under the switch
+                        // and takes the whole line.
+                        <div className="flex flex-wrap items-center gap-3 mb-8">
+                            {hasRecords && (
+                                <SegmentedControl<Show>
+                                    label={t("Which courses")}
+                                    onPage
+                                    value={show}
+                                    onChange={setShow}
+                                    options={(['active', 'finished', 'archived'] as const).map(v => ({
+                                        value: v,
+                                        label: (
+                                            <span className="inline-flex items-baseline gap-1.5">
+                                                {v === 'active' ? t("Active") : v === 'finished' ? t("Finished") : t("Archived")}
+                                                <span className="tabular-nums text-slate-500 dark:text-slate-400">{counts[v]}</span>
+                                            </span>
+                                        ),
+                                    }))}
+                                />
+                            )}
+                            {canFind && (
+                                <label className="relative flex-1 min-w-[14rem] max-w-sm ml-auto">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" aria-hidden="true" />
+                                    <input
+                                        type="search"
+                                        value={query}
+                                        onChange={e => setQuery(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
+                                        placeholder={t("Find a course")}
+                                        aria-label={t("Find a course")}
+                                        className={cx(FIELD_BASE, 'block w-full h-10 pl-9 pr-3 text-sm')}
+                                    />
+                                </label>
+                            )}
+                        </div>
                     )}
 
-                    <DndContext
-                        sensors={sensors}
-                        collisionDetection={closestCorners}
-                        // Re-measure droppables during the drag so the empty-section
-                        // drop zones (which mount only once a drag starts) are detected.
-                        measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                    >
-                        {/* Active section. Plain SortableContext (NO droppable wrapper —
-                            wrapping a droppable around sortable items loops dnd-kit's
-                            measurement). Cross-section drops land on a card in the target
-                            section; empty sections use a separate leaf drop zone below. */}
-                        <SortableContext
-                            items={activeProjects.map(p => p.id)}
-                            strategy={rectSortingStrategy}
-                        >
-                            <div className={`${GRID} min-h-[2rem]`}>
-                                {activeProjects.map(project => (
-                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
-                                ))}
-                            </div>
-                        </SortableContext>
-                        {activeProjects.length === 0 && activeProject && (
-                            <EmptyDropZone status="active" label={t("Active")} />
-                        )}
-
-                        {([
-                            { label: t("Completed"), status: 'completed' as const, items: completedProjects },
-                            { label: t("Archived"), status: 'archived' as const, items: archivedProjects },
-                        ]).map(section => {
-                            const isEmpty = section.items.length === 0;
-                            const isDragging = activeProject != null;
-                            // Hidden entirely when empty and not dragging.
-                            if (isEmpty && !isDragging) return null;
-                            return (
-                                <div key={section.label}>
-                                    <div className="flex items-center gap-3 mt-10 mb-5">
-                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-                                        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                            {section.label} · {section.items.length}
-                                        </span>
-                                        <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-                                    </div>
-                                    {isEmpty ? (
-                                        <EmptyDropZone status={section.status} label={section.label} />
-                                    ) : (
-                                        <SortableContext
-                                            items={section.items.map(p => p.id)}
-                                            strategy={rectSortingStrategy}
-                                        >
-                                            <div className={`${GRID} opacity-70 hover:opacity-100 transition-opacity`}>
-                                                {section.items.map(project => (
-                                                    <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
-                                                ))}
-                                            </div>
-                                        </SortableContext>
-                                    )}
-                                </div>
-                            );
-                        })}
-
-                        <DragOverlay>
-                            {/* Opaque, lifted by its shadow: at 80% the card
-                                under it read through (two titles over each
-                                other), and the landing ended on a step from 80%
-                                to the real card. */}
-                            {activeProject && (
-                                <div className="h-full rounded-2xl shadow-2xl">
-                                    <ProjectCard project={activeProject} schedule={schedule.get(activeProject.id)} isDragOverlay />
-                                </div>
+                    {show === 'active' && (
+                        <>
+                            <ShortCourses rows={shortRows ? activeShort : null} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} showBox={!q} />
+                            {activeProjects.length > 0 && (
+                                <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
                             )}
-                        </DragOverlay>
-                    </DndContext>
+
+                            {/* Only Active is reordered by dragging: Finished and
+                                Archived are in the order they ended. A course
+                                changes view by its menu (Mark completed, Archive,
+                                Move to active). */}
+                            <DndContext
+                                sensors={sensors}
+                                collisionDetection={closestCorners}
+                                measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+                                onDragStart={handleDragStart}
+                                onDragEnd={handleDragEnd}
+                            >
+                                <SortableContext items={activeProjects.map(p => p.id)} strategy={rectSortingStrategy}>
+                                    <div className={GRID}>
+                                        {activeProjects.map(project => (
+                                            <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
+                                        ))}
+                                    </div>
+                                </SortableContext>
+                                <DragOverlay>
+                                    {/* Opaque, lifted by its shadow: at 80% the card
+                                        under it read through (two titles over each
+                                        other), and the landing ended on a step from 80%
+                                        to the real card. */}
+                                    {activeProject && (
+                                        <div className="h-full rounded-2xl shadow-2xl">
+                                            <ProjectCard project={activeProject} schedule={schedule.get(activeProject.id)} isDragOverlay />
+                                        </div>
+                                    )}
+                                </DragOverlay>
+                            </DndContext>
+
+                            {q && counts.active === 0 && (
+                                <p className="py-12 text-center text-slate-500 dark:text-slate-400">
+                                    {t("No active course matches “{{query}}”.", { query: query.trim() })}
+                                </p>
+                            )}
+                            {!q && projects.length > 0 && counts.active === 0 && (
+                                <p className="py-12 text-center text-slate-500 dark:text-slate-400">
+                                    {t("Nothing in progress. Paste a link above for a short course, or start a new project.")}
+                                </p>
+                            )}
+                        </>
+                    )}
+
+                    {show !== 'active' && (() => {
+                        const items = show === 'finished' ? finishedProjects : archivedProjects;
+                        if (!items.length) {
+                            return (
+                                <p className="py-12 text-center text-slate-500 dark:text-slate-400">
+                                    {q ? t("Nothing here matches “{{query}}”.", { query: query.trim() })
+                                        : show === 'finished' ? t("Nothing finished yet. A course you finish moves here.")
+                                            : t("Nothing archived. A course you archive leaves Active and waits here.")}
+                                </p>
+                            );
+                        }
+                        return (
+                            <div className={COMPACT_GRID}>
+                                {items.map(p => <RecordCard key={p.id} project={p} onChanged={shortChanged} />)}
+                            </div>
+                        );
+                    })()}
 
                     {projects.length === 0 && (
                         <div className="text-center py-16">
