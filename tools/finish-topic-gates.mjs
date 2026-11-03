@@ -232,7 +232,10 @@ try {
                     outs.every(b => b.fill === 'quiet'), describe(bs));
                 check(`${mode}, ${state}: "Complete topic" is not offered as the ordinary finish`,
                     !bs.some(b => b.label === 'Complete topic'), describe(bs));
-                if (mode === 'advisory') {
+                if (mode === 'advisory' && state === 'skipped') {
+                    check('advisory, skipped: a topic already skipped is not marked done from here',
+                        !bs.some(b => /^Mark done/.test(b.label)), describe(bs));
+                } else if (mode === 'advisory') {
                     check(`advisory, ${state}: "Mark done without the check" is one press away`,
                         bs.some(b => b.label === 'Mark done without the check'), describe(bs));
                 } else {
@@ -265,7 +268,11 @@ try {
             const primaries = bs.filter(b => b.fill === 'primary');
             check(`${what}: "Complete topic" is the one primary`,
                 primaries.length === 1 && primaries[0].label === 'Complete topic', describe(bs));
-            check(`${what}: the check is still offered beside it`, bs.some(b => CHECK.test(b.label)), describe(bs));
+            if (over.gateMode === 'off') {
+                check(`${what}: with the test switched off, no check is offered`, !bs.some(b => CHECK.test(b.label)), describe(bs));
+            } else {
+                check(`${what}: the check is still offered beside it`, bs.some(b => CHECK.test(b.label)), describe(bs));
+            }
             const group = bs.filter(b => b.label === 'Complete topic' || CHECK.test(b.label));
             check(`${what}: the pair carries an icon on both or on neither`,
                 group.every(b => b.icon) || group.every(b => !b.icon), describe(bs));
@@ -293,10 +300,12 @@ try {
         harness();
         await withCard(card({ gateMode: mode, nodeStatus: 'completed' }), async (el) => {
             const text = el.textContent || '';
-            check(`${mode}, completed without proof: the card says it was marked done without the check`,
-                /Marked done without the check/.test(text) && !/Topic completed/.test(text), text.slice(0, 160));
+            check(`${mode}, completed without proof: the card says it is not proven, not "Topic completed"`,
+                /Completed, not proven yet/.test(text) && !/Topic completed/.test(text), text.slice(0, 160));
             check(`${mode}, completed without proof: nothing on the card finishes it again`,
                 !buttonsIn(el).some(b => FINISH_WITHOUT_PROOF.test(b.label)), describe(buttonsIn(el)));
+            check(`${mode}, completed without proof: the check is still on offer, and does not shout`,
+                buttonsIn(el).some(b => CHECK.test(b.label) && b.fill === 'neutral'), describe(buttonsIn(el)));
         });
     }
     {
@@ -325,8 +334,21 @@ try {
             check('advisory: "Mark done without the check" completes it with the override, no refusal in between',
                 !!put && put[2]?.status === 'completed' && put[2]?.override === true, JSON.stringify(h.calls));
             const after = el.textContent || '';
-            check('advisory: once marked done that way, the card says so and not "Topic completed"',
-                /Marked done without the check/.test(after) && !/Topic completed/.test(after), after.slice(0, 200));
+            check('advisory: once marked done that way, the card says it is not proven, not "Topic completed"',
+                /Completed, not proven yet/.test(after) && !/Topic completed/.test(after), after.slice(0, 200));
+            const later = buttonsIn(el).find(x => CHECK.test(x.label));
+            if (later) await click(later.el);
+            const opened = app.gate();
+            check('advisory: marked done, the check can still be taken from the card',
+                opened.isOpen && opened.nodeId === 11, describe(buttonsIn(el)));
+            // The retake passes and the modal is closed with its own button.
+            h.facts = async () => ({ feedCorrect: 6, feedTotal: 6, masteryScore: 0.92, eligible: true,
+                borrowedEstimate: false, borrowedFrom: null, nodeStatus: 'completed', gateMode: 'advisory' });
+            await app.act(async () => { app.closeGate(); });
+            await settle(20);
+            const proved = el.textContent || '';
+            check('advisory: marked done, then the check passed: the card reads "Topic completed"',
+                /Topic completed/.test(proved) && !/not proven/.test(proved), proved.slice(0, 200));
         });
     }
     {
@@ -412,6 +434,53 @@ try {
         });
     }
 
+    {
+        // Facts asked for BEFORE a refusal and answered after it are older than
+        // the refusal: they must not put "Complete topic" back.
+        const h = harness({ updateNode: refuse(false) });
+        let answer;
+        h.facts = () => new Promise(r => { answer = r; });
+        await withCard(card({ gateMode: 'enforced', eligible: true, masteryScore: 0.86 }), async (el) => {
+            await app.answerSaved(11);
+            const done = buttonsIn(el).find(x => x.label === 'Complete topic');
+            if (done) await click(done.el);
+            await app.act(async () => { answer?.({ feedCorrect: 5, feedTotal: 6, masteryScore: 0.86, eligible: true,
+                borrowedEstimate: false, borrowedFrom: null, nodeStatus: 'in_progress', gateMode: 'enforced' }); });
+            await settle(20);
+            const bs = buttonsIn(el);
+            check('refused while older facts were on the way: the refusal stands when they land',
+                /Not proven yet/.test(el.textContent || '') && !bs.some(b => b.label === 'Complete topic'), describe(bs));
+        });
+    }
+    {
+        // The setting changed after the card was composed: fresh facts carry the mode now.
+        const h = harness();
+        await withCard(card({ gateMode: 'enforced' }), async (el) => {
+            h.facts = async () => ({ feedCorrect: 2, feedTotal: 3, masteryScore: 0.5, eligible: false,
+                borrowedEstimate: false, borrowedFrom: null, nodeStatus: 'in_progress', gateMode: 'advisory' });
+            await app.answerSaved(11);
+            await settle(20);
+            const bs = buttonsIn(el);
+            check('composed enforced, facts now say advisory: the card offers what advisory allows',
+                bs.some(b => b.label === 'Mark done without the check') && !bs.some(b => b.label === 'Skip topic'), describe(bs));
+        });
+    }
+    {
+        // A pass closed with the modal's own X tells the card nothing: it asks again.
+        const h = harness();
+        await withCard(card({ gateMode: 'enforced' }), async (el) => {
+            const b = buttonsIn(el).find(x => CHECK.test(x.label));
+            if (b) await click(b.el);
+            h.facts = async () => ({ feedCorrect: 2, feedTotal: 3, masteryScore: 0.9, eligible: true,
+                borrowedEstimate: false, borrowedFrom: null, nodeStatus: 'in_progress', gateMode: 'enforced' });
+            await app.act(async () => { app.closeGate(); });
+            await settle(20);
+            const primaries = buttonsIn(el).filter(x => x.fill === 'primary');
+            check('the check passed and its modal closed with X: completing leads on the card',
+                primaries.length === 1 && primaries[0].label === 'Complete topic', describe(buttonsIn(el)));
+        });
+    }
+
     console.log('\n--- the end card: it says how the topic ended, whoever ended it ---');
     {
         harness();
@@ -425,8 +494,8 @@ try {
     }
     for (const [what, how, want, not] of [
         ['skipped inside the check', { outcome: 'skipped', proven: false }, /Skipped/, /Topic completed|Marked done/],
-        ['marked done inside the check', { outcome: 'completed', proven: false }, /Marked done without the check/, /Topic completed/],
-        ['passed the check', { outcome: 'completed', proven: true }, /Topic completed/, /Marked done|Skipped/],
+        ['marked done inside the check', { outcome: 'completed', proven: false }, /Completed, not proven yet/, /Topic completed/],
+        ['passed the check', { outcome: 'completed', proven: true }, /Topic completed/, /not proven|Skipped/],
     ]) {
         harness();
         await withCard(card({ gateMode: 'advisory' }), async (el) => {

@@ -48,13 +48,32 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     // topic (`feedSavedByNode`, bumped after the write resolved) asks again.
     const savedHere = useStore(s => s.feedSavedByNode[composed.nodeId] ?? 0);
     const [live, setLive] = useState<Awaited<ReturnType<typeof api.getCheckpointFacts>> | null>(null);
+    // The check modal closing on THIS topic asks again too: a pass, or a
+    // retake of a topic marked done without it, is closed with the modal's own
+    // buttons, which tell this card nothing.
+    const gateOnHere = useStore(s => s.masteryGate.isOpen && s.masteryGate.nodeId === composed.nodeId);
+    const [gateClosedHere, setGateClosedHere] = useState(0);
+    const gateWasOnHere = useRef(false);
     useEffect(() => {
-        if (savedHere === 0 || done) return;
+        if (gateOnHere) gateWasOnHere.current = true;
+        else if (gateWasOnHere.current) { gateWasOnHere.current = false; setGateClosedHere(n => n + 1); }
+    }, [gateOnHere]);
+    // Refusals so far: facts asked for before a refusal must not clear it.
+    const refusals = useRef(0);
+    useEffect(() => {
+        if (gateClosedHere === 0 && (savedHere === 0 || done)) return;
         let stale = false;
+        const seen = refusals.current;
         // Fresh facts supersede a refusal: the answers since may have proven it.
-        api.getCheckpointFacts(composed.nodeId).then(f => { if (!stale) { setLive(f); setGateMsg(null); } }).catch(() => { });
+        api.getCheckpointFacts(composed.nodeId).then(f => {
+            if (stale) return;
+            setLive(f);
+            if (refusals.current === seen) setGateMsg(null);
+            // Proven since it was marked done (a retake passed): it reads as passed.
+            if (f.eligible) setOverrodeHere(false);
+        }).catch(() => { });
         return () => { stale = true; };
-    }, [savedHere, done, composed.nodeId]);
+    }, [savedHere, gateClosedHere, done, composed.nodeId]);
     const card: FeedCheckpointCard = live ? { ...composed, ...live } : composed;
     const ready = card.isOverdue && isReadyToProve({ scheduled_end: card.scheduledEnd, provable: card.eligible });
     const addToast = useStore(s => s.addToast);
@@ -72,7 +91,8 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     const gateMode = gateMsg ? (gateMsg.advisory ? 'advisory' : 'enforced') : card.gateMode;
 
     const startMasteryCheck = () => {
-        if (saving || done) return;
+        // A topic closed without proof may still take it (the modal runs a retake).
+        if (saving || (done && !unproven)) return;
         openMasteryGate(
             card.nodeId,
             card.nodeTitle,
@@ -103,6 +123,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
         } catch (e: any) {
             const data = e?.data;
             if (data?.mastery_gate) {
+                refusals.current += 1;
                 setGateMsg({
                     advisory: !!data.advisory,
                     masteryScore: data.mastery_score ?? card.masteryScore,
@@ -211,7 +232,13 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
             )}
 
             {completed && unproven ? (
-                <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{t("Marked done without the check")}</p>
+                // Closed without proof (here, or earlier: how it was closed is
+                // not stored, so the line says only what is true now). The
+                // check stays on offer: passing it later proves the topic.
+                <>
+                    <p role="status" className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t("Completed, not proven yet")}</p>
+                    <div className={row}>{checkButton('neutral')}</div>
+                </>
             ) : completed ? (
                 <p role="status" className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
                     <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
@@ -241,11 +268,11 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                         skip it, and a topic already skipped has neither. */}
                     <div className={row}>
                         {inOrder(
-                            gateMode === 'advisory' ? (
+                            skipped ? null : gateMode === 'advisory' ? (
                                 <Button key="out" variant="quiet" block={stack} wrap={stack} onClick={() => complete(true)} busy={saving}>
                                     {t("Mark done without the check")}
                                 </Button>
-                            ) : !skipped && (
+                            ) : (
                                 <Button key="out" variant="quiet" block={stack} wrap={stack} onClick={skip} busy={saving}>
                                     {t("Skip topic")}
                                 </Button>
@@ -255,15 +282,17 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                     </div>
                 </>
             ) : (
-                // Proven, or the gate is off: completing is the finish, and the
-                // check stays beside it for anyone who wants the rep.
+                // Proven, or the gate is off: completing is the finish. Proven,
+                // the check stays beside it for anyone who wants the rep; with
+                // the test switched off it is not offered (two strangers read a
+                // test button there as a test they had to take, twice).
                 <>
                     {skipped && (
                         <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t("Skipped — moved on without proving it")}</p>
                     )}
                     <div className={row}>
                         {inOrder(
-                            checkButton('neutral'),
+                            gateMode !== 'off' && checkButton('neutral'),
                             <Button key="complete" variant="primary" block={stack} wrap={stack} onClick={() => complete(false)} busy={saving}>
                                 {t("Complete topic")}
                             </Button>,
