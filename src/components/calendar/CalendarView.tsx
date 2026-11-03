@@ -641,7 +641,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         return (
             <div className="h-full grid grid-cols-7 grid-rows-6 auto-rows-fr bg-white dark:bg-slate-800">
                 {days.map((day, idx) => {
-                    const owedHere = day.date === today && lateCount > 0;
+                    // Today in a neighbouring month's edge cell is not "in view"
+                    // (the Today button then carries the count), so it holds none.
+                    const owedHere = day.date === today && day.isCurrentMonth && lateCount > 0;
                     const groupRows = owedHere ? LATE_KINDS.filter(k => late[k].length > 0).length : 0;
                     const visible = day.tasks.slice(0, MAX_ROWS - groupRows);
                     const hidden = day.tasks.length - visible.length;

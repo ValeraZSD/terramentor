@@ -982,6 +982,13 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             !!doc.activeElement?.matches('[data-late-list="ready"] > h3'),
             doc.activeElement?.outerHTML.slice(0, 80) ?? 'nothing focused');
         await click(radio('Month'));
+        // October's grid ends on 8 November: today sits in a dimmed edge cell,
+        // which is not "in view", so the count is on the Today button, once.
+        await click(host.querySelector('button[aria-label="Previous period"]'));
+        check('month: today in a neighbouring month\'s edge cell holds no group; the Today button carries the count',
+            !!todayCell() && !todayCell().querySelector('[data-late-group]') && badge() === '4',
+            `cell: ${!!todayCell()}, groups: ${todayCell()?.querySelectorAll('[data-late-group]').length}, badge: ${badge()}`);
+        await click(host.querySelector('button[aria-label="Next period"]'));
 
         // -- the course filter, the same in every view ---------------------------
         const names = {};
