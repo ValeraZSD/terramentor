@@ -565,6 +565,18 @@ const bookPrompt = bodies[0]?.user || '';
 ok('only the chapter picked reaches the model', bookPrompt.includes('CHAPTER_TWO_MARK') && !bookPrompt.includes('CHAPTER_ONE_MARK') && !bookPrompt.includes('CHAPTER_THREE_MARK'));
 ok('and its topics cite only that chapter', db.prepare(`SELECT COUNT(*) c FROM node_sources ns JOIN nodes n ON n.id = ns.node_id WHERE n.project_id = ? AND (ns.char_from < ? OR ns.char_to > ?)`)
     .get(c.json.projectId, book.indexOf('# Chapter Two'), book.indexOf('# Chapter Three')).c === 0);
+// A book as Project Gutenberg's HTML has it: its title, then one heading over
+// the whole text, the chapters one level down.
+const wrapped = `# Pride and Money\n\nA note on this edition.\n\n# PRIDE AND MONEY\n\n`
+    + ['One', 'Two', 'Three'].map((w, i) => `## Chapter ${w}\n\n${chapter(`WRAPPED_${w.toUpperCase()}_MARK`, 1000 + i)}`).join('\n\n');
+const wrappedForm = new FormData();
+wrappedForm.append('file', new Blob([wrapped], { type: 'text/markdown' }), 'pride-and-money.md');
+const wrappedRead = await (await fetch(`${base}/api/short-courses/read-file`, { method: 'POST', body: wrappedForm })).json();
+ok('a book under one heading offers the chapters beneath it, not the heading', wrappedRead.chapters?.length === 3 && wrappedRead.chapters.every(ch => /^Chapter /.test(ch.title) && ch.words > 10000), wrappedRead.chapters?.map(ch => [ch.title, ch.words]));
+bodies.length = 0;
+c = await api('POST', '/api/short-courses', { stagedId: wrappedRead.stagedId, parts: [wrappedRead.chapters?.[1]?.part] });
+ok('and the one picked is the only one taught', c.status === 200 && await waitBuilt(c.json.projectId)
+    && (bodies[0]?.user || '').includes('WRAPPED_TWO_MARK') && !/WRAPPED_(ONE|THREE)_MARK/.test(bodies[0]?.user || ''), c);
 setSetting.run('ai_enabled', 'false');
 const offRead = await api('POST', '/api/short-courses/read', { url: 'https://money.example/index-funds' });
 ok('with AI off a link is still read, and says no model can write it', offRead.json?.ok === true && offRead.json.ai === false, offRead.json);

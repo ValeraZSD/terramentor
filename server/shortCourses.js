@@ -194,27 +194,43 @@ function finishStaging(stagedId, origin) {
 
 const loadStagedRow = (id) => db.prepare('SELECT * FROM staged_documents WHERE id = ?').get(id);
 
-/** The top level of a source's parts, each with its own words, to pick from. */
-function chaptersOf(text, map) {
-    const top = Math.min(...map.sections.map(s => s.depth));
+/**
+ * The level a book's chapters sit at: from the top, the first level that cuts
+ * it into at least three parts, none too long for a short course. A book whose
+ * top level is its title and one heading over the whole text ("PRIDE AND
+ * PREJUDICE") has its chapters one level down. Failing that, the first level
+ * with three parts; failing that, the top.
+ */
+function chapterLevel(text, map) {
+    const depths = [...new Set(map.sections.map(s => s.depth))].sort((a, b) => a - b);
+    const partsAt = (d) => map.sections.filter(s => s.depth === d && s.start != null);
+    const wordsIn = (s) => wordsOf(text.slice(s.start, s.end ?? text.length));
+    return depths.find(d => partsAt(d).length >= 3 && partsAt(d).every(s => wordsIn(s) <= SHORT.maxWords))
+        ?? depths.find(d => partsAt(d).length >= 3)
+        ?? depths[0];
+}
+
+/** A book's chapters (see chapterLevel), each with its own words, to pick from. */
+function chaptersOf(text, map, level = chapterLevel(text, map)) {
     const out = [];
     map.sections.forEach((s, i) => {
-        if (s.depth !== top || s.start == null) return;
+        if (s.depth !== level || s.start == null) return;
         const end = s.end ?? text.length;
         out.push({ part: i, title: String(s.title || '').slice(0, 200), from: s.from ?? null, to: s.to ?? null, words: wordsOf(text.slice(s.start, end)) });
     });
     return out.slice(0, 200);
 }
 
-/** The map cut to the chosen top-level parts and everything under them. */
-function pickParts(map, picks) {
+/** The map cut to the chosen chapters and everything under them. */
+function pickParts(text, map, picks) {
     const want = new Set((Array.isArray(picks) ? picks : []).map(Number).filter(Number.isInteger));
     if (!want.size) return null;
-    const top = Math.min(...map.sections.map(s => s.depth));
+    const level = chapterLevel(text, map);
     const keep = [];
     let inside = false;
     map.sections.forEach((s, i) => {
-        if (s.depth === top) inside = want.has(i);
+        // A heading at the chapters' level or above closes the one before.
+        if (s.depth <= level) inside = s.depth === level && want.has(i);
         if (inside) keep.push(s);
     });
     return keep.length ? { ...map, sections: keep } : null;
@@ -390,7 +406,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         acceptLanguage,
     });
     // A few chapters of a book: only those reach the model and are cited.
-    const picked = staged && body?.parts != null ? pickParts(staged.map, body.parts) : null;
+    const picked = staged && body?.parts != null ? pickParts(staged.content, staged.map, body.parts) : null;
     if (staged && body?.parts != null && !picked) throw new ShortCourseError(400, 'Pick at least one chapter.');
     // A page or a transcript is a text file in the vault; the model is told
     // what it really is.
@@ -398,7 +414,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     const src = staged ? creationSources([{ ...staged, map: picked || staged.map, file_type: asKind }]) : null;
     if (picked) src.docs[0].picked = true;
     const words = !staged ? 0 : picked
-        ? chaptersOf(staged.content, picked).reduce((n, c) => n + c.words, 0)
+        ? chaptersOf(staged.content, picked, Math.min(...picked.sections.map(s => s.depth))).reduce((n, c) => n + c.words, 0)
         : wordsOf(staged.content);
 
     const projectId = Number(db.prepare(`INSERT INTO projects
