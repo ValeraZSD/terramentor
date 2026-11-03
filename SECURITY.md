@@ -52,7 +52,8 @@ your data at all." Those are different claims and we only make the second one.
   the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
   own machine or network is refused before any connection, a redirect is vetted again), with a
   generic browser `User-Agent` and an `Accept-Language` naming the app's language; a page is
-  read up to 3 MB (a page served under another type too), a PDF up to 25 MB. A YouTube video is read from its captions: up to three
+  read up to 3 MB, a PDF or other file up to 25 MB (a page served under another type is
+  downloaded under that 25 MB limit, and only its first 3 MB decoded and parsed). A YouTube video is read from its captions: up to three
   requests to YouTube's player API (`www.youtube.com/youtubei/v1/player`, carrying the video's
   id, the app's language as `hl` and the fixed identity of one of YouTube's own apps, never a
   cookie or an account; each answer read up to 4 MB), each followed by at most one request for
