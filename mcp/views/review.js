@@ -53,6 +53,15 @@
             // The finished session has no card to name its course; keep the last one's.
             if (view.card && view.card.project) state.project = view.card.project;
             state.phase = view.done ? 'done' : 'card';
+            // An Undo after the end reopens the session: what the model was
+            // told is one rating out of date, so it hears the counts now and
+            // again when the session ends.
+            if (tool === 'review_undo' && view.undone === true && state.told && !view.done) {
+                state.told = false;
+                tellModel(`The learner took back their last rating and is reviewing again: ${view.rated} rating${view.rated === 1 ? '' : 's'} so far, `
+                    + `${view.reviewed} of ${view.total} cards done.`,
+                { rated: view.rated, reviewed: view.reviewed, total: view.total, done: false });
+            }
             if (view.done && !state.told) {
                 state.told = true;
                 tellModel(`The learner finished the card review: ${view.rated} rating${view.rated === 1 ? '' : 's'}, `
@@ -69,7 +78,7 @@
 
     const reveal = () => state.view && state.view.card && !state.view.revealed && run('review_reveal', { presentationId: state.view.card.presentationId });
     const rate = (rating) => state.view && state.view.revealed && run('review_rate', { presentationId: state.view.card.presentationId, rating });
-    const undo = () => state.view && state.view.rated > 0 && run('review_undo', {});
+    const undo = () => state.view && state.view.undoable && run('review_undo', { presentationId: state.view.undoable });
 
     // The app's keys: Space reveals, 1–4 rate, Z or Ctrl+Z takes the last rating back.
     document.addEventListener('keydown', (e) => {
@@ -96,7 +105,7 @@
                 v ? h('span', { class: 'muted' }, `${v.reviewed}/${v.total}`) : null,
                 // As in the app's own review: a worded button, there only
                 // while a rating can be taken back, never a greyed icon.
-                v && v.rated > 0 ? h('button', {
+                v && v.undoable ? h('button', {
                     type: 'button', class: 'button with-icon', 'data-focus': 'undo', disabled: state.busy,
                     'aria-label': t('Undo the last rating'), title: `${t('Undo the last rating')} (Z)`, onClick: undo,
                 }, icon('undo'), h('span', {}, t('Undo'))) : null));
@@ -141,7 +150,8 @@
                 h('span', { class: 'outcome-mark', 'aria-hidden': 'true' }, icon('check')),
                 h('div', {},
                     h('h2', { class: 'outcome-title' }, t('Session Complete!')),
-                    h('p', {}, t('You reviewed {{count}} flashcards', { count: v.rated })),
+                    // Cards finished, not ratings: a card rated Again comes back and is rated twice.
+                    h('p', {}, t('You reviewed {{count}} flashcards', { count: v.reviewed })),
                     v.waiting ? h('p', { class: 'muted' }, t('{{count}} cards are still being learned and come back {{readyIn}}.', { count: v.waiting.count, readyIn: v.waiting.readyIn })) : null)),
             v.waiting
                 ? h('footer', { class: 'actions single' },

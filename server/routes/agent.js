@@ -110,6 +110,6 @@ app.post('/api/agent/review/start', (req, res) => sitting(res, () => startReview
 app.post('/api/agent/review/next', (req, res) => sitting(res, () => reviewNext(token(req), { anyway: req.body?.anyway === true })));
 app.post('/api/agent/review/reveal', (req, res) => sitting(res, () => reviewReveal(token(req), req.body?.presentationId)));
 app.post('/api/agent/review/rate', (req, res) => sitting(res, () => reviewRate(token(req), req.body?.presentationId, req.body?.rating)));
-app.post('/api/agent/review/undo', (req, res) => sitting(res, () => reviewUndo(token(req))));
+app.post('/api/agent/review/undo', (req, res) => sitting(res, () => reviewUndo(token(req), req.body?.presentationId)));
 
 export const routes = app.takeRoutes();

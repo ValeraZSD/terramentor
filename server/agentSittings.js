@@ -397,8 +397,16 @@ const cardRow = (id) => (cardRowStatement ??= db.prepare(`
     WHERE f.id = ?
 `)).get(id);
 
+/**
+ * The session's counts, and the rating Undo would take back (its
+ * presentationId, the name `reviewUndo` wants), or null when none is left:
+ * the view shows Undo only while there is one.
+ */
 function reviewCounts(s) {
-    return { total: s.queue.length, reviewed: s.reviewed.size, comingBack: s.pending.size, rated: s.ratedCount };
+    return {
+        total: s.queue.length, reviewed: s.reviewed.size, comingBack: s.pending.size, rated: s.ratedCount,
+        undoable: s.undo.length ? s.undo[s.undo.length - 1].presentationId : null,
+    };
 }
 
 /** The next card by useReviewQueue's order: a returning card whose time has come, then the next unseen, then one coming back within the learn-ahead. */
@@ -450,7 +458,7 @@ export function startReview({ project = '' }) {
     }
     const token = open({
         kind: 'review', ...where, queue, reviewed: new Set(), pending: new Map(),
-        current: null, undo: [], rated: new Map(), ratedCount: 0,
+        current: null, undo: [], undone: new Map(), rated: new Map(), ratedCount: 0,
     });
     const s = sittings.get(token);
     return {
@@ -547,16 +555,27 @@ export function reviewRate(token, presentationId, rating) {
  * Take back the session's last rating: the card's whole prior state is
  * restored (`srsSnapshot`, the app's undo) and it is on screen again. A card
  * rated since somewhere else keeps that rating.
+ *
+ * The request names the rating it takes back (`presentationId`, the
+ * session's `undoable`), so it is written once: a retry whose first answer
+ * was lost gets that answer again, and never takes back a second rating.
  */
-export function reviewUndo(token) {
+export function reviewUndo(token, presentationId) {
     const s = find(token, 'review');
-    const last = s.undo.pop();
+    if (typeof presentationId !== 'string' || !presentationId) throw new SittingError(400, 'Name the rating to take back (the session\'s undoable).');
+    const before = s.undone.get(presentationId);
+    if (before) return { ...(before.undone ? reviewNext(token) : { kind: 'review', ...reviewCounts(s) }), ...before, duplicate: true };
+    const last = s.undo[s.undo.length - 1];
     if (!last) throw new SittingError(409, 'There is no rating to take back.');
+    if (last.presentationId !== presentationId) throw new SittingError(409, 'That is not the last rating any more.');
+    s.undo.pop();
     const written = writeCard(last.cardId, last.snapshot);
     // Rated again since: that rating stays, for good. Any other refusal (a
     // reported card) keeps the undo for when the refusal is lifted.
     if (written.status === 409 && written.json?.conflict === 'reviewed_since') {
-        return { kind: 'review', undone: false, message: 'This card was reviewed again since, so that rating stays.', ...reviewCounts(s) };
+        const kept = { undone: false, message: 'This card was reviewed again since, so that rating stays.' };
+        s.undone.set(presentationId, kept);
+        return { kind: 'review', ...kept, ...reviewCounts(s) };
     }
     if (written.status !== 200) {
         s.undo.push(last);
@@ -567,5 +586,6 @@ export function reviewUndo(token) {
     else s.pending.delete(last.idx);
     s.ratedCount = Math.max(0, s.ratedCount - 1);
     s.current = { idx: last.idx, presentationId: newAttemptId(), revealed: false };
+    s.undone.set(presentationId, { undone: true });
     return { undone: true, ...reviewNext(token) };
 }

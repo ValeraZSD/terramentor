@@ -353,8 +353,10 @@ function registerViews(server, appFor) {
 
     viewTool('review_undo', {
         title: 'Take back the last rating',
-        description: 'Restore the last rated card as it was and show it again.',
-    }, async (app, { sitting: token }) => forView('The last rating is taken back.', await app.post('/api/agent/review/undo', { token })));
+        description: 'Restore the last rated card as it was and show it again. Name the rating (the session\'s undoable): '
+            + 'the same name again gets the same answer and takes back nothing more.',
+        shape: { presentationId },
+    }, async (app, { sitting: token, presentationId: id }) => forView('The last rating is taken back.', await app.post('/api/agent/review/undo', { token, presentationId: id })));
 
     const prior = server.server.oninitialized;
     server.server.oninitialized = () => {

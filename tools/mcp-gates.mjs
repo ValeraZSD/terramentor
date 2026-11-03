@@ -754,6 +754,53 @@ function post(port, body, headers = {}) {
         `exit ${wide.code}: ${wide.out.slice(-200)}`);
 }
 
+/**
+ * Run a view in jsdom the way a host runs it for a learner: answer its
+ * ui/initialize, send `toolResult` (the MCP answer that opened it) as the
+ * tool result, pass every tools/call it makes to `callTool` (the real MCP
+ * server) and answer it with that reply, and accept every model-context
+ * update. `sent` holds every message the view sent; `until` waits on a test;
+ * `press` clicks the control named by its data-focus.
+ */
+async function driveView(html, toolResult, callTool) {
+    const sent = [];
+    let win = null;
+    const answer = (data) => win.dispatchEvent(new win.MessageEvent('message', { data, source: win }));
+    const { window } = new JSDOM(html, {
+        runScripts: 'dangerously',
+        pretendToBeVisual: true,
+        beforeParse(w) {
+            win = w;
+            w.postMessage = (msg) => {
+                sent.push(msg);
+                if (msg?.method === 'tools/call' && msg.id != null) {
+                    Promise.resolve(callTool(msg.params?.name, msg.params?.arguments || {})).then((res) => answer(res?.error
+                        ? { jsonrpc: '2.0', id: msg.id, error: res.error }
+                        : { jsonrpc: '2.0', id: msg.id, result: res?.result }));
+                } else if (msg?.method === 'ui/update-model-context' && msg.id != null) {
+                    answer({ jsonrpc: '2.0', id: msg.id, result: {} });
+                }
+            };
+            w.ResizeObserver = class { observe() {} disconnect() {} };
+        },
+    });
+    const until = async (test, tries = 500) => { for (let i = 0; i < tries && !test(); i++) await new Promise(r => setTimeout(r, 10)); return !!test(); };
+    const doc = window.document;
+    const press = async (focus) => {
+        if (!await until(() => { const b = doc.querySelector(`[data-focus="${focus}"]`); return b && !b.disabled; })) return false;
+        doc.querySelector(`[data-focus="${focus}"]`).click();
+        return true;
+    };
+    const calls = (name) => sent.filter(m => m?.method === 'tools/call' && m.params?.name === name);
+    const contexts = () => sent.filter(m => m?.method === 'ui/update-model-context');
+    await until(() => sent.some(m => m?.method === 'ui/initialize'));
+    const init = sent.find(m => m?.method === 'ui/initialize');
+    if (init) answer({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: init.params.protocolVersion, hostContext: { theme: 'light' } } });
+    await until(() => sent.some(m => m?.method === 'ui/notifications/initialized'));
+    answer({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: toolResult?.result || {} });
+    return { window, doc, sent, until, press, calls, contexts, close: () => window.close() };
+}
+
 // ---------------------------------------------------------------------------
 console.log('\n--- the views: a check and a review in the host\'s window ---');
 {
@@ -786,6 +833,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
 
     // The views themselves: one HTML document each, locked down.
     const resources = record(await host.rpc('resources/list'))?.result?.resources || [];
+    const viewHtmlOf = {};
     const sha = (s) => `'sha256-${createHash('sha256').update(s, 'utf8').digest('base64')}'`;
     for (const name of VIEW_TOOLS) {
         const uri = byName[name]?._meta?.ui?.resourceUri;
@@ -794,6 +842,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         const read = record(await host.rpc('resources/read', { uri }));
         const item = read?.result?.contents?.[0] || {};
         const html = String(item.text || '');
+        viewHtmlOf[name] = html;
         ok(`${uri} reads as one HTML document`, item.mimeType === 'text/html;profile=mcp-app' && /^<!doctype html>/i.test(html.trim()), html.slice(0, 120));
         const csp = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i.exec(html)?.[1] || '';
         const directive = (d) => (new RegExp(`(?:^|;)\\s*${d}\\s+([^;]*)`).exec(csp)?.[1] || '').trim();
@@ -925,6 +974,50 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('a check shows the score it was judged on: 3/4 proven, not the raw 4/5, and not passed',
         speedQs.length === BANK.length && judged.score === 3 && judged.total === 4 && judged.passed === false, JSON.stringify({ ...judged, items: undefined }));
 
+    // The check as a learner takes it in the view: one question answered, the
+    // rest left alone, Next to the end, Submit. What reaches check_submit is
+    // the view's own encoding: the answer as typed or chosen, an untouched
+    // ordering in its served order (it counts as answered), anything else null.
+    const viewed = addNode('Wave view', section, { position: 10 });
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(viewed, 'Wave view', JSON.stringify(BANK.map(b => ({ ...b, uuid: `view-${b.uuid}` }))));
+    const opened = await hostCall('mastery_check', { topic: viewed });
+    const checkView = await driveView(viewHtmlOf.mastery_check, opened, hostCall);
+    try {
+        const { doc, until, press, calls, contexts } = checkView;
+        const shownCount = await until(() => doc.querySelector('.stem')) ? BANK.length : 0;
+        const expected = [];
+        let picked = null;
+        for (let i = 0; i < shownCount; i++) {
+            const stem = doc.querySelector('.stem')?.textContent || '';
+            const b = BANK.findIndex(x => x.question === stem);
+            const q = BANK[b];
+            if (picked === null && q && q.type !== 'sequence') {
+                picked = b;
+                if (q.type === 'multiple_choice' || q.type === 'true_false') {
+                    [...doc.querySelectorAll('[role="radio"]')].find(o => o.textContent === RIGHT[b])?.click();
+                } else {
+                    const field = doc.querySelector('[data-focus="answer"]');
+                    field.value = RIGHT[b];
+                    field.dispatchEvent(new checkView.window.Event('input', { bubbles: true }));
+                }
+                expected.push(RIGHT[b]);
+            } else {
+                expected.push(q?.type === 'sequence' ? JSON.stringify(q.items) : null);
+            }
+            if (i < shownCount - 1) await press('next');
+        }
+        await press('submit');
+        await until(() => calls('check_submit').length > 0 && contexts().length > 0);
+        const submitted = calls('check_submit')[0]?.params?.arguments || {};
+        ok('the view\'s Submit sends check_submit with its sitting and each answer as its input encodes it (an untouched ordering as served, the rest null)',
+            shownCount === BANK.length && picked !== null && submitted.sitting === sittingOf(opened)
+            && JSON.stringify(submitted.answers) === JSON.stringify(expected), JSON.stringify({ submitted, expected }));
+        const told = contexts()[0]?.params?.structuredContent || {};
+        ok('the learner\'s score is passed to the model once the app has graded it', told.total === BANK.length && told.score === 1 && told.passed === false, JSON.stringify(told));
+    } finally {
+        checkView.close();
+    }
+
     // A failed check: three of five.
     const evidenceBeforeCheck = checkEvidence();
     const failed = await hostCall('check_submit', { sitting: sit, answers: answersFor(qs, [0, 1, 2]) });
@@ -1053,7 +1146,8 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const twice = await hostCall('review_rate', { sitting: rs, presentationId: card.presentationId, rating: 'again' });
     ok('a second rating of one presentation writes nothing', !isErr(twice) && data(twice).duplicate === true && reviewRows() === logBefore + 1
         && db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(card.cardId).review_count === 1, JSON.stringify(data(twice)));
-    const undone = data(await hostCall('review_undo', { sitting: rs }));
+    ok('the rating is the one Undo would take back (undoable)', data(rated).undoable === card.presentationId, JSON.stringify(data(rated)));
+    const undone = data(await hostCall('review_undo', { sitting: rs, presentationId: card.presentationId }));
     ok('Undo restores the card and takes its rating out of the log, and shows the card again', undone.undone === true && reviewRows() === logBefore
         && db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(card.cardId).review_count === 0 && undone.card?.cardId === card.cardId, JSON.stringify(undone).slice(0, 300));
     const afterUndo = schedulerOf(card.cardId);
@@ -1061,9 +1155,11 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok(`Undo puts back every field the rating wrote (${SRS_STATE_FIELDS.length})`, SRS_STATE_FIELDS.length >= 10 && unrestored.length === 0,
         unrestored.map(k => `${k}: ${JSON.stringify(beforeRating[k])} → ${JSON.stringify(afterUndo[k])}`).join('; '));
     // Every card rated Easy, as fast as a script can.
+    const cardOfRating = new Map();
     for (let n = 0; n < 40; n++) {
         const next = data(await hostCall('review_next', { sitting: rs }));
         if (next.done || !next.card) break;
+        cardOfRating.set(next.card.presentationId, next.card.cardId);
         await hostCall('review_reveal', { sitting: rs, presentationId: next.card.presentationId });
         await hostCall('review_rate', { sitting: rs, presentationId: next.card.presentationId, rating: 'easy' });
     }
@@ -1086,6 +1182,68 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const gate = mastery.checkMasteryEligibility(carded, 0.85, 0.8);
     ok('Easy on every card in the view is card evidence only, never an assessment', gate.passed_assessment === false
         && evidenceOf(carded).every(r => r.type === 'flashcard'), JSON.stringify(gate));
+    // Undo names the rating it takes back, so a retry whose answer was lost
+    // takes back nothing more: the session ended with every card rated.
+    const ratingOf = (id) => db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(id).review_count;
+    const lastRated = end.undoable;
+    const logAtEnd = reviewRows();
+    const firstUndo = data(await hostCall('review_undo', { sitting: rs, presentationId: lastRated }));
+    const retried = await hostCall('review_undo', { sitting: rs, presentationId: lastRated });
+    ok('an Undo sent again takes back nothing more: one rating out of the log, the same card back on screen',
+        firstUndo.undone === true && !isErr(retried) && data(retried).undone === true && data(retried).duplicate === true
+        && reviewRows() === logAtEnd - 1 && data(retried).card?.cardId === firstUndo.card?.cardId && data(retried).undoable === firstUndo.undoable
+        && firstUndo.undoable !== lastRated, `${logAtEnd} → ${reviewRows()} rows; ${JSON.stringify(data(retried)).slice(0, 240)}`);
+    const stale = await hostCall('review_undo', { sitting: rs, presentationId: 'not-the-last-one' });
+    ok('an Undo naming a rating that is not the last one is refused and takes back nothing', isErr(stale) && reviewRows() === logAtEnd - 1, textOf(stale).slice(0, 160));
+    // The rating before it is rated again in the app: Undo cannot take it back,
+    // and the session then says so by naming the next one, or none.
+    const behind = firstUndo.undoable;
+    const behindCard = cardOfRating.get(behind);
+    if (!behindCard) ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone', false, `no rating named before the last: ${JSON.stringify(firstUndo).slice(0, 200)}`);
+    else {
+        const reRated = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(behindCard), 'good', new Date(Date.now() + 60_000));
+        await fetch(`${appUrl}/api/ai/flashcards/${behindCard}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` }, body: JSON.stringify(reRated) });
+        const countBehind = ratingOf(behindCard);
+        const kept = data(await hostCall('review_undo', { sitting: rs, presentationId: behind }));
+        ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone',
+            kept.undone === false && kept.undoable !== behind && ratingOf(behindCard) === countBehind, JSON.stringify(kept));
+    }
+
+    // The review as a learner takes it in the view: the first card Again (it
+    // comes back), the second Easy, the first again Easy. Three ratings, two
+    // cards. Then Undo on the done screen reopens the session, and the model,
+    // told it had ended, hears the counts again.
+    const viewPid = Number(db.prepare("INSERT INTO projects (name, color) VALUES ('Optics for the view gate', '#0369a1')").run().lastInsertRowid);
+    const viewTopic = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(viewPid, 'Lenses').lastInsertRowid);
+    for (const n of [1, 2]) db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(viewTopic, `Lens fact ${n}?`, `LENS-${n}`);
+    const reviewOpened = await hostCall('review_cards', { project: String(viewPid) });
+    const reviewView = await driveView(viewHtmlOf.review_cards, reviewOpened, hostCall);
+    try {
+        const { doc, until, press, calls, contexts } = reviewView;
+        const ratings = [];
+        for (let n = 0; n < 6 && await until(() => doc.querySelector('[data-focus="reveal"], .outcome-title')); n++) {
+            if (doc.querySelector('.outcome-title')) break;
+            await press('reveal');
+            const rating = ratings.length === 0 ? 'again' : 'easy';
+            await press(`rate-${rating}`);
+            ratings.push(rating);
+            await until(() => calls('review_next').length > ratings.length);
+        }
+        await until(() => doc.querySelector('.outcome-title') && contexts().length > 0);
+        const doneText = doc.querySelector('.outcome')?.textContent || '';
+        const endTold = contexts()[0]?.params?.structuredContent || {};
+        ok('the done screen counts cards finished, not ratings: 3 ratings, "You reviewed 2 flashcards"',
+            ratings.length === 3 && /You reviewed 2 flashcards/.test(doneText) && endTold.rated === 3 && endTold.reviewed === 2, `${JSON.stringify(ratings)} ${doneText} ${JSON.stringify(endTold)}`);
+        await press('undo');
+        await until(() => calls('review_undo').length > 0 && contexts().length > 1);
+        const undoArgs = calls('review_undo')[0]?.params?.arguments || {};
+        const reopened = contexts()[1]?.params?.structuredContent || {};
+        ok('Undo on the done screen names the rating it takes back, and the model hears the reopened counts',
+            typeof undoArgs.presentationId === 'string' && undoArgs.presentationId.length > 0 && reopened.rated === 2 && reopened.done === false,
+            JSON.stringify({ undoArgs, contexts: contexts().map(c => c.params?.structuredContent) }));
+    } finally {
+        reviewView.close();
+    }
     const closeFromReview = await hostCall('check_complete', { sitting: rs });
     ok('a review session has no way to complete a topic', isErr(closeFromReview) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(carded).status !== 'completed');
     host.close();
