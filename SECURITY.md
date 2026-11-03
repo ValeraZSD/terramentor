@@ -46,7 +46,17 @@ your data at all." Those are different claims and we only make the second one.
   (the app remembers the last 32 pages, forgets them when it restarts, asks a page that timed
   out or whose server failed again after a few minutes, and a page the site refused or does not
   have only hours later), and a lesson that used one ends with a link to it; (c) fetching a
-  URL you explicitly asked it to fetch; (d) the update check described below, which is **off
+  URL you explicitly asked it to fetch; (c2) **reading the link of a short course** when you
+  press Read under "Learn from a link" on Projects, or Create on a short course the assistant
+  prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
+  the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
+  own machine or network is refused before any connection, a redirect is vetted again, a body
+  is read up to 25 MB), with a generic browser `User-Agent`; a YouTube video is read from its
+  captions, with up to three requests to YouTube's player API (`www.youtube.com/youtubei/v1/player`,
+  carrying the video's id and the fixed identity of one of YouTube's own apps, never a cookie
+  or an account) and one to the caption track it names, which is fetched only if it is on
+  `youtube.com`. The site sees your IP address and the address or video read, nothing about
+  you or your library; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
   default**. Nothing else. There is **no telemetry, no analytics and no crash reporting**;
@@ -732,6 +742,8 @@ about ten minutes:
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
+   Reading a short course's link reaches that link's host (and `www.youtube.com` for a video),
+   once per press of Read.
 6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
    again and the connection should not recur.
