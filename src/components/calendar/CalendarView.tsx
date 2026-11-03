@@ -231,21 +231,31 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
         const ids = new Set(remote.tasks.map(t => remote.ownerOf.get(t.nodeId)));
         return remote.projects.filter(p => p.scheduled || ids.has(p.id));
     }, [isProject, remote]);
-    /** The courses picked; none picked = every course. Only a course still in
-     *  the row counts: one archived while picked would otherwise filter the
+    /** The courses picked; none picked = every course. Only a course IN the
+     *  row filters: one archived while picked would otherwise filter the
      *  calendar to nothing with no pill pressed, and a row that hides (one
-     *  course left) would leave a filter on that nothing can clear. */
+     *  course left) would leave a filter on that nothing can clear. A course
+     *  with no dates of its own leaves the row while paging through periods
+     *  where it has nothing; its pick is kept for when it is back. */
     const [pickedIds, setPicked] = useState<number[]>([]);
-    const picked = useMemo(() => filterProjects.length > 1
-        ? pickedIds.filter(id => filterProjects.some(p => p.id === id))
-        : [], [pickedIds, filterProjects]);
-    // ...and forgotten, so a course that comes back is not silently re-picked.
-    // Guarded: it writes only when a pick actually left the row.
+    const inRow = (ps: number[]) => filterProjects.length > 1
+        ? ps.filter(id => filterProjects.some(p => p.id === id)) : [];
+    const picked = useMemo(() => inRow(pickedIds),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [pickedIds, filterProjects]);
+    // A course that left the LIBRARY is forgotten, so it is not silently
+    // re-picked if it returns. Guarded: writes only when one actually left.
     useEffect(() => {
-        if (remote && picked.length !== pickedIds.length) setPicked(picked);
-    }, [remote, picked, pickedIds]);
-    const togglePicked = (id: number) =>
-        setPicked(picked.includes(id) ? picked.filter(p => p !== id) : [...picked, id]);
+        if (!remote) return;
+        const kept = pickedIds.filter(id => remote.projects.some(p => p.id === id));
+        if (kept.length !== pickedIds.length) setPicked(kept);
+    }, [remote, pickedIds]);
+    /** Toggles against what the learner SEES picked (the row), not a pick
+     *  of a course that is off the row for this period. */
+    const togglePicked = (id: number) => setPicked(ps => {
+        const cur = inRow(ps);
+        return cur.includes(id) ? cur.filter(p => p !== id) : [...cur, id];
+    });
     const shown = useMemo(() => {
         if (isProject || picked.length === 0 || !remote) return tasks;
         return tasks.filter(t => picked.includes(remote.ownerOf.get(t.nodeId) ?? -1));
@@ -264,7 +274,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             next: assignTasksToDays(fresh(scaffolds.next), late.onDays),
         };
     }, [scaffolds, late]);
-    const todayInView = panels.curr.some(d => d.date === today);
+    // A month grid also draws the neighbours' edge days, dimmed: today among
+    // them is not "in view" (its late groups belong to the month it is in).
+    const todayInView = panels.curr.some(d => d.date === today && (viewMode !== 'month' || d.isCurrentMonth));
 
     // ---- navigation -------------------------------------------------------
 
@@ -373,14 +385,20 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     // A pressed late group: its list, under the day's plan, is scrolled to the
     // top of the calendar (only the calendar's own scroller moves) and its
-    // heading takes focus, so a screen reader lands where the eye does.
+    // heading takes focus, so a screen reader lands where the eye does. Two
+    // frames later: the selected-topic scroll above runs one frame after any
+    // view change, and this one must land last.
     useEffect(() => {
         if (!lateTarget || viewMode !== 'day') return;
-        setLateTarget(null);
-        const heading = bodyRef.current?.querySelector<HTMLElement>(`[data-late-list="${lateTarget}"] > h3`);
-        if (!heading) return;
-        heading.focus({ preventScroll: true });
-        scrollIntoViewWithin(heading.parentElement, { boundary: rootEl, block: 'start', padding: 12 });
+        let inner = 0;
+        const outer = requestAnimationFrame(() => { inner = requestAnimationFrame(() => {
+            setLateTarget(null);
+            const heading = bodyRef.current?.querySelector<HTMLElement>(`[data-late-list="${lateTarget}"] > h3`);
+            if (!heading) return;
+            heading.focus({ preventScroll: true });
+            scrollIntoViewWithin(heading.parentElement, { boundary: rootEl, block: 'start', padding: 12 });
+        }); });
+        return () => { cancelAnimationFrame(outer); cancelAnimationFrame(inner); };
     }, [lateTarget, viewMode, rootEl]);
 
     /** A click means "show me this topic" — in a workspace that is a selection,
@@ -832,7 +850,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                     )}
                     {LATE_KINDS.map(kind => late[kind].length > 0 && (
                         <section key={kind} data-late-list={kind}>
-                            <h3 tabIndex={-1} className={`${heading} outline-none ${kind === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-accent-fg'}`}>
+                            <h3 tabIndex={-1} className={`${heading} outline-none focus-visible:underline underline-offset-4 ${kind === 'overdue' ? 'text-red-700 dark:text-red-300' : 'text-accent-fg'}`}>
                                 {lateLabel(kind)}
                             </h3>
                             <div data-day-list className={DAY_GRID}>
@@ -915,7 +933,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                         <Chip key={p.id} shrink={!narrow} className="max-w-[14rem]" tone={picked.includes(p.id) ? 'picked' : 'neutral'}
                             aria-pressed={picked.includes(p.id)} title={p.name}
                             onClick={() => togglePicked(p.id)}
-                            icon={<span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-white/70" style={{ backgroundColor: p.color }} aria-hidden="true" />}>
+                            icon={<span className={`w-2.5 h-2.5 rounded-full shrink-0 ${picked.includes(p.id) ? 'ring-1 ring-white/70' : ''}`} style={{ backgroundColor: p.color }} aria-hidden="true" />}>
                             <span className="min-w-0 truncate">{p.name}</span>
                         </Chip>
                     ))}

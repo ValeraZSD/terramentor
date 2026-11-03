@@ -655,9 +655,7 @@ export function buildTodayActivity(date) {
  * ended before the three periods on screen was never sent, and a library weeks
  * behind showed one late chip. `today` is the learner's day; a gate pins it.
  * The late clause reads the stored status: `LEAF_STATUS` only turns
- * `not_started` into `in_progress`, so it decides nothing here and would add
- * two correlated subqueries per row. Measured 2026-11-03 on a scratch library
- * with 2,400 late topics and 40 finished projects: 16–42 ms a call.
+ * `not_started` into `in_progress`, so it decides nothing here.
  */
 export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
     const tasks = db.prepare(`

@@ -756,6 +756,8 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         // Dated, with nothing in any period the gate pages through: the row
         // must still list it, or it would come and go as the learner pages.
         { id: 4, name: 'Music Theory', color: '#EA580C', scheduled: true },
+        // Undated: in the row only while a fetched period holds its work.
+        { id: 5, name: 'Chess Openings', color: '#7C3AED', scheduled: false },
     ];
     const row = (nodeId, projectId, title, s, e, status = 'not_started', provable = false) =>
         ({ nodeId, projectId, title, status, scheduled_start: s, scheduled_end: e, provable });
@@ -769,6 +771,7 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         row(107, 1, 'Aromaticity', '2026-11-03', '2026-11-06', 'in_progress'),
         row(108, 2, 'Eigenvalues', '2026-11-05', '2026-11-09'),
         row(109, 3, 'Subjunctive', '2026-11-04', '2026-11-04'),
+        row(110, 5, 'Italian Game', '2026-11-02', '2026-11-08', 'in_progress'),
     ];
     const LATE = [101, 102, 103, 104, 105];
     // LOCAL noon: `todayStr()` reads local getters, and UTC noon is already
@@ -947,8 +950,8 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         check('Day view of today puts the day\'s own plan first, the late lists under it',
             !!planned && !!firstLate && !!(planned.compareDocumentPosition(firstLate) & window.Node.DOCUMENT_POSITION_FOLLOWING),
             `${planned ? 'plan' : 'no [data-day-planned]'} / ${firstLate ? 'late' : 'no late list'}`);
-        check('pressing a group lands on ITS list (focus on that list\'s heading)',
-            doc.activeElement?.closest('[data-late-list]')?.getAttribute('data-late-list') === 'overdue',
+        check('pressing a group focuses ITS list\'s heading',
+            !!doc.activeElement?.matches('[data-late-list="overdue"] > h3'),
             doc.activeElement?.outerHTML.slice(0, 80) ?? 'nothing focused');
         const dayBox = curr().querySelector('[data-day-list]');
         check('Day view uses its width: an auto-fill grid, not one centred column',
@@ -974,6 +977,11 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             radio('Day')?.getAttribute('aria-checked') === 'true' && !!host.querySelector('[data-panel="curr"] [data-late-list="overdue"]'),
             `day: ${radio('Day')?.getAttribute('aria-checked')}`);
         await click(radio('Month'));
+        await click(group('ready'), 'a ready group on today (month)');
+        check('pressing the OTHER group focuses its own list\'s heading, not the overdue one',
+            !!doc.activeElement?.matches('[data-late-list="ready"] > h3'),
+            doc.activeElement?.outerHTML.slice(0, 80) ?? 'nothing focused');
+        await click(radio('Month'));
 
         // -- the course filter, the same in every view ---------------------------
         const names = {};
@@ -981,7 +989,7 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             await resize(w); await click(radio(mode));
             names[`${mode}@${w}`] = legendNames().join(' | ');
         }
-        const want = ['All courses', LONG, 'Linear Algebra', 'Spanish B1', 'Music Theory'].join(' | ');
+        const want = ['All courses', LONG, 'Linear Algebra', 'Spanish B1', 'Music Theory', 'Chess Openings'].join(' | ');
         check('the course filter is there in every view and width, listing the same courses',
             Object.values(names).every(n => n === want), JSON.stringify(names));
         await resize(1280); await click(radio('Week'));
@@ -1020,6 +1028,23 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         g.__calendarRange = fullRange;
         await click(host.querySelector('button[aria-label="Next period"]'));
         await click(host.querySelector('button[aria-label="Previous period"]'));
+        check('…and it stays forgotten when the course is back',
+            pill('Linear Algebra')?.getAttribute('aria-pressed') === 'false' && pill('All courses')?.getAttribute('aria-pressed') === 'true',
+            `${pill('Linear Algebra')?.getAttribute('aria-pressed')} / ${pill('All courses')?.getAttribute('aria-pressed')}`);
+        // An undated course leaves the row in a period with none of its work;
+        // paging there and back is not the learner un-picking it.
+        await click(pill('Chess Openings'), 'a "Chess Openings" filter pill');
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        await click(host.querySelector('button[aria-label="Next period"]'));
+        check('a picked undated course off the row for a period stops filtering there',
+            !pill('Chess Openings') && pill('All courses')?.getAttribute('aria-pressed') === 'true',
+            `${pill('Chess Openings') ? 'still listed' : 'gone'} / ${pill('All courses')?.getAttribute('aria-pressed')}`);
+        await click(host.querySelector('button[aria-label="Previous period"]'));
+        await click(host.querySelector('button[aria-label="Previous period"]'));
+        check('…and is still picked when paging brings it back',
+            pill('Chess Openings')?.getAttribute('aria-pressed') === 'true' && JSON.stringify(ids(curr()).filter((v, i, a) => a.indexOf(v) === i)) === '[110]',
+            `${pill('Chess Openings')?.getAttribute('aria-pressed')} ${JSON.stringify(ids(curr()))}`);
+        await click(pill('Chess Openings'));
 
         // -- a long course name on a wide week's chip ------------------------------
         await resize(2560);
@@ -1032,7 +1057,7 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         await resize(390); await click(radio('Week'));
         // Six long names wrapped into five rows took ~300 of a phone's 844px.
         const filterRow = host.querySelector('[data-course-filter]');
-        check('phone: the course filter is ONE row that scrolls sideways, its pills capped',
+        check('phone: the course filter uses the one-row classes (no wrap, scrolls sideways), its pills capped',
             /\bflex-nowrap\b/.test(filterRow?.className ?? '') && /\boverflow-x-auto\b/.test(filterRow?.className ?? '')
             && /\bmax-w-/.test(pill(LONG)?.className ?? ''), filterRow?.className ?? 'no filter');
         check('phone week: today\'s row holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
