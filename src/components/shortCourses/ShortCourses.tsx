@@ -21,8 +21,9 @@ import { api } from '../../api';
 import { useStore } from '../../store';
 import type { Project, StagedDocument } from '../../types';
 import { Button, IconButton } from '../ui/Button';
+import { TextArea } from '../ui/Field';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
-import { cx, FIELD_BASE, FOCUS_RING } from '../ui/vocabulary';
+import { cx, FOCUS_RING } from '../ui/vocabulary';
 import Checkbox from '../Checkbox';
 import { ProjectIcon } from '../ProjectIcon';
 import ProgressRing from '../ProgressRing';
@@ -272,13 +273,13 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                         </p>
                     </div>
                 </div>
-                <textarea
+                <TextArea
                     aria-label={t("The video's transcript")}
                     value={transcript}
                     onChange={e => setTranscript(e.target.value)}
                     rows={5}
                     autoFocus
-                    className={cx(FIELD_BASE, 'block w-full px-3 py-2 text-sm leading-6 resize-y')}
+                    className="block leading-6 resize-y"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
@@ -346,7 +347,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     enterKeyHint="go"
                     value={text}
                     onChange={e => setText(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void readLink(text); } }}
+                    // Not the Enter that confirms an input method's candidate.
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); void readLink(text); } }}
                     // A pasted link is read at once: pasting IS the request.
                     // Typed text waits for Enter or Read.
                     onPaste={e => {
