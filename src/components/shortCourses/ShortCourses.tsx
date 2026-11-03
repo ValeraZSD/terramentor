@@ -545,7 +545,7 @@ function Row({ row, project, narrow, onChanged }: {
     // its slot is kept so the status lines up with the Study buttons below.
     const ring = building || failed
         ? (narrow ? null : <span className="w-10 shrink-0" aria-hidden="true" />)
-        : <ProgressRing progress={progress} color={progress === 100 ? '#22C55E' : row.color} size={narrow ? 36 : 40} />;
+        : <ProgressRing progress={progress} color={progress === 100 ? '#22C55E' : row.color} size={40} />;
 
     const menu = (
         <div className="shrink-0" onClick={e => e.stopPropagation()}>
