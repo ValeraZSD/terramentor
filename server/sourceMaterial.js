@@ -311,13 +311,16 @@ export function topicsBlock(src, elements = []) {
  * from one page, one video or one chapter, which mostly fits whole; past the
  * budget each part keeps the same share of its own opening, so a long part
  * cannot crowd out the ones after it. A file whose parts carry no character
- * offsets is shown as the other blocks show it, outline and excerpts.
+ * offsets is shown as the other blocks show it, outline and excerpts. When
+ * the parts are so many that the later ones are left out, `shown` lists the
+ * § ids that made it in.
  */
 export function shortBlock(src) {
     if (!hasSources(src)) return { system: '', user: '' };
     const budget = SOURCE_BUDGET.short;
     const located = src.sections.every(s => s.start != null);
     let body;
+    let shown = null;
     if (!located) {
         body = wholeBlock(src, budget);
     } else {
@@ -345,29 +348,41 @@ export function shortBlock(src) {
         // Each part keeps a few lines of its own, but only while there is room
         // for them all: hundreds of parts share the budget, not double it.
         const least = Math.min(120, Math.floor(Math.max(0, room) / Math.max(1, slices.length)));
+        // Each entry remembers where it starts and which part it opens.
         const out = [];
         let doc = null;
+        let at = 0;
+        const add = (text, id = null) => {
+            if (!text) return;
+            if (out.length) at += 2;
+            out.push({ text, id, from: at });
+            at += text.length;
+        };
         for (const s of slices) {
             if (s.doc !== doc) {
                 doc = s.doc;
-                out.push(docHeader(doc));
+                add(docHeader(doc));
             }
             const keep = ratio < 1 ? Math.max(least, Math.floor(s.text.length * ratio)) : s.text.length;
             const cut = s.text.slice(0, keep).trim();
             const text = defang(s.text.length > keep ? (cut ? `${cut}…` : '') : s.text);
-            out.push(s.head ? [lineOf(s.head, 0), text].filter(Boolean).join('\n') : text);
+            add(s.head ? [lineOf(s.head, 0), text].filter(Boolean).join('\n') : text, s.head?.id ?? null);
         }
-        body = out.filter(Boolean).join('\n\n');
+        body = out.map(e => e.text).join('\n\n');
         // So many parts that their headings alone overrun it: the first ones,
-        // whole, and a line saying the rest were left out.
+        // whole, and a line saying the rest were left out. Which parts the model
+        // was shown is said too, so nothing it never saw is cited for a topic.
         if (body.length > budget) {
-            const at = body.lastIndexOf('\n\n', budget - 60);
-            body = `${body.slice(0, at > 0 ? at : budget - 60)}\n\n(The rest of the source is left out here.)`;
+            const end = body.lastIndexOf('\n\n', budget - 60);
+            const stop = end > 0 ? end : budget - 60;
+            body = `${body.slice(0, stop)}\n\n(The rest of the source is left out here.)`;
+            shown = out.filter(e => e.id != null && e.from < stop).map(e => e.id);
         }
     }
     return {
         system: `\n\nSOURCE MATERIAL: the course is built FROM the source in the message between ${OPEN} and ${CLOSE}, every part numbered §1, §2, … Each topic carries "sections": the § numbers of the parts it teaches, e.g. { "title": "...", "description": "...", "sections": [2, 3] }. Together the topics cover what the source teaches, in its order; teach what it holds and add nothing it does not. ${FRONT_MATTER_RULE} Use the source's own terms and notation.`,
         user: `\n\nSOURCE MATERIAL:${wrap(body)}`,
+        ...(shown ? { shown } : {}),
     };
 }
 

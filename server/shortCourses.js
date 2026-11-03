@@ -189,6 +189,8 @@ function finishStaging(stagedId, origin) {
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
             staged: stagedSummary(loadStagedRow(stagedId)),
+            // The chapters picked must come to this many words, as any source must.
+            minWords: SHORT.minWords,
         } : {}),
     };
 }
@@ -413,7 +415,12 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     });
     // A few chapters of a book: only those reach the model and are cited.
     const picked = staged && body?.parts != null ? pickParts(staged.content, staged.map, body.parts) : null;
-    if (staged && body?.parts != null && !picked) throw new ShortCourseError(400, 'Pick at least one chapter.');
+    // A source this request read itself is not left staged by a refusal.
+    const refuse = (status, message, extra) => {
+        if (readHere) discardStaged(staged.id);
+        throw new ShortCourseError(status, message, extra);
+    };
+    if (staged && body?.parts != null && !picked) refuse(400, 'Pick at least one chapter.');
     // A page or a transcript is a text file in the vault; the model is told
     // what it really is.
     const asKind = sourceOrigin && ['page', 'video'].includes(sourceOrigin.kind) && staged.file_type === 'text' ? sourceOrigin.kind : staged?.file_type;
@@ -434,8 +441,12 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // A book is a few of its chapters or a full course, whichever door it came
     // in by: the strip asks before Create, the assistant's card does not.
     if (staged && !picked && sizeOf(words) === 'too-big') {
-        if (readHere) discardStaged(staged.id);
-        throw new ShortCourseError(413, 'This source is a whole book: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+        refuse(413, 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+    }
+    // Chapters picked are held to the same floor as any source: a preface of a
+    // hundred words is a note, not three topics.
+    if (picked && sizeOf(words) === 'too-small') {
+        refuse(400, 'Too little for a course: pick a longer chapter, or more of them.', { reason: 'too_small' });
     }
 
     // A second press of the same card that came in while the first was still
@@ -514,7 +525,8 @@ export function sourcePlace(u) {
             : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
                 : '';
         if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
-        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join('&');
+        // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
         return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
     } catch { return null; }
 }
@@ -534,8 +546,9 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
         run: async ({ emit, signal }) => {
             try {
                 emit({ phase: 'outline', message: 'Writing the topics…', percent: 10 });
+                const sources = src ? shortBlock(src) : null;
                 const prompt = AI_PROMPTS.short_course(promptTitle(title), {
-                    topics: count, proposed, fromTopic, lang, sources: src ? shortBlock(src) : null,
+                    topics: count, proposed, fromTopic, lang, sources,
                 });
                 const answered = {};
                 const text = await structureCall(prompt, { signal, label: 'Short course', answered });
@@ -546,7 +559,7 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                     return { projectId, topics: 0 };
                 }
                 const parsed = parseCreationJson(text);
-                const items = topicsFrom(parsed, { src, proposed });
+                const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
                 if (!items.length) throw new Error('The model wrote no topics for this short course.');
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
@@ -560,8 +573,9 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
 }
 
 /** The topics from the model's answer: titles clean of § marks, cut to eight,
- *  each citing parts of the source (in order, when the model cited none). */
-function topicsFrom(parsed, { src, proposed }) {
+ *  each citing parts of the source (in order, when the model cited none).
+ *  `shown`: the § ids the model was shown, when the source was cut short. */
+function topicsFrom(parsed, { src, proposed, shown }) {
     const raw = Array.isArray(parsed?.topics) ? parsed.topics : Array.isArray(parsed) ? parsed : [];
     let items = raw.map(t => ({
         title: cleanLine(withoutSourceRefs(typeof t === 'string' ? t : t?.title, src), 200),
@@ -581,8 +595,10 @@ function topicsFrom(parsed, { src, proposed }) {
     items = items.slice(0, SHORT.maxTopics);
     if (hasSources(src)) {
         // A topic that cites nothing is given the parts at its place in the
-        // reading order, so its lesson is still taught from the source.
-        const ids = src.sections.map(s => s.id);
+        // reading order, so its lesson is still taught from the source: only
+        // parts the model was shown, never ones its topics were written without.
+        const seen = Array.isArray(shown) ? new Set(shown) : null;
+        const ids = src.sections.map(s => s.id).filter(id => !seen || seen.has(id));
         items.forEach((t, i) => {
             if (t.sections.length) return;
             const a = Math.floor((i * ids.length) / items.length);
@@ -659,8 +675,11 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
             return { id: `doc:${d.id}`, title: d.title, file_type: d.file_type, content: d.content, page_count: d.page_count, map };
         });
         const kept = ranges.length && rows.length === 1 ? rows[0].map.sections.filter(inPicked) : [];
-        // Its chapters not found again: writing the whole book instead is not a retry.
-        if (ranges.length && !kept.length) throw new ShortCourseError(409, 'Its chapters could not be found in its source again.');
+        // Its chapters not found again (any one of them): writing the whole book,
+        // or fewer chapters than were picked, is not a retry.
+        if (ranges.length && !ranges.every(([a, b]) => kept.some(s => s.start >= a && s.start < b))) {
+            throw new ShortCourseError(409, 'Its chapters could not be found in its source again.');
+        }
         if (kept.length) {
             rows[0].map = { ...rows[0].map, sections: kept };
             words = ranges.reduce((n, [a, b]) => n + wordsOf(rows[0].content.slice(a, b)), 0);
