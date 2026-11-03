@@ -58,9 +58,9 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
         onChanged?.();
     };
 
-    // What it was, then how it ended, on one line: a record needs no ring and
-    // no button (every ring in Finished would read 100%), so the card is two
-    // lines and a long library stays short.
+    // What it was, then how it ended, a line each: a record needs no ring and
+    // no button (every ring in Finished would read 100%), so the card stays
+    // short. One shared line cut most sites to "howtomechatr…" beside the date.
     const KindIcon = from?.kind ? KIND_ICON[from.kind] ?? File : BookOpen;
     const what = from
         ? (from.kind === 'topic' ? t("Written from its title") : from.host || from.file || t("Short course"))
@@ -71,12 +71,13 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
         ? t("Finished {{date}}", { date: dayLabel(project.last_done_at) })
         : t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) });
     const meta = (
-        <>
-            <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate" title={what}>{what}</span>
-            <span aria-hidden="true">·</span>
-            <span className="shrink-0">{when}</span>
-        </>
+        <span className="flex flex-col min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+                <KindIcon className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate" title={what}>{what}</span>
+            </span>
+            <span className="truncate">{when}</span>
+        </span>
     );
 
     const restore = <MenuItem icon={<RotateCcw className="w-4 h-4" />} onSelect={() => void setStatus('active')}>{t("Move to active")}</MenuItem>;
