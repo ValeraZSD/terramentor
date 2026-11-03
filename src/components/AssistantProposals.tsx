@@ -1120,13 +1120,16 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
             });
             outcomes.set(key, { state: r.existed ? 'existed' : 'saved', projectId: r.projectId });
             redraw(n => n + 1);
-            void loadProjects({ silent: true });
+            // The refresh marks the course seen even if this card is gone by
+            // then (Open closed the drawer), so a later delete is noticed; a
+            // failed refresh leaves the old list, which marks nothing.
+            void loadProjects({ silent: true }).then(() => { liveOutcome(outcomes.get(key), useStore.getState().projects); });
         } catch (e) {
             const err = e as { data?: { reason?: string } } & Error;
             const reason = err.data?.reason;
             addToast('error', t("Could not create the short course"),
                 reason === 'no_ai' ? t("Writing it needs an AI connection.")
-                    : reason === 'too_big' ? t("It is a whole book. Add it in Short courses on Projects and pick a few of its chapters.")
+                    : reason === 'too_big' ? t("It is too long for one short course. Add it in Short courses on Projects and pick a few of its chapters.")
                     : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
                         : err.message);
         } finally {

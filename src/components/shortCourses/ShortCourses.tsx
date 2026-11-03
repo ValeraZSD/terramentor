@@ -297,6 +297,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         const toggle = (part: number, on: boolean) =>
             setBox({ ...box, picked: on ? [...picked, part].sort((a, b) => a - b) : picked.filter(p => p !== part) });
         const words = chapters.filter(c => picked.includes(c.part)).reduce((n, c) => n + c.words, 0);
+        // A preface alone is a note: the server refuses it, so Create waits for more.
+        const tooFew = picked.length > 0 && words < (read.minWords ?? 0);
         return (
             <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -321,10 +323,12 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 </ul>
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {picked.length > 0 && (
-                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">{t("{{words}} words", { count: words, words: num(words) })}</span>
+                        <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                            {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}
+                        </span>
                     )}
                     <Button variant="quiet" onClick={() => setBox({ state: 'read', read })}>{t("Back")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!picked.length}onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
+                    <Button variant="primary" busy={busy} disabled={!picked.length || tooFew} onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
                         {t("Create short course")}
                     </Button>
                 </div>
@@ -397,7 +401,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             tile = <Tile><KindIcon className="w-5 h-5" aria-hidden="true" /></Tile>;
             first = read.title;
             if (read.size === 'too-big') {
-                second = t("A whole book: make a full course of it, or pick a few chapters for a short one.");
+                second = t("Too long for one short course: make a full course of it, or pick a few chapters for a short one.");
                 pair = true;
                 actions = (
                     <>
