@@ -38,7 +38,7 @@
  *
  *   { "project": "<course name>",
  *     "study":  { "topic": "<title>", "heading": "<a heading in its lesson>", "uiScale": 100 },
- *     "prove":  { "topic": "<title>", "wrong": 2 },
+ *     "prove":  { "topic": "<title>", "wrong": "<words from the question to answer wrong, or its number>" },
  *     "cards":  { "topic": "<title>" },
  *     "prepare": "<optional module, run against the copy before shooting>" }
  *
@@ -79,13 +79,22 @@ async function serveChild({ mode, dir, port }) {
     // settings, so a contributor's own model would answer the scratch server.
     for (const key of Object.keys(process.env)) if (/^(AI_|OPENAI_)/.test(key)) delete process.env[key];
     // The server shuffles a check's questions; a seeded random asks them in the
-    // same order on every run, so the wrong answer lands on the same row.
-    let seed = 0x9e3779b9;
+    // same order on every run, so the wrong answer lands on the same row. The
+    // seed starts again at each draw: other requests take numbers from the same
+    // random, and how many arrive before the draw depends on timing.
+    const SEED = 0x9e3779b9;
+    let seed = SEED;
     Math.random = () => {
         seed = (seed + 0x6d2b79f5) | 0;
         let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
         t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    const { Server } = await import('node:net');
+    const emit = Server.prototype.emit;
+    Server.prototype.emit = function (event, req, ...rest) {
+        if (event === 'request' && /\/mastery-check\/draw\b/.test(req?.url ?? '')) seed = SEED;
+        return emit.call(this, event, req, ...rest);
     };
     mkdirSync(process.env.VAULT_ROOT, { recursive: true });
 
@@ -430,14 +439,23 @@ const STATES = {
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
-/** Answer every question of the open check with its key, except question `wrong` (1-based). */
+/**
+ * Answer every question of the open check with its key, except one: the
+ * question whose wording contains `wrong` when it is text, the `wrong`-th
+ * question (1-based) when it is a number. It gets its first option that is
+ * not the key.
+ */
 async function answerCheck(page, quizzes, wrong) {
     const keys = (Array.isArray(quizzes) ? quizzes : quizzes?.quizzes ?? [])
         .flatMap((q) => (typeof q.questions === 'string' ? JSON.parse(q.questions) : q.questions ?? []))
         .map((q) => ({ stem: q.question, key: String(q.correct_answer ?? ''), options: q.options ?? [] }));
+    let missed = 0;
     for (let n = 1; n <= 20; n++) {
         const open = await page.evaluate(`!!${DIALOG} && /Question \\d+ of \\d+/.test(${DIALOG}.innerText)`);
-        if (!open) return;
+        if (!open) {
+            if (wrong && !missed) throw new Error(`docs-shots.json: no question of the check matches "wrong": ${JSON.stringify(wrong)}`);
+            return;
+        }
         const picked = await page.evaluate(`(() => {
             const keys = ${JSON.stringify(keys)};
             const flat = (s) => (s || '').replace(/\\$/g, '').replace(/\\\\displaystyle/g, '').replace(/\\s+/g, '');
@@ -446,14 +464,17 @@ async function answerCheck(page, quizzes, wrong) {
             const text = plain(d);
             const k = keys.find((k) => text.includes(flat(k.stem).slice(0, 40)));
             if (!k) return 'no key for this question';
-            const want = ${n} === ${wrong} ? flat(k.options.find((o) => flat(o) !== flat(k.key)) || '') : flat(k.key);
+            const wrong = ${JSON.stringify(wrong)};
+            const miss = typeof wrong === 'string' ? flat(k.stem).includes(flat(wrong)) : ${n} === wrong;
+            const want = miss ? flat(k.options.find((o) => flat(o) !== flat(k.key)) || '') : flat(k.key);
             const buttons = [...d.querySelectorAll('button')];
             const b = buttons.find((b) => want && plain(b).endsWith(want)) || buttons.find((b) => plain(b) === want);
             if (!b) return 'no option reading ' + want;
             b.setAttribute('data-docs-pick', '');
-            return 'ok';
+            return miss ? 'missed' : 'ok';
         })()`);
-        if (picked !== 'ok') throw new Error(`question ${n}: ${picked}`);
+        if (picked === 'missed') missed++;
+        else if (picked !== 'ok') throw new Error(`question ${n}: ${picked}`);
         await page.press(`document.querySelector('[data-docs-pick]')`, `the answer to question ${n}`);
         await page.evaluate(`document.querySelector('[data-docs-pick]')?.removeAttribute('data-docs-pick'), 1`);
         const next = byText('[role="dialog"] button', '/^(Next|Submit|Finish)/');
