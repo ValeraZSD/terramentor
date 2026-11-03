@@ -9,7 +9,7 @@ The other app can be Claude Code, Claude Desktop, VS Code or Cursor. It can see:
 - a topic's lesson text;
 - how well you know a topic.
 
-It can write two things back:
+The agent itself can write two things back:
 
 - a note into your Inbox;
 - a **claim** that you answered one of its questions right or wrong.

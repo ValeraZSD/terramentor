@@ -234,7 +234,7 @@ export function checkTarget(topic) {
  * check to take here (too few checked questions: the app writes them when the
  * topic's check is opened there).
  */
-export function startCheck({ topic, client = null }) {
+export function startCheck({ topic }) {
     const { node, target } = checkable(topic);
     const { checkSize } = getGateConfig();
     const draw = drawFromNode(node.id, checkSize);
@@ -248,7 +248,7 @@ export function startCheck({ topic, client = null }) {
         };
     }
     const token = open({
-        kind: 'check', ...where, questions, attemptId: newAttemptId(), client,
+        kind: 'check', ...where, questions, attemptId: newAttemptId(),
         wasCompleted: target.status === 'completed', result: null, grading: null,
     });
     // The questions are not in this answer: it reaches the host's model, and
@@ -279,7 +279,11 @@ export async function submitCheck(token, answers) {
     }
     if (!s.grading) {
         s.grading = (async () => {
-            const graded = await Promise.all(s.questions.map((d, i) => gradeOne(d.question, answers[i])));
+            // One answer at a time, as the app's own check grades: a burst of
+            // checker calls meets a provider's rate limit, and a fallback
+            // verdict there counts a right answer as wrong.
+            const graded = [];
+            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i]));
             const score = graded.filter(g => g.correct).length;
             const total = s.questions.length;
             const asked = s.questions.map((d, i) => ({
@@ -299,6 +303,7 @@ export async function submitCheck(token, answers) {
                 score, total,
                 passed: !!outcome.passed,
                 unproven: !!outcome.unproven,
+                ...(outcome.unproven ? { proven: Number(outcome.proven_total) || 0 } : {}),
                 passPct: Math.round((outcome.pass_threshold ?? getGateConfig().checkPass) * 100),
                 items: s.questions.map((d, i) => ({
                     n: i + 1,
@@ -366,11 +371,14 @@ function cardFront(card, presentationId) {
     };
 }
 
-const cardRow = (id) => db.prepare(`
+// Read once per card shown (and in a loop while skipping removed cards), so
+// prepared on first use and kept, never at import.
+let cardRowStatement = null;
+const cardRow = (id) => (cardRowStatement ??= db.prepare(`
     SELECT f.*, n.title AS node_title, p.name AS project_name
     FROM flashcards f JOIN nodes n ON n.id = f.node_id JOIN projects p ON p.id = n.project_id
     WHERE f.id = ?
-`).get(id);
+`)).get(id);
 
 function reviewCounts(s) {
     return { total: s.queue.length, reviewed: s.reviewed.size, comingBack: s.pending.size, rated: s.ratedCount };
@@ -418,13 +426,13 @@ export function reviewTarget(project) {
     return { ...where, count: queue.length };
 }
 
-export function startReview({ project = '', client = null }) {
+export function startReview({ project = '' }) {
     const { scope, queue, where } = reviewScope(project);
     if (!queue.length) {
         return { token: null, ...where, text: `No cards are due in ${scope ? `"${scope.name}"` : 'any active project'} right now.` };
     }
     const token = open({
-        kind: 'review', ...where, queue, client, reviewed: new Set(), pending: new Map(),
+        kind: 'review', ...where, queue, reviewed: new Set(), pending: new Map(),
         current: null, undo: [], rated: new Map(), ratedCount: 0,
     });
     const s = sittings.get(token);
@@ -528,7 +536,9 @@ export function reviewUndo(token) {
     const last = s.undo.pop();
     if (!last) throw new SittingError(409, 'There is no rating to take back.');
     const written = writeCard(last.cardId, last.snapshot);
-    if (written.status === 409) {
+    // Rated again since: that rating stays, for good. Any other refusal (a
+    // reported card) keeps the undo for when the refusal is lifted.
+    if (written.status === 409 && written.json?.conflict === 'reviewed_since') {
         return { kind: 'review', undone: false, message: 'This card was reviewed again since, so that rating stays.', ...reviewCounts(s) };
     }
     if (written.status !== 200) {

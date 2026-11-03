@@ -234,7 +234,7 @@ function registerViews(server, appFor) {
     server.registerTool('mastery_check', {
         title: 'Take a mastery check',
         description: 'Open a topic\'s mastery check for the learner: questions drawn from the topic\'s checked bank, graded and '
-            + 'recorded by Terramentor. It is the only way to prove a topic. Where this host draws app views the learner takes it '
+            + 'recorded by Terramentor. It is the only way an agent can have a topic proved. Where this host draws app views the learner takes it '
             + 'right here; you never see its questions or answers, only that it is open and then the score. Elsewhere the answer '
             + 'is a link that opens the topic in Terramentor. Never answer it for the learner.',
         inputSchema: z.object({

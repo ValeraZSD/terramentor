@@ -33,6 +33,8 @@ const CHECK_STRINGS = [
     'Review Answers', 'Your answer', 'Your answer:', 'Correct answer:', 'Correct', 'Wrong', 'True', 'False',
     '(no answer)', 'Type your answer…', 'Your answer, in {{unit}}', 'Write your solution here…', 'Your code',
     'Move up', 'Move down', 'Your order', 'Pieces', 'Gap {{n}}, empty', 'Gap {{n}}: {{piece}}. Press to take it out',
+    "Too few of this topic's questions have been checked yet to count as a mastery check. The rest will be checked again in the background. Try again later.",
+    'None of these questions could be checked yet, so they cannot count as a mastery check. They will be checked again in the background. Try again later.',
 ];
 const REVIEW_STRINGS = [
     'Flashcard Review', 'Reveal answer', 'How well did you know this?', 'Again', 'Hard', 'Good', 'Easy',

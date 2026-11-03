@@ -215,15 +215,22 @@
                 answers: state.questions.map((q, i) => encoded(q, state.answers[i])),
             });
             state.result = data.result;
-            state.phase = 'result';
             const r = state.result;
-            const pct = Math.round((r.score / r.total) * 100);
-            tellModel(`The learner finished the mastery check on "${(state.topic && state.topic.title) || ''}": `
-                + `${r.score}/${r.total} (${pct}%), ${r.passed ? 'passed' : 'not passed'} (the pass mark is ${r.passPct}%). `
-                + 'Terramentor recorded it.', { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct });
+            const title = (state.topic && state.topic.title) || '';
+            state.phase = 'result';
+            if (r.unproven) {
+                tellModel(`The mastery check on "${title}" could not count: too few of its questions are confirmed yet. `
+                    + 'Terramentor recorded no result; the learner can try again later.', { counted: false });
+            } else {
+                const pct = Math.round((r.score / r.total) * 100);
+                tellModel(`The learner finished the mastery check on "${title}": `
+                    + `${r.score}/${r.total} (${pct}%), ${r.passed ? 'passed' : 'not passed'} (the pass mark is ${r.passPct}%). `
+                    + 'Terramentor recorded it.', { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct });
+            }
         } catch (err) {
+            // Free the button before the error's render, or Submit stays disabled.
+            state.busy = false;
             state.phase = 'answering';
-            render();
             return showErrorBelow(err);
         } finally {
             state.busy = false;
@@ -255,6 +262,13 @@
 
     function resultScreen() {
         const r = state.result;
+        // Too little of what was asked is confirmed to judge (the app says the
+        // same): no evidence was written, so it is neither a pass nor a fail.
+        if (r.unproven) {
+            return [header(), h('p', { class: 'notice', role: 'status' }, r.proven > 0
+                ? t("Too few of this topic's questions have been checked yet to count as a mastery check. The rest will be checked again in the background. Try again later.")
+                : t('None of these questions could be checked yet, so they cannot count as a mastery check. They will be checked again in the background. Try again later.'))];
+        }
         const pct = Math.round((r.score / r.total) * 100);
         const canComplete = r.passed && !state.topicCompleted && !r.completed;
         const line = r.passed

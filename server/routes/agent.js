@@ -94,20 +94,19 @@ function sitting(res, run) {
             res.status(500).json({ error: clientError(err) });
         });
 }
-const client = (req) => req.get(AGENT_CLIENT_HEADER) || null;
 const token = (req) => (typeof req.body?.token === 'string' ? req.body.token : '');
 
 // For a host that draws no views: where the check is, how many cards are due. Opens nothing.
 app.get('/api/agent/check/where', (req, res) => sitting(res, () => checkTarget(queryText(req.query.topic))));
 app.get('/api/agent/review/where', (req, res) => sitting(res, () => reviewTarget(queryText(req.query.project))));
 
-app.post('/api/agent/check/start', (req, res) => sitting(res, () => startCheck({ topic: req.body?.topic, client: client(req) })));
+app.post('/api/agent/check/start', (req, res) => sitting(res, () => startCheck({ topic: req.body?.topic })));
 app.post('/api/agent/check/questions', (req, res) => sitting(res, () => checkQuestions(token(req))));
 app.post('/api/agent/check/submit', (req, res) => sitting(res, () => submitCheck(token(req), req.body?.answers)));
 app.post('/api/agent/check/completion', (req, res) => sitting(res, () => checkCompletion(token(req))));
 app.post('/api/agent/check/completed', (req, res) => sitting(res, () => markCheckCompleted(token(req))));
 
-app.post('/api/agent/review/start', (req, res) => sitting(res, () => startReview({ project: req.body?.project, client: client(req) })));
+app.post('/api/agent/review/start', (req, res) => sitting(res, () => startReview({ project: req.body?.project })));
 app.post('/api/agent/review/next', (req, res) => sitting(res, () => reviewNext(token(req), { anyway: req.body?.anyway === true })));
 app.post('/api/agent/review/reveal', (req, res) => sitting(res, () => reviewReveal(token(req), req.body?.presentationId)));
 app.post('/api/agent/review/rate', (req, res) => sitting(res, () => reviewRate(token(req), req.body?.presentationId, req.body?.rating)));
