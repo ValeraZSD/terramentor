@@ -552,17 +552,18 @@ const ROW_FILLS = [
 // page (`Workspace.tsx`).
 const boardPage = src('src/components/Workspace.tsx').match(/overflow-hidden bg-slate-(\d+) dark:bg-slate-(\d+) min-w-0/);
 check('the board\'s page is where the contrast model reads it', !!boardPage);
-// A finished or archived project's card sits in a section dimmed as a whole
-// (`ProjectsGrid.tsx`), so card and ring both reach the eye mixed with the
-// page under the section. Hover lifts the dimming, but the pointer leaves, and
-// a touch drop never hovers.
+// A finished or archived project's card sat in a section dimmed as a whole
+// (`ProjectsGrid.tsx`), so card and ring both reached the eye mixed with the
+// page under it. Those courses now have their own Finished and Archived views,
+// drawn at full strength; if a dimmed section ever comes back, the model below
+// reads its opacity again.
 const gridPage = src('src/components/ProjectsGrid.tsx');
 const dimmed = gridPage.match(/\bopacity-(\d+) hover:opacity-100\b/);
 // The page's colour, whatever its padding (a phone gets less than `p-8`).
 const page = gridPage.match(/"h-full overflow-auto [^"]*?\bbg-slate-(\d+) dark:bg-slate-(\d+)\b/);
 const pageRung = (mode) => page?.[mode === 'dark' ? 2 : 1];
-check('the dimmed Projects grid sections and their page are where the contrast model reads them',
-    !!dimmed && ['light', 'dark'].every((mode) => themeRamp(mode, null)[pageRung(mode)] !== undefined), page?.[0] ?? 'no page class');
+check('the Projects page is where the contrast model reads it',
+    ['light', 'dark'].every((mode) => themeRamp(mode, null)[pageRung(mode)] !== undefined), page?.[0] ?? 'no page class');
 const DIM = dimmed ? Number(dimmed[1]) / 100 : 1;
 // The ring at its peak alpha, composited over each of those (plain alpha
 // compositing), against it. `color-mix(in srgb, c share%, black)` scales the
