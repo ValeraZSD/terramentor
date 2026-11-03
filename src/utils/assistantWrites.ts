@@ -247,21 +247,52 @@ export interface ShortCourseProposal {
 }
 
 /**
+ * Which source a link is, for "was a course made from it": a YouTube video by
+ * its id (every address form of it), anything else by host, path and query,
+ * `www.` and a trailing slash aside. The query counts: every YouTube video is
+ * `/watch`, and many sites name a page only in it.
+ */
+export function sourcePlace(u: string): string | null {
+    try {
+        const x = new URL(u.trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const host = x.hostname.toLowerCase().replace(/^(?:www|m)\./, '');
+        const video = host === 'youtu.be' ? x.pathname.slice(1)
+            : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
+                : '';
+        if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join('&');
+        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+    } catch { return null; }
+}
+
+/**
+ * The address a card shows for a link: all of what the app will open (host,
+ * path and query, no scheme), so a link the assistant was talked into, one
+ * carrying words from the conversation in its query, is seen before Create.
+ * Null when `from` is not a web address.
+ */
+export function shownAddress(from: string): string | null {
+    try {
+        const x = new URL(from.trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const path = x.pathname === '/' ? '' : x.pathname;
+        const raw = `${x.host.replace(/^www\./, '')}${path}${x.search}`;
+        try { return decodeURI(raw); } catch { return raw; }
+    } catch { return null; }
+}
+
+/**
  * The course a short-course card already made, so a card read again (a reload,
  * another device) says Created instead of offering Create a second time. The
  * server's own `once` rule (`existingShortCourse`): the same name and the same
- * source, a file by its name, a link by host and path, `www.` and a trailing
- * slash aside. The server stays the judge: a press still sends `once`.
+ * source, a file by its name, a link by `sourcePlace`. The server stays the
+ * judge: a press still sends `once`.
  */
 export function shortCourseMade<P extends { name: string; made_from?: string | null }>(
     projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, fileName?: string | null,
 ): P | undefined {
-    const place = (u: string) => {
-        try {
-            const x = new URL(u.trim());
-            return `${x.hostname.toLowerCase().replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`;
-        } catch { return null; }
-    };
+    const place = sourcePlace;
     const wanted = fileName ? null : place(proposal.from);
     if (!fileName && !wanted) return undefined;
     const name = proposal.name.trim();

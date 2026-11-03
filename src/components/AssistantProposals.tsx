@@ -18,7 +18,7 @@ import ReportProblemDialog from './ReportProblemDialog';
 import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
-    similarFront, shortCourseMade, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
+    similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
     type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
     type WrongProposal,
 } from '../utils/assistantWrites';
@@ -1139,14 +1139,15 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                 const key = `${turnKey}:short:${i}`;
                 const fileId = Number(s.from.match(/^\s*(?:file|attachment)?\s*#?(\d+)\s*$/i)?.[1] ?? NaN);
                 const att = Number.isFinite(fileId) ? attachments.get(fileId) : undefined;
-                let host = '';
-                try { host = new URL(s.from).hostname.replace(/^www\./, ''); } catch { /* not a link */ }
+                // The whole address the app will open, not just its site: a
+                // link with words of this conversation in its query is seen.
+                const address = att ? null : shownAddress(s.from);
                 const fromLine = att
                     ? (att.pages ? t("From {{name}} · {{count}} pages", { name: att.name, count: att.pages }) : t("From {{name}}", { name: att.name }))
-                    : t("From {{name}}", { name: host || s.from });
+                    : t("From {{name}}", { name: address || s.from });
                 // Only a file of this conversation or a web address: anything
                 // else in `from` is not a source the app could read.
-                const source = att ? { attachmentId: att.id } : host ? { url: s.from.trim() } : null;
+                const source = att ? { attachmentId: att.id } : address ? { url: s.from.trim() } : null;
                 const made = outcomes.get(key);
                 // Pressed here, or made earlier (the conversation read again):
                 // then the card says so rather than offering Create twice.
@@ -1165,9 +1166,9 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                                 <CourseTile icon={s.icon} color={colour} />
                                 <div className="min-w-0">
                                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{s.name}</p>
-                                    <p className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 min-w-0">
-                                        {att ? <FileGlyph fileType={att.fileType} name={att.name} className="w-3.5 h-3.5 shrink-0" /> : <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-                                        <span className="truncate">{fromLine}</span>
+                                    <p className={cx('flex gap-1.5 text-sm text-slate-500 dark:text-slate-400 min-w-0', att ? 'items-center' : 'items-start')}>
+                                        {att ? <FileGlyph fileType={att.fileType} name={att.name} className="w-3.5 h-3.5 shrink-0" /> : <Link2 className="w-3.5 h-3.5 shrink-0 mt-[0.1875rem]" aria-hidden="true" />}
+                                        <span className={att ? 'truncate' : 'break-all'} data-short="address">{fromLine}</span>
                                     </p>
                                 </div>
                             </div>
