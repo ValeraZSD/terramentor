@@ -305,7 +305,8 @@ function collectRunningWork(skip = null) {
             const eta = Number(run?.status?.etaMs ?? run?.etaMs);
             return Number.isFinite(eta) && eta > 0 ? { ...t, progress: { ...t.progress, etaMs: eta } } : t;
         });
-        const accounted = new Set(list.filter(t => t.kind === 'create_project').map(t => t.projectId));
+        // A short course being written is flagged too, and has its own task.
+        const accounted = new Set(list.filter(t => t.kind === 'create_project' || t.kind === 'short_course').map(t => t.projectId));
         for (const p of db.prepare('SELECT id, name FROM projects WHERE ai_generating = 1').all()) {
             if (accounted.has(p.id)) continue;
             work.push({ kind: 'create_project', status: 'running', projectId: p.id, projectName: p.name, progress: {} });

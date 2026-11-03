@@ -89,6 +89,7 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     media_describe: k("Image descriptions"),
     srs_optimize: k("Review intervals"),
     search_words: k("Search words"),
+    short_course: k("Short course"),
 };
 
 /** Settings' own tab hashes (see SETTINGS_SECTIONS in settings/sections.ts). */
@@ -308,8 +309,10 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
         case 'media_describe':
             return { go: 'route', route: SETTINGS_AI, openKey: k("Open Settings → AI & Models") };
 
-        // Each course's words are in its Edit project dialog.
+        // Each course's words are in its Edit project dialog; a short course
+        // is drawn on the strip at the top of the projects page.
         case 'search_words':
+        case 'short_course':
             return { go: 'route', route: '/projects', openKey: k("Open the projects page") };
 
         case 'srs_optimize':

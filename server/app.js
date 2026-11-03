@@ -69,6 +69,7 @@ import * as paperApi from './routes/paper.js';
 import * as devicesApi from './routes/devices.js';
 import * as calendarApi from './routes/calendar.js';
 import * as agentApi from './routes/agent.js';
+import * as shortCoursesApi from './routes/shortCourses.js';
 
 const app = routeTable('app');
 
@@ -478,6 +479,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(todayApi.todayRoutes);
     mount(feedApi.feedRoutes);
     mount(paperApi.routes);
+    mount(shortCoursesApi.routes);
     mount(feedApi.feedItemRoutes);
     mount(flashcardsApi.dueRoutes);
     mount(calendarApi.routes);

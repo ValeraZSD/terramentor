@@ -525,7 +525,7 @@ export type AITaskKind =
     | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
     | 'bulk' | 'recover' | 'capture' | 'placement' | 'atlas'
-    | 'media_describe' | 'srs_optimize' | 'search_words';
+    | 'media_describe' | 'srs_optimize' | 'search_words' | 'short_course';
 
 export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 

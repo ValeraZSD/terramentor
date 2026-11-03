@@ -264,7 +264,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     maxPerProject = maxPerProject ?? (onlyProject ? maxTotal : fs.focusPerProject);
     const today = studyToday();
     const projects = db.prepare(`
-        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline,
+        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
                    SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
                    WHERE n.project_id = p.id
@@ -338,9 +338,14 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     // serve, no dates it could ever be late against — not "did this arrive
     // from Anki". The card test stays right the moment a course is given cards
     // or a deck is given a deadline.
+    //
+    // A SHORT COURSE (shortCourses.js, `made_from`) is the third: a few topics
+    // from one page or video, made to be studied now and never scheduled, so on
+    // a day of overdue work it would wait behind all of it.
+    const undated = (p) => !(p.start_date && p.deadline);
     const isStanding = (info) =>
         info.project.id === inboxId
-        || (!!info.project.has_cards && !(info.project.start_date && info.project.deadline));
+        || ((!!info.project.has_cards || !!info.project.made_from) && undated(info.project));
 
     // ...and a standing slot has to be RESERVED, not merely last in line. Sorting
     // by urgency put the standing projects at the end (they have nothing overdue

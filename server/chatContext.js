@@ -188,6 +188,7 @@ const KIND_WORDS = {
     briefing: 'Writing the daily briefing',
     placement: 'Running a placement test',
     create_project: 'Creating a project with AI',
+    short_course: 'Writing a short course from a link or a file',
     bulk: 'Generating study material',
     embed: 'Indexing for search',
     media_describe: 'Describing imported pictures',
