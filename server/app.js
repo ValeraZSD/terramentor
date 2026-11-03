@@ -4,7 +4,7 @@
 import express from 'express';
 import cors from 'cors';
 import db, { DB_PATH } from './database.js';
-import { aiConcurrency } from './ai.js';
+import { aiConcurrency, withAnswerScope } from './ai.js';
 import { identifyRemoteAccess, ownerPresent, requireAuth } from './auth.js';
 import * as tasks from './tasks.js';
 import { failureFacts, logActivity } from './activityLog.js';
@@ -16,6 +16,7 @@ import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
 import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
+import { SANDBOX_FRAME_PATH, sendSandboxFrame } from './sandboxFrame.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
@@ -62,10 +63,12 @@ import * as decksApi from './routes/decks.js';
 import * as studyDashboardApi from './routes/studyDashboard.js';
 import * as masteryApi from './routes/mastery.js';
 import * as placementApi from './routes/placement.js';
+import * as itemReportsApi from './routes/itemReports.js';
 import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
 import * as devicesApi from './routes/devices.js';
 import * as calendarApi from './routes/calendar.js';
+import * as agentApi from './routes/agent.js';
 
 const app = routeTable('app');
 
@@ -73,6 +76,8 @@ const app = routeTable('app');
 // the parallelism on the next task: one slot on a local model, three on a
 // hosted API (see aiConcurrency in ai.js).
 tasks.setConcurrencyProvider(aiConcurrency);
+// Each task keeps its own record of which model answered it (ai.js).
+tasks.setRunScope(withAnswerScope);
 
 // Every background job leaves one line behind: what kind it was, how long it
 // ran, and why it stopped. The task's LABEL never travels — it is the topic's
@@ -87,10 +92,13 @@ tasks.setTaskObserver(({ phase, id, kind, projectId, ms, origin }) => {
     const why = phase === 'error'
         ? failureFacts(tasks.listTasks().find(t => t.id === id)?.failure)
         : null;
+    // `unusable` follows a `done` of the same task: the browser could not
+    // draw what it returned (tasks.resultUnusable). A warning, not a second
+    // error for one run.
     logActivity({
         area: 'task',
         event: `task.${phase}`,
-        level: phase === 'error' ? 'error' : 'info',
+        level: phase === 'error' ? 'error' : phase === 'unusable' ? 'warn' : 'info',
         ms,
         projectId: projectId ?? undefined,
         detail: why ? `${what} · ${why}` : what,
@@ -105,13 +113,15 @@ app.set('trust proxy', 'loopback');
 // has to start counting before the body parser and the auth gate. Silent unless
 // a request crosses a second. See server/slowLog.js.
 app.use(slowRequestLog());
+// Each request keeps its own record of which model answered it, so a row it
+// writes names the model that wrote it (ai.js `withAnswerScope`).
+app.use((req, res, next) => withAnswerScope(next));
 
 // Baseline response headers, set first so every response carries them, the
-// refusals and the parser's own errors included. The CSP half is deliberately
-// REPORT-ONLY: enforcing one blind would break KaTeX's injected styles,
-// Mermaid's, and the sandboxed visual frames. Report-only puts every violation
-// in the browser console while breaking nothing, which is how an enforced
-// policy gets written.
+// refusals and the parser's own errors included. Most of the CSP is still
+// REPORT-ONLY: enforcing it blind would break KaTeX's injected styles and
+// Mermaid's. Report-only puts every violation in the browser console while
+// breaking nothing, which is how an enforced policy gets written.
 // `no-referrer` is the one with teeth today: saved links open external sites,
 // and a local origin has no business being announced to them.
 const CSP_REPORT_ONLY = [
@@ -132,7 +142,7 @@ const CSP_REPORT_ONLY = [
 // The part of the policy that is ENFORCED already: directives no feature of the
 // app relies on — it embeds no plugins, sets no <base>, posts no form anywhere,
 // is framed only by itself, and frames nothing but its own sandboxed visuals
-// (srcdoc, which no frame-src blocks) — and each shuts a door that injected
+// (the shell at /sandbox.html, server/sandboxFrame.js) — and each shuts a door that injected
 // markup would otherwise have (an <object>, a <base href> re-pointing every
 // relative URL, a <form action> carrying typed text off the machine).
 //
@@ -154,12 +164,19 @@ const CSP_REPORT_ONLY = [
 // Measured before they were promoted: every visual kind, the atlas, the home
 // feed and Settings walked in Edge, light and dark, reported nothing for either.
 //
-// Still report-only, and why: `script-src 'self'` is the directive that would
-// matter most, and two things in this origin still compile code at run time
-// (function-plot's expression parser, and the p5 sketch's syntax check before
-// its frame is built), and the sandboxed frames are srcdoc documents, which
-// inherit this policy and run inline scripts of their own. Vega no longer does
-// (renderVega.ts `ast`), and index.html has no inline script left.
+// `script-src 'self'` is the one that matters most: script that got into the
+// page as markup (a lesson, an imported course, a model's answer) does not run,
+// and neither does a string turned into code. Nothing in the page needs either:
+// index.html has no inline script; formulas, chart expressions and chart data
+// are read by interpreters, never compiled (math-codegen is aliased to
+// src/components/visuals/mathCodegen.cjs, renderVega.ts `ast` and vegaDsv.ts);
+// a sketch's syntax is checked inside its frame. The frames themselves run
+// inline script, under a policy of their own: they load /sandbox.html, which is
+// served with it (server/sandboxFrame.js), instead of being srcdoc documents,
+// which would inherit this one. Measured before it was promoted: every visual
+// kind, the atlas, the home feed and Settings walked in Edge, Firefox and
+// WebKit, light and dark, reported nothing (tools/script-src-gates.mjs pins
+// the parts).
 const CSP_ENFORCED = [
     "object-src 'none'",
     "base-uri 'self'",
@@ -168,6 +185,7 @@ const CSP_ENFORCED = [
     "frame-src 'self'",
     "connect-src 'self'",
     "worker-src 'self' blob:",
+    "script-src 'self'",
 ].join('; ');
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -176,6 +194,11 @@ app.use((req, res, next) => {
     res.setHeader('Content-Security-Policy-Report-Only', CSP_REPORT_ONLY);
     next();
 });
+// The document sketch and widget frames start as, under its own policy
+// (server/sandboxFrame.js). Served whether or not this process serves the
+// built page, since in development Vite forwards it here; outside /api, so no
+// password gate: like the page's own files, it holds nothing.
+app.get(SANDBOX_FRAME_PATH, sendSandboxFrame);
 
 // Refuse the request itself, not just the answer. Mounted before the auth gate
 // so a drive-by cannot even spend a login attempt, and before the body parser so
@@ -397,9 +420,11 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // settingsSchema.js) are also written by adding, editing, choosing or
     // removing a model connection, by binding a key, by the OpenRouter sign-in
     // and by the embeddings provider. A device still tests a saved connection
-    // and dismisses its plan notice.
+    // and dismisses its plan notice. Which connection each job and backup runs
+    // on (server/aiJobs.js) is the same choice, one job at a time.
     app.use('/api/ai/connections', (req, res, next) =>
         (/^\/\d+\/(test|plan-notice)$/.test(req.path) ? next() : onTheComputer(req, res, next)));
+    app.use('/api/ai/jobs', onTheComputer);
     app.use('/api/ai/key', onTheComputer);
     app.use('/api/ai/openrouter', onTheComputer);
     app.use('/api/embeddings/settings', onTheComputer);
@@ -449,12 +474,14 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(quizzesApi.projectQuizRoutes);
     mount(masteryApi.routes);
     mount(placementApi.routes);
+    mount(itemReportsApi.routes);
     mount(todayApi.todayRoutes);
     mount(feedApi.feedRoutes);
     mount(paperApi.routes);
     mount(feedApi.feedItemRoutes);
     mount(flashcardsApi.dueRoutes);
     mount(calendarApi.routes);
+    mount(agentApi.routes);
     mount(tailMiddleware);
     assertEveryBlockMounted(mounted);
     return app;

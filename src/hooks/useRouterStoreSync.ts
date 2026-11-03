@@ -8,7 +8,8 @@ function decodeRoute(pathname: string): RouteState {
     if (matchPath('/settings', pathname)) return { view: 'settings' };
     if (matchPath('/projects', pathname)) return { view: 'projects' };
     if (matchPath('/calendar', pathname)) return { view: 'calendar' };
-    if (matchPath('/schedule', pathname)) return { view: 'schedule' };
+    // The Schedule screen merged into Projects (App.tsx redirects the path).
+    if (matchPath('/schedule', pathname)) return { view: 'projects' };
     if (matchPath('/atlas', pathname)) return { view: 'atlas' };
 
     const m =

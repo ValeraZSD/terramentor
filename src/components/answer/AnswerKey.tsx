@@ -6,6 +6,7 @@ import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
 import oneLight from 'react-syntax-highlighter/dist/esm/styles/prism/one-light';
 import type { QuizQuestion } from '../../types';
 import { formatOf, parseSequence, prettyUnit, parseNumber } from './formats';
+import { AssembledKey } from './AssembleInput';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { writtenDecimals } from '../../utils/numberFormat';
 
@@ -48,6 +49,17 @@ export default function AnswerKey({ question }: { question: QuizQuestion }) {
                 <ol className="mt-1 list-decimal pl-6 space-y-0.5">
                     {key.map((item, i) => <li key={i} className="font-medium"><MathText content={item} /></li>)}
                 </ol>
+            </div>
+        );
+    }
+
+    // Pieces are read in place: the key is the template with them filled in,
+    // which is how the learner's own answer above it is drawn.
+    if (question.type === 'assemble') {
+        return (
+            <div className="text-sm text-slate-700 dark:text-slate-300">
+                <span className="text-slate-500 dark:text-slate-400">{label}</span>
+                <div className="mt-1"><AssembledKey question={question} /></div>
             </div>
         );
     }

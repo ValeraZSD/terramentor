@@ -91,10 +91,10 @@ function PromptBox({ prompt, loading }: { prompt: string; loading: boolean }) {
             >
                 {copied ? tr("Copied — now paste it into the chat") : tr("Copy the prompt")}
             </Button>
-            <details className="group">
+            <details>
                 {/* The app's own chevron, not the browser's ▸. */}
                 <summary className="text-sm text-slate-500 dark:text-slate-400 cursor-pointer min-h-[44px] flex items-center gap-1.5 list-none hover:text-slate-700 dark:hover:text-slate-200 [&::-webkit-details-marker]:hidden">
-                    <ChevronRight className="w-4 h-4 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                    <ChevronRight className="w-4 h-4 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
                     {tr("Read it first (")}{prompt ? Math.round(prompt.length / 1000) : 0}{tr("k characters)")}
                 </summary>
                 <pre className="mt-2 max-h-64 overflow-auto text-2xs leading-relaxed whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-slate-600 dark:text-slate-300">

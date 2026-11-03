@@ -29,6 +29,7 @@
 import crypto from 'crypto';
 import db from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS } from './ai.js';
+import { chainFor } from './aiJobs.js';
 import { enqueueVectorJob, isUnavailable } from './embeddings.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { languageDirective } from './language.js';
@@ -62,14 +63,25 @@ const NAMING_MODEL_SETTING = 'atlas_naming_model';
 export const USER_MODEL = 'user';
 
 /**
- * Which model names regions: its own setting, else the chat model. A reasoning-first
- * model tends to spend the timeout deliberating on a four-word answer.
+ * Which model names regions: the small tasks job's own first model when that
+ * job has a list (the call goes there, aiJobs.js), else its own setting, else
+ * the chat model; null while that list's connections are all removed. A
+ * reasoning-first model tends to spend the timeout
+ * deliberating on a four-word answer.
  */
 export function namingModel() {
     let configured = '';
     try {
         configured = (db.prepare('SELECT value FROM settings WHERE key = ?').get(NAMING_MODEL_SETTING)?.value || '').trim();
     } catch (_) { }
+    try {
+        return chainFor('small', { model: configured || null })[0].model;
+    } catch (err) {
+        // Every connection in the small tasks' list was removed: each call
+        // would be refused, so nothing names regions until the list is fixed
+        // (and no failure is counted against a model that was never asked).
+        if (err?.jobRouteGone) return null;
+    }
     return configured || getAISettings().model;
 }
 
@@ -430,12 +442,14 @@ export async function nameRegion(region, { fallback, signal, model = null } = {}
     });
 
     let raw;
+    const answered = {};
     try {
         raw = await generateResponse(user, system, [], {
             temperature: 0.2,
             operation: 'summary',
             signal,
             model: model || undefined,
+            answered,
         });
     } catch (err) {
         // Unavailable is not a verdict on the region: re-thrown for the sweep's
@@ -445,8 +459,10 @@ export async function nameRegion(region, { fallback, signal, model = null } = {}
     }
 
     const verdict = validateName(stripJsonName(raw));
-    // The reason travels back for the failure count and the region card.
-    return verdict.ok ? { label: verdict.label, reason: null } : { label: null, reason: verdict.reason };
+    // The reason travels back for the failure count and the region card;
+    // `model` is the one that answered, a backup when the first fell over.
+    return verdict.ok ? { label: verdict.label, reason: null, model: answered.model || null }
+        : { label: null, reason: verdict.reason };
 }
 
 /**
@@ -544,7 +560,9 @@ async function runNamingSweep(pending, model, onNamed) {
                 continue;
             }
             if (result.label) {
-                storeRegionName(signature, result.label, model, region.members.length);
+                // Stored as the model that wrote it; a failure stays on the
+                // sweep's model, whose attempts the cap counts.
+                storeRegionName(signature, result.label, result.model || model, region.members.length);
                 clearFailure(signature);
                 named++;
             } else {
@@ -557,8 +575,9 @@ async function runNamingSweep(pending, model, onNamed) {
     } catch (err) {
         handle.fail(err?.message);
     }
-    // The atlas cache keys on the topic space, which naming does not touch, so
-    // the caller must invalidate it or the new names never reach the map.
+    // The atlas cache key reads what the topics and courses draw, not the
+    // region names, so the caller must invalidate it or the new names never
+    // reach the map.
     if (named > 0 && typeof onNamed === 'function') {
         try { onNamed(named); } catch (_) { /* a redraw hint may never break a sweep */ }
     }
@@ -566,35 +585,42 @@ async function runNamingSweep(pending, model, onNamed) {
 }
 
 /**
- * `givenUp` is what the map's footnote reports: regions ON THIS MAP that still
- * wear their central topic's title because the naming model ran out of tries.
- * A failure row outlives its region (a region's member set changes as topics
- * are added or a project is deleted, and the old signature's row stays) and
- * outlives a name the learner then gave it, so counting the table would ask
- * the learner to rename regions that no longer exist or that they already
- * named. With the drawn
- * regions passed in, only those still showing a topic title are counted;
- * without them, the table count stands.
+ * `givenUp` is what Settings → AI & Models reports beside the naming model:
+ * regions ON THE MAP that still wear their central topic's title because the
+ * naming model ran out of tries. A failure row outlives its region (a region's
+ * member set changes as topics are added or a project is deleted, and the old
+ * signature's row stays) and outlives a name the learner then gave it, so
+ * counting the table would ask the learner to rename regions that no longer
+ * exist or that they already named. So it is counted over `drawn`, the
+ * signatures of the regions on the last map built (atlas.js
+ * `drawnRegionSignatures`), less those with a stored name of any kind: a name
+ * the learner gave or a sweep earned after that map was built is on the next
+ * one. With no map built since the server started (Settings never builds one)
+ * the table cannot tell live regions from gone ones, so `givenUp` is null and
+ * Settings says nothing. The list is as old as that map: a project archived or
+ * deleted since still counts its regions until the atlas is opened again,
+ * which rebuilds it. That errs toward a notice one map late, never a region
+ * the learner already named.
  *
  * Only rows the CURRENT naming model used up count, the test `exhausted()`
- * applies: the footnote says "could not be named by <model>", and a row
+ * applies: the notice says "could not be named by <model>", and a row
  * another model exhausted is one the current model has not tried yet (its
  * next sweep will, and resets the row on its first failure).
  */
-export function regionNameStats(regions = null) {
+export function regionNameStats(drawn = null) {
     try {
         const row = db.prepare("SELECT COUNT(*) c, MAX(created_at) m, SUM(model = 'user') u FROM region_names").get() || {};
         const model = namingModel();
-        let failed;
-        if (Array.isArray(regions)) {
-            const exhaustedRow = db.prepare('SELECT 1 FROM region_name_failures WHERE signature = ? AND model = ? AND attempts >= ?');
-            failed = regions.filter(r => r?.labelSource === 'medoid' && r.signature
-                && exhaustedRow.get(r.signature, model, MAX_ATTEMPTS)).length;
-        } else {
-            failed = db.prepare('SELECT COUNT(*) c FROM region_name_failures WHERE model = ? AND attempts >= ?').get(model, MAX_ATTEMPTS)?.c || 0;
+        let failed = null;
+        if (Array.isArray(drawn)) {
+            const unnamedGivenUp = db.prepare(
+                `SELECT 1 FROM region_name_failures f
+                 WHERE f.signature = ? AND f.model = ? AND f.attempts >= ?
+                   AND NOT EXISTS (SELECT 1 FROM region_names n WHERE n.signature = f.signature)`);
+            failed = drawn.filter(sig => sig && unnamedGivenUp.get(sig, model, MAX_ATTEMPTS)).length;
         }
         return { cached: row.c || 0, newest: row.m || null, byUser: row.u || 0, givenUp: failed, model };
     } catch (_) {
-        return { cached: 0, newest: null, byUser: 0, givenUp: 0, model: null };
+        return { cached: 0, newest: null, byUser: 0, givenUp: null, model: null };
     }
 }

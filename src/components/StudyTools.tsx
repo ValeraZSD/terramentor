@@ -21,7 +21,7 @@ interface Props {
     onCountsChange?: (quizCount: number, flashcardCount: number) => void;
 }
 
-type QuestionType = 'multiple_choice' | 'true_false' | 'both' | 'code' | 'sequence';
+type QuestionType = 'multiple_choice' | 'true_false' | 'both' | 'code' | 'sequence' | 'assemble';
 
 export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
     const { t } = useTranslation();
@@ -268,6 +268,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                                         <option value="true_false">{t("True/False Only")}</option>
                                         <option value="code">{t("Write code")}</option>
                                         <option value="sequence">{t("Put steps in order")}</option>
+                                        <option value="assemble">{t("Build from pieces")}</option>
                                     </Select>
                                 )}
                             </Field>

@@ -141,7 +141,8 @@ const stack = stackOf(app);
 ok('the error handler is the last layer', stack.at(-1).handle.length === 4 && !stack.at(-1).route);
 
 // The routes a request reaches WITHOUT a session. Each one on this list either
-// discloses nothing (status, the icon, the desktop probe) or checks the session
+// discloses nothing (status, the icon, the desktop probe, the empty shell every
+// sketch and widget frame starts as) or checks the session
 // itself before acting (the auth routes that change a password or a key), or
 // spends a one-time code before it lets anyone in (pairing a device by its QR).
 const PUBLIC = [
@@ -151,6 +152,7 @@ const PUBLIC = [
     'GET /api/auth/apikey', 'POST /api/auth/apikey/regenerate', 'DELETE /api/auth/apikey',
     'GET /api/desktop/status',
     'GET /manifest.webmanifest', 'GET /api/icon/:name',
+    'GET /sandbox.html',
 ];
 const publicOf = (a) => {
     const at = stackOf(a).findIndex((l) => l.handle === requireAuth);

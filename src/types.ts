@@ -145,6 +145,9 @@ export interface Node {
      *  course however many cards it carries. Mirrors `topicWeight` in
      *  server/progress.js. */
     taught?: number;
+    /** The seed still standing on this topic (server/headStart.js), or null:
+     *  the outline marks a head start the learner's answers have not withdrawn. */
+    head_start?: 'placement' | 'transfer' | null;
     position: number;
     scheduled_start: string | null;
     scheduled_end: string | null;
@@ -685,6 +688,8 @@ export interface BulkJobStatus {
 
 export interface QuizQuestion {
     question: string;
+    /** A bank question's identity, stamped by the database (`q:<uuid>` names it in a report). */
+    uuid?: string;
     /**
      * The answer FORMAT — how the learner answers, and therefore what
      * `correct_answer` holds: an option's text, "True"/"False", a model
@@ -693,7 +698,7 @@ export interface QuizQuestion {
      * `src/components/answer/formats.ts`); every surface renders it through
      * `AnswerInput` rather than switching on it.
      */
-    type: 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in' | 'numeric' | 'code' | 'sequence';
+    type: 'multiple_choice' | 'true_false' | 'short_answer' | 'fill_in' | 'numeric' | 'code' | 'sequence' | 'assemble';
     options?: string[];
     correct_answer: string;
     explanation: string;
@@ -702,6 +707,8 @@ export interface QuizQuestion {
      * admissible spelling, a word order that is also right. Compared the same
      * way the key is (`normalizeTyped`), so a variant that differs only in
      * capitals or punctuation is redundant and is dropped on the way in.
+     * `assemble`: other complete arrangements that are equally right, each
+     * written as `correct_answer` is (a JSON list, one piece per gap).
      */
     accept?: string[];
     /**
@@ -722,6 +729,19 @@ export interface QuizQuestion {
     starter?: string;
     /** `sequence`: the items in the SERVED (shuffled) order; the key is `correct_answer`. */
     items?: string[];
+    /**
+     * `assemble`: what is being built, with `___` for each gap; a newline
+     * starts a new row. The key (`correct_answer`) is the piece for each gap,
+     * in gap order, as JSON; `accept` holds other right arrangements the same
+     * way.
+     */
+    template?: string;
+    /** `assemble`: the bank as SERVED — shuffled, or each piece once and sorted when `reuse`. Drawn by the server from the key and the distractors. */
+    tokens?: string[];
+    /** `assemble`: pieces that fit no gap. */
+    distractors?: string[];
+    /** `assemble`: one piece may fill several gaps (coefficients), so placing it does not take it out of the bank. */
+    reuse?: boolean;
     /**
      * Pictures (or clips) the question is ASKED ABOUT — a road situation, a
      * radiograph, a specimen. Structured for the same three reasons card media
@@ -1395,15 +1415,18 @@ export interface AtlasData {
     regions: AtlasRegion[];
     bridges: AtlasBridge[];
     builtAt?: string;
-    /** The state of region naming itself — computed per request, never cached. */
-    naming?: {
-        cached: number;
-        newest: string | null;
-        byUser: number;
-        /** Regions the naming model has failed enough times to be left alone. */
-        givenUp: number;
-        model: string | null;
-    };
+}
+
+/** How region naming is going (`GET /api/atlas/naming`), shown in Settings beside the naming model. */
+export interface AtlasNamingStats {
+    cached: number;
+    newest: string | null;
+    byUser: number;
+    /** Regions on the last map built that the naming model has failed enough
+     *  times to be left alone; null when no map has been built since the
+     *  server started (nothing is claimed). */
+    givenUp: number | null;
+    model: string | null;
 }
 
 /** One already-proven topic a head start was borrowed from. */
@@ -1635,6 +1658,8 @@ export interface DrillItem {
     distractors?: string[];
     /** Optional one-line explanation revealed after answering. */
     note?: string;
+    /** The card it was made from, in the flashcard drill: a report on it is a report on the card. */
+    cardId?: number;
 }
 
 export interface DrillSpec {
@@ -1673,6 +1698,8 @@ export interface DrillRoundResult {
     full: boolean;
     /** Wall-clock seconds the round took. */
     seconds: number;
+    /** Each scored item by its key (`drillItemKey`) and whether it was right, so a report can take one out later. */
+    items?: { k: string; c: boolean }[];
 }
 
 export interface Document {
@@ -1705,6 +1732,23 @@ export interface Document {
     char_count?: number | null;
     created_at: string;
 }
+
+/** One entry of an answer's Sources line, matched to a document of the library
+ *  (GET /api/documents/cited). */
+export interface CitedFile {
+    entry: string;
+    id: number;
+    title: string;
+    /** The page the answer read, when the entry names one. */
+    page: number | null;
+    /** An original is stored (not a text-only document, not a failed import). */
+    original: boolean;
+    /** The browser shows that original (a PDF, a picture, plain text) rather than downloading it. */
+    inline: boolean;
+}
+
+/** What GET /api/documents/cited says of one entry: its document, or none (`shared`: two different files carry that name). */
+export type CitedDocument = CitedFile | { entry: string; id: null; shared?: boolean };
 
 // Semantic-search (Vault embeddings) config + status, from GET /api/embeddings/status.
 export type EmbeddingProvider = 'auto' | 'ollama' | 'openai';
@@ -1907,10 +1951,21 @@ export interface DashboardMilestone {
     segments?: DashboardMilestoneSegment[];
 }
 
+/** A head start standing on "Next up" (server/headStart.js `headStartFor`);
+ *  `review` when its lessons really were planned as a short review. */
+export interface DashboardHeroHeadStart {
+    prior: number;
+    source: 'placement' | 'transfer';
+    review: boolean;
+    /** Answered here since, in agreement: it still shapes the teaching, but
+     *  it is no longer an offer (the banner's `spent`). */
+    spent: boolean;
+}
+
 export interface DashboardData {
     todaySchedule: DashboardTodayTopic[];
     overdueTopics: DashboardOverdueTopic[];
-    heroTask: DashboardTodayTopic | DashboardOverdueTopic | null;
+    heroTask: ((DashboardTodayTopic | DashboardOverdueTopic) & { headStart?: DashboardHeroHeadStart | null }) | null;
     milestones: DashboardMilestone[];
     reviewTopics?: DashboardReviewTopic[];
     /** True when the learner has proven at least one topic (drives the "all fresh" empty state). */
@@ -2043,11 +2098,13 @@ export interface SearchSuggestion {
     status: string;
 }
 /**
- * One row of the cross-project schedule board (`GET /api/schedule/overview`).
+ * One project's row of `GET /api/schedule/overview`, read by the dates strip on
+ * its Projects card (`schedule/ProjectDates.tsx`).
  *
  * Carries BOTH the declared project window (`start_date`/`deadline`) and the
  * true extent of its scheduled leaves, because the two can disagree and the
- * board's job is to show that rather than hide it behind one tidy bar.
+ * strip's job is to say so ("Some topics are planned outside these dates")
+ * rather than hide it behind one tidy range.
  */
 export interface ScheduleOverviewRow {
     id: number;
@@ -2390,7 +2447,7 @@ export interface PairingOffer {
     url: string | null;
     expiresAt?: string;
     tailscale?: boolean;
-    /** "Turn it on" was tried and did not take. */
+    /** Sharing it on Tailscale was tried and did not take. */
     failed?: boolean;
     command?: string | null;
 }

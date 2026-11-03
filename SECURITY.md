@@ -26,11 +26,26 @@ your data at all." Those are different claims and we only make the second one.
   the AI creates a project**, which is **on by default** (Settings → AI & Models → "Find
   resources"), and the same curation for one topic when you press **Find resources** on it,
   whether that switch is on or not; it sends
-  search queries the model writes from each topic's *title*, never your notes or documents,
+  search queries the model writes from each topic's *title* (and, while a project is being
+  created, the one-line description the AI has just written for it), never your notes or documents,
   to DuckDuckGo, Wikipedia and GitHub,
   plus your own SearXNG if you configured one, plus any hosted search engine whose API key you
   saved in Settings (Tavily, Brave, Jina — see "Web search for answers"; a host is reached only
-  if its key is saved); (c) fetching a
+  if its key is saved);
+  (b2) **reading a topic's links while its lessons are written**, which is **on by default**
+  (Settings → AI & Models → Model jobs → "Let lessons read their topic’s links"): when a lesson
+  is written for a topic, the app opens that topic's first two web links (no videos, no PDFs),
+  an ordinary page request (the site sees your IP address, the page's address and a generic
+  browser `User-Agent`, and that a lesson is being written now; nothing about you or the course
+  content is sent), through the same URL vetting (`server/netSafety.js`, a bounded read,
+  15 seconds), and gives the model the one passage of each page that matches the lesson, after
+  the course's own documents and only into the room they leave (`server/lessonSources.js`). The
+  links read are whatever the topic holds, so a course file you imported from someone else can
+  name the pages your machine opens; turn the setting off while you study such a course if that
+  matters. A page is normally opened once every few hours however many lessons the topic has
+  (the app remembers the last 32 pages, forgets them when it restarts, asks a page that timed
+  out or whose server failed again after a few minutes, and a page the site refused or does not
+  have only hours later), and a lesson that used one ends with a link to it; (c) fetching a
   URL you explicitly asked it to fetch; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
@@ -84,19 +99,23 @@ your data at all." Those are different claims and we only make the second one.
   *less* than a private LAN should be reached over a private network and put behind the auth
   gate rather than by editing that list.
 - **Every response carries `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
-  plus a Content-Security-Policy that is partly report-only.** Seven directives are enforced
+  plus a Content-Security-Policy that is partly report-only.** Eight directives are enforced
   (`object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`,
-  `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`), because no feature
-  uses what they forbid: the page's own connections (fetch, beacons, sockets, workers) go only
-  to its own server, and the app's requests to other hosts are made by the server, where they
-  are vetted. An image from another host is the exception, loaded by the browser only when you
-  press it (below), and a link you open goes to its site in a new tab. The rest ships in `Content-Security-Policy-Report-Only`
-  so it can be read from the console while the app is exercised, and is only promoted to
-  enforcing once nothing in a real session reports a violation. `script-src` is not there yet:
-  the function plotter compiles the formula it draws and the sketch check compiles the sketch
-  before it is framed, both in the page, and the sketch and widget frames inherit the page's
-  policy. Charts no longer compile code (they are evaluated by an
-  interpreter), and the page has no inline script.
+  `frame-src 'self'`, `connect-src 'self'`, `worker-src 'self' blob:`, `script-src 'self'`),
+  because no feature uses what they forbid: the page's own connections (fetch, beacons,
+  sockets, workers) go only to its own server, and the app's requests to other hosts are made
+  by the server, where they are vetted. An image from another host is the exception, loaded by
+  the browser only when you press it (below), and a link you open goes to its site in a new
+  tab. `script-src 'self'` means the page runs only the app's own script files: no inline
+  script, and no code built from a string (`eval`, `new Function`). Nothing in the page needs
+  either. Charts are evaluated by an interpreter, the function plotter's formulas by an
+  interpreter of their parse tree (`src/components/visuals/mathCodegen.cjs`), chart rows written
+  as CSV or TSV are read without compiling a row builder (`src/components/visuals/vegaDsv.ts`),
+  and a sketch is syntax-checked by the frame it runs in. Pinned by `tools/script-src-gates.mjs`,
+  which runs the formula and CSV readers with code generation switched off. The rest ships in
+  `Content-Security-Policy-Report-Only` so it can be read from the console while the app is
+  exercised, and is only promoted to enforcing once nothing in a real session reports a
+  violation.
 - **Content the app did not write does not make the browser fetch.** An image in a lesson, a
   chat answer or an imported course that points at another host is shown as a button naming that
   host and loads only when pressed; one that points at this app loads by itself only from the
@@ -128,7 +147,7 @@ your data at all." Those are different claims and we only make the second one.
     the HttpOnly cookie carries a random id signed with the session secret, and the library
     keeps only the SHA-256 of that id. A sign-in lasts 14 days from its last use (renewed at
     most once a day) and never more than 90 days from the sign-in itself, **Sign out** deletes the record, so a copy of the cookie stops working
-    too, and **Settings → Data → Security → Sign out everywhere** ends every other sign-in and
+    too, and **Settings → Devices & security → Security → Sign out everywhere** ends every other sign-in and
     removes every connected device without changing the password (this device stays signed
     in; the API key is left alone, Delete key or Regenerate key end it). Setting, changing or
     removing the password ends every sign-in as well. The session cookie is accepted only as
@@ -206,8 +225,8 @@ your data at all." Those are different claims and we only make the second one.
     forgotten; setting the first password, or changing it, ends every one but the device that
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
     start at login, window mode, restore a library, download or install an update) or
-    change where the app sends requests (the model connections and addresses, the search
-    address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
+    change where the app sends requests (the model connections and addresses, the models each
+    job runs on, the search address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -257,9 +276,10 @@ your data at all." Those are different claims and we only make the second one.
   embedding settings. The addresses the app sends requests to (the model's, the local
   model's, SearXNG's) and the provider choice change only from this computer or with the
   password, through this writer and through every other door to them: adding, editing,
-  choosing or removing a model connection, saving the provider key, the OpenRouter sign-in
-  and the embeddings provider. A device connected without the password changes everything
-  else, and still reads and tests the saved connections. `settings-registry-gates.mjs`
+  choosing or removing a model connection, choosing which connections a job and its backups
+  run on, saving the provider key, the OpenRouter sign-in and the embeddings provider. A
+  device connected without the password changes everything else, and still reads and tests
+  the saved connections and reads each job's models. `settings-registry-gates.mjs`
   fails when the server reads a row that is not in that list.
 - **The provider key goes only to the address it was saved for.** It is stored with the origin
   (scheme, host and port) of the base URL it was entered against, and a model call to any other
@@ -305,6 +325,22 @@ your data at all." Those are different claims and we only make the second one.
   ceiling (16 MB for a model's reply, 1 MB for one line of a streamed one, less for search and
   sign-in answers; `server/httpBody.js`), and a failed call's body is cut down to the endpoint's
   own error fields before the page or a log sees it, since some servers quote the request back.
+- **A job you give its own models, or a backup model you add, sends that work to those
+  connections.** Settings → AI & Models can give each kind of work (the conversation, creating
+  courses, questions, checking answers, reading pictures, short tidy-ups) its own ordered list of
+  models from your saved connections, and the main model a list of backups. A request goes to the
+  first model in its list, and to the next only when that one answers with an error, answers
+  nothing, or cannot be reached; never after a cancel or a timeout, and never after any of the
+  answer has arrived. A job with its own list uses only that list, so text you keep on this
+  computer is not carried to a cloud backup; if every connection on that list is removed, the job
+  stops and asks you to choose again rather than falling back to the main model. With nothing
+  chosen, every request goes to the connection in use, as above. Each key still goes only to its
+  own service. Beside each model on that screen the server shows its price and, for the job that
+  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
+  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  Nothing is asked of a provider that publishes neither. The screen also notes when each job last
+  moved on to its next model; that note stays in the library and holds only the time, the model's
+  name, the kind of failure and its HTTP status.
 - **Continue with ChatGPT uses OpenAI's open-source sign-in, and only when pressed.** The server
   opens a listener on `127.0.0.1` (port 1455, or another free one) for that one attempt and sends
   the browser to `auth.openai.com` with a PKCE challenge, a fresh state and nonce, and a random
@@ -319,6 +355,11 @@ your data at all." Those are different claims and we only make the second one.
   `127.0.0.1`, the sign-in works only in a browser on the computer the app runs on.
 - **AI-generated visuals run sandboxed, and cannot send anything out.** p5 sketches and
   compiled widgets execute in `<iframe sandbox="allow-scripts">` with no same-origin access.
+  The frame loads `/sandbox.html` (`server/sandboxFrame.js`), served with a policy of its own,
+  and the page posts the sketch or widget document into it: a frame built from `srcdoc` would
+  inherit the page's `script-src 'self'` and could not run the inline script it is made of.
+  That shell policy allows inline script and nothing that loads from an address, and the
+  document adds its own policy on top.
   The model writes their code, so it could write into that code whatever it has read; three
   things keep it in the frame. Each frame's own policy (`default-src 'none'`) refuses every
   fetch, socket and remote load. The app's enforced `frame-src 'self'` keeps a frame from
@@ -387,7 +428,9 @@ your data at all." Those are different claims and we only make the second one.
   vault, and, when a course keeps documents with text, up to four passages of that course's
   documents (about 3,200 characters) with each feed lesson written for it, so the lesson can
   teach from them (`server/lessonSources.js`). Only that course's documents are searched, never
-  the rest of your library, and a course with no documents sends nothing new. With embeddings
+  the rest of your library. With "Let lessons read their topic’s links" on, the same lesson can
+  also carry up to two excerpts of the web pages linked on its topic (about 700 characters each),
+  so a course with no documents but with links sends those. With embeddings
   on, the topic and part title of each such lesson also goes to the embedding endpoint to rank
   the passages. A file you attach in the assistant goes there too: a picture as itself, to the
   chat model, in the message it was attached to and again in the next messages while it is
@@ -403,7 +446,7 @@ your data at all." Those are different claims and we only make the second one.
   per request, not by an account setting. It is unset by default, it can only add fields and
   never change the app's own, and it is your provider that honours it, not us.
 - **Choosing a provider in Settings does not change who can read your prompts.** *AI & Models →
-  Which machine serves this model* lists the companies your router says can serve the model, and
+  Where the model runs* lists the companies your router says can serve the model, and
   your choice is sent as a *preference*: if the one you picked is busy the router uses another,
   because a slower answer beats a failed lesson. So it is a speed, price and consistency control,
   never a privacy one: if it matters that a particular company never sees your material, that is
@@ -420,7 +463,7 @@ your data at all." Those are different claims and we only make the second one.
 The app can tell you when a new version has been released. It is the only thing here that
 would reach the network without you asking for something, so it is built to be checkable:
 
-- **"Check now"** (Settings → General → About) is a **button**. A press is you asking, so it
+- **"Check now"** (Settings → Library & about → About) is a **button**. A press is you asking, so it
   is allowed to make the request.
 - **"Check daily"** is a separate toggle and **ships off**. Turning it on checks once straight
   away; after that it is one request each time the app starts (15 seconds in) and one a day
@@ -482,9 +525,14 @@ Docker and git installs are shown the command to run instead (see below).
   channel, and each signs only its own channel's manifests. The stable key is used only after
   the maintainer approves the release run on GitHub; the nightly key signs without anyone. A
   copy on the stable channel downloads stable releases signed with the stable key only; one on
-  the nightly channel takes either channel, each with its own key. Which channel a copy follows
-  is a setting its server keeps, so the updater, which does not trust the server, accepts a
-  release of either channel that carries its channel's signature. Every manifest names an
+  the nightly channel takes either channel, each with its own key. Staging records the channel
+  the signed manifest names, so a nightly downloaded before a switch to the stable channel is
+  not installed on Restart; switching back before another release is downloaded makes it ready
+  again. Which channel a copy follows is a setting its server keeps: the updater is handed the
+  channel read when Restart was pressed, and a switch while it hands over is refused until the
+  copy has opened again. The updater refuses a staged release of another channel and leaves it
+  staged, unless `ready.json` names a different channel than the signed manifest. That keeps a
+  mistake from installing it, but it is the server's word, not a second key check. Every manifest names an
   expiry date (a year for a stable release, 30 days for a nightly, from when the release
   workflow wrote it); an expired one is not installed with one click, and the update panel sends you
   to the release page instead. An unsigned release, a
@@ -499,9 +547,9 @@ Docker and git installs are shown the command to run instead (see below).
 - **Who installs it:** not the server. The server stages the files in `.update/` inside the
   app's own folder and never touches the app's files. "Restart to update" hands over to the
   launcher, which starts a separate updater process (`desktop/updater.js`) after the app has
-  exited. The updater trusts nothing the server wrote: it checks the release's signature again
-  with the keys of the version installed, takes the file list's hash from that signed manifest,
-  checks every staged file again (by its hash; an unchanged file that is still a hard link to
+  exited. The updater takes nothing that was staged on the server's word: it checks the
+  release's signature again with the keys of the version installed, takes the file list's hash
+  from that signed manifest, checks every staged file again (by its hash; an unchanged file that is still a hard link to
   the installed copy, hashed when it was staged, by size and file identity), swaps the folders,
   starts the new version, and puts the previous one back if it does not start within two
   minutes. "Started" means the new server answered a fresh random challenge with a proof made
@@ -528,7 +576,7 @@ The assistant can look something up while answering. It is the only thing in the
 app that sends **what you typed** rather than a title the app already holds, so it ships off
 and is described here in the same detail as the update check.
 
-- **It ships off.** Settings → AI & Models → "Let answers use the web" is one switch, and it
+- **It ships off.** Settings → Web & research → "Let answers use the web" is one switch, and it
   starts off. Off, no code path here opens a socket.
 - **Who decides, once it is on.** The model does, for each question: it is asked whether
   answering needs anything looked up, and most of the time the answer is no. The switch is
@@ -553,8 +601,8 @@ and is described here in the same detail as the update check.
   else from the conversation is the page being quoted rather than anyone to obey. That is a
   prompt instruction, not a proof: it is why the queries are shown to you and kept with the
   answer, and why the switch exists at all.
-- **The engines are extendable by key, and only by key.** Settings → AI & Models →
-  "Answering with the web" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
+- **The engines are extendable by key, and only by key.** Settings → Web & research →
+  "Advanced search" accepts an API key for a hosted search engine (Tavily, Brave, Jina).
   A saved key adds exactly that engine's host — `api.tavily.com`, `api.search.brave.com`,
   `s.jina.ai` — to the outbound set. What each host receives is the search terms the model
   wrote and your key, and nothing else about you; the key is stored in the credentials file beside
@@ -603,6 +651,69 @@ and is described here in the same detail as the update check.
   language, number format), each shown at once with an Undo; it can never change the AI,
   sign-in or learning settings.
 
+## The MCP server (an agent in another app)
+
+`mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
+such as Claude Code, Claude Desktop, VS Code or Cursor, read your library and propose two things
+to it. It is a separate program that you or your harness start. The app never starts it, and
+while nobody runs it nothing here changes.
+
+- **It opens no database and keeps no data.** It is a client of the running app's own HTTP API
+  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`), behind the same password
+  check as every page. `tools/mcp-gates.mjs` fails if anything under `mcp/` imports the server.
+  It connects to `TERRAMENTOR_URL` and nowhere else.
+- **What an agent can read:**
+  - your projects and their outlines;
+  - a search of the library;
+  - what is due today;
+  - a topic's Overview and Material;
+  - a topic's mastery estimate and evidence.
+
+  It cannot read:
+  - your private notes on a topic, which its search does not look in either;
+  - your "About you" profile;
+  - settings, keys or the activity log.
+
+  What it reads goes to the model of the harness you use, under that provider's terms, like
+  anything you paste into it.
+- **What it can write is two things, and neither is a proof.**
+  - **A note into the Inbox**, through the capture route. A note without a link whose text is
+    already there is not saved again; this tool takes only an `http(s)` link. If a model is
+    connected, the note is tidied as every capture is.
+  - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
+    table `mastery_claims`). Claims are kept apart from the evidence the app measured:
+    - a right claim never raises an estimate and never passes the mastery gate;
+    - a wrong claim may lower the estimate once, then not again until the app records an
+      answer of its own on that topic or rebuilds the estimate from its own answers (an item
+      report does). An agent reads lesson text it did not write, so a line planted in a lesson
+      cannot grind an estimate down with a loop of calls;
+    - a wrong claim never lowers the estimate below a head start while that head start stands;
+    - an `attempt_id` sent again for a different answer is refused.
+
+  Proving a topic stays the app's own mastery check.
+- **With a password set, it needs the API key.** On stdio the harness passes
+  `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
+  agents: a program holding it can call any `/api` route the key opens, not only the seven
+  tools. Treat a harness config file that holds it like the password. Settings → Devices &
+  security → API key → Regenerate or Delete ends it. Without a password the app answers only
+  this computer, and the server needs no key.
+- **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
+  `http://` to another machine is refused, because the key would cross the network unencrypted.
+  A redirect from that address is not followed, so the key does not go along to another one.
+  The listener's startup line prints the app's origin only, never a user name or password
+  written into `TERRAMENTOR_URL`.
+- **The optional HTTP listener (`--http`) answers this computer only.**
+  - It binds `127.0.0.1` (or `::1`) and refuses to start on any other address.
+  - It refuses a request in any of these cases:
+    - the `Host` is not a loopback name (DNS rebinding);
+    - an `Origin` is present and is not the listener's own address, so a page served by
+      another program on this computer (a dev server, the app itself) is refused too;
+    - a proxy's header is present;
+    - the peer is not loopback.
+  - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
+    `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
+    password.
+
 ## Verifying the no-telemetry claim
 
 Do not trust this file. Trust a packet capture. The claim is designed to be falsifiable in
@@ -616,6 +727,7 @@ about ten minutes:
    the path that would download a language model if this file were lying to you.
 4. You should see **zero** outbound connections beyond loopback.
 5. Now turn AI features on and repeat. You should see connections to your configured endpoint
+   (and to the connections you gave a job or chose as backups, if you did)
    and to nothing else, with one exception you can switch off: creating a project with
    "Find resources" on adds DuckDuckGo, Wikipedia, GitHub (and your SearXNG, and any hosted
    search engine you saved a key for) for the duration of that creation, and nothing after it.
@@ -629,7 +741,7 @@ please report it as one.
 
 ## Reporting a problem that is not a vulnerability
 
-Settings → General → About → **Report a problem** assembles the version, commit, install kind,
+Settings → Library & about → About → **Report a problem** assembles the version, commit, install kind,
 Node version, platform and build time, the configured AI provider and model, your browser's
 user-agent string and window size; it shows you the text and opens a pre-filled GitHub issue
 form. It sends
@@ -644,7 +756,7 @@ Submit on GitHub.
 
 ## The activity log
 
-Settings → Data → **Activity log** keeps a local record of what the app did: model calls (which
+Settings → Library & about → **Activity log** keeps a local record of what the app did: model calls (which
 provider, which model id, which operation, how long, how much came back), background jobs and
 their failures, projects created, imported and deleted, and each server start. It is written to
 your own database, it is capped at 20,000 events and the app never sends it anywhere: the
@@ -727,8 +839,9 @@ Closed by an `overrides` entry, because a transitive pin held them back:
 
 ## Search providers, and add-ons later
 
-**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point that exists, and
-they run no code: a name, an icon and an https URL template that is inert until you click it.
+**Search providers** (`docs/SEARCH_PROVIDERS.md`) are the only extension point inside the app
+(the MCP server above is a separate program that uses the app's API), and they run no code: a
+name, an icon and an https URL template that is inert until you click it.
 `validateUrlTemplate` is the boundary: https only (which is what blocks `javascript:` reaching
 an `href`), no embedded credentials, no unknown placeholders.
 

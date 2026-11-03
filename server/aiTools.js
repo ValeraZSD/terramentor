@@ -169,14 +169,17 @@ const searchWebTool = {
  * and the project hits are merged. Deliberately only for PROJECTS, and only as
  * a fallback: widening every search by token would drown a precise question in
  * everything that shares one common word with it.
+ *
+ * `options` reach each word's search (`{ notes: false }` from the agent's
+ * find, so its retries do not search private notes either).
  */
-function projectsFor(query, res) {
+export function projectsFor(query, res, options = {}) {
     if (res.projects.length) return res.projects;
     const words = String(query).split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2);
     if (words.length < 2) return res.projects;
     const found = [];
     for (const word of words) {
-        for (const p of searchAll(word, { limit: 3 }).projects) {
+        for (const p of searchAll(word, { ...options, limit: 3 }).projects) {
             if (!found.some(x => x.projectId === p.projectId)) found.push(p);
             if (found.length >= 4) return found;
         }
@@ -1124,6 +1127,9 @@ export async function runToolRounds({ question, tools = [], pageContext = '', hi
                     // their answer starts.
                     think: false,
                     operation: 'summary',
+                    // It reads the conversation: it goes where the
+                    // conversation is allowed to go.
+                    job: 'conversation',
                     timeout: DECISION_TIMEOUT_MS,
                     signal,
                 });

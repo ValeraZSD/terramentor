@@ -10,6 +10,9 @@ import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
+import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
+import { probeRef } from '../utils/itemReports';
+import { useReportOn } from '../utils/itemReportStore';
 
 interface Props {
     isOpen: boolean;
@@ -57,6 +60,11 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
     const question: PlacementQuestion | undefined = probe?.questions[index];
     const answeredCount = probe?.questions.filter(q => q.answered).length ?? 0;
+    // A question reported as wrong seeds nothing (server/itemReports.js): it
+    // is not answered, and the way on is Next.
+    const questionReportRef = probe && question ? probeRef(probe.id, question.index) : null;
+    const questionReport = useReportOn(questionReportRef);
+    const locked = !!verdict || busy || !!questionReport;
     const seeded = summary?.topicsSeeded ?? 0;
 
     // ---- start / resume ------------------------------------------------------
@@ -266,94 +274,114 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
                 {/* ---- asking ---- */}
                 {phase === 'asking' && question && (
-                    <div className="p-5 space-y-4">
-                        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                            {/* Answered, never "correct so far" — a probe has no score. */}
-                            <span>{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
-                            <span className="truncate max-w-[55%] text-right">{question.phaseTitle}</span>
-                        </div>
-                        <div className="h-1 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                            <div className="h-full bg-accent transition-all"
-                                style={{ width: `${((answeredCount) / Math.max(1, probe?.total ?? 1)) * 100}%` }} />
-                        </div>
-
-                        <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
-                        {/* A block, so `space-y-4` reaches it: the stem is a
-                            span, and an inline box takes no top margin. */}
-                        <div>
-                            <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
-                        </div>
-
-                        {question.type === 'multiple_choice' ? (
-                            <div className="space-y-2">
-                                {question.options?.map(opt => {
-                                    const isKey = verdict && opt === verdict.correctAnswer;
-                                    return (
-                                        <button data-answer-option
-                                            key={opt}
-                                            disabled={!!verdict || busy}
-                                            onClick={() => submit(opt)}
-                                            className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
-                                                ${isKey
-                                                    ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                                                    : 'border-slate-200 dark:border-slate-700 hover:border-accent can-hover:hover:bg-accent/5'}
-                                                disabled:cursor-default`}
-                                        >
-                                            <MathText content={opt} />
-                                        </button>
-                                    );
-                                })}
+                    // One question on screen: its flag and the line under a
+                    // missed answer open the same dialog.
+                    <ReportScope>
+                        <div className="p-5 space-y-4">
+                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                                {/* Answered, never "correct so far" — a probe has no score. */}
+                                <span>{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
+                                <span className="truncate max-w-[55%] text-right">{question.phaseTitle}</span>
                             </div>
-                        ) : (
-                            <div className="space-y-2">
-                                <TextArea
-                                    value={draft}
-                                    onChange={e => setDraft(e.target.value)}
-                                    disabled={!!verdict || busy}
-                                    rows={3}
-                                    aria-label={t("Your answer")}
-                                    placeholder={t("A sentence or two — or leave it and skip.")}
-                                />
-                                {!verdict && (
-                                    <div className="flex justify-end">
-                                        <Button variant="primary" onClick={() => submit(draft)} disabled={!draft.trim()} busy={busy}>
-                                            {busy ? t("Checking…") : t("Answer")}
-                                        </Button>
+                            <div className="h-1 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
+                                <div className="h-full bg-accent transition-all"
+                                    style={{ width: `${((answeredCount) / Math.max(1, probe?.total ?? 1)) * 100}%` }} />
+                            </div>
+
+                            <div className="flex items-start gap-2">
+                                <div className="min-w-0 flex-1 space-y-4">
+                                    <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
+                                    {/* A block, so `space-y-4` reaches it: the stem is a
+                                        span, and an inline box takes no top margin. */}
+                                    <div>
+                                        <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
                                     </div>
-                                )}
+                                </div>
+                                <ReportItem
+                                    key={questionReportRef ?? index}
+                                    itemRef={questionReportRef}
+                                    surface="placement"
+                                    className="-mt-1.5 -mr-1.5"
+                                />
                             </div>
-                        )}
 
-                        {verdict && (
-                            <div className={`rounded-lg p-3 text-sm ${verdict.correct
-                                ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200'
-                                : 'bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300'}`}>
-                                <p className="font-medium mb-1">
-                                    {/* Never "wrong" — the topic simply gets taught, and this
-                                        screen must not turn that into a verdict on the learner. */}
-                                    {verdict.correct ? t("You already have this one.") : t("We'll cover this one.")}
-                                </p>
-                                {verdict.explanation && <MathText content={verdict.explanation} />}
-                            </div>
-                        )}
+                            {questionReport && !verdict && (
+                                <p className="text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, questionReport)}</p>
+                            )}
 
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                            <Button variant="quiet" onClick={finish} disabled={busy}>
-                                {t("Finish now")}
-                            </Button>
-                            <div className="ml-auto">
-                                {verdict ? (
-                                    <Button variant="primary" onClick={advance} trailing={<ChevronRight size={16} aria-hidden="true" />}>
-                                        {t("Next")}
-                                    </Button>
-                                ) : (
-                                    <Button onClick={advance} disabled={busy}>
-                                        {t("I don't know — skip")}
-                                    </Button>
-                                )}
+                            {question.type === 'multiple_choice' ? (
+                                <div className="space-y-2">
+                                    {question.options?.map(opt => {
+                                        const isKey = verdict && opt === verdict.correctAnswer;
+                                        return (
+                                            <button data-answer-option
+                                                key={opt}
+                                                disabled={locked}
+                                                onClick={() => submit(opt)}
+                                                className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
+                                                    ${isKey
+                                                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
+                                                        : 'border-slate-200 dark:border-slate-700 hover:border-accent can-hover:hover:bg-accent/5'}
+                                                    disabled:cursor-default`}
+                                            >
+                                                <MathText content={opt} />
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <TextArea
+                                        value={draft}
+                                        onChange={e => setDraft(e.target.value)}
+                                        disabled={locked}
+                                        rows={3}
+                                        aria-label={t("Your answer")}
+                                        placeholder={t("A sentence or two — or leave it and skip.")}
+                                    />
+                                    {!verdict && !questionReport && (
+                                        <div className="flex justify-end">
+                                            <Button variant="primary" onClick={() => submit(draft)} disabled={!draft.trim()} busy={busy}>
+                                                {busy ? t("Checking…") : t("Answer")}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {verdict && (
+                                <div className={`rounded-lg p-3 text-sm ${verdict.correct
+                                    ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200'
+                                    : 'bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300'}`}>
+                                    <p className="font-medium mb-1">
+                                        {/* Never "wrong" — the topic simply gets taught, and this
+                                            screen must not turn that into a verdict on the learner. */}
+                                        {verdict.correct ? t("You already have this one.") : t("We'll cover this one.")}
+                                    </p>
+                                    {verdict.explanation && <MathText content={verdict.explanation} />}
+                                    {/* Missed, by the key: the learner may know better. */}
+                                    {!verdict.correct && <ReportLink className="mt-2" />}
+                                </div>
+                            )}
+
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                                <Button variant="quiet" onClick={finish} disabled={busy}>
+                                    {t("Finish now")}
+                                </Button>
+                                <div className="ml-auto">
+                                    {verdict || questionReport ? (
+                                        <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                            {t("Next")}
+                                        </Button>
+                                    ) : (
+                                        <Button onClick={advance} disabled={busy}>
+                                            {t("I don't know — skip")}
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </ReportScope>
                 )}
 
                 {/* ---- done ---- */}

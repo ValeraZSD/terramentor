@@ -1,18 +1,20 @@
 // Finding study resources for one topic, shared by project creation and the per-topic Find.
-import { searchAndCurateResources } from './agentic.js';
+import { planSectionQueries, searchAndCurateResources } from './agentic.js';
 import { sanitizeResourceType } from './curriculumSchema.js';
 
+// `queries`: this topic's row of a section plan (planSectionQueries), or null
+// to plan its own. `answered` is filled with the model that picked the links.
 async function findResourcesForSubElement(
     projectName, categoryTitle, elementTitle,
     subElementTitle, subElementDescription,
-    signal, projectSummary, lang = null
+    signal, projectSummary, lang = null, queries = null, answered = undefined
 ) {
     try {
         const results = await searchAndCurateResources(
             projectName, projectSummary || '',
             categoryTitle, elementTitle,
             subElementTitle, subElementDescription || '',
-            signal, lang
+            signal, lang, queries, answered
         );
         return results.map(r => ({
             title: r.title || 'Resource',
@@ -25,4 +27,4 @@ async function findResourcesForSubElement(
     }
 }
 
-export { findResourcesForSubElement };
+export { findResourcesForSubElement, planSectionQueries };

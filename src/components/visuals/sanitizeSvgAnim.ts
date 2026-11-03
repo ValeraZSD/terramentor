@@ -601,7 +601,7 @@ export function sanitizeAnimatedSvg(code: string): SVGSVGElement {
         if (w > 0 && h > 0) {
             svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
         } else {
-            throw new Error('the <svg> needs a viewBox attribute (e.g. viewBox="0 0 600 340").');
+            throw new Error('the <svg> needs a viewBox attribute that holds everything it draws (for a scene drawn afresh, viewBox="0 0 360 240").');
         }
     }
     svg.removeAttribute('width');

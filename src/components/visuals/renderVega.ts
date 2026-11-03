@@ -3,6 +3,7 @@ import { normalizeVegaLite, findEmptyEncodingChannel, findUnboundEncodingField }
 import { appendCaption, takeTitle } from './chartTitle';
 import { validateVegaView, type VegaViewLike } from './validateVega';
 import { planLogScales, applyLogScales } from './vegaScales';
+import { registerEvalFreeDsv } from './vegaDsv';
 type VegaNamespace = typeof import('vega-embed').vega;
 
 /**
@@ -110,6 +111,8 @@ function drawnRows(view: VegaViewLike, spec: Record<string, unknown>): Record<st
 const renderVega: VisualRenderer = async (el, code, ctx) => {
     const embedModule = await import('vega-embed');
     const embed = embedModule.default;
+    // Rows written as CSV or TSV text, read without compiling code (vegaDsv.ts).
+    registerEvalFreeDsv(embedModule.vega);
 
     let parsed: unknown;
     try {

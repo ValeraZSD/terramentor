@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { Pause, Play, RotateCcw, Settings2 } from 'lucide-react';
+import { Pause, Play, RotateCcw, Settings2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Select } from '../ui/Field';
 import { IconButton } from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import { uiLocale } from '../../utils/locale';
@@ -9,10 +8,17 @@ import { Course, CourseTrace, JourneyTimeline, journeyTimeline } from './courseP
 import { CHROME_SURFACE } from './chromeSurface';
 
 interface Props {
-    courses: Course[];
-    /** The traced project, or null for none. */
-    value: number | null;
-    onChange: (projectId: number | null) => void;
+    /**
+     * The course being traced. The PICKING happens in the atlas index
+     * (its Courses list, where each course carries its colour and its count);
+     * this panel is the player for the one that was picked, so it floats on the
+     * map, where it survives full screen and the phone's folded sheet.
+     */
+    course: Course;
+    /** The course's own colour on the map, when the map paints by course. */
+    swatch?: string | null;
+    /** Stop tracing: the clean map again. */
+    onClose: () => void;
     trace: CourseTrace | null;
     /** How far the replay has got, or null when the whole path is drawn. */
     step: number | null;
@@ -27,10 +33,9 @@ interface Props {
      *
      * It is here rather than in the page header because this is where the
      * questions it answers come up: a replay too quick to read is something you
-     * notice while watching one, and "render this" means the course in this
-     * select. It appears with the course for the same reason, and disappears
-     * with it — a gear over an untraced map would be three video fields about
-     * nothing.
+     * notice while watching one, and "render this" means the course this panel
+     * plays. It exists with the course for the same reason — a gear over an
+     * untraced map would be three video fields about nothing.
      */
     onOpenSettings: () => void;
     /**
@@ -39,15 +44,9 @@ interface Props {
      * Null when nothing is being drawn.
      */
     progressAt: () => number | null;
-    /**
-     * The map under this panel is narrow, so the panel takes the width the
-     * surface switch beside it leaves rather than a width of its own.
-     *
-     * Decided by the page from the map's own width and passed down rather than
-     * measured here: the same answer turns that switch, and two components
-     * measuring the same box can disagree by a frame.
-     */
-    compact?: boolean;
+    /** The ✕, so the page can put focus on the player after a pick that
+     *  folded the sheet the pick was made in. */
+    closeRef?: React.Ref<HTMLButtonElement>;
 }
 
 /**
@@ -82,23 +81,23 @@ const shortDate = (iso: string | null) =>
     (iso ? new Date(iso).toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric' }) : '');
 
 /**
- * The one control the paths layer needs: which course to trace, and whether to
- * watch it being walked.
+ * The player for the traced course: whether to watch it being walked, and how
+ * far along in time the walk has got.
  *
  * It lives ON the map rather than in the page header for a reason that only
  * shows up on a phone: full screen is a CSS mode that lifts the map out of the
  * page entirely, so a control in the header would be the one thing unreachable
  * exactly where the map is most usable. Map controls belong to the map.
  *
- * One select, two buttons when there is a journey to watch, and the journey's
- * own timeline. Not three toggles for branches / journey / dimming: they are
- * views of one answer to one question — "how does this course go, and how far
- * have I got?" — and separating them would make the reader assemble the picture
- * themselves.
+ * Centred along the map's bottom edge (`MapOverlay`), laid out as a media
+ * player is: transport on the left where Play never moves, the course and
+ * where the walk is in the middle, settings and ✕ on the right, and the
+ * timeline across the whole width under them. One box, so it reads as one
+ * control and not as a title with buttons and a chart near it.
  */
 export default function TracePanel({
-    courses, value, onChange, trace, step, playing, onPlay, onPause, onRestart, progressAt,
-    onOpenSettings, compact = false,
+    course, swatch, onClose, trace, step, playing, onPlay, onPause, onRestart, progressAt,
+    onOpenSettings, closeRef,
 }: Props) {
     const { t: tr } = useTranslation();
     const steps = trace?.journey.length ?? 0;
@@ -152,85 +151,119 @@ export default function TracePanel({
         return () => cancelAnimationFrame(raf);
     }, [playing, timeline, progressAt]);
 
+    // Under the course's name: where the walk is. One line, because the panel
+    // stands on the map.
+    const status = !trace ? null : (
+        <p className="min-w-0 text-2xs leading-tight text-slate-600 dark:text-slate-300">
+            {steps === 0 ? (
+                // Not a failure and not an empty state — the course's topics
+                // are lit on the map, there is simply nothing walked between
+                // them yet. Said plainly, because the alternative reading ("the
+                // replay is broken") is the one a silent panel invites.
+                tr("Nothing finished here yet — this course's topics are the lit ones.")
+            ) : step == null ? (
+                <>
+                    {tr("{{steps}} finished", { steps })}
+                    {/* The bar already ends on "Last <date>"; the same date
+                        twice in one panel is one too many. */}
+                    {!timeline && trace.points.get(trace.journey[steps - 1])?.topic.completedAt
+                        ? ` · ${tr("last {{when}}", { when: shortDate(trace.points.get(trace.journey[steps - 1])!.topic.completedAt) })}`
+                        : ''}
+                </>
+            ) : (
+                // Count, then DATE, then name: the first two are short and
+                // fixed, the name can be any length, and whatever comes last is
+                // what gets cut. Where the player is stacked full-width under the
+                // controls (a phone), two lines, held at two for the whole replay:
+                // one line left "Rearranging Fo…" of the topic the arrow is on,
+                // and a box that grew and shrank with each title would move the
+                // framed course with it. Centred on a wide map, one line: there
+                // the name fits, and a reserved empty line made the card cover
+                // more of the map for nothing.
+                <span className="line-clamp-1 break-words group-data-[stacked=true]/strip:min-h-[2lh] group-data-[stacked=true]/strip:line-clamp-2">
+                    {/* "4/36" is a count to LOOK at; said aloud it is two numbers
+                        with no noun, so a screen reader gets the sentence. */}
+                    <span className="tabular-nums">
+                        <span aria-hidden="true">{stepAt}/{steps}</span>
+                        <span className="sr-only">{tr("Step {{at}} of {{steps}}", { at: stepAt, steps })}</span>
+                    </span>
+                    {head?.completedAt && (
+                        <span className="tabular-nums text-slate-500 dark:text-slate-400">
+                            {' · '}{shortDate(head.completedAt)}
+                        </span>
+                    )}
+                    {head && (
+                        <span className="text-slate-500 dark:text-slate-400">{' · '}{head.title}</span>
+                    )}
+                </span>
+            )}
+        </p>
+    );
+
     return (
-        // Two widths, from the CONTAINER and never a viewport breakpoint (this
-        // map is also mounted in a narrow column on a wide screen). On a narrow
-        // map it takes whatever the surface switch beside it leaves — `min-w-0`
-        // because a flex item will not let its contents truncate without it,
-        // and the course name is the thing that has to give. On a wide one it
-        // is 22rem: on a phone the panel IS the top of the map, and a 16rem box
-        // floating in a 23rem column left the course names cut to two words
-        // with empty map beside them, while a full-width one
-        // crosses a desktop map it is only chrome on.
-        //
-        // Everything that comes and goes in it — the three buttons, the
-        // timeline, the line under it — GROWS in (`Reveal`): the select gives
-        // up its width a button at a time and the panel lengthens, rather than
-        // the select jumping 32px narrower and the box 40px taller in a frame.
-        <div className={`pointer-events-auto p-1.5 ${CHROME_SURFACE} ${compact ? 'flex-1 min-w-0' : 'w-[22rem] max-w-full'}`}>
+        // As wide as the map allows up to 34rem, from the CONTAINER and never a
+        // viewport breakpoint: `MapOverlay` centres it, or gives it the whole
+        // width on a narrow map. What comes and goes in it — Restart, the
+        // timeline — GROWS in (`Reveal`) rather than jumping the box in a frame.
+        <div
+            role="group"
+            aria-label={tr("Course player")}
+            className={`pointer-events-auto w-full max-w-[34rem] min-w-0 p-1.5 ${CHROME_SURFACE}`}
+        >
             <div className="flex items-center">
-                {/* The select takes the row's free width. Sized to its own text
-                    it would sit in the left half of a 22rem box with the rest
-                    empty, which reads as a missing control. */}
-                <div className="flex-1 min-w-0">
-                    <Select
-                        size="sm"
-                        aria-label={tr("Trace a course on the map")}
-                        value={value ?? ''}
-                        onChange={v => onChange(v ? Number(v) : null)}
-                    >
-                        <option value="" data-placeholder>{tr("Trace a course…")}</option>
-                        {courses.map(c => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}{c.finished ? ` (${c.finished}/${c.topics})` : ''}
-                            </option>
-                        ))}
-                    </Select>
-                </div>
-                {/* The gear comes BEFORE the transport buttons, not after, so
-                    that Play stays on the panel's own edge at every state: ↺
-                    appears and disappears with the replay, and a settings
-                    button on the outside would shunt the one control the reader
-                    is actually aiming at sideways under their thumb. It shows
-                    for any traced course, including one with nothing walked yet
-                    — the pace and the region names are still its settings, and
-                    the dialog says plainly when there is no journey to film. */}
-                <Reveal axis="x" open={!!trace}>
-                    <div className="pl-1">
-                        <IconButton
-                            size="sm" variant="quiet" icon={<Settings2 className="w-4 h-4" />}
-                            label={tr("Replay and video settings")} onClick={onOpenSettings}
-                        />
-                    </div>
-                </Reveal>
-                {/* Only once there is a walk to start over: on a path nobody
-                    has played yet, "again" means nothing. It stays put while
-                    playing rather than appearing and disappearing under the
-                    pointer. */}
-                <Reveal axis="x" open={!!trace && steps > 1 && step != null}>
-                    <div className="pl-1">
-                        <IconButton
-                            size="sm" variant="quiet" icon={<RotateCcw className="w-4 h-4" />}
-                            label={tr("Start again from the beginning")} onClick={onRestart}
-                        />
-                    </div>
-                </Reveal>
+                {/* Transport first, where Play is found at every state: ↺
+                    arrives beside it once there is a walk to start over, and
+                    nothing that comes and goes sits before it. Spacing inside
+                    the Reveals, so a closed one takes no gap with it. */}
                 <Reveal axis="x" open={!!trace && steps > 1}>
-                    <div className="pl-1">
-                        <IconButton
-                            size="sm" variant="subtle"
-                            icon={playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                            // Three different things this button can do, and it
-                            // says which: a paused replay carries on from where
-                            // it stopped, which is only obvious if the label
-                            // says so.
-                            label={playing ? tr("Pause the replay")
-                                : step != null ? tr("Carry on from here")
-                                    : tr("Replay this journey")}
-                            onClick={playing ? onPause : onPlay}
-                        />
-                    </div>
+                    <div className="pr-1"><IconButton
+                        size="sm" variant="subtle"
+                        icon={playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                        // Three different things this button can do, and it
+                        // says which: a paused replay carries on from where
+                        // it stopped, which is only obvious if the label
+                        // says so.
+                        label={playing ? tr("Pause the replay")
+                            : step != null ? tr("Carry on from here")
+                                : tr("Replay this journey")}
+                        onClick={playing ? onPause : onPlay}
+                    /></div>
                 </Reveal>
+                <Reveal axis="x" open={!!trace && steps > 1 && step != null}>
+                    <div className="pr-1"><IconButton
+                        size="sm" variant="quiet" icon={<RotateCcw className="w-4 h-4" />}
+                        label={tr("Start again from the beginning")} onClick={onRestart}
+                    /></div>
+                </Reveal>
+                {/* The course and where its walk is: the name behind the
+                    colour the map draws it in, the step under it. */}
+                <div className="flex-1 min-w-0 px-1">
+                    {/* Two lines before it is cut: on a phone at 160% scale the
+                        name has about ten characters of one line, and "VWO P…"
+                        names no course. */}
+                    <p className="flex items-start gap-2 text-sm leading-snug font-medium text-slate-900 dark:text-white">
+                        {swatch && (
+                            <span aria-hidden="true" className="mt-[0.3125rem] w-2.5 h-2.5 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ background: swatch }} />
+                        )}
+                        <span className="min-w-0 line-clamp-2 break-words" title={course.name}>{course.name}</span>
+                    </p>
+                    {trace && status}
+                </div>
+                {/* Settings for any traced course, including one with nothing
+                    walked yet: the pace and the region names are still its
+                    settings, and the dialog says plainly when there is no
+                    journey to film. ✕ last, on the panel's own edge, where a
+                    closing ✕ is looked for: the same road as Escape. */}
+                <IconButton
+                    size="sm" variant="quiet" icon={<Settings2 className="w-4 h-4" />}
+                    label={tr("Replay and video settings")} onClick={onOpenSettings}
+                />
+                <IconButton
+                    ref={closeRef}
+                    className="ml-1"
+                    size="sm" variant="quiet" icon={<X className="w-4 h-4" />}
+                    label={tr("Stop tracing this course")} onClick={onClose}
+                />
             </div>
 
             {/* The journey in time. The map says where and the step count says
@@ -310,66 +343,13 @@ export default function TracePanel({
             )}
             </Reveal>
 
-            <Reveal open={!!trace}>
-            {trace && (
-                <div className="min-w-0 pt-1.5 text-2xs leading-tight text-slate-600 dark:text-slate-300">
-                    {steps === 0 ? (
-                        // Not a failure and not an empty state — the course's
-                        // topics are lit on the map, there is simply nothing
-                        // walked between them yet. Said plainly, because the
-                        // alternative reading ("the replay is broken") is the
-                        // one a silent panel invites.
-                        <p>{tr("Nothing finished here yet — this course's topics are the lit ones.")}</p>
-                    ) : step == null ? (
-                        <p>
-                            {tr("{{steps}} finished", { steps })}
-                            {trace.points.get(trace.journey[steps - 1])?.topic.completedAt
-                                ? ` · ${tr("last {{when}}", { when: shortDate(trace.points.get(trace.journey[steps - 1])!.topic.completedAt) })}`
-                                : ''}
-                        </p>
-                    ) : (
-                        // ONE line at every width — "Step 4 of 36" over the
-                        // topic's name was two rows of a panel that is standing
-                        // on the map, for a count four characters long.
-                        //
-                        // Count, then DATE, then name, in that order: the first
-                        // two are short and fixed, the name is the one that can
-                        // be any length, and whatever comes last is what gets
-                        // cut. With the name in the middle the date was the
-                        // part that disappeared — on a long topic title it was
-                        // the first thing to go, and it is half of what this
-                        // line is for.
-                        <p className="flex items-baseline gap-1 min-w-0">
-                            {/* "4/36" is a count to LOOK at; said aloud it is two
-                                numbers with no noun, so the same sentence the wide
-                                layout prints is the accessible name for it. */}
-                            <span
-                                className="tabular-nums shrink-0"
-                                aria-label={tr("Step {{at}} of {{steps}}", { at: stepAt, steps })}
-                            >
-                                {stepAt}/{steps}
-                            </span>
-                            {head?.completedAt && (
-                                <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                                    · {shortDate(head.completedAt)}
-                                </span>
-                            )}
-                            <span className="truncate text-slate-500 dark:text-slate-400">
-                                {head ? `· ${head.title}` : ''}
-                            </span>
-                        </p>
-                    )}
-                    {trace.undated > 0 && (
-                        // The path is shorter than the course's proven count
-                        // and the learner is owed the reason rather than left
-                        // to notice the discrepancy.
-                        <p className="text-slate-500 dark:text-slate-400">
-                            {tr("{{undated}} finished with no date, so not on the path", { undated: trace.undated })}
-                        </p>
-                    )}
-                </div>
+            {trace && trace.undated > 0 && (
+                // The path is shorter than the course's proven count and the
+                // learner is owed the reason rather than left to notice it.
+                <p className="px-1 pt-1 text-2xs leading-tight text-slate-500 dark:text-slate-400">
+                    {tr("{{undated}} finished with no date, so not on the path", { undated: trace.undated })}
+                </p>
             )}
-            </Reveal>
         </div>
     );
 }

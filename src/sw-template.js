@@ -89,6 +89,10 @@ function isBypassed(url) {
         // this one document would mean an icon that cannot be changed until the
         // next release. The icons it names are under /api and already bypassed.
         url.pathname === '/manifest.webmanifest' ||
+        // The frame sketches and widgets are shown in (server/sandboxFrame.js).
+        // Loading it is a navigation, and a navigation below is cached as the
+        // app's own page: one sketch would replace the offline shell.
+        url.pathname === '/sandbox.html' ||
         url.pathname.startsWith('/@') ||        // /@vite, /@react-refresh, /@fs/...
         url.pathname.startsWith('/src/') ||     // dev: unbundled source modules
         url.pathname.startsWith('/node_modules') ||

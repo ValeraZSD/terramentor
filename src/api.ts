@@ -1,8 +1,10 @@
 import { SearchProvider } from './utils/searchProviders';
 import type { RepairProgress } from './components/visuals/repairProgress';
 import type { ClientSettingKey } from './settingKeys';
+import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
 import { todayStr } from './utils/tree';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import type { FailureFacts } from './utils/failureCause';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
 
@@ -82,6 +84,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             }
 
             const err = new Error(errorMessage) as any;
+            err.status = res.status;
             err.data = errorData;
             err.rawResponse = errorData.rawResponse || errorData.raw_response || errorData.rawOutput || errorData.raw_output || errorData.raw;
             throw err;
@@ -196,6 +199,33 @@ export interface SavedConnection {
     test: { at: string; ok: boolean; reason: ConnectionFailure | '' } | null;
     createdAt: string;
 }
+
+/** One place in a job's list. `connectionId` is null when that connection was
+ *  removed; `model` '' is the connection's own saved model; `effort` '' is automatic. */
+export interface AIJobEntry {
+    connectionId: number | null;
+    model: string;
+    effort: string;
+}
+
+export interface AIJobsResponse {
+    jobs: string[];
+    /** The name of the list tried behind the main model. */
+    backups: string;
+    maxRoute: number;
+    routes: Record<string, AIJobEntry[]>;
+    /** The last time each job moved on to its next model, since its list was set. */
+    fallbacks: Record<string, AIFallbackNote>;
+}
+
+/** `kind`: http (see `status`) | credit | unreachable | empty | error. `place` counts from 1;
+ *  `model` is the one that failed, as named then ('' when it had no name). */
+export interface AIFallbackNote { at: string; place: number; model: string; kind: string; status: number | null; times: number }
+
+/** What the per-job screen shows beside one model. `price` is US dollars per
+ *  million tokens, null where the provider publishes none; `vision` is
+ *  yes | listed (its catalogue says it reads pictures) | no | maybe (unknown). */
+export interface ModelFacts { levels: string[] | null; price: { input: number; output: number } | null; vision: string }
 
 export interface ConnectionsResponse {
     activeId: number | null;
@@ -380,6 +410,9 @@ export interface AIProjectProgress {
     done?: boolean;
     cancelled?: boolean;
     error?: string;
+    /** On the `error` frame: the part of the task's failure record the screen
+     *  reads (screenFailure in server/routes/createProject.js). */
+    failure?: FailureFacts | null;
     rawOutput?: string;
     tokensPerSecond?: number;
     thinkingChunk?: string;
@@ -403,6 +436,8 @@ export interface AIProjectProgress {
     /** The run's own id — known before the project row exists; cancel and
      *  reattach go by it, so two runs never answer to one name. */
     runId?: string;
+    /** The run's chip in the task dock. */
+    taskId?: string;
     /** Where the run is and what is left (server/creationEta.js). Absent on
      *  streamed-chunk frames. */
     track?: CreationTrack;
@@ -661,6 +696,126 @@ async function* streamChatSse(
 }
 
 /**
+ * One AI project creation over SSE, fresh (`/ai/create-project`) or carried on
+ * (`/ai/continue-creation`): both send the same frames. A failure before or
+ * during the stream comes out as an `error` frame; only a cancel we asked for
+ * is thrown, as 'Request cancelled.'.
+ */
+async function* streamCreationSse(path: string, payload: unknown, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> {
+    let response: Response;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+
+    try {
+        try {
+            response = await apiFetch(`${SSE_BASE}${path}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal,
+                body: JSON.stringify(payload)
+            });
+        } catch (fetchError: any) {
+            const errorMessage = fetchError.message || 'Unknown fetch error';
+            if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
+                throw new Error('Cannot reach the API server. Is the backend running?');
+            } else if (fetchError.name === 'AbortError') {
+                throw new Error('Request cancelled.');
+            }
+            throw new Error(errorMessage);
+        }
+
+        if (!response.ok) {
+            let errorMessage = `API error: ${response.status} ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+                if (response.status === 500) errorMessage = `Server error: ${errorMessage}`;
+                else if (response.status === 400) errorMessage = `Request error: ${errorMessage}`;
+                else if (response.status === 503) errorMessage = `Service unavailable. Is Ollama running?`;
+            } catch {
+                errorMessage = `Server returned ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
+
+        const body = response.body;
+        if (!body) throw new Error('No response body received from server');
+
+        reader = body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        let abortReason: string | null = null;
+        const onAbort = () => {
+            abortReason = 'Aborted by user';
+            try { reader?.cancel(); } catch { }
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+
+        try {
+            while (true) {
+                let done: boolean;
+                let value: Uint8Array | undefined;
+
+                try {
+                    const result = await reader.read();
+                    done = result.done;
+                    value = result.value;
+                } catch (readError: any) {
+                    if (abortReason || signal?.aborted) {
+                        return;
+                    }
+                    const errorMsg = readError.name === 'AbortError'
+                        ? 'Stream was cancelled'
+                        : `Failed to read server response: ${readError.message}`;
+                    yield {
+                        phase: 'error',
+                        message: errorMsg,
+                        task: 'Connection to the server was interrupted',
+                        error: readError.message || 'Stream read error'
+                    };
+                    return;
+                }
+
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6);
+                        try {
+                            const json = JSON.parse(data) as AIProjectProgress;
+                            yield json;
+                            if (json.done || json.error) return;
+                        } catch (e) {
+                            if (e instanceof SyntaxError) continue;
+                            throw e;
+                        }
+                    }
+                }
+            }
+        } finally {
+            signal?.removeEventListener('abort', onAbort);
+            try { reader.cancel(); } catch { }
+        }
+    } catch (error: any) {
+        if (error.message === 'Request cancelled.' || error.name === 'AbortError') {
+            throw error;
+        }
+        yield {
+            phase: 'error',
+            message: error.message || 'Unknown error',
+            task: 'AI project creation failed',
+            error: error.message || 'Unknown error'
+        };
+    }
+}
+
+/**
  * A name for ONE presentation of an answer (a feed card, a quiz sitting, a
  * mastery check), sent with the submission and sent again unchanged when the
  * same answer is retried, so the server records it once. A new sitting gets a
@@ -720,7 +875,9 @@ export const api = {
             currentElementIndex: number | null;
             currentSubElementIndex: number | null;
             error: string | null;
+            failure?: FailureFacts | null;
             runId: string;
+            taskId: string | null;
             /** 'running' until it settles; then how it ended (kept ~5 min). */
             outcome: 'running' | 'complete' | 'cancelled' | 'error';
             finishedAt: number | null;
@@ -1124,8 +1281,27 @@ export const api = {
     planNoticeSeen: (id: number) =>
         request<{ success: boolean }>(`/ai/connections/${id}/plan-notice`, { method: 'POST' }),
     /** The thinking levels a model offers, weakest first; null = its provider publishes none. */
-    getEfforts: (model?: string) =>
-        request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${model ? `?model=${encodeURIComponent(model)}` : ''}`),
+    getEfforts: (model?: string, connectionId?: number) => {
+        const q = new URLSearchParams();
+        if (model) q.set('model', model);
+        if (connectionId) q.set('connection', String(connectionId));
+        const qs = q.toString();
+        return request<{ levels: string[] | null; defaultEffort?: string }>(`/ai/efforts${qs ? `?${qs}` : ''}`);
+    },
+    /** Which models each job runs on, in the order they are tried (server/aiJobs.js). */
+    getAIJobs: () => request<AIJobsResponse>('/ai/jobs'),
+    /** Replace one job's list; `[]` gives the job back to the main model. */
+    setAIJob: (job: string, route: AIJobEntry[]) =>
+        request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>(`/ai/jobs/${encodeURIComponent(job)}`, { method: 'PUT', body: JSON.stringify({ route }) }),
+    /** Every job back on the main model, and no backups, in one write. */
+    clearAIJobs: () => request<Pick<AIJobsResponse, 'routes' | 'fallbacks'>>('/ai/jobs', { method: 'DELETE' }),
+    /** Reasoning levels, price and picture reading of one model on one saved connection. */
+    getModelFacts: (connectionId: number, model: string, pictures = false) => {
+        const q = new URLSearchParams({ connection: String(connectionId) });
+        if (model) q.set('model', model);
+        if (pictures) q.set('pictures', '1');
+        return request<ModelFacts>(`/ai/model-facts?${q}`);
+    },
     /** "Continue with ChatGPT": the authorize URL, or a 409 `not-local` off this computer. */
     startChatgptSignIn: (returnPath: string, connectionId?: number) =>
         request<{ url: string }>('/ai/chatgpt/start', { method: 'POST', body: JSON.stringify({ returnPath, connectionId }) }),
@@ -1190,7 +1366,11 @@ export const api = {
         message: string,
         { conversationId, context, attachments = [] }: {
             conversationId: number | null;
-            context: { view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null };
+            context: {
+                view?: string; projectId?: number | null; nodeId?: number | null; feedItemId?: number | null;
+                /** The items on screen and answered earlier this sitting, newest first (`screenItems()`). */
+                items?: (ScreenItem & { current?: boolean })[];
+            };
             /** Ids of files already uploaded from the composer (`uploadAttachment`). */
             attachments?: number[];
         },
@@ -1473,6 +1653,37 @@ export const api = {
     }) =>
         request<AssistantEditResult>('/assistant/edits', { method: 'POST', body: JSON.stringify(body) }),
 
+    /** "This is wrong" on one item: the one endpoint the item's flag and the
+     *  assistant's prepared report both send (server/routes/itemReports.js).
+     *  An item already reported returns that report (`existing`). */
+    reportItem: (body: { ref: string; reason: ReportReason; note?: string | null; surface: ReportSurface }) =>
+        request<{ report: ItemReport; existing: boolean }>('/item-reports', { method: 'POST', body: JSON.stringify(body) }),
+
+    /** Undo a report: everything it took is put back. */
+    undoItemReport: (id: number) =>
+        request<{ report: ItemReport }>(`/item-reports/${id}`, { method: 'DELETE' }),
+
+    /** Reports standing on a topic, a project or a list of refs. */
+    listItemReports: (scope: { nodeId?: number; projectId?: number; refs?: string[] }) => {
+        const q = new URLSearchParams();
+        if (scope.nodeId) q.set('nodeId', String(scope.nodeId));
+        if (scope.projectId) q.set('projectId', String(scope.projectId));
+        if (scope.refs?.length) q.set('refs', scope.refs.join(','));
+        return request<{ reports: ItemReport[] }>(`/item-reports?${q}`);
+    },
+
+    /** One report by its number, undone or not: what the assistant's prepared undo takes back. */
+    getItemReport: (id: number) =>
+        request<{ report: ItemReport }>(`/item-reports/${id}`),
+
+    /** The item a ref names, as the server holds it, and its standing report. */
+    itemReportTarget: (ref: string) =>
+        request<ItemReportTarget>(`/item-reports/target?ref=${encodeURIComponent(ref)}`),
+
+    /** Write a new version through the generators every item comes from. */
+    rewriteItemReport: (id: number) =>
+        request<{ report: ItemReport; taskId?: string }>(`/item-reports/${id}/rewrite`, { method: 'POST' }),
+
     undoAssistantEdit: (id: number) =>
         request<{ restored?: string[]; kept?: string[]; alreadyUndone?: boolean; gone?: boolean; current?: Record<string, string | number> }>(
             `/assistant/edits/${id}/undo`, { method: 'POST' }),
@@ -1537,10 +1748,12 @@ export const api = {
     // Record a completed practice-drill round as mastery evidence for the node.
     // Tagged `drill` server-side: feeds the BKT retention estimate + decay timer
     // but never the completion gate's raw-assessment clause (practice ≠ proof).
-    recordDrillResult: (nodeId: number, score: number, total: number, drillKey?: string) =>
+    // `items` names each answer (`drillItemKey`), so a reported item can be
+    // taken out of this round again.
+    recordDrillResult: (nodeId: number, score: number, total: number, drillKey?: string, items?: { k: string; c: boolean }[]) =>
         request<{ mastery_score: number }>(`/nodes/${nodeId}/mastery/drill`, {
             method: 'POST',
-            body: JSON.stringify({ score, total, ...(drillKey ? { drillKey } : {}) }),
+            body: JSON.stringify({ score, total, ...(drillKey ? { drillKey } : {}), ...(items?.length ? { items } : {}) }),
         }),
 
     // The last full round of each drill on a topic, keyed by `drillKeyOf`.
@@ -2024,6 +2237,14 @@ export const api = {
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
 
+    // The documents an answer's Sources line names, entry by entry (null id:
+    // no document of that title is in the library now).
+    citedDocuments: (entries: string[]) => {
+        const q = new URLSearchParams();
+        for (const e of entries) q.append('entry', e);
+        return request<CitedDocument[]>(`/documents/cited?${q}`);
+    },
+
     deleteDocument: (id: number) => request<{ success: boolean }>(`/documents/${id}`, { method: 'DELETE' }),
 
     // Re-run PDF math recovery (e.g. after connecting a vision model). Forces a
@@ -2069,7 +2290,7 @@ export const api = {
     getProjectStudyTime: (projectId: number) => request<import('./types').ProjectStudyTime>(`/study-time/projects/${projectId}`),
 
     // AI Project Creation (SSE)
-    createProjectWithAI: async function* (
+    createProjectWithAI: (
         name: string,
         description: string,
         color: string,
@@ -2078,119 +2299,14 @@ export const api = {
         contentLanguage = '',
         /** Staged files the course is built from (stageDocumentFiles). */
         documentIds: string[] = []
-    ): AsyncGenerator<AIProjectProgress> {
-        let response: Response;
-        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    ): AsyncGenerator<AIProjectProgress> =>
+        streamCreationSse('/ai/create-project', { name, description, color, icon, content_language: contentLanguage, documentIds }, signal),
 
-        try {
-            try {
-                response = await apiFetch(`${SSE_BASE}/ai/create-project`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal,
-                    body: JSON.stringify({ name, description, color, icon, content_language: contentLanguage, documentIds })
-                });
-            } catch (fetchError: any) {
-                const errorMessage = fetchError.message || 'Unknown fetch error';
-                if (fetchError.name === 'TypeError' && fetchError.message.includes('fetch')) {
-                    throw new Error('Cannot reach the API server. Is the backend running?');
-                } else if (fetchError.name === 'AbortError') {
-                    throw new Error('Request cancelled.');
-                }
-                throw new Error(errorMessage);
-            }
-
-            if (!response.ok) {
-                let errorMessage = `API error: ${response.status} ${response.statusText}`;
-                try {
-                    const errorData = await response.json();
-                    if (errorData.error) {
-                        errorMessage = errorData.error;
-                    }
-                    if (response.status === 500) errorMessage = `Server error: ${errorMessage}`;
-                    else if (response.status === 400) errorMessage = `Request error: ${errorMessage}`;
-                    else if (response.status === 503) errorMessage = `Service unavailable. Is Ollama running?`;
-                } catch {
-                    errorMessage = `Server returned ${response.status}: ${response.statusText}`;
-                }
-                throw new Error(errorMessage);
-            }
-
-            const body = response.body;
-            if (!body) throw new Error('No response body received from server');
-
-            reader = body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-
-            let abortReason: string | null = null;
-            const onAbort = () => {
-                abortReason = 'Aborted by user';
-                try { reader?.cancel(); } catch { }
-            };
-            signal?.addEventListener('abort', onAbort, { once: true });
-
-            try {
-                while (true) {
-                    let done: boolean;
-                    let value: Uint8Array | undefined;
-
-                    try {
-                        const result = await reader.read();
-                        done = result.done;
-                        value = result.value;
-                    } catch (readError: any) {
-                        if (abortReason || signal?.aborted) {
-                            return;
-                        }
-                        const errorMsg = readError.name === 'AbortError'
-                            ? 'Stream was cancelled'
-                            : `Failed to read server response: ${readError.message}`;
-                        yield {
-                            phase: 'error',
-                            message: errorMsg,
-                            task: 'Connection to the server was interrupted',
-                            error: readError.message || 'Stream read error'
-                        };
-                        return;
-                    }
-
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            try {
-                                const json = JSON.parse(data) as AIProjectProgress;
-                                yield json;
-                                if (json.done || json.error) return;
-                            } catch (e) {
-                                if (e instanceof SyntaxError) continue;
-                                throw e;
-                            }
-                        }
-                    }
-                }
-            } finally {
-                signal?.removeEventListener('abort', onAbort);
-                try { reader.cancel(); } catch { }
-            }
-        } catch (error: any) {
-            if (error.message === 'Request cancelled.' || error.name === 'AbortError') {
-                throw error;
-            }
-            yield {
-                phase: 'error',
-                message: error.message || 'Unknown error',
-                task: 'AI project creation failed',
-                error: error.message || 'Unknown error'
-            };
-        }
-    },
+    /** Carry on a creation that stopped: the server writes only what is missing
+     *  from the project (a phase's sections, a section's topics, a topic's link
+     *  pass) and streams the same frames a fresh run does. */
+    continueCreation: (projectId: number, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> =>
+        streamCreationSse('/ai/continue-creation', { projectId }, signal),
 
     /** Cancel ONE run — by its run id when known (the only handle before the
      *  project row exists), else by project. Never sends an empty body: that
@@ -2260,6 +2376,8 @@ export const api = {
         const qs = params.toString();
         return request<AtlasData>(`/atlas${qs ? `?${qs}` : ''}`);
     },
+    /** Never builds the atlas: counted against the last one built, or the stored names. */
+    getAtlasNaming: () => request<AtlasNamingStats>('/atlas/naming'),
 
     // Name a region by hand, or hand it back to the map. Addressed by the
     // region's member-set signature, because a region has no id that survives a
@@ -2314,6 +2432,8 @@ export const api = {
         result?: FeedConsumeResult;
         /** One per presentation of the card; the same again on a retry (`newAttemptId`). */
         attemptId?: string;
+        /** A bank question's uuid: its key's position moves when the bank does. */
+        uuid?: string;
     }) => request<{ ok: boolean; duplicate?: boolean; stats: FeedStats }>('/feed/consume', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -2367,7 +2487,8 @@ export const api = {
     getCalendarRange: (from: string, to: string) =>
         request<GlobalCalendarData>(`/calendar?from=${from}&to=${to}`),
 
-    /** Cross-project schedule board rows (one per non-archived project). */
+    /** Each project's pace and topic extent, for the dates on its Projects card
+     *  (one row per non-archived project). */
     getScheduleOverview: () => request<ScheduleOverview>('/schedule/overview'),
 
     // ANKI IMPORT (server/ankiImport.js)
@@ -2518,6 +2639,8 @@ export const api = {
     getTasks: () => request<AITaskSummary[]>('/tasks'),
 
     cancelTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+    /** A finished visual repair whose answer did not draw: the task becomes a failure. */
+    reportRepairUnusable: (taskId: string) => request<{ success: boolean }>(`/ai/repair-visual/${encodeURIComponent(taskId)}/unusable`, { method: 'POST' }),
 
     dismissTask: (id: string) => request<{ success: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
 

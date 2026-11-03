@@ -48,7 +48,8 @@ import {
     buildNodeContext,
     aiProvenance,
 } from './ai.js';
-import { parseObjectResponse } from './agentic.js';
+import { firstChoice } from './aiJobs.js';
+import { parseObjectResponse, LATEX_NR_COMMANDS } from './agentic.js';
 import { publicMessage } from './clientError.js';
 import { updateMasteryFromAttempt } from './mastery.js';
 import { getNodeLanguage } from './language.js';
@@ -95,10 +96,12 @@ function getPaperVisionModel() {
  */
 export async function decidePaperVision() {
     const mode = getSetting(VISION_MODE_SETTING) ?? 'auto';
-    const model = getPaperVisionModel();
+    // The vision job's first choice: its own model, else this one on the connection in use.
+    const head = firstChoice('vision', { model: getPaperVisionModel() || null });
+    const model = head.model;
     if (!model || mode === 'never' || !getAISettings().enabled) return { use: 'no', model };
     if (mode === 'always') return { use: 'yes', model };
-    const cap = await visionAvailability(model);
+    const cap = await visionAvailability(model, head);
     return { use: cap === 'yes' || cap === 'listed' ? 'yes' : 'no', model };
 }
 
@@ -175,18 +178,6 @@ export function validatePaperExercise(raw) {
  * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
  * is worth losing in the other direction.
  */
-// LaTeX commands beginning with n or r — the ONLY sequences where a backslash
-// followed by 'n' or 'r' is real content rather than a mangled line break.
-// Deliberately a closed list: it is short, stable, and being wrong about a
-// member of it costs one broken formula, whereas being wrong the other way
-// costs every line break in the document.
-const LATEX_NR_COMMANDS = new Set([
-    'nabla', 'ne', 'neq', 'ni', 'nleq', 'ngeq', 'not', 'notin', 'nu', 'nearrow',
-    'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
-    'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
-    'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
-]);
-
 /**
  * Put real line breaks back into prose that came through escapeLatexBackslashes.
  *
@@ -473,7 +464,7 @@ export async function gradeTranscription(exercise, transcription, { signal, lang
     for (let attempt = 0; attempt < 2; attempt++) {
         try {
             const { system, user } = AI_PROMPTS.paper_grade(exercise, transcription, isDrawing, { lang });
-            const resp = await generateResponse(user, system, [], { temperature: 0.2, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.2, signal, job: 'checks' });
             const grade = normalizeGrade(parseObjectResponse(resp), exercise);
             if (grade) return grade;
         } catch (err) {
@@ -594,7 +585,7 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
         const attempt = db.prepare(`
             INSERT INTO paper_attempts (node_id, feed_item_id, mode, image_hash, transcription, grade, score, total, graded_by, generated_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'vision', ?)
-        `).run(nodeId, feedItemId, mode, hash, transcription, JSON.stringify(grade), grade.score, grade.total, aiProvenance());
+        `).run(nodeId, feedItemId, mode, hash, transcription, JSON.stringify(grade), grade.score, grade.total, aiProvenance({ job: 'checks' }));
 
         // Evidence is recorded in rubric-weight units, so a 6-weight exercise carries
         // more than a 4-weight one — and clears MIN_GATE_QUESTIONS the same way a

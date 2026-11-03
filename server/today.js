@@ -1,4 +1,4 @@
-import db, { NOW_ISO } from './database.js';
+import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil, countStudyDays, readStudyDays, cardPlan } from './scheduling.js';
 import { reviewDue } from './decks.js';
 import { TOPIC_NODE, isPagination } from './nodeRole.js';
@@ -6,6 +6,7 @@ import { dayStudyTime, recentDays } from './studyTime.js';
 import { canProve, isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
+import { FADING_TOPIC, fadingCutoff } from './fading.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -187,7 +188,7 @@ export function deadlineInfo(project, today) {
     };
 }
 
-export function buildTodayData({ decayDays = 14, today = studyToday() } = {}) {
+export function buildTodayData({ decayDays = 14, today = studyToday(), now = new Date() } = {}) {
     const day = dayBounds(today);
 
     const activeProjects = db.prepare(`
@@ -225,27 +226,16 @@ export function buildTodayData({ decayDays = 14, today = studyToday() } = {}) {
         GROUP BY n.project_id
     `).all();
 
-    // last_updated is written by SQLite's CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS',
-    // UTC). Compare in the same format — an ISO string sorts after every same-day
-    // SQLite timestamp, silently widening the window by a day (see mastery.js).
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - decayDays);
-    const cutoffStr = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
-
-    // `total_attempts > 0` as in getDecayingNodes (mastery.js): a seeded prior
-    // clears 0.5 on its own, and a topic never studied here cannot fade here.
+    // The same topics getDecayingNodes (mastery.js) lists, across every active
+    // project: one definition in fading.js.
     const decayingRows = db.prepare(`
         SELECT nm.node_id, n.project_id, nm.mastery_score, nm.last_updated, n.title
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE nm.mastery_score > 0.5
-          AND nm.total_attempts > 0
-          AND nm.last_updated < ?
-          AND n.status != 'skipped'
-          AND n.is_note = 0
+        WHERE ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
-    `).all(cutoffStr);
+    `).all(fadingCutoff(decayDays, now));
 
     // "What I did today": stamped inside the learner's day. completed_at is an
     // ISO string, quiz_attempts.created_at SQLite's CURRENT_TIMESTAMP; IN_DAY
@@ -536,7 +526,7 @@ export function buildTodayActivity(date) {
         FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
         ORDER BY fi.consumed_at DESC
     `).all(day.start, day.end);
 

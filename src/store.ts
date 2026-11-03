@@ -9,6 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
+import { placeCheckpoints, pullGate } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -25,7 +26,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'schedule' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -313,28 +314,8 @@ const writeWelcomeCache = (done: boolean) => {
 // can finish an item every few seconds; the feed doesn't need to re-compose
 // faster than this, and the guard keeps a burst of task events from stampeding.
 const FEED_PULL_MIN_MS = 4000;
+const admitFeedPull = pullGate(FEED_PULL_MIN_MS);
 
-/**
- * Merge a pulled page into the stream: every card appended, except a topic's
- * checkpoint, which goes straight after the last card that topic already has
- * on screen (its chapter's end). A checkpoint for a topic not on screen is
- * appended like anything else. Everything held keeps its order.
- */
-export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[]): FeedCard[] {
-    const out = [...held];
-    const tail: FeedCard[] = [];
-    for (const c of fresh) {
-        if (c.kind !== 'checkpoint') { tail.push(c); continue; }
-        let at = -1;
-        for (let i = out.length - 1; i >= 0; i--) {
-            const o = out[i];
-            if (o.kind !== 'flashcard' && 'nodeId' in o && o.nodeId === c.nodeId) { at = i; break; }
-        }
-        if (at < 0) tail.push(c);
-        else out.splice(at + 1, 0, c);
-    }
-    return [...out, ...tail];
-}
 /** Which performSearch call is the newest; an older answer is dropped. */
 let searchSeq = 0;
 /** Which applyRoute call is the newest. Every route bumps it — Settings and the
@@ -345,12 +326,25 @@ let searchSeq = 0;
 let routeSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
-let lastFeedPullAt = 0;
+/** The study hub is asked for on two paths at once (StudyDashboard's effect and
+ *  loadProjectData once the outline arrives). Each call takes a number; an
+ *  answer older than the one on screen is not drawn over it, and the hub stays
+ *  "loading" while any call for that course is still out, so one call failing
+ *  while another is on its way does not flash "No Data Available". */
+let dashboardSeq = 0;
+let dashboardShownSeq = 0;
+const dashboardPending = new Map<number, number>(); // seq -> projectId
+const dashboardStillLoading = (projectId: number) => [...dashboardPending.values()].includes(projectId);
 /** Which stream the feed is showing: every loadFeed bumps it, and a load, a
  *  page or a pull acts on its answer only while it is still current. The scope
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+/** The project list request on its way, if any. The Dashboard badge's fallback
+ *  (a course opened before the list arrived) waits for it instead of asking
+ *  again, so a cold open sends one list request. loadProjects never reuses it:
+ *  a refresh after a write must not be answered by a request sent before it. */
+let projectsRequest: Promise<Project[]> | null = null;
 /** The words of a caught value: an error's message (from any realm), else the value itself. */
 const messageOf = (e: unknown): string => {
     const message = (e as { message?: unknown } | null)?.message;
@@ -621,9 +615,12 @@ interface AppState {
         nodeId?: number;
         result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
         attemptId?: string;
+        uuid?: string;
     }) => Promise<boolean>;
     /** Local-only done marker for cards that persist themselves (flashcard/checkpoint/notice). */
     markFeedCardDone: (key: string) => void;
+    /** Takes a done mark back: a card its own report set aside, once that report no longer holds. */
+    unmarkFeedCardDone: (key: string) => void;
     /**
      * Put a flashcard back into the stream after a rating that kept it on a
      * (re)learning ladder. Appended, never inserted — see the implementation.
@@ -812,7 +809,7 @@ interface AppState {
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
-    removeSchedule: (projectId: number) => Promise<void>;
+    removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
     hideConfirm: (result: boolean) => void;
@@ -1076,7 +1073,6 @@ export const useStore = create<AppState>((set, get) => ({
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
         else if (view === 'calendar') nav('/calendar');
-        else if (view === 'schedule') nav('/schedule');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1532,8 +1528,10 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadProjects: async ({ silent = false } = {}) => {
         set({ loading: true });
+        const request = api.getProjects();
+        projectsRequest = request;
         try {
-            const projects = await api.getProjects();
+            const projects = await request;
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {
@@ -1550,6 +1548,8 @@ export const useStore = create<AppState>((set, get) => ({
             // refetches — so background callers stay quiet. Only a load the learner
             // actually triggered (app start, manual refresh) reports.
             if (!silent) get().addToast('error', i18n.t('Failed to load projects'), e.message);
+        } finally {
+            if (projectsRequest === request) projectsRequest = null;
         }
     },
 
@@ -1572,7 +1572,7 @@ export const useStore = create<AppState>((set, get) => ({
         else set({
             currentProjectId: null, view: 'projects', nodes: [], tree: [],
             selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-            workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+            workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
         });
     },
 
@@ -1665,10 +1665,9 @@ export const useStore = create<AppState>((set, get) => ({
         // Unlike extendFeed this deliberately ignores `feedExhausted`: exhausted
         // was true a moment ago, and the entire point is that it no longer is.
         // Failures are silent — this is a background poll, not a user action.
-        if (get().feedLoading) return;
-        const now = Date.now();
-        if (!force && now - lastFeedPullAt < FEED_PULL_MIN_MS) return;
-        lastFeedPullAt = now;
+        // Throttled, never dropped: a signal inside the window, or while a page
+        // composed before it is in flight, pulls once at the window's end.
+        if (!admitFeedPull({ busy: get().feedLoading, force }, () => void get().pullFeedUpdates({ force }))) return;
 
         set({ feedLoading: true });
         const seq = feedSeq;
@@ -1680,10 +1679,12 @@ export const useStore = create<AppState>((set, get) => ({
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
                 // Never reordered, same contract as extendFeed — cards already
-                // on screen must not move under the reader. One exception: a
-                // topic's CHECKPOINT goes straight after that topic's last card,
-                // which is where the learner just finished it; appended, it sat
-                // below the next topics they had already moved on to.
+                // on screen must not move under the reader. Two exceptions keep
+                // a chapter's end its END: a topic's CHECKPOINT goes straight
+                // after that topic's last card (appended, it sat below the next
+                // topics the learner had moved on to), and on a topic's own page
+                // a lesson written after its checkpoint arrived goes in before
+                // that checkpoint (`placeCheckpoints`).
                 feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
@@ -1766,6 +1767,15 @@ export const useStore = create<AppState>((set, get) => ({
         set(state => ({ feedDone: { ...state.feedDone, [key]: true } }));
     },
 
+    unmarkFeedCardDone: (key) => {
+        if (!get().feedDone[key]) return;
+        set(state => {
+            const feedDone = { ...state.feedDone };
+            delete feedDone[key];
+            return { feedDone };
+        });
+    },
+
     /**
      * A card rated Again in the feed comes back in the feed.
      *
@@ -1839,9 +1849,12 @@ export const useStore = create<AppState>((set, get) => ({
         // second route to this project (A loading → Settings → A again) found
         // "a project loaded" and selected its topic in the OLD tree, and then
         // this load painted over that selection with nobody left to redo it.
+        // The study hub goes with it, and is marked as coming: the dashboard's first
+        // render lands before its effect asks for it, and without the mark it read
+        // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [] });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -1865,9 +1878,13 @@ export const useStore = create<AppState>((set, get) => ({
                 });
             };
             setDefaultExpanded(tree);
-            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [], dashboardData: null });
+            set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
             saveExpansionState(expanded);
             get().loadPaceData(id);
+            // A background refresh: the hub on screen (often loaded a moment ago by
+            // StudyDashboard's own effect) stays until the new one replaces it.
+            // Clearing it here put the full-page spinner back over a page the
+            // learner was already reading.
             get().loadDashboard(id);
             get().loadDueFlashcardCount(id);
         } catch (e: any) {
@@ -1901,13 +1918,13 @@ export const useStore = create<AppState>((set, get) => ({
         }
         // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
         // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'schedule' || view === 'atlas') {
+        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
                     view, currentProjectId: null, nodes: [], tree: [],
                     selectedNodeId: null, focusedNodeId: null, resources: [], paceData: null,
-                    workspaceView: 'dashboard', dashboardData: null, dueFlashcardCount: 0,
+                    workspaceView: 'dashboard', dashboardData: null, dashboardLoading: false, dueFlashcardCount: 0,
                 });
             }
             // Refresh the feed on every entry to the home page (non-blocking;
@@ -2401,8 +2418,10 @@ export const useStore = create<AppState>((set, get) => ({
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
+            return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to remove schedule'), e.message);
+            return false;
         }
     },
 
@@ -2453,18 +2472,28 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadDashboard: async (projectId) => {
+        const seq = ++dashboardSeq;
+        dashboardPending.set(seq, projectId);
         set({ dashboardLoading: true });
         try {
             const data = await api.getStudyDashboard(projectId);
+            dashboardPending.delete(seq);
             if (get().currentProjectId !== projectId) return { success: true }; // superseded, not failed
-            set({ dashboardData: data, dashboardLoading: false });
+            if (seq < dashboardShownSeq) {
+                // A newer answer is already on screen; this older one would undo it.
+                set({ dashboardLoading: dashboardStillLoading(projectId) });
+                return { success: true };
+            }
+            dashboardShownSeq = seq;
+            set({ dashboardData: data, dashboardLoading: dashboardStillLoading(projectId) });
             // Keep "Today's Plan" in lockstep with the dashboard: every refresh path
             // (node completed/skipped, schedule edit, recalibrate) flows through here.
             get().loadDailyPlan(projectId);
             return { success: true };
         } catch (e: any) {
             console.error('Failed to load dashboard:', e);
-            if (get().currentProjectId === projectId) set({ dashboardLoading: false });
+            dashboardPending.delete(seq);
+            if (get().currentProjectId === projectId) set({ dashboardLoading: dashboardStillLoading(projectId) });
             return { success: false, error: e.message };
         }
     },
@@ -2486,11 +2515,19 @@ export const useStore = create<AppState>((set, get) => ({
             set({ dueFlashcardCount: project.due_flashcard_count });
             return;
         }
+        // The list is not here yet (a course URL opened directly, a reload):
+        // ask it, never the session queue. That queue is the reviews owed PLUS
+        // the day's new cards, so its length is not a count of anything due.
+        // A list request already on its way is waited for, not sent again.
+        // Write only while this course is open and the list has not landed in
+        // the meantime: once it has, it wrote the count itself, and this answer
+        // may be the older of the two.
+        const mayWrite = () => get().currentProjectId === projectId && !get().projects.some(p => p.id === projectId);
         try {
-            const dueCards = await api.getDueFlashcards(projectId);
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: dueCards.length });
+            const row = (await (projectsRequest ?? api.getProjects())).find(p => p.id === projectId);
+            if (mayWrite()) set({ dueFlashcardCount: row?.due_flashcard_count ?? 0 });
         } catch {
-            if (get().currentProjectId === projectId) set({ dueFlashcardCount: 0 });
+            if (mayWrite()) set({ dueFlashcardCount: 0 });
         }
     },
 

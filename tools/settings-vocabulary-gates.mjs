@@ -172,12 +172,130 @@ function rowNeverWraps(src, file) {
     }
 }
 
+/* ── 5. a disclosure looks open only when IT is open ────────────────────── */
+//
+// `group-open:` matches ANY open ancestor that carries `group`, and disclosures
+// nest (an `Explain` inside an `ExpandableSection` row; a lesson's own
+// `<details>` step inside the opened "Show part 1 again"). Inside an opened row
+// the shut "Why a small model is better" drew its chevron turned down, as if
+// open over an empty body (2026-11-01). Every open-state class anywhere in the
+// interface names its own `<details>`: `[details[open]>summary>&]:` for a
+// chevron in the summary, `[details[open]>summary_&]:` for words inside it.
+function ownOpenState(raw, file) {
+    const src = blindComments(raw);
+    for (const m of src.matchAll(/\bgroup-open:/g)) {
+        fail('nested', file, lineOf(src, m.index), '`group-open:` also fires for an open parent disclosure',
+            'key the open state to the element\'s own <details>: `[details[open]>summary>&]:` or `[details[open]>&]:`');
+    }
+}
+
+/* ── 6. an on/off setting is a switch on the right ──────────────────────── */
+//
+// Six on/off settings (four feed dials, resource hunting, "Offer simulations
+// and widgets to any model") were ticks on the LEFT, a few rows from switches
+// and steppers on the right, so one kind of setting read as two (outside
+// review, 2026-11-01). A tick belongs only where several things are picked
+// from a list; each such list is named here with how many it may hold.
+const CHECKLISTS = {
+    'src/components/settings/ServingEndpointsPicker.tsx': 1, // endpoints picked from a table, in order
+    'src/components/settings/VisualKindsPanel.tsx': 1,       // the gallery: a card's picture is its switch
+};
+function switchesNotTicks(raw, file) {
+    const src = blindComments(raw);
+    const ticks = [...src.matchAll(/<Checkbox\b/g)];
+    for (const m of ticks.slice(CHECKLISTS[file] ?? 0)) {
+        fail('switch', file, lineOf(src, m.index), 'an on/off setting drawn as a tick on the left',
+            'use ui/Switch to the right of the name; a tick only picks several things from a list (CHECKLISTS)');
+    }
+}
+
+/* ── 7. a switch whose save failed goes back ────────────────────────────── */
+//
+// A switch flips the moment it is pressed and the write follows. When the
+// write fails, the switch must go back to what is stored: four of them
+// (the feed dials, resource hunting, "Offer simulations and widgets to any
+// model", "Use AI features") stayed in the new position over an error toast,
+// or over nothing but a console line, saying a setting was on that was off.
+// The rule: a handler that sets the state the switch SHOWS (`checked={x…}` →
+// `setX`) before its write sets that same state again on the failure path (a
+// `catch` or `finally` block, or a `.catch(` callback); `src/utils/switchSaver.ts`
+// does both for you. Every `<Switch>` in the interface is judged, and one
+// whose handler cannot be found is a finding, not a pass.
+/** The bracketed span that starts at `open` (an index of `{` or `(`), counted. */
+const spanAt = (src, open) => {
+    const [o, c] = src[open] === '(' ? ['(', ')'] : ['{', '}'];
+    let depth = 0;
+    for (let i = open; i >= 0 && i < src.length; i++) {
+        if (src[i] === o) depth++;
+        else if (src[i] === c && --depth === 0) return src.slice(open, i + 1);
+    }
+    return '';
+};
+const STORE_ACTION = Symbol('store action');
+/** The body of what `name` names in this file, STORE_ACTION, or null when it cannot be found. */
+function handlerNamed(src, name) {
+    if (new RegExp(`const ${name} = useStore\\(`).test(src)) return STORE_ACTION; // judged where it lives
+    const arrow = new RegExp(`const ${name} = (?:useCallback\\(\\s*)?(?:async\\s+)?(?:\\([^)]*\\)|\\w+)(?:\\s*:\\s*[\\w<>\\[\\]|]+)?\\s*=>\\s*`).exec(src);
+    if (arrow) {
+        const at = arrow.index + arrow[0].length;
+        return src[at] === '{' ? spanAt(src, at) : src.slice(at, src.indexOf('\n', at));
+    }
+    const fn = new RegExp(`(?:async\\s+)?function ${name}\\s*\\(`).exec(src);
+    if (fn) {
+        const params = spanAt(src, fn.index + fn[0].length - 1);
+        const open = src.indexOf('{', fn.index + fn[0].length - 1 + params.length);
+        return spanAt(src, open);
+    }
+    return null;
+}
+/** The code a `<Switch … />`'s onChange runs, STORE_ACTION, or null. */
+function handlerOf(src, el) {
+    const inline = /\bonChange=\{\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>\s*\{/.exec(el);
+    if (inline) return spanAt(el, inline.index + inline[0].length - 1);
+    const call = /\bonChange=\{\s*(?:async\s+)?(?:\([^)]*\)|\w+)\s*=>\s*(?:void\s+)?(\w+)\(/.exec(el);
+    const bare = /\bonChange=\{\s*(\w+)\s*\}/.exec(el);
+    const name = call?.[1] ?? bare?.[1];
+    return name ? handlerNamed(src, name) : null;
+}
+function switchRevertsOnFailure(raw, file) {
+    const src = blindComments(raw);
+    // One `<Switch … />` at a time: a handler is never looked for past its own element.
+    for (const el of src.matchAll(/<Switch\b(?:(?!\/>)[\s\S])*\/>/g)) {
+        const shown = /\bchecked=\{\s*!*\s*(\w+)/.exec(el[0]);
+        if (!shown) continue; // shows nothing it could leave wrong
+        const setter = new RegExp(`\\bset${shown[1][0].toUpperCase()}${shown[1].slice(1)}\\(`);
+        const body = handlerOf(src, el[0]);
+        if (body === STORE_ACTION) continue;
+        if (body === null) {
+            fail('revert', file, lineOf(src, el.index), `cannot find what this switch's \`onChange\` runs, so cannot tell whether a failed save leaves it wrong`,
+                'write the handler as a `const` (or a function) in this file, or inline');
+            continue;
+        }
+        // A call to a saver made by `switchSaver()` is the write (and owns the revert).
+        const savers = [...src.matchAll(/(\w+)\s*=\s*(?:useRef\(\s*)?switchSaver\(\)/g)].map((m) => m[1]);
+        const write = body.search(new RegExp(`\\bawait\\b|\\.then\\(|\\btry\\s*\\{|writeSetting\\(|api\\.${savers.map((s) => `|\\b${s}\\(`).join('')}`));
+        const before = write < 0 ? '' : body.slice(0, write);
+        if (!setter.test(before)) continue; // not optimistic: shows what the server answered
+        const failurePaths = [
+            ...[...body.matchAll(/\b(?:catch\s*(?:\([^)]*\))?|finally)\s*\{/g)].map((m) => spanAt(body, m.index + m[0].length - 1)),
+            ...[...body.matchAll(/\.catch\(/g)].map((m) => spanAt(body, m.index + m[0].length - 1)),
+        ];
+        if (!failurePaths.some((p) => setter.test(p))) {
+            fail('revert', file, lineOf(src, el.index), `this switch moves (\`${setter.source.slice(2, -2)}\`) before saving and stays there when the save fails`,
+                'save it through `switchSaver` (src/utils/switchSaver.ts), or set the same state back on the failure path');
+        }
+    }
+}
+
 /* ── run ────────────────────────────────────────────────────────────────── */
 for (const file of files(UI_SCOPE)) {
     checked++;
     const src = read(file);
     noShouting(src, file);
     noClassStumps(src, file);
+    ownOpenState(src, file);
+    // A switch that says ON over a failed save is wrong wherever it is drawn.
+    if (/<Switch\b/.test(src)) switchRevertsOnFailure(src, file);
 }
 for (const file of files(SETTINGS_SCOPE)) {
     const src = read(file);
@@ -185,12 +303,45 @@ for (const file of files(SETTINGS_SCOPE)) {
     oneDisclosure(src, file);
     namedDisclosures(src, file);
     rowNeverWraps(src, file);
+    switchesNotTicks(src, file);
 }
 
 /* ── the rules are re-run against the shapes that caused them ───────────── */
 //
-// Every one of these is a verbatim line from the tree before this pass.
+// Every one of these is a verbatim line from the tree before this pass, or
+// (marked) the nearest shape that would let the bug through a weaker rule.
 const PRE_FIX = [
+    {
+        why: 'a failed save that clears some OTHER state and leaves the switch moved (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: `const saveBool = async (key: BoolKey, value: boolean) => {
+        setBools(prev => ({ ...prev, [key]: value }));
+        try {
+            await api.setSetting(key, value ? 'true' : 'false');
+        } catch (e: any) {
+            setSaving(false);
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+<Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />`,
+    },
+    {
+        why: 'an inline handler that moves the switch and never puts it back (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/ThisComputerSection.tsx',
+        src: `<Switch checked={keepRunning} label="Keep the server running" onChange={async next => {
+            setKeepRunning(next);
+            try { await desktopApi.keepRunning(next); }
+            catch { addToast('error', tr("Could not change the setting")); }
+        }} />`,
+    },
+    {
+        why: 'a switch whose handler is not in the file (shape)',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/VisualKindsPanel.tsx',
+        src: `export function Row({ onToggle }) { return <Switch checked={anyModel} onChange={onToggle} label="x" />; }`,
+    },
     {
         why: 'the group caption that started it',
         run: noShouting,
@@ -231,6 +382,58 @@ const PRE_FIX = [
         run: rowNeverWraps,
         file: 'src/components/ui/SettingRow.tsx',
         src: '            <div ref={row} className={`flex flex-wrap items-center justify-between gap-x-6`}>\n                <div className="min-w-0 flex-1">\n{under && control}',
+    },
+    {
+        why: 'the chevron that turned for its parent row',
+        run: ownOpenState,
+        file: 'src/components/ui/Disclosure.tsx',
+        src: "    'transition-transform duration-200 ease-out motion-reduce:transition-none group-open:rotate-90';",
+    },
+    {
+        why: 'the feed dial ticked on the left under steppers on the right',
+        run: switchesNotTicks,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: '        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">\n            <Checkbox\n                checked={bools[key]}',
+    },
+    {
+        why: 'the lesson step whose chevron turned for the opened Explain around it',
+        run: ownOpenState,
+        file: 'src/components/Markdown.tsx',
+        src: '                className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 group-open:rotate-90 dark:text-slate-400',
+    },
+    {
+        why: 'the feed dial left switched on over "Failed to save"',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/FeedSettingsPanel.tsx',
+        src: `const saveBool = async (key: BoolKey, value: boolean) => {
+        setBools(prev => ({ ...prev, [key]: value }));
+        try {
+            await api.setSetting(key, value ? 'true' : 'false');
+        } catch (e: any) {
+            addToast('error', tr("Failed to save"), e.message);
+        }
+    };
+<Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />`,
+    },
+    {
+        why: '"Use AI features" left flipped over a console line',
+        run: switchRevertsOnFailure,
+        file: 'src/components/settings/AISettings.tsx',
+        src: `const handleToggleAI = () => {
+        const next = !aiEnabledRef.current;
+        aiEnabledRef.current = next;
+        setAiEnabled(next);
+        writeSetting('ai_enabled', String(next))
+            .then(() => announceAI())
+            .catch(e => console.error('Saving ai_enabled failed:', e));
+    };
+<Switch checked={aiEnabled} onChange={handleToggleAI} label={tr("Use AI features")} />`,
+    },
+    {
+        why: 'a second tick slipped into the visuals gallery file',
+        run: switchesNotTicks,
+        file: 'src/components/settings/VisualKindsPanel.tsx',
+        src: '<Checkbox id={`visual-kind-${spec.id}`} />\n<Checkbox id="visual-any-model" checked={anyModel} />',
     },
 ];
 

@@ -1,6 +1,9 @@
 import { api } from '../api';
 import { QuizQuestion } from '../types';
-import { formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers } from '../components/answer/formats';
+import {
+    formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers,
+    readPieces, arrangementsOf, foldPiece,
+} from '../components/answer/formats';
 
 /** Result of grading one question — reported up exactly once. */
 export interface GradedAnswer {
@@ -29,6 +32,15 @@ export function gradeLocally(question: QuizQuestion, answer: string): boolean | 
         const key = parseSequence(question.correct_answer);
         if (!given || !key || given.length !== key.length) return false;
         return given.every((item, i) => item.trim() === key[i].trim());
+    }
+    if (question.type === 'assemble') {
+        // The whole arrangement, or nothing: every gap holds the key's piece,
+        // or every gap holds one declared other arrangement's. An empty gap
+        // (null) matches no piece.
+        const given = readPieces(answer, { holes: true });
+        if (!given) return false;
+        return arrangementsOf(question).some(a => a.length === given.length
+            && a.every((p, i) => typeof given[i] === 'string' && foldPiece(given[i]) === foldPiece(p)));
     }
     if (question.type === 'fill_in') {
         const given = normalizeTyped(answer);

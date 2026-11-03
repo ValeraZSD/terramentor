@@ -21,7 +21,7 @@ const app = routeTable('capture');
 // enrichment runs as a background task. Pressing Save can therefore never lose
 // the thing the learner wanted to keep, whatever the AI does afterwards.
 app.post('/api/capture', (req, res) => {
-    const { text, url, title, hasFiles, once } = req.body || {};
+    const { text, url, title, hasFiles, once, via } = req.body || {};
     // `once`: the assistant's prepared note, whose Save is offered again on
     // every re-read of the conversation (capture.js findCapturedText).
     if (once && !url && !hasFiles) {
@@ -44,11 +44,15 @@ app.post('/api/capture', (req, res) => {
     let taskId = null;
     if (!hasFiles && getAISettings().model) {
         const captureInfo = nodeTaskInfo(created.nodeId);
-        // `once` is the assistant's prepared note, saved from under its answer;
+        // `via: 'agent'` is an outside agent's add_capture (mcp/): the Inbox,
+        // with no box pressed and not the in-app assistant. Otherwise `once` is
+        // the assistant's prepared note, saved from under its answer, and
         // anything else came through the capture box.
-        const captureOrigin = once
-            ? { surface: 'assistant', detail: 'assistant_capture', nodeId: created.nodeId, projectId: created.projectId }
-            : { surface: 'inbox', detail: 'capture_box', nodeId: created.nodeId, projectId: created.projectId };
+        const captureOrigin = via === 'agent'
+            ? { surface: 'inbox', nodeId: created.nodeId, projectId: created.projectId }
+            : once
+                ? { surface: 'assistant', detail: 'assistant_capture', nodeId: created.nodeId, projectId: created.projectId }
+                : { surface: 'inbox', detail: 'capture_box', nodeId: created.nodeId, projectId: created.projectId };
         const { task } = tasks.createTask({
             kind: 'capture',
             label: 'Capture',

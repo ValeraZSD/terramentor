@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
@@ -366,9 +367,50 @@ export function tagAIError(err, fields = {}) {
     return err;
 }
 
+/* ── who answered ───────────────────────────────────────────────────────────
+ *
+ * With a model per job and backups behind each, "the model in use" is no
+ * longer who wrote a row: the questions may come from one connection, their
+ * check from another, and either may have fallen back. Each call records the
+ * model that ANSWERED in the scope it runs in — one per HTTP request
+ * (app.js) and one per background task (tasks.js) — and the stamp reads it
+ * from there: the job's own last answer when the caller names its job, else
+ * the scope's last answer. Outside any scope, and before any call, it is the
+ * job's first choice or the model in use, which is what it always said.
+ */
+const answerScope = new AsyncLocalStorage();
+
+/** Run `fn` with its own record of which model answered each job. */
+export function withAnswerScope(fn) {
+    return answerScope.run({ last: null, byJob: {} }, fn);
+}
+
+function recordAnswer(job, settings, answered) {
+    const who = { job, provider: settings.provider, model: settings.model, connectionId: settings.connectionId ?? null };
+    if (answered && typeof answered === 'object') Object.assign(answered, who);
+    const box = answerScope.getStore();
+    if (box) { box.last = who; box.byJob[job] = who; }
+}
+
+// server/aiJobs.js, loaded on first use: it imports aiConnections.js, which
+// reads this module's exports while it evaluates, so a static import here
+// would be a cycle that hands it undefined.
+let jobsModule = null;
+async function aiJobs() {
+    if (!jobsModule) jobsModule = await import('./aiJobs.js');
+    return jobsModule;
+}
+
 export function aiProvenance(overrides = {}) {
     try {
-        const s = getAISettings();
+        const box = answerScope.getStore();
+        // A caller that ran several calls of one job side by side passes the
+        // `answered` record of the call it is stamping: the scope only knows
+        // which of them finished last.
+        const seen = overrides.answered?.model ? overrides.answered
+            : overrides.job ? box?.byJob[overrides.job] : !overrides.model && box?.last;
+        if (seen?.model) return JSON.stringify({ provider: seen.provider, model: seen.model });
+        const s = overrides.job && !overrides.model && jobsModule ? jobsModule.firstChoice(overrides.job) : getAISettings();
         const model = overrides.model || s.model;
         if (!model) return null;
         return JSON.stringify({ provider: overrides.provider || s.provider, model });
@@ -384,8 +426,7 @@ export function aiProvenanceFields(overrides = {}) {
     return raw ? JSON.parse(raw) : {};
 }
 
-function createOllamaClient() {
-    const settings = getAISettings();
+function createOllamaClient(settings = getAISettings()) {
     return new Ollama({ host: settings.ollamaUrl });
 }
 
@@ -648,7 +689,7 @@ export function emptyReplyReason({ finishReason = '', reasoningTokens = 0, think
         ? `${n(reasoningTokens)} tokens of reasoning`
         : thinkingChars ? `${n(thinkingChars)} characters of reasoning` : '';
     const fix = provider === 'openai'
-        ? 'Ask it to think less under Settings → AI & Models → "How much should the model think before answering?", or choose a model that answers directly.'
+        ? 'Ask it to think less under Settings → AI & Models → "Reasoning level", or choose a model that answers directly.'
         : 'Choose a model that answers directly, or one with room to answer after it has thought.';
     if (thought) {
         return `It wrote ${thought} and then stopped without answering`
@@ -673,7 +714,7 @@ function emptyReplyError(settings, shape, extra = {}) {
     );
 }
 
-async function openAIChat(settings, messages, { temperature, top_p, signal, operation } = {}) {
+async function openAIChat(settings, messages, { temperature, top_p, signal, operation, onUsage } = {}) {
     requireOpenAIModel(settings);
     const base = normalizeOpenAIBaseUrl(settings.baseUrl);
     await routingReady(settings);
@@ -691,6 +732,7 @@ async function openAIChat(settings, messages, { temperature, top_p, signal, oper
               attempts: res.attemptsUsed });
     }
     const json = await res.json();
+    onUsage?.(json?.usage);
     const content = json?.choices?.[0]?.message?.content?.trim() || '';
     if (!content) throw emptyReplyError(settings, readReplyShape(json), { endpoint: base });
     return content;
@@ -850,19 +892,21 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
 // (capabilities are static at runtime); any failure caches as false, so a flaky or
 // older Ollama silently falls back to non-thinking rather than breaking chat.
 const thinkingSupportCache = new Map();
-export async function modelSupportsThinking(model = getAISettings().model) {
+export async function modelSupportsThinking(model = getAISettings().model, settings = getAISettings()) {
     // The capability probe is an Ollama API (`show`). OpenAI-compatible servers
     // have no equivalent — we never send `think`, but reasoning models behind
     // llama.cpp/OpenRouter surface their channel as `reasoning_content` in the
     // stream, which streamResponse maps to 'thinking' events anyway.
-    if (getAISettings().provider !== 'ollama') return false;
-    if (thinkingSupportCache.has(model)) return thinkingSupportCache.get(model);
+    if (settings.provider !== 'ollama') return false;
+    // Keyed by server too: a job may run on a second Ollama with its own models.
+    const key = `${settings.ollamaUrl}|${model}`;
+    if (thinkingSupportCache.has(key)) return thinkingSupportCache.get(key);
     let supported = false;
     try {
-        const info = await createOllamaClient().show({ model });
+        const info = await createOllamaClient(settings).show({ model });
         supported = Array.isArray(info?.capabilities) && info.capabilities.includes('thinking');
     } catch { supported = false; }
-    thinkingSupportCache.set(model, supported);
+    thinkingSupportCache.set(key, supported);
     return supported;
 }
 
@@ -915,17 +959,18 @@ export function catalogueVisionVerdict(body) {
 // different Ollama instance) is picked up without a server restart.
 const VISION_CACHE_TTL_MS = 10 * 60 * 1000;
 const visionSupportCache = new Map(); // model (or `base|model`) → { result, at }
-export async function visionAvailability(model = getAISettings().model) {
-    const settings = getAISettings();
+// `unknown`: what an Ollama probe that failed answers; 'no' for the callers
+// about to send a picture, 'maybe' for a screen that only describes the model.
+export async function visionAvailability(model = getAISettings().model, settings = getAISettings(), { unknown = 'no' } = {}) {
     if (!settings.enabled || !model) return 'no';
     if (settings.provider !== 'ollama') return catalogueVision(settings, model);
-    const cached = visionSupportCache.get(model);
+    const cached = visionSupportCache.get(`${settings.ollamaUrl}|${model}`);
     if (cached && Date.now() - cached.at < VISION_CACHE_TTL_MS) return cached.result;
     try {
-        const info = await createOllamaClient().show({ model });
+        const info = await createOllamaClient(settings).show({ model });
         const caps = Array.isArray(info?.capabilities) ? info.capabilities : [];
         const result = caps.includes('vision') ? 'yes' : 'no';
-        visionSupportCache.set(model, { result, at: Date.now() });
+        visionSupportCache.set(`${settings.ollamaUrl}|${model}`, { result, at: Date.now() });
         return result;
     } catch {
         // The probe FAILED — that is not the same as the model answering "no
@@ -938,7 +983,7 @@ export async function visionAvailability(model = getAISettings().model) {
         // Answer conservatively for THIS call (callers treat anything but 'yes'
         // as "don't send an image"), but leave any previous verdict standing and
         // let the next call re-probe.
-        return cached?.result ?? 'no';
+        return cached?.result ?? unknown;
     }
 }
 
@@ -993,13 +1038,99 @@ const VISION_TRANSCRIBE_PROMPT =
 // declare the real type — PDF recovery renders PNG, paper practice uploads a
 // JPEG (a photo of a page compresses to a fraction of the size). Ollama takes
 // raw base64 and sniffs for itself, so it ignores this.
-export async function transcribeImageToText(png, { signal, timeout = 120000, model, prompt, mime = 'image/png' } = {}) {
-    const settings = getAISettings();
-    if (!settings.enabled) throw learnerError('AI features are disabled');
+//
+// The `vision` job's list decides which model reads the picture; `model` (a
+// vision model chosen on the connection in use) applies when that job has no
+// list of its own. Each model in the list gets its own timer, and the next is
+// asked only after a failure another model could fix (aiJobs.js `fallsOver`).
+export async function transcribeImageToText(png, options = {}) {
+    const { signal, model, answered } = options;
+    const { chainFor } = await aiJobs();
+    const chain = chainFor('vision', { model: model || null });
+    if (!chain[0].enabled) throw learnerError('AI features are disabled');
+    const last = chain[chain.length - 1];
+    return withFallback('vision', chain, signal, answered, async (settings) => {
+        const text = await transcribeOnce(settings, png, options);
+        // An empty reading is a model that could not read the picture, so the
+        // next one is asked. The last one's '' is the answer callers expect
+        // ("nothing legible"), as it was before the list.
+        if (!text && settings !== last) {
+            throw emptyReplyError(settings, {}, {
+                endpoint: settings.provider === 'openai' ? normalizeOpenAIBaseUrl(settings.baseUrl) : settings.ollamaUrl,
+            });
+        }
+        return text;
+    });
+}
+
+/** Try `once(settings)` down the chain; the first answer wins. A failure moves
+ *  on only when `fallsOver` allows it, and the last failure is the one thrown. */
+async function withFallback(job, chain, signal, answered, once, refusedWhatItCarried = () => false) {
+    const { fallsOver } = await aiJobs();
+    for (let i = 0; ; i++) {
+        try {
+            const out = await once(chain[i]);
+            recordAnswer(job, chain[i], answered);
+            return out;
+        } catch (err) {
+            failedOn(err, chain[i]);
+            if (i === chain.length - 1 || refusedWhatItCarried(err) || !fallsOver(err, signal)) {
+                if (i > 0) tagAIError(err, { modelsTried: i + 1 });
+                throw err;
+            }
+            logFallback(job, i, chain, err);
+        }
+    }
+}
+
+/** Which model a thrown error came from, for a caller that remembers a refusal
+ *  per endpoint (chatTurn's native tools, pictures). Not enumerable: the
+ *  settings hold the key, and an error object is logged and serialised. */
+function failedOn(err, settings) {
+    if (err && typeof err === 'object') {
+        Object.defineProperty(err, 'failedOn', { value: settings, enumerable: false, configurable: true, writable: true });
+    }
+}
+
+/**
+ * A 4xx that blames something this request CARRIED: its native tools, its
+ * pictures. The caller has its own answer to that (the text protocol,
+ * answering without the pictures) and remembers the refusal for that
+ * endpoint; moving to the next model would hide it, and an Ollama backup
+ * would drop the tools without a word.
+ */
+function refusedWhatItCarried(err, options = {}, context = []) {
+    // Only "this request body is not acceptable". A 401/402/403/404/429 is the
+    // endpoint, the key or the model, which the next model is there for — and
+    // a 404 for a model named "…-vision" says nothing about the pictures.
+    const status = Number(err?.httpStatus ?? err?.status_code);
+    if (![400, 413, 415, 422].includes(status)) return false;
+    const said = `${err?.message || ''} ${err?.responseBody || ''}`;
+    if (/not (be )?found|does not exist|no such model|unknown model|invalid model/i.test(said)) return false;
+    if (options.tools?.length && /tool/i.test(said)) return true;
+    const pictures = options.images?.length || (Array.isArray(context) && context.some(m => m?.images?.length));
+    return !!pictures && /image|vision|multi-?modal|picture/i.test(said);
+}
+
+/** One line in the local record when a job moves to its next model: which
+ *  job, which place in its list, and why — facts only, never the message. */
+function logFallback(job, index, chain, err) {
+    // Both callers loaded aiJobs.js before their first try. The note on the
+    // job's row in Settings names the model, so a later change of main model
+    // cannot make it wrong, and carries the chain's stamp, so a call begun on a
+    // list saved over since leaves none.
+    jobsModule?.noteFallback(job, index, err, chain[index]?.model, chain.listsSet);
+    logActivity({
+        area: 'ai',
+        event: 'ai.fallback',
+        level: 'warn',
+        detail: `${job} · choice ${index + 1} of ${chain.length} failed · ${failureFacts(err)}`,
+    });
+}
+
+async function transcribeOnce(settings, png, { signal, timeout = 120000, prompt, mime = 'image/png' } = {}) {
     const instruction = prompt || VISION_TRANSCRIBE_PROMPT;
-    // A dedicated vision model may be used here (e.g. chat on a text-only model,
-    // recovery on a vision model on the same provider). Fall back to the chat model.
-    const visionModel = model || settings.model;
+    const visionModel = settings.model;
     if (!visionModel) throw learnerError('No model selected — choose one in Settings → AI & Models');
 
     const base64 = Buffer.isBuffer(png) ? png.toString('base64') : Buffer.from(png).toString('base64');
@@ -1036,7 +1167,8 @@ export async function transcribeImageToText(png, { signal, timeout = 120000, mod
             });
             if (!res.ok) {
                 const body = await res.text().catch(() => '');
-                throw new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`);
+                throw tagAIError(new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
+                    { provider: 'openai', model: visionModel, endpoint: baseUrl, httpStatus: res.status });
             }
             const json = await res.json();
             return json?.choices?.[0]?.message?.content?.trim() || '';
@@ -1095,8 +1227,10 @@ export async function tinyReplyFor(settings, { signal } = {}) {
     return res.message?.content?.trim() || '';
 }
 
-export async function checkOllamaHealth() {
-    const settings = getAISettings();
+/** Can `settings`' endpoint be reached, and which models does it list? The
+ *  connection in use unless a caller names the one it will ask (a job's first
+ *  choice, aiJobs.js). */
+export async function checkOllamaHealth(settings = getAISettings()) {
     if (settings.provider === 'openai') {
         try {
             const models = await openAIListModels(settings);
@@ -1115,14 +1249,14 @@ export async function checkOllamaHealth() {
                 // "fetch failed" tells a stranger nothing.
                 errorMessage = `Nothing is listening at ${normalizeOpenAIBaseUrl(settings.baseUrl)}. Is the server (llama-swap / llama.cpp / LM Studio) running?`
                     + (error?.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
-            return { available: false, error: errorMessage };
+            return { available: false, error: errorMessage, httpStatus: error?.httpStatus ?? null };
         }
     }
     // ollama.list() takes no signal, so enforce the timeout by racing it —
     // otherwise a hung Ollama stalls every health-gated request behind it.
     let timeoutId;
     try {
-        const ollama = createOllamaClient();
+        const ollama = createOllamaClient(settings);
         const models = await Promise.race([
             ollama.list(),
             new Promise((_, reject) => {
@@ -1143,7 +1277,7 @@ export async function checkOllamaHealth() {
             errorMessage = `Ollama is not running at ${settings.ollamaUrl || 'its configured URL'}. Please start Ollama first.`
                 + (error.cause?.code && error.cause.code !== 'ECONNREFUSED' ? ` (${error.cause.code})` : '');
         else if (error.message) errorMessage = error.message;
-        return { available: false, error: errorMessage };
+        return { available: false, error: errorMessage, httpStatus: error.status_code ?? null };
     } finally {
         clearTimeout(timeoutId);
     }
@@ -1157,8 +1291,14 @@ export async function checkOllamaHealth() {
 // while a model is unloaded (llama-swap keeps its control plane responsive), so
 // it lets the caller tell "server up, model warming" (patient wait) from "server
 // down" (fail fast with an actionable message). Returns { ok, error }.
-export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
-    const settings = getAISettings();
+//
+// `job` is the job the generation runs as: its first model is the one probed,
+// and one that cannot be reached is no reason to stop while the job's list has
+// another model behind it (the call moves on by itself, aiJobs.js fallsOver).
+// A job whose connections were all removed throws, as the call itself would.
+export async function probeAiReachable({ timeoutMs = 4000, job = null } = {}) {
+    const chain = job ? (await aiJobs()).chainFor(job) : [getAISettings()];
+    const settings = chain[0];
     if (!settings.enabled) return { ok: false, error: 'AI features are disabled' };
     if (!settings.model) return { ok: false, error: 'No model selected — choose one in Settings → AI & Models' };
     try {
@@ -1168,7 +1308,7 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
             let timeoutId;
             try {
                 await Promise.race([
-                    createOllamaClient().list(),
+                    createOllamaClient(settings).list(),
                     new Promise((_, reject) => {
                         timeoutId = setTimeout(
                             () => reject(Object.assign(new Error('Connection timed out'), { name: 'AbortError' })),
@@ -1180,6 +1320,9 @@ export async function probeAiReachable({ timeoutMs = 4000 } = {}) {
         }
         return { ok: true };
     } catch (error) {
+        // Only a failure the call itself would move on from: a first model that
+        // does not answer in time would hold the call until its own timeout.
+        if (chain.length > 1 && (await aiJobs()).fallsOver(error)) return { ok: true };
         let msg = endpointError('The AI server', error);
         if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
             msg = 'The AI server did not respond in time';
@@ -1273,12 +1416,30 @@ const OPERATION_TIMEOUTS = {
 /** How long one call of this operation may take before it is abandoned. */
 export const operationTimeoutMs = (operation) => OPERATION_TIMEOUTS[operation] ?? OPERATION_TIMEOUTS.default;
 
-export async function generateResponse(
-    prompt,
-    system_prompt = '',
-    context = [],
-    options = {}
-) {
+/**
+ * One model call, answered by the first model in the job's list that can
+ * (server/aiJobs.js). `job` names the work when the operation does not say it
+ * (`jobOf`); `answered`, an object, is filled with who answered.
+ *
+ * `model` runs this one call on a different model than chat, on the SAME
+ * connection. Not every job wants the model the learner talks to: PDF recovery
+ * needs vision where chat may be text-only, and atlas region naming wants a
+ * fast instruct model where chat may be reasoning-first. The settings row is
+ * deliberately untouched — overriding it would change the running app for the
+ * learner (the same argument the AI_MODEL env override makes for batch tools).
+ * A job with its own list of models ignores it.
+ */
+export async function generateResponse(prompt, system_prompt = '', context = [], options = {}) {
+    const { jobOf, chainFor } = await aiJobs();
+    const job = jobOf(options);
+    const chain = chainFor(job, { model: options.model || null });
+    if (!chain[0].enabled) throw learnerError('AI features are disabled');
+    return withFallback(job, chain, options.signal, options.answered,
+        (settings) => generateOnce(settings, prompt, system_prompt, context, options),
+        (err) => refusedWhatItCarried(err, options, context));
+}
+
+async function generateOnce(settings, prompt, system_prompt, context, options) {
     const {
         signal,
         temperature = 0.7,
@@ -1286,24 +1447,13 @@ export async function generateResponse(
         operation = 'default',
         timeout = null,
         think = false,
-        // Run this one call on a different model than chat, on the SAME
-        // provider. Not every job wants the model the learner talks to: PDF
-        // recovery needs vision where chat may be text-only, and atlas region
-        // naming wants a fast instruct model where chat may be reasoning-first.
-        // The settings row is deliberately untouched — overriding it would
-        // change the running app for the learner (the same argument the
-        // AI_MODEL env override makes for batch tools).
-        model = null,
     } = options;
 
-    const base = getAISettings();
-    const settings = model ? { ...base, model } : base;
-    if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model actually supports it — otherwise Ollama
     // errors. This keeps think:true safe to pass from any caller.
-    const useThink = think && await modelSupportsThinking(settings.model);
+    const useThink = think && await modelSupportsThinking(settings.model, settings);
 
     // A signal aborted before we start would never fire its 'abort' listener
     // (the event is in the past) — bail out immediately instead of running a
@@ -1351,11 +1501,15 @@ export async function generateResponse(
         // What the Ollama path learned about an empty answer, since it has no
         // OpenAI-shaped response for `readReplyShape` to read.
         let localShape = null;
+        // Tokens in and out, when the endpoint reports them: the record a
+        // per-job price comparison (or a later allowance) is measured from.
+        let usage = null;
         if (settings.provider === 'openai') {
             // fetch takes the combined signal directly — timeout and caller
             // cancellation both abort the HTTP request itself.
             content = await openAIChat(settings, messages, {
                 temperature, top_p, signal: timeoutController.signal, operation,
+                onUsage: (u) => { usage = u; },
             });
         } else {
             // A fresh client per call, so `abort()` — which cancels every
@@ -1409,7 +1563,9 @@ export async function generateResponse(
             area: 'ai',
             event: 'ai.request',
             ms: Date.now() - startedAt,
-            detail: `${settings.provider} · ${settings.model} · ${operation} · ${content.length} chars`,
+            detail: `${settings.provider} · ${settings.model} · ${operation} · ${content.length} chars`
+                + (Number.isFinite(usage?.prompt_tokens) && Number.isFinite(usage?.completion_tokens)
+                    ? ` · ${usage.prompt_tokens} in · ${usage.completion_tokens} out` : ''),
         });
         return content;
     } catch (err) {
@@ -1465,12 +1621,68 @@ export function isReasoningLoop(err) {
 }
 
 /**
- * Streams a reply, watching the reasoning channel for a loop and cutting the
- * request the moment one is certain — the model is stopped (not left running
- * for a client that has given up) and the caller gets a tagged error it can
- * retry on without extended reasoning.
+ * Streams a reply from the first model in its job's list that can, like
+ * `generateResponse`, with one rule more: once anything has been yielded —
+ * a word, a line of thinking, a tool call — it is on the learner's screen, so
+ * a failure after that is thrown, never sent to the next model to splice a
+ * second answer onto the first. The model is recorded as the answer at that
+ * first part, so a reply stopped or cut off midway still names who wrote it.
+ * `job` defaults to the conversation. Each attempt watches the reasoning
+ * channel for a loop (`streamOnce`).
  */
 export async function* streamResponse(prompt, systemPrompt = '', context = [], options = {}) {
+    const { jobOf, chainFor, fallsOver } = await aiJobs();
+    const job = jobOf({ job: options.job, operation: 'chat' });
+    const chain = chainFor(job);
+    for (let i = 0; ; i++) {
+        let yielded = false;
+        const [p, s] = i ? answeringAs(prompt, systemPrompt, chain[0].model, chain[i].model) : [prompt, systemPrompt];
+        try {
+            for await (const part of streamOnce(chain[i], p, s, context, options)) {
+                if (!yielded) recordAnswer(job, chain[i], options.answered);
+                yielded = true;
+                yield part;
+            }
+            if (!yielded) recordAnswer(job, chain[i], options.answered);
+            return;
+        } catch (err) {
+            failedOn(err, chain[i]);
+            if (yielded || i === chain.length - 1 || refusedWhatItCarried(err, options, context)
+                || !fallsOver(err, options.signal)) {
+                if (i > 0) tagAIError(err, { modelsTried: i + 1 });
+                throw err;
+            }
+            logFallback(job, i, chain, err);
+        }
+    }
+}
+
+/**
+ * The prompt a fallback model answers under. The assistant's identity sentence
+ * (`modelThisTurn`) was written for the first choice before the call; the
+ * model that takes over gives its own id, in the system prompt and in the
+ * system message of a native tool round's message list.
+ */
+function answeringAs(prompt, systemPrompt, from, to) {
+    if (!from || !to || from === to) return [prompt, systemPrompt];
+    const was = modelThisTurn({ id: from });
+    const now = modelThisTurn({ id: to });
+    const swap = (text) => (typeof text === 'string' ? text.split(was).join(now) : text);
+    return [
+        Array.isArray(prompt)
+            ? prompt.map(m => (m?.role === 'system' && typeof m.content === 'string' ? { ...m, content: swap(m.content) } : m))
+            : prompt,
+        swap(systemPrompt),
+    ];
+}
+
+/**
+ * One model's stream, watching the reasoning channel for a loop and cutting
+ * the request the moment one is certain — the model is stopped (not left
+ * running for a client that has given up) and the caller gets a tagged error
+ * it can retry on without extended reasoning.
+ */
+async function* streamOnce(settings, prompt, systemPrompt, context, options) {
     const { signal } = options;
     const inner = new AbortController();
     const onAbort = () => inner.abort();
@@ -1482,11 +1694,10 @@ export async function* streamResponse(prompt, systemPrompt = '', context = [], o
     // the reader abandoned and one the model cut short look identical in the
     // console; here they are `content` characters against a duration.
     const startedAt = Date.now();
-    const settings = getAISettings();
     let produced = 0;
     let failure = null;
     try {
-        for await (const part of streamResponseRaw(prompt, systemPrompt, context, { ...options, signal: inner.signal })) {
+        for await (const part of streamResponseRaw(prompt, systemPrompt, context, { ...options, settings, signal: inner.signal })) {
             if (part && part.type === 'content' && part.content) produced += part.content.length;
             if (part && part.type === 'thinking' && part.content) {
                 thinking += part.content;
@@ -1557,13 +1768,13 @@ async function* streamResponseRaw(
     options = {}
 ) {
     const { signal, think = false, temperature = 0.5 } = options;
-    const settings = getAISettings();
+    const settings = options.settings || getAISettings();
     if (!settings.enabled) throw learnerError('AI features are disabled');
     requireModel(settings);
 
     // Only request thinking if the model supports it (see modelSupportsThinking) —
     // otherwise Ollama errors mid-stream. Makes think:true safe from any caller.
-    const useThink = think && await modelSupportsThinking(settings.model);
+    const useThink = think && await modelSupportsThinking(settings.model, settings);
 
     if (signal?.aborted) {
         throw Object.assign(new Error('Request was cancelled'), { name: 'AbortError' });
@@ -1590,7 +1801,7 @@ async function* streamResponseRaw(
     // The Ollama provider keeps the text protocol — its OpenAI-compatible
     // tool surface differs enough that the native loop does not attempt it.
 
-    const ollama = createOllamaClient();
+    const ollama = createOllamaClient(settings);
 
     // Honor the caller's abort signal: ollama.abort() cancels the client's
     // in-flight streamed requests, so cancellation actually stops generation
@@ -1607,14 +1818,25 @@ async function* streamResponseRaw(
             think: useThink,
         });
 
+        // A stream that ends with neither answer nor thinking is the empty reply
+        // the OpenAI-compatible stream throws for: it says why, and the next
+        // model in the job's list is asked (one that showed thinking has yielded,
+        // so it ends as it did).
+        let said = false;
         for await (const part of stream) {
             if (part.message?.thinking) {
+                said = true;
                 yield { type: 'thinking', content: part.message.thinking };
             }
             if (part.message?.content) {
+                said = true;
                 yield { type: 'content', content: part.message.content };
             }
             if (part.done) {
+                if (!said) {
+                    throw emptyReplyError(settings, { finishReason: part.done_reason === 'length' ? 'length' : '' },
+                        { endpoint: settings.ollamaUrl, streamed: true });
+                }
                 yield { type: 'done' };
             }
         }
@@ -1632,7 +1854,7 @@ export async function* streamProjectThinking(
     { lang = null, sources = '' } = {}
 ) {
     const { system, user } = AI_PROMPTS.project_thinking(projectName, projectDescription, { lang, sources });
-    yield* streamResponse(user, system, [], { signal, think: true });
+    yield* streamResponse(user, system, [], { signal, think: true, job: 'courses' });
 }
 
 /**
@@ -1858,7 +2080,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
     else if (projectId) { scope = ' AND d.project_id = ?'; scopeParams.push(projectId); }
 
     try {
-        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
             JOIN documents d ON d.id = dc.document_id
@@ -1866,7 +2088,7 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
             ORDER BY rank LIMIT ?`;
         return db.prepare(ftsSql).all(query, ...scopeParams, limit);
     } catch {
-        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index
+        const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             WHERE dc.content LIKE ?${scope}
@@ -1918,7 +2140,7 @@ export async function searchDocuments(query, nodeId = null, projectId = null, li
     return [...fused.values()]
         .sort((a, b) => b.score - a.score)
         .slice(0, limit)
-        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index }));
+        .map(e => ({ content: e.row.content, doc_title: e.row.doc_title, chunk_index: e.row.chunk_index, document_id: e.row.document_id }));
 }
 
 export function chunkText(content, chunkSize = 500, overlap = 100) {
@@ -2631,7 +2853,7 @@ const VISUAL_REPAIR_HINTS = {
     smiles: 'Output one valid SMILES string per line, nothing else.',
     math: 'Output a single valid LaTeX math expression, no $ delimiters.',
     widget: 'The block is a functional SPEC in plain labeled text — never code, never JSON. Output ONLY corrected spec lines in exactly this shape: "Title: a few words" · "Objective: one sentence stating what the widget teaches" · "Data: name = value pairs with units" · "Inputs: each control with its range (a slider, a button …)" · "Behavior: the mechanics in chronological order, with the governing formulas, and what changes when each input changes". If anything is drawn to scale, state that its axes stay FIXED over the full range the inputs can reach — a plot re-fitted to its current values looks identical at every setting, so moving a control appears to do nothing. If the error says a build kept failing, SIMPLIFY the spec: fewer controls, one canvas, one core interaction. Describe function only — no JavaScript, no colors, no pixel coordinates, no layout instructions.',
-    animation: 'Output ONE complete, well-formed <svg> element with xmlns="http://www.w3.org/2000/svg" and a viewBox (e.g. viewBox="0 0 600 340"). Close every tag, quote every attribute. Animate with SMIL tags only — <animate>, <animateTransform>, <animateMotion> — each with dur (2s–8s) and repeatCount="indefinite". To move/rotate/scale, the tag is <animateTransform attributeName="transform" type="translate" values="0 0; 0 -20; 0 0">, NEVER <animate attributeName="transform"> (transform is not animatable by <animate>; "type" belongs to <animateTransform>) and the values are bare arguments, not translate(...) calls. Keep every drawn coordinate inside the viewBox — never draw off-canvas (negative coordinates) expecting a translate to bring it into view. When a change spreads along a row of elements, animate each element separately with the same dur and a staggered POSITIVE begin increasing along the row ("0s", "0.1s", "0.2s", …) so each LAGS its neighbour and the change travels in that direction; a negative begin makes it lead, running the propagation backwards. Something that cycles about a resting state must pass through it and out the other side (values="60;40;60;80;60" — rest, one way, rest, the other way, rest), never one-sided ("60;40;60;40;60" is a twitch, not a cycle). Any shape you draw around the moving parts (an envelope, a curve, an outline) must itself move: <animateTransform type="translate"> it by exactly one repeat of its pattern over the dur, extended one repeat past each edge — a frozen outline beside moving parts reads as broken. A SMIL animation moves its PARENT element, so put <animateTransform> as a CHILD of the <g>/shape it should transform, NEVER as a child of the root <svg> (that animates nothing). For an orbit, rotate the group about the circle centre: <animateTransform type="rotate" from="0 cx cy" to="360 cx cy">, with the object placed ON the circle. Give every <line>/<path> an explicit stroke="#colour" and stroke-width — never a class= you did not define (undefined class renders invisible) — and marker-end="url(#id)" for arrowheads. No <script>, no on* attributes, no external hrefs, no CSS @import.',
+    animation: 'Output ONE complete, well-formed <svg> element with xmlns="http://www.w3.org/2000/svg" and a viewBox that holds everything it draws (for a scene drawn afresh, viewBox="0 0 360 240"). Close every tag, quote every attribute. Animate with SMIL tags only — <animate>, <animateTransform>, <animateMotion> — each with dur (2s–8s) and repeatCount="indefinite". To move/rotate/scale, the tag is <animateTransform attributeName="transform" type="translate" values="0 0; 0 -20; 0 0">, NEVER <animate attributeName="transform"> (transform is not animatable by <animate>; "type" belongs to <animateTransform>) and the values are bare arguments, not translate(...) calls. Keep every drawn coordinate inside the viewBox — never draw off-canvas (negative coordinates) expecting a translate to bring it into view. When a change spreads along a row of elements, animate each element separately with the same dur and a staggered POSITIVE begin increasing along the row ("0s", "0.1s", "0.2s", …) so each LAGS its neighbour and the change travels in that direction; a negative begin makes it lead, running the propagation backwards. Something that cycles about a resting state must pass through it and out the other side (values="60;40;60;80;60" — rest, one way, rest, the other way, rest), never one-sided ("60;40;60;40;60" is a twitch, not a cycle). Any shape you draw around the moving parts (an envelope, a curve, an outline) must itself move: <animateTransform type="translate"> it by exactly one repeat of its pattern over the dur, extended one repeat past each edge — a frozen outline beside moving parts reads as broken. A SMIL animation moves its PARENT element, so put <animateTransform> as a CHILD of the <g>/shape it should transform, NEVER as a child of the root <svg> (that animates nothing). For an orbit, rotate the group about the circle centre: <animateTransform type="rotate" from="0 cx cy" to="360 cx cy">, with the object placed ON the circle. Give every <line>/<path> an explicit stroke="#colour" and stroke-width — never a class= you did not define (undefined class renders invisible) — and marker-end="url(#id)" for arrowheads. No <script>, no on* attributes, no external hrefs, no CSS @import.',
     p5: 'Output plain p5.js JavaScript in GLOBAL mode — this is JavaScript, NOT Processing/Java: use let/const and function setup(){} / function draw(){}, never float/int/void/double. setup() calls createCanvas(600, 340) once; draw() renders one frame and its FIRST line MUST clear the canvas with background(r, g, b) so frames do not smear on top of each other. Fix the reported error. Set fill()/stroke()/strokeWeight() BEFORE the shape they style. Compute positions directly in pixels (e.g. x = 300 + cos(angle) * r) and keep every point inside 0..600 by 0..340 — do NOT rescale by width/r or translate the origin off-screen; call translate() at most once and pair every push() with a pop(). Actually draw every quantity you compute. These helpers are PRE-LOADED — use them instead of writing your own arrowhead/label math: arrow(x1,y1,x2,y2); vec(x,y,dx,dy,len) draws an arrow from (x,y) along direction (dx,dy) normalized to len pixels; legend([["label",r,g,b],...]) draws a fixed top-left legend. Vectors show DIRECTION, not magnitude: draw every vector as vec(x, y, dx, dy, L) with fixed L of 40-60 pixels, NEVER scaled by a physical value (v*v/r pixels flies off-canvas) and NEVER with a constant added to one component; every vector starts at the object it acts on. Label only via legend(), never text() at positions computed from moving quantities. A full circle is ellipse(x,y,d), not arc(). No HTML tags, no import/require, no fetch, no external assets, no document/window DOM calls — p5 drawing functions only.',
 };
 
@@ -2728,7 +2950,7 @@ export function visualCaptionPrompt(kind, spec, context = '') {
 
 export async function captionVisual(kind, spec, context = '', options = {}) {
     const { system, user } = visualCaptionPrompt(kind, spec, context);
-    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', ...options });
+    const out = await generateResponse(user, system, [], { temperature: 0.3, operation: 'chat', job: 'courses', ...options });
     // The first {...} block, or nothing.
     const text = stripCodeFence(out);
     const m = text.match(/\{[\s\S]*\}/);
@@ -2752,7 +2974,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
     // content at all; onThinking is how the caller's progress bar can say so
     // rather than reading as a stalled request.
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35 })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.35, job: 'courses' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {
@@ -2770,7 +2992,7 @@ export async function* streamReviseVisualSpec(kind, code, feedback, options = {}
 export async function* streamRepairVisualSpec(kind, code, errorMessage, options = {}) {
     const { system, user } = repairVisualPrompt(kind, code, errorMessage);
     let thinking = 0;
-    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1 })) {
+    for await (const part of streamResponse(user, system, [], { signal: options.signal, temperature: 0.1, job: 'courses' })) {
         if (part && typeof part === 'object' && part.type === 'content' && part.content) {
             yield part.content;
         } else if (part && part.type === 'thinking' && part.content) {
@@ -2898,7 +3120,7 @@ const ANIMATION_SPECIALIST = `You are an SVG/SMIL animation engineer for a study
 Draw what the brief asks for. It describes a teaching scene; your job is to make the drawing correct and the motion legible, not to reinterpret the subject.
 
 HARD RULES (each of these is a failure that renders WITHOUT an error, which is why they are listed):
-- ONE <svg> with xmlns="http://www.w3.org/2000/svg" and a viewBox (e.g. viewBox="0 0 600 340"). No width/height attributes. Close every tag, quote every attribute. Never emit a second <svg>, an alternative version, or anything outside the element.
+- ONE <svg> with xmlns="http://www.w3.org/2000/svg" and viewBox="0 0 360 240": always 360 units wide, and taller (up to viewBox="0 0 360 320") only when the scene needs the room. No width/height attributes. Close every tag, quote every attribute. Never emit a second <svg>, an alternative version, or anything outside the element.
 - To MOVE, ROTATE or SCALE something you MUST use <animateTransform attributeName="transform" type="translate|rotate|scale" values="0 0; 0 -20; 0 0" dur="3s" repeatCount="indefinite">. <animate attributeName="transform"> is NOT a thing: transform is not animatable by <animate>, and "type" only exists on <animateTransform>. The browser silently ignores it and your scene renders perfectly still.
 - A SMIL animation transforms its PARENT. Put <animateTransform> INSIDE the <g> or shape it should move — as a sibling of that <g>, or as a child of the root <svg>, it animates nothing.
 - Every drawn line, path and shape needs an EXPLICIT stroke="#rrggbb" (or fill) and stroke-width. Never reference a class= you did not define in a <style> block: an undefined class renders an invisible line. Arrowheads come from marker-end="url(#id)" with a <marker> in <defs>.
@@ -2934,9 +3156,9 @@ MOTION RULES (every one of these was learned from a drawing a reader sent back):
 - ANIMATEMOTION ORIGIN. An object moved by <animateMotion> is drawn at (0,0) — the path supplies its position, and a shape drawn at (160,72) with a path starting at (160,72) appears at (320,144). Never combine animateMotion with a transform="translate(…)" on the same element.
 
 DESIGN RULES (what separates a drawing that teaches from one that merely renders):
-- Lay the scene out like a slide: a short TITLE (one line, at most 7 words, bold, top-left, font-size 22–26) naming what is shown; the drawing in the middle with at least 16 units of margin on every side; an optional one-line caption along the bottom.
-- TYPE SIZE IS A FRACTION OF THE FRAME, and this is the rule most scenes get wrong. Your viewBox is about 600 units wide and the card it is read in is about 570px, so a unit is roughly a pixel on a desktop and roughly HALF a pixel on a phone. A 10-unit label is therefore 5px of real type on the screen it is mostly read on — smaller than any text in the app, and unreadable. Measured over the scenes already drawn this way: 80% of all label text reached a desktop reader under 12px and 98% reached a phone reader under 12px. So: no text below 16 units, ordinary labels 16–18, the title 22–26. If that makes the scene look crowded, the answer is FEWER labels and a simpler drawing, never smaller type — the app raises anything under 12 units to 12 by itself, and a scene that needs it has already lost the argument.
-- LABELS: a word or two each, at most about ten in the scene, font-size 16 or more, font-family sans-serif, text-anchor chosen so the label sits BESIDE what it names and never across a moving path. A label for a moving thing rides inside its <g> or lives in the legend. A label must fit: its x plus roughly 9 units per character at size 16 stays inside the viewBox width, and a legend box is sized to its text — about 9 units per character wide and 24 per row — never a rect the words run out of.
+- Lay the scene out like a slide: a short TITLE (one line, at most 4 words, bold, top-left, font-size 18–20) naming what is shown; the drawing in the middle with at least 12 units of margin on every side; an optional one-line caption along the bottom.
+- TYPE SIZE IS A FRACTION OF THE FRAME, and this is the rule most scenes get wrong. The scene is mostly read on a phone, where the card is drawn about 280px wide on the narrowest phone (about 560px on a desktop), so there each of your 360 units is about three quarters of a pixel. 16 units is then 12px of real type, the smallest text the app shows anywhere. A label any smaller cannot be read there, and the app keeps it readable by making the picture wider than the screen, so the learner has to swipe sideways inside a moving scene to see the rest of it. Measured on 40 scenes drawn on the old 600-unit frame with 16-unit labels: 39 ran past the edge of a 390px phone. So: no text below 16 units, ordinary labels 16–18, the title 18–20. If that makes the scene look crowded, the answer is FEWER labels and a simpler drawing, never smaller type and never a wider frame.
+- LABELS: a word or two each, at most about six in the scene, font-size 16 or more, font-family sans-serif, text-anchor chosen so the label sits BESIDE what it names and never across a moving path. A label for a moving thing rides inside its <g> or lives in the legend. A label must fit: its x plus roughly 9 units per character at size 16 stays inside the viewBox width (360 units hold about 36 characters edge to edge, so a longer label is cut to fewer words), and a legend box is sized to its text — about 9 units per character wide and 24 per row — never a rect the words run out of.
 - A legend only when three or more hues need naming; otherwise label in place.
 - COLOUR carries meaning: at most four hues in a scene, ONE meaning each (velocity blue, force red, displacement green …), and the SAME hue for the same quantity on the arrow, in the legend and in any inset graph. Everything structural — ground, axes, outlines, guides, rest positions — is grey ink.
 - INK ON PAPER. The canvas is white paper unless you paint a full-frame backdrop <rect>. #111111 is the strongest ink, greys are weaker ink, and WHITE IS THE PAGE: a white fill vanishes wherever nothing is behind it, and on the learner's dark theme it is remapped to the page colour. To make a small thing stand out anywhere — a marker, a particle, the current point — use the strongest ink or a saturated hue, never white and never light grey. The app re-maps your colours to the learner's theme afterwards, so state every colour explicitly and never guess whether the page is light or dark.
@@ -2945,16 +3167,16 @@ DESIGN RULES (what separates a drawing that teaches from one that merely renders
 - PAINT ORDER: backdrop, then surfaces, then the drawing, then every <text> LAST. An element that the theme made invisible still occludes; a title written before the panel behind it is a title that is simply gone.
 - SILHOUETTES from primitives beat detail: a person is a circle head, a line torso, two line legs and two line arms each with an elbow joint (so an arm can swing); an aircraft is a long ellipse fuselage, a swept wing polygon, a tail fin and a small stabiliser; a car is a rounded rect body, a smaller cab on top and two circle wheels; a tree is a rect trunk with a circle crown; a ball is a circle with one darker spot so its spin shows.
 - STROKES: main objects stroke-width 2–3, guides and axes 1, dashed strokes only for references, paths and rest positions; one <marker> arrowhead per hue.
-- NARROW SCREENS: this is read on a phone at roughly 320px wide, where the whole scene is scaled to about half size. Nothing runs past the viewBox edge; nothing a learner has to READ is drawn smaller than 16 units.
+- NARROW SCREENS: the 360-unit frame is already the phone's size, so keep it. When a scene needs more room, make the viewBox TALLER and stack its parts top to bottom, never wider: a wider frame shrinks every label on a phone, and the app then makes the picture wider than the screen. Nothing runs past the viewBox edge except the second copy of a scrolling tile (CAMERA), which waits there until the scroll brings it in; nothing a learner has to READ is drawn smaller than 16 units.
 - AXES: tick labels and an axis title never share a column. A y-axis title goes ABOVE the axis, horizontal, at the top-left — a title rotated beside the tick labels is written over them. When the ticks already show the range, the title does not repeat it ("Net worth", not "Net worth (0 to 1.5M)").
 
 TECHNIQUES (syntax to reuse, never scenes to copy):
-- One clock, two phases — approach, then move on together: <animateTransform attributeName="transform" type="translate" values="0 0;250 0;250 0;330 0" keyTimes="0;0.5;0.55;1" dur="6s" repeatCount="indefinite"/>
-- A moving source emitting crests on that same clock, source at x = 100 + 40·t over dur="6s": crest k sits at cx="100 + 40·t_k" and grows with <animate attributeName="r" values="0;0;120" keyTimes="0;t_k/6;1" dur="6s" repeatCount="indefinite"/>, fading with the same keyTimes on opacity.
-- Guide and motion from one path: <path id="arc" d="M60 200 Q160 80 260 200" fill="none" stroke="#888" stroke-dasharray="4 4"/> and, inside the object's <g>, <animateMotion dur="6s" repeatCount="indefinite"><mpath href="#arc"/></animateMotion>.
+- One clock, two phases — approach, then move on together: <animateTransform attributeName="transform" type="translate" values="0 0;150 0;150 0;200 0" keyTimes="0;0.5;0.55;1" dur="6s" repeatCount="indefinite"/>
+- A moving source emitting crests on that same clock, source at x = 60 + 40·t over dur="6s": crest k sits at cx="60 + 40·t_k" and grows with <animate attributeName="r" values="0;0;60" keyTimes="0;t_k/6;1" dur="6s" repeatCount="indefinite"/>, fading with the same keyTimes on opacity.
+- Guide and motion from one path: <path id="arc" d="M40 190 Q180 60 320 190" fill="none" stroke="#888" stroke-dasharray="4 4"/> and, inside the object's <g>, <animateMotion dur="6s" repeatCount="indefinite"><mpath href="#arc"/></animateMotion>.
 - A curve that DRAWS ITSELF with a marker riding its tip (a growing graph, a route being traced): give the path pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" and <animate attributeName="stroke-dashoffset" from="1" to="0" dur="6s" repeatCount="indefinite"/>; move the marker's <g> with <animateMotion dur="6s" repeatCount="indefinite"><mpath href="#curve"/></animateMotion> on that SAME path. Both run on arc length, so they agree at every instant. A marker moved by its own translate runs on x and drifts away from the tip on every curve.
 - A READOUT that changes over time (a balance, a count, a year): SMIL cannot rewrite text, so draw one <text> per value in the same place and show each in turn with <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.24;0.49;0.5" dur="6s" repeatCount="indefinite"/> on the one clock (three to five values is enough). One constant label riding along pretending to update is a false reading.
-- A scrolling world: <g><animateTransform attributeName="transform" type="translate" values="0 0;-300 0" dur="6s" repeatCount="indefinite"/> …a tile 300 wide, drawn twice side by side… </g>.`;
+- A scrolling world: <g><animateTransform attributeName="transform" type="translate" values="0 0;-360 0" dur="6s" repeatCount="indefinite"/> …a tile 360 wide, drawn twice side by side… </g>.`;
 
 const P5_SPECIALIST = `You are a p5.js sketch engineer for a study app. You are given a SCENE BRIEF in plain words and you output ONE plain p5.js sketch in GLOBAL mode and NOTHING else — no prose, no markdown fences, no comments explaining your reasoning.
 
@@ -3132,9 +3354,10 @@ ${libraryThisTurn({ topics })}` : ''}`;
 
 /**
  * The model id this turn is SENT to, so "what model are you?" has an answer
- * rather than a guess at one. The caller passes `getAISettings().model`, which
- * is what the request is built from too — the env override included, never a
- * settings row that may name another.
+ * rather than a guess at one. The caller passes the conversation's first
+ * choice, which is what the request is built from too — the env override
+ * included, never a settings row that may name another. A model that takes
+ * over after a failure gets its own id instead (`answeringAs`).
  *
  * @param {{id: string}} model
  */
@@ -3346,6 +3569,19 @@ const QUESTION_QUALITY_RULES = `\n${OPTION_RULES}\n${EXPLANATION_RULE}\n${NOT_TH
 const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION. Use the symbols, indexing, units, ordering and names that this subject and this topic's Overview already use — a learner meeting your notation again in an exam, a textbook or a colleague's work must recognise it. Never define a private index, a renamed variable or a re-based scale to make a formula come out tidy. The test: if you find yourself explaining how YOUR notation relates to the standard one ("here n is the index, but the actual number is…"), you have invented one — delete it and use the standard directly. A running translation between two conventions is where mistakes are made, and the learner inherits both.`;
 
 /**
+ * Maths in the descriptions the creation run writes.
+ *
+ * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
+ * Taylor-series course came back with maths in most of its 908 Overviews and
+ * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
+ * The examples are written as they appear INSIDE the JSON string, backslashes
+ * doubled, because an example is copied harder than a rule;
+ * `parseCreationJson` still reads a single backslash correctly.
+ * Titles stay plain: the sidebar, outline and search draw them as text.
+ */
+const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a subject with no maths has none to write, so add none): a "description" is shown to the learner as Markdown with KaTeX, so write every formula, expression and symbol in it as inline TeX between single dollar signs ($…$), never as plain text: "the coefficients have the form $f^{(n)}(a)/n!$", not "f^(n)(a)/n!"; "$e^x$, $\\\\sin x$, $\\\\frac{1}{1-x}$", not "e^x, sin x, 1/(1-x)". Inside the JSON every TeX backslash is doubled, as in those examples. Use single $…$ only: no $$ and no backslash-parenthesis delimiters. Every "title" stays plain words with no $ and no TeX, because titles are drawn as plain text. Money is written with its currency code (500 USD), never a bare $ sign, and a $ that belongs to code ($HOME, $"{name}") goes inside backticks.`;
+
+/**
  * Language rule appended to the curriculum-generation prompts.
  *
  * The tree is the project's most durable text — every lesson, question and
@@ -3424,6 +3660,31 @@ The fields, by kind. Use exactly these ids, and leave out any the learner gave y
 A value may run over several lines. Write every value in the learner's language and in their own words, tidied: fix the typos, put it in order, keep every fact, and add nothing they did not say — not a figure from the snapshot, not what they did or did not try, no guessed cause, no invented steps, no blame, no apology. A field they gave you nothing for is left out, not filled. The report will be public, so leave out their notes and anything personal unless it IS the problem. Then say in one short sentence that the report is ready for them to review. Do not offer a report for a question you can simply answer, and offer it once rather than insist.`;
 
 // ---------------------------------------------------------------------------
+// "This is wrong" on one item, from the chat (server/itemReports.js). The
+// learner's flag on the item and this block send the same request to the same
+// endpoint; the model only prepares it, the learner's press sends it. The
+// items it may name are the ones WHERE THE LEARNER IS RIGHT NOW lists, with
+// their keys read from the database, so a claim is checked, never agreed with.
+// tools/item-report-gates.mjs reads the prompt for this block.
+// ---------------------------------------------------------------------------
+export const ITEM_REPORT_GUIDE = `WHEN THEY SAY A QUESTION, CARD, LESSON OR DRILL ITEM IS WRONG. The items on their screen, and ones they met earlier, are listed under WHERE THE LEARNER IS RIGHT NOW with a ref in brackets, the app's own text and its answer key. Before you agree or disagree, check the claim yourself against that text and key: work the question out, or look it up when it rests on a fact you cannot work out.
+- The key is right: say so plainly and show why, step by step, kindly — they may still be confused, and that is not their fault. If the item itself is unclear or off the topic, say that too. Still offer the report, once, in case they want it gone.
+- The key is wrong, or the item is unclear or not about the topic: say what the right answer is and why, then prepare the report. Never say "you're right" without having checked.
+- The key is listed as not on their screen yet (they have not answered it, or not turned the card over): you have not seen it, so never say the app's key is right or wrong, and do not give them the answer before they have tried it. Check the item itself from its stem and options: whether exactly one option fits, whether it is clear, whether it is about the topic. Say the app shows its key once they answer. If the item is unclear, has no right option or more than one, or is off the topic, say what is wrong with it and prepare the report.
+Prepare a report as ONE fenced block, at most 1 per message, naming the item by its ref exactly as listed — never an item that is not listed, never a ref you made up:
+\`\`\`wrong
+item: the ref, e.g. q:… or fi:… or card:…
+reason: wrong | unclear | off_topic | other
+note: what is wrong and what is right, in their language, one or two sentences
+rewrite: yes
+\`\`\`
+Leave out \`rewrite: yes\` for a card they wrote themselves or a drill item (those are edited, not rewritten), and when they did not want a new one. The app shows the item as it holds it beside your note, with a Report button; once pressed, that answer counts neither way and the item is not asked again. To take back a report listed there as "report N", prepare instead:
+\`\`\`wrong
+undo: N
+\`\`\`
+This report stays on their machine and fixes their course; it is not the public report above. Offer it first for one wrong item, and the public report only if they also want the app's makers to hear about it. Never claim it is already reported or undone — they press.`;
+
+// ---------------------------------------------------------------------------
 // What the assistant may change in a course, a topic or the library, and the
 // new course it may draft (src/utils/assistantWrites.ts → AssistantProposals).
 // Every value is judged on both sides by `server/projectFields.js` and applied
@@ -3464,7 +3725,7 @@ icon: an icon name from the list above (optional)
 colour: a colour name from the list above (optional)
 \`\`\`
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
-You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the Schedule screen, the language in Edit project, and a topic is proven by its mastery check.`;
+You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 
 export const AI_PROMPTS = {
     // The lookup pass that runs BEFORE a chat turn answers (server/aiTools.js).
@@ -3525,7 +3786,7 @@ Continue the answer from where it stopped. Do not begin again, do not repeat wha
             ? 'Generate ONLY multiple choice questions with exactly 4 options. correct_answer MUST match one option exactly.'
             : questionType === 'true_false'
                 ? 'Generate ONLY true/false questions. correct_answer MUST be "True" or "False".'
-                : questionType === 'code' || questionType === 'sequence'
+                : questionType === 'code' || questionType === 'sequence' || questionType === 'assemble'
                     // A format the learner asked for by name: every item takes
                     // that shape, and the shape is the registry's, not a
                     // second description of it.
@@ -3831,7 +4092,7 @@ ${settingsBlock}` : ''}
 
 TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than something you can say, end with a marker on its own line and the app draws a button to it, labelled in their language:
 [[go:SCREEN]]
-The screens, and only these: today (the learning feed — the home page), projects (every project), calendar (everything due, by date), schedule (one card per project, where the dates are edited), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
+The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), calendar (everything due, by date), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
 
 THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:
@@ -3852,6 +4113,8 @@ the note, in their words or a faithful summary
 \`\`\`
 ${ASSISTANT_EDITS_GUIDE}
 Say in one short sentence what you have prepared; never claim it is already done — they press.
+
+${ITEM_REPORT_GUIDE}
 
 ${PROBLEM_REPORT_GUIDE}${pageContext ? `
 
@@ -4098,6 +4361,29 @@ Rules:
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
 5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
                 user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nITEMS (in no particular order):\n${items.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
+            };
+        }
+        // An assembly is solved cold too: the template and the bank, never the
+        // key. Whether the author declared a second right arrangement decides
+        // only whether several right fills make the question broken — WHICH
+        // arrangements were declared would hand the verifier the answer.
+        if (question.type === 'assemble') {
+            const pieces = Array.isArray(question.tokens) ? question.tokens : [];
+            const gaps = String(question.template || '').split(/_{3,}/).length - 1;
+            const several = Array.isArray(question.accept) && question.accept.length > 0;
+            return {
+                system: `You are a subject expert checking a BUILD-THE-ANSWER question before it is shown to a learner: pieces go into the gaps (___) of a template. You are NOT given the intended answer — work it out yourself, from the subject, as an expert would.
+CRITICAL: Output ONLY a JSON object:
+{"verdict": "ok" | "broken", "answer": ["piece for gap 1", "piece for gap 2", "..."], "reason": "..."}
+Rules:
+1. First decide whether the question is SOUND: can the gaps be filled correctly from these pieces, and does the question say what is being built? ${several
+        ? 'This question accepts more than one right arrangement; if several are right, give the one you consider most standard.'
+        : 'If two different fills are both right and nothing in the question says which is wanted, verdict "broken" and say so in one clause.'} If no fill is right, verdict "broken".
+2. If it is sound, verdict "ok" and give "answer": exactly ${gaps} piece(s), one per gap in order, each copied EXACTLY from the pieces listed. ${question.reuse === true ? 'A piece may be used in more than one gap.' : 'Each listed piece may be used at most once, and some pieces fit no gap.'}
+3. Judge by the subject itself, not by what a lesson might have claimed.
+4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
+5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
+                user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nTEMPLATE (${gaps} gap${gaps === 1 ? '' : 's'}):\n${question.template}\n\nPIECES:\n${pieces.map(p => `- ${p}`).join('\n')}`
             };
         }
         if (question.type === 'short_answer') {
@@ -4363,18 +4649,18 @@ Rules:
 
     // `sources` (server/sourceMaterial.js) is the learner's files, when the
     // project is being built from some: `{system, user}` appended to each half,
-    // or '' for both — so a creation without files sends exactly the prompts it
-    // always did.
+    // or '' for both — so a creation without files sends the prompts with no
+    // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
@@ -4396,7 +4682,8 @@ CRITICAL RULES:
 3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
 4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
-6. "description" is one or two sentences: what to learn and why it matters.${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+6. "description" is one or two sentences: what to learn and why it matters.
+7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}
@@ -4405,22 +4692,35 @@ CRITICAL RULES:
 TOPICS TO EXPAND (copy each title exactly):
 ${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}${sources?.user || ''}`
     }),
-    find_resources: (subElementTitle, candidateList) => ({
-        system: `You are a strict educational resource curator. I will provide real URLs found via web search.
-Your task: Select the 2 to 4 MOST relevant resources for the given topic.
+    // `ctx` places the topic in its course: what the course is, the phase and
+    // section around it, what the topic covers, and who reads it. A curator
+    // shown only a topic title cannot tell "Articles" in Dutch grammar from
+    // articles in a newspaper.
+    find_resources: (subElementTitle, candidateList, { course = '', phase = '', section = '', description = '', lang = null } = {}) => ({
+        system: `You choose study links for one topic of a course. The candidates are real pages found by web search; you pick the ones a learner should open while studying THIS topic.
 
-CRITICAL RULES:
-1. You MUST copy the URL exactly as provided in the candidate list. Do NOT modify, shorten, or reconstruct URLs.
-2. DO NOT invent, hallucinate, or guess any URLs that are not in the candidate list.
-3. DO NOT include search engine result pages (google, bing, duckduckgo, searx, etc.).
-4. If the candidate list has fewer than 2 relevant resources, output an empty array [].
-5. Output ONLY a valid JSON array of objects. No markdown, no code fences, no explanation.
+A good pick:
+- teaches this topic itself (an explanation, a reference page, worked examples or exercises), not the subject in general and not a different topic with a similar name;
+- comes from a source a teacher would trust: official documentation, a university, a standards body, an established reference or educational publisher, a well-known course;
+- can be read by this learner (see the language below).
 
-Output format:
-[
-  { "title": "Descriptive title", "url": "https://exact-url-from-list", "type": "article|video|documentation|tutorial|tool|book|course" }
-]`,
-        user: `Topic: "${subElementTitle}"\n\nCandidate Resources (copy URLs exactly):\n${candidateList}`
+Never pick: a forum thread, a Q&A or homework site, a social media post, a shop or product page, a page that only links elsewhere, or a search results page.
+
+Rules:
+1. Pick 0 to 4. Fewer good links beat more mediocre ones. If none of the candidates teaches this topic, output [] — that is a correct answer, not a failure.
+2. At most one link per site.
+3. Copy each URL exactly as it appears in the list. Never change, shorten or invent a URL.
+4. "title" names what the page offers, in a few words. "type" is one of: article, video, documentation, tutorial, tool, book, course.
+5. Output ONLY a JSON array, no markdown, no explanation: [{ "title": "...", "url": "https://...", "type": "..." }]`,
+        user: [
+            course && `Course: "${course}"`,
+            phase && `Phase: "${phase}"`,
+            section && `Section: "${section}"`,
+            `Topic: "${subElementTitle}"`,
+            description && `What the topic covers: ${String(description).slice(0, 400)}`,
+            lang && `The learner reads ${lang.name} (${lang.endonym}). Prefer pages in ${lang.name}; a page in another language is fine only when it is clearly the best source and easy to follow.${lang.learning ? ` The course teaches ${lang.learning.name}, so pages written in ${lang.learning.name} for learners of it are also good picks.` : ''}`,
+            `\nCandidates (copy URLs exactly):\n${candidateList}`,
+        ].filter(Boolean).join('\n'),
     }),
     // `sources` here is one user-side string (sourceMaterial.js briefBlock /
     // thinkBlock), '' without files.
@@ -4544,7 +4844,7 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
         const { system, user } = code
             ? AI_PROMPTS.answer_checker_code(question, correctAnswer, userAnswer, language)
             : AI_PROMPTS.answer_checker(question, correctAnswer, userAnswer);
-        const response = await generateResponse(user, system);
+        const response = await generateResponse(user, system, [], { job: 'checks' });
 
         const parsed = parseAnswerVerdict(response);
         // Diagnosable, not silent: the next unparseable verdict shows what the

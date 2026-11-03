@@ -361,7 +361,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
         nodeId: nid, projectId: pid, title: name, text, kind: att.file_type,
         filename: att.name, hash: att.file_hash, size: att.file_size, pageCount: att.page_count ?? null,
     });
-    if (words) db.prepare('UPDATE documents SET generated_by = ? WHERE id = ?').run(aiProvenance(), docId);
+    if (words) db.prepare('UPDATE documents SET generated_by = ? WHERE id = ?').run(aiProvenance({ job: 'conversation' }), docId);
     const editId = Number(db.prepare('INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run('attachment', att.id, typeof source === 'string' ? source.slice(0, 80) : null, '{}',
             JSON.stringify({ documentId: Number(docId), projectId: pid, nodeId: nid, title: name }), nowIso()).lastInsertRowid);

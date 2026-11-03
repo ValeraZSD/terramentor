@@ -196,4 +196,4 @@ function startUpdatePoll({ checkNow = false } = {}) {
     return Promise.resolve(readUpdateState());
 }
 
-export { freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
+export { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };

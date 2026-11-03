@@ -1,4 +1,4 @@
-import db, { NOW_ISO } from './database.js';
+import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil } from './scheduling.js';
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
@@ -12,7 +12,7 @@ import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
-import { feedAnswerIsProof } from './questionTrust.js';
+import { feedAnswerIsProof, feedBankQuestion } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 
 /**
@@ -220,7 +220,8 @@ export function normalizeFeedQuestion(raw) {
     };
     if (!q.question) return null;
     // This reducer rebuilds the question key by key, so anything not named here
-    // is dropped. A model never attaches media, but imported material does, and
+    // is dropped. A model never attaches media (`normalizeModelQuestion` drops
+    // any it invents), but imported material does, and
     // a question whose photo silently disappeared is unanswerable rather than
     // merely plainer — so it is carried, validated.
     const media = sanitizeQuestionMedia(raw.media);
@@ -232,6 +233,19 @@ export function normalizeFeedQuestion(raw) {
     const shaped = normalizeQuestionFormat(raw);
     if (!shaped) return null;
     return Object.assign(q, shaped);
+}
+
+/**
+ * The same, for a question a MODEL just wrote. A model cannot attach a picture
+ * (it never saw one, and it has no way to store one), so any `media` in its
+ * reply is invented: a well-formed hash with no file behind it would draw a
+ * broken image, and would tell the quality gate a lettered template has the
+ * picture it needs. Dropped before the reducer runs.
+ */
+export function normalizeModelQuestion(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const { media: _invented, ...rest } = raw;
+    return normalizeFeedQuestion(rest);
 }
 
 /**
@@ -482,7 +496,8 @@ export function checkpointFacts(nodeId, gate) {
     let feedCorrect = 0, feedTotal = 0;
     for (const r of qRows) {
         const res = safeParse(r.result);
-        if (res && typeof res.correct === 'boolean') {
+        // A question the learner reported counts neither way (server/itemReports.js).
+        if (res && typeof res.correct === 'boolean' && !res.reported) {
             feedTotal++;
             if (res.correct) feedCorrect++;
         }
@@ -559,7 +574,7 @@ let readPartsStmt = null;
 export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
     readPartsStmt ??= db.prepare(`
         SELECT seq, content, meta, consumed_at FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
+        WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed' AND ${NOT_REPORTED()}
         ORDER BY seq
     `);
     return readPartsStmt.all(nodeId)
@@ -612,6 +627,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const practiceStmt = db.prepare(`
         SELECT * FROM feed_items WHERE node_id = ? AND kind = 'practice' AND status = 'ready' LIMIT 1
     `);
+    // Every part the learner is past, a reported one included: it is closed
+    // in its slot, and leaving it out would hold the topic open for ever.
     const consumedLessonsStmt = db.prepare(`
         SELECT COUNT(*) AS c FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND status = 'consumed'
     `);
@@ -653,13 +670,23 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         // and a stage is proven by its cards maturing, which the scheduler
         // already tracks and the deck dashboard already draws.
         if (!f.teachable) return { f, cards: [], taughtOut: false, untaught: true };
+        const plan = planStmt.get(f.nodeId);
+        const ready = readyStmt.all(f.nodeId);
+
         // The client already holds this topic's checkpoint: its chapter is
         // closed on screen, and a later page topping the bank up put "Check
         // yourself" UNDER "End of chapter". What is left waits for the next load.
-        if (excluded(`checkpoint-${f.nodeId}`)) return { f, cards: [], taughtOut: false };
-
-        const plan = planStmt.get(f.nodeId);
-        const ready = readyStmt.all(f.nodeId);
+        // Unless this is the TOPIC's own page, the chapter it closed held only
+        // the Overview standing in for a lesson not yet written (`read-N`), and
+        // a lesson or question the page does not hold has been written since:
+        // refused, the open page sat on the Overview until a reload. Only while
+        // something unheld exists, or every later pull would top the bank up
+        // again. The client places these cards before the held checkpoint
+        // (`feedPlacement.ts`). On the home and course streams the learner has
+        // usually moved on past that checkpoint, so there they wait as before.
+        const closedOverStandIn = scoped && excluded(`read-${f.nodeId}`)
+            && ready.some(r => !excluded(`fi-${r.id}`));
+        if (excluded(`checkpoint-${f.nodeId}`) && !closedOverStandIn) return { f, cards: [], taughtOut: false };
         const cards = [];
         let taughtOut = false;
 
@@ -1160,7 +1187,7 @@ export function buildFeedHeader() {
         SELECT COUNT(*) AS c FROM feed_items fi
         JOIN nodes n ON n.id = fi.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${IN_DAY('fi.consumed_at')}
+        WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
     `).get(day.start, day.end).c;
 
     // Every feed answer (generated question, saved question, recall) writes
@@ -1269,16 +1296,20 @@ export function buildFeedHeader() {
  * `attemptId` (see `recordOnce`) is what makes a replayed bank
  * question — which has no row to guard it — count once.
  */
-export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null }) {
-    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result }));
+export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null, uuid = null }) {
+    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result, uuid }));
     return duplicate ? { ...(outcome || { ok: true }), duplicate: true } : outcome;
 }
 
-function applyConsume({ key, kind, feedItemId, nodeId, result }) {
+function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     // A saved question served by the feed is remembered as asked, so the
-    // stream moves through the bank instead of re-serving its head.
+    // stream moves through the bank instead of re-serving its head. By the
+    // uuid its card carried when there is one (`feedBankQuestion`).
     const saved = kind === 'question' ? parseSavedKey(key) : null;
-    const logSaved = () => { if (saved) logAsked([{ ...saved, correct: result ? !!result.correct : null }], 'feed'); };
+    const bankUuid = typeof uuid === 'string' && uuid ? uuid : null;
+    const logSaved = () => {
+        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: result ? !!result.correct : null }], 'feed');
+    };
     let row = null;
     if (feedItemId != null) {
         row = db.prepare(`SELECT node_id, kind, meta FROM feed_items WHERE id = ?`).get(feedItemId) || null;
@@ -1311,6 +1342,11 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
     if ((kind === 'question' || kind === 'recall') && (nodeId != null || row)) {
         const metadata = { source: 'feed', key: key || null };
         if (kind === 'recall') metadata.ghost = true;
+        // A bank question is named by its uuid as well as its key: a position
+        // is not an identity, and a report on the question later finds its
+        // answers by this (server/itemReports.js).
+        const asked = feedBankQuestion(key, bankUuid)?.uuid;
+        if (typeof asked === 'string') metadata.uuid = asked;
         if (result?.gradedBy) metadata.gradedBy = result.gradedBy;
         // The item's format sets its guess floor, so BKT can discount a correct
         // true/false against a correct calculation. Read from the stored row
@@ -1330,7 +1366,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result }) {
         // A question no verifier confirmed is practice, never proof (server/
         // questionTrust.js): like the grader's "unsure", its answer writes no
         // evidence. Read from the stored row or bank, never from the client.
-        if (!feedAnswerIsProof({ key, feedItemId })) { logSaved(); return { ok: true, unproven: true }; }
+        if (!feedAnswerIsProof({ key, feedItemId, uuid: bankUuid })) { logSaved(); return { ok: true, unproven: true }; }
         updateMasteryFromAttempt(row?.node_id ?? nodeId, correct ? 1 : 0, 1, 'quiz', metadata);
     }
     logSaved();

@@ -13,6 +13,10 @@
  *   ```course  name/goal/language ``` a new course, opened in the New course
  *                                  dialog filled in — nothing is written there
  *                                  until the learner presses Create
+ *   ```wrong  item/reason/note/rewrite ``` an item on their screen reported as
+ *                                  wrong, with a Report button (or `undo: N`
+ *                                  to take report N back) — the same request
+ *                                  the item's own flag sends
  *
  * A change to a course or a topic is judged by the SAME rules the server
  * applies (`server/projectFields.js`, imported here): an icon the app has no
@@ -34,6 +38,7 @@
  */
 
 import { REPORT_FORMS, type ReportDraft, type ReportKind } from './report';
+import { isItemRef, REPORT_NOTE_MAX, REPORT_REASONS, type ReportReason } from './itemReports';
 import {
     newPerDay, projectColour, projectDescription, projectIconName, projectName, projectStatus, topicTitle,
 } from '../../server/projectFields.js';
@@ -84,9 +89,9 @@ export function splitChecks(content: string, streaming = false): { body: string;
 }
 
 /** A complete prepared block (```card, ```project, …), on lines of its own. */
-const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
+const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
 /** An opener with no closer after it: still arriving, or never closed. */
-const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save)[ \t]*(?:\n([\s\S]*))?$/i;
+const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*(?:\n([\s\S]*))?$/i;
 /** A fence opener still being typed at the very end of a stream (`` ``ca ``). */
 const PARTIAL_OPENER_RE = /(^|\n)[ \t]*`{1,3}[a-z]*$/i;
 
@@ -190,6 +195,10 @@ export const PROJECT_FIELDS: readonly ProjectField[] = ['name', 'icon', 'color',
 /** A field's name in a pasted answer (English, like the rest of a Copy's scaffolding). */
 const PROJECT_FIELD_WORDS: Record<ProjectField, string> = {
     name: 'Name', icon: 'Icon', color: 'Colour', description: 'Description', status: 'Status', new_per_day: 'New cards a day',
+};
+/** A report's reason in a pasted answer (English, like the field names above). */
+const WRONG_REASON_WORDS: Record<ReportReason, string> = {
+    wrong: 'wrong', unclear: 'unclear', off_topic: 'off topic', other: 'something else',
 };
 
 export interface ProjectEditProposal {
@@ -403,6 +412,40 @@ function parseSave(text: string): SaveProposal | null {
 }
 
 /**
+ * An item on the learner's screen the assistant found wrong, or a report it
+ * offers to take back. The ref is one the drawer sent under WHERE THE LEARNER
+ * IS RIGHT NOW; the server resolves it again on the press, so a ref of the
+ * right shape that names nothing is refused there, and the card says so.
+ */
+export type WrongProposal =
+    | { ref: string; reason: ReportReason; note: string | null; rewrite: boolean }
+    | { undo: number };
+
+const MAX_WRONGS = 1;
+
+function parseWrong(text: string): WrongProposal | null {
+    const f = fieldsOf(text, {
+        item: 'ref', ref: 'ref',
+        reason: 'reason',
+        note: 'note', why: 'note',
+        rewrite: 'rewrite', 'write-a-new-one': 'rewrite',
+        undo: 'undo',
+    });
+    if (f.undo !== undefined) {
+        const id = asId(f.undo.replace(/^#/, ''));
+        return id === null ? null : { undo: id };
+    }
+    const ref = (f.ref ?? '').replace(/^\[|\]$/g, '').trim();
+    if (!isItemRef(ref)) return null;
+    const said = (f.reason ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+    // A reason off the list is still a report: the learner presses, and a
+    // refused press over one word would be the app's fault, not theirs.
+    const reason: ReportReason = !said ? 'wrong' : (REPORT_REASONS as readonly string[]).includes(said) ? said as ReportReason : 'other';
+    const note = (f.note ?? '').trim().slice(0, REPORT_NOTE_MAX) || null;
+    return { ref, reason, note, rewrite: /^(yes|true|y|1)$/i.test((f.rewrite ?? '').trim()) };
+}
+
+/**
  * Split card, capture and report blocks out of an assistant message.
  *
  * Every block comes OUT, valid or not, so no fence source is ever drawn. While
@@ -421,10 +464,11 @@ export interface WriteBlocks {
     courses: CourseDraftProposal[];
     shorts: ShortCourseProposal[];
     saves: SaveProposal[];
+    wrongs: WrongProposal[];
 }
 
 export function splitWriteBlocks(content: string, streaming = false): WriteBlocks {
-    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [] };
+    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [], wrongs: [] };
     if (!content.includes('`')) return { body: content, ...none };
     const cards: CardProposal[] = [];
     const captures: string[] = [];
@@ -435,9 +479,13 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     const courses: CourseDraftProposal[] = [];
     const shorts: ShortCourseProposal[] = [];
     const saves: SaveProposal[] = [];
+    const wrongs: WrongProposal[] = [];
     const take = (kind: string, inner: string) => {
         const k = kind.toLowerCase();
-        if (k === 'save') {
+        if (k === 'wrong') {
+            const w = parseWrong(inner);
+            if (w && wrongs.length < MAX_WRONGS) wrongs.push(w);
+        } else if (k === 'save') {
             const s = parseSave(inner);
             if (s && saves.length < MAX_SAVES && !saves.some(x => x.attachmentId === s.attachmentId)) saves.push(s);
         } else if (k === 'card') {
@@ -476,7 +524,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     if (streaming) body = body.replace(PARTIAL_OPENER_RE, '$1');
     // Tidied only where something came out: a blank line inside someone's
     // code block is theirs.
-    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, shorts, saves };
+    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, shorts, saves, wrongs };
 }
 
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []));
@@ -546,6 +594,16 @@ export function writeBlocksAsText(content: string): string {
         if (kind.toLowerCase() === 'save') {
             const s = parseSave(inner);
             return s ? [s.title, s.description].filter(Boolean).join('\n') : '';
+        }
+        // The ref names an item in this library only; the note is what a
+        // person would have written. A copy is text with no press behind it,
+        // so it says what was suggested, never that a report was filed.
+        if (kind.toLowerCase() === 'wrong') {
+            const w = parseWrong(inner);
+            if (!w) return '';
+            if ('undo' in w) return `Suggested: undo report ${w.undo}`;
+            const head = `Suggested report (${WRONG_REASON_WORDS[w.reason]})`;
+            return w.note ? `${head}: ${w.note}` : head;
         }
         return inner.trim();
     };

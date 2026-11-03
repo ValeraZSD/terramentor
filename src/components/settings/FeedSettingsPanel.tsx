@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Newspaper } from 'lucide-react';
 import { api } from '../../api';
+import { switchSaver } from '../../utils/switchSaver';
 import { useStore } from '../../store';
-import Checkbox from '../Checkbox';
+import Switch from '../ui/Switch';
 import Stepper from '../ui/Stepper';
 import { Button } from '../ui/Button';
 import { SettingNote, SettingHelp, GROUP_CAPTION } from '../ui/SettingRow';
@@ -83,10 +84,13 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
         const n = parseInt(nums[key], 10);
         return Number.isFinite(n) ? n : NUMBER_DEFAULTS[key];
     };
+    // One saver per switch: a failed save puts it back where the stored value is.
+    const boolSavers = useRef(new Map<BoolKey, ReturnType<typeof switchSaver>>()).current;
     const saveBool = async (key: BoolKey, value: boolean) => {
-        setBools(prev => ({ ...prev, [key]: value }));
+        let save = boolSavers.get(key);
+        if (!save) boolSavers.set(key, save = switchSaver());
         try {
-            await api.setSetting(key, value ? 'true' : 'false');
+            await save(value, on => setBools(prev => ({ ...prev, [key]: on })), () => api.setSetting(key, value ? 'true' : 'false'));
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -114,7 +118,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
      * it, for the reason it always was: two 6px OS-drawn arrows that ignore the
      * theme and cannot be hit with a finger.
      */
-    const numberRow = (key: NumberKey, label: string, help: string) => {
+    const numberRow = (key: NumberKey, label: string, help?: string) => {
         const [lo, hi] = NUMBER_BOUNDS[key];
         // A ±1 button is useless over a 0–500 range, so the step follows it.
         const step = hi > 100 ? 5 : 1;
@@ -126,7 +130,7 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
                     the label too, so opening it would also drive the control. */}
                 <div className="min-w-0">
                     <label htmlFor={id} className="block cursor-pointer text-sm font-medium text-slate-900 dark:text-white">{label}</label>
-                    <SettingHelp text={help} />
+                    {help && <SettingHelp text={help} />}
                 </div>
                 <Stepper
                     id={id}
@@ -140,22 +144,24 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             </div>
         );
     };
-    const boolRow = (key: BoolKey, label: string, help: string) => (
-        <label className="flex items-start gap-3 px-4 py-3 cursor-pointer">
-            <Checkbox
-                checked={bools[key]}
-                onChange={v => void saveBool(key, v)}
-                className="mt-1"
-            />
-            {/* This whole row IS the label, so its help stays plain text — both
-                of these are short, and a disclosure here would be toggled by the
-                checkbox's own label activation. */}
-            <span className="min-w-0">
-                <span className="block text-sm font-medium text-slate-900 dark:text-white">{label}</span>
-                <span className="block text-sm text-slate-500 dark:text-slate-400">{help}</span>
-            </span>
-        </label>
-    );
+    /**
+     * An on/off dial: the same row as a number, with the app's one Switch on
+     * the right, under number rows whose control is on the right too, so one
+     * kind of setting reads as one kind. The name alone is the label, so a tap
+     * in the middle of the explanation changes nothing.
+     */
+    const boolRow = (key: BoolKey, label: string, help: string) => {
+        const id = `feed-${key}`;
+        return (
+            <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <div className="min-w-0">
+                    <label htmlFor={id} className="block cursor-pointer text-sm font-medium text-slate-900 dark:text-white">{label}</label>
+                    <SettingHelp text={help} />
+                </div>
+                <Switch id={id} label={label} checked={bools[key]} onChange={v => void saveBool(key, v)} />
+            </div>
+        );
+    };
 
     return (
         <>
@@ -164,35 +170,39 @@ export default function FeedSettingsPanel({ active }: { active: boolean }) {
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>
-                    {tr("How much the home feed puts in front of you each day, and what it generates for a topic. Changes apply to the next batch of cards; lessons already written are kept.")}
+                    {tr("Changes apply to the next batch of cards; lessons already written are kept.")}
                 </SettingNote>
             </div>
             <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm divide-y divide-slate-100 dark:divide-slate-700/70">
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("How much at once")}</p>
                 {numberRow('feed_focus_total', tr("Topics taught at once"), tr("The feed rotates through this many open topics before returning to the first."))}
                 {numberRow('feed_focus_per_project', tr("…of which from one project"), tr("Keeps one busy project from filling every slot."))}
-                {numberRow('feed_due_per_day', tr("Flashcard reviews per day"), tr("Genuinely due cards served in a day. The rest wait — a backlog is spread out, not dumped."))}
-                {numberRow('feed_new_per_project', tr("New flashcards per project per day"), tr("Never-seen cards introduced per curriculum project. A deck sets its own number on its screen."))}
-                {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago, mixed into each batch to keep them fresh. 0 turns them off."))}
+                {numberRow('feed_due_per_day', tr("Flashcard reviews per day"), tr("Due cards served in a day. The rest wait; a backlog is spread out."))}
+                {numberRow('feed_new_per_project', tr("New flashcards per project per day"), tr("Cards you have never seen. A deck sets its own number on its screen."))}
+                {numberRow('feed_recall_per_batch', tr("Recall questions per batch"), tr("Quick questions from topics you mastered a while ago. 0 turns them off."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("What is generated for a topic")}</p>
-                {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("A topic is taught in up to this many short parts, each with its own question. The AI still uses fewer for a small topic."))}
-                {/* BOTH OF THESE ARE PERMISSION, NOT A PROMISE. On is the AI
+                {numberRow('feed_max_parts', tr("Lesson parts per topic, at most"), tr("Each part has its own question. A small topic gets fewer."))}
+                {/* THIS AND THE WIDGET ROW BELOW ARE PERMISSION, NOT A PROMISE. On is the AI
                     being allowed to add one; whether a given topic gets one is
                     its own decision — some subjects cannot be worked by hand at
                     all, and a topic with nothing to vary has no widget in it. A
                     row that said "after a topic's lessons, one exercise" read as
                     a guarantee, and every topic that arrived without one then
                     looked like a fault. */}
-                {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking, on the topics the AI judges worth the pen. Many get none."))}
-                {boolRow('feed_widgets', tr("Interactive widgets in lessons"), tr("One pre-built widget per topic, where the AI judges it helps — many topics get none. Off saves the model call it costs."))}
+                {boolRow('feed_practice', tr("Paper exercises"), tr("One exercise to work by hand and photograph for marking. Many topics get none."))}
                 <p className="px-4 pt-4 pb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">{tr("Ready before you get there")}</p>
+                {/* Named for WHEN, not what: "Interactive widgets in lessons"
+                    read as the same switch as the AI section's "Interactive
+                    widgets" kind, which says whether the tutor may draw one
+                    at all. This one builds a topic's widget ahead of time. */}
+                {boolRow('feed_widgets', tr("Build a topic's widget ahead of time"), tr("One hands-on widget per topic, where it helps. Off saves the model call it costs."))}
                 {/* THE WAIT THESE REMOVE IS REAL: a mastery check that generates
                     its questions the moment you open it ends every topic on a
                     spinner. Written ahead, in the
                     background, after everything the reader is actually looking
                     at — and only for the topics the feed is already teaching. */}
-                {boolRow('feed_prepare_check', tr("Write the mastery check ahead of time"), tr("Once a topic has been taught, its questions are written in the background — so the check opens instantly instead of generating while you wait."))}
-                {boolRow('feed_prepare_cards', tr("Write flashcards ahead of time"), tr("A small set of cards per taught topic, ready to review. Unlike the questions, these are real scheduled cards and start appearing in your feed."))}
+                {boolRow('feed_prepare_check', tr("Write the mastery check ahead of time"), tr("So the check opens at once instead of while you wait."))}
+                {boolRow('feed_prepare_cards', tr("Write flashcards ahead of time"), tr("A few cards per taught topic. They start appearing in your feed."))}
                 <div className="px-4 py-3">
                     <Button variant="quiet" size="sm" onClick={() => void resetAll()}>
                         {tr("Reset to defaults")}

@@ -36,9 +36,13 @@ const SHAPES = [
     /const [A-Z_]*SETTING_KEYS = \{([^}]*)\}/g,
     // a settings statement asked for one key: prepare('… FROM settings …').get('x')
     new RegExp(`FROM settings[^\\n]*\\.get\\('(${KEY})'\\)`, 'g'),
+    // a family read in SQL: key GLOB 'teach_topics_*' (reported as `prefix*`)
+    new RegExp(`\\bkey\\s+GLOB\\s*'(${KEY})\\*'`, 'g'),
     // a key built at run time: `deck_new_per_day_${id}`
     /[`]([a-z][a-zA-Z0-9_]*_)\$\{/g,
 ];
+/** The shape above whose key is a family's prefix, not a row. */
+const FAMILY_SHAPE = SHAPES.length - 2;
 
 /** A statement on the settings table, from `prepare(` to the end of the
  *  statement: the key is then the first argument it is run with, written out
@@ -78,6 +82,7 @@ export function settingKeysInServer(root, globs = ['server/**/*.js']) {
                     if (TEMPLATE_CONTEXT.test(line)) add(`${m[1]}*`, file);
                     continue;
                 }
+                if (i === FAMILY_SHAPE) { add(`${m[1]}*`, file); continue; }
                 if (m[1].includes("'")) {
                     for (const k of m[1].match(/'([a-zA-Z0-9_]+)'/g)) add(k.slice(1, -1), file);
                 } else add(m[1], file);

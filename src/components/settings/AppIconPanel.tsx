@@ -121,7 +121,7 @@ export default function AppIconPanel() {
         // A DISCLOSURE, not an open panel. Three controls and a caveat is a
         // screenful, and the icon is the one appearance choice most readers
         // never touch — so the closed row is the whole setting for them: the
-        // live mark, its name, and where it shows up. The preview is the real
+        // live mark and its name. The preview is the real
         // icon at the colour and corner currently chosen, so the row answers
         // "what is it now?" without being opened. A <summary> is not a button,
         // which is why it sits outside the control vocabulary's scope like
@@ -130,7 +130,6 @@ export default function AppIconPanel() {
             variant="row"
             lead={<IconPreview icon={icon} size={40} variant="tile" />}
             title={tr("App icon")}
-            desc={tr("The mark on the browser tab, and the one an installed app gets.")}
             flushBody
         >
             <div className="px-4 pb-4 pt-3">

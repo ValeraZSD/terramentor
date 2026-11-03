@@ -8,8 +8,9 @@ import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
     CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
-    SaveProposals, TopicChangeProposals,
+    SaveProposals, TopicChangeProposals, WrongProposals,
 } from './AssistantProposals';
+import { screenItems } from '../utils/itemReportStore';
 import AttachMenu from './attachments/AttachMenu';
 import AttachmentChips from './attachments/AttachmentChips';
 import MessageAttachments from './attachments/MessageAttachments';
@@ -1034,7 +1035,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             const stream = api.streamAssistant(message, {
                 conversationId: conversationIdRef.current,
                 // WHERE the learner is, as ids; the server reads what is there.
-                context: { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId },
+                // The items are refs and what the screen showed of their
+                // answer: "this question is wrong" is checked against the key
+                // the server holds, never a copy the client sent.
+                context: { view, projectId: currentProjectId, nodeId: selectedNodeId, feedItemId: feedFocusItemId, items: screenItems() },
                 attachments: sentAttachments.map(a => a.id),
             }, {
                 signal: controller.signal,
@@ -1511,7 +1515,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     const writes = splitWriteBlocks(m.content);
                     const prepared = writes.cards.length + writes.captures.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
-                        + writes.shorts.length + writes.saves.length > 0;
+                        + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
                     <div key={m.id} className="space-y-4">
@@ -1629,6 +1633,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 turnKey={turnKey}
                                                 onOpen={(projectId, nodeId) => { openProjectNode(projectId, nodeId); if (!docked) onClose(); }}
                                             />
+                                            {/* An item on their screen it checked and
+                                                found wrong: Report sends the same
+                                                request the item's own flag does. */}
+                                            <WrongProposals wrongs={writes.wrongs} turnKey={turnKey} />
                                             {/* A problem report it drafted: Review opens
                                                 Report a problem filled in, and the
                                                 learner sends it on GitHub themselves. */}
@@ -1674,6 +1682,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                     <CopyButton
                                                         text={readableAnswer(m.content, false, m.actions)}
                                                         label={tr("Copy answer")}
+                                                        // The icon's own edge on the answer's: the
+                                                        // button's padding indented it off the text.
+                                                        className="-ml-2"
                                                         onFailed={() => addToast('error', tr("Could not copy"), tr("Your browser blocked clipboard access."))}
                                                     />
                                                 </div>

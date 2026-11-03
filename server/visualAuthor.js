@@ -7,6 +7,7 @@ import {
     finalizeAuthoredSpec,
     VISUAL_BRIEF_KINDS,
 } from './ai.js';
+import { builtBy } from './visualBuilds.js';
 
 /**
  * The specialist pass, generalised from the widget compiler.
@@ -89,12 +90,13 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
     const hash = briefHash || visualBriefHash(kind, brief);
     let raw = '';
     let thinkingChars = 0;
+    const answered = {};
     try {
         // `readerNote` is a person's words about the previous drawing of this
         // brief (the "Fix this" path); `error` is a renderer's. They take
         // different prompts, and the note wins when both are present.
         const { system, user } = visualAuthorPrompt(kind, brief, { error, previousSpec, readerNote, theme });
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.3, think: true, job: 'courses', answered })) {
             if (part && part.type === 'content' && part.content) {
                 raw += part.content;
                 emit({ progress: raw.length });
@@ -110,12 +112,13 @@ export async function authorVisual({ kind, brief, briefHash, error = '', previou
             VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(brief_hash) DO UPDATE SET
                 spec = excluded.spec, model = excluded.model, created_at = CURRENT_TIMESTAMP
-        `).run(hash, kind, String(brief).trim(), spec, getAISettings().model);
+        `).run(hash, kind, String(brief).trim(), spec, answered.model || getAISettings().model);
         return { spec, briefHash: hash, kind };
     } catch (err) {
         if (signal?.aborted) return { cancelled: true };
         console.error(`Visual author error (${kind}):`, err.message);
         if (err.rawResponse === undefined) err.rawResponse = raw || null;
+        builtBy(err, answered);
         throw err;
     }
 }

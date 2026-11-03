@@ -1,8 +1,8 @@
-import db from './database.js';
-import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields } from './ai.js';
+import db, { NOT_REPORTED } from './database.js';
+import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields, withAnswerScope } from './ai.js';
 import { parseObjectResponse } from './agentic.js';
-import { getFocusNodes, normalizeFeedQuestion, getFeedSettings, safeParse } from './feed.js';
-import { codeLanguageIn, countsProcedure } from './answerFormats.js';
+import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
+import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
 import { generatePaperExercise, paperAuditQuestion } from './paper.js';
 import {
@@ -20,6 +20,7 @@ import { headStartFor, reviewParts, teachingStarted } from './headStart.js';
 import { lessonSourcesFor, resolveLessonCitations, teachingText } from './lessonSources.js';
 import { markUnverified, pendingVerifications, applyVerdict, adoptLegacyFeedFlags, reverifyWait } from './questionTrust.js';
 import { findDrills } from './drillCheck.js';
+import { learnerFaultForSlot } from './itemReports.js';
 import { onUnverifiedHeldBack, bankOf, bankPartLookup } from './questionLog.js';
 import * as tasks from './tasks.js';
 
@@ -100,6 +101,8 @@ const QUESTION_ATTEMPTS = 3;
  * true/false, at a 50% guess floor, on a signal that feeds BKT. So:
  *   - the last part of a topic gets the open question (it is the one place a
  *     synthesis answer makes sense, and it has no guess floor at all);
+ *   - a segment showing something to build (a reaction, word order) earns
+ *     building it, once per topic;
  *   - a segment carrying real quantities earns a calculation, which is the
  *     question type that actually discriminates;
  *   - true/false is allowed AT MOST ONCE per topic, and only for a segment that
@@ -117,6 +120,26 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     if (language) return { type: 'code', language };
     if (partIndex === partCount && partCount > 1) return { type: 'short_answer' };
 
+    // Used, or TRIED: a format the model could not author for an earlier
+    // part (an assembly, an ordering, a true/false that fell back to multiple
+    // choice) is not asked for again, so a topic pays the attempts and the
+    // verifier for it once, not every part. Recorded on the stored fallback;
+    // when the fallback fails too, nothing is stored and the next part tries
+    // again.
+    const usedFormat = (type) => db.prepare(`
+        SELECT 1 FROM feed_items
+        WHERE node_id = ? AND kind = 'question'
+          AND (json_extract(meta, '$.questionType') = ? OR json_extract(meta, '$.triedType') = ?) LIMIT 1
+    `).get(nodeId, type, type);
+
+    // A segment that shows something to BUILD — a reaction to balance, a
+    // sentence whose word order is the lesson — earns the learner building it.
+    // Picking the balanced equation or the right sentence out of four proves
+    // only that they recognise one. Ahead of the calculation, because a
+    // reaction displayed in $$…$$ also reads as quantitative; once per topic,
+    // so a stoichiometry topic still gets its calculations after the first.
+    if (showsAssembly(text) && !usedFormat('assemble')) return { type: 'assemble' };
+
     // A segment carrying real quantities earns a CALCULATION the learner types.
     // Four options under "solve 2^(x+1) = 16" can be substituted back one at a
     // time until one fits, so a correct answer says the learner can check four
@@ -132,11 +155,6 @@ function pickQuestionType(nodeId, partIndex, partCount, lessonText) {
     // assessment of that topic and the only signal BKT will ever see for it.
     if (partCount === 1) return { type: 'multiple_choice' };
 
-    const usedFormat = (type) => db.prepare(`
-        SELECT 1 FROM feed_items
-        WHERE node_id = ? AND kind = 'question'
-          AND json_extract(meta, '$.questionType') = ? LIMIT 1
-    `).get(nodeId, type);
     // A segment that walks through numbered steps is teaching a procedure, and
     // the honest check of a procedure is to reassemble it. Once per topic, like
     // true/false: a second ordering question on the same topic mostly re-asks
@@ -329,7 +347,7 @@ async function reverifyOne(f, entry, signal) {
 export function pendingLessonCheck(nodeId, { now = Date.now() } = {}) {
     const rows = db.prepare(`
         SELECT id, seq, status, content, meta FROM feed_items
-        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed')
+        WHERE node_id = ? AND kind = 'lesson' AND status IN ('ready', 'consumed') AND ${NOT_REPORTED()}
         ORDER BY seq
     `).all(nodeId);
     for (const row of rows) {
@@ -540,8 +558,9 @@ function collectPriorParts(nodeId, parts, curIndex) {
     // Gather every earlier part that actually has taught text.
     const collected = [];
     for (let j = 1; j < curIndex; j++) {
+        // A part the learner reported is not taught text the next part builds on.
         const row = db.prepare(
-            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ?`
+            `SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ? AND ${NOT_REPORTED()}`
         ).get(nodeId, j * 2 - 1);
         if (!row) continue;
         // Without its sources line: a later part shown a finished source list
@@ -662,7 +681,7 @@ export function nextMissing(nodeId) {
     const planMeta = safeParse(plan.meta) || {};
     const skippedQ = planMeta.skippedQ || [];
     const rows = db.prepare(`
-        SELECT seq, id, content, status FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
+        SELECT seq, id, content, status, result FROM feed_items WHERE node_id = ? AND kind IN ('lesson', 'question')
     `).all(nodeId);
     const bySeq = new Map(rows.map(r => [r.seq, r]));
     // A topic that already OWNS a bank — an imported course's questions, or a
@@ -710,6 +729,9 @@ export function nextMissing(nodeId) {
         const lesson = bySeq.get(i * 2 - 1);
         if (!lesson) return { type: 'lesson', i, parts, plan };
         if (checkFirst && !bankWritten) return { type: 'material', kind: 'mastery_check', plan };
+        // A part the learner reported as wrong is not taught text: no
+        // question is written from it (a rewrite writes the part again).
+        if (safeParse(lesson.result)?.reported) continue;
         const read = lesson.status === 'consumed';
         const unasked = !bySeq.has(i * 2) && !skippedQ.includes(i);
         // The map is made only when it decides something: whether an unread
@@ -925,7 +947,7 @@ async function generateOne(f, missing, signal) {
         });
         let parts = null;
         for (let attempt = 0; attempt < 2 && !parts; attempt++) {
-            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal });
+            const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, job: 'courses' });
             const parsed = parseObjectResponse(resp);
             const candidate = Array.isArray(parsed?.parts)
                 ? parsed.parts.map(normalizePart).filter(Boolean).slice(0, shape.cap)
@@ -947,7 +969,7 @@ async function generateOne(f, missing, signal) {
         // What the plan was sized for rides on it, so `planIsStale` can tell
         // when the head start it assumed has come, gone or changed strength.
         const meta = {
-            ...aiProvenanceFields(),
+            ...aiProvenanceFields({ job: 'courses' }),
             ...(shape.review ? {
                 headStart: {
                     parts: shape.cap,
@@ -997,7 +1019,7 @@ async function generateOne(f, missing, signal) {
         if (!plan) return;
         const meta = safeParse(plan.meta) || {};
         meta.bankParts = assigned
-            ? { map: Object.fromEntries(bank.map((b, k) => [b.question.uuid, assigned[k]])), ...aiProvenanceFields() }
+            ? { map: Object.fromEntries(bank.map((b, k) => [b.question.uuid, assigned[k]])), ...aiProvenanceFields({ job: 'courses' }) }
             : { failed: true };
         db.prepare(`UPDATE feed_items SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), plan.id);
         if (assigned) {
@@ -1045,18 +1067,18 @@ async function generateOne(f, missing, signal) {
         db.prepare(`
             INSERT INTO feed_items (node_id, kind, seq, content, meta, status)
             VALUES (?, 'practice', ?, ?, ?, 'ready')
-        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields() }));
+        `).run(f.nodeId, PRACTICE_SEQ, JSON.stringify(exercise), JSON.stringify({ mode: exercise.mode, ...aiProvenanceFields({ job: 'questions' }) }));
         return;
     }
 
     const partTitle = missing.parts[missing.i - 1].title;
     // Provenance rides in the meta blob rather than a column, because this table
-    // already has one. Read back by tools/feed-audit.mjs and feed-regen.
+    // already has one. Read back by tools/feed-audit.mjs and feed-regen. It is
+    // added when the row is written: the model that wrote the draft served.
     const partMeta = JSON.stringify({
         partIndex: missing.i,
         partCount: missing.parts.length,
         partTitle,
-        ...aiProvenanceFields(),
     });
 
     if (missing.type === 'lesson') {
@@ -1079,8 +1101,11 @@ async function generateOne(f, missing, signal) {
         //
         // And, when the course keeps documents, the passages of them that match
         // this part (lessonSources.js): numbered, cited as [[src:N]], resolved
-        // into a Sources line of document titles before the row is stored. A
-        // course without document text appends '' — its prompt is unchanged.
+        // into a Sources line of document titles before the row is stored —
+        // then, into the room they leave, an excerpt from each of the topic's
+        // first two readable links, cited as links. A course without document
+        // text on a topic without readable links appends '' — its prompt is
+        // unchanged.
         // Retrieved once per part, not per attempt: a rewrite fixes a fault in
         // the draft, and the passages are not where the fault was.
         const partInfo = missing.parts[missing.i - 1] || {};
@@ -1108,10 +1133,14 @@ async function generateOne(f, missing, signal) {
         // draft that will be served: the answer keys of its drills.
         let md = null;
         let vetted = null;
-        let fault = null;      // what sent the last draft back, fed to the next
+        // What sent the last draft back, fed to the next. A slot written again
+        // because the learner reported its lesson starts from what they said
+        // (server/itemReports.js).
+        let fault = learnerFaultForSlot(f.nodeId, 'lesson', missing.i * 2 - 1);
         let unresolved = null; // the fault still standing when attempts ran out
         let unaudited = null;  // the audit that could not run on the draft served
         let auditRead = false; // whether an auditor actually READ the draft served
+        let writer = null;     // which model wrote the draft served (each attempt may fall over)
         for (let attempt = 0; attempt < LESSON_ATTEMPTS; attempt++) {
             auditRead = false;
             const { system, user } = AI_PROMPTS.feed_lesson(
@@ -1125,10 +1154,12 @@ async function generateOne(f, missing, signal) {
                     review,
                 },
             );
+            const answered = {};
             const candidate = stripSelfCertifyingCloser(
-                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring' })),
+                clampLesson(await generateResponse(user, system, [], { temperature: 0.6, signal, operation: 'authoring', answered })),
                 lang,
             );
+            writer = answered;
 
             const defects = lessonDefects(candidate, f.nodeId);
             if (defects.length) {
@@ -1202,11 +1233,15 @@ async function generateOne(f, missing, signal) {
             VALUES (?, 'lesson', ?, ?, ?, 'ready')
         `).run(f.nodeId, missing.i * 2 - 1, stored, JSON.stringify({
             ...JSON.parse(partMeta),
+            ...aiProvenanceFields({ job: 'courses', answered: writer }),
             // What the writer was offered and what it cited — by document id
-            // and passage, so tools/feed-audit.mjs can tell a grounded lesson
-            // from one that ignored its passages. Absent without documents.
+            // and passage, or by the page's address, so tools/feed-audit.mjs
+            // can tell a grounded lesson from one that ignored its passages.
+            // Absent without documents or readable links.
             ...(grounding.passages.length ? {
-                sources: grounding.passages.map((p, i) => ({ n: i + 1, documentId: p.documentId, chunkIndex: p.chunkIndex })),
+                sources: grounding.passages.map((p, i) => (p.url
+                    ? { n: i + 1, url: p.url }
+                    : { n: i + 1, documentId: p.documentId, chunkIndex: p.chunkIndex })),
                 cited: cited.length,
             } : {}),
             ...(vetted?.removed.length ? { visualsRemoved: vetted.removed } : {}),
@@ -1278,7 +1313,7 @@ async function generateOne(f, missing, signal) {
             priorFault: fault,
         });
         const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, operation: 'questions' });
-        const candidate = normalizeFeedQuestion(parseObjectResponse(resp));
+        const candidate = normalizeModelQuestion(parseObjectResponse(resp));
         if (!candidate) {
             fault = 'the previous attempt did not produce a valid JSON object in the required shape';
             continue;
@@ -1363,11 +1398,12 @@ async function generateOne(f, missing, signal) {
         partCount: missing.parts.length,
         partTitle,
         questionType: question.type,
+        ...(question.type !== qType ? { triedType: qType } : {}),
         // What the cold solve SAID, not that it was asked: false when the
         // verifier could not answer, with its reason beside it.
         verified: questionCheck?.available !== false,
         ...(questionCheck?.available === false ? { unverified: questionCheck.reason } : {}),
-        ...aiProvenanceFields(),
+        ...aiProvenanceFields({ job: 'questions' }),
         ...(servedWeaknesses ? { weaknesses: servedWeaknesses } : {}),
     }));
 }
@@ -1584,7 +1620,7 @@ export function ensureBuffer() {
     if (kickPending) return;
     kickPending = true;
     chain = chain
-        .then(() => { kickPending = false; return runBurst(); })
+        .then(() => { kickPending = false; return withAnswerScope(runBurst); })
         .catch((err) => {
             kickPending = false;
             console.error('[FeedGen] Unexpected chain error:', err?.message);

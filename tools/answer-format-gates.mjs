@@ -23,7 +23,10 @@
 //      surface by construction;
 //   6. `fill_in` folds exactly the typography a learner cannot be expected to
 //      reproduce and NOTHING else — identically on both sides, because the two
-//      graders judge different screens.
+//      graders judge different screens;
+//   7. `assemble` refuses every malformed item, never serves its bank in the
+//      key's order, grades the same on both sides, and — like every format —
+//      survives a course's export and import with its key intact.
 
 import { mkdtempSync, rmSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,8 +46,9 @@ const B = new URL('../server/', import.meta.url).href;
 const {
     ANSWER_FORMATS, FORMAT_IDS, GUESS_BY_FORMAT, normalizeQuestionFormat, gradeLocally, formatAuthoring,
     codeLanguageIn, countsProcedure, sameCode, parseNumber, defaultTolerance,
-    normalizeTyped, acceptedAnswers, MAX_ACCEPTED_ANSWERS,
+    normalizeTyped, acceptedAnswers, MAX_ACCEPTED_ANSWERS, servedInKeyOrder, ASSEMBLE_LIMITS,
 } = await import(B + 'answerFormats.js');
+const { parseObjectResponse } = await import(B + 'agentic.js');
 const { normalizeFeedQuestion } = await import(B + 'feed.js');
 const { finalizeQuiz } = await import(B + 'studyMaterial.js');
 const { questionDefects } = await import(B + 'feedQuality.js');
@@ -470,6 +474,468 @@ check('three numbered steps read as a procedure', countsProcedure('1. Melt\n2. W
 check('two do not', !countsProcedure('1. Melt\n2. Whisk\n'));
 
 // ---------------------------------------------------------------------------
+section('assemble: pieces into gaps, graded on the whole arrangement');
+
+// The three jobs the format exists for, as an author writes them. The same
+// three are the hand-made fixtures walked in the browser.
+const SENTENCE = {
+    question: 'Zet de woorden op hun plaats.',
+    type: 'assemble',
+    template: 'Ik blijf thuis, omdat ___ ___ ___ ___.',
+    correct_answer: ['ik', 'morgen', 'moet', 'werken'],
+    // A verb cluster in a subclause may also end on the modal.
+    accept: [['ik', 'morgen', 'werken', 'moet']],
+    distractors: ['werk'],
+    explanation: 'In een bijzin met omdat staan de werkwoorden achteraan.',
+};
+const EQUATION = {
+    question: 'Balance the equation for burning methane.',
+    type: 'assemble',
+    template: 'CH₄ + ___ O₂ → ___ CO₂ + ___ H₂O',
+    correct_answer: ['2', '1', '2'],
+    distractors: ['3', '4'],
+    reuse: true,
+    explanation: 'Four H on the left need two H₂O; then four O on the right need two O₂.',
+};
+// Lettered rows need their picture: an imported question carries one, and
+// without it the question cannot be answered (a defect, checked below).
+const PICTURE = [{ hash: 'a'.repeat(64), kind: 'image', name: 'plant-cell.png', alt: 'A plant cell with four parts lettered A to D' }];
+const LABELS = {
+    question: 'Name each lettered part of the plant cell.',
+    type: 'assemble',
+    template: 'A ___\nB ___\nC ___\nD ___',
+    correct_answer: ['cell wall', 'nucleus', 'chloroplast', 'vacuole'],
+    distractors: ['ribosome'],
+    media: PICTURE,
+    explanation: 'The wall is the outer line, the vacuole the large space in the middle.',
+};
+
+check('both halves of the registry know assemble',
+    FORMAT_IDS.includes('assemble') && client.FORMAT_IDS.includes('assemble'),
+    `server ${FORMAT_IDS.includes('assemble')}, client ${client.FORMAT_IDS?.includes?.('assemble')}`);
+check('…and it is answered by building, not by one choice',
+    client.ANSWER_FORMATS.assemble?.commitsOnSelect === false && client.ANSWER_FORMATS.assemble?.blockAnswer === true);
+// An untouched ordering IS an answer (the served order); an untouched
+// assembly is not one, so the empty gaps are never graded as the attempt.
+check('an untouched assemble input answers nothing, unlike an untouched ordering',
+    client.defaultAnswer?.({ type: 'assemble', template: 'a ___ ___', tokens: ['x', 'y', 'z'] }) === ''
+    && client.defaultAnswer?.({ type: 'sequence', items: ['x', 'y', 'z'] }) === '["x","y","z"]');
+{
+    // A half-built answer is not checked: a stray tap on Check while gaps are
+    // empty would grade the attempt wrong (both bystanders tripped on it).
+    const q = { type: 'assemble', template: 'a ___ b ___', tokens: ['x', 'y', 'z'] };
+    const complete = client.answerIsComplete;
+    const cases = [
+        [q, '', false], [q, '["x",null]', false], [q, '[null,"y"]', false], [q, '["x"]', false],
+        [q, '["x","y"]', true], [q, 'not json', false],
+        [{ type: 'short_answer' }, '', false], [{ type: 'short_answer' }, ' ', false], [{ type: 'short_answer' }, 'x', true],
+        [{ type: 'sequence', items: ['a', 'b', 'c'] }, '["c","b","a"]', true],
+    ];
+    const wrong = typeof complete === 'function' ? cases.filter(([qq, a, want]) => complete(qq, a) !== want) : cases;
+    check('Check waits for every gap of an assembly, and for any answer elsewhere', wrong.length === 0,
+        wrong.map(([qq, a]) => `${qq.type} ${JSON.stringify(a)}`).join('; '));
+    check('…and the feed card asks that, not whether anything was entered',
+        /submittable\s*=\s*answerIsComplete\(\s*question\s*,\s*answer\s*\)/.test(readFileSync(new URL('../src/components/feed/InlineQuestion.tsx', import.meta.url), 'utf8')));
+}
+{
+    // "Teach me this" sends both answers to a model, which cannot read
+    // ["2","1","2"] without the equation it fills.
+    const eqq = { type: 'assemble', template: 'CH₄ + ___ O₂ → ___ CO₂ + ___ H₂O' };
+    const said = [
+        client.answerAsText?.(eqq, '["2","1","2"]') === 'CH₄ + 2 O₂ → 1 CO₂ + 2 H₂O',
+        client.answerAsText?.(eqq, '["2",null,"2"]') === 'CH₄ + 2 O₂ → ___ CO₂ + 2 H₂O',
+        client.answerAsText?.({ type: 'sequence' }, '["a","b","c"]') === 'a → b → c',
+        client.answerAsText?.({ type: 'short_answer' }, 'It refracts.') === 'It refracts.',
+    ];
+    check('an answer leaves the answer surface as a person reads it', said.every(Boolean), JSON.stringify(said));
+    // Both halves: the key, and the learner's own (part-built) answer.
+    const helped = ['../src/components/feed/InlineQuestion.tsx', '../src/components/answer/AnswerReviewItem.tsx']
+        .filter(f => {
+            const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+            return !/correctAnswer=\{answerAsText\(question, question\.correct_answer\)\}/.test(src)
+                || !/userAnswer=\{answerAsText\(question, /.test(src);
+        });
+    check('…and both places that offer "Teach me this" send both answers so', helped.length === 0, helped.join(', '));
+}
+{
+    // A format the model could not author falls back to multiple choice. The
+    // picker must count that attempt, or every later part of the topic pays
+    // the attempts and the verifier for the same format again.
+    const feedGenSrc = readFileSync(new URL('../server/feedGen.js', import.meta.url), 'utf8');
+    check('a format tried and fallen back from is recorded, and counted as used',
+        /triedType:\s*qType/.test(feedGenSrc) && /json_extract\(meta,\s*'\$\.triedType'\)/.test(feedGenSrc));
+}
+
+// As a course file carries it: only a file may declare a second right order.
+const sentence = normalizeQuestionFormat(SENTENCE, { stored: true });
+check('a sentence to build survives the normaliser', !!sentence);
+check('the key is stored as JSON, in gap order', sentence?.correct_answer === JSON.stringify(SENTENCE.correct_answer));
+check('another right arrangement a file declares is kept, written the way the key is',
+    JSON.stringify(sentence?.accept) === JSON.stringify([JSON.stringify(SENTENCE.accept[0])]), JSON.stringify(sentence?.accept));
+// The verifier solves an assembly cold and confirms ONE fill, so another order
+// a model declares would be graded right with nothing ever having read it. A
+// model fixes the template instead; a question two fills answer is refused.
+check('another order a model declares is dropped: no check would ever read it',
+    normalizeQuestionFormat(SENTENCE)?.accept === undefined && normalizeFeedQuestion(SENTENCE)?.accept === undefined,
+    `${JSON.stringify(normalizeQuestionFormat(SENTENCE)?.accept)} / ${JSON.stringify(normalizeFeedQuestion(SENTENCE)?.accept)}`);
+check('…and the authoring rule no longer asks a model for one',
+    !/\baccept\b/.test(formatAuthoring('assemble').rule), formatAuthoring('assemble').rule.slice(-400));
+check('the bank is every key piece plus the distractor, nothing else',
+    !!sentence && JSON.stringify([...sentence.tokens].sort()) === JSON.stringify([...SENTENCE.correct_answer, 'werk'].sort()),
+    JSON.stringify(sentence?.tokens));
+// Tapping the bank left to right must not build the answer: with the
+// distractors taken out, the served order is never the key's order.
+let leaks = 0;
+for (let i = 0; i < 40; i++) {
+    const served = normalizeQuestionFormat(SENTENCE)?.tokens ?? [];
+    if (JSON.stringify(served.filter(t => t !== 'werk')) === sentence?.correct_answer) leaks++;
+}
+check('the bank never reads in the key\'s order (40 draws)', !!sentence && leaks === 0, `${leaks} leaks`);
+// Two gaps, two key pieces: half of all shuffles are the key's order, so the
+// re-draws alone leak one question in 512 — too rare for random draws to
+// catch. So the shuffle is pinned to leave every row as it is (j = i at each
+// step): every draw and re-draw is the key's order, and only the fallback
+// can still break it.
+{
+    const realRandom = Math.random;
+    Math.random = () => 0.999999;
+    let pinned;
+    try {
+        pinned = [
+            normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: ['gaat'] })?.tokens,
+            normalizeQuestionFormat({ ...SENTENCE, accept: [] })?.tokens,
+            normalizeQuestionFormat({ ...SENTENCE, template: '___ ___ ___', correct_answer: ['de', 'kat', 'slaapt'], accept: [], distractors: [] })?.tokens,
+        ];
+    } finally {
+        Math.random = realRandom;
+    }
+    const keys = [['ga', 'ik'], SENTENCE.correct_answer, ['de', 'kat', 'slaapt']];
+    const leaked = pinned.map((t, i) => (!t || servedInKeyOrder(t, keys[i], ['gaat', 'werk']) ? JSON.stringify(t) : null)).filter(Boolean);
+    check('…not even when every shuffle comes out in the key\'s order', leaked.length === 0, leaked.join(' | '));
+}
+
+const equation = normalizeQuestionFormat(EQUATION);
+check('an equation to balance survives', !!equation);
+check('a reusable bank holds each piece once, sorted as numbers',
+    JSON.stringify(equation?.tokens) === JSON.stringify(['1', '2', '3', '4']), JSON.stringify(equation?.tokens));
+check('…which depends on nothing in the key (another key, the same palette)',
+    JSON.stringify(normalizeQuestionFormat({ ...EQUATION, correct_answer: ['4', '2', '3'], distractors: ['1'] })?.tokens) === JSON.stringify(['1', '2', '3', '4']));
+check('a bank without reuse holds a repeated piece as often as the key uses it',
+    normalizeQuestionFormat({ ...EQUATION, reuse: false })?.tokens.filter(t => t === '2').length === 2);
+
+const labels = normalizeQuestionFormat(LABELS);
+check('a set of labels survives, one gap per row', !!labels && labels.template === LABELS.template);
+
+// A model's reply is read through escapeLatexBackslashes, which keeps `\n`
+// as the two characters `\` `n` (in prose it is far likelier `\nabla`). The
+// rows of a template the model wrote as valid JSON must still be rows, and a
+// `\nu` inside a formula must still be TeX.
+{
+    const ROWS = { ...LABELS, template: 'the outer layer ___\nthe control centre ___\nwhere light is caught ___\nthe large store of water ___', media: undefined };
+    const fromModel = normalizeFeedQuestion(parseObjectResponse(JSON.stringify(ROWS)));
+    check('rows a model wrote as JSON arrive as rows, through the feed\'s reader',
+        fromModel?.template === ROWS.template, JSON.stringify(fromModel?.template));
+    let quizRows = null;
+    try { quizRows = finalizeQuiz(quizNode, JSON.stringify([ROWS]), false).questions.find(x => x.type === 'assemble')?.template; } catch { /* reported below */ }
+    check('…and through the saved quiz\'s', quizRows === ROWS.template, JSON.stringify(quizRows));
+    const TEX = { ...ROWS, template: 'frequency $\\nu$ ___\nwavelength $\\lambda$ ___', correct_answer: ['Hz', 'm'], distractors: ['s'] };
+    check('…while a \\nu inside a formula stays TeX',
+        normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template === TEX.template,
+        JSON.stringify(normalizeFeedQuestion(parseObjectResponse(JSON.stringify(TEX)))?.template));
+    // Outside a formula too: a bare `\rightarrow` is an arrow, not a row
+    // break followed by "ightarrow".
+    const ARROW = { ...EQUATION, template: '___ CH₄ + ___ O₂ \\rightarrow ___ CO₂ + ___ H₂O', correct_answer: ['1', '2', '1', '2'] };
+    const arrow = normalizeFeedQuestion(parseObjectResponse(JSON.stringify(ARROW)))?.template;
+    check('…and so does a bare \\rightarrow between the gaps, on one row', arrow === ARROW.template, JSON.stringify(arrow));
+}
+const { templateParts } = await import(B + 'answerFormats.js');
+check('the gaps a template holds are counted the same on both sides',
+    [SENTENCE, EQUATION, LABELS, { template: 'a ____ b _____ c' }].every(q =>
+        JSON.stringify(client.templateParts?.(q.template)) === JSON.stringify(templateParts?.(q.template))
+        && templateParts?.(q.template)?.length === (q.correct_answer?.length ?? 2) + 1));
+
+// What a model or a file gets wrong, each refused rather than served.
+const refused = [
+    [{ ...LABELS, template: 'A ___\nB ___\nC ___' }, 'a template with fewer gaps than the key has pieces'],
+    [{ ...LABELS, template: 'Name the parts.' }, 'a template with no gap at all'],
+    [{ ...LABELS, template: undefined }, 'no template'],
+    [{ ...LABELS, template: '___', correct_answer: ['nucleus'], distractors: ['ribosome', 'golgi body'] }, 'one gap: that is a typed answer, not an assembly'],
+    [{ ...LABELS, template: Array.from({ length: 9 }, () => '___').join(' '), correct_answer: Array.from({ length: 9 }, (_, i) => `p${i}`) }, 'more than eight gaps'],
+    [{ ...LABELS, correct_answer: ['cell wall', '', 'chloroplast', 'vacuole'] }, 'an empty piece'],
+    [{ ...LABELS, correct_answer: ['cell wall', 'the ___', 'chloroplast', 'vacuole'] }, 'a piece holding a gap marker'],
+    [{ ...LABELS, correct_answer: ['cell wall', 'x'.repeat(49), 'chloroplast', 'vacuole'] }, 'a piece too long to be a piece'],
+    [{ ...LABELS, correct_answer: 'cell wall, nucleus, chloroplast, vacuole' }, 'a key that is not a list'],
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['ga', 'ik'], accept: [], distractors: [] }, 'fewer than three pieces in the bank: a coin toss'],
+    [{ ...EQUATION, correct_answer: ['2', '2', '2'], distractors: ['1'] }, 'a reusable bank of two pieces'],
+    [{ ...LABELS, template: `${'a long stretch of fixed text '.repeat(30)}A ___\nB ___\nC ___\nD ___` }, 'a template past its length: an essay with holes'],
+    // Each accepted order is one more way to be right by chance; a blind fill
+    // may not land more often than at a multiple choice of four.
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c'], accept: [['b', 'a'], ['a', 'c'], ['c', 'a'], ['b', 'c']] }, 'so many orders accepted that a blind fill is right five times in six'],
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c'], accept: [['b', 'a']] }, 'two gaps, three pieces and a second order: right one time in three'],
+    [{ ...SENTENCE, template: '___ ___', correct_answer: ['2', '2'], distractors: ['3'], accept: [] }, 'two copies of one piece and one other: three fills, right one time in three'],
+];
+for (const [raw, why] of refused) {
+    // A second order counts only where one may be declared: in a file.
+    check(`refused: ${why}`, normalizeQuestionFormat(raw, { stored: true }) === null
+        && (raw.accept?.length > 0 || normalizeQuestionFormat(raw) === null));
+}
+{
+    const { fillsPossible } = await import(B + 'answerFormats.js');
+    const counted = [
+        fillsPossible?.(['a', 'b', 'c'], 2) === 6, fillsPossible?.(['2', '2', '3'], 2) === 3,
+        fillsPossible?.(['1', '2', '3', '4'], 3, true) === 64, fillsPossible?.(['ik', 'morgen', 'moet', 'werken', 'werk'], 4) === 120,
+    ];
+    check('the ways to fill a bank are counted, two copies of a piece as one choice', counted.every(Boolean), JSON.stringify(counted));
+    check('…while two gaps, four pieces and one other order accepted (two in twelve) is a fair question',
+        !!normalizeQuestionFormat({ ...SENTENCE, template: '___ ___', correct_answer: ['a', 'b'], distractors: ['c', 'd'], accept: [['b', 'a']] }, { stored: true }));
+    // The cap on a template's length, at its edge.
+    const pad = (n) => `${'x'.repeat(n - LABELS.template.length)}${LABELS.template}`;
+    check(`a template of exactly ${ASSEMBLE_LIMITS.maxTemplate} characters is kept, one more is refused`,
+        !!normalizeQuestionFormat({ ...LABELS, template: pad(ASSEMBLE_LIMITS.maxTemplate) })
+        && normalizeQuestionFormat({ ...LABELS, template: pad(ASSEMBLE_LIMITS.maxTemplate + 1) }) === null);
+}
+const spare = normalizeQuestionFormat({ ...LABELS, distractors: ['nucleus', 'ribosome', 'ribosome'] });
+check('a distractor that is also a key piece, or twice the same, is dropped',
+    spare?.tokens.filter(t => t === 'nucleus').length === 1 && spare?.tokens.filter(t => t === 'ribosome').length === 1,
+    JSON.stringify(spare?.tokens));
+check('no more than four distractors are kept, so a bank never passes twelve pieces',
+    normalizeQuestionFormat({ ...LABELS, distractors: Array.from({ length: 12 }, (_, i) => `part ${i}`) })?.tokens.length === 8);
+check('an "accept" that needs a piece the bank does not hold is dropped',
+    normalizeQuestionFormat({ ...SENTENCE, accept: [['ik', 'morgen', 'moet', 'gaan']] }, { stored: true })?.accept === undefined);
+check('…and so is one equal to the key', normalizeQuestionFormat({ ...SENTENCE, accept: [SENTENCE.correct_answer] }, { stored: true })?.accept === undefined);
+check('a bank a file carries is ignored: the pieces come from the key and the distractors',
+    !normalizeQuestionFormat({ ...LABELS, tokens: ['cell wall', 'nucleus', 'chloroplast', 'vacuole', 'golgi'] })?.tokens.includes('golgi'));
+
+// Both graders, one table: the feed and the quiz grade on the client, and the
+// server's copy is held to the same verdicts so that anything grading there
+// agrees. Each row is something a learner can actually put in the gaps.
+const sq = { type: 'assemble', ...sentence };
+const eq = { type: 'assemble', ...equation };
+const ASSEMBLED = [
+    [sq, ['ik', 'morgen', 'moet', 'werken'], true, 'the key'],
+    [sq, ['ik', 'morgen', 'werken', 'moet'], true, 'the other right order the author declared'],
+    [sq, ['ik', 'moet', 'morgen', 'werken'], false, 'verb second inside a subclause'],
+    [sq, ['ik', 'morgen', 'moet', 'werk'], false, 'the distractor in a gap'],
+    [sq, ['ik', 'morgen', 'moet', null], false, 'an empty gap'],
+    [sq, ['ik', 'morgen', 'moet'], false, 'one gap short'],
+    [sq, [' ik ', 'morgen', 'moet', 'werken'], true, 'spacing around a piece is not an error'],
+    [eq, ['2', '1', '2'], true, 'a balanced equation'],
+    [eq, ['1', '2', '2'], false, 'the same pieces, unbalanced'],
+    [{ type: 'assemble', template: '___ + ___ → ___', correct_answer: '["Co","O₂","CoO₂"]', tokens: ['CO', 'Co', 'CoO₂', 'O₂'] }, ['CO', 'O₂', 'CoO₂'], false, 'case is chemistry: CO is not Co'],
+    [{ type: 'assemble', template: '___ en ___', correct_answer: '["café","thé"]', tokens: ['eau', 'thé', 'café'] }, ['café', 'thé'], true, 'a letter a keyboard composed another way is the same letter'],
+];
+// A grader that throws is reported as a failure, not as a crash of this gate.
+const verdictOf = (grader, q, answer) => { try { return grader(q, answer); } catch (err) { return `threw: ${err.message}`; } };
+for (const [q, fill, expected, why] of ASSEMBLED) {
+    const answer = JSON.stringify(fill);
+    const server = verdictOf(gradeLocally, q, answer);
+    const clientVerdict = verdictOf(gradeLocallyClient, q, answer);
+    check(`${JSON.stringify(fill)} is ${expected}: ${why}`, server === expected && clientVerdict === expected,
+        `server ${server}, client ${clientVerdict}`);
+}
+check('an answer that is not a list is wrong, and never throws',
+    verdictOf(gradeLocally, sq, 'ik morgen moet werken') === false && verdictOf(gradeLocallyClient, sq, 'ik morgen moet werken') === false);
+check('an empty answer is wrong on both sides', verdictOf(gradeLocally, sq, '') === false && verdictOf(gradeLocallyClient, sq, '') === false);
+
+// A course leaves as a file and comes back. The stored question is what the
+// export writes, and the importer runs it through the same door a model's
+// question takes; the true arrangement must still be the right one.
+const { normalizeImportTree } = await import(B + 'curriculumSchema.js');
+const { sanitizeQuestionMedia } = await import(B + 'agentic.js');
+const { portableQuestion } = await import(B + 'questionTrust.js');
+const roundTrip = (q) => normalizeImportTree(
+    [{ title: 'round trip', questions: [portableQuestion(q)] }],
+    { normalizeQuestionFormat, questionDefects, sanitizeQuestionMedia },
+).nodes[0]?.questions?.[0] ?? null;
+for (const [raw, truth, name] of [[SENTENCE, SENTENCE.correct_answer, 'a sentence'], [EQUATION, EQUATION.correct_answer, 'an equation'], [LABELS, LABELS.correct_answer, 'a set of labels']]) {
+    const stored = { question: raw.question, type: 'assemble', ...normalizeQuestionFormat(raw), ...(raw.media ? { media: raw.media } : {}) };
+    const back = roundTrip(stored);
+    check(`${name} survives export and import, and the true arrangement still grades right`,
+        !!back && gradeLocally(back, JSON.stringify(truth)) === true && back.template === raw.template,
+        back ? `key ${back.correct_answer}` : 'dropped on import');
+}
+const backSentence = roundTrip({ question: SENTENCE.question, type: 'assemble', ...sentence });
+check('…the declared other order travels too', gradeLocally(backSentence, JSON.stringify(SENTENCE.accept[0])) === true);
+// Found while designing the above: an ORDERING did not survive the same trip.
+// The export writes the served (shuffled) items and the importer took them as
+// the correct order, so the shuffle became the key.
+const storedSeq = { question: rawSeq.question, type: 'sequence', ...normalizeQuestionFormat(rawSeq) };
+const backSeq = roundTrip(storedSeq);
+check('an ordering survives export and import with its key, not its shuffle',
+    !!backSeq && gradeLocally(backSeq, JSON.stringify(rawSeq.items)) === true,
+    backSeq ? `key ${backSeq.correct_answer}` : 'dropped on import');
+check('…and an ordering whose stored key is not a permutation of its items is refused on import',
+    normalizeQuestionFormat({ ...storedSeq, correct_answer: '["Melt the butter","Boil the pasta","Whisk in the flour","Add the milk gradually"]' }, { stored: true }) === null
+    && roundTrip({ ...storedSeq, correct_answer: '["Melt the butter","Boil the pasta","Whisk in the flour","Add the milk gradually"]' }) === null);
+// A model writes the items in order and no key; a stray key it adds anyway
+// (index numbers, the steps re-cased) must not cost the question.
+check('…while a model\'s stray key on an ordering is ignored, as it always was',
+    normalizeQuestionFormat({ ...rawSeq, correct_answer: [2, 0, 1, 3] })?.correct_answer === JSON.stringify(rawSeq.items)
+    && normalizeQuestionFormat({ ...rawSeq, correct_answer: rawSeq.items.map(s => s.toUpperCase()) })?.correct_answer === JSON.stringify(rawSeq.items));
+
+const asServed = (raw) => ({ question: raw.question, type: 'assemble', ...(normalizeQuestionFormat(raw) ?? {}), ...(raw.media ? { media: raw.media } : {}) });
+check('a sound assembly has no defects',
+    [SENTENCE, EQUATION, LABELS].every(raw => questionDefects(asServed(raw)).length === 0),
+    [SENTENCE, EQUATION, LABELS].map(raw => questionDefects(asServed(raw)).join('; ')).join(' | '));
+const defectsOf = (q) => questionDefects({ question: LABELS.question, type: 'assemble', ...labels, media: PICTURE, ...q });
+// No model draws the picture lettered rows point at, so from the feed such a
+// question cannot be answered by knowing the cell; described rows can.
+check('lettered rows with no picture are a defect',
+    defectsOf({ media: undefined }).some(d => /picture/.test(d)), defectsOf({ media: undefined }).join('; '));
+check('…described rows need none',
+    !defectsOf({ media: undefined, template: 'the outer layer ___\nthe control centre ___\nwhere light is caught ___\nthe large store of water ___' }).some(d => /picture/.test(d)));
+check('…nor do rows that open on a short word or a symbol ("ik ___", "Na ___")',
+    ['ik ___\nje ___\nwe ___\nze ___', 'Na ___\nMg ___\nAl ___\nCl ___']
+        .every(template => !defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+// The same labels on ONE line point at the same missing picture.
+check('lettered labels on one line with no picture are a defect too',
+    ['A ___  B ___  C ___  D ___', '1. ___ 2. ___ 3. ___ 4. ___', '(a) ___ (b) ___ (c) ___ (d) ___']
+        .every(template => defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+check('…but a sentence whose words are single letters is not a set of labels ("I ___ a ___")',
+    ['I ___ a ___', 'x ___ y ___ z ___ w ___'].every(template => !defectsOf({ media: undefined, template }).some(d => /picture/.test(d))));
+{
+    // A model cannot attach a picture; one its reply claims is invented, and
+    // must not count as the picture a lettered template needs.
+    const { normalizeModelQuestion } = await import(B + 'feed.js');
+    const fromModel = normalizeModelQuestion?.({ ...LABELS });
+    check('a picture a model\'s reply claims is dropped, so lettered rows from a model are a defect',
+        !!fromModel && fromModel.media === undefined && questionDefects(fromModel).some(d => /picture/.test(d))
+        && normalizeFeedQuestion({ ...LABELS })?.media?.length === 1);
+    const modelPaths = ['../server/feedGen.js', '../server/capture.js']
+        .filter(f => {
+            const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+            return !/normalizeModelQuestion\(/.test(src) || /normalizeFeedQuestion/.test(src);
+        });
+    check('…on both paths that read a model\'s questions', modelPaths.length === 0, modelPaths.join(', '));
+}
+check('a stem that already shows the built answer is a defect',
+    questionDefects({ ...asServed(SENTENCE), question: 'Zet in de goede volgorde: ik morgen moet werken.' }).some(d => /already shows/.test(d)));
+check('…also when the gaps lie apart and the stem shows the whole of it',
+    questionDefects({
+        ...asServed({ ...SENTENCE, template: 'Ik ___ morgen ___.', correct_answer: ['moet', 'werken'], distractors: ['werk', 'ga'], accept: [] }),
+        question: 'Vertaal en bouw na: Ik moet morgen werken.',
+    }).some(d => /already shows/.test(d)));
+check('…but a stem naming one of the pieces is not',
+    !questionDefects({ ...asServed(SENTENCE), question: 'Waar komt "moet" in deze zin?' }).some(d => /already shows/.test(d)));
+{
+    // Written by GLM-5.3-Flash in the first real generation (2 Nov 2026): the
+    // stem copied the template under the instruction, so the learner met the
+    // gaps twice, once as underscores after a literal "\n\n" (the reader keeps
+    // a JSON newline in prose as those two characters) and once as the input.
+    const bike = asServed({
+        question: 'Build the Dutch sentence that means "Last week she bought a new bike", putting the time expression in slot 1:\\n\\n___ ___ zij een nieuwe fiets.',
+        type: 'assemble', template: '___ ___ zij een nieuwe fiets.',
+        correct_answer: ['Vorige week', 'kocht'], distractors: ['gekocht', 'koopt', 'gisteren'],
+        explanation: 'The finite verb kocht takes slot 2, right after the one element in slot 1.',
+    });
+    check('a stem that repeats the template\'s gaps is a defect: the input already draws them',
+        questionDefects(bike).some(d => /gaps/.test(d) && /question/.test(d)), questionDefects(bike).join('; '));
+    check('…also when the copy sits on its own line',
+        questionDefects({ ...bike, question: 'Build the sentence for "Last week she bought a new bike".\n\n___ ___ zij een nieuwe fiets.' })
+            .some(d => /gaps/.test(d) && /question/.test(d)));
+    check('…but a stem that only says what to build is not',
+        !questionDefects({ ...bike, question: 'Build the Dutch sentence that means "Last week she bought a new bike", with the time expression first.' })
+            .some(d => /gaps/.test(d) && /question/.test(d)));
+    check('the authoring rule tells the writer to keep the template out of the question',
+        /never copies the template/.test(formatAuthoring('assemble').rule), formatAuthoring('assemble').rule.slice(-200));
+}
+check('a key that does not fill the template\'s gaps is a defect',
+    defectsOf({ template: 'A ___\nB ___' }).some(d => /gap/.test(d)));
+check('a bank that does not hold the key is a defect',
+    defectsOf({ tokens: ['cell wall', 'nucleus', 'chloroplast', 'ribosome'] }).some(d => /piece/.test(d)));
+check('a bank served in the key\'s order is a defect',
+    defectsOf({ tokens: ['cell wall', 'nucleus', 'chloroplast', 'vacuole', 'ribosome'] }).some(d => /order/.test(d)));
+check('a formula that crosses a gap is a defect',
+    defectsOf({ template: 'A $x ___ y$\nB ___\nC ___\nD ___' }).some(d => /formula/.test(d)));
+
+check('the feed accepts an assembly', normalizeFeedQuestion(EQUATION)?.type === 'assemble');
+let admitted = 0;
+try { admitted = finalizeQuiz(quizNode, JSON.stringify([SENTENCE, EQUATION]), false).questions.filter(x => x.type === 'assemble').length; } catch { /* nothing gradeable: reported below */ }
+check('a saved quiz admits it by default: it grades with no model in the room', admitted === 2, `${admitted} admitted`);
+// What the format DROPPED must not survive beside what it kept: an `accept`
+// that needs a piece twice, and a distractor that is a key piece.
+{
+    let kept = null;
+    try {
+        kept = finalizeQuiz(quizNode, JSON.stringify([{ ...SENTENCE, accept: [['ik', 'ik', 'moet', 'werken']], distractors: ['ik'] }]), false)
+            .questions.find(x => x.type === 'assemble');
+    } catch { /* reported below */ }
+    check('a saved quiz keeps no field the format dropped', !!kept && kept.accept === undefined && kept.distractors === undefined,
+        kept ? `accept ${JSON.stringify(kept.accept)}, distractors ${JSON.stringify(kept.distractors)}` : 'dropped');
+    // A saved quiz can be a mastery check, graded with no model in the room.
+    let declared = null;
+    try { declared = finalizeQuiz(quizNode, JSON.stringify([SENTENCE]), false).questions.find(x => x.type === 'assemble'); } catch { /* reported below */ }
+    check('…nor another order its model declared, which nothing read', !!declared && declared.accept === undefined,
+        declared ? `accept ${JSON.stringify(declared.accept)}` : 'dropped');
+}
+
+// The verifier solves an assembly cold and is told to copy the pieces; a
+// model writing H2O for H₂O has copied it, a model writing co for CO has not.
+const { assemblyAgrees } = await import(B + 'answerFormats.js');
+check('the verifier\'s fill agrees with the key, through Unicode subscripts',
+    assemblyAgrees?.(['2', '1', '2'], eq) === true
+    && assemblyAgrees?.(['2', 'H2O'], { type: 'assemble', correct_answer: '["2","H₂O"]' }) === true);
+check('…and with a declared other order', assemblyAgrees?.(SENTENCE.accept[0], sq) === true);
+check('…but not with a different arrangement, nor a different case',
+    assemblyAgrees?.(['1', '2', '2'], eq) === false
+    && assemblyAgrees?.(['co', 'O₂', 'CoO₂'], { type: 'assemble', correct_answer: '["CO","O₂","CoO₂"]' }) === false);
+// Fe²⁺ and Fe2+ fold to one text; when both are in the bank, the distractor
+// is a different piece and choosing it is a different answer.
+{
+    const ions = { type: 'assemble', correct_answer: '["Fe²⁺","Cl⁻"]', tokens: ['Cl⁻', 'Fe2+', 'Fe²⁺'] };
+    check('…nor with a distractor that only folds to a key piece',
+        assemblyAgrees?.(['Fe2+', 'Cl⁻'], ions) === false && assemblyAgrees?.(['Fe²⁺', 'Cl⁻'], ions) === true);
+}
+
+const { showsAssembly } = await import(B + 'answerFormats.js');
+const SHOWS = [
+    ['Burning methane: CH₄ + 2O₂ → CO₂ + 2H₂O.', true, 'a reaction with subscripts'],
+    ['$$\\ce{2H2 + O2 -> 2H2O}$$', true, 'a reaction in mhchem'],
+    ['Na + Cl2 → NaCl', true, 'a reaction in ASCII'],
+    ['In een bijzin staat de persoonsvorm achteraan: de woordvolgorde verandert.', true, 'a segment teaching word order (Dutch)'],
+    ['German word order puts the verb second in a main clause.', true, '…(English)'],
+    // The verb-second rule said without "word order", as real lessons say it.
+    // Each row carries ONE of the phrasings, so each one is pinned on its own.
+    ['Why English has no V2 rule: in Dutch the finite verb must follow the first element.', true, 'the verb-second rule by its name, V2'],
+    ['In Dutch the finite verb always stands in the second position.', true, '…or by its place'],
+    ['The modal skeleton: the modal verb sits in position 2, the infinitive at the end.', true, '…or by its number'],
+    ['In a question the verb comes second only after a question word.', true, '…or as the verb coming second'],
+    ['After a time phrase the subject and the verb swap: this is called inversion.', true, '…or as inversion'],
+    ['Модальный глагол *moet* на втором месте, *innemen* в конце.', true, '…in Russian'],
+    ['Спрягаемый глагол стоит на 2-м месте.', true, '…in Russian, by number'],
+    ['Дієслово стоїть на другому місці.', true, '…in Ukrainian'],
+    ['Im Hauptsatz steht das Verb an zweiter Stelle.', true, '…in German'],
+    ['Das Verb steht an 2. Stelle.', true, '…in German, by number'],
+    ['De persoonsvorm staat op de tweede plaats.', true, '…in Dutch'],
+    ['De persoonsvorm staat altijd op plek 2.', true, '…in Dutch, by number'],
+    ['Le verbe conjugué est toujours en deuxième position.', true, '…in French'],
+    ['En alemán el verbo va en segunda posición.', true, '…in Spanish'],
+    ['In Dutch the finite verb always stands in position\n2 of the clause.', true, '…even when the line wraps inside the phrase'],
+    // The rows below are false on main's detector too, so they pass either way
+    // there: they guard the new verb-position branch against over-matching,
+    // and each turns red on one plausible over-match (the verb requirement
+    // dropped, `verb` as a bare prefix, a V2 that runs into `.0` or `x_`).
+    // The same words in other subjects, with no verb in sight.
+    ['Boyle\'s law: P1V1 = P2V2, so V2 = P1V1 / P2.', false, 'a gas law\'s V2 is a volume'],
+    ['A chord in second inversion has its fifth in the bass.', false, 'a chord\'s inversion is music'],
+    ['Matrix inversion: A has an inverse when det A ≠ 0.', false, '…and a matrix inversion algebra'],
+    ['Store the result in position 2 of the array.', false, '…and position 2 of an array is not a sentence'],
+    // …and beside a verb, but not as the rule's name, nor a word for verb.
+    ['Our API v2 changes the PUT verb into PATCH.', false, '…nor a lowercase v2, a version, beside an HTTP verb'],
+    ['Version V2.0 of the parser renames each verb.', false, '…nor a version number V2.0'],
+    ['Our tagger keeps x_V2 for each verb.', false, '…nor a V2 inside an identifier'],
+    ['Verbal reasoning: why a temperature inversion traps smog.', false, '…and "verbal" is not a verb'],
+    ['If P → Q and Q → R, then P → R.', false, 'a logical implication is not a reaction'],
+    ['The function maps x -> 2x.', false, 'nor is a mapping'],
+    ['If A + B → C, the sum is closed.', false, 'nor algebra with no number in it'],
+    ['The machine moves S1 → S2 → S3 on each input.', false, 'nor the states of a machine'],
+    ['Photosynthesis happens in the chloroplast.', false, 'plain prose'],
+];
+for (const [text, expected, why] of SHOWS) {
+    check(`the feed reads ${expected ? '' : 'no '}assembly in: ${why}`, showsAssembly?.(text) === expected);
+}
+
+// ---------------------------------------------------------------------------
 section('no question surface switches on a format itself');
 
 // Every surface that asks a question renders the answer through AnswerInput.
@@ -477,7 +943,7 @@ section('no question surface switches on a format itself');
 // reach. The placement probe is the one exception, by design: it asks two
 // formats it grades server-side, and it is the one stem with no media either.
 const EXEMPT = new Set(['src/components/PlacementModal.tsx']);
-const formatSwitch = /\.type\s*[!=]==?\s*'(multiple_choice|true_false|short_answer|numeric|code|sequence)'/;
+const formatSwitch = /\.type\s*[!=]==?\s*'(multiple_choice|true_false|short_answer|numeric|code|sequence|assemble)'/;
 const walk = (dir) => readdirSync(dir).flatMap(f => {
     const p = join(dir, f);
     return statSync(p).isDirectory() ? walk(p) : (f.endsWith('.tsx') ? [p] : []);
@@ -514,6 +980,17 @@ const keyTable = [
     [{ type: 'short_answer', correct_answer: 'It refracts.' }, true],
     [{ type: 'short_answer', correct_answer: '  ' }, false],
     [{ type: 'code', correct_answer: 'print(1)' }, true],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","y"]', tokens: ['y', 'z', 'x'] }, true],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","x"]', tokens: ['x', 'y', 'z'], reuse: true }, true],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","x"]', tokens: ['x', 'y', 'z'] }, false],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: 'x, y', tokens: ['x', 'y', 'z'] }, false],
+    [{ type: 'assemble', template: 'a ___ b', correct_answer: '["x","y"]', tokens: ['x', 'y', 'z'] }, false],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","y"]', tokens: ['y', 'z'] }, false],
+    [{ type: 'assemble', template: 'a ___ b ___', correct_answer: '["x","y"]' }, false],
+    // The gap limits, on both sides: one gap is a typed answer, nine is past the cap.
+    [{ type: 'assemble', template: 'a ___', correct_answer: '["x"]', tokens: ['x', 'y', 'z'] }, false],
+    [{ type: 'assemble', template: Array(ASSEMBLE_LIMITS.maxGaps).fill('___').join(' '), correct_answer: JSON.stringify(Array.from({ length: ASSEMBLE_LIMITS.maxGaps }, (_, i) => `p${i}`)), tokens: Array.from({ length: ASSEMBLE_LIMITS.maxGaps }, (_, i) => `p${i}`) }, true],
+    [{ type: 'assemble', template: Array(ASSEMBLE_LIMITS.maxGaps + 1).fill('___').join(' '), correct_answer: JSON.stringify(Array.from({ length: ASSEMBLE_LIMITS.maxGaps + 1 }, (_, i) => `p${i}`)), tokens: Array.from({ length: ASSEMBLE_LIMITS.maxGaps + 1 }, (_, i) => `p${i}`) }, false],
     [{ type: 'essay', correct_answer: 'x' }, false],
     [null, false],
 ];
@@ -540,6 +1017,122 @@ check('the quiz sitting draw skips it too', quizDraw.bankSize === 2 && quizDraw.
 const quizViewSrc = readFileSync(join(repoRoot, 'src/components/QuizView.tsx'), 'utf8');
 check('a whole-row quiz sitting on the client filters by the same predicate, after taking the index',
     /\.map\(\(q, index\) => \(\{ \.\.\.q, index \}\)\)\.filter\(hasUsableKey\)/.test(quizViewSrc));
+
+// ---------------------------------------------------------------------------
+section('assemble: a half-built answer still reads as the sentence it builds');
+// The first build drew every gap as a 44px tile in bold, in a line of 16px
+// text, so a one-line sentence broke into rows of big boxes with small text
+// between them. A gap is now set ON the line at the text's height. Read from
+// the component source: the classes a function uses, and those of every
+// constant it names. A class that must NOT be there counts with any variant
+// in front (`dark:`, `can-hover:hover:`), except `after:`, which draws the hit
+// area, not the gap; a class that MUST be there counts only bare, since a
+// variant would switch it off somewhere (a touch floor under `can-hover:`).
+{
+    const src = readFileSync(join(repoRoot, 'src/components/answer/AssembleInput.tsx'), 'utf8');
+    // `\s*=\s*`: a formatter may break a long constant after its `=`.
+    const constText = (name) => src.match(new RegExp(`\\nconst ${name}\\s*=\\s*([\\s\\S]*?);\\r?\\n`))?.[1] ?? '';
+    const fnText = (name) => src.match(new RegExp(`\\n(?:export )?function ${name}\\b[\\s\\S]*?\\n\\}\\r?\\n`))?.[0] ?? '';
+    const withConsts = (text, seen = new Set()) => text + [...text.matchAll(/\b[A-Z][A-Z_]{2,}\b/g)]
+        .map(m => m[0]).filter(n => !seen.has(n) && seen.add(n) && constText(n))
+        .map(n => ' ' + withConsts(constText(n), seen)).join('');
+    // The gap's own button classes (its first className), not the wrong badge inside it.
+    const gap = withConsts(fnText('Gap').match(/className=\{cx\(([\s\S]*?)\n\s*\)\}/)?.[1] ?? '');
+    const line = withConsts(fnText('TemplateFlow'));
+    const key = fnText('AssembledKey');
+    const drawn = (text) => text.replace(/(?<![\w-])after:\S+/g, ' ');
+    const cls = (body) => new RegExp(`(?<![\\w-])(?:[\\w-]+:)*(?:${body})(?![\\w-])`);
+    const all = (re, text) => text.match(new RegExp(re.source, 'g')) ?? [];
+    const rem = (name, text) => { const m = drawn(text).match(new RegExp(`(?<![\\w-])(?:[\\w-]+:)*${name}-(\\d+(?:\\.\\d+)?)(?![\\w\\[])`)); return m ? Number(m[1]) / 4 : null; };
+
+    const ownType = cls('text-(?:xs|sm|base|lg|[2-9]?xl|2xs|3xs)|font-(?:thin|extralight|light|medium|semibold|bold|extrabold|black)');
+    check('a gap takes its type from the line: no size and no weight of its own',
+        fnText('Gap') !== '' && !ownType.test(drawn(gap)), all(ownType, drawn(gap)).join(' '));
+    const gapLeading = rem('leading', gap), lineLeading = rem('leading', line);
+    const ownHeight = cls('min-h-\\S+|h-\\S+|size-\\S+|p[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|-?m[ytb]?-(?:px|0\\.5|[1-9]|\\[)\\S*|border(?:-[ytb])?-(?:[3-9]|\\d{2,}|\\[)\\S*');
+    check('a gap is never taller than the line it sits in (no height, vertical padding or margin, or border over 2px of its own; its text line plus a 2px border above and below fits the template\'s)',
+        !ownHeight.test(drawn(gap)) && gapLeading !== null && lineLeading !== null && gapLeading * 16 + 4 <= lineLeading * 16,
+        `gap leading ${gapLeading}rem, line ${lineLeading}rem, own height ${all(ownHeight, drawn(gap)).join(' ') || 'none'}`);
+    // A keep, not the fix: the first look kept the floor with a 44px tile; this
+    // PR's first commit drew the gap at text height with a 32px hit area, too
+    // small for one thumb, and this assertion fails on that commit.
+    // The 44px is either the drawn box (`min-h-11`) or an `after:` area laid
+    // over it, which only lands on the control when it is lifted out of the
+    // flow and centred on a positioned box: without `after:absolute` it is an
+    // in-line box that pushes the gap aside.
+    const bare = (c, t) => new RegExp(`(?<![\\w:-])${c.replace(/[[\].]/g, '\\$&')}(?![\\w-])`).test(t);
+    const area44 = (t) => ['relative', 'after:absolute', 'after:top-1/2', 'after:-translate-y-1/2', 'after:h-[44px]'].every(c => bare(c, t));
+    const floor44 = (t) => area44(t) || bare('min-h-11', t);
+    const piece = withConsts(fnText('Piece'));
+    const wide44 = /(?<![\w:-])(?:after:)?min-w-11(?![\w-])/;
+    check('a piece in the bank and a gap in the line both keep the 44px touch floor, both ways (a lone digit included)',
+        floor44(piece) && wide44.test(piece) && floor44(gap) && wide44.test(gap),
+        `piece ${floor44(piece)}/${wide44.test(piece)}, gap ${floor44(gap)}/${wide44.test(gap)} (height/width)`);
+    // Drawn as underlined text, a placed piece read as part of the printed
+    // sentence, and pressing it is how it goes back to the bank; drawn as a
+    // blank with only a rule under it, an empty gap was hard to find. Each
+    // state owns its border: `cx` does not merge classes, and a `border-b-2`
+    // on the slot itself once outlived a filled gap's even outline.
+    const solid = (t) => /(?<![\w:-])border(?![\w-])/.test(t) && !/border-dashed/.test(t);
+    const dashed = (t) => /(?<![\w:-])border-2(?![\w-])/.test(t) && /(?<![\w:-])border-dashed(?![\w-])/.test(t);
+    const states = Object.fromEntries(['SLOT_FILLED', 'SLOT_RIGHT', 'SLOT_WRONG', 'SLOT_EMPTY', 'SLOT_MARKED'].map(n => [n, withConsts(constText(n))]));
+    const slotWidth = all(/(?<![\w-])border(?:-[xytrbl])?(?:-\d+)?(?![\w-])|(?<![\w-])rounded-[tbrl]{1,2}-\S+/, constText('SLOT'));
+    check('a placed piece is outlined solid all round, as the tile it came from (filled, right, wrong); an empty gap is a dashed box; the slot itself sets no border',
+        solid(states.SLOT_FILLED) && solid(states.SLOT_RIGHT) && solid(states.SLOT_WRONG)
+        && dashed(states.SLOT_EMPTY) && dashed(states.SLOT_MARKED)
+        && constText('SLOT') !== '' && slotWidth.length === 0 && /piece !== null && SLOT_FILLED/.test(fnText('Gap')),
+        `${Object.entries(states).map(([n, t]) => `${n} ${solid(t) ? 'solid' : dashed(t) ? 'dashed' : 'neither'}`).join(', ')}; slot ${slotWidth.join(' ') || 'no border'}`);
+    // A full answer disables the free pieces, a locked question its gaps; a
+    // hover tint or a grab hand on them offered a press that does nothing.
+    const hoverLines = (fn) => fnText(fn).split('\n').filter(l => /hover:|cursor-grab(?!bing)/.test(l)).map(l => l.trim());
+    const offers = [...hoverLines('Piece').filter(l => !l.startsWith('!used && !idle &&')),
+        ...hoverLines('Gap').filter(l => !l.startsWith('!locked &&'))];
+    // A constant is applied whatever the state, so a hover in one is offered always.
+    const slotConsts = [...src.matchAll(/\nconst ((?:SLOT|TILE)\w*)\s*=/g)].map(m => m[1]);
+    const constHover = slotConsts.filter(n => /(?<![\w-])hover:|cursor-grab(?!bing)/.test(withConsts(constText(n))));
+    check('only a piece or gap that can be pressed shows a hover or a grab hand',
+        hoverLines('Piece').length > 0 && hoverLines('Gap').length > 0 && offers.length === 0
+        && slotConsts.includes('SLOT') && slotConsts.includes('TILE') && constHover.length === 0,
+        [...offers, ...constHover.map(n => `const ${n}`)].join(' | '));
+    // A spare piece with nowhere to go steps back, but only a step: at half
+    // strength a reader took it for switched off or already used, and its
+    // word fell to about 3:1 on the tile. Unfaded, a disabled piece looks live.
+    const idleLine = fnText('Piece').split('\n').find(l => l.trim().startsWith('!used && idle &&')) ?? '';
+    const idleFade = Number(idleLine.match(/(?<![\w:-])opacity-(\d+)(?![\w-])/)?.[1] ?? NaN);
+    // A spare piece is a disabled button: a `disabled:opacity-*` anywhere on it
+    // would be emitted after the plain fade and win.
+    const disabledFade = all(cls('disabled:opacity-\\S+'), withConsts(fnText('Piece')));
+    check('a spare piece with nowhere to go is faded a step, never to half (its word stays readable) and never not at all',
+        idleFade >= 60 && idleFade <= 80 && disabledFade.length === 0,
+        `${idleLine.trim() || 'no idle line in Piece'}${disabledFade.length ? `; overridden by ${disabledFade.join(' ')}` : ''}`);
+    check('the key under a wrong answer is drawn in the gap\'s own slot, so the two lines compare',
+        /\bSLOT\b/.test(key) && /\bSLOT\b/.test(fnText('Gap')));
+    // A full stop set straight after a gap touched its border ("moet]."), and a
+    // wrong mark's badge, standing out past the corner, met the next gap's
+    // border: two readers in the third round named both.
+    // Not on SLOT: the drag overlay is drawn in SLOT at the gap's measured size,
+    // which leaves the margin out, so a margin there would shift it off the finger.
+    const room = (t) => /(?<![\w:-])mx-(?:0\.5|[1-9]\d*(?:\.5)?|\[[^\]\s]+\])(?![\w-])/.test(drawn(t));
+    // The key's slot itself, not a span inside it; the overlay's chip as drawn
+    // (the slot, the piece's outline and its own classes).
+    const keySlot = withConsts(key.match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chip = withConsts(src.match(/<DragOverlay[\s\S]*?<\/DragOverlay>/)?.[0].match(/cx\(SLOT\b[^)]*\)/)?.[0] ?? '');
+    const chipMargin = all(cls('-?m[xylrtb]?-\\S+'), chip);
+    check('a gap keeps a little room from the text beside it, in the line and in the key under a wrong answer (a full stop never touches its border), and the chip the drag overlay draws has none',
+        room(gap) && room(keySlot) && chip !== '' && chipMargin.length === 0,
+        `gap ${room(gap) ? 'has' : 'lacks'} a side margin, key slot ${room(keySlot) ? 'has' : 'lacks'} one; overlay chip ${chip === '' ? 'not found' : chipMargin.join(' ') || 'none'}`);
+    // A drag from one gap onto another swapped the two pieces and said nothing,
+    // so the polite line still read the move before ("Gap 1: ik" after ik had
+    // gone to gap 2). Each function that changes the answer says what changed.
+    const arrow = (name) => src.match(new RegExp(`\\n    const ${name} = [\\s\\S]*?\\n    \\};\\r?\\n`))?.[0] ?? '';
+    const moves = ['place', 'takeOut', 'onDragEnd'].map(name => {
+        const body = arrow(name);
+        return { name, commits: (body.match(/\bcommit\(/g) ?? []).length, says: (body.match(/\bsetSaid\(/g) ?? []).length };
+    });
+    check('every move that changes the answer is said aloud (press, take out, drag, gap-to-gap swap)',
+        moves.every(m => m.commits > 0 && m.says >= m.commits),
+        moves.map(m => `${m.name} ${m.commits} moves / ${m.says} spoken`).join(', '));
+}
 
 // ---------------------------------------------------------------------------
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -11,15 +11,13 @@ Everything below is depth on top of a working product, not missing foundations.
 
 ## Next
 
-- **Two more answer formats.** Each is one entry on either side of the answer-format
+- **One more answer format.** It is one entry on either side of the answer-format
   registry (`server/answerFormats.js` and `src/components/answer/formats.ts`):
-  - **Assemble**: drop tokens into slots, to balance an equation, build a sentence or label a
-    diagram.
   - **Photograph**: answer one question of a quiz or mastery check with a photo, marked by
     the grader paper practice already uses. Paper practice already counts as evidence for a
     whole exercise; this would let a sketch or a built thing be one answer among others.
 
-  A third, **speak** (say a sentence, graded as a short answer), waits on the local speech
+  Another, **speak** (say a sentence, graded as a short answer), waits on the local speech
   engine under *Deferred* below.
 - **Native-speaker review of the translations.** The interface ships in twelve languages,
   machine-translated first and corrected where faults were found; nobody has yet read each
@@ -36,9 +34,11 @@ Everything below is depth on top of a working product, not missing foundations.
   package with no database import. Most server modules import `database.js`
   directly, so this is dependency injection before it is a file move. The point is that the
   honesty claims become auditable in isolation.
-- **An MCP server.** Fully local (stdio, nothing leaves the machine), exposing the engine to
-  agent harnesses over modules that already exist. Cheap, and it lets an agent harness use
-  Terramentor as a tool.
+- **The MCP server's second half.** The first half ([docs/MCP.md](docs/MCP.md)) reads the
+  library and takes Inbox notes and answer claims. Next comes the mastery check and the review
+  session drawn inside the agent's own window (MCP Apps views), so a topic can be proved without
+  switching apps. Then shipping `mcp/` with the desktop app and the Docker image, not only in a
+  source checkout.
 - **Better recall questions.** A recall question (the code calls it a *ghost question*) is
   drawn at random from a fading topic's saved quizzes. It should be picked by difficulty, and
   a "cumulative review" you can start on purpose would make the mechanic visible instead of

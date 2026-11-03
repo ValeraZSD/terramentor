@@ -1,7 +1,7 @@
 // AI visuals: repair, captions, feedback, widget builds and the specialist author.
 import { createHash } from 'node:crypto';
 import {
-    captionVisual, getAISettings, streamRepairVisualSpec, streamReviseVisualSpec, stripCodeFence,
+    captionVisual, streamRepairVisualSpec, streamReviseVisualSpec, stripCodeFence,
     VISUAL_BRIEF_KINDS, widgetSpecLabel,
 } from '../ai.js';
 import {
@@ -13,6 +13,7 @@ import { authorVisual, getCachedVisual, visualBriefHash, visualBriefLabel } from
 import { autoBuildVerdict, buildFailure, claimUnaskedBuild, clearBuildFailure, recordBuildFailure } from '../visualBuilds.js';
 import * as tasks from '../tasks.js';
 import { appVersion } from '../version.js';
+import { firstChoice } from '../aiJobs.js';
 import { attachTaskStream, requestOrigin, startSseResponse, visualTaskOrigin } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
@@ -151,6 +152,15 @@ app.post('/api/ai/repair-visual', (req, res) => {
     attachTaskStream(req, res, task.id);
 });
 
+// The repair above finished, and its answer did not draw in the browser (the
+// only place a visual is drawn): the task becomes a failure, so the dock stops
+// calling it done. VisualBlock keeps the original spec and says so.
+app.post('/api/ai/repair-visual/:id/unusable', (req, res) => {
+    const result = tasks.resultUnusable(req.params.id);
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.json({ success: true });
+});
+
 // A title and caption for a visual leaving the app as an image or GIF. The
 // picture goes without the lesson around it, so the export can carry one line
 // of context; the learner edits the words before saving, this only drafts them.
@@ -185,7 +195,9 @@ app.post('/api/visual-feedback', (req, res) => {
     }
     // The model that drew it is part of the report: a lesson authored by a 4B
     // and one authored by a 30B are not the same artifact (the provenance rule).
-    const ai = getAISettings();
+    // The drawing is older than this request, so the best name is the first
+    // choice of the job that draws there: the chat's, or the course's.
+    const ai = firstChoice(messageId ? 'conversation' : 'courses');
     const id = recordVisualFeedback({
         kind, language, spec, feedback, surface, nodeId, messageId, theme,
         provider: ai?.provider, model: ai?.model, appVersion: appVersion()?.version,

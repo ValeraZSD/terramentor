@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { onActivateKey } from '../../utils/a11y';
@@ -10,6 +10,11 @@ import { computeSrsUpdate, computeNextInterval, formatInterval, requeueAt, Revie
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER, RATING_STYLES } from '../flashcards/ratingStyles';
 import { RatingButton } from '../flashcards/RatingButton';
+import ReportItem, { reportedLine } from '../ui/ReportItem';
+import FlashcardEditor from '../FlashcardEditor';
+import { cardRef, feedCardLock } from '../../utils/itemReports';
+import { useItemReports, useReportOn, useSetAside } from '../../utils/itemReportStore';
+import type { Flashcard } from '../../types';
 
 interface Props {
     card: FeedFlashcardCard;
@@ -27,7 +32,7 @@ interface Props {
  * the next load would drop the repetition on the floor. The copy above stays
  * where it is, marked done — the feed never moves a card the reader has passed.
  */
-export default function FlashcardFeedCard({ card, done, onDone }: Props) {
+export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Props) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
     const feedHeader = useStore(s => s.feedHeader);
@@ -36,12 +41,36 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
     const [flipped, setFlipped] = useState(false);
     const [saving, setSaving] = useState(false);
     const [ratedWith, setRatedWith] = useState<ReviewRating | null>(null);
+    const [editing, setEditing] = useState(false);
+    const [edited, setEdited] = useState<Flashcard | null>(null);
+    const [deleted, setDeleted] = useState(false);
 
-    const fc = card.card;
+    // The text the learner corrected is the text shown, without a reload.
+    const fc = edited ? { ...card.card, ...edited } : card.card;
     const media = parseCardMedia(fc.media);
 
+    // A report takes the card off the stream unrated. Once it no longer holds
+    // (undone, or settled by an edit, as in the review session) the card is
+    // open to rate again, rather than ticked off with no rating behind the tick.
+    // A rated card stays done when the feed mounts it again (`feedCardLock`),
+    // and one its report set aside unrated is open again even when that report
+    // was undone while the feed was closed (`useSetAside`).
+    const ref = cardRef(fc.id);
+    const standing = useReportOn(ref);
+    const holds = !!standing && standing.rewrite?.state !== 'edited';
+    const unmarkFeedCardDone = useStore(s => s.unmarkFeedCardDone);
+    const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
+    const { aside, setAside } = useSetAside(ref, card.key, holds, release);
+    const { done, locked } = feedCardLock({ feedDone, rated: ratedWith !== null, holds, deleted, setAsideHere: aside });
+
+    const handleSaved = (saved: Flashcard) => {
+        setEdited(saved);
+        // An edit settles the report on the server: ask, so the card opens again.
+        if (ref && useItemReports.getState().byRef[ref]) void useItemReports.getState().refresh([ref]);
+    };
+
     const handleRate = async (rating: ReviewRating) => {
-        if (done || saving) return;
+        if (locked || saving) return;
         setSaving(true);
         try {
             const update = computeSrsUpdate(fc, rating);
@@ -81,22 +110,32 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
             subtitle={card.requeuedAt
                 ? t("Again — second look")
                 : card.isNew ? t("New card — first look") : t("Review")}
-            badge={card.requeuedAt ? (
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
-                    {t("Relearning")}
-                </span>
-            ) : card.isNew ? (
-                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/10 text-accent-fg">{t("New")}</span>
-            ) : undefined}
-            done={done}
+            // The flag sits in the card's own top-right, beside its chip: the
+            // face below is one big button (tap to flip) and may not hold one.
+            badge={(
+                <>
+                    {card.requeuedAt ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                            {t("Relearning")}
+                        </span>
+                    ) : card.isNew ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/10 text-accent-fg">{t("New")}</span>
+                    ) : null}
+                    <ReportItem itemRef={ref} surface="review" onReported={() => { if (!done) setAside(); onDone(card.key); }}
+                        onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -mr-1.5" />
+                </>
+            )}
+            // The tick says "rated, done"; a card set aside by its report
+            // already says "Reported", and a tick beside it read as "fixed".
+            done={done && !holds}
         >
             <div
-                onClick={() => !done && setFlipped(f => !f)}
-                onKeyDown={onActivateKey(() => !done && setFlipped(f => !f))}
+                onClick={() => !locked && setFlipped(f => !f)}
+                onKeyDown={onActivateKey(() => !locked && setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
                 aria-label={flipped ? t("Show question") : t("Reveal answer")}
-                className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${done ? '' : 'cursor-pointer'} ${flipped
+                className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${locked ? '' : 'cursor-pointer'} ${flipped
                     ? 'border-accent/40'
                     : 'border-slate-200 dark:border-slate-600'}`}
             >
@@ -118,13 +157,13 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
                         autoPlay={flipped}
                         size="feed"
                     />
-                    {!flipped && !done && (
+                    {!flipped && !locked && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">{t("Tap to reveal")}</p>
                     )}
                 </div>
             </div>
 
-            {flipped && !done && (
+            {flipped && !locked && (
                 <div className="mt-3 grid grid-cols-4 gap-2">
                     {/* The sub-label is a MINUTE COUNT only where a minute count
                         means something, and in a feed it doesn't. A rating that
@@ -157,6 +196,12 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
                     })}
                 </div>
             )}
+            {holds && standing && (
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 text-center">{reportedLine(t, standing)}</p>
+            )}
+            {deleted && !standing && (
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400 text-center">{t("Card deleted")}</p>
+            )}
             {done && ratedWith && (
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 text-center">
                     {requeueAt(computeSrsUpdate(fc, ratedWith)) !== null
@@ -168,6 +213,17 @@ export default function FlashcardFeedCard({ card, done, onDone }: Props) {
                         ? t("Coming back later in this feed")
                         : t("Next review in {{interval}}", { interval: formatInterval(computeNextInterval(fc, ratedWith).intervalDays, t) })}
                 </p>
+            )}
+            {editing && (
+                <FlashcardEditor
+                    card={fc}
+                    onClose={() => setEditing(false)}
+                    onSaved={handleSaved}
+                    onDeleted={() => {
+                        setDeleted(true);
+                        if (ref) void useItemReports.getState().refresh([ref]);
+                    }}
+                />
             )}
         </FeedCardShell>
     );

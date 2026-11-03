@@ -64,6 +64,18 @@ function setTaskObserver(fn) {
     taskObserver = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * What each task's run is wrapped in, injected the same way: server/app.js
+ * gives every task its own record of which model answered it (ai.js
+ * `withAnswerScope`), so a row a task writes names the model that wrote it
+ * even when a job fell back. Absent, a run is just called.
+ */
+let runScope = (fn) => fn();
+
+function setRunScope(fn) {
+    runScope = typeof fn === 'function' ? fn : (f) => f();
+}
+
 function observe(task, phase, extra = {}) {
     if (!taskObserver) return;
     try {
@@ -507,7 +519,10 @@ function createTask({ kind, label, labelKey = null, labelParams = null, projectI
         // Run in the context it was queued from, not in that of the task whose
         // end starts it: a task one request asked for reads that request's day
         // (server/studyDay.js), even when it waited behind one from another device.
-        run: AsyncResource.bind(run),
+        // The task's own answer record opens INSIDE that context: bound outside
+        // it, the restored context would hand the run the queuing request's
+        // record, or none at all for a task nobody's request queued.
+        run: AsyncResource.bind((ctx) => runScope(() => run(ctx))),
         external: false,
         cancelHook: null,
     };
@@ -575,15 +590,18 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
         finish() { settle(task, 'done', { done: true }); },
         // `detail` lets an external task (embeddings, feedGen, pdf recovery)
         // hand over the same shape an exception would have produced.
+        // Returns the record that stands, so a caller with a screen of its own
+        // (a course creation) can show the same diagnosis the dock does.
         fail(message, detail = null) {
             // Settled already: the first record stands. A creation fails with
             // its real error and then again, generically, on its way out; the
             // second must not overwrite the first.
-            if (!isActive(task)) return;
+            if (!isActive(task)) return task.failure ?? null;
             task.errorMessage = message || 'Failed';
             task.failure = describeFailure(detail instanceof Error ? detail
                 : { message: task.errorMessage, ...(detail || {}) }, task);
             settle(task, 'error', { error: task.errorMessage, failure: task.failure });
+            return task.failure;
         },
         cancelled() { settle(task, 'cancelled', { cancelled: true }); },
     };
@@ -681,6 +699,32 @@ function cancelTask(id) {
     return { ok: true };
 }
 
+/**
+ * A visual repair the model FINISHED, whose answer the client then could not
+ * draw. Only the client can tell: every renderer runs in the browser. Without
+ * this the task stayed "done" — the dock said "Repairing a visual · done"
+ * beside a graph still showing its error — because "the model answered" was
+ * the only thing the server knew. Visual repairs only, finished ones only, and
+ * once; the message is ours, never the client's text.
+ */
+function resultUnusable(id) {
+    const task = tasksById.get(id);
+    if (!task) return { ok: false, error: 'Task not found' };
+    // A repair, not a "Fix this" rebuild: they share the endpoint and the
+    // dedupe prefix, and only a repair's answer is drawn before it is kept.
+    if (task.status !== 'done' || task.kind !== 'visual' || task.labelKey !== 'Repairing a visual') {
+        return { ok: false, error: 'Not a finished visual repair' };
+    }
+    task.status = 'error';
+    task.errorMessage = "The AI's fix did not draw either.";
+    task.failure = describeFailure({ message: task.errorMessage }, task);
+    task.terminalEvent = { error: task.errorMessage, failure: task.failure };
+    // Its run was already logged as done; this says what became of it.
+    observe(task, 'unusable', { ms: null });
+    scheduleNotify();
+    return { ok: true };
+}
+
 function dismissTask(id) {
     const task = tasksById.get(id);
     if (!task) return { ok: true }; // already gone — dismissing is idempotent
@@ -695,6 +739,7 @@ export {
     createTask,
     setConcurrencyProvider,
     setTaskObserver,
+    setRunScope,
     registerExternal,
     interactiveActive,
     findActive,
@@ -705,4 +750,5 @@ export {
     onListChange,
     cancelTask,
     dismissTask,
+    resultUnusable,
 };

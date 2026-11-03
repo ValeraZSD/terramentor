@@ -1,5 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
+import { FADING_TOPIC, fadingCutoff } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -501,6 +502,24 @@ function replayOwnEvidence(nodeId, start) {
 }
 
 /**
+ * Re-derive a topic's estimate after evidence rows were taken out or put back
+ * (a reported item, server/itemReports.js): the replay `forgetSeed` runs, from
+ * whatever seed the topic holds, and the counters moved by what changed
+ * (`score`/`total` are the change, negative for evidence taken out).
+ */
+export function rescoreNode(nodeId, { score = 0, total = 0 } = {}) {
+    const record = getNodeMastery(nodeId);
+    const start = Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
+    const p = replayOwnEvidence(nodeId, start);
+    stmt(`
+        UPDATE node_mastery
+        SET mastery_score = ?, total_attempts = MAX(0, total_attempts + ?), correct_attempts = MAX(0, correct_attempts + ?)
+        WHERE node_id = ?
+    `).run(p, total, score, nodeId);
+    return p;
+}
+
+/**
  * Forget a seed that was withdrawn, on a topic the learner has since answered.
  * `applySeededPrior` leaves such a row alone because measurement owns its
  * score, but the seed's own columns are what say "this topic had a head start"
@@ -578,9 +597,10 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
 
 /**
  * Get decaying nodes — topics whose mastery has faded and are worth refreshing:
- * a proven-ish topic (> 0.5) not touched within `decayDays`. Used by the
- * ghost-question / daily-plan paths, whose "cumulative exam" mechanic wants a
- * broad net, and that is how a fading topic comes back: in the feed, by itself.
+ * a proven-ish topic not touched within `decayDays` (`FADING_TOPIC` in
+ * fading.js, which Today's list reads too). Used by the ghost-question /
+ * daily-plan paths, whose "cumulative exam" mechanic wants a broad net, and
+ * that is how a fading topic comes back: in the feed, by itself.
  *
  * The "Remember" loop is about *completed/mastered* topics fading, so completed
  * nodes are included (an earlier `status != 'completed'` filter made the feature
@@ -588,20 +608,10 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  *
  * @param {number} projectId
  * @param {number} decayDays - Days without review to start decaying
+ * @param {Date} [now] - The instant the window ends at (gates pin it)
  * @returns Array of nodes with decaying mastery
  */
-export function getDecayingNodes(projectId, decayDays = 14) {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - decayDays);
-    // last_updated is written by SQLite's CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS',
-    // UTC). Compare in the same format — an ISO string ('...T...Z') sorts after
-    // every same-day SQLite timestamp, silently widening the window by a day.
-    const cutoffStr = cutoffDate.toISOString().slice(0, 19).replace('T', ' ');
-
-    // `total_attempts > 0`: only something learned HERE can be forgotten
-    // here. A seeded prior (placement 0.52, transfer 0.6) clears the 0.5 bar
-    // on its own, and without this clause a topic the learner was never
-    // taught came back as a recall question two weeks after the probe.
+export function getDecayingNodes(projectId, decayDays = 14, now = new Date()) {
     return db.prepare(`
         SELECT
             nm.node_id,
@@ -612,14 +622,10 @@ export function getDecayingNodes(projectId, decayDays = 14) {
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
-          AND nm.mastery_score > 0.5
-          AND nm.total_attempts > 0
-          AND nm.last_updated < ?
-          AND n.status != 'skipped'
-          AND n.is_note = 0
+          AND ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
         LIMIT 10
-    `).all(projectId, cutoffStr);
+    `).all(projectId, fadingCutoff(decayDays, now));
 }
 
 /**

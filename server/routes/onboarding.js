@@ -1,5 +1,5 @@
 // /api/onboarding: the first-run checklist.
-import db from '../database.js';
+import db, { NOT_REPORTED } from '../database.js';
 import { getSetting } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
 
@@ -39,7 +39,7 @@ app.get('/api/onboarding', (req, res) => {
                 // Not the study clock's reading time: a lesson merely left on
                 // screen in an idle tab logs it, which is not reading one.
                 lesson: getSetting('first_lesson_read_at', '') !== ''
-                    || count("SELECT COUNT(*) c FROM feed_items WHERE kind = 'lesson' AND consumed_at IS NOT NULL") > 0,
+                    || count(`SELECT COUNT(*) c FROM feed_items WHERE kind = 'lesson' AND consumed_at IS NOT NULL AND ${NOT_REPORTED()}`) > 0,
                 answer: count('SELECT COUNT(*) c FROM mastery_evidence') > 0,
                 prove: count("SELECT COUNT(*) c FROM mastery_evidence WHERE evidence_type = 'mastery_check'")
                     + count("SELECT COUNT(*) c FROM nodes WHERE status = 'completed'") > 0,

@@ -25,6 +25,23 @@ const list = (v, cap = TEXT_CAP) => (Array.isArray(v)
     ? v.filter(x => typeof x === 'string').slice(0, LIST_CAP).map(x => x.slice(0, cap))
     : undefined);
 
+/**
+ * Whether an entry of a kept record is this question as it was asked. A
+ * record older than rows naming their items holds no uuid, so the question
+ * is known by its stem AND its key: two questions can share a stem ("Which
+ * is larger?", a bank written again), never a stem and a key. Where either
+ * side has no key (a sequence) the items to order stand in for it.
+ */
+export function askedAs(entry, question) {
+    const q = entry?.question;
+    if (!q || typeof question?.question !== 'string' || q.question !== question.question) return false;
+    const kept = typeof q.correct_answer === 'string' ? q.correct_answer : '';
+    const key = question.correct_answer == null ? '' : String(question.correct_answer);
+    if (kept && key) return kept === key;
+    const sorted = (xs) => (Array.isArray(xs) ? [...xs].map(String).sort().join('\u0000') : null);
+    return sorted(q.items) === sorted(question.items);
+}
+
 /** The fields a question is drawn with (QuestionStem, AnswerInput, AnswerKey), and nothing else. */
 function reviewQuestion(q) {
     if (!q || typeof q !== 'object' || typeof q.question !== 'string' || !q.question.trim()) return null;
@@ -40,7 +57,9 @@ function reviewQuestion(q) {
     if (accept?.length) out.accept = accept;
     const items = list(q.items, 2000);
     if (items?.length) out.items = items;
-    for (const k of ['unit', 'language']) { const v = text(q[k], SHORT_CAP); if (v) out[k] = v; }
+    // The uuid names the bank question, so a report on it can leave it out of
+    // this record (`getSittingReview`).
+    for (const k of ['unit', 'language', 'uuid']) { const v = text(q[k], SHORT_CAP); if (v) out[k] = v; }
     const starter = text(q.starter); if (starter) out.starter = starter;
     if (Number.isFinite(q.tolerance)) out.tolerance = q.tolerance;
     const media = sanitizeQuestionMedia(q.media);
@@ -81,7 +100,7 @@ export function saveSittingReview(evidenceId, raw) {
 /** One sitting, with what the ledger row shows about it. Null when there is none. */
 export function getSittingReview(evidenceId) {
     const row = db.prepare(`
-        SELECT sr.items, me.score, me.total, me.evidence_type,
+        SELECT sr.items, me.score, me.total, me.evidence_type, me.metadata,
                strftime('%Y-%m-%dT%H:%M:%SZ', me.created_at) AS at,
                n.id AS node_id, n.title AS node_title, n.project_id
         FROM sitting_reviews sr
@@ -92,6 +111,32 @@ export function getSittingReview(evidenceId) {
     if (!row) return null;
     let items = [];
     try { items = JSON.parse(row.items); } catch { /* a damaged row reads as empty */ }
+    // A question the learner reported is out of the row's score
+    // (server/itemReports.js moves it to `metadata.voided`): out of what the
+    // record lists too, so "4 of 4" opens on four. Its Undo brings it back.
+    let meta = {};
+    try { meta = JSON.parse(row.metadata || '{}') || {}; } catch { /* none */ }
+    const drop = (list, match) => list.filter(it => {
+        const at = match.indexOf(it);
+        if (at < 0) return true;
+        match.splice(at, 1);
+        return false;
+    });
+    if (Array.isArray(items)) {
+        const voided = (Array.isArray(meta.voided) ? meta.voided : []).map(v => v?.u).filter(u => typeof u === 'string');
+        if (voided.length) items = drop(items, items.filter(it => voided.includes(it?.question?.uuid)).slice(0, voided.length));
+        // A sitting recorded before evidence named its items holds no uuids:
+        // the reports standing on its topic name the question by its stem and
+        // key (`askedAs`).
+        const extra = items.length - row.total;
+        if (!Array.isArray(meta.items) && extra > 0) {
+            const views = db.prepare(`
+                SELECT json_extract(item, '$.view') AS view FROM item_reports
+                WHERE node_id = ? AND kind = 'question' AND undone_at IS NULL
+            `).all(row.node_id).map(r => { try { return JSON.parse(r.view); } catch { return null; } }).filter(Boolean);
+            items = drop(items, items.filter(it => views.some(v => askedAs(it, v))).slice(0, extra));
+        }
+    }
     return {
         evidenceId,
         kind: row.evidence_type,

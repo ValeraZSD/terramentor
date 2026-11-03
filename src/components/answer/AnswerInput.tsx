@@ -7,6 +7,7 @@ import FillInInput from './FillInInput';
 import NumericInput from './NumericInput';
 import CodeInput from './CodeInput';
 import SequenceInput from './SequenceInput';
+import AssembleInput from './AssembleInput';
 
 /**
  * How a learner answers ONE question, whatever its format.
@@ -45,6 +46,7 @@ const INPUTS: Record<AnswerFormat, ComponentType<AnswerInputProps>> = {
     numeric: NumericInput,
     code: CodeInput,
     sequence: SequenceInput,
+    assemble: AssembleInput,
 };
 
 export default function AnswerInput(props: AnswerInputProps) {

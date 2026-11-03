@@ -67,7 +67,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
         if (loadingTimer) { clearInterval(loadingTimer); loadingTimer = null; }
     };
     try {
-        const reachable = await probeAiReachable();
+        const reachable = await probeAiReachable({ job: 'questions' });
         if (!reachable.ok) throw new Error(reachable.error);
 
         loadingTimer = setInterval(() => {
@@ -77,7 +77,7 @@ async function runQuizGeneration({ nodeId, questionCount, questionType, includeG
         }, 2000);
 
         const { system, user } = buildQuizPrompt(nodeId, questionCount, questionType);
-        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.35, think: true })) {
+        for await (const part of streamResponse(user, system, [], { signal, temperature: 0.35, think: true, job: 'questions' })) {
             if (part && (part.type === 'content' || part.type === 'thinking') && part.content) {
                 // First token of either channel means the model is loaded and
                 // actively generating — drop out of the "loading model" phase.
@@ -254,6 +254,9 @@ function writeQuizAttempt(req, score, total) {
             masteryResult = updateMasteryFromAttempt(quiz.node_id, proven.score, proven.total, 'quiz', {
                 quiz_id: Number(req.params.quizId),
                 answers,
+                // Which questions, so a reported one can be taken out of this
+                // sitting again (server/itemReports.js).
+                ...(proven.items?.length ? { items: proven.items } : {}),
             });
             // What the learner saw and answered, so the sitting can be opened
             // later from the day's ledger (server/sittingReview.js).
@@ -274,6 +277,7 @@ function writeQuizAttempt(req, score, total) {
                     updateMasteryFromAttempt(g.nodeId, g.score, g.total, 'quiz', {
                         quiz_id: Number(req.params.quizId),
                         ghost: true,
+                        ...(Array.isArray(g.items) && g.items.length ? { items: g.items } : {}),
                     });
                 }
             } catch (e) {

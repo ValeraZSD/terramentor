@@ -16,6 +16,7 @@ import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 import { publicMessage } from '../clientError.js';
+import { citedDocumentReadings, inertTitle } from '../citations.js';
 
 const app = routeTable('documents');
 
@@ -199,6 +200,60 @@ app.get('/api/documents', (req, res) => {
     sql += ' ORDER BY created_at DESC';
     const documents = db.prepare(sql).all(...params);
     res.json(documents);
+});
+
+// Which documents the entries of an answer's Sources line name, so the line can
+// open them. The line names a document by its title (server/citations.js), as
+// every stored answer since the first one did, so the title is matched exactly,
+// as written there, never loosely: opening a different file than the one the
+// answer read would be worse than opening none. The file's NAME stands in only
+// for a document with no title, as read_document names one (libraryReads.js
+// `readDocument`). A title two different files share opens neither
+// (`shared: true`); the same file filed twice (one `file_hash`) is one file.
+// A failed import is not a file here at all: it has no text, so no answer
+// read it, and its row must not make the retry that worked look shared.
+// One request per answer, for every entry on its line.
+const CITED_MAX_ENTRIES = 20;
+const CITED_MAX_CHARS = 500;
+let citedDocs;
+const citedDocsStmt = () => (citedDocs ??= db.prepare("SELECT id, title, original_filename, file_type, file_hash, page_count FROM documents WHERE status IS NOT 'failed' ORDER BY id DESC"));
+app.get('/api/documents/cited', (req, res) => {
+    const raw = req.query.entry;
+    const entries = (Array.isArray(raw) ? raw : raw == null ? [] : [raw]);
+    if (entries.length > CITED_MAX_ENTRIES || entries.some(e => typeof e !== 'string' || e.length > CITED_MAX_CHARS)) {
+        return res.status(400).json({ error: `entry must be up to ${CITED_MAX_ENTRIES} strings of at most ${CITED_MAX_CHARS} characters` });
+    }
+    if (!entries.length) return res.json([]);
+    // name → the newest document of that name, or SHARED when two different files carry it.
+    const SHARED = Symbol('shared');
+    const byTitle = new Map();
+    for (const d of citedDocsStmt().all()) {
+        const name = String(d.title ?? '').trim() ? d.title : d.original_filename;
+        const key = name ? inertTitle(name) : '';
+        if (!key) continue;
+        const seen = byTitle.get(key);
+        if (seen === undefined) byTitle.set(key, { ...d, name });
+        else if (seen !== SHARED && !(seen.file_hash && seen.file_hash === d.file_hash)) byTitle.set(key, SHARED);
+    }
+    res.json(entries.map((entry) => {
+        for (const { title, page } of citedDocumentReadings(entry)) {
+            const d = byTitle.get(title);
+            if (!d) continue;
+            if (d === SHARED) return { entry, id: null, shared: true };
+            const original = !!d.file_hash;
+            return {
+                entry,
+                id: d.id,
+                title: d.name,
+                page: page && (!d.page_count || page <= d.page_count) ? page : null,
+                original,
+                // Opened in the browser (a PDF at its page, a picture, plain
+                // text) rather than downloaded: the kinds /original serves inline.
+                inline: original && (d.file_type === 'pdf' || d.file_type === 'text' || IMAGE_KINDS.includes(d.file_type)),
+            };
+        }
+        return { entry, id: null };
+    }));
 });
 
 // Return the full extracted text of one document, for the "view extracted text"

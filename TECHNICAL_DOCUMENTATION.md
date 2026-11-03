@@ -76,6 +76,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
+| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
@@ -198,7 +199,7 @@ never fitted: it is each format's `guess` in the answer-format registry
 (`GUESS_BY_FORMAT` in `server/answerFormats.js`; `GUESS_BY_QUESTION_TYPE` in
 `mastery.js` re-exports it). The values are quoted because they are the design, not
 a tuning: true/false 0.5, multiple choice 0.25, code 0.02, and 0.05 for short answer,
-fill-in, numeric and sequence. It is read from the stored row rather than from the client, because it
+fill-in, numeric, sequence and assemble. It is read from the stored row rather than from the client, because it
 decides mastery, so it cannot be caller-supplied. Why it is per format:
 [ARCHITECTURE §5](docs/ARCHITECTURE.md#5-the-gate-how-a-topic-closes).
 
@@ -254,8 +255,8 @@ topic's check is a retake: no Skip, and it stays completed with its original dat
 `decayedMastery(score, lastUpdated, decayDays)` holds a score fresh through a
 grace window of `decayDays`, then applies an exponential forgetting curve with
 `decayDays` as the half-life. Everything derives from the one configurable
-setting. `getDecayingNodes` has two modes: a broad time-cutoff net for ghost
-questions (defined below), and a decayed-estimate mode for "you proved these once".
+setting. Mastery transfer (§7.3) reads it, so a twin's head start fades with it.
+`getDecayingNodes` is the time-cutoff net for ghost questions (defined below).
 
 A **ghost question** is what the interface calls a *recall question*: a saved
 question from a topic the learner has answered well (an estimate above one half,
@@ -263,6 +264,18 @@ from answers of their own) and not been measured on for `decay_days`. It is serv
 as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or added
 to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
 is never part of a mastery check.
+
+Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
+read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
+`fadingCutoff(decayDays)` giving the cutoff in `last_updated`'s own shape. Its bar
+reads past agents' wrong claims (`mastery_claims`, `server/claims.js`) while they
+alone hold the estimate down: while `mastery_score` still sits where the newest
+lowering left it, the bar is the `mastery_before` of that lowering, walked back
+through any earlier lowering it was stacked on. A claim alone therefore neither
+takes a topic off the list nor brings one back sooner. Once an answer or a
+rebuild of the app's own moves the estimate, the topic is judged on its score
+again (an answer's update starts from the lowered estimate, like any update).
+Asserted by `tools/mcp-gates.mjs`, which also checks that both lists agree.
 
 ### 4.4 Seeded priors (`applySeededPrior`)
 
@@ -370,8 +383,8 @@ compares the plan's recorded ceiling with the current one and has the plan
 rewritten, but only while no card of the topic has been consumed; a sequence
 the learner has started keeps its length.
 
-A seed is also not a memory: the ghost-question query (`getDecayingNodes`, and
-its copy in `today.js`) only considers topics with answers of their own, since
+A seed is also not a memory: the fading predicate (`FADING_TOPIC`, §4.3, read by
+`getDecayingNodes` and Today) only considers topics with answers of their own, since
 a seeded 0.52 would otherwise produce a recall question about a topic that was
 never taught.
 
@@ -805,8 +818,13 @@ The learner can rename any region by hand: `PUT`/`DELETE
 `model = 'user'`, and a completed sweep or a rename invalidates the atlas
 cache, or the new names would not appear until the library itself changed.
 
-Cached against a signature of the topic space (vector count, sidecar state,
-model).
+Cached against what the map would draw: the topic space (vector count, sidecar
+state, embedding model) and, per topic and course on the map, the values the
+page shows at the precision it shows them (`drawnPrint` in `server/atlas.js`),
+so a card rating on a card already met costs nothing and a finished topic
+rebuilds. `GET /api/atlas/naming` is what Settings → AI & Models reads beside
+the naming model: how many regions on the last map built the naming model gave
+up on (null, and nothing shown, until a map has been built). It never builds one.
 
 Guard: `tools/atlas-gates.mjs` covers the degenerate libraries (one topic, all
 identical/zero-variance PCA, none alike), the landfill (a chain whose ends are
@@ -875,6 +893,7 @@ and a route an earlier one answers first.
 | Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media-descriptions/run\|status\|cancel` |
 | Semantic | `/embeddings/status\|settings\|reindex`, `/node-embeddings/status\|reindex`, `/nodes/:id/similar`, `/nodes/:id/transfer`, `/nodes/search-semantic`, `/atlas`, `/atlas/regions/:signature/name` |
 | Capture | `/capture`, `/capture/:nodeId/enrich` |
+| Agents (the MCP server, `docs/MCP.md`) | `/agent/state`, `/agent/find`, `/agent/due`, `/agent/topic`, `/agent/mastery` (reads, plain text for a model plus the figures), `/agent/claims` (POST a claim) |
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
 | Search | `/search`, `/search/suggest`, `/search-providers` (GET/POST/PUT/DELETE), `/search/keys` (write-only keys for the hosted engines, + `/test`), `/searxng/test` |
@@ -895,7 +914,8 @@ Streaming endpoints use **SSE**. Long-running generations register in
 ### 9.1 Routing
 
 **The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/schedule`, `/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`.
+`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
+redirects to `/projects`, where each course card carries its own dates.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,
@@ -1019,7 +1039,7 @@ and a project's name is looked up only on the way to the screen. A ring buffer o
 `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
 switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
-Settings → Data, downloaded one event per line (`GET /api/activity`,
+Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
@@ -1042,6 +1062,7 @@ The modules the sections above do not cover, one line each.
 | `webContext.js`, `citations.js`, `searchBackends.js` | Web lookups for an answer, numbered sources resolved into titles and links, and the hosted engines reached only with a saved key |
 | `netSafety.js`, `urlSafety.js`, `originGuard.js`, `uploadGuard.js` | Outbound fetch vetting (private addresses refused, every redirect re-checked, the socket pinned to the vetted address through undici's own `fetch` + `Agent`), link sanitising, the same-origin and host check on every request, and the cap on an upload's total size |
 | `version.js` | The update check (see SECURITY.md, *The update check*) |
+| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*` and `/api/capture` (`docs/MCP.md`) |
 
 ## 13. Known gaps
 

@@ -163,6 +163,8 @@ const sourceFiles = [
     ...walk(join(root, 'src')),
     ...walk(join(root, 'server')),
     ...walk(join(root, 'tools')),
+    // The MCP server (docs/MCP.md): the SDK and zod are its imports alone.
+    ...walk(join(root, 'mcp')),
 ].filter((f) => f !== SELF);
 
 // Config files are source too — they import plugins.

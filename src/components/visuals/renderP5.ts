@@ -2,8 +2,10 @@ import type { VisualRenderer } from './registry';
 import { p5ThemePrelude } from './sandboxTheme';
 import { SANDBOX_LOCKDOWN_JS, leavesTheFrame } from './sandboxLockdown';
 import { resolveVisualSpec } from './resolveBrief';
-// Bundled locally by Vite (?url asset) — local-first, never a CDN fetch.
-import p5Url from 'p5/lib/p5.min.js?url';
+import { showInSandbox } from './sandboxFrame';
+// p5 itself, as text, written into each sketch document (see `buildSketchDoc`).
+// Bundled by Vite: local-first, never a CDN fetch.
+import p5Source from 'p5/lib/p5.min.js?raw';
 import i18n from '../../i18n';
 import { reportFrameActivity } from '../../utils/frameActivity';
 
@@ -24,21 +26,25 @@ import { reportFrameActivity } from '../../utils/frameActivity';
  * the one claim SECURITY.md invites you to verify with a packet capture, and
  * would do it from inside the feature that renders "educational animations".
  *
- * `script-src` is deliberately the LOOSE part of this policy, and that is not a
- * compromise: the sketch is inline JavaScript this document exists to execute,
- * so tightening where scripts may come from protects nothing, while getting it
- * wrong silently blocks p5 itself and breaks every animation in the app. p5 is
- * bundled locally (`?url`, never a CDN) and a srcdoc document resolves relative
- * URLs against the PARENT's base, so it can arrive as this app's origin, as
- * `'self'`, or as a blob depending on how the bundle was built — all three are
- * allowed rather than guessed between. What actually closes the hole is
- * `default-src 'none'`, which covers connect-src: no fetch, XHR or WebSocket,
- * no remote images, no frames, whatever the sketch asks for.
+ * Scripts are inline only, p5 included: the sketch is inline JavaScript this
+ * document exists to execute, and p5 is written into the document beside it
+ * rather than loaded from an address. An address would need this app's origin
+ * in the policy, and WebKit does not match `'self'` from a sandboxed document,
+ * whose origin is opaque. What closes the hole is `default-src 'none'`, which
+ * covers connect-src: no fetch, XHR or WebSocket, no remote images, no frames,
+ * whatever the sketch asks for. The frame's own response policy says the same
+ * (server/sandboxFrame.js); this one is the sketch's, on top of it.
  */
 const sketchCsp = () =>
     `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; ` +
-    `script-src 'unsafe-inline' 'self' blob: ${location.origin}; style-src 'unsafe-inline'; ` +
+    `script-src 'unsafe-inline'; style-src 'unsafe-inline'; ` +
     `img-src data: blob:; media-src data: blob:; font-src data:;">`;
+
+// p5 inside a <script> element. The minified build holds no `</script` (which
+// would end the element early) and no `<!--` (which changes how the rest is
+// parsed); tools/script-src-gates.mjs checks the file for both, and the escape
+// keeps a future build safe if one ever does.
+const P5_INLINE = p5Source.replace(/<\/script/gi, '<\\/script');
 
 const PROBE_TIMEOUT_MS = 6000;
 const MAX_HEIGHT = 560;
@@ -73,7 +79,7 @@ function legend(entries) {
  * message inside the iframe. Honors prefers-reduced-motion by starting stopped
  * behind an explicit Play overlay.
  */
-function buildSketchDoc(sketch: string, token: string, validate: boolean, themeJs: string): string {
+export function buildSketchDoc(sketch: string, token: string, validate: boolean, themeJs: string): string {
     // Blank-canvas guard (probe only): a draw() with off-screen coordinates or
     // no real drawing runs fine but renders nothing. After the manual first
     // frame, sample the pixels — if every pixel is identical the sketch painted
@@ -175,7 +181,16 @@ function buildSketchDoc(sketch: string, token: string, validate: boolean, themeJ
         if (!reported) { reported = true; send('error', { message: String(msg) }); }
         if (!document.querySelector('[data-p5-err]')) overlay('Sketch error: ' + String(msg), true).setAttribute('data-p5-err', '1');
     }
-    window.onerror = function (msg) { fail(msg); return true; };
+    // A sketch that does not parse is reported here, as its frame reads it, and
+    // worded as the repair loop has always had it: "JavaScript <message>".
+    // Chrome prefixes a parse error met while the document is written; the
+    // prefix says nothing about the sketch.
+    window.onerror = function (msg, src, line, col, err) {
+        fail(err && err.name === 'SyntaxError'
+            ? 'JavaScript ' + String(err.message).replace(/^Failed to execute 'write' on 'Document': /, '')
+            : msg);
+        return true;
+    };
     window.__p5fail = fail;
     // A sketch is its own document, so the host's study clock never sees it
     // being played with: say so, at most once a second.
@@ -265,13 +280,16 @@ ${sketchCsp()}
 <script>${SANDBOX_LOCKDOWN_JS}<\/script>
 <style>html,body{margin:0;padding:0;overflow:hidden;background:transparent;display:flex;justify-content:center}canvas{display:block;max-width:100%;height:auto!important}</style>
 <script>delete window.DeviceOrientationEvent;delete window.DeviceMotionEvent;<\/script>
-<script src="${p5Url}"><\/script>
+<script>${P5_INLINE}<\/script>
 <script>${bootstrap}<\/script>
 </head><body>
 <script>${themeJs}<\/script>
 <script>${HELPER_PRELUDE}<\/script>
 <script>
 ${safeSketch}
+<\/script>
+<script>
+// The sketch is a script of its own, so a parse error in it is about it alone.
 // p5's loop catches user-code errors for its friendly-error system, which the
 // min build strips — so draw() errors vanish silently. Wrap setup/draw before
 // p5 captures them at init (on window load) to surface errors ourselves.
@@ -299,6 +317,7 @@ function probeSketch(doc: string, token: string): Promise<{ w: number; h: number
         probe.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:480px;visibility:hidden;';
         const finish = (fn: () => void) => {
             window.removeEventListener('message', onMessage);
+            stopShowing();
             clearTimeout(timer);
             probe.remove();
             fn();
@@ -313,7 +332,7 @@ function probeSketch(doc: string, token: string): Promise<{ w: number; h: number
             PROBE_TIMEOUT_MS,
         );
         window.addEventListener('message', onMessage);
-        probe.srcdoc = doc;
+        const stopShowing = showInSandbox(probe, doc);
         document.body.appendChild(probe);
     });
 }
@@ -326,13 +345,10 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
     if (!sketch) throw new Error('empty sketch.');
     if (sketch !== code.trim()) ctx.onResolved?.(sketch);
 
-    // Cheap syntax gate first: a SyntaxError here is a better repair prompt
-    // than a sandbox timeout. The function is never invoked.
-    try {
-        new Function(sketch);
-    } catch (e) {
-        throw new Error(`JavaScript ${e instanceof Error ? e.message : String(e)}`);
-    }
+    // A sketch that does not parse is reported by its own frame, worded
+    // "JavaScript <message>" for the repair loop (see `window.onerror` in the
+    // bootstrap). The page cannot parse it itself: its `script-src 'self'`
+    // turns away code built from a string.
 
     // A sketch that tries to leave its frame is refused before it runs, and
     // the reason goes to the repair loop like any other fault. The frame
@@ -365,7 +381,7 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
     frame.title = i18n.t("Interactive p5.js animation");
     // Painted with the paper the sketch is about to paint itself with: an
     // iframe whose document has not parsed yet is a WHITE rectangle, whatever
-    // its srcdoc's `background: transparent` will say a moment later. On a dark
+    // its document's `background: transparent` will say a moment later. On a dark
     // theme that is a white flash for as long as the sandbox takes to boot p5,
     // which is most of a second — and re-rendering is not rare (a theme change,
     // and the settings gallery restarts the sketch every time the kind is
@@ -382,7 +398,7 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
     frame.style.height = `${Math.min(size.h, MAX_HEIGHT)}px`;
     // Display doc skips the blank-canvas probe: rAF drives it live, and probing
     // already proved the first frame renders — no need to re-judge on replay.
-    frame.srcdoc = buildSketchDoc(sketch, token, false, themeJs);
+    const stopShowing = showInSandbox(frame, buildSketchDoc(sketch, token, false, themeJs));
 
     const onMessage = (e: MessageEvent<SandboxMessage>) => {
         if (!e.data || e.data.__p5 !== token || e.source !== frame.contentWindow) return;
@@ -394,7 +410,10 @@ const renderP5: VisualRenderer = async (el, code, ctx) => {
     window.addEventListener('message', onMessage);
 
     el.appendChild(frame);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+        window.removeEventListener('message', onMessage);
+        stopShowing();
+    };
 };
 
 export default renderP5;

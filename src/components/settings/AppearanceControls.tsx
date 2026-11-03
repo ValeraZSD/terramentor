@@ -87,7 +87,7 @@ export function ThemeCards() {
                                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }} />
                                     <span className="text-sm font-semibold leading-none" style={{ color: p.text }}>{tr("Cell biology")}</span>
                                 </div>
-                                <p className="text-xs leading-snug" style={{ color: p.muted }}>{tr("How lessons & notes look.")}</p>
+                                <p className="text-xs leading-snug" style={{ color: p.muted }}>{tr("3 of 8 topics")}</p>
                                 <div className="text-xs leading-snug" style={{ color: p.text }}>
                                     {tr("• Mitochondria make")}{' '}
                                     <span className="px-1 py-px rounded font-mono" style={{ backgroundColor: p.code, color: p.text }}>{tr("ATP")}</span>

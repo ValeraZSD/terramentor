@@ -94,11 +94,15 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // models put the key first far too often; every grader matches by string
     // VALUE, so reordering cannot desync the key); if no key can be identified
     // it returns null and the question is discarded.
-    questions = questions.reduce((acc, q) => {
-        if (!q || typeof q !== 'object') return acc;
-        const shaped = normalizeQuestionFormat(q, { allow });
+    questions = questions.reduce((acc, raw) => {
+        if (!raw || typeof raw !== 'object') return acc;
+        const shaped = normalizeQuestionFormat(raw, { allow });
         if (!shaped) return acc; // unknown or disallowed format, or no honest key
-        Object.assign(q, shaped);
+        // Rebuilt from what the format kept, as the feed and the importer do.
+        // Merged onto the model's object instead, a field the format DROPPED
+        // (an `accept` naming a piece twice, an unvetted distractor) would
+        // survive beside the honest ones and be trusted by the verifier.
+        const q = { question: raw.question, type: raw.type, ...shaped };
 
         // The same mechanical gate the feed applies, on the path that matters
         // MORE: this quiz can be a mastery check. It catches two options that are
@@ -162,7 +166,7 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // question checked in its own bank (a stamped one was skipped above).
     const stored = questions.map(q => (q.isGhost ? q : markPending(q, { delayMs: REVERIFY_BASE_WAIT_MS })));
     const result = db.prepare('INSERT INTO quizzes (node_id, title, questions, generated_by) VALUES (?, ?, ?, ?)')
-        .run(nodeId, bankTitle(nodeId), JSON.stringify(stored), aiProvenance());
+        .run(nodeId, bankTitle(nodeId), JSON.stringify(stored), aiProvenance({ job: 'questions' }));
 
     // Read back: the database gave each question its uuid on the way in
     // (database.js), and that is how `vetQuiz` finds it again after anything
@@ -355,7 +359,7 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
             .map(r => normalizeChoice(r.front))
     );
     const insertStmt = db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by) VALUES (?, ?, ?, ?)');
-    const provenance = aiProvenance();
+    const provenance = aiProvenance({ job: 'questions' });
     const insertedIds = [];
     let skipped = 0;
     const transaction = db.transaction(() => {
@@ -398,20 +402,27 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
  * reads. The one caller that wants ghosts (the per-node practice quiz) goes
  * through finalizeQuiz directly.
  *
+ * `priorFault`: what was wrong with the version this replaces (a learner's
+ * report, server/itemReports.js), put LAST in the prompt as the generators'
+ * `priorFault` convention does. The output still goes through the same gates.
+ *
  * @param {number} nodeId
  * @param {'mastery_check'|'flashcards'} kind
  * @returns {Promise<{kind: string, count: number}>} what was written
  */
-export async function generateMaterial(nodeId, kind, { questionCount = 10, cardCount = 8, decayDays = 14, signal } = {}) {
+export async function generateMaterial(nodeId, kind, { questionCount = 10, cardCount = 8, decayDays = 14, signal, priorFault = null } = {}) {
+    const withFault = (user) => priorFault
+        ? `${user}\n\nA PREVIOUS VERSION WAS REPORTED BY THE LEARNER. Write a DIFFERENT one — not a reworded version of the same one — and do not repeat this fault:\n${priorFault}`
+        : user;
     if (kind === 'mastery_check') {
         const { system, user } = buildQuizPrompt(nodeId, questionCount, 'both');
-        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
+        const raw = await generateResponse(withFault(user), system, [], { signal, operation: 'questions' });
         const vetted = await vetQuiz(nodeId, finalizeQuiz(nodeId, raw, false, { decayDays }), { signal });
         return { kind, count: vetted.questions.filter(q => !q.isGhost).length };
     }
     if (kind === 'flashcards') {
         const { system, user } = buildFlashcardPrompt(nodeId, cardCount);
-        const raw = await generateResponse(user, system, [], { signal, operation: 'questions' });
+        const raw = await generateResponse(withFault(user), system, [], { signal, operation: 'questions' });
         return { kind, count: (await finalizeFlashcards(nodeId, raw, { signal })).count };
     }
     throw new Error(`Unknown material kind: ${kind}`);

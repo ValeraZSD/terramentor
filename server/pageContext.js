@@ -10,6 +10,7 @@ import db from './database.js';
 import { buildNodeContext } from './ai.js';
 import { LEAF_STATUS } from './today.js';
 import { projectColourName } from './projectFields.js';
+import { canonicalRef, listReports, resolveTarget } from './itemReports.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
 // of the cross-project snapshot, so it has to stay a briefing, not a dump.
@@ -59,7 +60,8 @@ function recentMisses(nodeId) {
         let res = null;
         let q = null;
         try { res = JSON.parse(r.result); } catch { continue; }
-        if (!res || res.correct !== false) continue;
+        // A reported question counts neither way, here too.
+        if (!res || res.correct !== false || res.reported) continue;
         try { q = JSON.parse(r.content); } catch { continue; }
         const stem = String(q?.question || '').replace(/```[\s\S]*?```/g, '[diagram]').trim();
         if (!stem) continue;
@@ -68,6 +70,155 @@ function recentMisses(nodeId) {
             + (q?.answer ? `\n  Correct: ${String(q.answer).slice(0, 120)}` : ''));
     }
     return out.join('\n');
+}
+
+// A results screen lists a whole sitting (a mastery check asks up to 30), so
+// every item it shows is heard about: the one on screen in full, the others
+// shorter, all of them inside one budget.
+const PAGE_ITEMS = 30;
+const PAGE_ITEM_CHARS = 900;
+const PAGE_ITEM_SHORT = 400;
+const PAGE_ITEMS_BUDGET = 9000;
+const PAGE_REPORTS = 6;
+
+const clip = (s, n) => {
+    const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
+
+/**
+ * Is the item's key on the learner's screen? Once the screen has said right
+ * or wrong, or shows the key itself (a card flipped, a drill item's feedback:
+ * `keyShown`). An answer alone is not enough: a quiz or mastery check sends
+ * the learner's DRAFT as `answer` and grades it only at the end. Until then
+ * the assistant is not handed it, or "which one is right?" in a mastery check
+ * would be answered.
+ */
+const keyOnScreen = (shown) => !!shown && (typeof shown.correct === 'boolean' || shown.keyShown === true);
+
+const WITHHELD = 'Answer key: not on their screen yet (they have not answered), so not given here';
+
+/**
+ * A sequence's items in a fixed order that is never the key. Sorting them is
+ * not enough: numbered steps ("Step 1 …", "First …") sort into the key.
+ */
+function unkeyedOrder(items, seed) {
+    const hash = (s) => {
+        let x = 2166136261;
+        for (const ch of s) x = Math.imul(x ^ ch.codePointAt(0), 16777619) >>> 0;
+        return x;
+    };
+    const out = items.map((s, i) => ({ s, i, k: hash(`${seed}\u0000${s}`) })).sort((a, b) => a.k - b.k || a.i - b.i);
+    if (out.length > 1 && out.every((o, i) => o.i === i)) out.push(out.shift());
+    return out.map(o => o.s);
+}
+
+/**
+ * One item as the server holds it, in a line the model can check a claim
+ * against. The stem, the key and what the screen says of their answer are
+ * always there; the options and the explanation take what room is left under
+ * `max`. A results list makes every row short, and right or wrong is what the
+ * learner asks about there.
+ */
+function itemLine(target, shown, max = PAGE_ITEM_CHARS) {
+    const v = target.item || {};
+    const key = keyOnScreen(shown);
+    const short = max < PAGE_ITEM_CHARS;
+    const lead = [], keyed = [], rest = [], after = [];
+    if (target.kind === 'question' || target.kind === 'probe') {
+        lead.push(`Question: ${clip(v.question, short ? 200 : 400)}`);
+        if (Array.isArray(v.options) && v.options.length) rest.push(`Options: ${v.options.map((o, i) => `${String.fromCharCode(65 + i)}) ${clip(o, 80)}`).join(' | ')}`);
+        // Stored in the right order, which is the key; shuffled on their screen.
+        const items = Array.isArray(v.items) ? v.items.map(o => clip(o, 60)) : [];
+        if (!key) {
+            if (items.length) rest.push(`Items to put in order: ${unkeyedOrder(items, target.ref).join(' | ')}`);
+            keyed.push(WITHHELD);
+        } else {
+            if (items.length) keyed.push(`Items in the right order: ${items.join(' → ')}`);
+            if (v.correct_answer !== undefined) keyed.push(`Answer key: ${clip(typeof v.correct_answer === 'string' ? v.correct_answer : JSON.stringify(v.correct_answer), 200)}${v.unit ? ` ${v.unit}` : ''}${v.tolerance != null ? ` (±${v.tolerance})` : ''}`);
+            if (v.explanation) after.push(`Explanation stored with it: ${clip(v.explanation, 300)}`);
+        }
+    } else if (target.kind === 'card') {
+        lead.push(`Front: ${clip(v.front, 300)}`);
+        keyed.push(key ? `Back: ${clip(v.back, 300)}` : 'Back: not turned over yet, so not given here');
+    } else if (target.kind === 'drill') {
+        lead.push(`Prompt: ${clip(v.prompt, 200)}`);
+        keyed.push(key ? `Answer key: ${clip(v.answer, 200)}` : WITHHELD);
+    } else if (target.kind === 'lesson') {
+        rest.push(`Lesson text: ${clip(v.text, 600)}`);
+    } else if (target.kind === 'paper') {
+        // The reference solution never leaves the server before the learner has worked it.
+        rest.push(`Exercise brief: ${clip(v.brief, 400)}`);
+    }
+    const said = [];
+    if (shown) {
+        if (typeof shown.answer === 'string' && shown.answer.trim()) said.push(`Their answer, as their screen reports it: ${clip(shown.answer, 160)}`);
+        if (typeof shown.correct === 'boolean') said.push(`Marked ${shown.correct ? 'right' : 'wrong'} on their screen`);
+    }
+    const layout = [
+        ...lead.map(s => [s, true]), ...rest.map(s => [s, false]), ...keyed.map(s => [s, true]),
+        ...said.map(s => [s, true]), ...after.map(s => [s, false]),
+    ];
+    let room = max - layout.filter(([, keep]) => keep).reduce((n, [s]) => n + s.length + 3, 0);
+    return layout.map(([s, keep]) => {
+        if (keep) return s;
+        const fit = room < 40 ? null : s.length + 3 <= room ? s : `${s.slice(0, room - 4)}…`;
+        if (fit) room -= fit.length + 3;
+        return fit;
+    }).filter(Boolean).join('\n  ');
+}
+
+/**
+ * The items on the learner's screen and the ones they answered earlier in this
+ * sitting, newest first. The client names each by its ref and says what it
+ * showed (their answer, right or wrong); the item's own text — stem, options,
+ * key — is read here, so a claim that the key is wrong is checked against the
+ * key the app really holds.
+ */
+function screenItems(raw) {
+    if (!Array.isArray(raw)) return '';
+    const out = [];
+    const seen = new Set();
+    // The client marks the item the learner is on. A feed's unanswered cards
+    // all mount at once and are listed unmarked, so none is called "on
+    // screen now" by being the last to mount; a caller that marks nothing
+    // means its first item.
+    const list = raw.slice(0, PAGE_ITEMS);
+    const marked = list.some(it => typeof it?.current === 'boolean');
+    const found = [];
+    for (const it of list) {
+        const ref = typeof it?.ref === 'string' ? canonicalRef(it.ref) : null;
+        if (!ref || seen.has(ref)) continue;
+        seen.add(ref);
+        let target = null;
+        try { target = resolveTarget(ref); } catch { target = null; }
+        if (target) found.push({ it, target });
+    }
+    // One question about the reports standing on all of them, not one per item.
+    let standing = new Map();
+    try { standing = new Map(listReports({ refs: found.map(f => f.target.ref) }).map(r => [r.ref, r])); } catch { /* listed without */ }
+    let named = false;
+    let used = 0;
+    for (const [i, { it, target }] of found.entries()) {
+        const now = !named && (marked ? it.current === true : i === 0);
+        if (now) named = true;
+        const r = standing.get(target.ref);
+        const line = `- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${r ? ` — already reported (report ${r.id}, ${r.reason})` : ''}\n  ${itemLine(target, it, now ? PAGE_ITEM_CHARS : PAGE_ITEM_SHORT)}`;
+        if (out.length && used + line.length > PAGE_ITEMS_BUDGET) {
+            out.push(`- and ${found.length - i} more on their screen, not listed here`);
+            break;
+        }
+        out.push(line);
+        used += line.length;
+    }
+    return out.join('\n');
+}
+
+/** Reports standing on the topic, so the assistant can say what is already reported, and undo one. */
+function standingReports(nodeId) {
+    let rows = [];
+    try { rows = listReports({ nodeId, limit: PAGE_REPORTS }); } catch { return ''; }
+    return rows.map(r => `- report ${r.id}: ${r.kind} [${r.ref}], ${r.reason}${r.note ? `, "${clip(r.note, 120)}"` : ''}${r.rewrite?.state ? `, new version ${r.rewrite.state}` : ''}`).join('\n');
 }
 
 /**
@@ -149,6 +300,9 @@ export function buildPageContext(context) {
 
             const misses = recentMisses(node.id);
             if (misses) lines.push(`Recently answered WRONG on this topic:\n${misses}`);
+
+            const reports = standingReports(node.id);
+            if (reports) lines.push(`Items the learner reported as wrong on this topic (they count neither way; undo one by its report number):\n${reports}`);
         }
     } else if (Number.isInteger(projectId)) {
         const project = db.prepare('SELECT id, name, summary FROM projects WHERE id = ?').get(projectId);
@@ -168,5 +322,8 @@ export function buildPageContext(context) {
         workspace: 'a project workspace',
     };
     if (SCREENS[view]) lines.push(`Screen: ${SCREENS[view]}.`);
+
+    const items = screenItems(context.items);
+    if (items) lines.push(`Items on their screen and ones they met earlier, newest first (the app's own copy of each; an item's key is given only once it is on their screen; refs in brackets):\n${items}`);
     return { text: lines.join('\n'), projectId: scopeProjectId, nodeId: scopeNodeId };
 }

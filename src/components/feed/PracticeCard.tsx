@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import ReportItem, { ReportLink, ReportScope } from '../ui/ReportItem';
+import { feedRowRef } from '../../utils/itemReports';
 import UncheckedKeyNote from '../UncheckedKeyNote';
 
 interface Props {
@@ -275,272 +277,288 @@ export default function PracticeCard({ card, done, onDone }: Props) {
         // repeated the topic title. The shell is for STANDALONE cards
         // (flashcard, recall); QuestionCard's `inChapter` prop exists for the
         // same reason.
-        <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-                <p className="flex items-center gap-1.5 text-2xs font-semibold text-accent-fg">
-                    <PenLine className="w-3.5 h-3.5" aria-hidden="true" />
-                    {t("On paper · {{modeLabel}}", { modeLabel })}
-                </p>
-                <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-2xs font-medium px-2 py-0.5 rounded-full bg-accent/10 text-accent-fg whitespace-nowrap">
-                        {t("{{totalWeight}} marks", { count: totalWeight, totalWeight })}
-                    </span>
-                    {done && <Check className="w-4 h-4 text-emerald-500" aria-label={t("Done")} />}
-                </div>
-            </div>
-
-            <div className="prose prose-slate dark:prose-invert max-w-none prose-sm sm:prose-base">
-                {/* The brief is the only part of this card that lives in the
-                    cached row, so it is the only one whose repair can be
-                    written back. `autoBuild` stays off for the same reason the
-                    lesson card keeps it off: nothing compiles mid-scroll. */}
-                <Markdown
-                    content={card.brief}
-                    nodeId={card.nodeId}
-                    surface="feed-practice"
-                    autoBuild={false}
-                    onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
-                />
-            </div>
-
-            {card.materials && (
-                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                    <span className="font-medium">{t("You'll need:")}</span> <MathText content={card.materials} />
-                </p>
-            )}
-
-            {card.unchecked && phase !== 'result' && <UncheckedKeyNote subject="paper" className="mt-3" />}
-
-            {/* Collapsed by default, and the prompt forbids answers inside a
-                rubric point (AI_PROMPTS.paper_exercise rule 4b).
-                Both matter, and the prompt is the real fix: a model left to its
-                own devices writes "correctly calculates 0.277°" as a criterion,
-                which hands over the answer to an exercise the learner has not
-                started. Withholding reference_solution is pointless if the
-                marking scheme restates it. Native <details> so the disclosure is
-                keyboard- and screen-reader-correct for free. */}
-            {phase !== 'result' && (
-                <details className="mt-4 group rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
-                    <summary className="flex items-center gap-1.5 p-3 cursor-pointer list-none text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
-                        <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
-                        {t("What you'll be marked on")}
-                        <span className="font-normal text-slate-500 dark:text-slate-400">
-                            {t("({{length}} points)", { count: card.rubric.length, length: card.rubric.length })}
+        //
+        // One item: the flag in the header and the line under a marked
+        // result open the same dialog.
+        <ReportScope>
+            <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                    <p className="flex items-center gap-1.5 text-2xs font-semibold text-accent-fg">
+                        <PenLine className="w-3.5 h-3.5" aria-hidden="true" />
+                        {t("On paper · {{modeLabel}}", { modeLabel })}
+                    </p>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-2xs font-medium px-2 py-0.5 rounded-full bg-accent/10 text-accent-fg whitespace-nowrap">
+                            {t("{{totalWeight}} marks", { count: totalWeight, totalWeight })}
                         </span>
-                    </summary>
-                    <ul className="px-3 pb-3 space-y-1.5">
-                        {card.rubric.map(point => (
-                            <li key={point.id} className="flex gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                <span className="text-slate-500 dark:text-slate-400 shrink-0">•</span>
-                                <span><MathText content={point.point} />{point.weight > 1 && <span className="text-slate-500 dark:text-slate-400"> {t("({{weight}} marks)", { count: point.weight, weight: point.weight })}</span>}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </details>
-            )}
-
-            {problem && (
-                <div className="mt-4 flex gap-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-3">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-900 dark:text-amber-200">{problem}</p>
+                        {done && <Check className="w-4 h-4 text-emerald-500" aria-label={t("Done")} />}
+                        <ReportItem
+                            itemRef={feedRowRef(card.feedItemId)}
+                            surface="paper"
+                            inStream
+                            onReported={() => onDone(card.key)}
+                            className="-my-1.5 -mr-1.5"
+                        />
+                    </div>
                 </div>
-            )}
 
-            {/* --- Phase: brief ------------------------------------------------ */}
-            {phase === 'brief' && !done && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={onFilePicked}
-                        className="hidden"
-                        aria-hidden="true"
-                        tabIndex={-1}
+                <div className="prose prose-slate dark:prose-invert max-w-none prose-sm sm:prose-base">
+                    {/* The brief is the only part of this card that lives in the
+                        cached row, so it is the only one whose repair can be
+                        written back. `autoBuild` stays off for the same reason the
+                        lesson card keeps it off: nothing compiles mid-scroll. */}
+                    <Markdown
+                        content={card.brief}
+                        nodeId={card.nodeId}
+                        surface="feed-practice"
+                        autoBuild={false}
+                        onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
                     />
-                    {visionAvailable !== false && (
-                        <Button
-                            variant="primary"
-                            onClick={() => fileInputRef.current?.click()}
-                            busy={busy || visionAvailable === null}
-                            icon={<Camera className="w-4 h-4" aria-hidden="true" />}
-                        >
-                            {t("Photograph my work")}
-                        </Button>
-                    )}
-                    <Button onClick={openSelfMark} disabled={busy} icon={<Eye className="w-4 h-4" aria-hidden="true" />}>
-                        {visionAvailable === false ? t("Show solution & mark it myself") : t("Mark it myself")}
-                    </Button>
                 </div>
-            )}
 
-            {visionAvailable === false && phase === 'brief' && (
-                <p className="mt-2 text-2xs text-slate-500 dark:text-slate-400">
-                    {t("No vision model is configured, so photos can't be marked automatically. Set one under Settings → AI & Models to turn this on.")}
-                </p>
-            )}
-
-            {/* --- Phase: adjust corners --------------------------------------- */}
-            {phase === 'adjust' && source && quad && (
-                <div className="mt-4">
-                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">
-                        {t("Drag the four corners onto the corners of your page.")}
-                    </p>
-                    <div
-                        ref={previewRef}
-                        className="relative touch-none select-none"
-                        onPointerMove={onHandleMove}
-                        onPointerUp={onHandleUp}
-                        onPointerCancel={onHandleUp}
-                    >
-                        <div ref={canvasHostRef} />
-                        <svg
-                            className="absolute inset-0 w-full h-full pointer-events-none"
-                            viewBox={`0 0 ${source.width} ${source.height}`}
-                            preserveAspectRatio="none"
-                            aria-hidden="true"
-                        >
-                            <polygon
-                                points={quad.map(p => `${p.x},${p.y}`).join(' ')}
-                                fill="rgb(var(--accent-rgb) / 0.15)"
-                                stroke="rgb(var(--accent-rgb))"
-                                strokeWidth={Math.max(2, source.width / 300)}
-                            />
-                        </svg>
-                        {quad.map((point, index) => (
-                            <button data-handle
-                                key={index}
-                                onPointerDown={onHandleDown(index)}
-                                onKeyDown={onHandleKey(index)}
-                                aria-label={t("Corner {{n}} — drag or use arrow keys", { n: index + 1 })}
-                                // White in BOTH themes on purpose: this handle sits on top of
-                                // the learner's photo, not on an app surface, and a photo of a
-                                // page is bright regardless of what theme the app is in.
-                                className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full bg-white dark:bg-white border-2 border-accent shadow-md touch-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
-                                style={{
-                                    left: `${(point.x / source.width) * 100}%`,
-                                    top: `${(point.y / source.height) * 100}%`,
-                                }}
-                            />
-                        ))}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                        <Button variant="primary" onClick={submitScan} disabled={busy}>
-                            {t("Scan & submit")}
-                        </Button>
-                        <Button onClick={() => fileInputRef.current?.click()} disabled={busy}>
-                            {t("Retake")}
-                        </Button>
-                        <Button variant="quiet" onClick={() => { setPhase('brief'); setSource(null); setQuad(null); }}>
-                            {t("Cancel")}
-                        </Button>
-                    </div>
-                </div>
-            )}
-
-            {/* --- Phase: grading --------------------------------------------- */}
-            {phase === 'grading' && (
-                <div className="mt-4 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                    <Loader2 className="w-4 h-4 animate-spin text-accent-fg" />
-                    <span>{t("Reading your working, then marking it — this takes a moment.")}</span>
-                </div>
-            )}
-
-            {/* --- Phase: self-mark ------------------------------------------- */}
-            {phase === 'selfmark' && (
-                <div className="mt-4">
-                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
-                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">{t("Worked solution")}</p>
-                        <div className="prose prose-slate dark:prose-invert max-w-none prose-sm">
-                            {/* Fetched on demand, never cached in the card, so a
-                                repair here has no row to persist into — surface
-                                and node are carried for a feedback report only. */}
-                            <Markdown content={solution || ''} nodeId={card.nodeId} surface="paper-solution" autoBuild={false} />
-                        </div>
-                    </div>
+                {card.materials && (
                     <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {/* An unchecked exercise's ticks tune nothing: its mark writes no evidence. */}
-                        {card.unchecked
-                            ? t("Tick each point your paper actually shows.")
-                            : t("Tick each point your paper actually shows. Be honest — this only tunes what the app teaches you next.")}
+                        <span className="font-medium">{t("You'll need:")}</span> <MathText content={card.materials} />
                     </p>
-                    <ul className="mt-2 space-y-1.5">
-                        {card.rubric.map(point => {
-                            const ticked = selfMarked.has(point.id);
-                            return (
-                                <li key={point.id}>
-                                    <button data-row="rubric-point"
-                                        onClick={() => toggleSelfPoint(point.id)}
-                                        aria-pressed={ticked}
-                                        className="w-full flex items-start gap-2 text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/40"
-                                    >
-                                        <span className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center ${ticked
-                                            ? 'bg-accent border-accent'
-                                            : 'border-slate-300 dark:border-slate-600'}`}>
-                                            {ticked && <Check className="w-3 h-3 text-white" />}
-                                        </span>
-                                        <span className="text-xs text-slate-700 dark:text-slate-200"><MathText content={point.point} /></span>
-                                    </button>
+                )}
+
+                {card.unchecked && phase !== 'result' && <UncheckedKeyNote subject="paper" className="mt-3" />}
+
+                {/* Collapsed by default, and the prompt forbids answers inside a
+                    rubric point (AI_PROMPTS.paper_exercise rule 4b).
+                    Both matter, and the prompt is the real fix: a model left to its
+                    own devices writes "correctly calculates 0.277°" as a criterion,
+                    which hands over the answer to an exercise the learner has not
+                    started. Withholding reference_solution is pointless if the
+                    marking scheme restates it. Native <details> so the disclosure is
+                    keyboard- and screen-reader-correct for free. */}
+                {phase !== 'result' && (
+                    <details className="mt-4 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700">
+                        <summary className="flex items-center gap-1.5 p-3 cursor-pointer list-none text-xs font-semibold text-slate-700 dark:text-slate-200 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                            <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
+                            {t("What you'll be marked on")}
+                            <span className="font-normal text-slate-500 dark:text-slate-400">
+                                {t("({{length}} points)", { count: card.rubric.length, length: card.rubric.length })}
+                            </span>
+                        </summary>
+                        <ul className="px-3 pb-3 space-y-1.5">
+                            {card.rubric.map(point => (
+                                <li key={point.id} className="flex gap-2 text-sm text-slate-600 dark:text-slate-300">
+                                    <span className="text-slate-500 dark:text-slate-400 shrink-0">•</span>
+                                    <span><MathText content={point.point} />{point.weight > 1 && <span className="text-slate-500 dark:text-slate-400"> {t("({{weight}} marks)", { count: point.weight, weight: point.weight })}</span>}</span>
                                 </li>
-                            );
-                        })}
-                    </ul>
-                    <div className="mt-3 flex gap-2">
-                        <Button variant="primary" onClick={submitSelfMark} busy={busy}>
-                            {t("Record {{size}} of {{length}}", { size: selfMarked.size, length: card.rubric.length })}
-                        </Button>
-                        <Button variant="quiet" onClick={() => setPhase('brief')}>
-                            {t("Back")}
-                        </Button>
-                    </div>
-                </div>
-            )}
+                            ))}
+                        </ul>
+                    </details>
+                )}
 
-            {/* --- Phase: result ---------------------------------------------- */}
-            {phase === 'result' && grade && (
-                <div className="mt-4">
-                    <div className="flex items-baseline gap-2 mb-3">
-                        <span className="text-2xl font-bold text-slate-900 dark:text-white">
-                            {grade.score}<span className="text-slate-500 dark:text-slate-400">/{grade.total}</span>
-                        </span>
-                        <span className="text-sm text-slate-500 dark:text-slate-400">{t("on your paper")}</span>
+                {problem && (
+                    <div className="mt-4 flex gap-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 p-3">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-900 dark:text-amber-200">{problem}</p>
                     </div>
-                    {unproven && <UncheckedKeyNote subject="paper-marked" className="mb-3" />}
-                    <ul className="space-y-2">
-                        {grade.results.map(result => (
-                            <li key={result.id} className="flex gap-2">
-                                {result.met
-                                    ? <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-label={t("Met")} />
-                                    : <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" aria-label={t("Not met")} />}
-                                <div className="min-w-0">
-                                    <p className="text-xs font-medium text-slate-700 dark:text-slate-200"><MathText content={result.point} /></p>
-                                    {result.comment && (
-                                        <p className="text-sm text-slate-500 dark:text-slate-400"><MathText content={result.comment} /></p>
-                                    )}
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                    {grade.feedback && (
-                        <div className="mt-3 prose prose-slate dark:prose-invert max-w-none prose-sm">
-                            <Markdown content={grade.feedback} nodeId={card.nodeId} surface="paper-feedback" autoBuild={false} />
-                        </div>
-                    )}
-                    {grade.nextAction && (
-                        <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">
-                            <span className="font-medium">{t("Next:")}</span> <MathText content={grade.nextAction} />
+                )}
+
+                {/* --- Phase: brief ------------------------------------------------ */}
+                {phase === 'brief' && !done && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={onFilePicked}
+                            className="hidden"
+                            aria-hidden="true"
+                            tabIndex={-1}
+                        />
+                        {visionAvailable !== false && (
+                            <Button
+                                variant="primary"
+                                onClick={() => fileInputRef.current?.click()}
+                                busy={busy || visionAvailable === null}
+                                icon={<Camera className="w-4 h-4" aria-hidden="true" />}
+                            >
+                                {t("Photograph my work")}
+                            </Button>
+                        )}
+                        <Button onClick={openSelfMark} disabled={busy} icon={<Eye className="w-4 h-4" aria-hidden="true" />}>
+                            {visionAvailable === false ? t("Show solution & mark it myself") : t("Mark it myself")}
+                        </Button>
+                    </div>
+                )}
+
+                {visionAvailable === false && phase === 'brief' && (
+                    <p className="mt-2 text-2xs text-slate-500 dark:text-slate-400">
+                        {t("No vision model is configured, so photos can't be marked automatically. Set one under Settings → AI & Models to turn this on.")}
+                    </p>
+                )}
+
+                {/* --- Phase: adjust corners --------------------------------------- */}
+                {phase === 'adjust' && source && quad && (
+                    <div className="mt-4">
+                        <p className="text-sm text-slate-600 dark:text-slate-300 mb-2">
+                            {t("Drag the four corners onto the corners of your page.")}
                         </p>
-                    )}
-                </div>
-            )}
+                        <div
+                            ref={previewRef}
+                            className="relative touch-none select-none"
+                            onPointerMove={onHandleMove}
+                            onPointerUp={onHandleUp}
+                            onPointerCancel={onHandleUp}
+                        >
+                            <div ref={canvasHostRef} />
+                            <svg
+                                className="absolute inset-0 w-full h-full pointer-events-none"
+                                viewBox={`0 0 ${source.width} ${source.height}`}
+                                preserveAspectRatio="none"
+                                aria-hidden="true"
+                            >
+                                <polygon
+                                    points={quad.map(p => `${p.x},${p.y}`).join(' ')}
+                                    fill="rgb(var(--accent-rgb) / 0.15)"
+                                    stroke="rgb(var(--accent-rgb))"
+                                    strokeWidth={Math.max(2, source.width / 300)}
+                                />
+                            </svg>
+                            {quad.map((point, index) => (
+                                <button data-handle
+                                    key={index}
+                                    onPointerDown={onHandleDown(index)}
+                                    onKeyDown={onHandleKey(index)}
+                                    aria-label={t("Corner {{n}} — drag or use arrow keys", { n: index + 1 })}
+                                    // White in BOTH themes on purpose: this handle sits on top of
+                                    // the learner's photo, not on an app surface, and a photo of a
+                                    // page is bright regardless of what theme the app is in.
+                                    className="absolute w-8 h-8 -ml-4 -mt-4 rounded-full bg-white dark:bg-white border-2 border-accent shadow-md touch-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1"
+                                    style={{
+                                        left: `${(point.x / source.width) * 100}%`,
+                                        top: `${(point.y / source.height) * 100}%`,
+                                    }}
+                                />
+                            ))}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <Button variant="primary" onClick={submitScan} disabled={busy}>
+                                {t("Scan & submit")}
+                            </Button>
+                            <Button onClick={() => fileInputRef.current?.click()} disabled={busy}>
+                                {t("Retake")}
+                            </Button>
+                            <Button variant="quiet" onClick={() => { setPhase('brief'); setSource(null); setQuad(null); }}>
+                                {t("Cancel")}
+                            </Button>
+                        </div>
+                    </div>
+                )}
 
-            {phase === 'result' && !grade && unproven && <UncheckedKeyNote subject="paper-marked" className="mt-4" />}
-            {phase === 'result' && !grade && (
-                <p className={`${unproven ? 'mt-2' : 'mt-4'} text-sm text-slate-600 dark:text-slate-300`}>
-                    {t("Recorded. Compare your working against the solution above — the gaps you found are what to practise next.")}
-                </p>
-            )}
-        </div>
+                {/* --- Phase: grading --------------------------------------------- */}
+                {phase === 'grading' && (
+                    <div className="mt-4 flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                        <Loader2 className="w-4 h-4 animate-spin text-accent-fg" />
+                        <span>{t("Reading your working, then marking it — this takes a moment.")}</span>
+                    </div>
+                )}
+
+                {/* --- Phase: self-mark ------------------------------------------- */}
+                {phase === 'selfmark' && (
+                    <div className="mt-4">
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
+                            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">{t("Worked solution")}</p>
+                            <div className="prose prose-slate dark:prose-invert max-w-none prose-sm">
+                                {/* Fetched on demand, never cached in the card, so a
+                                    repair here has no row to persist into — surface
+                                    and node are carried for a feedback report only. */}
+                                <Markdown content={solution || ''} nodeId={card.nodeId} surface="paper-solution" autoBuild={false} />
+                            </div>
+                        </div>
+                        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                            {/* An unchecked exercise's ticks tune nothing: its mark writes no evidence. */}
+                            {card.unchecked
+                                ? t("Tick each point your paper actually shows.")
+                                : t("Tick each point your paper actually shows. Be honest — this only tunes what the app teaches you next.")}
+                        </p>
+                        <ul className="mt-2 space-y-1.5">
+                            {card.rubric.map(point => {
+                                const ticked = selfMarked.has(point.id);
+                                return (
+                                    <li key={point.id}>
+                                        <button data-row="rubric-point"
+                                            onClick={() => toggleSelfPoint(point.id)}
+                                            aria-pressed={ticked}
+                                            className="w-full flex items-start gap-2 text-left p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/40"
+                                        >
+                                            <span className={`mt-0.5 w-4 h-4 rounded border shrink-0 flex items-center justify-center ${ticked
+                                                ? 'bg-accent border-accent'
+                                                : 'border-slate-300 dark:border-slate-600'}`}>
+                                                {ticked && <Check className="w-3 h-3 text-white" />}
+                                            </span>
+                                            <span className="text-xs text-slate-700 dark:text-slate-200"><MathText content={point.point} /></span>
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <div className="mt-3 flex gap-2">
+                            <Button variant="primary" onClick={submitSelfMark} busy={busy}>
+                                {t("Record {{size}} of {{length}}", { size: selfMarked.size, length: card.rubric.length })}
+                            </Button>
+                            <Button variant="quiet" onClick={() => setPhase('brief')}>
+                                {t("Back")}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- Phase: result ---------------------------------------------- */}
+                {phase === 'result' && grade && (
+                    <div className="mt-4">
+                        <div className="flex items-baseline gap-2 mb-3">
+                            <span className="text-2xl font-bold text-slate-900 dark:text-white">
+                                {grade.score}<span className="text-slate-500 dark:text-slate-400">/{grade.total}</span>
+                            </span>
+                            <span className="text-sm text-slate-500 dark:text-slate-400">{t("on your paper")}</span>
+                        </div>
+                        {unproven && <UncheckedKeyNote subject="paper-marked" className="mb-3" />}
+                        <ul className="space-y-2">
+                            {grade.results.map(result => (
+                                <li key={result.id} className="flex gap-2">
+                                    {result.met
+                                        ? <Check className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-label={t("Met")} />
+                                        : <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" aria-label={t("Not met")} />}
+                                    <div className="min-w-0">
+                                        <p className="text-xs font-medium text-slate-700 dark:text-slate-200"><MathText content={result.point} /></p>
+                                        {result.comment && (
+                                            <p className="text-sm text-slate-500 dark:text-slate-400"><MathText content={result.comment} /></p>
+                                        )}
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                        {/* A point the marker said is not met: the learner may
+                            know better. Self-marked work (no `grade`) asks
+                            nothing; the learner was the marker. */}
+                        {grade.results.some(r => !r.met) && <ReportLink className="mt-3" />}
+                        {grade.feedback && (
+                            <div className="mt-3 prose prose-slate dark:prose-invert max-w-none prose-sm">
+                                <Markdown content={grade.feedback} nodeId={card.nodeId} surface="paper-feedback" autoBuild={false} />
+                            </div>
+                        )}
+                        {grade.nextAction && (
+                            <p className="mt-3 text-xs text-slate-700 dark:text-slate-200">
+                                <span className="font-medium">{t("Next:")}</span> <MathText content={grade.nextAction} />
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                {phase === 'result' && !grade && unproven && <UncheckedKeyNote subject="paper-marked" className="mt-4" />}
+                {phase === 'result' && !grade && (
+                    <p className={`${unproven ? 'mt-2' : 'mt-4'} text-sm text-slate-600 dark:text-slate-300`}>
+                        {t("Recorded. Compare your working against the solution above — the gaps you found are what to practise next.")}
+                    </p>
+                )}
+            </div>
+        </ReportScope>
     );
 }
