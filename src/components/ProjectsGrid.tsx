@@ -326,7 +326,7 @@ export default function ProjectsGrid() {
                                         label: (
                                             <span className="inline-flex items-baseline gap-1.5">
                                                 {v === 'active' ? t("Active") : v === 'finished' ? t("Finished") : t("Archived")}
-                                                <span className="tabular-nums text-slate-500 dark:text-slate-400">{counts[v]}</span>
+                                                <span className="tabular-nums text-slate-600 dark:text-slate-400">{counts[v]}</span>
                                             </span>
                                         ),
                                     }))}
@@ -338,7 +338,10 @@ export default function ProjectsGrid() {
                                 // the app does not style. Ours is the one clear.
                                 // Right of the switch; with no switch it starts the
                                 // line, where the eye begins, not alone at the far end.
-                                <div className={`relative flex-1 min-w-[14rem] max-w-sm${hasRecords ? ' ml-auto' : ''}`}>
+                                // It wraps under the switch below 14rem, and is never
+                                // wider than the line (a 14rem floor ran off a phone
+                                // at 160% interface scale).
+                                <div className={`relative flex-1 basis-56 min-w-0 max-w-sm${hasRecords ? ' ml-auto' : ''}`}>
                                     <TextInput
                                         ref={findRef}
                                         type="text"
