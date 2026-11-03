@@ -30,6 +30,9 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { uiLocale } from '../utils/locale';
 import { k } from '../i18n';
 import { cx } from './ui/vocabulary';
+import { freeColour } from '../utils/freeColour';
+import { MAX_FILE_BYTES } from './creation/SourceFiles';
+import { READ_REASON, READ_REASON_OTHER } from './shortCourses/readReasons';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import type { AssistantCheck, AssistantEditKind, ChatAttachment } from '../types';
@@ -1087,21 +1090,53 @@ export function CourseDraftProposals({ courses, onOpen }: { courses: CourseDraft
 }
 
 /**
- * A short course from one source in this chat (MOCKUP, branch
- * t3code/short-courses). Create writes it at once and it appears among the
- * Projects page's short courses; nothing is asked in between.
+ * A short course from one source in this chat (server/shortCourses.js): a
+ * file attached here or a link the learner gave. Create reads the source and
+ * makes the course at once (POST /api/short-courses), keeping the name and the
+ * topics shown here; it appears among the Projects page's short courses with
+ * its topics being written. Nothing is asked in between, because there is
+ * nothing left to fill in. `once`: this card is drawn again on every re-read
+ * of the conversation, and a second press finds the course the first made.
  */
-export function ShortCourseProposals({ shorts, attachments, onOpen }: {
+export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
     shorts: ShortCourseProposal[];
     attachments: Map<number, ChatAttachment>;
+    turnKey: string;
     onOpen: () => void;
 }) {
     const { t } = useTranslation();
-    const [created, setCreated] = useState<Set<number>>(new Set());
+    const addToast = useStore(s => s.addToast);
+    const projects = useStore(s => s.projects);
+    const loadProjects = useStore(s => s.loadProjects);
+    const [, redraw] = useState(0);
+    const [busy, setBusy] = useState<string | null>(null);
     if (!shorts.length) return null;
+
+    const create = async (s: ShortCourseProposal, source: { attachmentId: number } | { url: string }, key: string) => {
+        setBusy(key);
+        try {
+            const r = await api.createShortCourse({
+                ...source, name: s.name, topics: s.topics, icon: s.icon, color: freeColour(projects), via: 'assistant', once: true,
+            });
+            outcomes.set(key, { state: 'saved', projectId: r.projectId });
+            redraw(n => n + 1);
+            void loadProjects({ silent: true });
+        } catch (e) {
+            const err = e as { data?: { reason?: string } } & Error;
+            const reason = err.data?.reason;
+            addToast('error', t("Could not create the short course"),
+                reason === 'no_ai' ? t("Writing it needs an AI connection.")
+                    : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
+                        : err.message);
+        } finally {
+            setBusy(null);
+        }
+    };
+
     return (
         <div className="space-y-2">
             {shorts.map((s, i) => {
+                const key = `${turnKey}:short:${i}`;
                 const fileId = Number(s.from.match(/^\s*(?:file|attachment)?\s*#?(\d+)\s*$/i)?.[1] ?? NaN);
                 const att = Number.isFinite(fileId) ? attachments.get(fileId) : undefined;
                 let host = '';
@@ -1109,9 +1144,12 @@ export function ShortCourseProposals({ shorts, attachments, onOpen }: {
                 const fromLine = att
                     ? (att.pages ? t("From {{name}} · {{count}} pages", { name: att.name, count: att.pages }) : t("From {{name}}", { name: att.name }))
                     : t("From {{name}}", { name: host || s.from });
-                const done = created.has(i);
+                // Only a file of this conversation or a web address: anything
+                // else in `from` is not a source the app could read.
+                const source = att ? { attachmentId: att.id } : host ? { url: s.from.trim() } : null;
+                const done = outcomes.get(key)?.state === 'saved';
                 return (
-                    <div key={i} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                    <div key={key} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                         <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
                             <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
                             {t("A short course")}
@@ -1135,14 +1173,18 @@ export function ShortCourseProposals({ shorts, attachments, onOpen }: {
                             {done ? (
                                 <>
                                     <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
-                                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its lessons are being written.")}
+                                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its topics are being written.")}
                                     </span>
                                     <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={onOpen}>{t("Open")}</Button>
                                 </>
-                            ) : (
-                                <Button size="sm" variant="neutral" icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => setCreated(new Set(created).add(i))}>
+                            ) : source ? (
+                                <Button size="sm" variant="neutral" icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy === key} disabled={busy !== null && busy !== key} onClick={() => void create(s, source, key)}>
                                     {t("Create short course")}
                                 </Button>
+                            ) : (
+                                <span className="text-sm text-slate-500 dark:text-slate-400">
+                                    {Number.isFinite(fileId) ? t("That file is no longer in this conversation.") : t("The app cannot read this source.")}
+                                </span>
                             )}
                         </div>
                     </div>

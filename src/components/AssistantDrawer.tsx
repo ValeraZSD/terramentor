@@ -1669,6 +1669,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                             <ShortCourseProposals
                                                 shorts={writes.shorts}
                                                 attachments={conversationFiles}
+                                                turnKey={turnKey}
                                                 onOpen={() => { navigate('/projects'); if (!docked) onClose(); }}
                                             />
                                             {/* Copy the WHOLE answer — the markdown as

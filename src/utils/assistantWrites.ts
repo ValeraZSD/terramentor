@@ -233,10 +233,10 @@ export interface CourseDraftProposal {
 }
 
 /**
- * A short course from one source in this conversation (MOCKUP, branch
- * t3code/short-courses): a file the learner attached or a link they pasted,
- * with the topics the model would make of it. Create writes it at once; there
- * is no dialog in between, because there is nothing left to fill in.
+ * A short course from one source in this conversation (server/shortCourses.js):
+ * a file the learner attached or a link they pasted, with the topics the model
+ * would make of it. Create writes it at once; there is no dialog in between,
+ * because there is nothing left to fill in.
  */
 export interface ShortCourseProposal {
     name: string;

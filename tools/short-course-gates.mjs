@@ -39,7 +39,7 @@
 //      assistant each become a short course, the assistant's topics kept;
 //  10. the assistant's ```short block is read by the client's parser.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -527,8 +527,20 @@ ok('the model was given them', /PROPOSED TOPICS:/.test(bodies[0]?.user || ''));
 const aRow = db.prepare('SELECT name, made_from FROM projects WHERE id = ?').get(c.json.projectId);
 ok('it keeps the name it was shown, and its file is its source', aRow.name === 'Teaching a puppy to walk on a loose leash' && JSON.parse(aRow.made_from).kind === 'pdf' && JSON.parse(aRow.made_from).file === 'loose-leash.pdf', aRow);
 ok('the PDF\'s pages are cited', db.prepare(`SELECT COUNT(*) c FROM node_sources ns JOIN nodes n ON n.id = ns.node_id WHERE n.project_id = ? AND ns.page_from IS NOT NULL`).get(c.json.projectId).c > 0);
-c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', topics: ['A', 'B', 'C'] });
-ok('a link the assistant prepared is read and built in one press', c.status === 200 && await waitBuilt(c.json.projectId), c);
+// The assistant's card is drawn again on every re-read of the conversation:
+// pressed again, it finds the course it made, by name and file, and makes none.
+const fileCourse = c.json.projectId;
+let n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+c = await api('POST', '/api/short-courses', { attachmentId: att, name: 'Teaching a puppy to walk on a loose leash', topics: proposed, once: true });
+ok('a second press on the same card finds the course it made', c.status === 200 && c.json?.existed === true && c.json.projectId === fileCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c);
+c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
+ok('a link the assistant prepared is read and built in one press', c.status === 200 && !c.json.existed && await waitBuilt(c.json.projectId), c);
+const linkCourse = c.json.projectId;
+n1 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
+c = await api('POST', '/api/short-courses', { url: 'money.example/index-funds', name: 'Index funds', topics: ['A', 'B', 'C'], once: true });
+ok('pressed again, the same link (as typed or in full) is the same course', c.json?.existed === true && c.json.projectId === linkCourse && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n1, c);
+c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, again', topics: ['A', 'B', 'C'], once: true });
+ok('another card with another name is another course', c.status === 200 && !c.json.existed && c.json.projectId !== linkCourse && await waitBuilt(c.json.projectId), c);
 const n0 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'https://www.youtube.com/watch?v=vidNoCapts1', topics: ['A', 'B', 'C'] });
 ok('an unreadable link from the assistant makes nothing and says why', c.status === 422 && c.json?.reason === 'no_captions' && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n0, c);
@@ -571,6 +583,13 @@ ok('a block gives its name, source and topics, and leaves the prose', w.shorts.l
 ok('one topic is not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n```').shorts.length === 0);
 ok('ten topics are cut to eight', splitWriteBlocks(`\`\`\`short\nname: X\nsource: https://a.example\ntopics:\n${Array.from({ length: 10 }, (_, i) => `${i + 1}. T${i}`).join('\n')}\n\`\`\``).shorts[0]?.topics.length === 8);
 ok('no source, no course', splitWriteBlocks('```short\nname: X\ntopics:\n- A\n- B\n```').shorts.length === 0);
+// The block the assistant is SHOWN (server/ai.js, A SHORT COURSE FROM ONE
+// SOURCE) is one this parser reads: a prompt whose example the client drops
+// would teach the model to write cards nobody sees.
+const aiSource = readFileSync(join(ROOT, 'server/ai.js'), 'utf8').replace(/\r\n/g, '\n');
+const shown = aiSource.match(/A SHORT COURSE FROM ONE SOURCE[^\n]*\n(\\`\\`\\`short\n[\s\S]*?\n\\`\\`\\`)/)?.[1]?.replace(/\\`/g, '`') ?? '';
+const shownBlock = shown ? splitWriteBlocks(shown) : null;
+ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 2 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
 
 await new Promise(res => server.close(res));
 await new Promise(res => stub.close(res));

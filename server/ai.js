@@ -3724,6 +3724,16 @@ language: the code of the language the lessons are written in (en, nl, ru, …) 
 icon: an icon name from the list above (optional)
 colour: a colour name from the list above (optional)
 \`\`\`
+- A SHORT COURSE FROM ONE SOURCE, when they want to learn what one link they gave or one file attached in this conversation teaches, soon and without planning a course: one level of 3 to 8 topics written from that source, no phases and no dates. Create reads the source and makes the course at once, keeping your name and topics; it appears among the short courses on the Projects screen. At most 1 per message:
+\`\`\`short
+name: a short name for what it teaches
+from: the exact link they gave, or file ATTACHMENT_ID for a file of this conversation
+icon: an icon name from the list above (optional)
+topics:
+- the first topic
+- the next one, one per line, 3 to 8 in all, in the order they are best learned
+\`\`\`
+Only from a link the learner gave or a file of this conversation, never an address you found or rebuilt. For a whole subject with no single source, prepare A NEW COURSE instead. If the link cannot be read, the app says why and offers its own way on.
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
 You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 

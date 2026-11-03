@@ -346,6 +346,14 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     const given = cleanLine(body?.name, 500);
     const proposed = proposedTopics(body?.topics);
 
+    // `once` (the assistant's card, drawn again on every re-read of the
+    // conversation): a second press finds the course the first one made, by
+    // its name and its source, before anything is read again.
+    if (body?.once && given) {
+        const existing = existingShortCourse({ name: given, url, attachmentId });
+        if (existing) return { projectId: existing, taskId: null, existed: true };
+    }
+
     let staged = null;
     let topicTitle = '';
     if (fromTopic && typeof fromTopic === 'object') {
@@ -405,6 +413,20 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         fromTopic: !staged, lang: language.lang, origin, words,
     });
     return { projectId, taskId };
+}
+
+/** The short course already made under `name` from this link or chat file, if one was. */
+function existingShortCourse({ name, url, attachmentId }) {
+    const link = typeof url === 'string' && url.trim() ? parseLink(url) : null;
+    const file = attachmentId != null && attachmentId !== ''
+        ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(Number(attachmentId) || 0)?.name ?? null
+        : null;
+    if (!link?.ok && !file) return null;
+    for (const row of db.prepare('SELECT id, made_from FROM projects WHERE made_from IS NOT NULL AND name = ? ORDER BY id DESC').all(name)) {
+        const from = parseJson(row.made_from) || {};
+        if (link?.ok ? from.url === link.url : (!from.url && from.file === file)) return row.id;
+    }
+    return null;
 }
 
 /** Write a short course's topics: one model call, as a background task. */
