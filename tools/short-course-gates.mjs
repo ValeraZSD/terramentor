@@ -594,7 +594,20 @@ section('10. the assistant\'s ```short block');
 const esbuild = require('esbuild');
 const outWrites = join(scratch, 'assistantWrites.mjs');
 await esbuild.build({ entryPoints: [join(ROOT, 'src/utils/assistantWrites.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outWrites, logLevel: 'silent' });
-const { splitWriteBlocks } = await import(pathToFileURL(outWrites).href);
+const { splitWriteBlocks, shortCourseMade } = await import(pathToFileURL(outWrites).href);
+// A card read again (a reload) finds the course it made, by the server's own
+// `once` rule, so it says so instead of offering Create a second time.
+{
+    const rows = db.prepare('SELECT id, name, made_from FROM projects').all();
+    const found = (name, from, file) => shortCourseMade(rows, { name, from }, file)?.id;
+    ok('a card read again finds the course its link made', found('Index funds', 'https://money.example/index-funds') === linkCourse, found('Index funds', 'https://money.example/index-funds'));
+    ok('...written with www. or a trailing slash too', found('Index funds', 'https://www.money.example/index-funds/') === linkCourse);
+    ok('...and the course its file made', found('Teaching a puppy to walk on a loose leash', 'file 7', 'loose-leash.pdf') === fileCourse);
+    ok('another name, another page or another file is not that course',
+        found('Index funds, part two', 'https://money.example/index-funds') === undefined
+        && found('Index funds', 'https://money.example/bonds') === undefined
+        && found('Teaching a puppy to walk on a loose leash', 'file 7', 'other.pdf') === undefined);
+}
 const w = splitWriteBlocks('Yes.\n\n```short\nname: Leash walking\nfrom: file 12\nicon: heart\ntopics:\n- Why puppies pull\n- Reward the spot\n- Stop and go\n```\n');
 ok('a block gives its name, source and topics, and leaves the prose', w.shorts.length === 1 && w.shorts[0].name === 'Leash walking' && w.shorts[0].from === 'file 12' && w.shorts[0].topics.length === 3 && w.body.trim() === 'Yes.', w);
 ok('one topic is not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n```').shorts.length === 0);

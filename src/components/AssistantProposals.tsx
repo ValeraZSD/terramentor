@@ -18,7 +18,7 @@ import ReportProblemDialog from './ReportProblemDialog';
 import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
-    similarFront, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
+    similarFront, shortCourseMade, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
     type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
     type WrongProposal,
 } from '../utils/assistantWrites';
@@ -1118,7 +1118,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
             const r = await api.createShortCourse({
                 ...source, name: s.name, topics: s.topics, icon: s.icon, color: freeColour(projects), via: 'assistant', once: true,
             });
-            outcomes.set(key, { state: 'saved', projectId: r.projectId });
+            outcomes.set(key, { state: r.existed ? 'existed' : 'saved', projectId: r.projectId });
             redraw(n => n + 1);
             void loadProjects({ silent: true });
         } catch (e) {
@@ -1147,7 +1147,13 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                 // Only a file of this conversation or a web address: anything
                 // else in `from` is not a source the app could read.
                 const source = att ? { attachmentId: att.id } : host ? { url: s.from.trim() } : null;
-                const done = outcomes.get(key)?.state === 'saved';
+                const made = outcomes.get(key);
+                // Pressed here, or made earlier (the conversation read again):
+                // then the card says so rather than offering Create twice.
+                const earlier = made ? undefined : (source ? shortCourseMade(projects, s, att?.name) : undefined);
+                const state = made?.state === 'saved' ? 'saved' : (made?.state === 'existed' || earlier) ? 'existed' : null;
+                // The colour Create will give it (the next one free), then the one it got.
+                const colour = earlier?.color ?? (made ? projects.find(p => p.id === made.projectId)?.color : freeColour(projects));
                 return (
                     <div key={key} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                         <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
@@ -1156,7 +1162,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                         </div>
                         <div className="px-3 py-2 space-y-2">
                             <div className="flex items-center gap-2.5">
-                                <CourseTile icon={s.icon} color={null} />
+                                <CourseTile icon={s.icon} color={colour} />
                                 <div className="min-w-0">
                                     <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{s.name}</p>
                                     <p className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 min-w-0">
@@ -1170,11 +1176,17 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                             </ol>
                         </div>
                         <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
-                            {done ? (
+                            {state ? (
                                 <>
-                                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
-                                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its topics are being written.")}
-                                    </span>
+                                    {state === 'saved' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                                            <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its topics are being written.")}
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                                            <Check className="w-4 h-4" aria-hidden="true" />{t("Already one of your short courses")}
+                                        </span>
+                                    )}
                                     <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={onOpen}>{t("Open")}</Button>
                                 </>
                             ) : source ? (

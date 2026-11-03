@@ -247,6 +247,34 @@ export interface ShortCourseProposal {
 }
 
 /**
+ * The course a short-course card already made, so a card read again (a reload,
+ * another device) says Created instead of offering Create a second time. The
+ * server's own `once` rule (`existingShortCourse`): the same name and the same
+ * source, a file by its name, a link by host and path, `www.` and a trailing
+ * slash aside. The server stays the judge: a press still sends `once`.
+ */
+export function shortCourseMade<P extends { name: string; made_from?: string | null }>(
+    projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, fileName?: string | null,
+): P | undefined {
+    const place = (u: string) => {
+        try {
+            const x = new URL(u.trim());
+            return `${x.hostname.toLowerCase().replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`;
+        } catch { return null; }
+    };
+    const wanted = fileName ? null : place(proposal.from);
+    if (!fileName && !wanted) return undefined;
+    const name = proposal.name.trim();
+    return projects.find(p => {
+        if (!p.made_from || p.name.trim() !== name) return false;
+        let from: { url?: string; file?: string } | null = null;
+        try { from = JSON.parse(p.made_from); } catch { return false; }
+        if (!from) return false;
+        return fileName ? !from.url && from.file === fileName : !!from.url && place(from.url) === wanted;
+    });
+}
+
+/**
  * A file from this conversation, prepared to be saved into the library
  * (server/assistantEdits.js `saveAssistantAttachment`). The description is the
  * model's — written now, because this is where the words outlive the picture.
