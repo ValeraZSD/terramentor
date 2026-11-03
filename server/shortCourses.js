@@ -373,6 +373,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
 
     let staged = null;
     let readHere = false;
+    let fromAttachment = null;
     let topicTitle = '';
     if (fromTopic && typeof fromTopic === 'object') {
         topicTitle = cleanLine(fromTopic.title, 300);
@@ -389,6 +390,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         if (!read.ok) throw new ShortCourseError(422, 'That file has no text to build a course from.', { reason: read.reason, fix: read.fix });
         staged = loadStaged([read.stagedId])[0];
         readHere = true;
+        fromAttachment = Number(attachmentId);
     } else if (typeof url === 'string' && url.trim()) {
         if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
         const read = await readSource({ url }, { acceptLanguage, signal });
@@ -425,6 +427,16 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // same text finds again) and the topics the assistant showed.
     if (picked) madeFrom.parts = chapterRanges(staged.content, picked);
     if (proposed.length) madeFrom.topics = proposed;
+    // Which file of the chat it was: another file of the same name in another
+    // conversation is another source.
+    if (fromAttachment) madeFrom.attachment = fromAttachment;
+
+    // A book is a few of its chapters or a full course, whichever door it came
+    // in by: the strip asks before Create, the assistant's card does not.
+    if (staged && !picked && sizeOf(words) === 'too-big') {
+        if (readHere) discardStaged(staged.id);
+        throw new ShortCourseError(413, 'This source is a whole book: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+    }
 
     // A second press of the same card that came in while the first was still
     // reading its source: from here to the INSERT nothing waits, so asking
@@ -475,15 +487,36 @@ function chapterRanges(text, picked) {
 /** The short course already made under `name` from this link or chat file, if one was. */
 function existingShortCourse({ name, url, attachmentId }) {
     const link = typeof url === 'string' && url.trim() ? parseLink(url) : null;
-    const file = attachmentId != null && attachmentId !== ''
-        ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(Number(attachmentId) || 0)?.name ?? null
-        : null;
-    if (!link?.ok && !file) return null;
+    const place = link?.ok ? sourcePlace(link.url) : null;
+    const attId = attachmentId != null && attachmentId !== '' ? Number(attachmentId) || 0 : null;
+    const file = attId ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(attId)?.name ?? null : null;
+    if (!place && !file) return null;
     for (const row of db.prepare('SELECT id, made_from FROM projects WHERE made_from IS NOT NULL AND name = ? ORDER BY id DESC').all(name)) {
         const from = parseJson(row.made_from) || {};
-        if (link?.ok ? from.url === link.url : (!from.url && from.file === file)) return row.id;
+        if (place ? sourcePlace(from.url) === place : (!from.url && from.attachment === attId && from.file === file)) return row.id;
     }
     return null;
+}
+
+/**
+ * Which source a link is, for "was a course made from it": a YouTube video by
+ * its id, anything else by host, path and query, `www.`/`m.` and a trailing
+ * slash aside. The client's twin is `sourcePlace` in src/utils/assistantWrites.ts
+ * (the card's "Already one of your short courses"); the two must agree, and
+ * tools/short-course-gates.mjs holds them to it.
+ */
+export function sourcePlace(u) {
+    try {
+        const x = new URL(String(u ?? '').trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const host = x.hostname.toLowerCase().replace(/^(?:www|m)\./, '');
+        const video = host === 'youtu.be' ? x.pathname.slice(1)
+            : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
+                : '';
+        if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join('&');
+        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+    } catch { return null; }
 }
 
 /** Write a short course's topics: one model call, as a background task. */
@@ -626,6 +659,8 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
             return { id: `doc:${d.id}`, title: d.title, file_type: d.file_type, content: d.content, page_count: d.page_count, map };
         });
         const kept = ranges.length && rows.length === 1 ? rows[0].map.sections.filter(inPicked) : [];
+        // Its chapters not found again: writing the whole book instead is not a retry.
+        if (ranges.length && !kept.length) throw new ShortCourseError(409, 'Its chapters could not be found in its source again.');
         if (kept.length) {
             rows[0].map = { ...rows[0].map, sections: kept };
             words = ranges.reduce((n, [a, b]) => n + wordsOf(rows[0].content.slice(a, b)), 0);

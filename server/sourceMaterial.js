@@ -342,6 +342,9 @@ export function shortBlock(src) {
         const total = slices.reduce((n, s) => n + s.text.length, 0);
         const room = budget - slices.length * 80 - src.docs.length * 120;
         const ratio = total > room ? Math.max(0, room) / total : 1;
+        // Each part keeps a few lines of its own, but only while there is room
+        // for them all: hundreds of parts share the budget, not double it.
+        const least = Math.min(120, Math.floor(Math.max(0, room) / Math.max(1, slices.length)));
         const out = [];
         let doc = null;
         for (const s of slices) {
@@ -349,11 +352,18 @@ export function shortBlock(src) {
                 doc = s.doc;
                 out.push(docHeader(doc));
             }
-            const keep = ratio < 1 ? Math.max(120, Math.floor(s.text.length * ratio)) : s.text.length;
-            const text = defang(s.text.length > keep ? `${s.text.slice(0, keep).trim()}…` : s.text);
-            out.push(s.head ? `${lineOf(s.head, 0)}\n${text}` : text);
+            const keep = ratio < 1 ? Math.max(least, Math.floor(s.text.length * ratio)) : s.text.length;
+            const cut = s.text.slice(0, keep).trim();
+            const text = defang(s.text.length > keep ? (cut ? `${cut}…` : '') : s.text);
+            out.push(s.head ? [lineOf(s.head, 0), text].filter(Boolean).join('\n') : text);
         }
         body = out.filter(Boolean).join('\n\n');
+        // So many parts that their headings alone overrun it: the first ones,
+        // whole, and a line saying the rest were left out.
+        if (body.length > budget) {
+            const at = body.lastIndexOf('\n\n', budget - 60);
+            body = `${body.slice(0, at > 0 ? at : budget - 60)}\n\n(The rest of the source is left out here.)`;
+        }
     }
     return {
         system: `\n\nSOURCE MATERIAL: the course is built FROM the source in the message between ${OPEN} and ${CLOSE}, every part numbered §1, §2, … Each topic carries "sections": the § numbers of the parts it teaches, e.g. { "title": "...", "description": "...", "sections": [2, 3] }. Together the topics cover what the source teaches, in its order; teach what it holds and add nothing it does not. ${FRONT_MATTER_RULE} Use the source's own terms and notation.`,

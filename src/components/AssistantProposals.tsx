@@ -18,7 +18,7 @@ import ReportProblemDialog from './ReportProblemDialog';
 import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
-    similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
+    liveOutcome, similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
     type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
     type WrongProposal,
 } from '../utils/assistantWrites';
@@ -63,7 +63,7 @@ export interface TopicLabel {
  * a turn under a new key when a history reload swaps its provisional id for
  * the stored one; kept in the component, "Added" would turn back into "Add".
  */
-const outcomes = new Map<string, { state: 'added' | 'existed' | 'undone' | 'kept' | 'saved' | 'opened'; cardId?: number; nodeId?: number; projectId?: number }>();
+const outcomes = new Map<string, { state: 'added' | 'existed' | 'undone' | 'kept' | 'saved' | 'opened'; cardId?: number; nodeId?: number; projectId?: number; seen?: boolean }>();
 
 /** Open the app's own mastery check on a topic. The gate mode is read on the press. */
 export function CheckButtons({ checks, labels }: { checks: CheckTarget[]; labels: Record<number, TopicLabel> }) {
@@ -1126,6 +1126,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
             const reason = err.data?.reason;
             addToast('error', t("Could not create the short course"),
                 reason === 'no_ai' ? t("Writing it needs an AI connection.")
+                    : reason === 'too_big' ? t("It is a whole book. Add it in Short courses on Projects and pick a few of its chapters.")
                     : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
                         : err.message);
         } finally {
@@ -1148,10 +1149,11 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                 // Only a file of this conversation or a web address: anything
                 // else in `from` is not a source the app could read.
                 const source = att ? { attachmentId: att.id } : address ? { url: s.from.trim() } : null;
-                const made = outcomes.get(key);
+                // Pressed here, its course not deleted since.
+                const made = liveOutcome(outcomes.get(key), projects);
                 // Pressed here, or made earlier (the conversation read again):
                 // then the card says so rather than offering Create twice.
-                const earlier = made ? undefined : (source ? shortCourseMade(projects, s, att?.name) : undefined);
+                const earlier = made ? undefined : (source ? shortCourseMade(projects, s, att ? { id: att.id, name: att.name } : null) : undefined);
                 const state = made?.state === 'saved' ? 'saved' : (made?.state === 'existed' || earlier) ? 'existed' : null;
                 // The colour Create will give it (the next one free), then the one it got.
                 const colour = earlier?.color ?? (made ? projects.find(p => p.id === made.projectId)?.color : freeColour(projects));
