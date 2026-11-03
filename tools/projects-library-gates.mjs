@@ -120,10 +120,12 @@ async function page(path, lib = LIB) {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     const json = (body) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } }));
+    let current = lib;
     w.fetch = (url) => {
         const u = String(url);
-        if (/\/api\/projects(\?|$)/.test(u)) return json(lib);
-        if (/\/api\/short-courses(\?|$)/.test(u)) return json({ courses: lib.filter(p => p.made_from).map(rowOf) });
+        if (/\/api\/projects(\?|$)/.test(u)) return json(current);
+        // As server/shortCourses.js answers it: archived short courses are not on the list.
+        if (/\/api\/short-courses(\?|$)/.test(u)) return json({ courses: current.filter(p => p.made_from && p.status !== 'archived').map(rowOf) });
         return new Promise(() => { });
     };
     w.eval(bundle);
@@ -137,18 +139,20 @@ async function page(path, lib = LIB) {
     const radios = () => [...el.querySelectorAll('[role="radio"]')];
     const radio = (word) => radios().find(b => b.textContent.trim().startsWith(word));
     const find = () => el.querySelector('input[role="searchbox"], input[type="search"]');
+    const fill = async (input, value) => {
+        const set = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set;
+        await act(async () => { set.call(input, value); input.dispatchEvent(new w.Event('input', { bubbles: true })); });
+        await settle(act);
+    };
     return {
-        text, radios, radio, find, where: () => w.__where,
+        text, radios, radio, find, fill, el, where: () => w.__where,
+        /** The library changes under the page (a course deleted, moved, finished). */
+        setLib: async (next) => { current = next; await act(async () => { useStore.setState({ projects: next }); }); await settle(act); },
         /** Names from `names` on screen, in the order they are drawn. */
         order: (names) => names.filter(n => text().includes(n)).sort((a, b) => text().indexOf(a) - text().indexOf(b)),
         count: (word) => Number((radio(word)?.textContent ?? '').replace(/\D+/g, '') || NaN),
         press: async (node) => { await act(async () => { node.dispatchEvent(new w.MouseEvent('click', { bubbles: true })); }); await settle(act); },
-        type: async (value) => {
-            const input = find();
-            const set = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set;
-            await act(async () => { set.call(input, value); input.dispatchEvent(new w.Event('input', { bubbles: true })); });
-            await settle(act);
-        },
+        type: (value) => fill(find(), value),
         close: () => { act(() => r.unmount()); w.close(); },
     };
 }
@@ -262,6 +266,49 @@ section('a small library gets no switch and no find field');
     check('…and every active course is still on the page',
         onlyActive.every(p => c.text().includes(p.name)));
     c.close();
+}
+
+// ---- 6. the library changes under the page ---------------------------------------
+section('the page stays usable when the library changes under it');
+{
+    // The last finished course goes back to Active while Finished is open: the
+    // switch goes with it, so the page must not stay on an empty Finished view.
+    const one = [...LIB.filter(p => p.status === 'active'), P(4, 'World history', { status: 'completed', completed_topic_count: 6, last_done_at: '2026-09-01T09:00:00.000Z' })];
+    const pg = await page('/projects?show=finished', one);
+    check('one finished course: Finished shows it', pg.text().includes('World history'));
+    await pg.setLib(one.map(p => (p.id === 4 ? { ...p, status: 'active' } : p)));
+    check('…moved back to Active, the page shows Active, not an empty Finished with no way out',
+        pg.radios().length === 0 && ACTIVE_FULL.every(n => pg.text().includes(n)) && !/Nothing finished yet/.test(pg.text()),
+        pg.text().slice(0, 200));
+    pg.close();
+}
+{
+    // A filter typed at 12 projects, then one deleted: the field goes, and so must the filter.
+    const twelve = LIB.slice(0, 12);
+    const pg = await page('/projects', twelve);
+    if (pg.find()) await pg.type('chem');
+    await pg.setLib(twelve.slice(0, 11));
+    check('the find field gone (11 projects), nothing is filtered by text no one can see',
+        !pg.find() && ACTIVE_FULL.every(n => pg.text().includes(n)), pg.order(NAMES).join(', '));
+    pg.close();
+}
+{
+    // A link typed into the short-course box survives a filter typed and cleared.
+    const pg = await page('/projects');
+    const box = () => pg.el.querySelector('input[aria-label="Paste a link or drop a file"], input[aria-label="Paste a link"]');
+    if (box()) await pg.fill(box(), 'example.org/half-typed');
+    if (pg.find()) { await pg.type('dutch'); await pg.type(''); }
+    check('a half-typed link in the short-course box survives a find typed and cleared',
+        box()?.value === 'example.org/half-typed', box() ? JSON.stringify(box().value) : 'no box');
+    pg.close();
+}
+{
+    // An imported course can carry any string as a date.
+    const odd = LIB.map(p => (p.id === 5 ? { ...p, last_done_at: 'not a date' } : p));
+    const pg = await page('/projects?show=finished', odd);
+    check('a finished course with an unreadable date still draws (its topic count instead)',
+        pg.text().includes('Calculus one') && pg.text().includes('6 / 6 topics'), pg.text().slice(0, 160));
+    pg.close();
 }
 
 console.log(`\n${pass} passed, ${fail} failed${BASE ? ` (ProjectsGrid + ShortCourses at ${BASE})` : ''}`);
