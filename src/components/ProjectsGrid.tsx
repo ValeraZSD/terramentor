@@ -31,10 +31,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
-import { Plus, Search } from 'lucide-react';
-import { Button } from './ui/Button';
+import { Plus, Search, X } from 'lucide-react';
+import { Button, IconButton } from './ui/Button';
+import { TextInput } from './ui/Field';
 import { SegmentedControl } from './ui/SegmentedControl';
-import { cx, FIELD_BASE } from './ui/vocabulary';
 import { RecordCard } from './projects/RecordCard';
 import { COMPACT_GRID } from './projects/CompactCard';
 import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
@@ -246,6 +246,7 @@ export default function ProjectsGrid() {
     const show = showFrom(location.search);
     const setShow = (next: Show) => navigate(next === 'active' ? '/projects' : `/projects?show=${next}`, { replace: true });
     const [query, setQuery] = useState('');
+    const findRef = useRef<HTMLInputElement>(null);
     const q = fold(query.trim());
     const matches = (name: string) => !q || fold(name).includes(q);
     const byId = new Map(projects.map(p => [p.id, p]));
@@ -332,18 +333,37 @@ export default function ProjectsGrid() {
                                 />
                             )}
                             {canFind && (
-                                <label className="relative flex-1 min-w-[14rem] max-w-sm ml-auto">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" aria-hidden="true" />
-                                    <input
-                                        type="search"
+                                // A text field, not `type="search"`: Edge and Chrome
+                                // draw their own blue ✕ inside a search field, one
+                                // the app does not style. Ours is the one clear.
+                                <div className="relative flex-1 min-w-[14rem] max-w-sm ml-auto">
+                                    <TextInput
+                                        ref={findRef}
+                                        type="text"
+                                        role="searchbox"
+                                        enterKeyHint="search"
+                                        icon={<Search className="w-4 h-4" aria-hidden="true" />}
                                         value={query}
                                         onChange={e => setQuery(e.target.value)}
-                                        onKeyDown={e => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
-                                        placeholder={t("Find a course")}
-                                        aria-label={t("Find a course")}
-                                        className={cx(FIELD_BASE, 'block w-full h-10 pl-9 pr-3 text-sm')}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Escape' && query && !e.nativeEvent.isComposing) { e.stopPropagation(); setQuery(''); }
+                                        }}
+                                        placeholder={t("Find a course…")}
+                                        aria-label={t("Find a course…")}
+                                        className={query ? 'pr-10 touch:pr-12' : undefined}
                                     />
-                                </label>
+                                    {query && (
+                                        <IconButton
+                                            size="sm"
+                                            className="absolute right-1 top-1/2 -translate-y-1/2"
+                                            // Clearing keeps the caret in the field.
+                                            onMouseDown={e => e.preventDefault()}
+                                            onClick={() => { setQuery(''); findRef.current?.focus(); }}
+                                            label={t("Clear")}
+                                            icon={<X className="w-4 h-4" aria-hidden="true" />}
+                                        />
+                                    )}
+                                </div>
                             )}
                         </div>
                     )}
