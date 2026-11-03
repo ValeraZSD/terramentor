@@ -22,8 +22,8 @@
 //
 // A link that cannot be read comes back as `{ ok: false, reason, fix }`, and
 // `fix` names the way on the screen offers: 'file' (save the page and drop it),
-// 'retry', 'transcript' (paste it), 'topic' (write the course from the topic
-// alone, the one case a course is built without its source) or null (nothing
+// 'retry', 'transcript' (paste it), 'topic' (write the course from the video's
+// title alone, the one case a course is built without its source) or null (nothing
 // the app can do). Unreadable is never quietly turned into a course built from
 // a title.
 
@@ -276,10 +276,28 @@ export function wordCount(text) {
  */
 function looksScripted(html, text) {
     if (wordCount(text) >= 120) return false;
-    const scriptBytes = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].reduce((n, m) => n + m[1].length, 0);
-    return /<noscript\b[^>]*>[\s\S]{0,400}?javascript/i.test(html)
-        || /<div\b[^>]*\bid\s*=\s*["']?(?:root|app|__next|__nuxt|svelte)\b[^>]*>\s*<\/div>/i.test(html)
+    // Every pattern over the page is linear: a tag's attributes stop at the
+    // next `<` and are bounded, and a closing tag is found once, forward. A
+    // lazy `[\s\S]*?` up to a closer the page never writes runs to the end
+    // from EVERY opener, and a 3 MB page of openers held the server for hours.
+    let scriptBytes = 0;
+    const open = /<script\b[^<>]{0,2000}>/gi;
+    for (let m = open.exec(html); m; m = open.exec(html)) {
+        const end = closingTag(html, 'script', open.lastIndex);
+        if (end === -1) break;
+        scriptBytes += end - open.lastIndex;
+        open.lastIndex = end;
+    }
+    return /<noscript\b[^<>]{0,500}>[\s\S]{0,400}?javascript/i.test(html)
+        || /<div\b[^<>]{0,300}?\bid\s*=\s*["']?(?:root|app|__next|__nuxt|svelte)\b[^<>]{0,300}>\s*<\/div>/i.test(html)
         || scriptBytes > 20 * text.length + 5000;
+}
+
+/** Where `</tag` next starts in `html` from `from`, in any case; -1 if never. */
+function closingTag(html, tag, from) {
+    const re = new RegExp(`</${tag}`, 'gi');
+    re.lastIndex = from;
+    return re.exec(html)?.index ?? -1;
 }
 
 function pageResult(link, html) {
@@ -310,12 +328,14 @@ const attrOf = (attrs, name) => {
     const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(attrs || '');
     return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
 };
+const hasClass = (el, name) => ` ${(attrOf(el.attrs, 'class') || '').toLowerCase()} `.replace(/\s+/g, ' ').includes(` ${name} `);
 
 /** A tolerant tree of the page: elements and text, closing what HTML lets a page leave open. */
 function parseHtml(html) {
     const root = { tag: '#root', attrs: '', children: [], parent: null, depth: 0 };
-    const lower = html.toLowerCase();
-    const re = /<!--[\s\S]*?(?:-->|$)|<![^>]*>|<\?[^>]*>|<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)([^<>]*)>/g;
+    // `[^<>]`, never `[^>]`: a `<!` the page never closes would otherwise be
+    // read to the end of the page from every `<!` in it.
+    const re = /<!--[\s\S]*?(?:-->|$)|<![^<>]*>|<\?[^<>]*>|<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)([^<>]*)>/g;
     let cur = root;
     let last = 0;
     const closeTo = (stop, tags) => {
@@ -336,7 +356,10 @@ function parseHtml(html) {
             continue;
         }
         if (RAW.has(tag)) {
-            const end = lower.indexOf(`</${tag}`, last);
+            // Searched in the page itself: a lower-cased copy is not the same
+            // length when the page holds an "İ", and its offsets then cut
+            // into the text after the tag.
+            const end = closingTag(html, tag, last);
             const close = end === -1 ? -1 : html.indexOf('>', end);
             last = close === -1 ? html.length : close + 1;
             re.lastIndex = last;
@@ -358,9 +381,22 @@ function parseHtml(html) {
 
 const isElement = (n) => typeof n !== 'string';
 
+/** The `<title>` element's text: its opener found once, then its closer once. */
+function titleTag(html) {
+    const open = /<title\b[^<>]{0,500}>/i.exec(html);
+    if (!open) return '';
+    const from = open.index + open[0].length;
+    const end = closingTag(html, 'title', from);
+    return end === -1 ? '' : html.slice(from, Math.min(end, from + 2000));
+}
+
+/** Text the page hides from its reader: never read into a course. */
+const STYLE_HIDDEN = /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important\s*)?(?:;|$)/i;
+
 function hiddenOrFurniture(el) {
     if (FURNITURE.has(el.tag)) return true;
     if (/(?:^|\s)hidden(?:\s|=|$)/i.test(el.attrs) || attrOf(el.attrs, 'aria-hidden') === 'true') return true;
+    if (STYLE_HIDDEN.test(attrOf(el.attrs, 'style') || '')) return true;
     const role = attrOf(el.attrs, 'role');
     return !!role && ROLE_FURNITURE.test(role);
 }
@@ -429,6 +465,23 @@ function textBlocks(root, whole) {
                 continue;
             }
             if (hiddenOrFurniture(c) || furniture(c)) continue;
+            // A printed book's page number ("{ix}", Project Gutenberg's
+            // `pagenum`) is not its text, nor part of a chapter's name.
+            if (hasClass(c, 'pagenum')) continue;
+            if (/^h\d$/.test(kind)) {
+                // In a heading, an illustration's caption is not the chapter's
+                // name, and a picture's alt text names a heading that has no
+                // words of its own ("PREFACE." drawn as lettering).
+                if (hasClass(c, 'caption')) continue;
+                if (c.tag === 'img') {
+                    const alt = decodeEntities(attrOf(c.attrs, 'alt') || '').trim();
+                    if (alt) {
+                        if (!buf) buf = { kind, text: '', link: 0 };
+                        buf.alt = buf.alt ? `${buf.alt} ${alt}` : alt;
+                    }
+                    continue;
+                }
+            }
             if (c.tag === 'br') {
                 if (buf) buf.text += '\n';
                 continue;
@@ -462,7 +515,8 @@ function formatBlock(b) {
         const code = b.text.replace(/^\n+|\s+$/g, '');
         return code ? `\`\`\`\n${code}\n\`\`\`` : '';
     }
-    const text = b.text.replace(/[ \t\f\v ]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
+    // A heading with no words of its own is named by its picture's alt text.
+    const text = (b.text.trim() || (/^h\d$/.test(b.kind) && b.alt) || '').replace(/[ \t\f\v\u00a0]+/g, ' ').replace(/ *\n */g, '\n').replace(/\n{2,}/g, '\n').trim();
     if (!text) return '';
     const chars = text.replace(/\s+/g, '').length;
     // A row of links is a menu, whatever element holds it.
@@ -487,7 +541,7 @@ const siteKey = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,
 
 function pageTitle(html, host = '') {
     const og = metaContent(html, 'og:title') || metaContent(html, 'twitter:title');
-    const raw = og || /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] || '';
+    const raw = og || titleTag(html);
     let title = decodeEntities(raw).replace(/\s+/g, ' ').trim();
     if (!og) {
         // "Article name | Site" / "Article name - Site": the site's name off.
@@ -566,7 +620,7 @@ async function playerOf(id, client, lang, signal) {
     });
     if (!res.ok) {
         await res.body?.cancel?.().catch(() => {});
-        throw new Error(`the player answered ${res.status}`);
+        throw Object.assign(new Error(`the player answered ${res.status}`), { status: res.status });
     }
     return JSON.parse(await readCappedText(res, PLAYER_BYTES, { refuse: true }));
 }
@@ -661,6 +715,13 @@ async function readVideo(link, { lang, signal }) {
         try {
             player = await playerOf(id, client, lang, signal);
         } catch (err) {
+            // Too many requests or refused: YouTube is keeping this machine
+            // out, the token wall by another name. "No connection, try
+            // again" would send the learner back to the same wall.
+            if (err?.status === 429 || err?.status === 403) {
+                verdicts.push('token_wall');
+                continue;
+            }
             thrown = thrownReason(err, signal);
             if (thrown === 'cancelled' || thrown === 'refused') break;
             continue;
