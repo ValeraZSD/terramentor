@@ -1,11 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { FeedCheckpointCard } from '../../types';
-import { Award, CheckCircle2, ShieldAlert, ShieldCheck, SkipForward } from 'lucide-react';
+import { Award, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { isReadyToProve } from '../../utils/tree';
+import { useElementWidth } from '../../hooks/useElementWidth';
+import { useRootFontSize } from '../../hooks/useRootFontSize';
+
+/**
+ * Under this width (in rem) the two actions stack, each the card's width, the
+ * primary on top: side by side they need about 27rem, and wrapped at their own
+ * widths the primary landed alone on a second line at the far edge.
+ */
+const STACK_BELOW_REM = 28;
 
 interface Props {
     card: FeedCheckpointCard;
@@ -15,9 +24,15 @@ interface Props {
 
 /**
  * The chapter's closing section: the feed has served everything it has for this
- * node. Shows the learner's feed accuracy + BKT mastery and offers one-tap
- * completion through the EXISTING mastery gate (PUT /api/nodes/:id): the
- * advisory 400 is rendered inline with a "mark done anyway" override.
+ * node. Shows the learner's feed accuracy + BKT mastery and how the topic ends.
+ *
+ * While the gate is on and the topic is not proven, the mastery check IS how it
+ * ends: the one primary, with one sentence saying what it is. Closing it
+ * without the check stays one press away (Skip is always allowed; advisory may
+ * also mark it done), as a quiet button that says it goes without the check.
+ * Two outlined buttons of one size read as two equal ways out, and the test
+ * looked skippable. Proven, or with the gate off, completing is the finish and
+ * leads. Guard: `tools/finish-topic-gates.mjs`.
  *
  * "Take the mastery check" opens the gate modal RIGHT HERE. Navigating into the
  * workspace instead would leave the learner staring at a node detail panel,
@@ -36,7 +51,8 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     useEffect(() => {
         if (savedHere === 0 || done) return;
         let stale = false;
-        api.getCheckpointFacts(composed.nodeId).then(f => { if (!stale) setLive(f); }).catch(() => { });
+        // Fresh facts supersede a refusal: the answers since may have proven it.
+        api.getCheckpointFacts(composed.nodeId).then(f => { if (!stale) { setLive(f); setGateMsg(null); } }).catch(() => { });
         return () => { stale = true; };
     }, [savedHere, done, composed.nodeId]);
     const card: FeedCheckpointCard = live ? { ...composed, ...live } : composed;
@@ -46,15 +62,28 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     const skipNode = useStore(s => s.skipNode);
     const [saving, setSaving] = useState(false);
     const [gateMsg, setGateMsg] = useState<{ advisory: boolean; masteryScore: number; threshold: number } | null>(null);
+    // Skipped from this card: `done` alone would print "Topic completed".
+    const [skippedHere, setSkippedHere] = useState(false);
+    // Marked done from this card without the check: it must not read as passed.
+    const [overrodeHere, setOverrodeHere] = useState(false);
+
+    // A refusal names the mode the server is in, which beats the one this card
+    // was composed under (the setting may have changed since).
+    const gateMode = gateMsg ? (gateMsg.advisory ? 'advisory' : 'enforced') : card.gateMode;
 
     const startMasteryCheck = () => {
         if (saving || done) return;
         openMasteryGate(
             card.nodeId,
             card.nodeTitle,
-            card.gateMode !== 'enforced',
+            gateMode !== 'enforced',
             card.projectId,
-            () => onDone(card.key),
+            // The modal closes the topic three ways; only a pass reads as one.
+            ({ outcome, proven }) => {
+                if (outcome === 'skipped') setSkippedHere(true);
+                else if (!proven) setOverrodeHere(true);
+                onDone(card.key);
+            },
         );
     };
 
@@ -69,6 +98,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                 ? { status: 'completed', override: true }
                 : { status: 'completed' });
             addToast('success', t("\"{{nodeTitle}}\" completed", { nodeTitle: card.nodeTitle }));
+            if (override) setOverrodeHere(true);
             onDone(card.key);
         } catch (e: any) {
             const data = e?.data;
@@ -94,14 +124,41 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
         setSaving(true);
         try {
             const ok = await skipNode(card.nodeId);
-            if (ok) onDone(card.key);
+            if (ok) { setSkippedHere(true); onDone(card.key); }
         } finally {
             setSaving(false);
         }
     };
 
+    const rootRef = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(rootRef);
+    const rootPx = useRootFontSize();
+    // 0 = not measured yet: side by side, which is what a wide card draws.
+    const stack = width > 0 && width < STACK_BELOW_REM * rootPx;
+
+    const skipped = skippedHere || (!done && card.nodeStatus === 'skipped');
+    const completed = !skippedHere && (done || card.nodeStatus === 'completed');
+    // Closed without proof: marked done here, or found completed while the
+    // gate is on and the evidence does not pass. Not when `done` came from
+    // elsewhere (a passed check closes it too, and these facts predate it).
+    const unproven = overrodeHere
+        || (!done && card.nodeStatus === 'completed' && gateMode !== 'off' && !card.eligible);
+    // The server refused a completion the card thought proven: it is not.
+    const proven = card.eligible && !gateMsg;
+    const checkLeads = gateMode !== 'off' && !proven;
+
+    // One row, primary LAST; stacked on a narrow card the primary comes FIRST,
+    // in the DOM too, so the tab order is the order on screen.
+    const row = `flex gap-2 ${stack ? 'flex-col' : 'flex-wrap items-center justify-end'}`;
+    const inOrder = (...buttons: React.ReactNode[]) => (stack ? buttons.reverse() : buttons);
+    const checkButton = (variant: 'primary' | 'neutral') => (
+        <Button key="check" variant={variant} block={stack} wrap={stack} onClick={startMasteryCheck} disabled={saving}>
+            {t("Take the mastery check")}
+        </Button>
+    );
+
     return (
-        <div className="rounded-xl border border-accent/30 bg-accent/5 p-4">
+        <div ref={rootRef} className="rounded-xl border border-accent/30 bg-accent/5 p-4">
             <p className="flex items-center gap-1.5 mb-3 text-2xs font-semibold text-accent-fg">
                 <Award className="w-3.5 h-3.5" aria-hidden="true" />
                 {t("End of chapter")}
@@ -153,65 +210,66 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                 </p>
             )}
 
-            {done ? (
-                <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    <CheckCircle2 className="w-4 h-4" />
+            {completed && unproven ? (
+                <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{t("Marked done without the check")}</p>
+            ) : completed ? (
+                <p role="status" className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
                     {t("Topic completed")}
                 </p>
-            ) : gateMsg ? (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50">
-                    <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-300">
-                        <ShieldAlert className="w-4 h-4" />
-                        {t("Not proven yet ({{round}}% of {{round2}}% needed)", { round: Math.round(gateMsg.masteryScore * 100), round2: Math.round(gateMsg.threshold * 100) })}
+            ) : skippedHere ? (
+                <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{t("Skipped — moved on without proving it")}</p>
+            ) : checkLeads ? (
+                <>
+                    {gateMsg && (
+                        <p role="alert" className="flex items-center gap-1.5 mb-1 text-sm font-medium text-amber-700 dark:text-amber-300">
+                            <ShieldAlert className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {t("Not proven yet ({{round}}% of {{round2}}% needed)", { round: Math.round(gateMsg.masteryScore * 100), round2: Math.round(gateMsg.threshold * 100) })}
+                        </p>
+                    )}
+                    <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+                        {/* Advisory may close it without the check, so "pass it
+                            to finish" would contradict the button beside it. */}
+                        {skipped
+                            ? t("Skipped — moved on without proving it")
+                            : gateMode === 'advisory'
+                                ? t("The mastery check is a short test on this topic. Pass it to show you know it.")
+                                : t("The mastery check is a short test on this topic. Pass it to finish the topic.")}
                     </p>
-                    {gateMsg.advisory ? (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                            <Button onClick={() => setGateMsg(null)}>
-                                {t("Not yet")}
-                            </Button>
-                            <Button onClick={skip} disabled={saving}>
-                                {t("Skip")}
-                            </Button>
-                            <Button onClick={() => complete(true)} disabled={saving}>
-                                {t("Mark done anyway")}
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex flex-wrap gap-2 mt-2">
-                            <Button variant="primary" onClick={startMasteryCheck} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Take the mastery check")}
-                            </Button>
-                            <Button onClick={skip} disabled={saving} icon={<SkipForward className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Skip")}
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                    {/* The ways out without the check: quiet, and named for what
+                        they do. Advisory may mark it done; enforced may only
+                        skip it, and a topic already skipped has neither. */}
+                    <div className={row}>
+                        {inOrder(
+                            gateMode === 'advisory' ? (
+                                <Button key="out" variant="quiet" block={stack} wrap={stack} onClick={() => complete(true)} busy={saving}>
+                                    {t("Mark done without the check")}
+                                </Button>
+                            ) : !skipped && (
+                                <Button key="out" variant="quiet" block={stack} wrap={stack} onClick={skip} busy={saving}>
+                                    {t("Skip topic")}
+                                </Button>
+                            ),
+                            checkButton('primary'),
+                        )}
+                    </div>
+                </>
             ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                    {/* Not proven yet → proving it is the real next step, so the
-                        mastery check leads. Already proven → completing is, and the
-                        mastery check stays available for anyone who wants the rep. */}
-                    {!card.eligible && card.gateMode !== 'off' ? (
-                        <>
-                            <Button variant="primary" onClick={startMasteryCheck} disabled={saving} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Take the mastery check")}
-                            </Button>
-                            <Button onClick={() => complete(false)} busy={saving} icon={<CheckCircle2 className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Complete topic")}
-                            </Button>
-                        </>
-                    ) : (
-                        <>
-                            <Button variant="primary" onClick={() => complete(false)} busy={saving} icon={<CheckCircle2 className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Complete topic")}
-                            </Button>
-                            <Button onClick={startMasteryCheck} disabled={saving} icon={<ShieldCheck className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Take the mastery check")}
-                            </Button>
-                        </>
+                // Proven, or the gate is off: completing is the finish, and the
+                // check stays beside it for anyone who wants the rep.
+                <>
+                    {skipped && (
+                        <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">{t("Skipped — moved on without proving it")}</p>
                     )}
-                </div>
+                    <div className={row}>
+                        {inOrder(
+                            checkButton('neutral'),
+                            <Button key="complete" variant="primary" block={stack} wrap={stack} onClick={() => complete(false)} busy={saving}>
+                                {t("Complete topic")}
+                            </Button>,
+                        )}
+                    </div>
+                </>
             )}
         </div>
     );

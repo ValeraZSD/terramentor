@@ -682,11 +682,13 @@ export default function MasteryGateModal({
                             )}
 
                             {/* One group: the learner is never stuck — even with
-                                the AI unavailable, they can move on honestly. */}
+                                the AI unavailable, they can move on honestly. No
+                                primary: with no check to take, closing the topic
+                                without one is a way out, never the default. All
+                                outlined, since next to outlined buttons a bare
+                                "Close" reads as text. */}
                             <div className="flex gap-2 mt-6 justify-center w-full flex-wrap">
-                                {/* Quiet only beside a primary: next to two outlined
-                                    buttons a bare "Close" reads as text. */}
-                                <Button variant={offerMarkAnyway ? 'quiet' : 'neutral'} onClick={onClose}>
+                                <Button onClick={onClose}>
                                     {t("Close")}
                                 </Button>
                                 {!uncheckedOnly && (
@@ -696,12 +698,12 @@ export default function MasteryGateModal({
                                 )}
                                 {offerSkip && (
                                     <Button onClick={onSkip}>
-                                        {t("Skip this topic")}
+                                        {t("Skip topic")}
                                     </Button>
                                 )}
                                 {offerMarkAnyway && (
-                                    <Button variant="primary" onClick={onMarkAnyway}>
-                                        {t("Mark done anyway")}
+                                    <Button onClick={onMarkAnyway}>
+                                        {t("Mark done without the check")}
                                     </Button>
                                 )}
                             </div>
@@ -871,17 +873,20 @@ export default function MasteryGateModal({
                                     </Button>
                                 ) : (
                                     <>
+                                        {/* The ways out of a failed check are quiet, as in
+                                            the footer while answering: a new draw is the
+                                            way on, not an outlined equal of these. */}
                                         <Button variant="quiet" onClick={onClose}>
                                             {t("Study More")}
                                         </Button>
                                         {offerSkip && (
-                                            <Button onClick={onSkip}>
+                                            <Button variant="quiet" onClick={onSkip}>
                                                 {t("Skip topic")}
                                             </Button>
                                         )}
                                         {offerMarkAnyway && (
-                                            <Button onClick={onMarkAnyway}>
-                                                {t("Mark done anyway")}
+                                            <Button variant="quiet" onClick={onMarkAnyway}>
+                                                {t("Mark done without the check")}
                                             </Button>
                                         )}
                                         <Button
@@ -918,12 +923,12 @@ export default function MasteryGateModal({
                         <div className="flex flex-wrap items-center gap-2">
                             {offerSkip && (
                                 <Button variant="quiet" onClick={onSkip}>
-                                    {t("Skip")}
+                                    {t("Skip topic")}
                                 </Button>
                             )}
                             {offerMarkAnyway && (
                                 <Button variant="quiet" onClick={onMarkAnyway}>
-                                    {t("Mark done anyway")}
+                                    {t("Mark done without the check")}
                                 </Button>
                             )}
                             <div className="ml-auto flex gap-2">

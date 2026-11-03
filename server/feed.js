@@ -522,7 +522,11 @@ export function checkpointFacts(nodeId, gate) {
             borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
         }
     } catch { /* mastery tables always exist; belt and braces */ }
-    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom };
+    // A topic's own page serves its closed leaves too (last), so a completed
+    // topic's card must not offer to complete it, and a skipped one must not
+    // offer to skip it again.
+    const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus };
 }
 
 /** Common card fields carried by every node-bound card. */
