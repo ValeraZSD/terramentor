@@ -133,9 +133,11 @@ npm run check                       # frontend types (tsc --noEmit)
 node --check server/app.js          # and each server file you touched
 node -e "import('./server/app.js').then(() => process.exit(0))"   # the server links
 npm run build                       # the app builds
+node tools/docs-shots.mjs           # the README's pictures still show the app (after the build)
 ```
 
-These five are what CI runs on your pull request, on Node 24 on Linux and on Windows.
+These six are what CI runs on your pull request, on Node 24 on Linux and on Windows (the
+pictures on Windows only; [Pictures in the docs](#pictures-in-the-docs) says why).
 Nothing in it calls a model or the network: each suite drives the real modules against a
 scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
@@ -173,6 +175,30 @@ node tools/a11y-lint.mjs            # keyboard + screen reader
 
 The `tools/*-gates.mjs` scripts are the safety net; if you add a subtle invariant, add a check
 to one of them. A new `*-gates.mjs` file is picked up by `npm test` automatically.
+
+### Pictures in the docs
+
+Each picture in the README is listed in `docs/screenshots/manifest.json` beside the screen it
+shows and the interface text on that screen. CI opens each of those screens in a headless
+browser, on an invented course (`tools/docs-fixture.mjs`), and compares the text. A pull
+request that changes a pictured screen fails the step **README pictures match the app**, which
+names the labels that appeared, went or moved. Then either:
+
+- **re-shoot the picture**: `node tools/docs-shots.mjs --library <data folder>` takes it from a
+  copy of a library you choose and records its screen in the same run. The folder needs a
+  `docs-shots.json` naming the course and topics to show; the header of `tools/docs-shots.mjs`
+  describes it. Nothing in the folder is written.
+- **or, when the picture still tells the truth** (the change is out of frame, or too small to
+  see), record the screen as it is: `node tools/docs-shots.mjs --accept <picture>`.
+
+Either way the manifest changes in the same pull request as the screen. `npm test` also runs
+`tools/docs-gates.mjs`, which needs no browser: it fails when a label in a picture, or a step of
+a path such as **Settings → Library & about → About** anywhere in the docs, is not in
+`src/locales/en.json`.
+
+CI runs the pictures on Windows because the app draws in the system font, and the screens on
+record were read in Edge on Windows. Elsewhere the check allows for small shifts in where a
+line falls, but a near miss can still show; the Windows run is the one that counts.
 
 ## House style
 
@@ -248,10 +274,13 @@ To cut a stable release:
    CI **fails a release that disagrees with it**, because an app that reports one version while
    the update check compares another leaves every install believing it is permanently out of
    date.
-4. Read `README.md` and `docs/` against the app this release ships: every claim, every button
-   name, every screenshot and clip. Fix wrong text and re-shoot stale media in the same pull
-   request, or in one merged before the release is announced. Nightlies get the same pass
-   before a stable is promoted from them.
+4. Re-shoot the stills from current `main` (`node tools/docs-shots.mjs --library <dir>`, about
+   two minutes) and read `README.md` and `docs/` against the app this release ships. The checks
+   have kept the labels and the pictured screens honest on every pull request; the reading is
+   for what they cannot see: a claim about behaviour, a number, a picture that is true but
+   shows less than it could. Fix wrong text and re-shoot stale media in the same pull request,
+   or in one merged before the release is announced. Nightlies get the same pass before a
+   stable is promoted from them.
 5. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
    **Nightly** by hand with **nightly**) and try that build.
 6. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
