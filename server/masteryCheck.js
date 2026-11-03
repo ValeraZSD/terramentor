@@ -85,7 +85,11 @@ export function recordMasteryCheck({ nodeId, score, total, questions, asked, att
         // Judged on the proven score, the same numbers the evidence holds.
         const passed = proven.score / proven.total >= checkPass;
         // pass_threshold lets the UI show the *configured* bar instead of a
-        // hardcoded percentage.
-        return { ...result, passed, raw_score_pct: Math.round((proven.score / proven.total) * 100), pass_threshold: checkPass };
+        // hardcoded percentage; proven_score / proven_total are the counts
+        // judged, which leave out a question the bank no longer holds.
+        return {
+            ...result, passed, raw_score_pct: Math.round((proven.score / proven.total) * 100), pass_threshold: checkPass,
+            proven_score: proven.score, proven_total: proven.total,
+        };
     });
 }

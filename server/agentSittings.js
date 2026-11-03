@@ -118,8 +118,8 @@ const strings = (v, cap = 2000) => (Array.isArray(v) ? v.filter(x => typeof x ==
  * WHITELIST, so a field added to questions later stays on the server until it
  * is argued in here. An ordering's items and an assembly's pieces are served
  * as stored, which is never key order (`servedInKeyOrder`, the sequence
- * normaliser). A photo is not sent: the view loads nothing from outside its
- * own document, so it says the question has one.
+ * normaliser). A question with a picture or a sound never gets here
+ * (`startCheck` leaves it in the bank).
  */
 export function publicQuestion(q, n) {
     const out = { n, type: text(q.type, 40) || 'multiple_choice', question: text(q.question) };
@@ -136,9 +136,11 @@ export function publicQuestion(q, n) {
         if (text(q.language, 24)) out.language = text(q.language, 24);
         if (text(q.starter)) out.starter = text(q.starter);
     }
-    if (q.media) out.hasPicture = true;
     return out;
 }
+
+/** A question that shows a picture or plays a sound (`QuizQuestion.media`, `sanitizeQuestionMedia`). */
+const questionHasMedia = (q) => (Array.isArray(q?.media) ? q.media.length > 0 : !!q?.media);
 
 /** The key, as a learner reads it once the check is over. */
 function shownKey(q) {
@@ -237,14 +239,23 @@ export function checkTarget(topic) {
 export function startCheck({ topic }) {
     const { node, target } = checkable(topic);
     const { checkSize } = getGateConfig();
-    const draw = drawFromNode(node.id, checkSize);
-    const questions = draw.questions.filter(d => hasUsableKey(d.question));
+    // The app's draw in its own order (never asked first), the whole bank, so
+    // a question this view cannot give is passed over for the next one rather
+    // than leaving a gap. A question with a picture or a sound is one: the
+    // view loads nothing from outside its own document, and a question the
+    // learner cannot fully see must not cost them a point.
+    const usable = drawFromNode(node.id, Number.MAX_SAFE_INTEGER).questions.filter(d => hasUsableKey(d.question));
+    const questions = usable.filter(d => !questionHasMedia(d.question)).slice(0, checkSize);
     const where = { nodeId: node.id, projectId: node.project_id, title: node.title, projectName: node.project_name };
     if (questions.length < MIN_GATE_QUESTIONS) {
+        const withMedia = usable.length - usable.filter(d => !questionHasMedia(d.question)).length;
         return {
             token: null, ...where,
-            text: `"${node.title}" has ${questions.length ? `only ${questions.length} checked question${questions.length === 1 ? '' : 's'}` : 'no checked questions'} yet, `
-                + `and a mastery check needs ${MIN_GATE_QUESTIONS}. Opening the topic's mastery check in Terramentor writes them.`,
+            text: withMedia && usable.length >= MIN_GATE_QUESTIONS
+                ? `"${node.title}" has ${usable.length} checked questions, but ${withMedia} of them show a picture or play a sound, which only `
+                    + `Terramentor can, and a mastery check needs ${MIN_GATE_QUESTIONS} without one here. Take this topic's mastery check in Terramentor.`
+                : `"${node.title}" has ${questions.length ? `only ${questions.length} checked question${questions.length === 1 ? '' : 's'}` : 'no checked questions'} yet, `
+                    + `and a mastery check needs ${MIN_GATE_QUESTIONS}. Opening the topic's mastery check in Terramentor writes them.`,
         };
     }
     const token = open({
@@ -299,8 +310,14 @@ export async function submitCheck(token, answers) {
                 nodeId: s.nodeId, score, total, questions: s.questions.map(d => d.question), asked,
                 attemptId: s.attemptId, review, via: 'agent_view',
             });
+            // A judged check shows the counts it was judged on: a question
+            // reported while the answers were graded leaves the bank, and a
+            // raw 4/5 beside a proven 3/4 that failed would contradict itself.
+            // An unproven check judged nothing, so it keeps the raw counts.
+            const judged = !outcome.unproven && Number.isInteger(outcome.proven_total) && outcome.proven_total > 0;
             s.result = {
-                score, total,
+                score: judged ? outcome.proven_score : score,
+                total: judged ? outcome.proven_total : total,
                 passed: !!outcome.passed,
                 unproven: !!outcome.unproven,
                 ...(outcome.unproven ? { proven: Number(outcome.proven_total) || 0 } : {}),

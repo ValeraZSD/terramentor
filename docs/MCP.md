@@ -112,9 +112,9 @@ Ask the agent to check whether you know a topic, or to go through your due cards
 Terramentor's own screen inside its window:
 
 - **The mastery check** draws its questions from the topic's checked question bank, the same
-  draw as the check in the app. You answer, move between questions and submit; Terramentor
-  grades it and records it exactly as its own check, and after a pass, Continue completes the
-  topic.
+  draw as the check in the app, passing over any question with a picture or a sound, which only
+  Terramentor shows. You answer, move between questions and submit; Terramentor grades it and
+  records it exactly as its own check, and after a pass, Continue completes the topic.
 - **The card review** shows each card's front, then the answer and Again / Hard / Good / Easy
   with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
   Terramentor's scheduler handles each card exactly as the review screen in the app does.
@@ -132,9 +132,9 @@ these views for servers on your own computer
 
 **How it looks.** It takes the other app's colours and fonts, in light and dark, and fits a
 window as narrow as a phone. It speaks the language you chose in Terramentor, or the other
-app's language if you chose none. Two notes are in English in every language: that a question
-has a picture only Terramentor shows, and that a card has a picture or sound only Terramentor
-plays. Messages from the server, such as errors and what the agent is told, are in English too.
+app's language if you chose none. One note is in English in every language: that a card has a
+picture or sound only Terramentor plays. Messages from the server, such as errors and what the
+agent is told, are in English too.
 
 **Why the script sits inside the page.** A view is one HTML file, delivered as text, with no
 address of its own to load a script file from. Its Content-Security-Policy allows exactly the

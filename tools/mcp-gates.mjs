@@ -891,6 +891,40 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const forged = await hostCall('check_questions', { sitting: 'A'.repeat(32) });
     ok('a token the server never issued opens nothing', isErr(forged) && !leaksAKey(forged));
 
+    // A question with a picture or a sound: the view cannot show it, so the
+    // view's check passes over it for the next one, and a bank left with too
+    // few without one sends the learner to the app instead.
+    const MEDIA = [{ hash: 'a'.repeat(64), kind: 'image' }];
+    const pictured = addNode('Wave pictures', section, { position: 7 });
+    const PICTURE_BANK = [
+        ...BANK.slice(0, 2).map(b => ({ ...b, uuid: `pic-${b.uuid}`, question: `Picture: ${b.question}`, media: MEDIA })),
+        ...BANK.map(b => ({ ...b, uuid: `plain-${b.uuid}` })),
+    ];
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(pictured, 'Wave pictures', JSON.stringify(PICTURE_BANK));
+    const picSit = sittingOf(await hostCall('mastery_check', { topic: pictured }));
+    const picQs = data(await hostCall('check_questions', { sitting: picSit })).questions || [];
+    ok('the view\'s check passes over a question with a picture or sound and draws the next one',
+        picQs.length === BANK.length && picQs.every(q => !q.question.startsWith('Picture:')), JSON.stringify(picQs.map(q => q.question.slice(0, 30))));
+    const fewPlain = addNode('Wave photos', section, { position: 8 });
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(fewPlain, 'Wave photos',
+        JSON.stringify([...BANK.slice(0, 3).map(b => ({ ...b, uuid: `photo-${b.uuid}`, media: MEDIA })), ...BANK.slice(3).map(b => ({ ...b, uuid: `few-${b.uuid}` }))]));
+    const fewStart = await hostCall('mastery_check', { topic: fewPlain });
+    ok('a bank with too few questions the view can show opens no sitting and says the check is taken in Terramentor',
+        !isErr(fewStart) && !sittingOf(fewStart) && /picture or play a sound/.test(textOf(fewStart)), textOf(fewStart).slice(0, 240));
+
+    // The result shows the counts the check was judged on. A question taken
+    // out of the bank between the draw and the grading (a report does that)
+    // is not proof: four right of five is 4/5, but judged 3/4, under the bar.
+    const reported = addNode('Wave speed', section, { position: 9 });
+    const SPEED_BANK = BANK.map(b => ({ ...b, uuid: `speed-${b.uuid}` }));
+    const speedQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(reported, 'Wave speed', JSON.stringify(SPEED_BANK)).lastInsertRowid);
+    const speedSit = sittingOf(await hostCall('mastery_check', { topic: reported }));
+    const speedQs = data(await hostCall('check_questions', { sitting: speedSit })).questions || [];
+    db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(SPEED_BANK.slice(1)), speedQuiz);
+    const judged = data(await hostCall('check_submit', { sitting: speedSit, answers: answersFor(speedQs, [0, 1, 2, 3]) })).result || {};
+    ok('a check shows the score it was judged on: 3/4 proven, not the raw 4/5, and not passed',
+        speedQs.length === BANK.length && judged.score === 3 && judged.total === 4 && judged.passed === false, JSON.stringify({ ...judged, items: undefined }));
+
     // A failed check: three of five.
     const evidenceBeforeCheck = checkEvidence();
     const failed = await hostCall('check_submit', { sitting: sit, answers: answersFor(qs, [0, 1, 2]) });

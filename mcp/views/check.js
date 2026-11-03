@@ -194,7 +194,6 @@
             bar,
             h('section', { class: 'question', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }) },
                 h('p', { class: 'stem' }, q.question),
-                q.hasPicture ? h('p', { class: 'notice' }, 'This question has a picture, which only Terramentor shows.') : null,
                 input(q, state.answers[state.index])),
             h('footer', { class: 'actions' },
                 h('button', { type: 'button', class: 'button', disabled: state.index === 0, 'data-focus': 'previous', onClick: () => go(-1) }, t('Previous')),
