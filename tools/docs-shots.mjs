@@ -267,6 +267,10 @@ async function openBrowser(exe, { width, height, scale }) {
     await send('Emulation.setLocaleOverride', { locale: 'en-US' }).catch(() => { });
     // The server keeps days in UTC; a page in UTC sees the same day on every machine.
     await send('Emulation.setTimezoneOverride', { timezoneId: 'UTC' }).catch(() => { });
+    // A Windows Server runner has the system's animations off, so the browser
+    // reports reduced motion and a lesson's animation opens paused ("Play").
+    // The pictures show it with motion on, as a desktop has it.
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }] });
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: scale, mobile: false });
     const close = async () => {
         ws.onclose = null;
