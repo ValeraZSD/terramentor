@@ -35,6 +35,7 @@ import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
+import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
 import { endDropFlash, endDropFlashIf, flashAfterDrop } from '../utils/dropFlash';
@@ -193,6 +194,11 @@ export default function ProjectsGrid() {
                             {t("New Project")}
                         </Button>
                     </div>
+
+                    <ShortCourses />
+                    {activeProjects.length > 0 && (
+                        <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
+                    )}
 
                     <DndContext
                         sensors={sensors}

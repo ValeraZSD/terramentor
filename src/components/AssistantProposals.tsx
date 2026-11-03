@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import {
     AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Inbox, Layers, Lightbulb, Link2, Loader2,
-    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck,
+    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles,
 } from 'lucide-react';
 import { FileGlyph } from './attachments/AttachmentChips';
 import { api } from '../api';
@@ -15,7 +15,7 @@ import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
     similarFront, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
-    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type TopicEditProposal,
+    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
 } from '../utils/assistantWrites';
 import { REPORT_FORMS } from '../utils/report';
 import { accentSolidTriplet } from '../utils/color';
@@ -1073,6 +1073,72 @@ export function CourseDraftProposals({ courses, onOpen }: { courses: CourseDraft
                         </div>
                         <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
                             <Button size="sm" variant="neutral" icon={<Plus className="w-3.5 h-3.5" aria-hidden="true" />} onClick={open}>{t("Open in New course")}</Button>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+/**
+ * A short course from one source in this chat (MOCKUP, branch
+ * t3code/short-courses). Create writes it at once and it appears among the
+ * Projects page's short courses; nothing is asked in between.
+ */
+export function ShortCourseProposals({ shorts, attachments, onOpen }: {
+    shorts: ShortCourseProposal[];
+    attachments: Map<number, ChatAttachment>;
+    onOpen: () => void;
+}) {
+    const { t } = useTranslation();
+    const [created, setCreated] = useState<Set<number>>(new Set());
+    if (!shorts.length) return null;
+    return (
+        <div className="space-y-2">
+            {shorts.map((s, i) => {
+                const fileId = Number(s.from.match(/^\s*(?:file|attachment)?\s*#?(\d+)\s*$/i)?.[1] ?? NaN);
+                const att = Number.isFinite(fileId) ? attachments.get(fileId) : undefined;
+                let host = '';
+                try { host = new URL(s.from).hostname.replace(/^www\./, ''); } catch { /* not a link */ }
+                const fromLine = att
+                    ? (att.pages ? t("From {{name}} · {{count}} pages", { name: att.name, count: att.pages }) : t("From {{name}}", { name: att.name }))
+                    : t("From {{name}}", { name: host || s.from });
+                const done = created.has(i);
+                return (
+                    <div key={i} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                        <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
+                            <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {t("A short course")}
+                        </div>
+                        <div className="px-3 py-2 space-y-2">
+                            <div className="flex items-center gap-2.5">
+                                <CourseTile icon={s.icon} color={null} />
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{s.name}</p>
+                                    <p className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 min-w-0">
+                                        {att ? <FileGlyph fileType={att.fileType} name={att.name} className="w-3.5 h-3.5 shrink-0" /> : <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+                                        <span className="truncate">{fromLine}</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <ol className="list-decimal pl-5 text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                {s.topics.map((topic, n) => <li key={n}>{topic}</li>)}
+                            </ol>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                            {done ? (
+                                <>
+                                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its lessons are being written.")}
+                                    </span>
+                                    <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={onOpen}>{t("Open")}</Button>
+                                </>
+                            ) : (
+                                <Button size="sm" variant="neutral" icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => setCreated(new Set(created).add(i))}>
+                                    {t("Create short course")}
+                                </Button>
+                            )}
                         </div>
                     </div>
                 );

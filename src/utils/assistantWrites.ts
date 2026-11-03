@@ -84,9 +84,9 @@ export function splitChecks(content: string, streaming = false): { body: string;
 }
 
 /** A complete prepared block (```card, ```project, …), on lines of its own. */
-const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
+const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
 /** An opener with no closer after it: still arriving, or never closed. */
-const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save)[ \t]*(?:\n([\s\S]*))?$/i;
+const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save)[ \t]*(?:\n([\s\S]*))?$/i;
 /** A fence opener still being typed at the very end of a stream (`` ``ca ``). */
 const PARTIAL_OPENER_RE = /(^|\n)[ \t]*`{1,3}[a-z]*$/i;
 
@@ -224,6 +224,20 @@ export interface CourseDraftProposal {
 }
 
 /**
+ * A short course from one source in this conversation (MOCKUP, branch
+ * t3code/short-courses): a file the learner attached or a link they pasted,
+ * with the topics the model would make of it. Create writes it at once; there
+ * is no dialog in between, because there is nothing left to fill in.
+ */
+export interface ShortCourseProposal {
+    name: string;
+    /** `file 12` (an attachment of this chat) or a URL, as the model wrote it. */
+    from: string;
+    icon: string | null;
+    topics: string[];
+}
+
+/**
  * A file from this conversation, prepared to be saved into the library
  * (server/assistantEdits.js `saveAssistantAttachment`). The description is the
  * model's — written now, because this is where the words outlive the picture.
@@ -352,6 +366,18 @@ function parseCourse(text: string): CourseDraftProposal | null {
     };
 }
 
+function parseShort(text: string): ShortCourseProposal | null {
+    const f = fieldsOf(text, { name: 'name', title: 'name', from: 'from', source: 'from', icon: 'icon', topics: 'topics' });
+    const name = projectName(f.name ?? '') ?? '';
+    const from = (f.from ?? '').trim();
+    const topics = (f.topics ?? '').split('\n')
+        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 8);
+    if (!name || !from || topics.length < 2) return null;
+    return { name, from, icon: projectIconName(f.icon ?? ''), topics };
+}
+
 function parseSave(text: string): SaveProposal | null {
     const f = fieldsOf(text, {
         file: 'file', attachment: 'file', 'attachment-id': 'file', id: 'file',
@@ -393,11 +419,12 @@ export interface WriteBlocks {
     topics: TopicEditProposal[];
     links: LinkProposal[];
     courses: CourseDraftProposal[];
+    shorts: ShortCourseProposal[];
     saves: SaveProposal[];
 }
 
 export function splitWriteBlocks(content: string, streaming = false): WriteBlocks {
-    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], saves: [] };
+    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [] };
     if (!content.includes('`')) return { body: content, ...none };
     const cards: CardProposal[] = [];
     const captures: string[] = [];
@@ -406,6 +433,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     const topics: TopicEditProposal[] = [];
     const links: LinkProposal[] = [];
     const courses: CourseDraftProposal[] = [];
+    const shorts: ShortCourseProposal[] = [];
     const saves: SaveProposal[] = [];
     const take = (kind: string, inner: string) => {
         const k = kind.toLowerCase();
@@ -432,6 +460,9 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
         } else if (k === 'course') {
             const c = parseCourse(inner);
             if (c && courses.length < MAX_COURSES) courses.push(c);
+        } else if (k === 'short') {
+            const s = parseShort(inner);
+            if (s && shorts.length < MAX_COURSES) shorts.push(s);
         } else {
             const note = inner.trim();
             if (note && note.length <= SIDE_MAX && captures.length < MAX_CAPTURES) captures.push(note);
@@ -445,7 +476,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     if (streaming) body = body.replace(PARTIAL_OPENER_RE, '$1');
     // Tidied only where something came out: a blank line inside someone's
     // code block is theirs.
-    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, saves };
+    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, shorts, saves };
 }
 
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []));
