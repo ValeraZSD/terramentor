@@ -1,6 +1,6 @@
 import db, { NOT_REPORTED } from './database.js';
 import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields, withAnswerScope } from './ai.js';
-import { parseObjectResponse } from './agentic.js';
+import { parseObjectResponse, parseQuestionReply } from './agentic.js';
 import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
 import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
 import { compileWidget, getCachedBuild, specHashOf, extractWidgetSpecs } from './widgets.js';
@@ -1313,7 +1313,7 @@ async function generateOne(f, missing, signal) {
             priorFault: fault,
         });
         const resp = await generateResponse(user, system, [], { temperature: 0.4, signal, operation: 'questions' });
-        const candidate = normalizeModelQuestion(parseObjectResponse(resp));
+        const candidate = normalizeModelQuestion(parseQuestionReply(resp));
         if (!candidate) {
             fault = 'the previous attempt did not produce a valid JSON object in the required shape';
             continue;
@@ -1464,8 +1464,9 @@ async function runBurst() {
             // on buffer depth would mean the card is served before its build).
             const buffer = bufferStatus(teachable.map(x => x.nodeId));
             // A topic the learner is waiting on comes first, whatever the
-            // buffer says; one with nothing left to write drops off the list.
-            let hit = pickTarget(wanted, f => nextMissing(f.nodeId), f => requested.delete(f.nodeId));
+            // buffer says. Taught, it stays on the list for its end-of-topic
+            // material below; with nothing left to write it drops off.
+            let hit = pickTarget(wanted, f => nextMissing(f.nodeId), f => { if (!pendingMaterial(f.nodeId)) requested.delete(f.nodeId); });
             if (!hit && !buffer.full) {
                 hit = pickTarget(teachable, f => nextMissing(f.nodeId));
             }
@@ -1475,6 +1476,16 @@ async function runBurst() {
             // run whatever the buffer says.
             if (!hit) {
                 hit = pickTarget([...wanted, ...teachable], f => pendingLessonCheck(f.nodeId));
+            }
+            // The check (and the cards) of a topic the learner opened on
+            // purpose. The focus window's topics wait for the last tier, because
+            // their reader is somewhere else; this reader is on the topic, and its
+            // check is the end of the page they are reading. Without it a topic
+            // reached from the outline, not the schedule, had no bank until
+            // "Take the mastery check" was pressed, and the learner sat on the
+            // model there (Taylor clip, 4 Nov 2026).
+            if (!hit) {
+                hit = pickTarget(wanted, f => pendingMaterial(f.nodeId), f => requested.delete(f.nodeId));
             }
             // Paper exercises run even when the lesson buffer is full — for the
             // same reason widget pre-builds do, and for a sharper one. A node
