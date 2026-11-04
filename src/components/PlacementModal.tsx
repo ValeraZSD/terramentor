@@ -8,6 +8,7 @@ import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
+import ChoiceInput from './answer/ChoiceInput';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
@@ -51,6 +52,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const [summary, setSummary] = useState<PlacementSummary | null>(null);
     const [index, setIndex] = useState(0);
     const [draft, setDraft] = useState('');
+    // The option pressed, so the verdict can paint it beside the key.
+    const [picked, setPicked] = useState('');
     const [phase, setPhase] = useState<'idle' | 'authoring' | 'asking' | 'done'>('idle');
     const [progress, setProgress] = useState({ written: 0, total: 0 });
     const [verdict, setVerdict] = useState<{ correct: boolean; explanation: string; correctAnswer: string } | null>(null);
@@ -176,6 +179,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     function advance() {
         setVerdict(null);
         setDraft('');
+        setPicked('');
         if (!probe) return;
         const next = probe.questions.findIndex((q, i) => i > index && !q.answered);
         if (next === -1) finish();
@@ -325,25 +329,22 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             )}
 
                             {question.type === 'multiple_choice' ? (
-                                <div className="space-y-2">
-                                    {question.options?.map(opt => {
-                                        const isKey = verdict && opt === verdict.correctAnswer;
-                                        return (
-                                            <button data-answer-option
-                                                key={opt}
-                                                disabled={locked}
-                                                onClick={() => submit(opt)}
-                                                className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
-                                                    ${isKey
-                                                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                                                        : 'border-slate-200 dark:border-slate-700 hover:border-accent can-hover:hover:bg-accent/5'}
-                                                    disabled:cursor-default`}
-                                            >
-                                                <MathText content={opt} />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                // The quiz's own tiles: the same size, layout and
+                                // verdict paint as the feed and the mastery check.
+                                <ChoiceInput
+                                    question={{
+                                        type: 'multiple_choice',
+                                        question: question.question,
+                                        options: question.options,
+                                        correct_answer: verdict?.correctAnswer ?? '',
+                                        explanation: '',
+                                    }}
+                                    value={picked}
+                                    onChange={setPicked}
+                                    onCommit={opt => void submit(opt)}
+                                    disabled={locked}
+                                    result={verdict ? { correct: verdict.correct, answer: picked } : null}
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     <TextArea

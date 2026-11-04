@@ -1135,6 +1135,40 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 }
 
 // ---------------------------------------------------------------------------
+// How many answer tiles to a row (src/components/answer/choiceLayout.ts):
+// numbers measured in Edge on the placement dialog, 4 Nov 2026. Group 632px on
+// a laptop, 350px on a phone, 280px at 320px wide; "−120" paints ~45px, the
+// widest formula ~150px, a sentence option ~520px.
+{
+    const { choiceColumns } = await import(pathToFileURL(await bundleClient('src/components/answer/choiceLayout.ts')).href);
+    const ROOT = 16;
+    const cases = [
+        ['four short numbers on a laptop: one row', 4, 45, 632, 4],
+        ['four short numbers on a phone: two by two, not four 80px tiles', 4, 45, 350, 2],
+        ['four short numbers at 320px: two by two', 4, 45, 280, 2],
+        ['answers that would fill a quarter tile edge to edge (100 of 116px): two to a row', 4, 100, 632, 2],
+        ['four formulas on a laptop: two to a row', 4, 150, 632, 2],
+        ['four formulas on a phone: one per row (they do not fit a half tile)', 4, 150, 350, 1],
+        ['four sentences anywhere: one per row', 4, 520, 632, 1],
+        ['three short numbers on a laptop: one row of three', 3, 45, 632, 3],
+        ['three short numbers on a phone: stacked, never two plus an orphan', 3, 45, 350, 1],
+        ['five short options: stacked, never three plus two', 5, 20, 632, 1],
+        ['six short options on a laptop: two to a row', 6, 45, 632, 2],
+        ['four short numbers at a larger text size (20px root): two by two', 4, 45, 632, 2, 20],
+    ];
+    for (const [name, count, widest, group, want, root = ROOT] of cases) {
+        const got = choiceColumns(count, widest, group, root);
+        check(`choice layout — ${name}`, got === want, `got ${got} columns, want ${want}`);
+    }
+    // ChoiceInput uses it, and a graded tile says its verdict in shape too.
+    const src = readFileSync(new URL('../src/components/answer/ChoiceInput.tsx', import.meta.url), 'utf8');
+    check('ChoiceInput lays its tiles out with choiceColumns', /choiceColumns\(/.test(src));
+    check('a graded key carries a tick and a wrong pick a cross, not only a colour', /<Check\b/.test(src) && /<X\b/.test(src));
+    const placement = readFileSync(new URL('../src/components/PlacementModal.tsx', import.meta.url), 'utf8');
+    check('the placement dialog draws its options with ChoiceInput, not a copy', /<ChoiceInput\b/.test(placement) && !/question\.options\?\.map/.test(placement));
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 process.exit(fail ? 1 : 0);
