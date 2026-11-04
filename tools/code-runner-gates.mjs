@@ -202,6 +202,10 @@ const qjsWasmPath = require.resolve('@jitl/quickjs-ng-wasmfile-release-sync/wasm
     check('fewer than three tests grade nothing (a constant answer could pass them), but still feed Run',
         pieces.testsToGradeBy?.(two)?.length === 0 && pieces.codeTestsOf(two).length === 2 && pieces.testsToGradeBy?.(three)?.length === 3,
         `two → ${pieces.testsToGradeBy?.(two)?.length}, three → ${pieces.testsToGradeBy?.(three)?.length}`);
+    const sameThrice = [{ call: 'f(1)' }, { call: ' f(1)' }, { call: 'f(1)', expect: '1' }, { call: 'f(2)' }];
+    check('…counting different inputs: the same call three times over is one test',
+        pieces.testsToGradeBy?.(sameThrice)?.length === 0 && pieces.testsToGradeBy?.([...sameThrice, { call: 'f(3)' }])?.length === 5,
+        `${pieces.testsToGradeBy?.(sameThrice)?.length} graded by`);
     const q = normalizeQuestionFormat({ type: 'code', language: 'python', correct_answer: 'def f(x):\n    return x * 2', tests: [{ call: 'f(2)', expect: '4' }] });
     check('a code question keeps its tests through the format registry', JSON.stringify(q?.tests) === '[{"call":"f(2)","expect":"4"}]', JSON.stringify(q));
     const imported = normalizeQuestionFormat({ type: 'code', language: 'python', correct_answer: 'def f(x):\n    return x * 2', tests: [{ call: 'f(2)' }] }, { stored: true });
@@ -210,6 +214,8 @@ const qjsWasmPath = require.resolve('@jitl/quickjs-ng-wasmfile-release-sync/wasm
         pieces.runnableLanguage('Python') === 'python' && pieces.runnableLanguage('py') === 'python' && pieces.runnableLanguage('js') === 'javascript'
         && pieces.runnableLanguage('javascript') === 'javascript' && pieces.runnableLanguage('sql') === null && pieces.runnableLanguage('c') === null
         && pieces.runnableLanguage(undefined) === null);
+    const inherited = ['constructor', 'toString', '__proto__', 'hasOwnProperty'].filter((name) => pieces.runnableLanguage(name) !== null);
+    check('…nor a name every object inherits (constructor, toString, __proto__)', inherited.length === 0, inherited.join(', '));
 }
 {
     const forged = pieces.readRunResult({ status: 'done', tests: [{ input: 'a', expected: 'b', actual: 'c', pass: 'yes', extra: 1 }], html: '<img>', output: 'x'.repeat(100000), keyProblem: 'nope' }, 'learner');
@@ -366,6 +372,41 @@ export function openRunnerFrame(boot) {
     check('…and the stalled download is not kept: the next Run fetches again and runs', after.status === 'done', JSON.stringify(after).slice(0, 200));
     stalling.closeAllConnections?.();
     stalling.close();
+
+    // The rest of a start can hang too: the worker's source or the runner's own
+    // chunk never arriving. Both end at the same (shortened) limit, and a
+    // chunk that did not arrive is asked for again.
+    const hangFile = join(scratch, 'hang.mjs');
+    writeFileSync(hangFile, 'await new Promise(() => {});\nexport default "";\n');
+    const hangSwap = {
+        name: 'hang-worker',
+        setup(build) {
+            build.onResolve({ filter: /^virtual:runner-worker$/ }, () => ({ path: pathToFileURL(hangFile).href, external: true }));
+            build.onResolve({ filter: /\?(url|raw)$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
+            build.onResolve({ filter: /frameHost$/ }, () => ({ path: 'frameHost', namespace: 'fake' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: a.path.endsWith('?url') ? 'export default "data:application/octet-stream;base64,AA=="' : 'export default ""', loader: 'js' }));
+            build.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: FAKE_HOST, loader: 'js' }));
+        },
+    };
+    const hangFileOut = join(scratch, 'door-hang.mjs');
+    await esbuild.build({
+        stdin: { contents: "export { runCode } from './src/runner/runCode.ts'; export { loadRunner } from './src/runner/load.ts';", resolveDir: repoRoot, loader: 'ts' },
+        bundle: true, format: 'esm', platform: 'node', outfile: hangFileOut, logLevel: 'silent', plugins: [shortLimits, hangSwap],
+        define: { 'import.meta.glob': 'globalThis.__runnerGlob' },
+    });
+    const hangDoor = await import(pathToFileURL(hangFileOut).href);
+    const hungStart = await within(hangDoor.runCode('javascript', 'mine', []), 4000);
+    check('a start whose worker source never arrives ends at the start-up limit, as "could not start"', hungStart.status === 'unavailable' && hungStart.phase === 'load',
+        JSON.stringify(hungStart).slice(0, 200));
+    let chunkArrives = false;
+    globalThis.__runnerGlob = () => ({ './runCode.ts': () => (chunkArrives ? Promise.resolve({ loaded: true }) : new Promise(() => {})) });
+    const settle = (p) => within(p.then((m) => ({ status: m?.loaded ? 'loaded' : '?' }), (e) => ({ status: 'refused', error: String(e?.message ?? e) })), 4000);
+    const chunkLost = await settle(hangDoor.loadRunner());
+    chunkArrives = true;
+    const chunkAgain = await settle(hangDoor.loadRunner());
+    delete globalThis.__runnerGlob;
+    check('the runner\'s chunk not arriving ends at the start-up limit', chunkLost.status === 'refused', JSON.stringify(chunkLost));
+    check('…and is asked for again next time', chunkAgain.status === 'loaded', JSON.stringify(chunkAgain));
 }
 
 // ---------------------------------------------------------------------------
@@ -743,7 +784,7 @@ function proto() { return {}; }
 function wide() { const o = {}; for (let i = 0; i < 300; i++) o["k" + i] = i; o.k250 = -1; return o; }`;
         const valueTests = ['hole()', 'set()', 'map()', 'proto()', 'wide()'].map((call) => ({ call }));
         const OBJ = 'function o() { return { a: 1, b: [2, "x"] }; }';
-        const [[pGen, pOwn, pOwnWrong, pTuple], [jPromise, jRegex, jRegexSame, jFn, jValues, jObjExpect, jObjExpectWrong, jHuge]] = await Promise.all([
+        const [[pGen, pOwn, pOwnWrong, pTuple], [jPromise, jRegex, jRegexSame, jFn, jValues, jObjExpect, jObjExpectWrong, jHuge, jSym]] = await Promise.all([
             Promise.all([
                 py({ mode: 'check', reference: 'def g():\n    return (x for x in [1, 2])', learner: 'def g():\n    return (x for x in [1, 2])', tests: [{ call: 'g()' }, { call: 'list(g())' }] }),
                 py({ mode: 'check', reference: `${DC}\ndef f(n):\n    return P(n, [n])`, learner: `${DC}\ndef f(n):\n    return P(n, [n])`, tests: [{ call: 'f(1)' }, { call: 'f(2)' }] }),
@@ -759,6 +800,7 @@ function wide() { const o = {}; for (let i = 0; i < 300; i++) o["k" + i] = i; o.
                 js({ mode: 'check', reference: OBJ, learner: 'const o = () => ({ b: [2, "x"], a: 1 });', tests: [{ call: 'o()', expect: '{"a": 1, "b": [2, "x"]}' }, { call: 'o().b' }, { call: 'o().a' }] }),
                 js({ mode: 'check', reference: OBJ, learner: OBJ, tests: [{ call: 'o()', expect: '{"a": 2, "b": [2, "x"]}' }] }),
                 js({ mode: 'check', reference: 'function big() { return Array.from({ length: 100000 }, (_, i) => i); }', learner: 'function big() { return Array.from({ length: 100000 }, (_, i) => i); }', tests: [{ call: 'big()' }] }),
+                js({ mode: 'check', reference: 'function s() { return Symbol("a"); }', learner: 'function s() { return Symbol("a"); }', tests: [{ call: 's()' }] }),
             ]),
         ]);
         check('Python: a generator the reference returns is not compared; the model grades', pGen.result.keyProblem === 'reference-error' && !pGen.result.tests, JSON.stringify(pGen.result).slice(0, 300));
@@ -778,6 +820,7 @@ function wide() { const o = {}; for (let i = 0; i < 300; i++) o["k" + i] = i; o.
         check('JavaScript: an object expect the reference agrees with grades the answer (keys in any order)', allPass(jObjExpect), JSON.stringify(jObjExpect.result).slice(0, 300));
         check('…and one it disputes grades nothing', jObjExpectWrong.result.keyProblem === 'expect-mismatch', JSON.stringify(jObjExpectWrong.result).slice(0, 300));
         check('JavaScript: a value too large to compare whole is not compared; the model grades', jHuge.result.keyProblem === 'reference-error', JSON.stringify(jHuge.result).slice(0, 300));
+        check('JavaScript: a symbol (equal only to itself) is not compared by its description; the model grades', jSym.result.keyProblem === 'reference-error', JSON.stringify(jSym.result).slice(0, 300));
 
         section('6. stopping a run');
         // Run apart from the rest, so their timing is their own.
