@@ -18,6 +18,7 @@ import { RUNNER_LIMITS } from '../../server/runnerFrame.js';
 import { openRunnerFrame } from './frameHost';
 import type { FrameBoot, RunnerFrame } from './frameHost';
 import { MEMORY_MB } from './languages';
+import { withinLoadLimit } from './deadline';
 import type { CodeTest, RunPhase, RunResult, RunnerLanguage } from './protocol';
 
 const SPARE_IDLE_MS = 10 * 60_000;
@@ -40,7 +41,16 @@ function bytesOf(url: string): Promise<Uint8Array> {
     return p;
 }
 
-async function bootFor(language: RunnerLanguage): Promise<FrameBoot> {
+/**
+ * Everything a frame needs to start, bounded as a whole. The grace on top lets
+ * a stalled download end by its own limit first (and leave the cache), so the
+ * next run never picks up a download about to fail.
+ */
+function bootFor(language: RunnerLanguage): Promise<FrameBoot> {
+    return withinLoadLimit(bootParts(language), 'the runtime', RUNNER_LIMITS.loadMs + RUNNER_LIMITS.graceMs);
+}
+
+async function bootParts(language: RunnerLanguage): Promise<FrameBoot> {
     const worker = (await import('virtual:runner-worker')).default;
     if (language === 'python') {
         const [loader, asm, lock, wasm, stdlib] = await Promise.all([

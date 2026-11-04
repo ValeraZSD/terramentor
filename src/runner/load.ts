@@ -7,12 +7,13 @@
 // code with plain esbuild follow an `import()` into it and fail to build; a
 // glob they leave alone. It sits inside the function, so a gate that loads
 // this module never evaluates `import.meta.glob` unless it runs code.
+import { withinLoadLimit } from './deadline';
 import type * as Runner from './runCode';
 
 let runner: Promise<typeof Runner> | null = null;
 
 export function loadRunner(): Promise<typeof Runner> {
-    runner ??= import.meta.glob<typeof Runner>('./runCode.ts')['./runCode.ts']()
+    runner ??= withinLoadLimit(import.meta.glob<typeof Runner>('./runCode.ts')['./runCode.ts'](), 'the runner')
         .catch((err: unknown) => {
             runner = null; // a chunk that did not arrive is asked for again next time
             throw err;
