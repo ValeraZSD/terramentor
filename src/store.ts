@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -562,6 +562,9 @@ interface AppState {
     feedTransfers: Record<number, TransferInfo>;
     /** Placement head starts, kept the same way and for the same reason. */
     feedPlacements: Record<number, PlacementHeadStart>;
+    /** On a topic's own page, its first lesson while it is written (or failed
+     *  to be): the newest page's word on it, never merged. */
+    feedLessonWrite: LessonWrite | null;
     /** Card keys consumed this session (cards collapse in place, never unmount). */
     feedDone: Record<string, boolean>;
     /** Per topic: how many feed answers have been SAVED this session. A
@@ -946,6 +949,7 @@ export const useStore = create<AppState>((set, get) => ({
     feedHeader: null,
     feedTransfers: {},
     feedPlacements: {},
+    feedLessonWrite: null,
     feedLoading: false,
     feedExhausted: false,
     feedDone: {},
@@ -1606,6 +1610,7 @@ export const useStore = create<AppState>((set, get) => ({
                 feedHeader: res.header,
                 feedTransfers: res.transfers || {},
                 feedPlacements: res.placements || {},
+                feedLessonWrite: res.lessonWrite ?? null,
                 feedExhausted: res.exhausted,
                 feedDone: {},
                 feedFocusItemId: null,
@@ -1645,6 +1650,7 @@ export const useStore = create<AppState>((set, get) => ({
                 // blank the banner on chapters still on screen.
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                feedLessonWrite: res.lessonWrite ?? null,
                 feedExhausted: res.exhausted,
                 feedLoading: false,
             }));
@@ -1684,11 +1690,15 @@ export const useStore = create<AppState>((set, get) => ({
                 // after that topic's last card (appended, it sat below the next
                 // topics the learner had moved on to), and on a topic's own page
                 // a lesson written after its checkpoint arrived goes in before
-                // that checkpoint (`placeCheckpoints`).
-                feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
+                // that checkpoint (`placeCheckpoints`). A lesson the page was
+                // waiting on goes where its slot was drawn.
+                feedCards: fresh.length
+                    ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null)
+                    : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                feedLessonWrite: res.lessonWrite ?? null,
                 feedExhausted: res.exhausted,
                 feedLoading: false,
             }));

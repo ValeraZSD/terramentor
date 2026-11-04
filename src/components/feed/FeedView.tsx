@@ -1,4 +1,4 @@
-import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, scopeKey } from '../../store';
 import {
     FeedCard, FeedCheckpointCard, FeedFlashcardCard, FeedLessonCard,
@@ -15,6 +15,8 @@ import NoticeCard from './NoticeCard';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
+import LessonSlot from './LessonSlot';
+import { feedGenSignal, lessonPending, lessonSlot } from '../../utils/feedPlacement';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
@@ -136,11 +138,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // re-render the whole feed at that rate. `genSignal` changes only when the
     // generator moves to another item — which is exactly when a new card exists.
     const generating = useStore(s => s.aiTasks.some(t => t.kind === 'feed' && t.status === 'running'));
-    const generatingPct = useStore(s => s.aiTasks.find(t => t.kind === 'feed')?.progress.percent ?? null);
-    const genSignal = useStore(s => {
-        const t = s.aiTasks.find(x => x.kind === 'feed');
-        return t ? `${t.status}|${t.progress.percent ?? ''}|${t.progress.message ?? ''}` : '';
-    });
+    const generatingPct = useStore(s => s.aiTasks.find(t => t.kind === 'feed' && t.status === 'running')?.progress.percent ?? null);
+    const genSignal = useStore(s => feedGenSignal(s.aiTasks));
+    const lessonWrite = useStore(s => s.feedLessonWrite);
 
     const cardRefs = useRef(new Map<string, HTMLElement>());
     const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -297,7 +297,27 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         void pullFeedUpdates();
     }, [genSignal, pullFeedUpdates]);
 
+    // A lesson slot waits on the writer, and no task moves when AI is switched
+    // off or its model changed: ask again then, or the slot would keep saying
+    // "writing" with nothing writing behind it.
+    const aiConfigRev = useStore(s => s.aiConfigRev);
+    const waitingOnWrite = useRef(false);
+    waitingOnWrite.current = lessonWrite != null;
+    useEffect(() => {
+        if (!aiConfigRev || !waitingOnWrite.current) return;
+        void pullFeedUpdates();
+    }, [aiConfigRev, pullFeedUpdates]);
+
     const groups = useMemo(() => groupCards(feedCards), [feedCards]);
+    // The topic's first lesson, still being written: its slot holds the page,
+    // and the stream has no end until it lands or fails.
+    const slot = studying ? lessonSlot(feedCards, lessonWrite) : null;
+    const pending = studying && lessonPending(feedCards, lessonWrite);
+    const slotSection = slot && lessonWrite ? (
+        <ChapterSection key="lesson-slot" innerRef={noRef}>
+            <LessonSlot write={lessonWrite} />
+        </ChapterSection>
+    ) : null;
 
     // The header of a TOPIC stream, and only a topic stream.
     //
@@ -493,14 +513,18 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         gateMode={group.cards.find(c => c.kind === 'checkpoint')?.gateMode}
                     >
                         {group.cards.map((card, i) => (
-                            <ChapterSection key={card.key} innerRef={setCardRef(card.key)}>
-                                {/* A run of questions is labelled at its head
-                                    and nowhere else (QuestionCard.labelled). */}
-                                {renderChapterCard(card, !!feedDone[card.key], handleDone,
-                                    group.cards[i - 1]?.kind !== 'question',
-                                    runDone(group.cards, i, feedDone),
-                                    !group.continued)}
-                            </ChapterSection>
+                            <Fragment key={card.key}>
+                                {slot?.place === 'before' && slot.key === card.key && slotSection}
+                                <ChapterSection innerRef={setCardRef(card.key)}>
+                                    {/* A run of questions is labelled at its head
+                                        and nowhere else (QuestionCard.labelled). */}
+                                    {renderChapterCard(card, !!feedDone[card.key], handleDone,
+                                        group.cards[i - 1]?.kind !== 'question',
+                                        runDone(group.cards, i, feedDone),
+                                        !group.continued)}
+                                </ChapterSection>
+                                {slot?.place === 'after' && slot.key === card.key && slotSection}
+                            </Fragment>
                         ))}
                     </ChapterGroup>
                 ) : (
@@ -520,7 +544,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
                     </div>
                 )}
-                {feedExhausted && feedCards.length > 0 && (
+                {feedExhausted && feedCards.length > 0 && !pending && (
                     generating ? (
                         // Reaching the end while the generator is mid-burst is not
                         // a dead end — the next lessons are minutes away and will
@@ -586,6 +610,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         </div>
     );
 }
+
+/** The lesson slot is not a card: nothing scrolls to it or times it. */
+const noRef = () => { };
 
 /** Whether every question in the run starting at `i` is answered: the run's one label ticks for all of them. */
 function runDone(cards: ChapterCard[], i: number, done: Record<string, boolean>) {
