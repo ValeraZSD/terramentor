@@ -1141,6 +1141,38 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 }
 
 // ---------------------------------------------------------------------------
+section('a failed test marks where its result differs from the expected one');
+// "Hello Ada" against "Hello, Ada!" differs by a comma and a "!", which a
+// learner had to find letter by letter; the review now marks them. A mark is
+// only worth drawing when most of the text agrees: "3" against "6" marked
+// whole says nothing the colour of the row did not.
+{
+    const { diffChars } = await import(pathToFileURL(await bundleClient('src/components/answer/charDiff.ts')).href);
+    const marked = (parts) => parts.filter(p => p.mark).map(p => p.text).join('');
+    const whole = (parts) => parts.map(p => p.text).join('');
+    const hello = diffChars('Hello, Ada!', 'Hello Ada');
+    check('a missing comma and "!" are marked on the expected side, nothing on the learner\'s',
+        hello && marked(hello.expected) === ',!' && marked(hello.actual) === '',
+        JSON.stringify(hello));
+    const minus = diffChars('-8', '-4');
+    check('-8 against -4 marks the 8 and the 4, not the shared minus sign',
+        minus && marked(minus.expected) === '8' && marked(minus.actual) === '4', JSON.stringify(minus));
+    const extra = diffChars('6', '6.0');
+    check('6 against 6.0 marks only the ".0" the learner added', extra && marked(extra.expected) === '' && marked(extra.actual) === '.0',
+        JSON.stringify(extra));
+    check('nothing in common marks nothing (3 against 6)', diffChars('6', '3') === null);
+    check('two equal strings mark nothing', diffChars('same', 'same') === null);
+    const long = 'x'.repeat(600);
+    check('text too long to compare cheaply is left unmarked', diffChars(long, long + 'y') === null);
+    const emoji = diffChars('a😀b', 'a😃b');
+    check('a character outside the basic plane is marked whole, never half a surrogate pair',
+        emoji && marked(emoji.expected) === '😀' && marked(emoji.actual) === '😃', JSON.stringify(emoji));
+    const pairs = [['Hello, Ada!', 'Hello Ada'], ['line one\nline two', 'line one\nline 2'], ['[1, 2, 3]', '[1, 2]'], ['a😀b', 'a😃b']];
+    check('the parts put back together are exactly the two texts',
+        pairs.every(([e, a]) => { const d = diffChars(e, a); return !d || (whole(d.expected) === e && whole(d.actual) === a); }));
+}
+
+// ---------------------------------------------------------------------------
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 process.exit(fail ? 1 : 0);
