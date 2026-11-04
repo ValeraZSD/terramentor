@@ -1037,6 +1037,18 @@ async function generateOne(f, missing, signal) {
                 questionCount: MATERIAL_QUESTIONS, cardCount: MATERIAL_CARDS, signal,
             });
             console.log(`[FeedGen] Prepared ${count} ${missing.kind === 'flashcards' ? 'cards' : 'questions'} ahead of "${f.title}"`);
+            // A write that left the bank short (the vetting kept too few) would
+            // be asked for again on every burst: count it as a skip too.
+            const short = missing.kind === 'flashcards'
+                ? !count
+                : ownedQuestions(f.nodeId) < MIN_GATE_QUESTIONS;
+            if (short) {
+                const row = db.prepare(`SELECT meta FROM feed_items WHERE id = ?`).get(missing.plan.id);
+                const meta = safeParse(row?.meta) || {};
+                meta[missing.kind === 'flashcards' ? 'skippedCards' : 'skippedCheck'] = true;
+                db.prepare(`UPDATE feed_items SET meta = ? WHERE id = ?`).run(JSON.stringify(meta), missing.plan.id);
+                console.warn(`[FeedGen] ${missing.kind} for "${f.title}" came out short; not asked for again`);
+            }
         } catch (err) {
             if (signal?.aborted || isTransient(err, signal)) throw err; // retried by generateStep
             // The model could not write usable material for this topic. Record
@@ -1508,9 +1520,10 @@ async function runBurst() {
                     return w ? { type: 'widget', ...w } : null;
                 });
             }
-            // Last of all: the mastery check bank and the flashcards this topic
-            // ends on. Everything above is on screen now; this is for a card the
-            // learner has not reached, so it may never delay one they have.
+            // Last of all, for the focus window: the mastery check bank and the
+            // flashcards each topic ends on. Everything above is on screen now
+            // or is the page the learner opened; this is for a card the learner
+            // has not reached, so it may never delay one they have.
             if (!hit) {
                 hit = pickTarget(teachable, f => pendingMaterial(f.nodeId));
             }

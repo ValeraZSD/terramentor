@@ -51,7 +51,8 @@ const stub = createServer((req, res) => {
         let content = null;
         if (/quiz generator/i.test(all)) {
             quizAsks.push(all);
-            content = JSON.stringify(Array.from({ length: 6 }, (_, i) => ({
+            // "Short circuits" gets a bank too small to be a mastery check.
+            content = JSON.stringify(Array.from({ length: /Short circuits/.test(all) ? 2 : 6 }, (_, i) => ({
                 type: 'multiple_choice', question: `What is ${i} + 4 in this circuit sum?`,
                 options: [`${i + 3}`, `${i + 4}`, `${i + 5}`, `${i + 6}`], correct_answer: `${i + 4}`, explanation: `${i} and 4 make ${i + 4}.`,
             })));
@@ -235,8 +236,8 @@ ok('bulkGen goes through generateMaterial', /generateMaterial\(/.test(bulk), tru
 ok('…and no longer finalises a quiz itself', /finalizeQuiz\(|finalizeFlashcards\(/.test(bulk), false);
 ok('feedGen goes through generateMaterial', /generateMaterial\(/.test(gen), true);
 ok('…and no longer finalises a quiz itself', /finalizeQuiz\(|finalizeFlashcards\(/.test(gen), false);
-// The look-ahead must be the LAST thing the burst reaches for: everything above
-// it is a card on screen now.
+// The focus window's look-ahead must be the LAST thing the burst reaches for:
+// everything above it is a card on screen now, or the opened topic's own check.
 const burst = gen.slice(gen.indexOf('async function runBurst'));
 ok('the focus window\'s look-ahead is picked after the widget pre-build',
     burst.indexOf('pickTarget(teachable, f => pendingMaterial(') > burst.indexOf('pendingWidget('), true);
@@ -286,6 +287,19 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
     ok('the burst asked the model for the jumped-to topic\'s check',
         quizAsks.some(a => a.includes('Parallel circuits')), true);
     ok('…and stored it as that topic\'s bank before the learner reached it', bankOf() > 0, true);
+
+    // A write the vetting leaves short of a mastery check (two questions, not
+    // four) must not be asked for again on every burst while the learner
+    // stays on the page: it is recorded as skipped, like a failed write.
+    const short = topic('Short circuits', 10);
+    taught(short);
+    requestNode(short);
+    const skipped = () => !!JSON.parse(db.prepare(`SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'plan'`).get(short).meta || '{}').skippedCheck;
+    const asksFor = () => quizAsks.filter(a => a.includes('Short circuits')).length;
+    for (let waited = 0; waited < 6000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 500));
+    ok('a bank written short is recorded as skipped', skipped(), true);
+    ok('…and the model is asked for it once, not on every burst', asksFor(), 1);
 }
 
 console.log(`\n${fail ? 'FAILED' : 'PASSED'} — ${pass} passed, ${fail} failed`);
