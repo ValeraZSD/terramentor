@@ -27,7 +27,7 @@
 import crypto from 'node:crypto';
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
-import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
+import { parseObjectResponse } from './agentic.js';
 import { sameAnswer } from './feedQuality.js';
 import { sameOption } from './questionOptions.js';
 import { bankTitle } from './studyMaterial.js';
@@ -67,9 +67,7 @@ function remember(key, kind, v) {
 }
 
 function parseObject(resp) {
-    const match = String(resp || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try { return parseJsonWithRepair(escapeLatexBackslashes(match[0])); } catch { return null; }
+    try { return parseObjectResponse(resp); } catch { return null; }
 }
 
 /** One check per content at a time: a preview and an Add pressed together share it. */

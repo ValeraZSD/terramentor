@@ -6,7 +6,13 @@
 
 export function parseJsonWithRepair(text) {
     if (!text || !text.trim()) return null;
-    let cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+    // A reply's own fence goes; a fence INSIDE a string is content. A question
+    // stem carries its graph as ```plot … ```, and stripping every fence left
+    // the spec printed as text under the question.
+    const at = text.search(/[[{]/);
+    const dropFences = (s) => s.replace(/```json/gi, '').replace(/```/g, '');
+    let cleaned = (at > 0 ? dropFences(text.slice(0, at)) + outsideStrings(text.slice(at), dropFences)
+        : at === 0 ? outsideStrings(text, dropFences) : dropFences(text)).trim();
 
     // 1. Try native parse first (best case, if AI returned perfectly valid JSON)
     try {
@@ -50,6 +56,45 @@ export function parseJsonWithRepair(text) {
 
     console.log('[JSON Repair] Failed to parse JSON. First 200 chars:', cleaned.slice(0, 200));
     return null;
+}
+
+/**
+ * The JSON object a model's reply holds, or null.
+ *
+ * A reply that works its answer out first writes TeX before the JSON
+ * (`$\dfrac{f'(h)}{h}$ … {"verdict": "ok"}`), and the old slice from the first
+ * `{` to the last `}` began inside the TeX, so a verifier that agreed with the
+ * key read as "returned nothing usable" and the question was served as
+ * practice only (Taylor clip, 4 Nov 2026). So each balanced `{…}` is tried in
+ * order, a ```json fenced one first: the first that parses as an object wins;
+ * one that starts like JSON (`{"`) but needs repair is repaired, so a nested
+ * object never wins over the broken one around it. Nothing found: the old
+ * slice and repair, as before.
+ *
+ * `prepare` runs on each slice before it is parsed (the TeX-safe escaping
+ * lives in agentic.js, which imports this module).
+ */
+export function readReplyObject(text, prepare = (s) => s) {
+    const s = String(text ?? '');
+    const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+    const slices = [...s.matchAll(/```(?:json)?[ \t]*\r?\n?(\{[\s\S]*?\})\s*```/gi)].map(m => m[1]);
+    for (let i = s.indexOf('{'); i !== -1; i = s.indexOf('{', i + 1)) {
+        const end = findMatchingBracket(s, i, '{', '}');
+        if (end !== -1) slices.push(s.slice(i, end + 1));
+    }
+    for (const slice of slices) {
+        let prepared;
+        try { prepared = prepare(slice); } catch { continue; }
+        try { const v = JSON.parse(prepared); if (isObject(v)) return v; } catch { /* next */ }
+        if (/^\{\s*"/.test(slice)) {
+            const v = parseJsonWithRepair(prepared);
+            if (isObject(v)) return v;
+        }
+    }
+    const greedy = s.match(/\{[\s\S]*\}/);
+    if (!greedy) return null;
+    const v = parseJsonWithRepair(prepare(greedy[0]));
+    return isObject(v) ? v : null;
 }
 
 /**

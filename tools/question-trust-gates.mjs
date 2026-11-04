@@ -77,9 +77,13 @@ const stub = createServer((req, res) => {
                 questions: [{ question: 'CONFIRM capture: what is 2 + 2?', type: 'multiple_choice', options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two make four.' }],
             });
         } else if (/checking a question before it is shown/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT)\w*/) || [])[0] || 'SILENT';
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
-            content = tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
+            content = tag === 'WORKING'
+                // Working first, TeX braces and all, then the verdict in a fence.
+                ? 'Since $\\dfrac{f\'(h) - f\'(0)}{h} = \\dfrac{2}{h^4}e^{-1/h^2}$, that is $\\dfrac{e^{-1/h^2}}{h^k}$ with $k = 4$; likewise $2 + 2 = 4$.\n\n```json\n'
+                    + JSON.stringify({ verdict: 'ok', answer: '4', eliminable: 0, reason: 'With f\'(0)=0 the quotient is 2e^{-1/h^2}/h^4.' }) + '\n```'
+                : tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
                 : tag.startsWith('DISPUTE') ? JSON.stringify({ verdict: 'ok', answer: '5', reason: 'the key is wrong', eliminable: 0 })
                 : 'I would rather not say.';
         } else {
@@ -378,6 +382,22 @@ check('fixture: enrichment wrote one question from the stub', enriched?.question
 check('...stored stamped pending, so it is practice until a verifier confirms it', capBank[0]?.unverified?.tries === 0, JSON.stringify(capBank[0]?.unverified ?? null));
 const { pendingVerification } = await import(B + 'feedGen.js');
 check('...and due at once for the background chain', pendingVerification(cap.nodeId)?.entry?.question?.question === 'CONFIRM capture: what is 2 + 2?');
+
+// ---- 9. a verdict written after the working ---------------------------------------------
+// The lesson question in the Taylor clip (4 Nov 2026) was stamped "verifier
+// returned nothing usable" although the verifier had answered `ok` with the
+// key: it worked the limit out in TeX first, and the reader took the JSON to
+// start at the first `{` of `\dfrac{f'(h)}{h}`. Its reply, shape for shape.
+console.log('\n--- 9. a verifier that shows its working before the verdict is read ---');
+const { verifyQuestion } = await import(B + 'feedQuality.js');
+const working = await verifyQuestion('Two and two', mc('WORKING out: what is 2 + 2?'));
+check('a verdict after TeX working is a verdict: available, confirmed',
+    working.available === true && working.ok === true && working.reason === 'verified', JSON.stringify(working));
+check('...and the stub really sent the working first', verifierCalls.get('WORKING') >= 1);
+const { parseAnswerVerdict } = await import(B + 'ai.js');
+const graded = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, the learner's $k = 4$ is right.
+` + '```json\n{"correct": true, "explanation": "k = 4."}\n```');
+check('the open-answer grader reads its verdict after working the same way', graded?.verdict === 'correct', JSON.stringify(graded));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));

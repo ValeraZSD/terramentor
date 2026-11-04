@@ -1,7 +1,7 @@
 import { generateResponse, webSearch, AI_PROMPTS, isValidResourceUrl } from './ai.js';
 import { textTag } from './logText.js';
 import { sanitizeResourceType } from './curriculumSchema.js';
-import { parseJsonWithRepair } from './jsonRepair.js';
+import { parseJsonWithRepair, readReplyObject } from './jsonRepair.js';
 // Re-exported: every importer of the repair reads it from here.
 export { parseJsonWithRepair };
 
@@ -207,7 +207,15 @@ export function sanitizeExplanation(explanation, options) {
 // Every other escape (`\t`, `\b`, `\f`) becomes literal text either way: in
 // prose `\theta`, `\beta` and `\frac` are far likelier than a tab.
 // Not for code-bearing text, where `$` is not maths (paper.js explains why).
-export function escapeLatexBackslashes(jsonStr, { mathSpans = false } = {}) {
+//
+// `lineBreaks: true` (a question a model wrote) decides `\n` and `\r` by the
+// closed list alone, with no `$` pairing: a line break unless the letters after
+// it are a TeX command (`\neq`, `\nabla`, `\rho`). A stem is told to carry its
+// picture as a fenced spec on lines of its own, and with every `\n` made
+// literal the fence arrived as one line of text (take 7 of the Taylor clip,
+// 4 Nov 2026: "…approach?\n\nplot\n{"data":…}" printed in a mastery check).
+// A doubled `\\n` stays the two characters it was written as.
+export function escapeLatexBackslashes(jsonStr, { mathSpans = false, lineBreaks = false } = {}) {
     let out = '';
     let inString = false;
     let inMath = false, inCode = false, paired = false;
@@ -236,8 +244,9 @@ export function escapeLatexBackslashes(jsonStr, { mathSpans = false } = {}) {
                 out += jsonStr.slice(i, i + 6); i += 5; continue;
             }
             if (mathSpans && next === '$') { out += '\\\\$'; i++; continue; }
-            if (mathSpans && (next === 'n' || next === 'r')) {
-                const tex = paired ? inMath : LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0]);
+            if ((mathSpans || lineBreaks) && (next === 'n' || next === 'r')) {
+                const command = LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0]);
+                const tex = mathSpans && paired ? inMath : command;
                 if (!tex) { out += c + next; i++; continue; }
             }
             out += '\\\\'; // lone backslash (LaTeX command or \{ ) — escape it
@@ -270,6 +279,13 @@ export const LATEX_NR_COMMANDS = new Set([
     'nwarrow', 'nrightarrow', 'nleftarrow', 'nonumber', 'noindent', 'newline',
     'rho', 'right', 'rightarrow', 'rightleftharpoons', 'rangle', 'rfloor',
     'rceil', 'real', 'rm', 'ref', 'rbrace', 'rbrack', 'radians',
+    // Logic, sets and relations a maths stem writes (a question is the one
+    // place `lineBreaks` reads this list without a `$` pairing to fall back on).
+    'neg', 'nexists', 'nmid', 'nparallel', 'nsubseteq', 'nsupseteq', 'nsubset',
+    'nless', 'ngtr', 'nsim', 'ncong', 'nvdash', 'nprec', 'nsucc',
+    'nolimits', 'nRightarrow', 'nLeftarrow', 'nLeftrightarrow', 'nleftrightarrow',
+    'rvert', 'rVert', 'rtimes', 'rightharpoonup', 'rightharpoondown',
+    'rightrightarrows', 'rightsquigarrow', 'rhd',
 ]);
 
 /**
@@ -291,16 +307,24 @@ export function parseCreationJson(text) {
 }
 
 /**
- * Extract the first {...} object from model output, LaTeX-safely.
+ * Extract the JSON object from model output, LaTeX-safely (`readReplyObject`
+ * picks it out of any working before it).
  *
  * Lives here beside its two dependencies because feedGen.js and paper.js each
  * carried a byte-identical private copy, and a change to the escaping rules
  * would otherwise have to be made twice.
  */
-export function parseObjectResponse(resp) {
-    const match = String(resp || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    return parseJsonWithRepair(escapeLatexBackslashes(match[0]));
+export function parseObjectResponse(resp, { lineBreaks = false } = {}) {
+    return readReplyObject(resp, (s) => escapeLatexBackslashes(s, { lineBreaks }));
+}
+
+/**
+ * A question a model just wrote: its `\n` are line breaks unless a TeX
+ * command follows (`escapeLatexBackslashes` `lineBreaks`), so a stem keeps
+ * its paragraphs and its fenced picture.
+ */
+export function parseQuestionReply(resp) {
+    return parseObjectResponse(resp, { lineBreaks: true });
 }
 
 // isValidResourceUrl is imported from ai.js (canonical implementation) rather

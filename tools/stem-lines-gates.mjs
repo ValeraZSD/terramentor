@@ -18,10 +18,24 @@
 // breaks lines at (a block per paragraph, a <br> per line), checked in Edge
 // by hand when this was written.
 
+//
+// The last section is the server's half: a stem a MODEL wrote reaches the
+// database with its lines and its fenced picture. A reader that makes every
+// `\n` literal and strips every ``` (even inside strings) prints a mastery check
+// as `…?\n\nplot\n{"data":…}` in plain text (Taylor clip, take 7b, 4 Nov 2026).
+// That half needs a scratch library (set below, before any server import) and
+// no model: the replies are written out here.
+
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+const libDir = mkdtempSync(join(tmpdir(), 'stem-lines-lib-'));
+process.env.DB_PATH = join(libDir, 'gate.db');
+process.env.VAULT_ROOT = join(libDir, 'vault');
+process.env.DATA_DIR = libDir;
 
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
@@ -39,6 +53,7 @@ try {
         stdin: {
             contents: "import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';"
                 + " import QuestionStem from './src/components/QuestionStem'; import MathText from './src/components/MathText';"
+                + " export { hasVisual } from './src/components/QuestionStem';"
                 + ' export const stem = (content) => renderToStaticMarkup(createElement(QuestionStem, { content }));'
                 + ' export const inline = (content) => renderToStaticMarkup(createElement(MathText, { content }));',
             resolveDir: repoRoot, loader: 'js',
@@ -57,7 +72,7 @@ try {
             },
         }],
     });
-    const { stem, inline } = require(out);
+    const { stem, inline, hasVisual } = require(out);
     const { document } = new JSDOM('').window;
     const read = (html) => { const d = document.createElement('div'); d.innerHTML = html; return d; };
 
@@ -144,8 +159,66 @@ try {
     }
     check('no component draws a question stem with plain MathText', offenders.length === 0, offenders.join('; '));
 
+    section('a stem the model wrote keeps its picture and its lines');
+    {
+        const db = (await import('../server/database.js')).default;
+        const { finalizeQuiz } = await import('../server/studyMaterial.js');
+        const { normalizeModelQuestion } = await import('../server/feed.js');
+        const agentic = await import('../server/agentic.js');
+        const { questionDefects } = await import('../server/feedQuality.js');
+        const pid = db.prepare("INSERT INTO projects (name) VALUES ('Taylor series')").run().lastInsertRowid;
+        const nid = db.prepare("INSERT INTO nodes (project_id, title, position) VALUES (?, 'The function e to the minus one over x squared', 0)").run(pid).lastInsertRowid;
+
+        // Written the way a model writes them: TeX with single backslashes
+        // (`\to` is JSON's tab, `\neq` its newline), a JSON line break as `\n`,
+        // a literal backslash-n in code as `\\n`. `~~~` stands for a fence here.
+        const F = (s) => s.replaceAll('~~~', '```');
+        const graphStem = String.raw`The graph below shows $f(x) = e^{-1/x^2}$, which is very flat near $x = 0$.\n\n~~~plot\n{\"data\":[{\"fn\":\"exp(-1/x^2)\"}],\"xAxis\":{\"domain\":[-4,4]}}\n~~~\n\nWhat value does $f(x)$ approach as $x \to \pm\infty$?`;
+        const quizReply = F(String.raw`Here is the set.
+~~~json
+[
+ {"type": "multiple_choice", "question": "${graphStem}", "options": ["$0$", "$1$", "$e$", "$\infty$"], "correct_answer": "$1$", "explanation": "As $x \to \pm\infty$, $-1/x^2 \to 0$, so $f(x) \to e^0 = 1$; and $f(x) \neq 0$ for every $x \neq 0$."},
+ {"type": "true_false", "question": "For every statement $p$, $\neg\neg p$ is equivalent to $p$, and $\nabla \cdot \vec{F}$ is a scalar.", "options": ["True", "False"], "correct_answer": "True", "explanation": "Double negation cancels; a divergence is a scalar."},
+ {"type": "multiple_choice", "question": "In C, how many lines does printf(\"a\\nb\") print?", "options": ["1", "2", "3", "0"], "correct_answer": "2", "explanation": "The escape ends the first line."}
+]
+~~~`);
+        const want = 'The graph below shows $f(x) = e^{-1/x^2}$, which is very flat near $x = 0$.\n\n```plot\n{"data":[{"fn":"exp(-1/x^2)"}],"xAxis":{"domain":[-4,4]}}\n```\n\nWhat value does $f(x)$ approach as $x \\to \\pm\\infty$?';
+
+        let quiz = null;
+        try { quiz = finalizeQuiz(nid, quizReply, false); } catch (e) { check('the mastery-check reply is read', false, e.message); }
+        const stored = (q) => quiz?.questions?.find((x) => x.question.includes(q));
+        const graph = stored('graph below');
+        check('the check bank stores the stem exactly as written: paragraphs, fence, TeX',
+            graph?.question === want, JSON.stringify(graph?.question)?.slice(0, 260));
+        check('…so the stem draws its graph (QuestionStem sees a ```plot fence)', !!graph && hasVisual(graph.question));
+        check('…and the explanation keeps $\\neq$ as TeX, not a line break', !!graph && graph.explanation.includes('f(x) \\neq 0'), graph?.explanation);
+        const tex = stored('statement $p$');
+        check('TeX commands that start like a line break survive (\\neg, \\nabla)',
+            !!tex && tex.question.includes('$\\neg\\neg p$') && tex.question.includes('$\\nabla \\cdot \\vec{F}$'), tex?.question);
+        const code = stored('In C');
+        check('a backslash-n written as code stays the two characters',
+            !!code && code.question.includes('printf("a\\nb")') && !code.question.includes('\n'), JSON.stringify(code?.question));
+
+        // The feed's own question writer, with working before the JSON whose
+        // TeX braces must not be taken for it.
+        const feedReply = String.raw`The curve flattens, and $\lim_{x \to \infty} e^{-1/x^2} = 1$.
+{"type": "multiple_choice", "question": "${graphStem}", "options": ["$0$", "$1$", "$e$", "$\infty$"], "correct_answer": "$1$", "explanation": "As $x \to \pm\infty$ the exponent tends to $0$."}`.replaceAll('~~~', '```');
+        const readQuestion = agentic.parseQuestionReply ?? agentic.parseObjectResponse;
+        const fed = normalizeModelQuestion(readQuestion(feedReply));
+        check('the feed\'s question writer reads the same stem the same way', fed?.question === want, JSON.stringify(fed?.question)?.slice(0, 200));
+
+        // Fail closed: the stem take 7b stored, verbatim.
+        const flattened = { type: 'multiple_choice', question: 'The graph below shows $f(x) = e^{-1/x^2}$. The graph is extremely flat near $x = 0$. What value does $f(x)$ approach as $x \\to \\pm\\infty$?\\n\\nplot\\n{"data":[{"fn":"exp(-1/x^2)"}],"xAxis":{"domain":[-4,4]},"yAxis":{"domain":[-0.2,1.2]}}\\n', options: ['$\\infty$', '$0$', '$e$', '$1$'], correct_answer: '$1$', explanation: 'It tends to one.' };
+        check('a stem whose picture arrived as text is a defect (vetoed before it is served)',
+            questionDefects(flattened).some((d) => /picture arrived as text/.test(d)), questionDefects(flattened).join('; '));
+        check('…and the stems above are not', !!graph && !!code
+            && !questionDefects(graph).some((d) => /picture/.test(d)) && !questionDefects(code).some((d) => /picture/.test(d)));
+        db.close();
+    }
+
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exitCode = fail ? 1 : 0;
 } finally {
     rmSync(scratch, { recursive: true, force: true });
+    try { rmSync(libDir, { recursive: true, force: true }); } catch { /* the OS sweeps tmp */ }
 }

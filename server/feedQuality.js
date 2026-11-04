@@ -1,6 +1,6 @@
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
-import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
+import { parseObjectResponse } from './agentic.js';
 import {
     sameCode, parseNumber, normalizeTyped,
     readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
@@ -437,6 +437,9 @@ export function citationFaults(question) {
     return out;
 }
 
+/** A fence or a stem visual's kind (QUIZ_VISUALS_GUIDE) beside a literal `\n`. */
+const STEM_PICTURE_AS_TEXT = /(```|(?:^|\\n|[^A-Za-z])(?:plot|mermaid|vega-lite|vega|smiles))[ \t]*\\n|\\n[ \t]*```/;
+
 /**
  * Mechanical checks on a freshly generated question — everything decidable
  * without a model call, run BEFORE the (expensive) answer-key verifier so a
@@ -454,6 +457,13 @@ export function questionDefects(question, nodeId = null) {
 
     const stem = String(question.question || '').trim();
     if (stem.length < 10) problems.push('the question stem is empty or too short to answer');
+    // A picture that reached the stem as text: a fence marker or a visual's
+    // kind name run into an escaped line break (`…?\n\nplot\n{"data":…}`). The
+    // reader keeps a stem's lines now; this is the gate that fails closed if a
+    // path ever flattens them again, instead of printing the spec at a learner.
+    if (STEM_PICTURE_AS_TEXT.test(stem)) {
+        problems.push('the question\'s picture arrived as text (its fence was flattened onto one line)');
+    }
 
     // The app's own bookkeeping is not the subject. Needs the node, so it is
     // skipped by the callers that have none (a gate case, a repair tool).
@@ -804,10 +814,8 @@ export function isStaticAnimation(kind, spec) {
 }
 
 function parseObject(resp) {
-    const match = String(resp || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
     try {
-        return parseJsonWithRepair(escapeLatexBackslashes(match[0]));
+        return parseObjectResponse(resp);
     } catch {
         return null;
     }
