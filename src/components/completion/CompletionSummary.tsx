@@ -163,7 +163,7 @@ export default function CompletionSummary() {
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("{{name}} is finished", { name: project.name })}
-                className="relative flex w-full flex-col overflow-hidden bg-white shadow-2xl outline-none dark:bg-slate-900 sm:max-h-[94vh] sm:max-w-md sm:rounded-3xl"
+                className="relative flex w-full flex-col overflow-hidden bg-white shadow-2xl outline-none dark:bg-slate-900 sm:max-h-[94dvh] sm:max-w-md sm:rounded-3xl"
             >
                 <div className="h-1.5 shrink-0 bg-accent" />
 

@@ -16,6 +16,7 @@ import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
+import { DialogFooter } from './ui/Dialog';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
@@ -676,31 +677,6 @@ export default function MasteryGateModal({
                                     </pre>
                                 </div>
                             )}
-
-                            {/* One group: the learner is never stuck — even with
-                                the AI unavailable, they can move on honestly. */}
-                            <div className="flex gap-2 mt-6 justify-center w-full flex-wrap">
-                                {/* Quiet only beside a primary: next to two outlined
-                                    buttons a bare "Close" reads as text. */}
-                                <Button variant={offerMarkAnyway ? 'quiet' : 'neutral'} onClick={onClose}>
-                                    {t("Close")}
-                                </Button>
-                                {!uncheckedOnly && (
-                                    <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
-                                        {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
-                                    </Button>
-                                )}
-                                {offerSkip && (
-                                    <Button onClick={onSkip}>
-                                        {t("Skip this topic")}
-                                    </Button>
-                                )}
-                                {offerMarkAnyway && (
-                                    <Button variant="primary" onClick={onMarkAnyway}>
-                                        {t("Mark done anyway")}
-                                    </Button>
-                                )}
-                            </div>
                         </div>
                     )}
 
@@ -855,45 +831,76 @@ export default function MasteryGateModal({
                                     </div>
                                 );
                             })()}
-
-                            <div className="mt-8 flex gap-2 justify-center flex-wrap">
-                                {result.passed ? (
-                                    <Button
-                                        variant="primary"
-                                        // A retake has nothing to finish: the topic is already completed.
-                                        onClick={retake ? onClose : onPassed}
-                                    >
-                                        {t("Continue")}
-                                    </Button>
-                                ) : (
-                                    <>
-                                        <Button variant="quiet" onClick={onClose}>
-                                            {t("Study More")}
-                                        </Button>
-                                        {offerSkip && (
-                                            <Button onClick={onSkip}>
-                                                {t("Skip topic")}
-                                            </Button>
-                                        )}
-                                        {offerMarkAnyway && (
-                                            <Button onClick={onMarkAnyway}>
-                                                {t("Mark done anyway")}
-                                            </Button>
-                                        )}
-                                        <Button
-                                            variant="primary"
-                                            // A fresh draw, never the same ten with their
-                                            // answer keys just shown on the review screen.
-                                            onClick={() => setDrawSeq(s => s + 1)}
-                                        >
-                                            {t("Retry the mastery check")}
-                                        </Button>
-                                    </>
-                                )}
-                            </div>
                         </div>
                     ); })()}
                 </div>
+
+                {/* Every phase's way on sits in the foot, outside the scroll: a
+                    result with a long "Review answers" list put Continue and
+                    Retry below the window, as the questions once did Submit. */}
+                {error && !submitted && (
+                    // One group: the learner is never stuck — even with the AI
+                    // unavailable, they can move on honestly.
+                    <DialogFooter inset="px-6">
+                        {/* Quiet only beside a primary: next to two outlined
+                            buttons a bare "Close" reads as text. */}
+                        <Button variant={offerMarkAnyway ? 'quiet' : 'neutral'} onClick={onClose}>
+                            {t("Close")}
+                        </Button>
+                        {!uncheckedOnly && (
+                            <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
+                                {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
+                            </Button>
+                        )}
+                        {offerSkip && (
+                            <Button onClick={onSkip}>
+                                {t("Skip this topic")}
+                            </Button>
+                        )}
+                        {offerMarkAnyway && (
+                            <Button variant="primary" onClick={onMarkAnyway}>
+                                {t("Mark done anyway")}
+                            </Button>
+                        )}
+                    </DialogFooter>
+                )}
+                {submitted && shownResult && (
+                    <DialogFooter inset="px-6">
+                        {shownResult.passed ? (
+                            <Button
+                                variant="primary"
+                                // A retake has nothing to finish: the topic is already completed.
+                                onClick={retake ? onClose : onPassed}
+                            >
+                                {t("Continue")}
+                            </Button>
+                        ) : (
+                            <>
+                                <Button variant="quiet" className="mr-auto" onClick={onClose}>
+                                    {t("Study More")}
+                                </Button>
+                                {offerSkip && (
+                                    <Button onClick={onSkip}>
+                                        {t("Skip topic")}
+                                    </Button>
+                                )}
+                                {offerMarkAnyway && (
+                                    <Button onClick={onMarkAnyway}>
+                                        {t("Mark done anyway")}
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="primary"
+                                    // A fresh draw, never the same ten with their
+                                    // answer keys just shown on the review screen.
+                                    onClick={() => setDrawSeq(s => s + 1)}
+                                >
+                                    {t("Retry the mastery check")}
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                )}
 
                 {questionPhase && (
                     <div className="flex-shrink-0 px-6 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">

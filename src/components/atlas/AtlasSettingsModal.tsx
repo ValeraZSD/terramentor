@@ -135,7 +135,22 @@ export default function AtlasSettingsModal({
             : tr("Atlas viewer");
 
     return (
-        <Modal isOpen={open} onClose={onClose} title={title} maxWidth="max-w-2xl">
+        <Modal isOpen={open} onClose={onClose} title={title} maxWidth="max-w-2xl" footer={mode === 'done' && result ? <>
+            {/* Settings is the way back, at the start; the file's own
+                actions hold the end, Download last. */}
+            <Button variant="quiet" className="mr-auto" icon={<SlidersHorizontal className="w-4 h-4" aria-hidden="true" />} onClick={() => setMode('settings')}>{tr("Settings")}</Button>
+            <Button icon={<Film className="w-4 h-4" aria-hidden="true" />} onClick={startRender}>
+                {tr("Render again")}
+            </Button>
+            <ButtonLink
+                variant="primary"
+                href={result.url}
+                download={videoFileName(courseName, result.recording.format)}
+                icon={<Download className="w-4 h-4" aria-hidden="true" />}
+            >
+                {tr("Download")}
+            </ButtonLink>
+        </> : undefined}>
             {mode === 'rendering' && trace && format ? (
                 <AtlasRenderStage
                     regions={regions}
@@ -188,20 +203,6 @@ export default function AtlasSettingsModal({
                             size: num(Math.max(0.1, Math.round(result.recording.blob.size / 1e5) / 10)),
                         })}
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                        <ButtonLink
-                            variant="primary"
-                            href={result.url}
-                            download={videoFileName(courseName, result.recording.format)}
-                            icon={<Download className="w-4 h-4" aria-hidden="true" />}
-                        >
-                            {tr("Download")}
-                        </ButtonLink>
-                        <Button icon={<Film className="w-4 h-4" aria-hidden="true" />} onClick={startRender}>
-                            {tr("Render again")}
-                        </Button>
-                        <Button variant="quiet" icon={<SlidersHorizontal className="w-4 h-4" aria-hidden="true" />} onClick={() => setMode('settings')}>{tr("Settings")}</Button>
-                    </div>
                 </div>
             ) : (
                 // The dialog's body is RECESSED, bleeding to the panel's own

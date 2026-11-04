@@ -8,6 +8,7 @@ import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from './ui/Button';
 import { CONTROL_SIZE_ICON } from './ui/vocabulary';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
 
 interface Props {
     isOpen: boolean;
@@ -24,6 +25,13 @@ interface Props {
      * a scrollbar.
      */
     fill?: boolean;
+    /**
+     * The dialog's action row (Cancel, Save…), drawn under the body and outside
+     * its scroll, so a long form or a short window never hides it. A row of
+     * buttons at the end of `children` scrolls away with them:
+     * `dialog-footer-gates.mjs` fails it.
+     */
+    footer?: ReactNode;
     /** False for a dialog nothing can be done about but wait (an update being
      *  installed): no ✕, and Escape and the backdrop do nothing, rather than a
      *  close button that closes nothing. */
@@ -38,7 +46,7 @@ interface Props {
     layer?: string;
 }
 
-export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, closable = true, closeButton = true, layer = 'z-50' }: Props) {
+export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-3xl', className = '', fill = false, footer, closable = true, closeButton = true, layer = 'z-50' }: Props) {
     const { t } = useTranslation();
     // The dialog's name, focus, Tab containment, Escape (topmost only), the
     // counted scroll lock and the focus hand-back: `useDialogFocus`, shared with
@@ -82,7 +90,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                     <div
                         ref={dialogRef}
                         tabIndex={-1}
-                        className={`relative bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] ${fill ? 'flex flex-col overflow-hidden' : 'overflow-auto'} outline-none ${className}`}
+                        className={`relative ${DIALOG_SHELL} bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full ${maxWidth} outline-none ${className}`}
                         role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined}
                     >
                         <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
@@ -102,9 +110,10 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
                                 title's width changes when the ✕ comes and goes. */}
                             {closable && !closeButton && <span aria-hidden="true" className={`${CONTROL_SIZE_ICON.sm} -mr-1.5 shrink-0`} />}
                         </div>
-                        <div className={fill ? 'flex min-h-0 flex-1 flex-col' : 'px-6 py-4'}>
+                        <div className={fill ? 'flex min-h-0 flex-1 flex-col' : `${DIALOG_BODY} px-6 py-4`}>
                             {children}
                         </div>
+                        {footer && <DialogFooter inset="px-6">{footer}</DialogFooter>}
                     </div>
                 </div>
             ), document.body)}

@@ -212,7 +212,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("Generate study material")}
-                className="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-[92vh] sm:h-auto sm:max-h-[90vh] flex flex-col overflow-hidden outline-none"
+                className="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-[92dvh] sm:h-auto modal-shell flex flex-col overflow-hidden outline-none"
             >
                 <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3 min-w-0">

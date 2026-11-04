@@ -20,14 +20,11 @@ export default function WhatsNewDialog({ isOpen, onClose, version, notes, repoUr
 }) {
     const { t } = useTranslation();
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={t("What's new in {{version}}", { version: unbroken(version) })} maxWidth="max-w-lg">
-            <div className="max-h-[min(60vh,32rem)] overflow-y-auto overscroll-contain pr-1">
-                <ReleaseNotesList notes={notes} repoUrl={repoUrl} />
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-                <NotesLink inList={false} href={releasePage(repoUrl, version)}>{t("Release page")}</NotesLink>
-                <div className="ml-auto"><Button variant="neutral" onClick={onClose}>{t("Close")}</Button></div>
-            </div>
+        <Modal isOpen={isOpen} onClose={onClose} title={t("What's new in {{version}}", { version: unbroken(version) })} maxWidth="max-w-lg" footer={<>
+            <NotesLink inList={false} href={releasePage(repoUrl, version)}>{t("Release page")}</NotesLink>
+            <div className="ml-auto"><Button variant="neutral" onClick={onClose}>{t("Close")}</Button></div>
+        </>}>
+            <ReleaseNotesList notes={notes} repoUrl={repoUrl} />
         </Modal>
     );
 }

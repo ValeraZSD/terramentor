@@ -277,7 +277,7 @@ export default function CaptureModal({ open, onClose }: Props) {
                    UI scale. A whole-card scroll can put Save below the bottom
                    of a small phone at a large UI scale, with nothing able to
                    reach it. */
-                className={`flex flex-col w-full max-w-xl max-h-[85vh] max-h-[85dvh] outline-none bg-white dark:bg-slate-800 rounded-2xl shadow-2xl transition-colors ${
+                className={`flex flex-col w-full max-w-xl modal-shell outline-none bg-white dark:bg-slate-800 rounded-2xl shadow-2xl transition-colors ${
                     dragging
                         ? 'border-2 border-dashed border-accent'
                         : 'border border-slate-200 dark:border-slate-700'
