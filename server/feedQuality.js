@@ -913,8 +913,15 @@ export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
             // stamped unverified (the mechanical gates already passed).
             return { ok: true, available: false, reason: 'verifier returned nothing usable' };
         }
+        const verdict = parsed.verdict.trim().toLowerCase();
+        // The prompt allows two words. Anything else (`unsure`, an echoed
+        // `ok | broken`) is no verdict at all, never a pass: an open question
+        // would otherwise count as audited on it.
+        if (verdict !== 'ok' && verdict !== 'broken') {
+            return { ok: true, available: false, reason: `verifier gave no verdict ("${parsed.verdict.slice(0, 40)}")` };
+        }
         const reason = String(parsed.reason || '').slice(0, 200);
-        if (parsed.verdict.toLowerCase() === 'broken') {
+        if (verdict === 'broken') {
             return { ok: false, available: true, reason: reason || 'verifier called the question broken' };
         }
         // How many options the verifier could rule out WITHOUT knowing the
