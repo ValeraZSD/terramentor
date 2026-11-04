@@ -221,11 +221,16 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 footer stay put and only the body between them scrolls, so a
                 long explanation cannot push "Next" below the window (Taylor
                 clip, 4 Nov 2026: cut off at 1280x800). dvh, so a phone's
-                address bar does not hide the footer either. */}
+                address bar does not hide the footer either. The dialog's own
+                scroll is the fallback for a window too short for even that
+                (a phone on its side, a zoomed page): the body gives up its
+                height first, down to 6rem so the question stays readable,
+                and only then does the dialog scroll, so the footer can
+                still be reached rather than clipped. */}
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl placement-shell overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
+                className="w-full sm:max-w-2xl placement-shell overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -256,7 +261,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     </div>
                 )}
 
-                <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={bodyRef} className="min-h-24 flex-1 overflow-y-auto">
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />

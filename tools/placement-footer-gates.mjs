@@ -154,38 +154,65 @@ if (PlacementModal) {
         const real = window.getComputedStyle.bind(window);
         globalThis.getComputedStyle = window.getComputedStyle = (el, p) => el === inner ? { overflowY: 'auto' } : real(el, p);
     }
+    // The verdict box (it holds the explanation) lands 1500px down the body's
+    // content, 300px tall: in view only for a body scrolled to 1400–1500.
+    const VERDICT_AT = 1500, VERDICT_H = 300, VIEW = 400;
+    const plainRect = window.HTMLElement.prototype.getBoundingClientRect;
+    window.HTMLElement.prototype.getBoundingClientRect = function () {
+        const isVerdict = /^rounded-lg p-3 /.test(this.getAttribute('class') ?? '') && this.textContent.includes(LONG.slice(0, 60));
+        if (!isVerdict) return plainRect.call(this);
+        const top = -1000 + VERDICT_AT;
+        return { top, bottom: top + VERDICT_H, left: 0, right: 0, width: 0, height: VERDICT_H, x: 0, y: top };
+    };
     await act(() => [...doc.querySelectorAll('[data-answer-option]')].find(b => b.textContent.trim() === 'No')?.click());
     await settle();
-    ok('answering scrolls the body down to the verdict', !!inner && scrolledTo.some(top => top > 0), `scrollTo calls: ${JSON.stringify(scrolledTo)}`);
+    window.HTMLElement.prototype.getBoundingClientRect = plainRect;
+    ok('answering scrolls the body so the whole verdict is in its view',
+        !!inner && scrolledTo.some(top => top <= VERDICT_AT && VERDICT_AT + VERDICT_H <= top + VIEW), `scrollTo calls: ${JSON.stringify(scrolledTo)}`);
     const next = button('Next'), finish = button('Finish now');
     ok('answered: the long explanation, "Next" and "Finish now" are on the page', doc.body.textContent.includes(LONG.slice(0, 60)) && !!next && !!finish);
 
     if (dialog && next && finish) {
         for (const [name, b] of [['Next', next], ['Finish now', finish]]) {
-            const scroller = chain(b, dialog).find(scrolls);
-            ok(`"${name}" is not inside anything that scrolls`, !scroller,
+            // The dialog's own scroll is the short-window fallback (below), so
+            // the chain stops under it: no scroller BETWEEN the button and it.
+            const scroller = chain(b, dialog).filter(n => n !== dialog).find(scrolls);
+            ok(`"${name}" is not inside anything that scrolls within the dialog`, !scroller,
                 scroller ? `inside <${scroller.tagName.toLowerCase()} class="${scroller.getAttribute('class')}">` : '');
         }
         // The scroll that brings the verdict into view must not carry the
         // learner's place away with it (his photo, 4 Nov 2026).
         const count = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && /^\d+ of \d+ answered$/.test(e.textContent.trim()));
-        const countScroller = count && chain(count, dialog).find(scrolls);
+        const countScroller = count && chain(count, dialog).filter(n => n !== dialog).find(scrolls);
         ok('"1 of 2 answered" is on the page and not inside anything that scrolls', !!count && !countScroller,
             !count ? 'no "answered" line' : countScroller ? `inside <${countScroller.tagName.toLowerCase()} class="${countScroller.getAttribute('class')}">` : '');
         const cls = dialog.getAttribute('class') ?? '';
-        ok('the dialog itself does not scroll, and clips', !scrolls(dialog) && /(^|\s)overflow-hidden(\s|$)/.test(cls), cls);
+        // CodeRabbit on #188: with the dialog clipping, a window shorter than
+        // header + footer (a phone on its side, a zoomed page) cut Next off
+        // with no way to reach it. The dialog scrolls, as a fallback only: the
+        // body is the flex child that gives up its height first (next checks).
+        ok('the dialog can scroll when even its header and footer do not fit, never clips them', scrolls(dialog) && !/(^|\s)overflow(?:-y)?-hidden(\s|$)/.test(cls), cls);
         // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
         // classes the other way round, and the `vh` one would win on a phone.
         const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
         const rules = [...css.matchAll(/\.placement-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
         const pairsInOrder = rules.length === 2 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
-        ok('…and caps its height with a vh-then-dvh pair (phone and sm)', /(^|\s)placement-shell(\s|$)/.test(cls) && pairsInOrder,
-            `${cls} | ${rules.length} .placement-shell rule(s)`);
+        // A cap past the window's height lets the footer leave the window.
+        const caps = rules.flatMap(r => [...r.matchAll(/max-height:\s*(\d+(?:\.\d+)?)d?vh;/g)].map(m => Number(m[1])));
+        ok('…and caps its height with a vh-then-dvh pair (phone and sm), each within the window',
+            /(^|\s)placement-shell(\s|$)/.test(cls) && pairsInOrder && caps.length === 4 && caps.every(v => v <= 100),
+            `${cls} | ${rules.length} .placement-shell rule(s), caps ${JSON.stringify(caps)}`);
         const explanation = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && e.textContent.startsWith(LONG.slice(0, 60)));
         const body = explanation && chain(explanation, dialog).find(scrolls);
         ok('the explanation sits in a scroller inside the dialog', !!body && body !== dialog);
-        ok('…which is a flex child that may shrink below its content', !!body && /(^|\s)min-h-0(\s|$)/.test(body.getAttribute('class') ?? '') && /(^|\s)flex-1(\s|$)/.test(body.getAttribute('class') ?? ''),
-            body?.getAttribute('class') ?? 'no scroller');
+        // flex-1 lets it shrink below its content; its min-height is a small
+        // floor (at most 8rem), so it, not the dialog, gives up height first.
+        // Never zero: at 480x220 a zero floor left a sliver of body and the
+        // question could not be read (measured in Edge, 4 Nov 2026).
+        const bodyCls = body?.getAttribute('class') ?? '';
+        const floor = /(?:^|\s)min-h-(\d+)(?:\s|$)/.exec(bodyCls);
+        ok('…which is a flex child that shrinks below its content to a small, non-zero floor', !!body && /(^|\s)flex-1(\s|$)/.test(bodyCls) && !!floor && Number(floor[1]) >= 16 && Number(floor[1]) <= 32,
+            bodyCls || 'no scroller');
     }
     await act(() => r.unmount());
     host.remove();
