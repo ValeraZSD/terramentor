@@ -205,16 +205,21 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
             onClick={close}>
+            {/* The dialog never scrolls as a whole: the header and the asking
+                footer stay put and only the body between them scrolls, so a
+                long explanation cannot push "Next" below the window (Taylor
+                clip, 4 Nov 2026: cut off at 1280x800). dvh, so a phone's
+                address bar does not hide the footer either. */}
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
+                className="w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("Placement for {{projectName}}", { projectName })}
             >
-                <header className="flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
+                <header className="shrink-0 flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
                     <span className="mt-0.5 shrink-0 w-9 h-9 rounded-lg bg-accent/10 text-accent-fg flex items-center justify-center">
                         <Compass size={20} />
                     </span>
@@ -225,6 +230,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
+                <div data-placement-body className="min-h-0 flex-1 overflow-y-auto">
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -361,23 +367,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                     {!verdict.correct && <ReportLink className="mt-2" />}
                                 </div>
                             )}
-
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                                <Button variant="quiet" onClick={finish} disabled={busy}>
-                                    {t("Finish now")}
-                                </Button>
-                                <div className="ml-auto">
-                                    {verdict || questionReport ? (
-                                        <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
-                                            {t("Next")}
-                                        </Button>
-                                    ) : (
-                                        <Button onClick={advance} disabled={busy}>
-                                            {t("I don't know — skip")}
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
                         </div>
                     </ReportScope>
                 )}
@@ -431,6 +420,26 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             </Button>
                         </div>
                     </div>
+                )}
+                </div>
+
+                {phase === 'asking' && question && (
+                    <footer data-placement-footer className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
+                        <Button variant="quiet" onClick={finish} disabled={busy}>
+                            {t("Finish now")}
+                        </Button>
+                        <div className="ml-auto">
+                            {verdict || questionReport ? (
+                                <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                    {t("Next")}
+                                </Button>
+                            ) : (
+                                <Button onClick={advance} disabled={busy}>
+                                    {t("I don't know — skip")}
+                                </Button>
+                            )}
+                        </div>
+                    </footer>
                 )}
             </div>
         </div>
