@@ -193,6 +193,10 @@ if (PlacementModal) {
         // with no way to reach it. The dialog scrolls, as a fallback only: the
         // body is the flex child that gives up its height first (next checks).
         ok('the dialog can scroll when even its header and footer do not fit, never clips them', scrolls(dialog) && !/(^|\s)overflow(?:-y)?-hidden(\s|$)/.test(cls), cls);
+        // jsdom lays nothing out, so the column itself is read from the class:
+        // without `flex flex-col` the body's flex-1 does nothing, the dialog
+        // scrolls as a whole and Next leaves a 1280x800 window again.
+        ok('the dialog is a flex column, so the body (not the dialog) takes the scroll', /(^|\s)flex(\s|$)/.test(cls) && /(^|\s)flex-col(\s|$)/.test(cls), cls);
         // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
         // classes the other way round, and the `vh` one would win on a phone.
         const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
