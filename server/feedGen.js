@@ -298,7 +298,8 @@ export function lessonWriteState(nodeId) {
     // The write on this topic failed and is backing off: say so rather than
     // promise a lesson that is not coming yet.
     if (Date.now() < backoffUntil && lastFailure?.nodeId === nodeId) {
-        return { nodeId, state: 'failed', reason: lastFailure.message, httpStatus: lastFailure.httpStatus, model: lastFailure.model };
+        const { nodeId: _, message, ...facts } = lastFailure;
+        return { nodeId, state: 'failed', reason: message, ...facts };
     }
     return { nodeId, state: 'writing' };
 }
@@ -1639,6 +1640,13 @@ async function runBurst() {
             // The Ollama client says it as `status_code` (as server/ai.js reads it).
             httpStatus: err?.httpStatus ?? err?.status_code ?? null,
             model: err?.model ?? null,
+            // The rest of what `plainCause` and `retryMayHelp` read, as a
+            // task's failure record carries it (server/tasks.js).
+            attempts: err?.attempts ?? null,
+            looped: err?.looped === true ? true : null,
+            emptyReply: err?.emptyReply === true ? true : null,
+            reasoningTokens: err?.reasoningTokens ?? null,
+            thinkingChars: err?.thinkingChars ?? null,
         };
         // A topic page still waits on its lesson: try again when the backoff
         // ends, or the page would say "couldn't be written" (or keep its

@@ -2408,12 +2408,12 @@ export const api = {
     getReadLessonParts: (nodeId: number, before: number) =>
         request<{ parts: FeedReadPart[] }>(`/feed/nodes/${nodeId}/read-parts?before=${before}`),
 
-    // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
-    // the learner answers the topic above it).
     // Try again on a topic whose first lesson could not be written.
     retryLessonWrite: (nodeId: number) =>
         request<{ lessonWrite: LessonWrite | null }>(`/feed/nodes/${nodeId}/lesson/retry`, { method: 'POST' }),
 
+    // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
+    // the learner answers the topic above it).
     getCheckpointFacts: (nodeId: number) =>
         request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom'>>(`/feed/nodes/${nodeId}/checkpoint`),
 

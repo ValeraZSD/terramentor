@@ -15,7 +15,7 @@ import NoticeCard from './NoticeCard';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
-import { LessonBeingWritten, LessonWriteFailed } from './LessonSlot';
+import { LessonBeingWritten, LessonWriteFailed } from './LessonPending';
 import { feedGenSignal, lessonPending } from '../../utils/feedPlacement';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -381,7 +381,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     }
 
     // The topic's first lesson is being written, or failed to be: nothing to
-    // read yet, so the page says that and holds no card (see LessonSlot.tsx).
+    // read yet, so the page says that and holds no card (see LessonPending.tsx).
     if (pending) {
         return (
             <div className="h-full flex flex-col bg-slate-100 dark:bg-slate-900">

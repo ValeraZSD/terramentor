@@ -2591,6 +2591,7 @@
   "The model is starting its reply, which can take a little while. Hang tight — this is normal.": "モデルが返答を始めています。少し時間がかかることがあります。お待ちください——これは正常です。",
   "The model reasoned for {{chars}} characters and gave no answer._other": "モデルは{{chars}}文字の推論を行いましたが、回答がありませんでした。",
   "The model replied, but not in the shape this step needs. Smaller models do this more often; the raw reply is below.": "モデルは応答しましたが、このステップが必要とする形式ではありませんでした。小さいモデルほど起こりやすいです。生の応答は下に表示されています。",
+  "The model replied, but not in the shape this step needs. Smaller models do this more often.": "モデルは応答しましたが、このステップが必要とする形式ではありませんでした。小さいモデルほど起こりやすいです。",
   "The model went round in circles in its reasoning — the same few lines over and over — and was stopped. Local models do this most on long lists of instructions; a shorter question, or a different model in Settings → AI & Models, usually avoids it.": "モデルが推論の中でぐるぐる同じ数行を繰り返したため、停止しました。ローカルモデルは長い指示リストでこれを起こしやすいです。より短い質問にするか、設定 → AIとモデル で別のモデルを選ぶと通常は回避できます。",
   "The model writes every lesson for you. A few lines about you let it start at your level and explain things the way you like. Every question is optional.": "モデルがあなたのためにすべてのレッスンを書きます。あなたについて数行あれば、あなたのレベルから始め、好みの方法で説明できます。どの質問も任意です。",
   "The model writes your lessons, questions and visuals and answers your questions. A hosted model through OpenRouter takes one press to connect; Settings has every other way.": "モデルがレッスン、問題、ビジュアルを書き、質問に答えます。OpenRouter経由のホスト型モデルならワンタップで接続できます。その他の方法はすべて設定にあります。",

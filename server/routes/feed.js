@@ -70,7 +70,8 @@ app.get('/api/feed', (req, res) => {
 
 // Try again on a topic whose first lesson could not be written: the writer
 // starts on it now instead of waiting out its backoff. Answers with the state
-// the page shows next (`writing`, or null once a lesson exists).
+// the page shows next: `writing`, or null when there is nothing to wait for
+// (a lesson exists, AI is off, the topic is not taught or does not exist).
 app.post('/api/feed/nodes/:id/lesson/retry', (req, res) => {
     try {
         const nodeId = parseInt(req.params.id, 10);

@@ -9,7 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
-import { heldKeys, lessonPending, placeCheckpoints, pullGate, replacedKeys } from './utils/feedPlacement';
+import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate, replacedKeys } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -340,6 +340,8 @@ const dashboardStillLoading = (projectId: number) => [...dashboardPending.values
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+// Moves on each Try again on a failed lesson (`pulledLessonWrite`).
+let lessonRetrySeq = 0;
 /** The project list request on its way, if any. The Dashboard badge's fallback
  *  (a course opened before the list arrived) waits for it instead of asking
  *  again, so a cold open sends one list request. loadProjects never reuses it:
@@ -1639,6 +1641,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (get().feedLoading || get().feedExhausted) return;
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
             const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
@@ -1657,7 +1660,7 @@ export const useStore = create<AppState>((set, get) => ({
                 // blank the banner on chapters still on screen.
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
-                feedLessonWrite: res.lessonWrite ?? null,
+                feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
                 feedExhausted: res.exhausted,
                 feedLoading: false,
             }));
@@ -1684,6 +1687,7 @@ export const useStore = create<AppState>((set, get) => ({
 
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
             const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
@@ -1712,7 +1716,7 @@ export const useStore = create<AppState>((set, get) => ({
                     feedHeader: res.header,
                     feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                     feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
-                    feedLessonWrite: res.lessonWrite ?? null,
+                    feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
                     feedExhausted: res.exhausted,
                     feedLoading: false,
                 };
@@ -1725,12 +1729,14 @@ export const useStore = create<AppState>((set, get) => ({
     retryLessonWrite: async () => {
         const write = get().feedLessonWrite;
         if (write?.state !== 'failed') return;
+        lessonRetrySeq++;
         try {
             const res = await api.retryLessonWrite(write.nodeId);
             // The page shows "Writing the lesson" at once; the burst's task
             // signal pulls the lesson when it lands. Ignored when the page has
             // moved to another topic meanwhile.
-            if (get().feedLessonWrite?.nodeId === write.nodeId) set({ feedLessonWrite: res.lessonWrite });
+            if (get().feedLessonWrite?.nodeId !== write.nodeId) return;
+            set({ feedLessonWrite: res.lessonWrite });
             if (!res.lessonWrite) void get().pullFeedUpdates({ force: true });
         } catch (e) {
             get().addToast('error', i18n.t("Couldn't start the lesson again."), messageOf(e));

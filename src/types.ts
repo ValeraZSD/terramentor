@@ -1512,9 +1512,14 @@ export interface LessonWrite {
     state: 'writing' | 'failed';
     /** Why the write stopped, as the model or the writer said it. */
     reason?: string;
-    /** What `plainCause` reads to say it in plain words. */
+    /** What `plainCause` and `retryMayHelp` read to say it in plain words. */
     httpStatus?: number | null;
     model?: string | null;
+    attempts?: number | null;
+    looped?: boolean | null;
+    emptyReply?: boolean | null;
+    reasoningTokens?: number | null;
+    thinkingChars?: number | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */

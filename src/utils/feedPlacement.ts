@@ -33,8 +33,8 @@ const topicOf = (c: FeedCard): number | null =>
     c.kind !== 'flashcard' && 'nodeId' in c && typeof c.nodeId === 'number' ? c.nodeId : null;
 
 /** A card the page draws inside its topic's chapter (FeedView's `isChapterCard`):
- *  the lesson slot is drawn beside one of these, never beside a recall card
- *  drawn on its own. */
+ *  a landed lesson goes after one of these, never after a recall card drawn
+ *  on its own. */
 const chapterTopicOf = (c: FeedCard): number | null =>
     c.kind === 'lesson' || c.kind === 'question' || c.kind === 'checkpoint' || c.kind === 'practice' ? topicOf(c) : null;
 
@@ -48,8 +48,8 @@ const chapterTopicOf = (c: FeedCard): number | null =>
  *   just before that checkpoint (a lesson written while the page held only the
  *   Overview standing in for it), never under it.
  * - a pulled teaching card of `slotTopic`, whose first lesson the page was
- *   waiting on (`lessonSlot`), goes where that slot was drawn: after the
- *   topic's own cards, not under a flashcard served after them. With
+ *   waiting on (`lessonPending`), goes after the topic's own chapter cards,
+ *   not under a flashcard served after them. With
  *   `replaceStandIn` (the page showed only "Writing the lesson", so the
  *   Overview standing in for it was never on screen) the written lesson takes
  *   that stand-in's place, as a reload would serve it.
@@ -119,31 +119,25 @@ const hasLesson = (cards: FeedCard[], nodeId: number) =>
     cards.some(c => c.kind === 'lesson' && c.nodeId === nodeId && !c.degraded);
 
 /**
- * Where a topic's page draws the slot of the lesson still being written (or
- * that failed to be): right after the topic's last card, or just above its
- * End of chapter. Null when there is no state, the topic has no card on
- * screen, or its lesson is already there: a lesson that landed takes the slot
- * on the same render, whatever the state still says.
+ * The topic's first lesson is being written, or failed to be, and is not on
+ * screen: the page shows "Writing the lesson" (or why it could not be, with
+ * Try again) instead of the stream (no "Got it, continue" over an Overview
+ * with no lesson behind it, no junction, no "Writing more lessons · 0%"). A
+ * topic with no Overview at all is the same wait. The state comes only on the
+ * topic's own page (`composeFeed`'s `lessonWrite`). A lesson that landed ends
+ * it on the same render, whatever the state still says.
  */
-export function lessonSlot(cards: FeedCard[], write: LessonWrite | null): { key: string; place: 'before' | 'after' } | null {
-    if (!write || hasLesson(cards, write.nodeId)) return null;
-    const end = cards.find(c => c.kind === 'checkpoint' && c.nodeId === write.nodeId);
-    if (end) return { key: end.key, place: 'before' };
-    for (let i = cards.length - 1; i >= 0; i--) {
-        if (chapterTopicOf(cards[i]) === write.nodeId) return { key: cards[i].key, place: 'after' };
-    }
-    return null;
+export function lessonPending(cards: FeedCard[], write: LessonWrite | null): boolean {
+    return write != null && !hasLesson(cards, write.nodeId);
 }
 
 /**
- * The topic's first lesson is being written, or failed to be, and nothing
- * stands in for it but the Overview: the page shows "Writing the lesson" (or
- * why it could not be, with Try again) instead of the stream (no "Got it,
- * continue" with no lesson behind it, no junction, no "Writing more lessons ·
- * 0%"), and the lesson replaces it when it lands.
+ * The lesson state a pulled page brings. A page asked for before Try again was
+ * pressed (`retriedSince`) was composed before the writer started again: its
+ * `failed` is stale and would put the failure back over "Writing the lesson".
  */
-export function lessonPending(cards: FeedCard[], write: LessonWrite | null): boolean {
-    return write != null && lessonSlot(cards, write) != null;
+export function pulledLessonWrite(pulled: LessonWrite | null | undefined, current: LessonWrite | null, retriedSince: boolean): LessonWrite | null {
+    return retriedSince && pulled?.state === 'failed' ? current : (pulled ?? null);
 }
 
 /**
