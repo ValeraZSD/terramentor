@@ -53,7 +53,10 @@ export const CODE_TEST_LIMITS = Object.freeze({ maxTests: 12, fieldMax: 2000, to
  * runner computes them by running the reference solution, and an `expect` that
  * disagrees makes the tests unusable rather than the reference wrong. Anything
  * else is dropped; at most `maxTests`, each field at most `fieldMax`
- * characters, all of them together at most `totalMax`. A standard input and
+ * characters, all of them together at most `totalMax` (a test that does not
+ * fit is skipped, a later smaller one still kept); a list mixing the two kinds
+ * is no list at all. Fewer than three tests are kept as Run's input but grade
+ * nothing (`testsToGradeBy`, src/runner/languages.ts). A standard input and
  * its printed output get their newlines back the way code does; a call is
  * left as written, since a `\n` inside it is the language's own escape.
  */
@@ -73,12 +76,15 @@ export function normalizeCodeTests(raw) {
         else if (typeof t.expect === 'number' || typeof t.expect === 'boolean') expect = String(t.expect);
         const size = call.length + (stdin?.length ?? 0) + (expect?.length ?? 0);
         if (call.length > fieldMax || (stdin?.length ?? 0) > fieldMax || (expect?.length ?? 0) > fieldMax) continue;
-        if (total + size > totalMax) break;
+        if (total + size > totalMax) continue;
         total += size;
         const test = call ? { call } : { stdin };
         if (expect !== undefined) test.expect = expect;
         out.push(test);
     }
+    // One list tests one contract: a function's return values or a program's
+    // printed output. A list of both cannot say which task the learner was set.
+    if (out.some((t) => 'call' in t) && out.some((t) => 'stdin' in t)) return [];
     return out;
 }
 

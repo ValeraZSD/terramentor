@@ -5,7 +5,7 @@ import {
     formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers,
     readPieces, arrangementsOf, foldPiece,
 } from '../components/answer/formats';
-import { codeTestsOf, runnableLanguage } from '../runner/languages';
+import { testsToGradeBy, runnableLanguage } from '../runner/languages';
 import { runVerdict } from '../runner/verdict';
 import { loadRunner } from '../runner/load';
 import type { RunResult } from '../runner/protocol';
@@ -34,7 +34,7 @@ export interface GradedAnswer {
 async function gradeByRunning(question: QuizQuestion, answer: string): Promise<GradedAnswer | null> {
     if (!useStore.getState().codeRunner) return null;
     const language = runnableLanguage(question.language);
-    const tests = codeTestsOf(question.tests);
+    const tests = testsToGradeBy(question.tests);
     if (!language || tests.length === 0) return null;
     let run: RunResult;
     try {

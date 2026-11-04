@@ -50,11 +50,26 @@ export function codeTestsOf(raw: unknown): CodeTest[] {
         const expect = typeof o.expect === 'string' ? o.expect : undefined;
         const size = call.length + (stdin?.length ?? 0) + (expect?.length ?? 0);
         if (call.length > TEST_FIELD_MAX || (stdin?.length ?? 0) > TEST_FIELD_MAX || (expect?.length ?? 0) > TEST_FIELD_MAX) continue;
-        if (total + size > TESTS_TOTAL_MAX) break;
+        if (total + size > TESTS_TOTAL_MAX) continue;
         total += size;
         const test: CodeTest = call ? { call } : { stdin: stdin as string };
         if (expect !== undefined) test.expect = expect;
         out.push(test);
     }
+    // One list tests one contract (return values, or printed output), as on the server.
+    if (out.some((t) => 'call' in t) && out.some((t) => 'stdin' in t)) return [];
     return out;
+}
+
+/**
+ * Fewest tests a verdict may rest on. One or two inputs let an answer that
+ * ignores its input (a function returning a constant) pass, so with fewer the
+ * tests still feed Run but the model grades. The authoring rule asks for 3-8.
+ */
+export const MIN_GRADING_TESTS = 3;
+
+/** The tests an answer is graded by: `codeTestsOf`, or none when there are too few to trust. */
+export function testsToGradeBy(raw: unknown): CodeTest[] {
+    const tests = codeTestsOf(raw);
+    return tests.length >= MIN_GRADING_TESTS ? tests : [];
 }
