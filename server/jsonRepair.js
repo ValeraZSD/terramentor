@@ -70,7 +70,7 @@ export function parseJsonWithRepair(text) {
  * that parses as a non-empty object the caller `accept`s wins: a format example echoed before
  * the answer, or a draft the model then corrected, comes earlier. `{}` (TeX's
  * `{}^{14}C`) never counts. An object inside another is never a candidate of
- * its own; an opening `{"` that never closes (a cut-off reply) is repaired
+ * its own; an opening `{"` (or `{'k':`, `{k:`) that never closes (a cut-off reply) is repaired
  * whole and ends the scan, so its inner objects cannot win either. Nothing
  * found: the old slice and repair, as before.
  *
@@ -78,6 +78,9 @@ export function parseJsonWithRepair(text) {
  * lives in agentic.js, which imports this module). `accept(obj)` names the
  * reply's shape (`o => 'verdict' in o`); the default takes any object.
  */
+// Opens like an object (`{"k"`, `{'k':`, `{k:`), not a TeX group (`{f'(h)}`).
+const OBJECT_OPENING = /^\{\s*(?:"|'[^'\n]*'\s*:|[A-Za-z_]\w*\s*:)/;
+
 export function readReplyObject(text, prepare = (s) => s, accept = () => true) {
     const s = String(text ?? '');
     const usable = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -88,7 +91,7 @@ export function readReplyObject(text, prepare = (s) => s, accept = () => true) {
         try { const v = JSON.parse(prepared); if (usable(v)) return v; } catch { /* repair below */ }
         // Repaired only when it opens like an object (`{"k"`, `{'k':`, `{k:`):
         // a TeX group such as `{f'(h)}` is never rewritten into one.
-        if (repairable && /^\{\s*(?:"|'[^'\n]*'\s*:|[A-Za-z_]\w*\s*:)/.test(slice)) {
+        if (repairable && OBJECT_OPENING.test(slice)) {
             const v = parseJsonWithRepair(prepared);
             if (usable(v)) return v;
         }
@@ -104,7 +107,7 @@ export function readReplyObject(text, prepare = (s) => s, accept = () => true) {
     for (let i = s.indexOf('{'); i !== -1; i = s.indexOf('{', i + 1)) {
         const end = findMatchingBracket(s, i, '{', '}');
         if (end !== -1) { candidates.push({ at: i, slice: s.slice(i, end + 1) }); i = end; continue; }
-        if (/^\{\s*"/.test(s.slice(i))) { candidates.push({ at: i, slice: s.slice(i) }); break; }
+        if (OBJECT_OPENING.test(s.slice(i))) { candidates.push({ at: i, slice: s.slice(i) }); break; }
     }
     candidates.sort((a, b) => a.at - b.at);
     for (let k = candidates.length - 1; k >= 0; k--) {

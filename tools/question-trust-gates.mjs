@@ -429,6 +429,12 @@ const bareKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {
 check('a verdict with bare keys after TeX working is read', bareKey?.verdict === 'correct', JSON.stringify(bareKey));
 const singleKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {'correct': true}`);
 check("...and one with 'single-quoted' keys", singleKey?.verdict === 'correct', JSON.stringify(singleKey));
+// A cut-off outer object keyed the same loose ways is never scanned into: its
+// nested `{"correct": true}` is not the grader's reply.
+for (const reply of [`{'answer': {"correct": true}`, `{answer: {"correct": true}`]) {
+    const v = parseAnswerVerdict(reply);
+    check(`a cut-off ${reply.slice(0, 9)}… reply is not read as its inner object`, v?.verdict !== 'correct', JSON.stringify(v));
+}
 const cut = typeof parseQuestionReply === 'function'
     ? parseQuestionReply('{"question": "What is 2 + 2?", "plot": {"fn": "x"}, "explanation": "Two and tw')
     : { fn: 'no parseQuestionReply' };
