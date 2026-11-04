@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Check, X } from 'lucide-react';
@@ -12,8 +13,9 @@ import { diffChars, type DiffPart } from './charDiff';
  * What running a learner's code produced, under the editor (`CodeInput`).
  *
  * Two moments: after Run, the program's own output (and the value of the
- * question's first call, which is what Run feeds it); after Check, one row
- * per test, the reference's result beside the learner's. A run that was
+ * question's first call, which is what Run feeds it); after Check, how many
+ * tests passed, and when one failed a line per test, with the expected result
+ * under each failed one. A run that was
  * stopped says why in a sentence, as a fact about the code, never as an
  * alarm: an endless loop is a normal mistake while learning.
  */
@@ -22,6 +24,9 @@ const SECTION = 'border-t border-slate-200 dark:border-slate-700 px-3 py-2';
 const MONO = 'font-mono text-[0.85rem] leading-relaxed text-slate-800 dark:text-slate-200 whitespace-pre-wrap break-words';
 const MUTED = 'text-sm text-slate-600 dark:text-slate-400';
 const LABEL = 'text-xs font-medium text-slate-500 dark:text-slate-400';
+
+/** A typed input on one line: line breaks as ↵. */
+const inputLine = (input: string) => input.replace(/\n+$/, '').replace(/\n/g, ' ↵ ');
 
 const OUT_OF_MEMORY = /^(MemoryError\b|\w*Error: out of memory)/;
 
@@ -57,16 +62,17 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
     const stopped = stoppedLine(t, run, language);
     const output = run.output ?? '';
     const call = run.value !== undefined && test?.call ? test.call : '';
-    const nothing = !stopped && !output && !call && !run.error;
+    const printed = Boolean(output || run.error);
+    const nothing = !stopped && !printed && !call;
     return (
         <section className={SECTION} aria-label={t("Output")} aria-live="polite">
-            <p className={LABEL}>{t("Output")}</p>
+            {(printed || !call) && <p className={LABEL}>{t("Output")}</p>}
             {typeof test?.stdin === 'string' && (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {t("Input")}: <span className="font-mono">{test.stdin.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || t("(empty)")}</span>
+                    {t("Input")}: <span className="font-mono">{inputLine(test.stdin) || t("(empty)")}</span>
                 </p>
             )}
-            {(output || run.error) && (
+            {printed && (
                 <pre className={`mt-1 max-h-60 overflow-auto ${MONO}`}>
                     {output}
                     {run.error && (
@@ -74,12 +80,15 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
                     )}
                 </pre>
             )}
-            {/* What the call returned, apart from what the code printed on the
-                way, in the same "call → value" form as the rows after Check. */}
+            {/* What the call returned, named, apart from what the code printed
+                on the way, in the same "call → value" form as the test rows. */}
             {call && (
-                <p className={cx(output || run.error ? 'mt-2' : 'mt-1', MONO)}>
-                    {call} <span className="text-slate-400 dark:text-slate-500">→</span> {run.value}
-                </p>
+                <>
+                    <p className={cx(LABEL, printed && 'mt-2')}>{t("Return value")}</p>
+                    <p className={cx('mt-1', MONO)}>
+                        {call} <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span> {run.value}
+                    </p>
+                </>
             )}
             {output.length >= OUTPUT_MAX && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t("More than 64 KB of output")}</p>}
             {nothing && <p className={`mt-1 ${MUTED}`}>{t("Nothing was printed.")}</p>}
@@ -88,6 +97,14 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
     );
 }
 
+// A mark shows where the two sides differ by an underline as well as a fill,
+// so the cue does not rest on colour alone: a pale fill on a tinted row is
+// close to invisible to many eyes.
+const MARK = {
+    got: 'bg-red-100 decoration-red-500 dark:bg-red-500/40 dark:decoration-red-400',
+    expected: 'bg-emerald-100 decoration-emerald-600 dark:bg-emerald-500/30 dark:decoration-emerald-400',
+} as const;
+
 /** One side of a row: the value, the printed text, or that there was none. */
 function Shown({ text, over, kind, parts, tone }: {
     text: string;
@@ -95,52 +112,66 @@ function Shown({ text, over, kind, parts, tone }: {
     kind: 'call' | 'stdin';
     /** The same text cut where it differs from the other side (`diffChars`). */
     parts?: DiffPart[];
-    tone?: 'got' | 'expected';
+    tone?: keyof typeof MARK;
 }) {
     const { t } = useTranslation();
     if (over) return <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("More than 64 KB of output")}</span>;
     if (!text && kind === 'stdin') return <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("Nothing was printed.")}</span>;
-    if (!parts) return <>{text}</>;
-    // A marked space or line break has no ink of its own: the mark's fill is
-    // what shows it, and a break gets a ↵ so the fill has something to sit on.
+    if (!parts || !tone) return <>{text}</>;
+    // A marked line break has no ink of its own, so it gets a ↵ for the mark
+    // to sit on: drawn only, never read aloud or copied.
     return (
         <>
             {parts.map((p, i) => p.mark
-                ? <mark key={i} className={cx('rounded-sm text-inherit', tone === 'got' ? 'bg-red-200 dark:bg-red-500/35' : 'bg-emerald-100 dark:bg-emerald-500/25')}>{p.text.replace(/\n/g, '↵\n')}</mark>
+                ? (
+                    <mark key={i} className={cx('rounded-sm text-inherit underline decoration-2 underline-offset-[0.2em]', MARK[tone])}>
+                        {p.text.split('\n').map((line, k) => (
+                            <Fragment key={k}>
+                                {k > 0 && <><span aria-hidden="true" className="select-none">↵</span>{'\n'}</>}
+                                {line}
+                            </Fragment>
+                        ))}
+                    </mark>
+                )
                 : <span key={i}>{p.text}</span>)}
         </>
     );
 }
-
-/** A typed input on one line: line breaks as ⏎. */
-const inputLine = (input: string) => input.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ');
 
 /** A test's input as its row shows it: the call, the typed line, or "(empty)". */
 function InputShown({ kind, input }: { kind: 'call' | 'stdin'; input: string }) {
     const { t } = useTranslation();
     if (kind === 'call') return <>{input}</>;
     const line = inputLine(input);
-    return line ? <>{line}</> : <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("(empty)")}</span>;
+    // The eye has the column's heading; a screen reader hears the word.
+    return (
+        <>
+            <span className="sr-only">{t("Input")} </span>
+            {line || <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("(empty)")}</span>}
+        </>
+    );
 }
 
-// Each row is a grid of the same four columns: the mark, the input, an arrow,
-// the result. The input column is as wide as the longest input, counted in
-// `ch` of the monospaced face the rows are set in (so exact), and never more
-// than 45% of the row, past which an input wraps; so every arrow and every
-// result stands in one column. The list is pulled out by the rows' own side
-// padding, so a failed row's tint has room around its text and the marks
-// stand on the same edge as the count above them.
-const ROW = 'grid items-start gap-x-3 rounded-md px-2 py-1';
+// One grid for the whole list and every row a subgrid of it, so a column is as
+// wide as its widest cell in any row: the marks, the inputs (never more than
+// half the list, past which an input wraps), the arrows, the results. A failed
+// row's second line puts "Expected" under the input and the arrow, so the
+// expected value starts exactly under the one that came back. The list is
+// pulled out by the rows' own side padding, so a failed row's tint has room
+// around its text and the marks stand on the same edge as the count above.
+const LIST = 'mt-1 -mx-2 grid gap-x-3';
+const LIST_COLUMNS = { gridTemplateColumns: 'auto fit-content(50%) auto minmax(0, 1fr)' };
+const ROW = 'col-span-4 grid grid-cols-subgrid items-baseline rounded-md px-2 py-1';
 const FAILED_ROW = 'bg-red-50 dark:bg-red-950/40';
-const columns = (inputChars: number) => ({ gridTemplateColumns: `1rem min(${Math.max(inputChars, 1)}ch, 45%) auto minmax(0, 1fr)` });
+const CELL = 'min-w-0 [overflow-wrap:anywhere]';
 // One line of the monospaced text, so an icon centred in it sits on the first line.
-const ICON_LINE = 'flex items-center h-[calc(0.85rem*1.625)]';
+const ICON_LINE = 'flex items-center self-start h-[calc(0.85rem*1.625)]';
 
 /**
- * After Check: one line per test, in the question's order. The input, an
- * arrow, and what the learner's code gave, with every result in one column;
- * a failed test is tinted and puts the expected result beside the one that
- * came back, on the same line when both fit.
+ * After Check: how many tests passed, and when one failed, one line per test
+ * in the question's order: the input, an arrow, what the learner's code gave.
+ * A failed test is tinted, and under its result says what was expected, with
+ * the characters that differ marked on both sides.
  */
 export function TestRows({ run, language }: { run: RunResult; language: RunnerLanguage }) {
     const { t } = useTranslation();
@@ -163,64 +194,50 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
             </section>
         );
     }
-    // A list is all calls or all typed input (a mixed one is never run). A call
-    // says what it is; a typed line needs its two columns named.
+    // A list is all calls or all typed input (`normalizeCodeTests` refuses a
+    // mix). A call says what it is; typed lines need their columns named.
     const typed = rows[0].kind === 'stdin';
-    const chars = (s: string) => Array.from(s).length;
-    const grid = columns(Math.max(
-        ...rows.map((r) => (r.kind === 'call' ? chars(r.input) : chars(inputLine(r.input)) || chars(t("(empty)")))),
-        typed ? chars(t("Input")) : 0,
-    ));
     return (
         <section className={SECTION} aria-label={t("Tests")}>
             <p className="text-sm font-medium text-slate-700 dark:text-slate-200 tabular-nums">{count}</p>
-            {typed && (
-                // Set in the rows' face so its `ch` columns are theirs.
-                <div aria-hidden="true" className={cx(ROW, '-mx-2 mt-1 pb-0 font-mono text-[0.85rem]')} style={grid}>
-                    <span />
-                    <span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Input")}</span>
-                    <span className="invisible">→</span>
-                    <span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Output")}</span>
-                </div>
-            )}
-            {/* A hair between rows, so two failed rows read as two bands. */}
-            <ul className={cx('-mx-2 space-y-0.5', typed ? '' : 'mt-1', MONO)}>
-                {rows.map((row, i) => {
-                    // Printed lines read as blocks; "Expected" then goes on its own line.
-                    const block = /\n./.test(row.actual) || /\n./.test(row.expected);
-                    const diff = row.pass || row.over ? null : diffChars(row.expected, row.actual);
-                    return (
-                        // A passed row steps back so the failed ones are read first.
-                        <li key={i} className={cx(ROW, row.pass ? 'text-slate-600 dark:text-slate-400' : FAILED_ROW)} style={grid}>
-                            <span className={ICON_LINE}>
-                                {row.pass
-                                    ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-label={t("Passed")} />
-                                    : <X className="w-4 h-4 text-red-600 dark:text-red-400" aria-label={t("Failed")} />}
-                            </span>
-                            <span className="min-w-0 [overflow-wrap:anywhere]"><InputShown kind={row.kind} input={row.input} /></span>
-                            <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
-                            <div className="min-w-0 [overflow-wrap:anywhere]">
-                                {row.pass ? (
-                                    <Shown text={row.actual} kind={row.kind} />
-                                ) : (
-                                    <div className="flex flex-wrap items-baseline gap-x-4">
-                                        <span className="text-red-700 dark:text-red-300">
-                                            <span className="sr-only">{t("Got")} </span>
-                                            <Shown text={row.actual} over={row.over} kind={row.kind} parts={diff?.actual} tone="got" />
-                                        </span>
-                                        {/* On one line the value hangs beside its label, so a
-                                            value that wraps stays in its own column. */}
-                                        <span className={block ? 'basis-full mt-1' : 'flex min-w-0 items-baseline gap-x-1.5'}>
-                                            <span className={cx('font-sans text-xs text-slate-600 dark:text-slate-300', block ? 'block' : 'shrink-0')}>{t("Expected")}</span>
-                                            <span className="min-w-0"><Shown text={row.expected} kind={row.kind} parts={diff?.expected} tone="expected" /></span>
-                                        </span>
-                                    </div>
+            <div className={LIST} style={LIST_COLUMNS}>
+                {typed && (
+                    <div aria-hidden="true" className={cx(ROW, 'pb-0 text-xs text-slate-500 dark:text-slate-400')}>
+                        <span className="col-start-2">{t("Input")}</span>
+                        <span className="col-start-4">{t("Output")}</span>
+                    </div>
+                )}
+                {/* A hair between rows, so two failed rows read as two bands. */}
+                <ul className={cx('col-span-4 grid grid-cols-subgrid gap-y-0.5', MONO)}>
+                    {rows.map((row, i) => {
+                        const diff = row.pass || row.over ? null : diffChars(row.expected, row.actual);
+                        return (
+                            // A passed row steps back so the failed ones are read first.
+                            <li key={i} className={cx(ROW, 'gap-y-0.5', row.pass ? 'text-slate-600 dark:text-slate-400' : FAILED_ROW)}>
+                                <span className={ICON_LINE}>
+                                    {row.pass
+                                        ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-label={t("Passed")} />
+                                        : <X className="w-4 h-4 text-red-600 dark:text-red-400" aria-label={t("Failed")} />}
+                                </span>
+                                <span className={CELL}><InputShown kind={row.kind} input={row.input} /></span>
+                                <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
+                                <div className={cx(CELL, !row.pass && 'text-red-700 dark:text-red-300')}>
+                                    {!row.pass && <span className="sr-only">{t("Got")} </span>}
+                                    <Shown text={row.actual} over={row.over} kind={row.kind} parts={diff?.actual} tone="got" />
+                                </div>
+                                {!row.pass && (
+                                    <>
+                                        <span className="col-start-2 col-span-2 text-right font-sans text-xs text-slate-600 dark:text-slate-300">{t("Expected")}</span>
+                                        <div className={CELL}>
+                                            <Shown text={row.expected} kind={row.kind} parts={diff?.expected} tone="expected" />
+                                        </div>
+                                    </>
                                 )}
-                            </div>
-                        </li>
-                    );
-                })}
-            </ul>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </div>
         </section>
     );
 }

@@ -79,10 +79,15 @@ writeFileSync(stub, 'export const api = new Proxy({}, { get: () => () => { throw
 // its own gate, `code-runner-gates.mjs`, in a real browser.
 const storeStub = join(scratch, 'store-stub.js');
 writeFileSync(storeStub, 'export const useStore = { getState: () => ({ codeRunner: false }) };\n');
-async function bundleClient(entry) {
+// `contents`: a module written here instead of a file, resolved from the repo
+// root, so a component and the React that renders it are one bundle (one
+// React: a second copy breaks every hook).
+async function bundleClient(entry, contents) {
     const outfile = join(scratch, entry.replace(/[\\/]/g, '_').replace(/\.tsx?$/, '.mjs'));
     await esbuild.build({
-        entryPoints: [join(repoRoot, entry)],
+        ...(contents
+            ? { stdin: { contents, resolveDir: repoRoot, loader: 'ts', sourcefile: entry } }
+            : { entryPoints: [join(repoRoot, entry)] }),
         bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
         plugins: [{
             name: 'stub-runtime',
@@ -1162,14 +1167,88 @@ section('a failed test marks where its result differs from the expected one');
         JSON.stringify(extra));
     check('nothing in common marks nothing (3 against 6)', diffChars('6', '3') === null);
     check('two equal strings mark nothing', diffChars('same', 'same') === null);
+    check('an empty side marks nothing', diffChars('', 'x') === null && diffChars('x', '') === null);
+    // Measured against BOTH texts: a short expected value found scattered
+    // through a long wrong output is a coincidence, not a near miss.
+    check('little in common marks nothing (abcdef against axyzw)', diffChars('abcdef', 'axyzw') === null);
+    check('a short expected value inside a long error marks nothing',
+        diffChars('ok', "KeyError: 'token' was not found in the lookup table") === null);
     const long = 'x'.repeat(600);
-    check('text too long to compare cheaply is left unmarked', diffChars(long, long + 'y') === null);
+    const tailOnly = diffChars(long, long + 'y');
+    check('two long texts that differ at one end mark that end only (the shared start costs nothing)',
+        tailOnly && marked(tailOnly.actual) === 'y' && marked(tailOnly.expected) === '', JSON.stringify(tailOnly?.actual.map(p => p.text.length)));
+    const wide = Array.from({ length: 700 }, (_, i) => String.fromCharCode(97 + (i * 7) % 26)).join('');
+    const other = Array.from({ length: 700 }, (_, i) => String.fromCharCode(97 + (i * 11) % 26)).join('');
+    check('two long texts that differ throughout are left unmarked (too costly to compare on a render)',
+        diffChars('<' + wide + '>', '<' + other + '>') === null);
     const emoji = diffChars('a😀b', 'a😃b');
     check('a character outside the basic plane is marked whole, never half a surrogate pair',
         emoji && marked(emoji.expected) === '😀' && marked(emoji.actual) === '😃', JSON.stringify(emoji));
-    const pairs = [['Hello, Ada!', 'Hello Ada'], ['line one\nline two', 'line one\nline 2'], ['[1, 2, 3]', '[1, 2]'], ['a😀b', 'a😃b']];
+    const family = diffChars('hi 👨‍👩‍👧!', 'hi 👨‍👩‍👦!');
+    check('a joined emoji is marked as one character, never cut at its joiners',
+        family && marked(family.expected) === '👨‍👩‍👧' && marked(family.actual) === '👨‍👩‍👦', JSON.stringify(family));
+    const pairs = [['Hello, Ada!', 'Hello Ada'], ['line one\nline two', 'line one\nline 2'], ['[1, 2, 3]', '[1, 2]'],
+        ['a😀b', 'a😃b'], ['6', '6.0'], [long, long + 'y'], ['Hello, !\n', 'Hello \n']];
+    const diffs = pairs.map(([e, a]) => [e, a, diffChars(e, a)]);
+    check('every one of these pairs is marked', diffs.every(([, , d]) => d), diffs.filter(([, , d]) => !d).map(([e]) => e.slice(0, 12)).join(', '));
     check('the parts put back together are exactly the two texts',
-        pairs.every(([e, a]) => { const d = diffChars(e, a); return !d || (whole(d.expected) === e && whole(d.actual) === a); }));
+        diffs.every(([e, a, d]) => d && whole(d.expected) === e && whole(d.actual) === a));
+    // What is left unmarked on each side is what they share, so it must read the same on both.
+    const unmarked = (parts) => parts.filter(p => !p.mark).map(p => p.text).join('');
+    check('the unmarked text of the two sides is identical', diffs.every(([, , d]) => d && unmarked(d.expected) === unmarked(d.actual)));
+    check('no two neighbouring parts share a mark (each run is one element)',
+        diffs.every(([, , d]) => d && [d.expected, d.actual].every(ps => ps.every((p, k) => k === 0 || p.mark !== ps[k - 1].mark))));
+}
+
+// ---------------------------------------------------------------------------
+section('the test list after Check, and the output after Run, as rendered');
+// The real components rendered to markup (no browser, no runner): what each
+// row carries and what is left out, which a screenshot cannot pin.
+{
+    const panel = await import(pathToFileURL(await bundleClient('render-code-run-panel.ts', [
+        "export { TestRows, RunOutput } from './src/components/answer/CodeRunPanel.tsx';",
+        "export { createElement } from 'react';",
+        "export { renderToStaticMarkup } from 'react-dom/server.browser';",
+        // English, as the app's keys are: text reads as the learner sees it.
+        "import i18n from 'i18next'; import { initReactI18next } from 'react-i18next';",
+        "i18n.use(initReactI18next).init({ lng: 'en', resources: {}, initAsync: false, initImmediate: false, interpolation: { escapeValue: false } });",
+    ].join('\n'))).href);
+    const html = (component, props) => panel.renderToStaticMarkup(panel.createElement(component, props));
+    const rows = (tests) => html(panel.TestRows, { run: { status: 'done', tests }, language: 'python' });
+    const count = (s, re) => (s.match(re) || []).length;
+    const call = (input, expected, actual) => ({ kind: 'call', input, expected, actual, pass: expected === actual });
+
+    const allPass = rows([call('double(3)', '6', '6'), call('double(0)', '0', '0'), call('double(2)', '4', '4')]);
+    check('every test passed: the count alone, no list of rows', !allPass.includes('<li') && allPass.includes('Tests passed: 3 of 3'), allPass.slice(0, 300));
+
+    const oneFails = rows([call('double(3)', '6', '6'), call('double(-4)', '-8', '-4'), call('double(2)', '4', '4')]);
+    check('one failed: a line per test, in order', count(oneFails, /<li/g) === 3 && oneFails.indexOf('double(3)') < oneFails.indexOf('double(-4)'));
+    check('only the failed test says what was expected', count(oneFails, />Expected</g) === 1);
+    check('the differing characters are marked on both sides, underlined as well as filled',
+        count(oneFails, /<mark class="[^"]*underline[^"]*">/g) === 2 && /<mark[^>]*>4<\/mark>/.test(oneFails) && /<mark[^>]*>8<\/mark>/.test(oneFails), oneFails);
+    check('the learner\'s value is named for a screen reader, the arrow is not read', /sr-only">Got /.test(oneFails) && /aria-hidden="true">→/.test(oneFails));
+
+    const stdin = (input, expected, actual) => ({ kind: 'stdin', input, expected, actual, pass: expected === actual });
+    const typed = rows([stdin('Ada\n', 'Hello, Ada!\n', 'Hello Ada\n'), stdin('', 'Hello, !\n', 'Hello \n'), stdin('Bo\n', 'Hello, Bo!\n', 'Hello, Bo!\n')]);
+    check('typed input: the columns are headed once, for the eye only', /<div aria-hidden="true"[^>]*><span class="col-start-2">Input<\/span>/.test(typed), typed.slice(0, 600));
+    check('typed input: each row names its input for a screen reader', count(typed, /sr-only">Input /g) === 3);
+    check('an empty input reads "(empty)"', typed.includes('(empty)'));
+
+    const lines = rows([stdin('2\n', 'one\ntwo\n', 'one\n'), stdin('1\n', 'one\n', 'one\n'), stdin('0\n', '\n', '\n')]);
+    check('a missing line break is drawn as ↵ inside the mark, hidden from screen readers and copying',
+        /<mark[^>]*>[^<]*<span aria-hidden="true" class="select-none">↵<\/span>/.test(lines), lines);
+
+    const over = rows([{ ...call('spam()', 'x', 'x'.repeat(10)), over: true }, call('a()', '1', '1'), call('b()', '2', '2')]);
+    check('output over the limit says so and is never diffed', over.includes('More than 64 KB of output') && !over.includes('<mark'));
+
+    const run = (props) => html(panel.RunOutput, { language: 'python', ...props });
+    const both = run({ run: { status: 'done', output: 'doubling 3\n', value: '6' }, test: { call: 'double(3)' } });
+    check('Run: what was printed and what the call returned are named apart',
+        both.indexOf('>Output<') < both.indexOf('doubling 3') && both.indexOf('doubling 3') < both.indexOf('>Return value<') && both.includes('double(3) <span'), both);
+    const quiet = run({ run: { status: 'done', output: '', value: '6' }, test: { call: 'double(3)' } });
+    check('Run: a call that printed nothing shows only its return value', !quiet.includes('>Output<') && quiet.includes('>Return value<') && !quiet.includes('Nothing was printed'), quiet);
+    const silent = run({ run: { status: 'done', output: '' }, test: { stdin: 'Ada\n' } });
+    check('Run: a program that printed nothing says so', silent.includes('>Output<') && silent.includes('Nothing was printed'), silent);
 }
 
 // ---------------------------------------------------------------------------
