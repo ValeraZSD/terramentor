@@ -234,6 +234,10 @@ try {
             questionDefects(unfenced).some((d) => /picture arrived as text/.test(d)), questionDefects(unfenced).join('; '));
         const saysPlot = { ...flattened, question: 'Which word names the command below?\nplot\nIt draws a curve.' };
         check('…while a line that only says "plot" above prose is not', !questionDefects(saysPlot).some((d) => /picture/.test(d)), questionDefects(saysPlot).join('; '));
+        const mermaid = { ...flattened, question: 'Which step runs first?\n\nmermaid\nflowchart TD\n  A --> B' };
+        check('an unfenced Mermaid spec is caught by its diagram keyword', questionDefects(mermaid).some((d) => /picture arrived as text/.test(d)), questionDefects(mermaid).join('; '));
+        const saysMermaid = { ...flattened, question: 'Which tool draws this?\nmermaid\nIt turns text into diagrams.' };
+        check('…while a line that only says "mermaid" above prose is not', !questionDefects(saysMermaid).some((d) => /picture/.test(d)), questionDefects(saysMermaid).join('; '));
         db.close();
     }
 
