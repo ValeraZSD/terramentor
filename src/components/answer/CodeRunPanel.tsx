@@ -21,14 +21,20 @@ const MONO = 'font-mono text-[0.85rem] leading-relaxed text-slate-800 dark:text-
 const MUTED = 'text-sm text-slate-600 dark:text-slate-400';
 const LABEL = 'text-xs font-medium text-slate-500 dark:text-slate-400';
 
+const OUT_OF_MEMORY = /^(MemoryError\b|\w*Error: out of memory)/;
+
 /** Why a run ended without an answer to show, or null when it simply finished. */
 export function stoppedLine(t: TFunction, run: RunResult, language: RunnerLanguage): string | null {
     const name = LANGUAGE_NAME[language];
     const starting = run.phase === 'load' || run.phase === 'idle';
-    if (run.status === 'done') return null;
+    const memory = () => t("Stopped: your code used more than {{mb}} MB of memory.", { mb: MEMORY_MB[language] });
+    // The ceiling usually surfaces inside the language, as its own error
+    // (Python's MemoryError, QuickJS's "out of memory"), and the run still
+    // ends normally: the bare error name alone tells a learner nothing.
+    if (run.status === 'done') return OUT_OF_MEMORY.test(run.error ?? '') ? memory() : null;
     if (run.status === 'unavailable' || starting) return t("{{language}} could not start here, so your code was not run.", { language: name });
     if (run.status === 'timeout') return t("Stopped after {{seconds}} seconds. Is there a loop that never ends?", { seconds: RUNNER_LIMITS.runMs / 1000 });
-    if (run.status === 'memory') return t("Stopped: your code used more than {{mb}} MB of memory.", { mb: MEMORY_MB[language] });
+    if (run.status === 'memory') return memory();
     if (run.status === 'flood') return t("Stopped: your code sent too many messages.");
     return t("The runner stopped unexpectedly. Try again.");
 }
@@ -55,7 +61,7 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
             <p className={LABEL}>{t("Output")}</p>
             {typeof test?.stdin === 'string' && (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {t("Input")}: <span className="font-mono">{test.stdin.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || '—'}</span>
+                    {t("Input")}: <span className="font-mono">{test.stdin.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || t("(empty)")}</span>
                 </p>
             )}
             {(output || valueLine || run.error) && (
@@ -103,7 +109,7 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
                         <div className={`min-w-0 flex-1 ${MONO}`}>
                             {row.kind === 'call'
                                 ? <span>{row.input}</span>
-                                : <span><span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Input")}: </span>{row.input.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || '—'}</span>}
+                                : <span><span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Input")}: </span>{row.input.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || t("(empty)")}</span>}
                             {row.pass ? (
                                 <span className="text-slate-600 dark:text-slate-400"> → <Shown text={row.actual} kind={row.kind} /></span>
                             ) : (

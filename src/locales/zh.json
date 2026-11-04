@@ -56,6 +56,7 @@
   "({{length}} points)_other": "（{{length}} 个点）",
   "({{weight}} marks)_other": "（{{weight}} 分）",
   "(anything within {{tolerance}} counts)": "(误差在 {{tolerance}} 以内即算对)",
+  "(empty)": "（空）",
   "(no answer)": "（无答案）",
   "(OCR)": "（OCR）",
   "(optional)": "（可选）",

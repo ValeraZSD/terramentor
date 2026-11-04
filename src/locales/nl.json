@@ -67,6 +67,7 @@
   "({{weight}} marks)_one": "({{weight}} punt)",
   "({{weight}} marks)_other": "({{weight}} punten)",
   "(anything within {{tolerance}} counts)": "(alles binnen {{tolerance}} telt)",
+  "(empty)": "(leeg)",
   "(no answer)": "(geen antwoord)",
   "(OCR)": "(OCR)",
   "(optional)": "(optioneel)",

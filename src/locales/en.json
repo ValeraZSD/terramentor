@@ -67,6 +67,7 @@
   "({{weight}} marks)_one": "({{weight}} mark)",
   "({{weight}} marks)_other": "({{weight}} marks)",
   "(anything within {{tolerance}} counts)": "(anything within {{tolerance}} counts)",
+  "(empty)": "(empty)",
   "(no answer)": "(no answer)",
   "(OCR)": "(OCR)",
   "(optional)": "(optional)",

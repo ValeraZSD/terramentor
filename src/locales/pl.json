@@ -89,6 +89,7 @@
   "({{weight}} marks)_one": "({{weight}} punkt)",
   "({{weight}} marks)_other": "({{weight}} punkty)",
   "(anything within {{tolerance}} counts)": "(liczy się cokolwiek w granicach {{tolerance}})",
+  "(empty)": "(puste)",
   "(no answer)": "(brak odpowiedzi)",
   "(OCR)": "(OCR)",
   "(optional)": "(opcjonalne)",

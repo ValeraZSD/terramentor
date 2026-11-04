@@ -89,6 +89,7 @@
   "({{weight}} marks)_one": "({{weight}} бал)",
   "({{weight}} marks)_other": "({{weight}} бали)",
   "(anything within {{tolerance}} counts)": "(зараховується будь-що в межах {{tolerance}})",
+  "(empty)": "(порожньо)",
   "(no answer)": "(без відповіді)",
   "(OCR)": "\"(OCR)\"",
   "(optional)": "(необов'язково)",

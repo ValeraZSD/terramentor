@@ -78,6 +78,7 @@
   "({{weight}} marks)_one": "({{weight}} point)",
   "({{weight}} marks)_other": "({{weight}} points)",
   "(anything within {{tolerance}} counts)": "(tout écart dans {{tolerance}} compte)",
+  "(empty)": "(vide)",
   "(no answer)": "(pas de réponse)",
   "(OCR)": "(OCR)",
   "(optional)": "(facultatif)",

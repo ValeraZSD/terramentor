@@ -56,6 +56,7 @@
   "({{length}} points)_other": "（{{length}} ポイント）",
   "({{weight}} marks)_other": "（{{weight}} マーク）",
   "(anything within {{tolerance}} counts)": "（{{tolerance}} 以内なら正解）",
+  "(empty)": "（空）",
   "(no answer)": "（回答なし）",
   "(OCR)": "（OCR）",
   "(optional)": "（オプション）",
