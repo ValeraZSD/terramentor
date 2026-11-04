@@ -129,7 +129,12 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
     'use strict';
     var stringify = JSON.stringify, isArray = Array.isArray, keys = Object.keys, getProto = Object.getPrototypeOf;
     var isNaN_ = Number.isNaN, MapP = Map.prototype, SetP = Set.prototype, DateP = Date.prototype, RegExpP = RegExp.prototype, ObjectP = Object.prototype;
-    var mapEntries = MapP.entries, setValues = SetP.values, dateIso = DateP.toISOString, reText = RegExpP.toString, typeTag = ObjectP.toString, from = Array.from;
+    var mapEntries = MapP.entries, setValues = SetP.values, dateIso = DateP.toISOString, reText = RegExpP.toString, typeTag = ObjectP.toString, from = Array.from, create = Object.create;
+    // A value is encoded whole or not at all: past NODE_MAX parts, or past
+    // JSON_MAX characters once written, it becomes one opaque value, so a
+    // difference can never hide in a part that was left out (the reference's
+    // then grades nothing; the learner's then matches nothing).
+    var NODE_MAX = 50000, JSON_MAX = 1048576, TOO_BIG = {}, budget = 0;
     // 'opaque': a value whose content is not in its own keys (a promise, a
     // generator, an instance with no fields): two of them cannot be compared,
     // so the check declines rather than calling any two of them equal.
@@ -146,6 +151,7 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
         return 'object';
     }
     function tag(v, depth) {
+        if (--budget < 0) throw TOO_BIG;
         if (depth > 20) return { $deep: 1 };
         switch (typeof v) {
             case 'undefined': return { $u: 1 };
@@ -157,15 +163,21 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
         }
         if (v === null) return null;
         switch (kindOf(v)) {
-            case 'array': return v.map(function (x) { return tag(x, depth + 1); });
+            case 'array': {
+                // A hole is not undefined and not null: [,1] is neither [undefined, 1] nor [null, 1].
+                var a = [], n = v.length;
+                for (var j = 0; j < n; j++) a.push(j in v ? tag(v[j], depth + 1) : { $hole: 1 });
+                return a;
+            }
             case 'map': return { $map: from(mapEntries.call(v), function (e) { return [tag(e[0], depth + 1), tag(e[1], depth + 1)]; }) };
             case 'set': return { $set: from(setValues.call(v), function (x) { return tag(x, depth + 1); }) };
             case 'date': try { return { $date: dateIso.call(v) }; } catch (e) { return { $date: 'Invalid Date' }; }
             case 'regexp': try { return { $re: reText.call(v) }; } catch (e) { return { $opaque: 1 }; }
             case 'opaque': return { $opaque: 1 };
         }
-        var o = {}, ks = keys(v);
-        for (var i = 0; i < ks.length && i < 200; i++) o[ks[i]] = tag(v[ks[i]], depth + 1);
+        // No prototype, so an own key named __proto__ is a key like any other.
+        var o = create(null), ks = keys(v);
+        for (var i = 0; i < ks.length; i++) o[ks[i]] = tag(v[ks[i]], depth + 1);
         return { $obj: o };
     }
     function show(v, depth) {
@@ -201,9 +213,14 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
     return function (v) {
         var s;
         try { s = show(v, 0); } catch (e) { s = '<the value could not be shown>'; }
+        if (s.length > 2000) s = s.slice(0, 2000) + '…';
         var t;
-        try { t = tag(v, 0); } catch (e) { t = { $err: 1 }; }
-        return stringify({ t: t, s: s });
+        budget = NODE_MAX;
+        try { t = tag(v, 0); } catch (e) { t = e === TOO_BIG ? { $opaque: 1 } : { $err: 1 }; }
+        var json;
+        try { json = stringify({ t: t, s: s }); } catch (e) { json = null; }
+        if (json === null || json === undefined || json.length > JSON_MAX) json = stringify({ t: { $opaque: 1 }, s: s });
+        return json;
     };
 })`;
 
@@ -354,9 +371,61 @@ function sameTree(a: unknown, b: unknown, depth = 0): boolean {
     }
     const ao = a as Record<string, unknown>;
     const bo = b as Record<string, unknown>;
+    // A Map or a Set is equal to one holding the same members in another
+    // order, as Python's set and dict are: the order they were built in is
+    // not part of the answer.
+    for (const bag of ['$set', '$map'] as const) {
+        if (Array.isArray(ao[bag]) && Array.isArray(bo[bag])) return sameBag(ao[bag] as unknown[], bo[bag] as unknown[], depth + 1);
+    }
     const ak = Object.keys(ao).sort();
     const bk = Object.keys(bo).sort();
     return ak.length === bk.length && ak.every((k, i) => k === bk[i] && sameTree(ao[k], bo[k], depth + 1));
+}
+
+/**
+ * The same members, in any order. In order is tried first (the common case);
+ * then each member of one is paired with an unused equal member of the other,
+ * which is quadratic, so a large bag is sorted on a written form instead.
+ */
+function sameBag(a: unknown[], b: unknown[], depth: number): boolean {
+    if (a.length !== b.length) return false;
+    if (a.every((x, i) => sameTree(x, b[i], depth))) return true;
+    if (a.length <= 500) {
+        const used = new Array<boolean>(b.length).fill(false);
+        return a.every((x) => {
+            const at = b.findIndex((y, i) => !used[i] && sameTree(x, y, depth));
+            if (at < 0) return false;
+            used[at] = true;
+            return true;
+        });
+    }
+    const sorted = (xs: unknown[]) => xs.map((x) => [canonical(x), x] as const).sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1 : 0));
+    const as = sorted(a);
+    const bs = sorted(b);
+    return as.every((p, i) => sameTree(p[1], bs[i][1], depth));
+}
+
+/** An encoded value written with its object keys in order, for sorting. */
+function canonical(t: unknown): string {
+    if (Array.isArray(t)) return `[${t.map(canonical).join(',')}]`;
+    if (t && typeof t === 'object') {
+        const o = t as Record<string, unknown>;
+        return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(t) ?? 'undefined';
+}
+
+/**
+ * An author's `expect`, read as JSON, in the encoder's own shape: an object is
+ * `{ $obj }` there, so a plain one here would never match the reference.
+ */
+function expectTree(v: unknown, depth = 0): unknown {
+    if (depth > 40) return { $deep: 1 };
+    if (Array.isArray(v)) return v.map((x) => expectTree(x, depth + 1));
+    if (v && typeof v === 'object') {
+        return { $obj: Object.fromEntries(Object.keys(v).map((k) => [k, expectTree((v as Record<string, unknown>)[k], depth + 1)])) };
+    }
+    return v;
 }
 
 /**
@@ -403,7 +472,7 @@ function jsCheck(engine: JsEngine, job: JobPayload): Record<string, unknown> {
             if (r.kind === 'output') { if (cleanOutput(t.expect) !== r.text) return 'expect-mismatch'; continue; }
             if (r.kind === 'raised') return 'expect-mismatch';
             const wanted = readExpect(t.expect);
-            if (wanted.ok && !sameTree(r.t, wanted.value)) return 'expect-mismatch';
+            if (wanted.ok && !sameTree(r.t, expectTree(wanted.value))) return 'expect-mismatch';
         }
         return null;
     })();
