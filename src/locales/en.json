@@ -2162,7 +2162,7 @@
   "Put in order": "Put in order",
   "Put steps in order": "Put steps in order",
   "Puzzle": "Puzzle",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.",
   "Question": "Question",
   "Question {{n}} of {{total}}": "Question {{n}} of {{total}}",
   "Question and answer cannot be empty.": "Question and answer cannot be empty.",

@@ -2412,7 +2412,7 @@
   "Put in order": "Ustaw w kolejności",
   "Put steps in order": "Uporządkuj kroki",
   "Puzzle": "Puzzle",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Odpowiedzi w Pythonie i JavaScripcie są uruchamiane na tym urządzeniu i sprawdzane testami każdego pytania. Po wyłączeniu ocenia je AI.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Odpowiedzi w Pythonie i JavaScripcie są uruchamiane na tym urządzeniu i sprawdzane testami pytania. Gdy odpowiedzi nie da się tak sprawdzić lub gdy to jest wyłączone, ocenia ją AI.",
   "Question": "Pytanie",
   "Question {{n}} of {{total}}": "Pytanie {{n}} z {{total}}",
   "Question and answer cannot be empty.": "Pytanie i odpowiedź nie mogą być puste.",

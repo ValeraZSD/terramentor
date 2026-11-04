@@ -2096,7 +2096,7 @@
   "Put in order": "In Ordnung bringen",
   "Put steps in order": "Schritte in die richtige Reihenfolge bringen",
   "Puzzle": "Puzzle",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Antworten in Python und JavaScript laufen auf diesem Gerät und werden mit den Tests der jeweiligen Frage geprüft. Ist das aus, beurteilt stattdessen die KI sie.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Antworten in Python und JavaScript laufen auf diesem Gerät und werden mit den Tests der Frage geprüft. Lässt sich eine Antwort so nicht prüfen oder ist das aus, beurteilt stattdessen die KI sie.",
   "Question": "Frage",
   "Question {{n}} of {{total}}": "Frage {{n}} von {{total}}",
   "Question and answer cannot be empty.": "Frage und Antwort dürfen nicht leer sein.",

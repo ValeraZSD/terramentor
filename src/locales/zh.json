@@ -1938,7 +1938,7 @@
   "Put in order": "排序",
   "Put steps in order": "将步骤按顺序排列",
   "Puzzle": "拼图",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Python 和 JavaScript 答案在此设备上运行，并用每道题的测试进行检查。关闭后改由 AI 评判。",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Python 和 JavaScript 答案在此设备上运行，并用题目的测试进行检查。无法这样检查的答案，或关闭此项时，改由 AI 评判。",
   "Question": "问题",
   "Question {{n}} of {{total}}": "第 {{n}} 题，共 {{total}} 题",
   "Question and answer cannot be empty.": "问题和答案不能为空。",

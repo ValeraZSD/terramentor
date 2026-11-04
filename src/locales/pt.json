@@ -2254,7 +2254,7 @@
   "Put in order": "Ordenar",
   "Put steps in order": "Ordenar os passos",
   "Puzzle": "Puzzle",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "As respostas em Python e JavaScript são executadas neste dispositivo e verificadas com os testes de cada pergunta. Desativado, é a IA que as avalia.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "As respostas em Python e JavaScript são executadas neste dispositivo e verificadas com os testes da pergunta. Quando uma resposta não pode ser verificada assim, ou isto está desativado, é a IA que a avalia.",
   "Question": "Pergunta",
   "Question {{n}} of {{total}}": "Pergunta {{n}} de {{total}}",
   "Question and answer cannot be empty.": "A pergunta e a resposta não podem estar vazias.",

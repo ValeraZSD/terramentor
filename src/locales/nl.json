@@ -2096,7 +2096,7 @@
   "Put in order": "In volgorde leggen",
   "Put steps in order": "Zet de stappen in de juiste volgorde",
   "Puzzle": "Puzzel",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Antwoorden in Python en JavaScript draaien op dit apparaat en worden gecontroleerd met de tests van elke vraag. Staat dit uit, dan beoordeelt de AI ze.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Antwoorden in Python en JavaScript draaien op dit apparaat en worden gecontroleerd met de tests van de vraag. Kan een antwoord zo niet worden gecontroleerd, of staat dit uit, dan beoordeelt de AI het.",
   "Question": "Vraag",
   "Question {{n}} of {{total}}": "Vraag {{n}} van {{total}}",
   "Question and answer cannot be empty.": "Vraag en antwoord mogen niet leeg zijn.",

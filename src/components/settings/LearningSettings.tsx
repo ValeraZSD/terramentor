@@ -216,7 +216,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                     <SettingRow
                         label={tr("Run code answers")}
                         htmlFor="setting-code-runner"
-                        hint={tr("Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.")}
+                        hint={tr("Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.")}
                         control={<Switch id="setting-code-runner" label={tr("Run code answers")} checked={codeRunner} onChange={(on) => void setCodeRunner(on)} />}
                     />
                 </SettingGroup>

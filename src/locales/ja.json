@@ -1938,7 +1938,7 @@
   "Put in order": "順序を整える",
   "Put steps in order": "ステップを順番に並べる",
   "Puzzle": "パズル",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Python と JavaScript の解答はこの端末で実行され、各問題のテストで確認されます。オフにすると、代わりに AI が判定します。",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Python と JavaScript の解答はこの端末で実行され、問題のテストで確認されます。この方法で確認できない解答や、オフのときは、代わりに AI が判定します。",
   "Question": "質問",
   "Question {{n}} of {{total}}": "問題 {{n}} / {{total}}",
   "Question and answer cannot be empty.": "質問と回答は空にできません。",

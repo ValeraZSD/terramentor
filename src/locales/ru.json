@@ -2412,7 +2412,7 @@
   "Put in order": "Расставить по порядку",
   "Put steps in order": "Расставьте шаги по порядку",
   "Puzzle": "Пазл",
-  "Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.": "Ответы на Python и JavaScript выполняются на этом устройстве и проверяются тестами каждого вопроса. Если выключено, их оценивает ИИ.",
+  "Python and JavaScript answers run on this device, checked against the question's tests. When an answer cannot be checked that way, or this is off, the AI judges it instead.": "Ответы на Python и JavaScript выполняются на этом устройстве и проверяются тестами вопроса. Если ответ так проверить нельзя или это выключено, его оценивает ИИ.",
   "Question": "Вопрос",
   "Question {{n}} of {{total}}": "Вопрос {{n}} из {{total}}",
   "Question and answer cannot be empty.": "Вопрос и ответ не могут быть пустыми.",
