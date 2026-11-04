@@ -389,7 +389,7 @@ your data at all." Those are different claims and we only make the second one.
   run gets a fresh frame, so one question's code never runs beside another's. Time is enforced from outside the code: the worker is terminated 5 seconds into a
   phase, and the page removes the whole frame 2 seconds later if the frame stops answering,
   because the interpreters' own interrupt hooks do not reliably stop a busy loop. Memory is the
-  runtime's own ceiling (256 MB for Python, 64 MB for JavaScript), output stops at 64 KB, and
+  runtime's own ceiling (256 MB for Python, 64 MB for JavaScript), output stops at 65,536 characters (up to 192 KB as UTF-8), and
   the result is read as untrusted data and shown as text. A test's expected value is never taken
   from the question: the reference solution is run on the same inputs, so a model's `expect`
   that disagrees with its own reference grades nothing. Turning it off (Settings → Learning →
