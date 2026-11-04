@@ -6,10 +6,12 @@
  * A longest common subsequence over what a reader counts as characters
  * (grapheme clusters: an emoji, a flag or a letter with its accent is never
  * cut in two), run on the part between a shared start and a shared end, so two
- * long outputs that differ in one place cost almost nothing. Nothing is marked
- * when the two have too little in common ("3" against "6", or "ok" against a
- * long error message: marking all of it says nothing the row's colour did not)
- * or when the part that differs is too long to compare cheaply on a render.
+ * long outputs that differ in one place cost almost nothing. When the two have
+ * too little in common to point at a place, a short value is marked whole
+ * between the start and end they share ("3" against "6"), so every failed row
+ * carries the same cue, and a long one is left plain ("ok" against a long
+ * error message: an underlined paragraph is noise). Nothing is marked when the
+ * part that differs is too long to compare cheaply on a render.
  */
 
 export interface DiffPart {
@@ -20,6 +22,8 @@ export interface DiffPart {
 
 /** Above this many cells the table is not worth building for a review line. */
 const MAX_CELLS = 250_000;
+/** Up to this many characters on each side, a value with too little in common is marked as one run. */
+const SHORT = 24;
 
 // Typed here because the project's TypeScript library (ES2020) predates
 // Intl.Segmenter; a runtime without it falls back to code points.
@@ -63,8 +67,11 @@ export function diffChars(expected: string, actual: string): { expected: DiffPar
     }
     // At least half the two texts' average length in common: "6" and "6.0"
     // pass (one of an average of two), "ok" inside a 300-character error does not.
+    // Below that, a short value is marked as one run between what the two
+    // share at the start and end, and a long one not at all.
     const common = head + tail + lcs[0];
-    if (common * 4 < a.length + b.length) return null;
+    const near = common * 4 >= a.length + b.length;
+    if (!near && (a.length > SHORT || b.length > SHORT)) return null;
 
     const left: DiffPart[] = [];
     const right: DiffPart[] = [];
@@ -79,7 +86,7 @@ export function diffChars(expected: string, actual: string): { expected: DiffPar
     }
     let i = 0;
     let j = 0;
-    while (i < n && j < m) {
+    while (near && i < n && j < m) {
         if (a[head + i] === b[head + j]) {
             push(left, a[head + i++], false);
             push(right, b[head + j++], false);

@@ -14,10 +14,10 @@ import { diffChars, type DiffPart } from './charDiff';
  *
  * Two moments: after Run, the program's own output (and the value of the
  * question's first call, which is what Run feeds it); after Check, how many
- * tests passed, and when one failed a line per test, with the expected result
- * under each failed one. A run that was
- * stopped says why in a sentence, as a fact about the code, never as an
- * alarm: an endless loop is a normal mistake while learning.
+ * tests passed and, when one failed, a line per test with the expected result
+ * under each failed one. A run that was stopped says why in a sentence, as a
+ * fact about the code, never as an alarm: an endless loop is a normal mistake
+ * while learning.
  */
 
 const SECTION = 'border-t border-slate-200 dark:border-slate-700 px-3 py-2';
@@ -25,8 +25,22 @@ const MONO = 'font-mono text-[0.85rem] leading-relaxed text-slate-800 dark:text-
 const MUTED = 'text-sm text-slate-600 dark:text-slate-400';
 const LABEL = 'text-xs font-medium text-slate-500 dark:text-slate-400';
 
-/** A typed input on one line: line breaks as ↵. */
-const inputLine = (input: string) => input.replace(/\n+$/, '').replace(/\n/g, ' ↵ ');
+/** A typed input without its closing line breaks; empty when nothing else was typed. */
+const typedText = (input: string) => input.replace(/\n+$/, '');
+
+/** A typed input on one line, each line break drawn as ↵: seen, never read aloud or copied. */
+function TypedLine({ input }: { input: string }) {
+    return (
+        <>
+            {typedText(input).split('\n').map((line, i) => (
+                <Fragment key={i}>
+                    {i > 0 && <><span aria-hidden="true" className="select-none"> ↵ </span><span className="sr-only">, </span></>}
+                    {line}
+                </Fragment>
+            ))}
+        </>
+    );
+}
 
 const OUT_OF_MEMORY = /^(MemoryError\b|\w*Error: out of memory)/;
 
@@ -69,7 +83,7 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
             {(printed || !call) && <p className={LABEL}>{t("Output")}</p>}
             {typeof test?.stdin === 'string' && (
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                    {t("Input")}: <span className="font-mono">{inputLine(test.stdin) || t("(empty)")}</span>
+                    {t("Input")}: <span className="font-mono">{typedText(test.stdin) ? <TypedLine input={test.stdin} /> : t("(empty)")}</span>
                 </p>
             )}
             {printed && (
@@ -142,23 +156,24 @@ function Shown({ text, over, kind, parts, tone }: {
 function InputShown({ kind, input }: { kind: 'call' | 'stdin'; input: string }) {
     const { t } = useTranslation();
     if (kind === 'call') return <>{input}</>;
-    const line = inputLine(input);
     // The eye has the column's heading; a screen reader hears the word.
     return (
         <>
-            <span className="sr-only">{t("Input")} </span>
-            {line || <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("(empty)")}</span>}
+            <span className="sr-only">{t("Input")}: </span>
+            {typedText(input)
+                ? <TypedLine input={input} />
+                : <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("(empty)")}</span>}
         </>
     );
 }
 
 // One grid for the whole list and every row a subgrid of it, so a column is as
-// wide as its widest cell in any row: the marks, the inputs (never more than
+// wide as its widest cell in any row: the icons, the inputs (never more than
 // half the list, past which an input wraps), the arrows, the results. A failed
 // row's second line puts "Expected" under the input and the arrow, so the
 // expected value starts exactly under the one that came back. The list is
 // pulled out by the rows' own side padding, so a failed row's tint has room
-// around its text and the marks stand on the same edge as the count above.
+// around its text and the icons stand on the same edge as the count above.
 const LIST = 'mt-1 -mx-2 grid gap-x-3';
 const LIST_COLUMNS = { gridTemplateColumns: 'auto fit-content(50%) auto minmax(0, 1fr)' };
 const ROW = 'col-span-4 grid grid-cols-subgrid items-baseline rounded-md px-2 py-1';
@@ -194,21 +209,20 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
             </section>
         );
     }
-    // A list is all calls or all typed input (`normalizeCodeTests` refuses a
-    // mix). A call says what it is; typed lines need their columns named.
-    const typed = rows[0].kind === 'stdin';
+    // Both kinds of list (calls, typed input) are headed the same way, so the
+    // value after the arrow is named as the learner's own on every card, as a
+    // failed row's second line names the expected one.
     return (
         <section className={SECTION} aria-label={t("Tests")}>
             <p className="text-sm font-medium text-slate-700 dark:text-slate-200 tabular-nums">{count}</p>
             <div className={LIST} style={LIST_COLUMNS}>
-                {typed && (
-                    <div aria-hidden="true" className={cx(ROW, 'pb-0 text-xs text-slate-500 dark:text-slate-400')}>
-                        <span className="col-start-2">{t("Input")}</span>
-                        <span className="col-start-4">{t("Output")}</span>
-                    </div>
-                )}
-                {/* A hair between rows, so two failed rows read as two bands. */}
-                <ul className={cx('col-span-4 grid grid-cols-subgrid gap-y-0.5', MONO)}>
+                <div aria-hidden="true" className={cx(ROW, 'pb-0 text-xs text-slate-500 dark:text-slate-400')}>
+                    <span className="col-start-2">{t("Input")}</span>
+                    <span className="col-start-4">{t("Your result")}</span>
+                </div>
+                {/* A hair between rows, so two failed rows read as two bands.
+                    `role` because a list drawn as a grid loses it in Safari. */}
+                <ul role="list" className={cx('col-span-4 grid grid-cols-subgrid gap-y-0.5', MONO)}>
                     {rows.map((row, i) => {
                         const diff = row.pass || row.over ? null : diffChars(row.expected, row.actual);
                         return (
@@ -222,7 +236,7 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
                                 <span className={CELL}><InputShown kind={row.kind} input={row.input} /></span>
                                 <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
                                 <div className={cx(CELL, !row.pass && 'text-red-700 dark:text-red-300')}>
-                                    {!row.pass && <span className="sr-only">{t("Got")} </span>}
+                                    <span className="sr-only">{t("Your result")}: </span>
                                     <Shown text={row.actual} over={row.over} kind={row.kind} parts={diff?.actual} tone="got" />
                                 </div>
                                 {!row.pass && (

@@ -82,9 +82,10 @@ writeFileSync(storeStub, 'export const useStore = { getState: () => ({ codeRunne
 // `contents`: a module written here instead of a file, resolved from the repo
 // root, so a component and the React that renders it are one bundle (one
 // React: a second copy breaks every hook).
-async function bundleClient(entry, contents) {
+async function bundleClient(entry, contents, options = {}) {
     const outfile = join(scratch, entry.replace(/[\\/]/g, '_').replace(/\.tsx?$/, '.mjs'));
     await esbuild.build({
+        ...options,
         ...(contents
             ? { stdin: { contents, resolveDir: repoRoot, loader: 'ts', sourcefile: entry } }
             : { entryPoints: [join(repoRoot, entry)] }),
@@ -1148,11 +1149,13 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 // ---------------------------------------------------------------------------
 section('a failed test marks where its result differs from the expected one');
 // "Hello Ada" against "Hello, Ada!" differs by a comma and a "!", which a
-// learner had to find letter by letter; the review now marks them. A mark is
-// only worth drawing when most of the text agrees: "3" against "6" marked
-// whole says nothing the colour of the row did not.
+// learner had to find letter by letter; the review now marks them. A place is
+// only pointed at when most of the text agrees; otherwise a short value is
+// marked whole ("3" against "6", so every failed row carries the same cue:
+// three readers saw one card marked and the next not) and a long one not at all.
 {
-    const { diffChars } = await import(pathToFileURL(await bundleClient('src/components/answer/charDiff.ts')).href);
+    const charDiffFile = await bundleClient('src/components/answer/charDiff.ts');
+    const { diffChars } = await import(pathToFileURL(charDiffFile).href);
     const marked = (parts) => parts.filter(p => p.mark).map(p => p.text).join('');
     const whole = (parts) => parts.map(p => p.text).join('');
     const hello = diffChars('Hello, Ada!', 'Hello Ada');
@@ -1165,13 +1168,22 @@ section('a failed test marks where its result differs from the expected one');
     const extra = diffChars('6', '6.0');
     check('6 against 6.0 marks only the ".0" the learner added', extra && marked(extra.expected) === '' && marked(extra.actual) === '.0',
         JSON.stringify(extra));
-    check('nothing in common marks nothing (3 against 6)', diffChars('6', '3') === null);
+    const isWhole = (d, e, a) => d && d.expected.length === 1 && d.expected[0].mark && d.expected[0].text === e
+        && d.actual.length === 1 && d.actual[0].mark && d.actual[0].text === a;
+    check('a short value with nothing in common is marked whole on both sides (3 against 6)',
+        isWhole(diffChars('6', '3'), '6', '3'), JSON.stringify(diffChars('6', '3')));
     check('two equal strings mark nothing', diffChars('same', 'same') === null);
     check('an empty side marks nothing', diffChars('', 'x') === null && diffChars('x', '') === null);
     // Measured against BOTH texts: a short expected value found scattered
     // through a long wrong output is a coincidence, not a near miss.
-    check('little in common marks nothing (abcdef against axyzw)', diffChars('abcdef', 'axyzw') === null);
-    check('a short expected value inside a long error marks nothing',
+    const runs = (parts) => parts.map(p => (p.mark ? `[${p.text}]` : p.text)).join('');
+    const scattered = diffChars('Hello world', 'Goodbye all');
+    check('short values with little in common are marked as one run, never letter by letter (Hello world against Goodbye all)',
+        scattered && runs(scattered.expected) === '[Hello world]' && runs(scattered.actual) === '[Goodbye all]', JSON.stringify(scattered));
+    const sevenOrThirtyFour = diffChars('7\n', '34\n');
+    check('...between the start and end the two share (the closing line break stays unmarked)',
+        sevenOrThirtyFour && runs(sevenOrThirtyFour.expected) === '[7]\n' && runs(sevenOrThirtyFour.actual) === '[34]\n', JSON.stringify(sevenOrThirtyFour));
+    check('a short expected value inside a long error marks nothing (a whole underlined error is noise)',
         diffChars('ok', "KeyError: 'token' was not found in the lookup table") === null);
     const long = 'x'.repeat(600);
     const tailOnly = diffChars(long, long + 'y');
@@ -1179,8 +1191,24 @@ section('a failed test marks where its result differs from the expected one');
         tailOnly && marked(tailOnly.actual) === 'y' && marked(tailOnly.expected) === '', JSON.stringify(tailOnly?.actual.map(p => p.text.length)));
     const wide = Array.from({ length: 700 }, (_, i) => String.fromCharCode(97 + (i * 7) % 26)).join('');
     const other = Array.from({ length: 700 }, (_, i) => String.fromCharCode(97 + (i * 11) % 26)).join('');
-    check('two long texts that differ throughout are left unmarked (too costly to compare on a render)',
+    check('two long texts with little in common are left unmarked, never underlined whole',
         diffChars('<' + wide + '>', '<' + other + '>') === null);
+    // Half in common, so only the size of the table stops this one: 699 × 699
+    // cells between the shared start and end, past the cap.
+    check('two long texts that agree in half their characters but differ all through are not compared (too costly on a render)',
+        diffChars('xa'.repeat(350), 'xb'.repeat(350)) === null);
+    // A runtime without Intl.Segmenter splits by code point: an emoji is still
+    // never cut in half. A fresh copy of the module, which reads it once.
+    const savedSegmenter = Intl.Segmenter;
+    let plain;
+    try {
+        delete Intl.Segmenter;
+        plain = (await import(`${pathToFileURL(charDiffFile).href}?no-segmenter`)).diffChars('a😀b', 'a😃b');
+    } finally {
+        Intl.Segmenter = savedSegmenter;
+    }
+    check('without Intl.Segmenter a character outside the basic plane is still marked whole',
+        plain && marked(plain.expected) === '😀' && marked(plain.actual) === '😃', JSON.stringify(plain));
     const emoji = diffChars('a😀b', 'a😃b');
     check('a character outside the basic plane is marked whole, never half a surrogate pair',
         emoji && marked(emoji.expected) === '😀' && marked(emoji.actual) === '😃', JSON.stringify(emoji));
@@ -1188,7 +1216,7 @@ section('a failed test marks where its result differs from the expected one');
     check('a joined emoji is marked as one character, never cut at its joiners',
         family && marked(family.expected) === '👨‍👩‍👧' && marked(family.actual) === '👨‍👩‍👦', JSON.stringify(family));
     const pairs = [['Hello, Ada!', 'Hello Ada'], ['line one\nline two', 'line one\nline 2'], ['[1, 2, 3]', '[1, 2]'],
-        ['a😀b', 'a😃b'], ['6', '6.0'], [long, long + 'y'], ['Hello, !\n', 'Hello \n']];
+        ['a😀b', 'a😃b'], ['6', '6.0'], [long, long + 'y'], ['Hello, !\n', 'Hello \n'], ['6', '3'], ['True', 'False']];
     const diffs = pairs.map(([e, a]) => [e, a, diffChars(e, a)]);
     check('every one of these pairs is marked', diffs.every(([, , d]) => d), diffs.filter(([, , d]) => !d).map(([e]) => e.slice(0, 12)).join(', '));
     check('the parts put back together are exactly the two texts',
@@ -1211,8 +1239,9 @@ section('the test list after Check, and the output after Run, as rendered');
         "export { renderToStaticMarkup } from 'react-dom/server.browser';",
         // English, as the app's keys are: text reads as the learner sees it.
         "import i18n from 'i18next'; import { initReactI18next } from 'react-i18next';",
-        "i18n.use(initReactI18next).init({ lng: 'en', resources: {}, initAsync: false, initImmediate: false, interpolation: { escapeValue: false } });",
-    ].join('\n'))).href);
+        // The app's own options (src/i18n/index.ts): a key is the whole English text.
+        "i18n.use(initReactI18next).init({ lng: 'en', resources: {}, initAsync: false, initImmediate: false, keySeparator: false, nsSeparator: false, interpolation: { escapeValue: false } });",
+    ].join('\n'), { define: { 'process.env.NODE_ENV': '"production"' } })).href);
     const html = (component, props) => panel.renderToStaticMarkup(panel.createElement(component, props));
     const rows = (tests) => html(panel.TestRows, { run: { status: 'done', tests }, language: 'python' });
     const count = (s, re) => (s.match(re) || []).length;
@@ -1224,15 +1253,33 @@ section('the test list after Check, and the output after Run, as rendered');
     const oneFails = rows([call('double(3)', '6', '6'), call('double(-4)', '-8', '-4'), call('double(2)', '4', '4')]);
     check('one failed: a line per test, in order', count(oneFails, /<li/g) === 3 && oneFails.indexOf('double(3)') < oneFails.indexOf('double(-4)'));
     check('only the failed test says what was expected', count(oneFails, />Expected</g) === 1);
-    check('the differing characters are marked on both sides, underlined as well as filled',
-        count(oneFails, /<mark class="[^"]*underline[^"]*">/g) === 2 && /<mark[^>]*>4<\/mark>/.test(oneFails) && /<mark[^>]*>8<\/mark>/.test(oneFails), oneFails);
-    check('the learner\'s value is named for a screen reader, the arrow is not read', /sr-only">Got /.test(oneFails) && /aria-hidden="true">→/.test(oneFails));
+    const marks = oneFails.match(/<mark class="[^"]*"/g) ?? [];
+    check('the differing characters are marked on both sides, underlined (2px) as well as filled',
+        marks.length === 2 && marks.every(m => /\bunderline\b/.test(m) && /\bdecoration-2\b/.test(m) && /\bbg-\w+-100\b/.test(m))
+        && /<mark[^>]*>4<\/mark>/.test(oneFails) && /<mark[^>]*>8<\/mark>/.test(oneFails), oneFails);
+    check('every row names the learner\'s value for a screen reader, and no arrow is read',
+        count(oneFails, /sr-only">Your result: /g) === 3 && count(oneFails, /aria-hidden="true">→/g) === 3 && count(oneFails, /→/g) === 3, oneFails);
+    check('the columns are headed once, for the eye only: Input, and the learner\'s own result',
+        count(oneFails, /<div aria-hidden="true"[^>]*><span class="col-start-2">Input<\/span><span class="col-start-4">Your result<\/span><\/div>/g) === 1, oneFails.slice(0, 600));
+    // The alignment rests on these: every row a subgrid of the list's four
+    // columns, and "Expected" under the input and the arrow, so the expected
+    // value lands in the column of the one that came back.
+    check('a row is a subgrid of the list, and "Expected" spans the input and arrow columns',
+        count(oneFails, /<li class="col-span-4 grid grid-cols-subgrid /g) === 3
+        && /<span class="col-start-2 col-span-2 [^"]*">Expected<\/span>/.test(oneFails)
+        && /<ul role="list" class="col-span-4 grid grid-cols-subgrid /.test(oneFails), oneFails);
+    const js = rows([call('sum([1, 2, 3])', '6', '3'), call('sum([])', '0', '0')]);
+    check('a short wrong value with nothing in common is underlined whole, like any other', /<mark[^>]*>3<\/mark>/.test(js) && /<mark[^>]*>6<\/mark>/.test(js), js);
 
     const stdin = (input, expected, actual) => ({ kind: 'stdin', input, expected, actual, pass: expected === actual });
     const typed = rows([stdin('Ada\n', 'Hello, Ada!\n', 'Hello Ada\n'), stdin('', 'Hello, !\n', 'Hello \n'), stdin('Bo\n', 'Hello, Bo!\n', 'Hello, Bo!\n')]);
-    check('typed input: the columns are headed once, for the eye only', /<div aria-hidden="true"[^>]*><span class="col-start-2">Input<\/span>/.test(typed), typed.slice(0, 600));
-    check('typed input: each row names its input for a screen reader', count(typed, /sr-only">Input /g) === 3);
+    check('typed input: headed the same way as calls', count(typed, /<div aria-hidden="true"[^>]*><span class="col-start-2">Input<\/span><span class="col-start-4">Your result<\/span><\/div>/g) === 1, typed.slice(0, 600));
+    check('typed input: each row names its input for a screen reader', count(typed, /sr-only">Input: /g) === 3);
     check('an empty input reads "(empty)"', typed.includes('(empty)'));
+    const twoLines = rows([stdin('3\n4\n', '7\n', '34\n'), stdin('1\n1\n', '2\n', '2\n')]);
+    check('a typed input of two lines draws ↵ between them, hidden from screen readers and copying, which hear a pause',
+        count(twoLines, /<span aria-hidden="true" class="select-none"> ↵ <\/span><span class="sr-only">, <\/span>/g) === 2
+        && count(twoLines, /↵/g) === 2, twoLines);
 
     const lines = rows([stdin('2\n', 'one\ntwo\n', 'one\n'), stdin('1\n', 'one\n', 'one\n'), stdin('0\n', '\n', '\n')]);
     check('a missing line break is drawn as ↵ inside the mark, hidden from screen readers and copying',
