@@ -58,20 +58,28 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
     const rootPx = useRootFontSize();
     const [widestPx, setWidestPx] = useState(0);
     const optionsKey = options.join('\u0000');
+    const hasWidth = groupPx > 0;
     useLayoutEffect(() => {
         if (pair) return;
         const measure = () => {
             const spans = measureRef.current?.querySelectorAll<HTMLElement>('[data-measure]') ?? [];
             let widest = 0;
-            spans.forEach(s => { widest = Math.max(widest, s.getBoundingClientRect().width); });
-            setWidestPx(Math.ceil(widest));
+            // offsetWidth is the layout width: an ancestor's scale() opening
+            // animation shrinks getBoundingClientRect, not this. +1 for rounding.
+            spans.forEach(s => { widest = Math.max(widest, s.offsetWidth + 1); });
+            setWidestPx(widest > 1 ? widest : 0);
         };
         measure();
-        // KaTeX's fonts can land after the first paint and change every width.
+        // KaTeX's fonts can land after the first paint and change every width;
+        // they may not even be requested yet, so `ready` alone can be too early.
         let live = true;
-        document.fonts?.ready.then(() => { if (live) measure(); });
-        return () => { live = false; };
-    }, [pair, optionsKey, rootPx]);
+        const fonts = document.fonts;
+        const again = () => { if (live) measure(); };
+        fonts?.ready.then(again);
+        fonts?.addEventListener?.('loadingdone', again);
+        return () => { live = false; fonts?.removeEventListener?.('loadingdone', again); };
+        // hasWidth: a group mounted hidden (no width yet) measures again once shown.
+    }, [pair, optionsKey, rootPx, hasWidth]);
 
     /**
      * Measured: `choiceColumns`. Not yet measured (the first frame, jsdom):
@@ -156,8 +164,8 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
                                 colour: a tick on the key, a cross on a wrong pick. */}
                             {isKey && <Check className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />}
                             {isMiss && <X className="w-4 h-4 shrink-0 text-red-700 dark:text-red-400" aria-hidden="true" />}
-                            {isKey && <span className="sr-only">{t("Correct answer:")}</span>}
-                            {isMiss && <span className="sr-only">{t("Your answer:")}</span>}
+                            {isKey && <span className="sr-only">{t("Correct answer:")}{' '}</span>}
+                            {isMiss && <span className="sr-only">{t("Wrong")}. {t("Your answer:")}{' '}</span>}
                             {/* The label is translated, the OPTION is not: `option` is
                                 the value that reaches onChange and is compared against
                                 correct_answer, so translating it would grade a Russian

@@ -28,7 +28,7 @@
 //      key's order, grades the same on both sides, and — like every format —
 //      survives a course's export and import with its key intact.
 
-import { mkdtempSync, rmSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createRequire } from 'node:module';
@@ -1146,7 +1146,13 @@ section('assemble: a half-built answer still reads as the sentence it builds');
         ['four short numbers on a laptop: one row', 4, 45, 632, 4],
         ['four short numbers on a phone: two by two, not four 80px tiles', 4, 45, 350, 2],
         ['four short numbers at 320px: two by two', 4, 45, 280, 2],
-        ['answers that would fill a quarter tile edge to edge (100 of 116px): two to a row', 4, 100, 632, 2],
+        ['answers that would fill a quarter tile almost edge to edge (80 of 92px): two to a row', 4, 80, 632, 2],
+        ['exactly 9rem tiles still make one row', 4, 45, 4 * 144 + 3 * 8, 4],
+        ['a pixel under 9rem tiles: two by two', 4, 45, 4 * 144 + 3 * 8 - 1, 2],
+        ['a 120px answer on a phone: stacked, since the tick added when graded would wrap it', 4, 120, 350, 1],
+        ['at the largest text size (160%) padding and gaps grow too: a 100px answer stacks on a phone', 4, 100, 350, 1, 25.6],
+        ['one option, or none: one per row', 1, 20, 632, 1],
+        ['a group narrower than a tile\'s own padding: one per row', 4, 10, 40, 1],
         ['four formulas on a laptop: two to a row', 4, 150, 632, 2],
         ['four formulas on a phone: one per row (they do not fit a half tile)', 4, 150, 350, 1],
         ['four sentences anywhere: one per row', 4, 520, 632, 1],
@@ -1160,12 +1166,118 @@ section('assemble: a half-built answer still reads as the sentence it builds');
         const got = choiceColumns(count, widest, group, root);
         check(`choice layout — ${name}`, got === want, `got ${got} columns, want ${want}`);
     }
-    // ChoiceInput uses it, and a graded tile says its verdict in shape too.
-    const src = readFileSync(new URL('../src/components/answer/ChoiceInput.tsx', import.meta.url), 'utf8');
-    check('ChoiceInput lays its tiles out with choiceColumns', /choiceColumns\(/.test(src));
-    check('a graded key carries a tick and a wrong pick a cross, not only a colour', /<Check\b/.test(src) && /<X\b/.test(src));
     const placement = readFileSync(new URL('../src/components/PlacementModal.tsx', import.meta.url), 'utf8');
     check('the placement dialog draws its options with ChoiceInput, not a copy', /<ChoiceInput\b/.test(placement) && !/question\.options\?\.map/.test(placement));
+    // Its rule: a miss is "we'll cover this one", never a red verdict on the pick.
+    check('the placement dialog marks only the key, never the learner\'s pick',
+        /result=\{verdict \? \{ correct: verdict\.correct, answer: '' \} : null\}/.test(placement));
+}
+
+// The real ChoiceInput, mounted with React in jsdom. jsdom lays nothing out, so
+// the widths it would measure are stubbed: the group's `clientWidth` and each
+// hidden option copy's `offsetWidth` (8px a character). MathText is stubbed to
+// plain text: KaTeX is not the subject. `--choice <file>` runs another copy.
+section('ChoiceInput lays out from measured widths');
+{
+    const { JSDOM } = require('jsdom');
+    const choiceAt = process.argv.indexOf('--choice');
+    const choicePath = choiceAt !== -1 ? join(process.cwd(), process.argv[choiceAt + 1]) : join(repoRoot, 'src/components/answer/ChoiceInput.tsx');
+    const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+    for (const k of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'Text', 'MutationObserver', 'Event']) {
+        try { globalThis[k] = dom.window[k]; } catch { /* read-only in this Node */ }
+    }
+    globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const box = { group: 632, char: 8, hidden: false };
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'clientWidth', {
+        configurable: true, get() { return this.getAttribute('role') === 'group' && !box.hidden ? box.group : 0; },
+    });
+    Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetWidth', {
+        configurable: true, get() { return this.hasAttribute('data-measure') && !box.hidden ? this.textContent.length * box.char : 0; },
+    });
+    mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true });
+    const outDir = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'choice-input-'));
+    const out = join(outDir, 'choice.cjs');
+    await esbuild.build({
+        stdin: {
+            contents: `import React, { createElement as h } from 'react';
+                import { createRoot } from 'react-dom/client';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import ChoiceInput from 'CHOICE';
+                export async function boot() { await i18n.use(initReactI18next).init({ lng: 'en', resources: {}, returnEmptyString: false }); }
+                export function mount(el, props) {
+                    const r = createRoot(el);
+                    React.act(() => r.render(h(ChoiceInput, { value: '', onChange() {}, ...props })));
+                    return { update: (p) => React.act(() => r.render(h(ChoiceInput, { value: '', onChange() {}, ...p }))), unmount: () => React.act(() => r.unmount()) };
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repoRoot, loader: 'js',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: out, jsx: 'automatic', logLevel: 'silent',
+        loader: { '.css': 'empty' },
+        plugins: [{
+            name: 'choice-under-test',
+            setup(b) {
+                b.onResolve({ filter: /^CHOICE$/ }, () => ({ path: choicePath, namespace: 'choice' }));
+                b.onLoad({ filter: /.*/, namespace: 'choice' }, (a) => ({ contents: readFileSync(a.path, 'utf8'), loader: 'tsx', resolveDir: join(repoRoot, 'src/components/answer') }));
+                b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub-math' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-math' }, () => ({ contents: "import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }", loader: 'js', resolveDir: repoRoot }));
+            },
+        }],
+    });
+    const { boot, mount } = createRequire(import.meta.url)(out);
+    await boot();
+    const doc = dom.window.document;
+    const SHORT = ['120', '−120', '24', '−24'];
+    const LONG = ['Because each matched derivative fixes one more term', 'Because polynomials always equal the function', 'Because the error term is zero', 'Because derivatives ignore the point'];
+    const q = (options, key = '') => ({ type: 'multiple_choice', question: 'Q', options, correct_answer: key, explanation: '' });
+    const columnsOf = (opts, group, extra = {}) => {
+        box.group = group; box.hidden = false;
+        const el = doc.createElement('div'); doc.body.appendChild(el);
+        const m = mount(el, { question: q(opts, extra.key), result: extra.result ?? null });
+        const g = el.querySelector('[role="group"]');
+        const res = { columns: g?.getAttribute('data-columns'), el };
+        m.unmount(); el.remove();
+        return res;
+    };
+    check('four short answers in a 632px group: one row of four', columnsOf(SHORT, 632).columns === '4', columnsOf(SHORT, 632).columns);
+    check('the same four in a 350px group: two by two', columnsOf(SHORT, 350).columns === '2', columnsOf(SHORT, 350).columns);
+    check('four sentences: one per row', columnsOf(LONG, 632).columns === '1', columnsOf(LONG, 632).columns);
+
+    // Graded: a tick on the key, a cross on the wrong pick, nothing on the rest,
+    // and words for a screen reader.
+    {
+        box.group = 632; box.hidden = false;
+        const el = doc.createElement('div'); doc.body.appendChild(el);
+        const m = mount(el, { question: q(SHORT, '24'), result: { correct: false, answer: '−24' } });
+        const tiles = [...el.querySelectorAll('[data-answer-option]')];
+        const marks = tiles.map(t => t.querySelectorAll('svg').length);
+        check('graded: one mark on the key, one on the wrong pick, none elsewhere', JSON.stringify(marks) === '[0,0,1,1]', JSON.stringify(marks));
+        check('graded: the key and the wrong pick say so in words', /Correct answer:/.test(tiles[2].textContent) && /Wrong\. Your answer:/.test(tiles[3].textContent),
+            JSON.stringify(tiles.map(t => t.textContent)));
+        m.update({ question: q(SHORT, '24'), result: { correct: false, answer: '' } });
+        const quiet = [...el.querySelectorAll('[data-answer-option]')].map(t => t.querySelectorAll('svg').length);
+        check('graded with no pick passed (placement): only the key is marked', JSON.stringify(quiet) === '[0,0,1,0]', JSON.stringify(quiet));
+        m.unmount(); el.remove();
+    }
+
+    // Mounted with no width (a hidden panel), then shown: it measures again.
+    {
+        box.hidden = true; box.group = 632;
+        const el = doc.createElement('div'); doc.body.appendChild(el);
+        const m = mount(el, { question: q(SHORT) });
+        const before = el.querySelector('[role="group"]').getAttribute('data-columns');
+        box.hidden = false;
+        m.update({ question: q(SHORT) });
+        await new Promise(r => setTimeout(r, 0));
+        const { act } = createRequire(import.meta.url)(out);
+        act(() => dom.window.dispatchEvent(new dom.window.Event('resize')));
+        const after = el.querySelector('[role="group"]').getAttribute('data-columns');
+        check('mounted hidden, then shown: measured again and laid out', before !== '4' && after === '4', `before ${before}, after ${after}`);
+        m.unmount(); el.remove();
+    }
+    try { rmSync(outDir, { recursive: true, force: true }); } catch { /* swept later */ }
 }
 
 // ---------------------------------------------------------------------------

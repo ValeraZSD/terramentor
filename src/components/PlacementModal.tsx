@@ -167,6 +167,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setVerdict({ correct: res.correct, explanation: res.explanation, correctAnswer: res.correctAnswer });
             setProbe(res.probe);
         } catch (err: any) {
+            setPicked('');
             setError(err.message || 'That answer could not be recorded.');
         } finally {
             setBusy(false);
@@ -343,7 +344,9 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                     onChange={setPicked}
                                     onCommit={opt => void submit(opt)}
                                     disabled={locked}
-                                    result={verdict ? { correct: verdict.correct, answer: picked } : null}
+                                    // Only the key is marked: a miss here is "we'll cover
+                                    // this", never a red verdict on the learner's pick.
+                                    result={verdict ? { correct: verdict.correct, answer: '' } : null}
                                 />
                             ) : (
                                 <div className="space-y-2">
