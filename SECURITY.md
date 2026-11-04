@@ -374,6 +374,27 @@ your data at all." Those are different claims and we only make the second one.
   listener: a navigation stopped in Edge, Firefox and WebKit; a WebRTC packet, sent directly,
   from a frame the code wrote, or from a document the frame navigated to, stopped in Edge
   (Firefox headless sent no packet even outside a sandbox, and the WebKit tested has no WebRTC).
+- **Code answers run on your device, sandboxed, and cannot send anything out.** A Python or
+  JavaScript answer is run in the browser (`src/runner/`), never on the server: Pyodide for
+  Python, QuickJS-ng (compiled to WebAssembly) for JavaScript, both part of the app's own build
+  and served by it, never fetched from elsewhere. The page opens `/runner.html`
+  (`server/runnerFrame.js`) in `<iframe sandbox="allow-scripts">`, so its origin is opaque: no
+  cookie, storage or address in common with the app, and the API refuses its requests. Its
+  policy is `default-src 'none'; connect-src 'none'`, with script only from its one bootstrap
+  (by hash) and `blob:`; it needs `'unsafe-eval'` and `'wasm-unsafe-eval'` to start the two
+  runtimes, and those apply to that frame alone, never to the page. The code runs inside one
+  worker that the frame starts from bytes the page hands it, and a worker inherits the frame's
+  policy. Time is enforced from outside the code: the worker is terminated 5 seconds into a
+  phase, and the page removes the whole frame 2 seconds later if the frame stops answering,
+  because the interpreters' own interrupt hooks do not reliably stop a busy loop. Memory is the
+  runtime's own ceiling (256 MB for Python, 64 MB for JavaScript), output stops at 64 KB, and
+  the result is read as untrusted data and shown as text. A test's expected value is never taken
+  from the question: the reference solution is run on the same inputs, so a model's `expect`
+  that disagrees with its own reference grades nothing. Turning it off (Settings → Learning →
+  "Run code answers") sends code answers back to the model grader. Pinned by
+  `tools/code-runner-gates.mjs` in headless Edge, which goes red when the sandbox is weakened
+  (a network route reaches a local listener, the origin is not opaque, a loop outlives the
+  limit, a 600 MB allocation succeeds); measured running in Firefox and WebKit too.
 - **An upload is bounded in the aggregate, not only per file** (`server/uploadGuard.js`). A
   multipart body is judged on its `Content-Length` before any of it is read: over the route's
   cap it is refused, and a body that declares no length at all (a chunked upload) is refused
@@ -457,6 +478,18 @@ your data at all." Those are different claims and we only make the second one.
   deliberately readable so you can judge them for yourself, but a mastery estimate is built from
   model-generated assessment and inherits its errors. Both chat surfaces say so under their
   input, and every AI-written row records which model wrote it (`generated_by`).
+- **The code runner's limits.** Its walls are the browser's: a hole in the browser's sandbox or
+  WebAssembly engine is outside what an app can defend, the same exposure as opening any page.
+  Tests run on your own device, so code can be written to make its own tests pass, and a course
+  can ship tests too easy to catch much: a run-graded answer is as honest as the person at the
+  keyboard (already true before: the reference travels to the client for grading). A wrong
+  reference solution agrees with itself; the verifier model and "This is wrong" are the checks,
+  neither airtight. Python code can reach the worker's own JavaScript through Pyodide's bridge
+  (`import js`): every network route from there is refused, but memory allocated on that side is
+  not under the 256 MB ceiling, so such code can exhaust the tab's memory and close it, losing an
+  answer not yet sent; your library is on the server and is not touched. The same goes for a
+  phone with little memory under a large program. Timing side channels between the frame and
+  the page are left to the browser's own mitigations.
 
 ## The update check
 
