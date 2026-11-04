@@ -42,7 +42,10 @@ export default function CodeInput({ question, value, onChange, disabled, result,
     const shown = result ? result.answer : value;
     const runnable = runnerOn ? runnableLanguage(question.language) : null;
     const [running, setRunning] = useState<'starting' | 'running' | null>(null);
-    const [ran, setRan] = useState<RunResult | null>(null);
+    // A Run's result belongs to the code it ran: shown only while that code is
+    // what the editor holds, so neither an edit after it nor one made while it
+    // ran leaves output under code that did not produce it.
+    const [ran, setRan] = useState<{ code: string; outcome: RunResult } | null>(null);
     const warmed = useRef(false);
 
     // Writing Python starts the runtime in the background (a few seconds,
@@ -57,18 +60,19 @@ export default function CodeInput({ question, value, onChange, disabled, result,
 
     const run = async () => {
         if (!runnable || running || !value.trim()) return;
+        const code = value;
         setRunning('running');
         let outcome: RunResult;
         try {
             const { runCode } = await loadRunner();
-            outcome = await runCode(runnable, value, codeTestsOf(question.tests), (p) => {
+            outcome = await runCode(runnable, code, codeTestsOf(question.tests), (p) => {
                 if (p === 'starting') setRunning('starting');
                 else if (p === 'learner') setRunning('running');
             });
         } catch (err) {
             outcome = { status: 'unavailable', phase: 'load', error: String((err as Error)?.message ?? err) };
         }
-        setRan(outcome);
+        setRan({ code, outcome });
         setRunning(null);
     };
     const firstTest = codeTestsOf(question.tests)[0];
@@ -147,8 +151,8 @@ export default function CodeInput({ question, value, onChange, disabled, result,
                 <TestRows run={result.run} language={runnableLanguage(question.language)!} />
             ) : !result && runnable && running ? (
                 <RunPending starting={running === 'starting'} language={runnable} />
-            ) : !result && runnable && ran ? (
-                <RunOutput run={ran} test={firstTest} language={runnable} />
+            ) : !result && runnable && ran && ran.code === value ? (
+                <RunOutput run={ran.outcome} test={firstTest} language={runnable} />
             ) : null}
             {keyboard && !locked && (
                 <p className="px-3 py-1 border-t border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
