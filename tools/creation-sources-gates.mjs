@@ -375,8 +375,12 @@ ok('...and the rule that the phases follow and cover it', cats?.system.includes(
 ok('...and that both files count', cats?.system.includes('Every file counts') && cats.user.includes('final-exam.txt'));
 ok('the exam, with no contents, is shown as excerpts', cats?.user.includes('Excerpts of [2]') && cats.user.includes('germination temperature'));
 const els = r.bodies.filter(b => b.stage === 'elements');
-ok('each phase\'s topics prompt carries only its own parts', els.length === 2 && els[0].user.includes('1 Soil structure') && !els[0].user.includes('3 Picking')
-    && els[1].user.includes('3 Picking') && !els[1].user.includes('1 Soil structure'));
+// Inside the source block: outside it, a later phase's prompt also names the
+// sections the earlier phases already have (course-size-gates.mjs), and the
+// first one here is titled after its chapter.
+const blockOf = (b) => between(b?.user || '') || '';
+ok('each phase\'s topics prompt carries only its own parts', els.length === 2 && blockOf(els[0]).includes('1 Soil structure') && !blockOf(els[0]).includes('3 Picking')
+    && blockOf(els[1]).includes('3 Picking') && !blockOf(els[1]).includes('1 Soil structure'));
 const batch = r.bodies.find(b => b.stage === 'sub_batch' && b.user.includes('Topic "1 Soil structure"'));
 ok('the sub-topics prompt carries each topic\'s sub-sections', batch?.user.includes('1.1 Clay and sand') && batch.user.includes('1.2 Compost'), batch?.user.slice(-800));
 

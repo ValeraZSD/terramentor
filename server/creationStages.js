@@ -18,6 +18,7 @@ import { parseCreationJson } from './agentic.js';
 import { learnerError } from './clientError.js';
 import { structureCall } from './creationCalls.js';
 import { BATCH_MAX, BATCH_MIN } from './creationEta.js';
+import { COURSE_SIZES, DEFAULT_COURSE_SIZE, keepNew, readCourseSize, titleKey } from './courseSize.js';
 import { findResourcesForSubElement, planSectionQueries } from './resourceSearch.js';
 import { buildSourceMap } from './sourceMap.js';
 import {
@@ -88,7 +89,53 @@ function validateCategories(data) {
     // The parts the model judged front or back matter (sourceMaterial.js
     // planBlock), riding on the list so generateStructure hands it back.
     out.skip = Array.isArray(data) ? null : (data.skip ?? null);
+    // How big the plan judged the course (server/courseSize.js).
+    out.size = Array.isArray(data) ? null : (data.size ?? null);
     return out;
+}
+
+// ---- the size and what is already written -----------------------------------------
+
+/** The ranges this run's course keeps to (server/courseSize.js). */
+const shapeOf = (ctx) => COURSE_SIZES[ctx.size] || COURSE_SIZES[DEFAULT_COURSE_SIZE];
+
+/**
+ * What the run has written so far, for the calls that must not write it again:
+ * each phase's section titles (by phase index) and the keys of every section
+ * and topic title.
+ */
+function soFar(ctx) {
+    ctx.outlineSoFar ??= { phases: [], sections: new Set(), topics: new Set() };
+    return ctx.outlineSoFar;
+}
+
+/** The sections of the phases before `catIdx`, in order, as the prompts list them. */
+function earlierSections(ctx, catIdx) {
+    return soFar(ctx).phases
+        .filter(p => p.index < catIdx)
+        .sort((a, b) => a.index - b.index)
+        .map(p => ({ phase: p.phase, sections: p.sections }));
+}
+
+/**
+ * Tell the run about parts of the outline it did not write itself: a continued
+ * creation's phases that already have sections, and their topics. The prompts
+ * of the phases after them list those sections, and a new section or topic
+ * with one of their titles is a repeat.
+ */
+export function rememberWritten(ctx, catIdx, category, sections, topicsOf = () => []) {
+    const memory = soFar(ctx);
+    if (sections.length && !memory.phases.some(p => p.index === catIdx)) {
+        memory.phases.push({ index: catIdx, phase: category.title, sections: sections.map(s => s.title) });
+    }
+    for (const s of sections) {
+        const k = titleKey(s.title);
+        if (k) memory.sections.add(k);
+        for (const t of topicsOf(s)) {
+            const tk = titleKey(t.title);
+            if (tk) memory.topics.add(tk);
+        }
+    }
 }
 
 function validateElements(data) {
@@ -340,7 +387,7 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
     });
     ctx.startCall('phases');
     const answered = {};
-    const categories = await generateStructure(
+    let categories = await generateStructure(
         AI_PROMPTS.generate_categories(ctx.name, ctx.description || 'No description provided', thinkingText.substring(0, 2000), ctx.projectSummary, { lang: ctx.lang, sources: planBlock(src) }),
         validateCategories,
         { signal: ctx.signal, minItems: 1, label: 'Phases', answered }
@@ -355,8 +402,15 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
     // The phases and every link of the run carry the model that planned them;
     // sections and topics are stamped by the call that wrote each.
     ctx.provenance = aiProvenance({ job: 'courses', answered });
+    // The size the plan judged holds for the whole run; a plan over its own
+    // range keeps its first phases (with files, coverTopLevel below places the
+    // parts the dropped ones claimed beside their neighbours).
+    ctx.size = readCourseSize(categories.size);
+    const skipped = categories.skip;
+    categories = keepNew(categories, new Set(), shapeOf(ctx).phases[1]);
+    ctx.plan = categories.map(c => ({ title: c.title }));
     if (hasSources(src)) {
-        const skip = sectionRefs(categories.skip, src).filter(id => src.byId.get(id).depth === 0);
+        const skip = sectionRefs(skipped, src).filter(id => src.byId.get(id).depth === 0);
         const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)), skip);
         categories.forEach((c, i) => { c.sections = claims[i]; });
         cleanSourceRefs(categories, src);
@@ -386,13 +440,21 @@ export async function writeSections(ctx, catIdx, category) {
 
     ctx.startCall('sections');
     const answered = {};
-    const elements = await generateStructure(
-        AI_PROMPTS.generate_elements(ctx.name, ctx.projectSummary, category.title, category.description, { lang: ctx.lang, sources: phaseBlock(src, category.sections) }),
+    const shape = shapeOf(ctx);
+    const answer = await generateStructure(
+        AI_PROMPTS.generate_elements(ctx.name, ctx.projectSummary, category.title, category.description, {
+            lang: ctx.lang, sources: phaseBlock(src, category.sections),
+            size: ctx.size, plan: ctx.plan, earlier: earlierSections(ctx, catIdx),
+        }),
         validateElements,
         { signal: ctx.signal, minItems: 1, label: 'Sections', answered }
     );
     ctx.endCall('sections');
-    if (elements.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: elements.lastAnswer });
+    if (answer.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: answer.lastAnswer });
+    // A section another phase already has is dropped, and the phase keeps at
+    // most its range's top; the rest of the run sees what was kept.
+    const elements = keepNew(answer, soFar(ctx).sections, shape.sections[1]);
+    rememberWritten(ctx, catIdx, category, elements);
     elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
     cleanSourceRefs(elements, src);
     ctx.tracker.sectionsPlanned(catIdx, elements.length);
@@ -446,7 +508,7 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         const batchPrompt = AI_PROMPTS.generate_sub_elements_batch(
             ctx.name, ctx.projectSummary, ctx.description || '',
             category.title, category.description, elements,
-            { lang: ctx.lang, sources: topicsBlock(src, elements) }
+            { lang: ctx.lang, sources: topicsBlock(src, elements), size: ctx.size, earlier: earlierSections(ctx, catIdx) }
         );
         ctx.startCall('topics_batch');
         // A timeout is asked again before the per-topic fallback: one call
@@ -456,8 +518,15 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         const raw = await structureCall(batchPrompt, { signal, label: 'Batched sub-elements', answered });
         ctx.endCall('topics_batch');
         batchedSubs = validateSubElementBatch(parseCreationJson(raw), elements);
-        // Each group carries who wrote it to `writeTopics`, which stamps it.
-        for (const subs of batchedSubs.values()) subs.answered = answered;
+        // Each group is cut to the size's range now, so the counts the run
+        // plans with are the ones it writes, and carries who wrote it to
+        // `writeTopics`, which stamps it.
+        const most = shapeOf(ctx).topics[1];
+        for (const [k, subs] of batchedSubs) {
+            const kept = subs.slice(0, most);
+            kept.answered = answered;
+            batchedSubs.set(k, kept);
+        }
     } catch (batchErr) {
         ctx.tracker.abandon();
         if (signal.aborted) throw batchErr;
@@ -508,13 +577,19 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
         ctx.startCall('topics');
         answered = {};
         subElements = await generateStructure(
-            AI_PROMPTS.generate_sub_elements(ctx.name, ctx.projectSummary, ctx.description || '', category.title, category.description, allElementTitles, element.title, element.description, { lang: ctx.lang, sources: topicsBlock(src, [element]) }),
+            AI_PROMPTS.generate_sub_elements(ctx.name, ctx.projectSummary, ctx.description || '', category.title, category.description, allElementTitles, element.title, element.description, {
+                lang: ctx.lang, sources: topicsBlock(src, [element]), size: ctx.size, earlier: earlierSections(ctx, catIdx),
+            }),
             validateSubElements,
             { signal: ctx.signal, minItems: 1, label: 'Sub-elements', answered }
         );
         ctx.endCall('topics');
         if (subElements.length === 0) ctx.gaps.push({ what: `topics for "${element.title}"`, lastAnswer: subElements.lastAnswer });
     }
+    // A topic the course already has is dropped, and a section keeps at most
+    // its range's top: the per-section prompt is told the range too, but a
+    // count in a prompt is a request, and this is the size held.
+    subElements = keepNew(subElements, soFar(ctx).topics, shapeOf(ctx).topics[1]);
     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
     cleanSourceRefs(subElements, src);
     ctx.tracker.topicsPlanned(catIdx, elIdx, subElements.length);
