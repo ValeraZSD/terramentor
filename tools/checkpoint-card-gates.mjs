@@ -112,6 +112,8 @@ if (CheckpointCard) {
 
     await act(() => r.render(h(CheckpointCard, { card: composed, done: false, onDone() { } })));
     await settle();
+    // A baseline, true before the fix as well: the card does not ask while
+    // nothing has changed, so the request after `done` below is the fix's.
     ok('before the check: the composed number, and no request yet', masteryShown(host) === '0' && asked.length === 0,
         `shown ${masteryShown(host)}%, ${asked.length} request(s)`);
 
@@ -120,6 +122,7 @@ if (CheckpointCard) {
     await settle();
     ok('done: the card asked the server for its numbers again', asked.includes(63), `${asked.length} request(s)`);
     ok('…and shows the estimate the check left (99%), not the composed 0%', masteryShown(host) === '99', `shown ${masteryShown(host)}%: ${host.textContent.slice(0, 160)}`);
+    // Context, true before the fix too: the screen the clip showed.
     ok('…beside "Topic completed"', host.textContent.includes('Topic completed'));
 
     await act(() => r.unmount());
