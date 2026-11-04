@@ -74,6 +74,11 @@ section('the two halves of the registry agree');
 const stub = join(scratch, 'stub.js');
 writeFileSync(stub, 'export const api = new Proxy({}, { get: () => () => { throw new Error("no network in a gate"); } });\n'
     + 'export const k = (s) => s;\nexport default {};\n');
+// grading.ts reads one switch from the store (is the code runner on); the
+// whole store would bring the app's start-up with it. The runner itself has
+// its own gate, `code-runner-gates.mjs`, in a real browser.
+const storeStub = join(scratch, 'store-stub.js');
+writeFileSync(storeStub, 'export const useStore = { getState: () => ({ codeRunner: false }) };\n');
 async function bundleClient(entry) {
     const outfile = join(scratch, entry.replace(/[\\/]/g, '_').replace(/\.tsx?$/, '.mjs'));
     await esbuild.build({
@@ -83,6 +88,7 @@ async function bundleClient(entry) {
             name: 'stub-runtime',
             setup(build) {
                 build.onResolve({ filter: /(^|\/)(api|i18n)$/ }, () => ({ path: stub }));
+                build.onResolve({ filter: /^\.\.\/store$/ }, () => ({ path: storeStub }));
             },
         }],
     });

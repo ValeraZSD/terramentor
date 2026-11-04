@@ -38,6 +38,50 @@ function shuffled(arr) {
     return out;
 }
 
+/**
+ * Caps for a code question's tests. Mirror: `codeTestsOf` in
+ * src/runner/languages.ts (and `MAX_TESTS` in src/runner/protocol.ts).
+ */
+export const CODE_TEST_LIMITS = Object.freeze({ maxTests: 12, fieldMax: 2000, totalMax: 16000 });
+
+/**
+ * A code question's tests, made honest: each one an INPUT for the browser's
+ * code runner (src/runner/), either a `call` (one expression, evaluated after
+ * the code has run) or a `stdin` (the program's input; what it prints is
+ * compared), never both, with an optional `expect`, what the author believed
+ * the reference produces. Expected results are never taken from here: the
+ * runner computes them by running the reference solution, and an `expect` that
+ * disagrees makes the tests unusable rather than the reference wrong. Anything
+ * else is dropped; at most `maxTests`, each field at most `fieldMax`
+ * characters, all of them together at most `totalMax`. A standard input and
+ * its printed output get their newlines back the way code does; a call is
+ * left as written, since a `\n` inside it is the language's own escape.
+ */
+export function normalizeCodeTests(raw) {
+    if (!Array.isArray(raw)) return [];
+    const { maxTests, fieldMax, totalMax } = CODE_TEST_LIMITS;
+    const out = [];
+    let total = 0;
+    for (const t of raw) {
+        if (out.length >= maxTests) break;
+        if (!t || typeof t !== 'object' || Array.isArray(t)) continue;
+        const call = typeof t.call === 'string' ? t.call.trim() : '';
+        const stdin = typeof t.stdin === 'string' ? decodeEscapedNewlines(t.stdin) : null;
+        if ((call && stdin !== null) || (!call && stdin === null)) continue;
+        let expect;
+        if (typeof t.expect === 'string') expect = stdin !== null ? decodeEscapedNewlines(t.expect) : t.expect.trim();
+        else if (typeof t.expect === 'number' || typeof t.expect === 'boolean') expect = String(t.expect);
+        const size = call.length + (stdin?.length ?? 0) + (expect?.length ?? 0);
+        if (call.length > fieldMax || (stdin?.length ?? 0) > fieldMax || (expect?.length ?? 0) > fieldMax) continue;
+        if (total + size > totalMax) break;
+        total += size;
+        const test = call ? { call } : { stdin };
+        if (expect !== undefined) test.expect = expect;
+        out.push(test);
+    }
+    return out;
+}
+
 /** Whitespace-insensitive equality — what a fallback comparison of two code samples can honestly claim. */
 export const sameCode = (a, b) => text(a).replace(/\s+/g, ' ') === text(b).replace(/\s+/g, ' ');
 
@@ -655,8 +699,8 @@ export const ANSWER_FORMATS = {
         guess: 0.02,
         grading: 'ai',
         authoring: {
-            shape: '{"question": "...", "type": "code", "language": "python", "starter": "def f(x):\\n    ...", "correct_answer": "<a complete reference solution>", "explanation": "..."}',
-            rule: 'A SMALL programming task the learner solves by writing code: name the function or program to write, its inputs, what it must return or print, and one example call with its result. It must be solvable in at most 15 lines. "language" is the language the material uses (lowercase, e.g. "python", "javascript", "sql"). "starter" is OPTIONAL scaffolding — a signature or a stub with the body left out — and must never contain the solution. "correct_answer" is a complete, correct reference solution in that language, and nothing else: no prose, no fences.',
+            shape: '{"question": "...", "type": "code", "language": "python", "starter": "def f(x):\\n    ...", "correct_answer": "<a complete reference solution>", "tests": [{"call": "f(2)", "expect": "4"}, {"call": "f(0)", "expect": "0"}, {"call": "f(-3)", "expect": "-6"}], "explanation": "..."}',
+            rule: 'A SMALL programming task the learner solves by writing code: name the function or program to write, its inputs, what it must return or print, and one example call with its result. It must be solvable in at most 15 lines. "language" is the language the material uses (lowercase, e.g. "python", "javascript", "sql"). "starter" is OPTIONAL scaffolding — a signature or a stub with the body left out — and must never contain the solution. "correct_answer" is a complete, correct reference solution in that language, and nothing else: no prose, no fences. "tests" lists 3-8 INPUTS the app runs both the reference solution and the learner\'s code on, all of one kind: for a function, {"call": "<one expression that calls it>", "expect": "<the value it returns, written as a literal of that language>"}; for a program that reads its input, {"stdin": "<the input lines>", "expect": "<exactly what it prints>"}. Include the task\'s own example and at least one edge case the task allows; never an input the task rules out, and never a test that depends on randomness, the clock or the order of a set.',
         },
         normalize(raw) {
             const language = text(raw.language).toLowerCase();
@@ -671,6 +715,8 @@ export const ANSWER_FORMATS = {
             const starter = typeof raw.starter === 'string' ? decodeEscapedNewlines(raw.starter).replace(/\s+$/, '') : '';
             // Scaffolding that IS the answer gives the question away.
             if (starter.trim() && !sameCode(starter, solution)) out.starter = starter;
+            const tests = normalizeCodeTests(raw.tests);
+            if (tests.length) out.tests = tests;
             return out;
         },
         grade: () => null,
