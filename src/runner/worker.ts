@@ -158,7 +158,8 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
             case 'number': return isNaN_(v) ? { $nan: 1 } : (v === Infinity ? { $inf: 1 } : (v === -Infinity ? { $inf: -1 } : v));
             case 'bigint': return { $big: String(v) };
             case 'string': case 'boolean': return v;
-            case 'symbol': return { $sym: String(v.description) };
+            // A symbol is equal only to itself: two made apart never compare equal.
+            case 'symbol': return { $opaque: 1 };
             case 'function': return { $opaque: 1 };
         }
         if (v === null) return null;
