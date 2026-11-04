@@ -104,7 +104,11 @@ export function readReplyObject(text, prepare = (s) => s, accept = () => true) {
     // fenced draft still wins.
     const candidates = [...s.matchAll(/```(?:json)?[ \t]*\r?\n?(\{[\s\S]*?\})\s*```/gi)]
         .map(m => ({ at: m.index + m[0].indexOf(m[1]), slice: m[1] }));
+    // A brace after an odd run of backslashes is TeX's `\{` (a set, `\{x: x > 0\}`),
+    // never an object: it is skipped, or its `x:` would read as a cut-off key.
+    const escaped = (i) => { let n = 0; while (i - n - 1 >= 0 && s[i - n - 1] === '\\') n++; return n % 2 === 1; };
     for (let i = s.indexOf('{'); i !== -1; i = s.indexOf('{', i + 1)) {
+        if (escaped(i)) continue;
         const end = findMatchingBracket(s, i, '{', '}');
         if (end !== -1) { candidates.push({ at: i, slice: s.slice(i, end + 1) }); i = end; continue; }
         if (OBJECT_OPENING.test(s.slice(i))) { candidates.push({ at: i, slice: s.slice(i) }); break; }

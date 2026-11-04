@@ -425,6 +425,8 @@ const fencedDraft = parseAnswerVerdict('```json\n{"correct": false, "explanation
 check('a fenced draft loses to a bare correction written after it', fencedDraft?.verdict === 'correct', JSON.stringify(fencedDraft));
 const openSet = parseObjectResponse('Take the set {x : x > 0, x real,\n```json\n{"verdict": "ok", "answer": "4"}\n```\nand nothing else}.', { key: 'verdict' });
 check('...and a brace opened before a fence and closed after it does not swallow the fence', openSet?.answer === '4', JSON.stringify(openSet));
+const texSet = parseObjectResponse(String.raw`The set is $\{x: x > 0\}$, so {"verdict": "ok", "answer": "4"}`, { key: 'verdict' });
+check('a TeX set ($\\{x: x > 0\\}$) before the verdict is not read as a cut-off object', texSet?.answer === '4', JSON.stringify(texSet));
 const bareKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {correct: true, explanation: "k = 4."}`);
 check('a verdict with bare keys after TeX working is read', bareKey?.verdict === 'correct', JSON.stringify(bareKey));
 const singleKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {'correct': true}`);
