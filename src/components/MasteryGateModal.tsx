@@ -7,7 +7,7 @@ import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
 import { formatOf, defaultAnswer } from './answer/formats';
 import { isUnchecked, askedEntry } from './UncheckedKeyNote';
-import { gradeAnswer } from '../utils/grading';
+import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useStore } from '../store';
 import { aiRuntime, slowGenerationHint, timeoutHint } from '../utils/aiHints';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +19,9 @@ import ProgressBar from './ui/ProgressBar';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
+
+/** One graded answer of the check; `run` = the test rows behind a run-graded code answer. */
+type CheckResult = { correct: boolean; explanation?: string; run?: GradedAnswer['run'] };
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -59,7 +62,7 @@ export default function MasteryGateModal({
     const [answers, setAnswers] = useState<Record<number, string>>({});
     // Per-question correctness + explanation, so the results screen can show the
     // learner exactly which questions they missed (they can pass with a few wrong).
-    const [answerResults, setAnswerResults] = useState<Record<number, { correct: boolean; explanation?: string }>>({});
+    const [answerResults, setAnswerResults] = useState<Record<number, CheckResult>>({});
     const [submitted, setSubmitted] = useState(false);
     const [result, setResult] = useState<{ score: number; total: number; passed: boolean; passThreshold: number } | null>(null);
     /** The smallest check the server judges, as the draw said (MIN_GATE_QUESTIONS). */
@@ -422,7 +425,7 @@ export default function MasteryGateModal({
         try {
             const out = new Set(questions.flatMap((_, i) => (isReported(i) ? [i] : [])));
             let correct = 0;
-            const results: Record<number, { correct: boolean; explanation?: string }> = {};
+            const results: Record<number, CheckResult> = {};
             for (let i = 0; i < questions.length; i++) {
                 if (out.has(i)) continue;
                 const q = questions[i];
@@ -437,7 +440,7 @@ export default function MasteryGateModal({
                 if (!userAnswer.trim()) { results[i] = { correct: false, explanation: q.explanation }; continue; }
                 const graded = await gradeAnswer(q, userAnswer);
                 if (graded.correct) correct++;
-                results[i] = { correct: graded.correct, explanation: graded.explanation };
+                results[i] = { correct: graded.correct, explanation: graded.explanation, run: graded.run };
             }
             setAnswerResults(results);
 
@@ -836,6 +839,7 @@ export default function MasteryGateModal({
                                                     answer={answers[i] || defaultAnswer(q)}
                                                     correct={answerResults[i]?.correct ?? false}
                                                     explanation={answerResults[i]?.explanation}
+                                                    run={answerResults[i]?.run}
                                                     nodeId={nodeId}
                                                     nodeTitle={nodeTitle}
                                                     projectName={projectName}

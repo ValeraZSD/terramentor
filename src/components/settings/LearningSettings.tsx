@@ -4,7 +4,8 @@ import { useStore } from '../../store';
 import { api } from '../../api';
 import { Lock, Gauge } from 'lucide-react';
 import { TextInput } from '../ui/Field';
-import { SettingGroup, SettingNote } from '../ui/SettingRow';
+import { SettingGroup, SettingNote, SettingRow } from '../ui/SettingRow';
+import Switch from '../ui/Switch';
 import { Explain, ExpandableSection } from '../ui/Disclosure';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import FeedSettingsPanel from './FeedSettingsPanel';
@@ -24,6 +25,8 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     const { t: tr } = useTranslation();
     const num = useNumberFormat();
     const addToast = useStore(s => s.addToast);
+    const codeRunner = useStore(s => s.codeRunner);
+    const setCodeRunner = useStore(s => s.setCodeRunner);
 
     // Mastery & gating
     const [gateMode, setGateMode] = useState<'off' | 'advisory' | 'enforced'>('enforced');
@@ -204,6 +207,19 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             {/* YOUR FEED — the home stream's dials (src/components/settings/FeedSettingsPanel.tsx). */}
             <section className={active ? 'mb-8' : 'hidden'}>
                 <FeedSettingsPanel active={active} />
+            </section>
+
+            {/* CODE ANSWERS — run on this device (src/runner/), or judged by the
+                model as before. One switch: on unless switched off. */}
+            <section className={active ? 'mb-8' : 'hidden'}>
+                <SettingGroup title={tr("Code answers")}>
+                    <SettingRow
+                        label={tr("Run code answers")}
+                        htmlFor="setting-code-runner"
+                        hint={tr("Python and JavaScript answers run on this device, checked against each question's tests. Off, the AI judges them instead.")}
+                        control={<Switch id="setting-code-runner" label={tr("Run code answers")} checked={codeRunner} onChange={(on) => void setCodeRunner(on)} />}
+                    />
+                </SettingGroup>
             </section>
 
             {/* SPACED REPETITION + THE PROGRESS MODEL — tuning and
