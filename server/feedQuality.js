@@ -437,8 +437,13 @@ export function citationFaults(question) {
     return out;
 }
 
-/** A fence or a stem visual's kind (QUIZ_VISUALS_GUIDE) beside a literal `\n`. */
-const STEM_PICTURE_AS_TEXT = /(```|(?:^|\\n|[^A-Za-z])(?:plot|mermaid|vega-lite|vega|smiles))[ \t]*\\n|\\n[ \t]*```/;
+/**
+ * A stem visual's kind (QUIZ_VISUALS_GUIDE) on a "line" of its own between
+ * literal `\n`s, or right after a fence: `…?\n\nplot\n{…}`, "```plot\n{…}".
+ * A code stem that prints the word (`print("plot\n")`, `plt.plot\n`) or a
+ * fence in a string (`"```\n"`) is not one.
+ */
+const STEM_PICTURE_AS_TEXT = /(?:(?:^|\\n)[ \t]*(?:```[ \t]*)?|```[ \t]*)(?:plot|mermaid|vega-lite|vega|smiles)[ \t]*\\n/;
 
 /**
  * Mechanical checks on a freshly generated question — everything decidable
@@ -767,7 +772,7 @@ export async function auditLesson(nodeTitle, partTitle, markdown, { priorParts =
             nodeTitle, partTitle, stripSpecFences(markdown), priorParts, { computes },
         );
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-        const parsed = parseObject(resp);
+        const parsed = parseObject(resp, 'verdict');
         if (!parsed || typeof parsed.verdict !== 'string') {
             return { ok: true, available: false, reason: 'auditor returned nothing usable', computes };
         }
@@ -813,9 +818,9 @@ export function isStaticAnimation(kind, spec) {
     return kind === 'animation' && !/<animate(Transform|Motion)?\b/i.test(spec);
 }
 
-function parseObject(resp) {
+function parseObject(resp, key) {
     try {
-        return parseObjectResponse(resp);
+        return parseObjectResponse(resp, { key });
     } catch {
         return null;
     }
@@ -901,7 +906,7 @@ export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
     try {
         const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question);
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-        const parsed = parseObject(resp);
+        const parsed = parseObject(resp, 'verdict');
         if (!parsed || typeof parsed.verdict !== 'string') {
             // A verifier that produced nothing usable is not evidence of a bad
             // question, nor of a good one: the caller serves it as practice,
@@ -1010,7 +1015,7 @@ export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
             try {
                 const { system, user } = AI_PROMPTS.feed_visual_check(partTitle, v.prose, v.kind, v.spec);
                 const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-                const parsed = parseObject(resp);
+                const parsed = parseObject(resp, 'verdict');
                 const verdict = String(parsed?.verdict || '').toLowerCase();
                 if (!verdict) unchecked.push({ kind: v.kind, reason: 'checker returned nothing usable' });
                 if (verdict === 'text-wrong' || verdict === 'text_wrong') {
@@ -1101,7 +1106,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         try {
             const { system, user } = AI_PROMPTS.feed_drill_check(nodeTitle, set, free ? null : answerPool(items));
             const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-            const answers = parseObject(resp)?.answers;
+            const answers = parseObject(resp, 'answers')?.answers;
             if (Array.isArray(answers)) {
                 verdicts = new Map();
                 answers.forEach((a, k) => {
@@ -1145,7 +1150,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         try {
             const { system, user } = AI_PROMPTS.feed_drill_arbiter(nodeTitle, set, rows);
             const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-            const list = parseObject(resp)?.verdicts;
+            const list = parseObject(resp, 'verdicts')?.verdicts;
             if (Array.isArray(list)) verdicts = new Map(list.map((v, k) => [Number.isInteger(v?.n) ? v.n : k + 1, String(v?.correct || '').trim().toLowerCase()]));
         } catch (err) {
             if (err?.name === 'AbortError') throw err;

@@ -179,7 +179,9 @@ try {
 [
  {"type": "multiple_choice", "question": "${graphStem}", "options": ["$0$", "$1$", "$e$", "$\infty$"], "correct_answer": "$1$", "explanation": "As $x \to \pm\infty$, $-1/x^2 \to 0$, so $f(x) \to e^0 = 1$; and $f(x) \neq 0$ for every $x \neq 0$."},
  {"type": "true_false", "question": "For every statement $p$, $\neg\neg p$ is equivalent to $p$, and $\nabla \cdot \vec{F}$ is a scalar.", "options": ["True", "False"], "correct_answer": "True", "explanation": "Double negation cancels; a divergence is a scalar."},
- {"type": "multiple_choice", "question": "In C, how many lines does printf(\"a\\nb\") print?", "options": ["1", "2", "3", "0"], "correct_answer": "2", "explanation": "The escape ends the first line."}
+ {"type": "multiple_choice", "question": "In C, how many lines does printf(\"a\\nb\") print?", "options": ["1", "2", "3", "0"], "correct_answer": "2", "explanation": "The escape ends the first line."},
+ {"type": "multiple_choice", "question": "What does this print?\n~~~python\ntotal = 0\ni = 0\nwhile i < 3:\n    total += i\n    i += 1\nu = 2\ne = 3\nprint(total + u + e)\n~~~", "options": ["3", "8", "6", "5"], "correct_answer": "8", "explanation": "The loop adds 0, 1 and 2, then 2 and 3 are added."},
+ {"type": "true_false", "question": "In music the \natural sign cancels a sharp; for $x \ne 0$ and a frequency $\nu$, $x \nleqslant y$ is a relation.", "options": ["True", "False"], "correct_answer": "True", "explanation": "Both hold."}
 ]
 ~~~`);
         const want = 'The graph below shows $f(x) = e^{-1/x^2}$, which is very flat near $x = 0$.\n\n```plot\n{"data":[{"fn":"exp(-1/x^2)"}],"xAxis":{"domain":[-4,4]}}\n```\n\nWhat value does $f(x)$ approach as $x \\to \\pm\\infty$?';
@@ -198,13 +200,21 @@ try {
         const code = stored('In C');
         check('a backslash-n written as code stays the two characters',
             !!code && code.question.includes('printf("a\\nb")') && !code.question.includes('\n'), JSON.stringify(code?.question));
+        // A code line that starts with `i`, `u` or `e` begins like `\ni`,
+        // `\nu`, `\ne`: outside a `$…$` span those are line breaks.
+        const loop = stored('What does this print?');
+        check('a code stem keeps every line, even one starting with i, u or e',
+            !!loop && loop.question.includes('total = 0\ni = 0\nwhile i < 3:') && loop.question.includes('\nu = 2\ne = 3\n') && !loop.question.includes('\\'),
+            JSON.stringify(loop?.question));
+        const music = stored('In music');
+        check('…while $x \\ne 0$, $\\nu$, \\nleqslant and \\natural stay TeX',
+            !!music && ['\\natural sign', '$x \\ne 0$', '$\\nu$', '\\nleqslant'].every((s) => music.question.includes(s)), JSON.stringify(music?.question));
 
         // The feed's own question writer, with working before the JSON whose
         // TeX braces must not be taken for it.
         const feedReply = String.raw`The curve flattens, and $\lim_{x \to \infty} e^{-1/x^2} = 1$.
 {"type": "multiple_choice", "question": "${graphStem}", "options": ["$0$", "$1$", "$e$", "$\infty$"], "correct_answer": "$1$", "explanation": "As $x \to \pm\infty$ the exponent tends to $0$."}`.replaceAll('~~~', '```');
-        const readQuestion = agentic.parseQuestionReply ?? agentic.parseObjectResponse;
-        const fed = normalizeModelQuestion(readQuestion(feedReply));
+        const fed = typeof agentic.parseQuestionReply === 'function' ? normalizeModelQuestion(agentic.parseQuestionReply(feedReply)) : null;
         check('the feed\'s question writer reads the same stem the same way', fed?.question === want, JSON.stringify(fed?.question)?.slice(0, 200));
 
         // Fail closed: the stem take 7b stored, verbatim.
@@ -213,6 +223,11 @@ try {
             questionDefects(flattened).some((d) => /picture arrived as text/.test(d)), questionDefects(flattened).join('; '));
         check('…and the stems above are not', !!graph && !!code
             && !questionDefects(graph).some((d) => /picture/.test(d)) && !questionDefects(code).some((d) => /picture/.test(d)));
+        // Code that prints a visual's kind or a fence is not a flattened picture.
+        const printsWords = ['What does print("plot\\n") print?', 'After plt.plot\\n(x) runs, what is drawn?', 'What does echo "```\\n" print in bash?']
+            .map((question) => ({ type: 'multiple_choice', question, options: ['a', 'b', 'c', 'd'], correct_answer: 'a', explanation: 'Because.' }));
+        const wrongly = printsWords.filter((q) => questionDefects(q).some((d) => /picture/.test(d))).map((q) => q.question);
+        check('…nor is a code stem that prints "plot" or a fence', wrongly.length === 0, wrongly.join(' | '));
         db.close();
     }
 

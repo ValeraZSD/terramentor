@@ -399,6 +399,25 @@ const graded = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}
 ` + '```json\n{"correct": true, "explanation": "k = 4."}\n```');
 check('the open-answer grader reads its verdict after working the same way', graded?.verdict === 'correct', JSON.stringify(graded));
 
+// The reader itself, on the shapes a reply takes around its answer.
+const { parseObjectResponse, parseQuestionReply } = await import(B + 'agentic.js');
+const bare = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, $k = 4$ is right. {"correct": true, "explanation": "k = 4."}`);
+check('working with no fence, then the verdict: read', bare?.verdict === 'correct', JSON.stringify(bare));
+const nuclide = parseAnswerVerdict('The nuclide ${}^{14}_{6}C$ decays to ${}^{14}_{7}N$. {"correct": false, "explanation": "It is beta decay."}');
+check('an empty TeX brace pair ({}^{14}C) is never taken for the reply', nuclide?.verdict === 'incorrect', JSON.stringify(nuclide));
+const trailing = parseObjectResponse('{"verdict": "ok", "answer": "4"} The decay is ${}^{14}_{6}C \\to {}^{14}_{7}N$.');
+check('...not even after the answer, by a reader that names no shape', trailing?.answer === '4', JSON.stringify(trailing));
+const echoed = parseObjectResponse('Format: {"verdict": "ok|wrong", "answer": "..."}. My reply:\n{"verdict": "wrong", "answer": "5"}', { key: 'verdict' });
+check('a format example echoed before the answer loses to the answer', echoed?.answer === '5', JSON.stringify(echoed));
+const redone = parseObjectResponse('```json\n{"verdict": "ok", "answer": "4"}\n```\nWait, 2 + 2 here is in base 3. Redone:\n```json\n{"verdict": "wrong", "answer": "11"}\n```', { key: 'verdict' });
+check('a draft the model corrected loses to the correction', redone?.answer === '11', JSON.stringify(redone));
+const shaped = parseObjectResponse('Note {"hint": "x"} first. {"verdict": "ok", "answer": "4"} then {"aside": 1}.', { key: 'verdict' });
+check('an object of another shape on either side is skipped', shaped?.answer === '4', JSON.stringify(shaped));
+const cut = typeof parseQuestionReply === 'function'
+    ? parseQuestionReply('{"question": "What is 2 + 2?", "plot": {"fn": "x"}, "explanation": "Two and tw')
+    : { fn: 'no parseQuestionReply' };
+check('a cut-off reply never yields an object from inside it', !cut || (cut.question === 'What is 2 + 2?' && !('fn' in cut)), JSON.stringify(cut));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));
 db.close();

@@ -208,28 +208,32 @@ export function sanitizeExplanation(explanation, options) {
 // prose `\theta`, `\beta` and `\frac` are far likelier than a tab.
 // Not for code-bearing text, where `$` is not maths (paper.js explains why).
 //
-// `lineBreaks: true` (a question a model wrote) decides `\n` and `\r` by the
-// closed list alone, with no `$` pairing: a line break unless the letters after
-// it are a TeX command (`\neq`, `\nabla`, `\rho`). A stem is told to carry its
-// picture as a fenced spec on lines of its own, and with every `\n` made
-// literal the fence arrived as one line of text (take 7 of the Taylor clip,
-// 4 Nov 2026: "…approach?\n\nplot\n{"data":…}" printed in a mastery check).
-// A doubled `\\n` stays the two characters it was written as.
+// `lineBreaks: true` (a question a model wrote, which may hold code) decides
+// `\n` and `\r` by the closed list: a line break unless the letters after it
+// are a TeX command (`\neq`, `\nabla`, `\rho`). A command whose tail is also a
+// word or a variable that starts a line (`\ni` = "i = 0", `\ne`, `\nu`,
+// `\not`, `\nless`; `LINE_START_COMMANDS`) is TeX only inside a `$…$` span of
+// a string whose spans pair, and a line break outside one. A stem is told to
+// carry its picture as a fenced spec on lines of its own, and with every `\n`
+// made literal the fence arrived as one line of text (take 7 of the Taylor
+// clip, 4 Nov 2026: "…approach?\n\nplot\n{"data":…}" printed in a mastery
+// check). A doubled `\\n` stays the two characters it was written as.
 export function escapeLatexBackslashes(jsonStr, { mathSpans = false, lineBreaks = false } = {}) {
     let out = '';
     let inString = false;
     let inMath = false, inCode = false, paired = false;
+    const spans = mathSpans || lineBreaks;
     for (let i = 0; i < jsonStr.length; i++) {
         const c = jsonStr[i];
         if (c === '"') {
             inString = !inString;
             inMath = false; inCode = false;
-            if (inString && mathSpans) paired = mathDelimitersPair(jsonStr, i + 1);
+            if (inString && spans) paired = mathDelimitersPair(jsonStr, i + 1);
             out += c;
             continue;
         }
-        if (mathSpans && inString && c === '`') inCode = !inCode;
-        if (mathSpans && inString && c === '$' && !inCode) {
+        if (spans && inString && c === '`') inCode = !inCode;
+        if (spans && inString && c === '$' && !inCode) {
             // `$$` opens or closes ONE span, not two.
             if (jsonStr[i + 1] === '$') { out += '$$'; i++; } else out += c;
             inMath = !inMath;
@@ -238,15 +242,18 @@ export function escapeLatexBackslashes(jsonStr, { mathSpans = false, lineBreaks 
         if (c === '\\' && inString) {
             const next = jsonStr[i + 1];
             // A doubled backslash before `$` is markdown's literal dollar.
-            if (mathSpans && next === '\\' && jsonStr[i + 2] === '$') { out += '\\\\$'; i += 2; continue; }
+            if (spans && next === '\\' && jsonStr[i + 2] === '$') { out += '\\\\$'; i += 2; continue; }
             if (next === '"' || next === '\\' || next === '/') { out += c + next; i++; continue; }
             if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(jsonStr.slice(i + 2, i + 6))) {
                 out += jsonStr.slice(i, i + 6); i += 5; continue;
             }
-            if (mathSpans && next === '$') { out += '\\\\$'; i++; continue; }
-            if ((mathSpans || lineBreaks) && (next === 'n' || next === 'r')) {
-                const command = LATEX_NR_COMMANDS.has(/^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0]);
-                const tex = mathSpans && paired ? inMath : command;
+            if (spans && next === '$') { out += '\\\\$'; i++; continue; }
+            if (spans && (next === 'n' || next === 'r')) {
+                const word = /^[a-zA-Z]*/.exec(jsonStr.slice(i + 1))[0];
+                const command = LATEX_NR_COMMANDS.has(word);
+                const tex = mathSpans
+                    ? (paired ? inMath : command)
+                    : command && (inMath || !paired || !LINE_START_COMMANDS.has(word));
                 if (!tex) { out += c + next; i++; continue; }
             }
             out += '\\\\'; // lone backslash (LaTeX command or \{ ) — escape it
@@ -286,6 +293,18 @@ export const LATEX_NR_COMMANDS = new Set([
     'nolimits', 'nRightarrow', 'nLeftarrow', 'nLeftrightarrow', 'nleftrightarrow',
     'rvert', 'rVert', 'rtimes', 'rightharpoonup', 'rightharpoondown',
     'rightrightarrows', 'rightsquigarrow', 'rhd',
+    'nleqslant', 'ngeqslant', 'nleqq', 'ngeqq', 'nsupset', 'natural', 'nvDash',
+    'nVdash', 'nVDash', 'ntriangleleft', 'ntriangleright', 'nshortmid',
+    'rightleftarrows', 'rightarrowtail', 'rrbracket', 'rmoustache', 'relax',
+]);
+
+// The commands above whose tail (the letters after the `n` of a line break)
+// is also a word, a variable or a keyword that can start a line: `\ni` is
+// "i = 0", `\ne` "e = 3", `\nu` "u = 2", `\neq` "eq(a, b)", `\nless` "less
+// than…". In `lineBreaks` mode these are TeX only inside a paired `$…$` span.
+const LINE_START_COMMANDS = new Set([
+    'ni', 'ne', 'nu', 'neq', 'neg', 'not', 'notin', 'nless', 'nexists', 'nmid',
+    'nsim', 'ngtr',
 ]);
 
 /**
@@ -308,14 +327,16 @@ export function parseCreationJson(text) {
 
 /**
  * Extract the JSON object from model output, LaTeX-safely (`readReplyObject`
- * picks it out of any working before it).
+ * picks it out of any working before it). `key`, when given, is a field the
+ * reply's object must have, so an echoed example of another shape is skipped.
  *
  * Lives here beside its two dependencies because feedGen.js and paper.js each
  * carried a byte-identical private copy, and a change to the escaping rules
  * would otherwise have to be made twice.
  */
-export function parseObjectResponse(resp, { lineBreaks = false } = {}) {
-    return readReplyObject(resp, (s) => escapeLatexBackslashes(s, { lineBreaks }));
+export function parseObjectResponse(resp, { lineBreaks = false, key = null } = {}) {
+    return readReplyObject(resp, (s) => escapeLatexBackslashes(s, { lineBreaks }),
+        key ? (o) => key in o : undefined);
 }
 
 /**
@@ -324,7 +345,7 @@ export function parseObjectResponse(resp, { lineBreaks = false } = {}) {
  * its paragraphs and its fenced picture.
  */
 export function parseQuestionReply(resp) {
-    return parseObjectResponse(resp, { lineBreaks: true });
+    return parseObjectResponse(resp, { lineBreaks: true, key: 'question' });
 }
 
 // isValidResourceUrl is imported from ai.js (canonical implementation) rather

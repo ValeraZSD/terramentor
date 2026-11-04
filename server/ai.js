@@ -4804,7 +4804,7 @@ export function parseAnswerVerdict(text) {
     // the model DID give must not turn into "the grader could not be reached"
     // over punctuation — that sentence tells the learner to trust themselves.
     // Nor over working written before it: `readReplyObject` skips TeX braces.
-    try { r = readReplyObject(text); } catch { return null; }
+    try { r = readReplyObject(text, undefined, (o) => 'correct' in o); } catch { return null; }
     if (!r || typeof r !== 'object') return null;
     const c = r?.correct;
     const verdict = c === true ? 'correct'
