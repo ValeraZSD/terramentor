@@ -494,7 +494,7 @@ check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /imp
     // Every way one module pulls another in as code: `import x from`, a bare
     // `import '…'` run for its side effects, `import('…')`, and a re-export.
     // A type-only import or export carries no code and is allowed.
-    const WORKER_SPEC = String.raw`['"][./]*(?:runner\/)?(?:worker|pythonHarness)(?:\.ts)?['"]`;
+    const WORKER_SPEC = String.raw`['"][./]*(?:runner\/)?(?:worker|pythonHarness)(?:\.[cm]?[jt]s)?['"]`;
     const PULLS_WORKER = [
         new RegExp(String.raw`\bimport\s+(?!type\b)[^;'"]*?\bfrom\s+${WORKER_SPEC}`),
         new RegExp(String.raw`\bimport\s+${WORKER_SPEC}`),
@@ -502,7 +502,7 @@ check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /imp
         new RegExp(String.raw`\bexport\s+(?!type\b)[^;'"]*?\bfrom\s+${WORKER_SPEC}`),
     ];
     const pullsWorker = (text) => PULLS_WORKER.some((re) => re.test(text));
-    const shapes = ["import { x } from './runner/worker';", "import './runner/worker';", "import('../runner/worker')", "export * from './worker';", "export { y } from './pythonHarness';"];
+    const shapes = ["import { x } from './runner/worker';", "import './runner/worker';", "import('../runner/worker')", "export * from './worker';", "export { y } from './pythonHarness';", "import { x } from './runner/worker.js';", "import './pythonHarness.mjs';"];
     const typeOnly = ["import type { X } from './runner/worker';", "export type { X } from './worker';"];
     check('the worker import check sees every way of pulling the worker in as code, and lets types through',
         shapes.every(pullsWorker) && !typeOnly.some(pullsWorker), shapes.filter((s) => !pullsWorker(s)).concat(typeOnly.filter(pullsWorker)).join(' | '));
