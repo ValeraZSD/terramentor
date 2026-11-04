@@ -181,7 +181,8 @@ if (PlacementModal) {
                 scroller ? `inside <${scroller.tagName.toLowerCase()} class="${scroller.getAttribute('class')}">` : '');
         }
         // The scroll that brings the verdict into view must not carry the
-        // learner's place away with it (his photo, 4 Nov 2026).
+        // learner's place away with it: the "N of M answered" line scrolled
+        // out of view along with the question it counts.
         const count = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && /^\d+ of \d+ answered$/.test(e.textContent.trim()));
         const countScroller = count && chain(count, dialog).filter(n => n !== dialog).find(scrolls);
         ok('"1 of 2 answered" is on the page and not inside anything that scrolls', !!count && !countScroller,
