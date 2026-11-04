@@ -1,4 +1,4 @@
-import { CSSProperties, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, scopeKey } from '../../store';
 import {
     FeedCard, FeedCheckpointCard, FeedFlashcardCard, FeedLessonCard,
@@ -15,8 +15,8 @@ import NoticeCard from './NoticeCard';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
-import LessonSlot, { LessonBeingWritten } from './LessonSlot';
-import { feedGenSignal, lessonPending, lessonSlot } from '../../utils/feedPlacement';
+import { LessonBeingWritten, LessonWriteFailed } from './LessonSlot';
+import { feedGenSignal, lessonPending } from '../../utils/feedPlacement';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
@@ -126,6 +126,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     const loadFeed = useStore(s => s.loadFeed);
     const extendFeed = useStore(s => s.extendFeed);
     const pullFeedUpdates = useStore(s => s.pullFeedUpdates);
+    const retryLessonWrite = useStore(s => s.retryLessonWrite);
     const setView = useStore(s => s.setView);
     const openProjectNode = useStore(s => s.openProjectNode);
     const setFeedFocusItem = useStore(s => s.setFeedFocusItem);
@@ -309,16 +310,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     }, [aiConfigRev, pullFeedUpdates]);
 
     const groups = useMemo(() => groupCards(feedCards), [feedCards]);
-    // The topic's first lesson, still being written: the page shows that and
-    // nothing else until it lands. A failed write draws its note in the
-    // chapter, above the End of chapter.
-    const slot = studying ? lessonSlot(feedCards, lessonWrite) : null;
+    // The topic's first lesson, still being written or failed to be: the page
+    // shows that and nothing else until it lands.
     const pending = studying && lessonPending(feedCards, lessonWrite);
-    const slotSection = slot && lessonWrite?.state === 'failed' ? (
-        <ChapterSection key="lesson-slot" innerRef={noRef}>
-            <LessonSlot write={lessonWrite} />
-        </ChapterSection>
-    ) : null;
 
     // The header of a TOPIC stream, and only a topic stream.
     //
@@ -386,13 +380,15 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         );
     }
 
-    // The topic's first lesson is being written: nothing to read yet, so the
-    // page says that and holds no card (see LessonBeingWritten).
+    // The topic's first lesson is being written, or failed to be: nothing to
+    // read yet, so the page says that and holds no card (see LessonSlot.tsx).
     if (pending) {
         return (
             <div className="h-full flex flex-col bg-slate-100 dark:bg-slate-900">
                 {studyHeader}
-                <LessonBeingWritten title={studyNode?.title} />
+                {lessonWrite?.state === 'failed'
+                    ? <LessonWriteFailed write={lessonWrite} title={studyNode?.title} onRetry={retryLessonWrite} />
+                    : <LessonBeingWritten title={studyNode?.title} />}
             </div>
         );
     }
@@ -525,18 +521,14 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         gateMode={group.cards.find(c => c.kind === 'checkpoint')?.gateMode}
                     >
                         {group.cards.map((card, i) => (
-                            <Fragment key={card.key}>
-                                {slot?.place === 'before' && slot.key === card.key && slotSection}
-                                <ChapterSection innerRef={setCardRef(card.key)}>
-                                    {/* A run of questions is labelled at its head
-                                        and nowhere else (QuestionCard.labelled). */}
-                                    {renderChapterCard(card, !!feedDone[card.key], handleDone,
-                                        group.cards[i - 1]?.kind !== 'question',
-                                        runDone(group.cards, i, feedDone),
-                                        !group.continued)}
-                                </ChapterSection>
-                                {slot?.place === 'after' && slot.key === card.key && slotSection}
-                            </Fragment>
+                            <ChapterSection key={card.key} innerRef={setCardRef(card.key)}>
+                                {/* A run of questions is labelled at its head
+                                    and nowhere else (QuestionCard.labelled). */}
+                                {renderChapterCard(card, !!feedDone[card.key], handleDone,
+                                    group.cards[i - 1]?.kind !== 'question',
+                                    runDone(group.cards, i, feedDone),
+                                    !group.continued)}
+                            </ChapterSection>
                         ))}
                     </ChapterGroup>
                 ) : (
@@ -622,9 +614,6 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         </div>
     );
 }
-
-/** The lesson slot is not a card: nothing scrolls to it or times it. */
-const noRef = () => { };
 
 /** Whether every question in the run starting at `i` is answered: the run's one label ticks for all of them. */
 function runDone(cards: ChapterCard[], i: number, done: Record<string, boolean>) {

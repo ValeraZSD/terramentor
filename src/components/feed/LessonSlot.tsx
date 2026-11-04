@@ -1,7 +1,10 @@
-import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { LessonWrite } from '../../types';
-import { plainCause } from '../../utils/failureCause';
+import { plainCause, retryMayHelp } from '../../utils/failureCause';
+import { Button } from '../ui/Button';
 
 /**
  * A topic's page while its first lesson is being written (`lessonPending`,
@@ -24,24 +27,43 @@ export function LessonBeingWritten({ title }: { title?: string }) {
 }
 
 /**
- * The slot of a topic's first lesson in its chapter, once the write failed
- * (`lessonSlot`): it says so, and why (in plain words where the cause is
- * recognisable, the model's own words otherwise), and the chapter ends as it
- * would without it.
+ * The same page once the write failed: it says so, and why (in plain words
+ * where the cause is recognisable, the model's own words otherwise), and
+ * offers the two ways on: Try again, and Set up AI. Whichever the cause points
+ * at is the primary (`retryMayHelp`, as on a course creation that stopped).
+ * The Overview is not offered instead: it is a summary, not the lesson. The
+ * writer also tries again by itself when its backoff ends, and the page then
+ * goes back to "Writing the lesson".
  */
-export default function LessonSlot({ write }: { write: LessonWrite }) {
+export function LessonWriteFailed({ write, title, onRetry }: { write: LessonWrite; title?: string; onRetry: () => Promise<void> }) {
     const { t } = useTranslation();
-    if (write.state !== 'failed') return null;
-    const cause = write.reason
-        ? plainCause({ message: write.reason, httpStatus: write.httpStatus ?? null, model: write.model ?? null })
-        : null;
+    const navigate = useNavigate();
+    const [busy, setBusy] = useState(false);
+    const facts = { message: write.reason || '', httpStatus: write.httpStatus ?? null, model: write.model ?? null };
+    const cause = write.reason ? plainCause(facts) : null;
     const why = cause ? t(cause.messageKey, cause.params) : write.reason;
+    const retryFirst = retryMayHelp(facts);
+    const retry = async () => {
+        setBusy(true);
+        try { await onRetry(); } finally { setBusy(false); }
+    };
+    const tryAgain = (
+        <Button variant={retryFirst ? 'primary' : 'neutral'} onClick={retry} disabled={busy}>{t("Try again")}</Button>
+    );
+    const setUpAI = (
+        <Button variant={retryFirst ? 'neutral' : 'primary'} onClick={() => navigate('/settings#ai')}>{t("Set up AI")}</Button>
+    );
     return (
-        <div className="text-sm">
-            <p className="text-slate-700 dark:text-slate-200">{t("This topic's lesson couldn't be written.")}</p>
-            {why && (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 break-words">{why}</p>
-            )}
+        <div role="alert" className="flex-1 flex items-center justify-center px-6 py-12">
+            <div className="text-center max-w-md">
+                <AlertCircle className="w-10 h-10 text-slate-400 dark:text-slate-500 mx-auto mb-4" aria-hidden="true" />
+                <p className="text-slate-700 dark:text-slate-200 font-medium">{t("This topic's lesson couldn't be written.")}</p>
+                {title && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 break-words">{title}</p>}
+                {why && <p className="mt-4 text-sm text-slate-600 dark:text-slate-300 break-words">{why}</p>}
+                <div className="mt-6 flex flex-wrap justify-center gap-2">
+                    {retryFirst ? <>{setUpAI}{tryAgain}</> : <>{tryAgain}{setUpAI}</>}
+                </div>
+            </div>
         </div>
     );
 }

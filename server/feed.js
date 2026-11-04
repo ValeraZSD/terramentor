@@ -858,8 +858,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             // With AI off this IS the whole topic, so its checkpoint follows it;
             // with AI on, lessons are still coming and the topic is not over.
             taughtOut = (cards.length === 0 || !aiEnabled) && (!!readingMd || !!quiz);
-            // The lesson is on its way: the topic is not over.
-            if (write?.state === 'writing' && write.nodeId === f.nodeId) taughtOut = false;
+            // The lesson is on its way, or failed and is offered again (Try
+            // again on the page): either way the topic is not over.
+            if (write && write.nodeId === f.nodeId) taughtOut = false;
         }
 
         // Paper practice goes LAST in the node's queue — work it by hand once the
@@ -1093,8 +1094,8 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // feed draws its own setup card saying what is missing; a topic's or a
     // course's feed draws none, so it gets the one line that says it.
     if (write) {
-        // The lesson's slot under the Overview says it is being written, or
-        // why it was not; "being prepared" above it said it twice.
+        // The topic's page says the lesson is being written, or why it was
+        // not; "being prepared" said it twice.
     } else if (anyDegradedServed && !excluded('notice-ai') && aiEnabled && !aiModelChosen) {
         if (scoped || projectScope) items.unshift({ key: 'notice-ai', kind: 'notice', message: 'Choose a model in Settings → AI & Models.' });
     } else if (anyDegradedServed && !excluded('notice-ai')) {

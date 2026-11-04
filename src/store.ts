@@ -604,6 +604,8 @@ interface AppState {
      */
     /** `force` skips the throttle: the caller knows a new card exists. */
     pullFeedUpdates: (opts?: { force?: boolean }) => Promise<void>;
+    /** Try again on the topic whose first lesson could not be written. */
+    retryLessonWrite: () => Promise<void>;
     /**
      * A visual block inside a feed card was repaired: splice the fixed spec into
      * that card — lesson, question or practice alike — and persist it, so the
@@ -1717,6 +1719,21 @@ export const useStore = create<AppState>((set, get) => ({
             });
         } catch {
             if (seq === feedSeq) set({ feedLoading: false });
+        }
+    },
+
+    retryLessonWrite: async () => {
+        const write = get().feedLessonWrite;
+        if (write?.state !== 'failed') return;
+        try {
+            const res = await api.retryLessonWrite(write.nodeId);
+            // The page shows "Writing the lesson" at once; the burst's task
+            // signal pulls the lesson when it lands. Ignored when the page has
+            // moved to another topic meanwhile.
+            if (get().feedLessonWrite?.nodeId === write.nodeId) set({ feedLessonWrite: res.lessonWrite });
+            if (!res.lessonWrite) void get().pullFeedUpdates({ force: true });
+        } catch (e) {
+            get().addToast('error', i18n.t("Couldn't start the lesson again."), messageOf(e));
         }
     },
 

@@ -68,6 +68,19 @@ app.get('/api/feed', (req, res) => {
     }
 });
 
+// Try again on a topic whose first lesson could not be written: the writer
+// starts on it now instead of waiting out its backoff. Answers with the state
+// the page shows next (`writing`, or null once a lesson exists).
+app.post('/api/feed/nodes/:id/lesson/retry', (req, res) => {
+    try {
+        const nodeId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'id must be a positive integer' });
+        res.json({ lessonWrite: feedGen.retryLessonWrite(nodeId) });
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
 app.post('/api/feed/consume', (req, res) => {
     try {
         const { key, kind, feedItemId, nodeId, result, uuid } = req.body || {};

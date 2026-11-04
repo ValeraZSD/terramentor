@@ -136,13 +136,14 @@ export function lessonSlot(cards: FeedCard[], write: LessonWrite | null): { key:
 }
 
 /**
- * The topic's first lesson is being written and nothing else stands in for
- * it but the Overview: the page shows "Writing the lesson" instead of the
- * stream (no "Got it, continue" with no lesson behind it, no junction, no
- * "Writing more lessons · 0%"), and the lesson replaces it when it lands.
+ * The topic's first lesson is being written, or failed to be, and nothing
+ * stands in for it but the Overview: the page shows "Writing the lesson" (or
+ * why it could not be, with Try again) instead of the stream (no "Got it,
+ * continue" with no lesson behind it, no junction, no "Writing more lessons ·
+ * 0%"), and the lesson replaces it when it lands.
  */
 export function lessonPending(cards: FeedCard[], write: LessonWrite | null): boolean {
-    return write?.state === 'writing' && lessonSlot(cards, write) != null;
+    return write != null && lessonSlot(cards, write) != null;
 }
 
 /**

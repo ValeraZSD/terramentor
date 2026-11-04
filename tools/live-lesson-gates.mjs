@@ -156,10 +156,11 @@ console.log('\n--- Study on a topic whose lesson is being written: one stable pa
     const reload = composeFeed({ gate, nodeId: pending, lessonWrite: writing });
     check('with only the outline written, a reload still opens on the Overview', keysOf(reload).includes(`read-${pending}`), JSON.stringify(keysOf(reload)));
     check('…and no checkpoint', !reload.items.some(c => c.kind === 'checkpoint'), JSON.stringify(keysOf(reload)));
-    // The write fails: the page goes back to how it ends today, and says why.
+    // The write fails: the page says why and offers Try again; the Overview is
+    // a summary, not the lesson, so the chapter does not end on it.
     const failed = { nodeId: pending, state: 'failed', reason: 'model not found' };
     const afterFail = composeFeed({ gate, nodeId: pending, excludeKeys: heldPending, lessonWrite: failed });
-    check('a failed write closes the chapter as before', afterFail.items.some(c => c.key === `checkpoint-${pending}`), JSON.stringify(keysOf(afterFail)));
+    check('a failed write does not end the chapter on the Overview', !afterFail.items.some(c => c.kind === 'checkpoint'), JSON.stringify(keysOf(afterFail)));
     check('…and carries the reason to the page', afterFail.lessonWrite?.state === 'failed' && afterFail.lessonWrite?.reason === 'model not found',
         JSON.stringify(afterFail.lessonWrite));
     // A state for a topic that is not the one on the page changes nothing.
@@ -249,7 +250,8 @@ console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes
     const closed = placeCheckpoints([overview], [card('checkpoint-1', 'checkpoint', 1)], 1);
     check('a failed write keeps its slot (with the reason), above the End of chapter',
         JSON.stringify(lessonSlot?.(closed, failed)) === JSON.stringify({ key: 'checkpoint-1', place: 'before' }), JSON.stringify(lessonSlot?.(closed, failed)));
-    check('…and the stream ends as it does today', lessonPending?.(closed, failed) === false);
+    check('a failed write is shown in the stream\'s place (why, and Try again), not as its end',
+        lessonPending?.(screen, failed) === true && lessonPending?.(closed, failed) === true);
     check('no state, no slot', lessonSlot?.(screen, null) === null && lessonPending?.(screen, null) === false);
     check('a state for a topic with no card on screen draws nothing', lessonSlot?.(screen, { nodeId: 9, state: 'writing' }) === null);
     // A recall card carries its topic's id but is drawn on its own, outside the
@@ -263,12 +265,21 @@ console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes
     // that FeedView is wired to them, and the Edge walk shows it drawn.
     const { readFileSync } = await import('node:fs');
     const view = readFileSync(fileURLToPath(new URL('../src/components/feed/FeedView.tsx', import.meta.url)), 'utf8');
-    check('FeedView shows only "Writing the lesson" while it is pending, the failed note in the chapter',
-        /lessonPending\(feedCards, lessonWrite\)/.test(view) && /if \(pending\) \{[\s\S]{0,200}<LessonBeingWritten/.test(view)
-        && /slot && lessonWrite\?\.state === 'failed'/.test(view) && /lessonSlot\(feedCards, lessonWrite\)/.test(view));
+    check('FeedView shows only "Writing the lesson", or the failure with Try again, while it is pending',
+        /lessonPending\(feedCards, lessonWrite\)/.test(view)
+        && /if \(pending\) \{[\s\S]{0,300}lessonWrite\?\.state === 'failed'\s*\?\s*<LessonWriteFailed[^>]*onRetry=\{retryLessonWrite\}[\s\S]{0,80}:\s*<LessonBeingWritten/.test(view));
+    // The failed page's two ways on, ordered by what the cause points at.
+    const slotSrc = readFileSync(fileURLToPath(new URL('../src/components/feed/LessonSlot.tsx', import.meta.url)), 'utf8');
+    check('the failed page offers Try again and Set up AI, the likelier one primary',
+        /const retryFirst = retryMayHelp\(facts\)/.test(slotSrc) && /\{t\("Try again"\)\}/.test(slotSrc) && /navigate\('\/settings#ai'\)/.test(slotSrc)
+        && /retryFirst \? <>\{setUpAI\}\{tryAgain\}<\/> : <>\{tryAgain\}\{setUpAI\}<\/>/.test(slotSrc));
     const storeSrc = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
     check('the pull replaces the stand-in only when the page was showing "Writing the lesson"',
         /placeCheckpoints\(state\.feedCards, fresh, state\.feedLessonWrite\?\.nodeId \?\? null,\s*lessonPending\(state\.feedCards, state\.feedLessonWrite\)\)/.test(storeSrc));
+    const retrySrc = storeSrc.slice(storeSrc.indexOf('retryLessonWrite: async'), storeSrc.indexOf('repairFeedVisual:', storeSrc.indexOf('retryLessonWrite: async')));
+    check('Try again shows "Writing the lesson" from the answer, on the same topic only',
+        /api\.retryLessonWrite\(write\.nodeId\)/.test(retrySrc)
+        && /if \(get\(\)\.feedLessonWrite\?\.nodeId === write\.nodeId\) set\(\{ feedLessonWrite: res\.lessonWrite \}\)/.test(retrySrc));
     // The store's two pulls are the ones the replay below stands in for.
     check('both pulls send the replaced stand-in as held, and the merge records it',
         (storeSrc.match(/const exclude = heldKeys\(get\(\)\.feedCards, get\(\)\.feedReplacedKeys\);/g) || []).length === 2
@@ -407,7 +418,7 @@ console.log('\n--- the route: Study asks for the lesson, and says whether it is 
     check('the write fails: the page is told why', p3?.lessonWrite?.state === 'failed' && /not found/.test(p3?.lessonWrite?.reason || ''),
         JSON.stringify(p3?.lessonWrite));
     check('…with what plainCause needs to say it in plain words', p3?.lessonWrite?.httpStatus === 404, JSON.stringify(p3?.lessonWrite));
-    check('…and gets its End of chapter back', (p3?.items || []).some(c => c.key === `checkpoint-${route}`), JSON.stringify((p3?.items || []).map(c => c.key)));
+    check('…and no End of chapter: Try again is the way on', !(p3?.items || []).some(c => c.kind === 'checkpoint'), JSON.stringify((p3?.items || []).map(c => c.key)));
     // The backoff belongs to the writer, the failure to the topic it was on: a
     // topic opened meanwhile was never tried, and is written when it ends.
     const other = mkTopic('The Weierstrass M-test', 10);
@@ -419,6 +430,19 @@ console.log('\n--- the route: Study asks for the lesson, and says whether it is 
     // other topic's slot spins) until a reload. Only time passes here.
     const askedAtFail = asked;
     check('the writer tries again when the backoff ends', await until(() => asked > askedAtFail, 25000), `asked ${askedAtFail} → ${asked}`);
+    // That retry fails too and backs off longer (30 s). Try again on the page
+    // does not wait it out: the writer is on the topic at once.
+    let p4 = null;
+    await until(async () => { p4 = await feed(k1); return p4.lessonWrite?.state === 'failed'; });
+    check('failed again, the page says so again', p4?.lessonWrite?.state === 'failed', JSON.stringify(p4?.lessonWrite));
+    const base = `http://127.0.0.1:${appServer.address().port}`;
+    const askedAtPress = asked;
+    const pressed = await (await fetch(`${base}/api/feed/nodes/${route}/lesson/retry`, { method: 'POST' })).json();
+    check('Try again: the page is told the lesson is being written', pressed.lessonWrite?.nodeId === route && pressed.lessonWrite?.state === 'writing',
+        JSON.stringify(pressed));
+    check('…and the writer asks the model now, not when the backoff ends', await until(() => asked > askedAtPress, 5000), `asked ${askedAtPress} → ${asked}`);
+    const bad = await fetch(`${base}/api/feed/nodes/abc/lesson/retry`, { method: 'POST' });
+    check('Try again on no topic is refused', bad.status === 400, String(bad.status));
     setting('ai_enabled', 'false');
     const off = await feed();
     check('with AI off nothing is being written: no state, the page as today', off.lessonWrite == null, JSON.stringify(off.lessonWrite));

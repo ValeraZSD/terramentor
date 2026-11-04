@@ -790,6 +790,7 @@
   "Couldn't search the library. These are quick matches only.": "无法搜索库。以下仅为快速匹配结果。",
   "Couldn't send the report. Nothing was changed.": "无法发送报告。没有任何更改。",
   "Couldn't start math recovery": "无法启动数学恢复",
+  "Couldn't start the lesson again.": "无法重新开始编写课程。",
   "Couldn't tell whether the report was sent. Sending it again will not file it twice.": "无法确定报告是否已发送。再次发送不会重复提交。",
   "Couldn't undo that": "无法撤销",
   "Couldn't undo the report. Try again.": "无法撤销报告。请重试。",

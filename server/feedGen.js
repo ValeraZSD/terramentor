@@ -303,6 +303,20 @@ export function lessonWriteState(nodeId) {
     return { nodeId, state: 'writing' };
 }
 
+/**
+ * The learner pressed Try again on a topic whose lesson could not be written:
+ * the backoff that failure started ends now (a press is never declined), and
+ * the topic is asked for again. The failure count stays, so a write that fails
+ * again backs off longer. Returns the topic's state as the page should show it.
+ */
+export function retryLessonWrite(nodeId) {
+    if (!Number.isInteger(nodeId) || nodeId <= 0) return null;
+    // The failure is shown only while its backoff runs (`lessonWriteState`).
+    if (lastFailure?.nodeId === nodeId) backoffUntil = 0;
+    requestNode(nodeId);
+    return lessonWriteState(nodeId);
+}
+
 // Topics whose questions a DRAW had to hold back because no verifier had
 // confirmed them (questionLog.js tells us, after the draw — never on the
 // request path itself). The burst's last tier asks the verifier about them
