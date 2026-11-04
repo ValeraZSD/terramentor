@@ -17,7 +17,9 @@ const ALIASES: Record<string, RunnerLanguage> = {
 
 export function runnableLanguage(language: unknown): RunnerLanguage | null {
     if (typeof language !== 'string') return null;
-    return ALIASES[language.trim().toLowerCase()] ?? null;
+    const key = language.trim().toLowerCase();
+    // Own names only: `constructor` or `toString` is not a language.
+    return Object.prototype.hasOwnProperty.call(ALIASES, key) ? ALIASES[key] : null;
 }
 
 /** How each language is named on screen (a proper name, never translated). */
@@ -68,8 +70,12 @@ export function codeTestsOf(raw: unknown): CodeTest[] {
  */
 export const MIN_GRADING_TESTS = 3;
 
-/** The tests an answer is graded by: `codeTestsOf`, or none when there are too few to trust. */
+/**
+ * The tests an answer is graded by: `codeTestsOf`, or none when there are too
+ * few to trust. DIFFERENT inputs are counted: three copies of one call are one test.
+ */
 export function testsToGradeBy(raw: unknown): CodeTest[] {
     const tests = codeTestsOf(raw);
-    return tests.length >= MIN_GRADING_TESTS ? tests : [];
+    const inputs = new Set(tests.map((t) => (typeof t.call === 'string' ? `call:${t.call}` : `stdin:${t.stdin}`)));
+    return inputs.size >= MIN_GRADING_TESTS ? tests : [];
 }
