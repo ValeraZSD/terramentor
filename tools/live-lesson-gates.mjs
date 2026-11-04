@@ -236,6 +236,13 @@ console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes
     const withCard = [overview, flash('fc-3', 1)];
     const landed = placeCheckpoints(withCard, [card('fi-7', 'lesson', 1), card('fi-8', 'question', 1)], 1);
     check('the lesson and its question go where the slot was', keys(landed) === 'read-1 fi-7 fi-8 fc-3', keys(landed));
+    // While it was written the page showed only "Writing the lesson": the
+    // Overview standing in for it was never on screen, so the lesson replaces
+    // it, as a reload would serve the topic.
+    const replaced = placeCheckpoints(withCard, [card('fi-7', 'lesson', 1), card('fi-8', 'question', 1)], 1, true);
+    check('a lesson that ends "Writing the lesson" replaces the unseen stand-in', keys(replaced) === 'fi-7 fi-8 fc-3', keys(replaced));
+    const notYet = placeCheckpoints(withCard, [card('fi-8', 'question', 1)], 1, true);
+    check('…but only once a lesson came, never for a lone question', keys(notYet) === 'read-1 fi-8 fc-3', keys(notYet));
     check('and the slot is gone, even before the state says so',
         lessonSlot?.(landed, writing) === null && lessonPending?.(landed, writing) === false, JSON.stringify(lessonSlot?.(landed, writing)));
     const failed = { nodeId: 1, state: 'failed', reason: 'model not found' };
@@ -256,8 +263,12 @@ console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes
     // that FeedView is wired to them, and the Edge walk shows it drawn.
     const { readFileSync } = await import('node:fs');
     const view = readFileSync(fileURLToPath(new URL('../src/components/feed/FeedView.tsx', import.meta.url)), 'utf8');
-    check('FeedView is wired to the slot and holds its end on lessonPending',
-        /lessonPending\(feedCards, lessonWrite\)/.test(view) && /feedExhausted && feedCards\.length > 0 && !pending/.test(view) && /lessonSlot\(feedCards, lessonWrite\)/.test(view));
+    check('FeedView shows only "Writing the lesson" while it is pending, the failed note in the chapter',
+        /lessonPending\(feedCards, lessonWrite\)/.test(view) && /if \(pending\) \{[\s\S]{0,200}<LessonBeingWritten/.test(view)
+        && /slot && lessonWrite\?\.state === 'failed'/.test(view) && /lessonSlot\(feedCards, lessonWrite\)/.test(view));
+    const storeSrc = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
+    check('the pull replaces the stand-in only when the page was showing "Writing the lesson"',
+        /placeCheckpoints\(state\.feedCards, fresh, state\.feedLessonWrite\?\.nodeId \?\? null,\s*lessonPending\(state\.feedCards, state\.feedLessonWrite\)\)/.test(storeSrc));
 }
 
 console.log('\n--- the signal that a lesson landed is never thrown away ---');

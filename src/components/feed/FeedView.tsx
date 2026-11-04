@@ -15,7 +15,7 @@ import NoticeCard from './NoticeCard';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
-import LessonSlot from './LessonSlot';
+import LessonSlot, { LessonBeingWritten } from './LessonSlot';
 import { feedGenSignal, lessonPending, lessonSlot } from '../../utils/feedPlacement';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -309,11 +309,12 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     }, [aiConfigRev, pullFeedUpdates]);
 
     const groups = useMemo(() => groupCards(feedCards), [feedCards]);
-    // The topic's first lesson, still being written: its slot holds the page,
-    // and the stream has no end until it lands or fails.
+    // The topic's first lesson, still being written: the page shows that and
+    // nothing else until it lands. A failed write draws its note in the
+    // chapter, above the End of chapter.
     const slot = studying ? lessonSlot(feedCards, lessonWrite) : null;
     const pending = studying && lessonPending(feedCards, lessonWrite);
-    const slotSection = slot && lessonWrite ? (
+    const slotSection = slot && lessonWrite?.state === 'failed' ? (
         <ChapterSection key="lesson-slot" innerRef={noRef}>
             <LessonSlot write={lessonWrite} />
         </ChapterSection>
@@ -381,6 +382,17 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     <Loader2 className="w-10 h-10 text-accent-fg animate-spin mx-auto mb-4" />
                     <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("Building your feed…")}</p>
                 </div>
+            </div>
+        );
+    }
+
+    // The topic's first lesson is being written: nothing to read yet, so the
+    // page says that and holds no card (see LessonBeingWritten).
+    if (pending) {
+        return (
+            <div className="h-full flex flex-col bg-slate-100 dark:bg-slate-900">
+                {studyHeader}
+                <LessonBeingWritten title={studyNode?.title} />
             </div>
         );
     }
@@ -544,7 +556,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
                     </div>
                 )}
-                {feedExhausted && feedCards.length > 0 && !pending && (
+                {feedExhausted && feedCards.length > 0 && (
                     generating ? (
                         // Reaching the end while the generator is mid-burst is not
                         // a dead end — the next lessons are minutes away and will

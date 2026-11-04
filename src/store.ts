@@ -9,7 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
-import { placeCheckpoints, pullGate } from './utils/feedPlacement';
+import { lessonPending, placeCheckpoints, pullGate } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -1691,9 +1691,12 @@ export const useStore = create<AppState>((set, get) => ({
                 // topics the learner had moved on to), and on a topic's own page
                 // a lesson written after its checkpoint arrived goes in before
                 // that checkpoint (`placeCheckpoints`). A lesson the page was
-                // waiting on goes where its slot was drawn.
+                // waiting on goes where its slot was drawn, and replaces the
+                // Overview that stood in for it while the page showed only
+                // "Writing the lesson" (nobody read that stand-in).
                 feedCards: fresh.length
-                    ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null)
+                    ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null,
+                        lessonPending(state.feedCards, state.feedLessonWrite))
                     : state.feedCards,
                 feedHeader: res.header,
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },

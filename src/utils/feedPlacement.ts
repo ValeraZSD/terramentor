@@ -49,15 +49,24 @@ const chapterTopicOf = (c: FeedCard): number | null =>
  *   Overview standing in for it), never under it.
  * - a pulled teaching card of `slotTopic`, whose first lesson the page was
  *   waiting on (`lessonSlot`), goes where that slot was drawn: after the
- *   topic's own cards, not under a flashcard served after them.
+ *   topic's own cards, not under a flashcard served after them. With
+ *   `replaceStandIn` (the page showed only "Writing the lesson", so the
+ *   Overview standing in for it was never on screen) the written lesson takes
+ *   that stand-in's place, as a reload would serve it.
  * Anything else is appended in the page's order.
  */
-export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[], slotTopic: number | null = null): FeedCard[] {
+export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[], slotTopic: number | null = null, replaceStandIn = false): FeedCard[] {
     const out = [...held];
     const pulledTopics = new Set<number>();
     // Where the next card of the slot's topic goes; moves on as each lands.
     let slotAt = -1;
-    if (slotTopic != null) {
+    const standIn = replaceStandIn && slotTopic != null && fresh.some(c => c.kind === 'lesson' && c.nodeId === slotTopic && !c.degraded)
+        ? out.findIndex(c => c.kind === 'lesson' && c.nodeId === slotTopic && c.degraded)
+        : -1;
+    if (standIn >= 0) {
+        out.splice(standIn, 1);
+        slotAt = standIn;
+    } else if (slotTopic != null) {
         for (let i = out.length - 1; i >= 0; i--) {
             if (chapterTopicOf(out[i]) === slotTopic) { slotAt = i + 1; break; }
         }
@@ -110,9 +119,10 @@ export function lessonSlot(cards: FeedCard[], write: LessonWrite | null): { key:
 }
 
 /**
- * The stream has not ended while its topic's lesson is being written: no
- * junction ("That's all of this topic") and no "Writing more lessons · 0%"
- * line under the slot that already says it.
+ * The topic's first lesson is being written and nothing else stands in for
+ * it but the Overview: the page shows "Writing the lesson" instead of the
+ * stream (no "Got it, continue" with no lesson behind it, no junction, no
+ * "Writing more lessons · 0%"), and the lesson replaces it when it lands.
  */
 export function lessonPending(cards: FeedCard[], write: LessonWrite | null): boolean {
     return write?.state === 'writing' && lessonSlot(cards, write) != null;
