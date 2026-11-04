@@ -3,10 +3,12 @@
  * learner's code, on the same test inputs, inside one Pyodide interpreter, and
  * compares what each produced.
  *
- * The reference always runs FIRST, so nothing the learner's code does can
- * change the expected values; what the learner's code does to its own results
- * (redefining `==`, rewriting `print`) can only fool the person who wrote it.
- * Each side runs in its own namespace. A test is either a CALL, evaluated
+ * The reference always runs FIRST, so the expected values are taken before the
+ * learner's code exists. Each side runs in its own namespace, but both share
+ * this interpreter, so this is not a wall: code that goes looking (frames, the
+ * garbage collector) can reach the harness, read the expected values or change
+ * the comparison. That decides only the question it runs in, and SECURITY.md
+ * says so ("The code runner's limits"). A test is either a CALL, evaluated
  * after the code has run, or a STANDARD INPUT, for which the whole program is
  * run again with those lines behind `input()` and its printed output compared.
  * `input()` never echoes its prompt, so "Enter n: " in one program and none in
@@ -67,7 +69,27 @@ def _clean(text):
         lines.pop()
     return '\n'.join(lines)
 
-def _same(a, b, depth=0):
+def _own(v):
+    """A value of a class the code itself defined: each side has its own copy of that class."""
+    return getattr(type(v), '__module__', None) == '__main__'
+
+def _comparable(v, depth=0):
+    """Whether two such values can be compared at all. A generator, a function or
+    an object with no equality of its own equals only itself, so the reference's
+    could never match anything the learner's code makes."""
+    if depth > 40:
+        return False
+    if v is None or isinstance(v, (bool, int, float, complex, str, bytes)):
+        return True
+    if isinstance(v, (list, tuple, set, frozenset)):
+        return all(_comparable(x, depth + 1) for x in v)
+    if isinstance(v, dict):
+        return all(_comparable(k, depth + 1) and _comparable(x, depth + 1) for k, x in v.items())
+    if _own(v):
+        return hasattr(v, '__dict__') and _comparable(vars(v), depth + 1)
+    return type(v).__eq__ is not object.__eq__
+
+def _same(a, b, depth=0, strict=True):
     if depth > 40:
         return False
     if isinstance(a, bool) or isinstance(b, bool):
@@ -79,9 +101,17 @@ def _same(a, b, depth=0):
             return True
         return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
-        return len(a) == len(b) and all(_same(x, y, depth + 1) for x, y in zip(a, b))
+        if strict and isinstance(a, tuple) != isinstance(b, tuple):
+            return False
+        return len(a) == len(b) and all(_same(x, y, depth + 1, strict) for x, y in zip(a, b))
     if isinstance(a, dict) and isinstance(b, dict):
-        return a.keys() == b.keys() and all(_same(a[k], b[k], depth + 1) for k in a)
+        return a.keys() == b.keys() and all(_same(a[k], b[k], depth + 1, strict) for k in a)
+    if _own(a) or _own(b):
+        # Two copies of one class never compare equal by their own __eq__ (a
+        # dataclass checks the class itself), so compare the name and the fields.
+        return (_own(a) and _own(b) and type(a).__name__ == type(b).__name__
+                and hasattr(a, '__dict__') and hasattr(b, '__dict__')
+                and _same(vars(a), vars(b), depth + 1, strict))
     try:
         return bool(a == b)
     except BaseException:
@@ -188,6 +218,8 @@ def run_reference(code, tests_json):
             return json.dumps({'ok': False, 'problem': 'reference-error'})
         if kind == 'raised' and isinstance(value, _KEY_ERRORS):
             return json.dumps({'ok': False, 'problem': 'reference-error'})
+        if kind == 'value' and not _comparable(value):
+            return json.dumps({'ok': False, 'problem': 'reference-error'})
         if 'expect' in t:
             if kind == 'output':
                 if _clean(t['expect']) != value:
@@ -197,7 +229,8 @@ def run_reference(code, tests_json):
                     wanted = ast.literal_eval(t['expect'])
                 except BaseException:
                     continue
-                if not _same(value, wanted):
+                # An author's literal may write a tuple as a list: lenient here only.
+                if not _same(value, wanted, strict=False):
                     return json.dumps({'ok': False, 'problem': 'expect-mismatch'})
             else:
                 return json.dumps({'ok': False, 'problem': 'expect-mismatch'})

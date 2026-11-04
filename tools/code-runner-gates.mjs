@@ -17,8 +17,9 @@
 //      shell to the server;
 //   2. the pieces (Node): the wasm memory ceiling is really lowered in
 //      Pyodide's own module, the tests a question carries are capped and
-//      shaped the same on both sides, and the page reads a forged result as
-//      nothing more than a verdict;
+//      shaped the same on both sides, the page reads a forged result as
+//      nothing more than a verdict, and only the learner's own code being
+//      stopped counts against them;
 //   3. the walls (browser, a probe worker with every network API still in
 //      place): fetch, XHR, WebSocket, EventSource and a remote import reach
 //      neither this app's address nor another port; the worker's origin is
@@ -29,7 +30,11 @@
 //      Python's every network route is dead, an endless loop is stopped
 //      within a second of the limit while the page keeps answering, 600 MB
 //      becomes a MemoryError, output stops at 64 KB, a message flood ends the
-//      run, and a forged phase does not buy more time.
+//      run, and a forged phase does not buy more time;
+//   5. values: a value with no equality of its own (a generator, a promise,
+//      a function) is never compared, so the model grades it rather than
+//      every answer passing or failing; a class each side defines for itself
+//      compares by its fields, a regular expression by its source.
 //
 // `--weaken` serves a deliberately weakened sandbox and must turn this red:
 //   connect      the shell allows every address
@@ -138,7 +143,7 @@ async function bundleForNode(entry, name) {
     return import(pathToFileURL(outfile).href);
 }
 const pieces = await bundleForNode(
-    "export * from './src/runner/wasmMemory.ts'; export * from './src/runner/languages.ts'; export * from './src/runner/protocol.ts';",
+    "export * from './src/runner/wasmMemory.ts'; export * from './src/runner/languages.ts'; export * from './src/runner/protocol.ts'; export * from './src/runner/verdict.ts';",
     'pieces',
 );
 const pyodideDir = join(repoRoot, 'node_modules', 'pyodide');
@@ -198,6 +203,85 @@ const qjsWasmPath = require.resolve('@jitl/quickjs-ng-wasmfile-release-sync/wasm
         pieces.readRunResult({ status: 'passed' }, 'nowhere').status === 'crash' && pieces.readRunResult(null, 'nowhere').phase === 'load');
     const rows = pieces.readRunResult({ status: 'done', tests: Array.from({ length: 50 }, () => ({ pass: true })) }, 'learner').tests;
     check('…and at most 12 rows', rows.length === 12);
+}
+{
+    const v = pieces.runVerdict;
+    const row = (pass) => ({ kind: 'call', input: 'f()', expected: '1', actual: pass ? '1' : '2', pass });
+    check('the verdict: every test passed is right, one failed is wrong',
+        v({ status: 'done', phase: 'learner', tests: [row(true), row(true)] }) === true && v({ status: 'done', phase: 'learner', tests: [row(true), row(false)] }) === false);
+    check('…the learner\'s own code stopped on time, memory or a flood is wrong',
+        ['timeout', 'memory', 'flood'].every((status) => v({ status, phase: 'learner' }) === false));
+    check('…the reference stopped, no runtime, a crash, a key problem or no tests says nothing (the model grades)',
+        v({ status: 'timeout', phase: 'reference' }) === null && v({ status: 'memory', phase: 'reference' }) === null
+        && v({ status: 'unavailable', phase: 'load' }) === null && v({ status: 'crash', phase: 'learner' }) === null
+        && v({ status: 'done', phase: 'learner', keyProblem: 'reference-error', tests: [row(true)] }) === null
+        && v({ status: 'done', phase: 'learner', tests: [] }) === null);
+}
+{
+    // The page's door (src/runner/runCode.ts) with the browser parts swapped:
+    // the frame host is a fake that records every frame it opens, the
+    // runtimes' files are a byte each.
+    const FAKE_HOST = `
+export const frames = [];
+export const control = { ready: null };
+export function openRunnerFrame(boot) {
+    let open = true;
+    const failed = control.ready;
+    if (failed) open = false;
+    const f = {
+        boot,
+        ready: Promise.resolve(failed),
+        run: async () => (open ? { status: 'done', phase: 'learner', output: '' } : { status: 'unavailable', phase: 'idle' }),
+        dispose() { open = false; },
+        isOpen: () => open,
+    };
+    frames.push(f);
+    return f;
+}`;
+    const swap = {
+        name: 'swap-browser-parts',
+        setup(build) {
+            build.onResolve({ filter: /\?(url|raw)$|^virtual:runner-worker$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
+            build.onResolve({ filter: /frameHost$/ }, () => ({ path: 'frameHost', namespace: 'fake' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: a.path.endsWith('?url') ? 'export default "data:application/octet-stream;base64,AA=="' : 'export default ""', loader: 'js' }));
+            build.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: FAKE_HOST, loader: 'js' }));
+        },
+    };
+    const outfile = join(scratch, 'door.mjs');
+    await esbuild.build({
+        stdin: { contents: "export * from './src/runner/runCode.ts'; export { frames, control } from './src/runner/frameHost';", resolveDir: repoRoot, loader: 'ts' },
+        bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent', plugins: [swap],
+    });
+    const door = await import(pathToFileURL(outfile).href);
+    const openFrames = () => door.frames.filter((f) => f.isOpen()).length;
+
+    door.warmRunner('python', 0);
+    await sleep(2);
+    door.closeSpareRunner();
+    await sleep(300);
+    check('switching the runner off while Python is starting keeps no runtime running', openFrames() === 0, `${openFrames()} open`);
+
+    door.warmRunner('python', 0);
+    await sleep(300);
+    const kept = door.frames.length;
+    door.frames[kept - 1]?.dispose(); // the frame kept ready ended while it waited
+    const afterDead = await door.runCode('python', 'print(1)', []);
+    check('a frame kept ready that has ended is not handed to the next run', kept >= 1 && afterDead.status === 'done' && door.frames.length === kept + 1,
+        `${afterDead.status}, ${door.frames.length - kept} new frame(s)`);
+    door.closeSpareRunner();
+
+    door.control.ready = { status: 'unavailable', phase: 'load' };
+    const tests = [{ call: 'f()' }];
+    const firstTry = await door.checkCode('javascript', 'ref', 'mine', tests);
+    const opened = door.frames.length;
+    const secondTry = await door.checkCode('javascript', 'ref', 'mine', tests);
+    const noFrame = door.frames.length === opened;
+    const press = await door.runCode('javascript', 'mine', tests);
+    door.control.ready = null;
+    check('a runtime that could not start is not waited for again by the next graded answer',
+        firstTry.status === 'unavailable' && secondTry.status === 'unavailable' && noFrame, `${secondTry.status}, ${noFrame ? 'no new frame' : 'a new frame'}`);
+    check('…while Run, pressed by the learner, still tries', door.frames.length === opened + 1 && press.status === 'unavailable');
+    door.closeSpareRunner();
 }
 
 // ---------------------------------------------------------------------------
@@ -544,9 +628,36 @@ print(json.dumps(out))
             && jStdin.result.tests[0].expected === '42', JSON.stringify(jStdin.result).slice(0, 300));
         check('JavaScript: a memory blow-up stops at the fixed ceiling', jMemory.result.status === 'done' && /out of memory|RangeError|InternalError/i.test(String(jMemory.result.error)),
             JSON.stringify(jMemory.result).slice(0, 200));
-        check('JavaScript: the code sees no network, messaging or worker API at all', String(jGlobals.result.output).trim() === 'undefined undefined undefined undefined undefined undefined', String(jGlobals.result.output));
+        check('JavaScript: the language itself has no network, messaging or worker API', String(jGlobals.result.output).trim() === 'undefined undefined undefined undefined undefined undefined', String(jGlobals.result.output));
         check('JavaScript: an expect the reference disputes grades nothing', jExpect.result.keyProblem === 'expect-mismatch', JSON.stringify(jExpect.result));
 
+        section('5. values the runner can and cannot compare');
+        // A batch of its own: fewer runtimes starting at once.
+        const DC = 'from dataclasses import dataclass\n@dataclass\nclass P:\n    x: int\n    y: list';
+        const [[pGen, pOwn, pOwnWrong, pTuple], [jPromise, jRegex, jRegexSame, jFn]] = await Promise.all([
+            Promise.all([
+                py({ mode: 'check', reference: 'def g():\n    return (x for x in [1, 2])', learner: 'def g():\n    return (x for x in [1, 2])', tests: [{ call: 'g()' }, { call: 'list(g())' }] }),
+                py({ mode: 'check', reference: `${DC}\ndef f(n):\n    return P(n, [n])`, learner: `${DC}\ndef f(n):\n    return P(n, [n])`, tests: [{ call: 'f(1)' }, { call: 'f(2)' }] }),
+                py({ mode: 'check', reference: `${DC}\ndef f(n):\n    return P(n, [n])`, learner: `${DC}\ndef f(n):\n    return P(n, [n + 1])`, tests: [{ call: 'f(1)' }] }),
+                py({ mode: 'check', reference: 'def pair(n):\n    return (n, n)', learner: 'def pair(n):\n    return [n, n]', tests: [{ call: 'pair(1)' }] }),
+            ]),
+            Promise.all([
+                js({ mode: 'check', reference: 'async function f(x) { return x * 2; }', learner: 'async function f(x) { return 0; }', tests: [{ call: 'f(2)' }] }),
+                js({ mode: 'check', reference: 'function r() { return /^\\d+$/; }', learner: 'function r() { return /^[a-z]+$/; }', tests: [{ call: 'r()' }] }),
+                js({ mode: 'check', reference: 'function r() { return /^\\d+$/; }', learner: 'const r = () => new RegExp("^\\\\d+$");', tests: [{ call: 'r()' }] }),
+                js({ mode: 'check', reference: 'function k() { return () => 1; }', learner: 'function k() { return () => 2; }', tests: [{ call: 'k()' }, { call: 'k()()' }] }),
+            ]),
+        ]);
+        check('Python: a generator the reference returns is not compared; the model grades', pGen.result.keyProblem === 'reference-error' && !pGen.result.tests, JSON.stringify(pGen.result).slice(0, 300));
+        check('Python: a class each side defines for itself compares by its fields', allPass(pOwn), JSON.stringify(pOwn.result).slice(0, 300));
+        check('…and a different field fails', pOwnWrong.result.tests?.[0]?.pass === false, JSON.stringify(pOwnWrong.result).slice(0, 300));
+        check('Python: a list where the reference returns a tuple fails', pTuple.result.tests?.[0]?.pass === false, JSON.stringify(pTuple.result).slice(0, 300));
+        check('JavaScript: a promise the reference returns is not compared; the model grades', jPromise.result.keyProblem === 'reference-error' && !jPromise.result.tests, JSON.stringify(jPromise.result).slice(0, 300));
+        check('JavaScript: two different regular expressions are different', jRegex.result.tests?.[0]?.pass === false, JSON.stringify(jRegex.result).slice(0, 300));
+        check('…and the same one written another way passes', allPass(jRegexSame), JSON.stringify(jRegexSame.result).slice(0, 300));
+        check('JavaScript: a function the reference returns is not compared; the model grades', jFn.result.keyProblem === 'reference-error', JSON.stringify(jFn.result).slice(0, 300));
+
+        section('6. stopping a run');
         // Run apart from the rest, so their timing is their own.
         const [pFlood, pForge, jLoop] = await Promise.all([
             py({ mode: 'run', learner: 'from pyodide.code import run_js\nrun_js("for (let i = 0; i < 100; i++) postMessage({ i })")\nwhile True:\n    pass', tests: [] }),

@@ -128,16 +128,22 @@ async function bootJs(boot: BootPayload): Promise<JsEngine> {
 const JS_PRELUDE = String.raw`(function (print, readLine) {
     'use strict';
     var stringify = JSON.stringify, isArray = Array.isArray, keys = Object.keys, getProto = Object.getPrototypeOf;
-    var isNaN_ = Number.isNaN, MapP = Map.prototype, SetP = Set.prototype, DateP = Date.prototype;
-    var mapEntries = MapP.entries, setValues = SetP.values, dateIso = DateP.toISOString, from = Array.from;
+    var isNaN_ = Number.isNaN, MapP = Map.prototype, SetP = Set.prototype, DateP = Date.prototype, RegExpP = RegExp.prototype, ObjectP = Object.prototype;
+    var mapEntries = MapP.entries, setValues = SetP.values, dateIso = DateP.toISOString, reText = RegExpP.toString, typeTag = ObjectP.toString, from = Array.from;
+    // 'opaque': a value whose content is not in its own keys (a promise, a
+    // generator, an instance with no fields): two of them cannot be compared,
+    // so the check declines rather than calling any two of them equal.
     function kindOf(v) {
         try {
             var p = getProto(v);
             if (p === MapP) return 'map';
             if (p === SetP) return 'set';
             if (p === DateP) return 'date';
-        } catch (e) {}
-        return isArray(v) ? 'array' : 'object';
+            if (p === RegExpP) return 'regexp';
+            if (isArray(v)) return 'array';
+            if (p !== ObjectP && p !== null && keys(v).length === 0) return 'opaque';
+        } catch (e) { return 'opaque'; }
+        return 'object';
     }
     function tag(v, depth) {
         if (depth > 20) return { $deep: 1 };
@@ -147,7 +153,7 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
             case 'bigint': return { $big: String(v) };
             case 'string': case 'boolean': return v;
             case 'symbol': return { $sym: String(v.description) };
-            case 'function': return { $fn: String(v.name || '') };
+            case 'function': return { $opaque: 1 };
         }
         if (v === null) return null;
         switch (kindOf(v)) {
@@ -155,6 +161,8 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
             case 'map': return { $map: from(mapEntries.call(v), function (e) { return [tag(e[0], depth + 1), tag(e[1], depth + 1)]; }) };
             case 'set': return { $set: from(setValues.call(v), function (x) { return tag(x, depth + 1); }) };
             case 'date': try { return { $date: dateIso.call(v) }; } catch (e) { return { $date: 'Invalid Date' }; }
+            case 'regexp': try { return { $re: reText.call(v) }; } catch (e) { return { $opaque: 1 }; }
+            case 'opaque': return { $opaque: 1 };
         }
         var o = {}, ks = keys(v);
         for (var i = 0; i < ks.length && i < 200; i++) o[ks[i]] = tag(v[ks[i]], depth + 1);
@@ -176,6 +184,8 @@ const JS_PRELUDE = String.raw`(function (print, readLine) {
             case 'map': return 'Map(' + v.size + ') {' + from(mapEntries.call(v)).slice(0, 50).map(function (e) { return show(e[0], depth + 1) + ' => ' + show(e[1], depth + 1); }).join(', ') + '}';
             case 'set': return 'Set(' + v.size + ') {' + from(setValues.call(v)).slice(0, 50).map(function (x) { return show(x, depth + 1); }).join(', ') + '}';
             case 'date': try { return dateIso.call(v); } catch (e) { return 'Invalid Date'; }
+            case 'regexp': try { return reText.call(v); } catch (e) { return '[RegExp]'; }
+            case 'opaque': try { return typeTag.call(v); } catch (e) { return '[object]'; }
         }
         var ks = keys(v).slice(0, 50);
         return '{' + ks.map(function (k) { return k + ': ' + show(v[k], depth + 1); }).join(', ') + '}';
@@ -349,6 +359,24 @@ function sameTree(a: unknown, b: unknown, depth = 0): boolean {
     return ak.length === bk.length && ak.every((k, i) => k === bk[i] && sameTree(ao[k], bo[k], depth + 1));
 }
 
+/**
+ * Whether an encoded value holds something the encoder could not see into (a
+ * function, a promise, a value it failed to read, one nested too deep). The
+ * walk follows the encoding's own wrappers only, so a learner's object with a
+ * key named `$opaque` is still just data.
+ */
+function uncomparable(t: unknown, depth = 0): boolean {
+    if (depth > 40) return true;
+    if (Array.isArray(t)) return t.some((x) => uncomparable(x, depth + 1));
+    if (!t || typeof t !== 'object') return false;
+    const o = t as Record<string, unknown>;
+    if ('$opaque' in o || '$err' in o || '$deep' in o) return true;
+    if (o.$obj && typeof o.$obj === 'object') return Object.values(o.$obj as Record<string, unknown>).some((x) => uncomparable(x, depth + 1));
+    if (Array.isArray(o.$map)) return (o.$map as unknown[][]).some((e) => uncomparable(e, depth + 1));
+    if (Array.isArray(o.$set)) return (o.$set as unknown[]).some((x) => uncomparable(x, depth + 1));
+    return false;
+}
+
 const JS_KEY_ERRORS = new Set(['SyntaxError', 'ReferenceError', 'TypeError', 'InternalError', 'RangeError']);
 
 /** A row's input, raw: the page words it. */
@@ -370,6 +398,7 @@ function jsCheck(engine: JsEngine, job: JobPayload): Record<string, unknown> {
             const r = ref[i];
             const t = job.tests[i];
             if (r.over || (r.kind === 'raised' && JS_KEY_ERRORS.has(r.name))) return 'reference-error';
+            if (r.kind === 'value' && uncomparable(r.t)) return 'reference-error';
             if (typeof t.expect !== 'string') continue;
             if (r.kind === 'output') { if (cleanOutput(t.expect) !== r.text) return 'expect-mismatch'; continue; }
             if (r.kind === 'raised') return 'expect-mismatch';
@@ -445,6 +474,9 @@ function pyRun(engine: PythonEngine, job: JobPayload): Record<string, unknown> {
 const REMOVED_GLOBALS = [
     'fetch', 'XMLHttpRequest', 'WebSocket', 'WebSocketStream', 'EventSource', 'WebTransport',
     'Worker', 'SharedWorker', 'importScripts', 'BroadcastChannel', 'indexedDB', 'caches',
+    // No policy covers WebRTC. The standard offers it to pages only, so no
+    // worker should have it; if a browser ever does, it is gone here too.
+    'RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel',
 ];
 
 function lockDown() {
@@ -464,6 +496,9 @@ let state: 'boot' | 'booting' | 'ready' | 'busy' = 'boot';
 
 function isMemoryError(err: unknown): boolean {
     const text = String((err as { message?: unknown })?.message ?? err);
+    // A deep recursion is a RangeError too ("Maximum call stack size
+    // exceeded"), and calling that memory would point the learner the wrong way.
+    if (/call stack/i.test(text)) return false;
     return err instanceof RangeError || /out of memory|memory access out of bounds|Cannot allocate|MemoryError/i.test(text);
 }
 
