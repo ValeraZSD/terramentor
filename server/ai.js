@@ -19,6 +19,7 @@ import { parseJsonWithRepair } from './jsonRepair.js';
 import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
+import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
@@ -3595,6 +3596,32 @@ function curriculumLanguageRule(lang) {
     return `\nLANGUAGE: write every "title" and "description" in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.${learnedWordsRule(lang)}`;
 }
 
+// ---- how big a created course is (server/courseSize.js) ----------------------------
+// The phase plan judges the size; every later call is told its own range and
+// the code keeps at most the top of it (creationStages.js).
+const sizeOf = (size) => COURSE_SIZES[size] || COURSE_SIZES[DEFAULT_COURSE_SIZE];
+
+const COURSE_SIZE_RULE = `SIZE: first judge how much the learner asked for, from the name, the description and the notes above, and size the course to that, never larger. Put your judgement in "size":
+- "short": one chapter or one topic of a subject, one unit of an exam, a single method or skill: ${rangeText(COURSE_SIZES.short.phases)} phases;
+- "standard": several connected topics, about a term's worth of study: ${rangeText(COURSE_SIZES.standard.phases)} phases;
+- "full": a whole subject, a complete syllabus or a long book: ${rangeText(COURSE_SIZES.full.phases)} phases.
+Teach what was asked for and leave out what was not. Background the learner needs first is a short review inside the first phase, never a phase of its own, unless the description says they lack it. No two phases teach the same thing: a later phase USES what an earlier one taught and moves on.
+`;
+
+/** The whole phase plan, this phase marked, so a phase does not take another's part. */
+function coursePlanBlock(plan, current) {
+    if (!Array.isArray(plan) || plan.length < 2) return '';
+    const lines = plan.map((p, i) => `  ${i + 1}. ${p.title}${p.title === current ? '  <- THIS PHASE' : ''}`);
+    return `\n\nCOURSE PLAN (every phase, in order):\n${lines.join('\n')}`;
+}
+
+/** The sections the earlier phases already have, by phase. */
+function earlierSectionsBlock(earlier) {
+    const rows = (earlier || []).filter(p => p?.sections?.length);
+    if (!rows.length) return '';
+    return `\n\nSECTIONS EARLIER PHASES ALREADY TEACH (never write one of these again, however you would word it):\n${rows.map(p => `  ${p.phase}: ${p.sections.join('; ')}`).join('\n')}`;
+}
+
 /**
  * The same order for the creation steps that write PROSE rather than a JSON
  * tree: the planning notes and the project summary. Both are read by later
@@ -4652,16 +4679,19 @@ Rules:
     // or '' for both — so a creation without files sends the prompts with no
     // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
-    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
+    // `size` is the plan's (server/courseSize.js); `plan` every phase in
+    // order and `earlier` the sections the phases before this one already
+    // have, so a phase does not write again what another teaches.
+    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null } = {}) => ({
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
     }),
-    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
+    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}${earlierSectionsBlock(earlier)}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
     // a single call instead of one call per topic. Creation is dominated by
@@ -4673,21 +4703,21 @@ Rules:
     // routes/createProject.js falls back to the per-element prompt for any topic this call
     // comes back empty for, so a model that fumbles the wider schema degrades to
     // the old behaviour instead of leaving a topic childless.
-    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null, sources = null } = {}) => ({
+    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
         system: `Create detailed sub-elements (leaf topics) for EVERY topic in one learning phase.
 
 CRITICAL RULES:
 1. Output ONLY a JSON object: {"topics": [{"element": "<exact topic title from the list>", "subElements": [{"title": "...", "description": "..."}]}]}
 2. Include EVERY topic from the list, once, with its title copied EXACTLY as given.
-3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
-4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
+3. Each sub-element is a concrete, actionable skill or concept — ${rangeText(sizeOf(size).topics)} per topic, never more.
+4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else. Nor do they teach again what an earlier phase already has.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
 6. "description" is one or two sentences: what to learn and why it matters.
 7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}
-  Learning Phase: ${categoryTitle} — ${categoryDescription}
+  Learning Phase: ${categoryTitle} — ${categoryDescription}${earlierSectionsBlock(earlier)}
 
 TOPICS TO EXPAND (copy each title exactly):
 ${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}${sources?.user || ''}`
@@ -4735,8 +4765,8 @@ ${projectDescription ? `The user described it as: "${projectDescription}"` : ''}
 
 Write about 300 words of planning notes — no more. Only the next step reads this, and it reads at most 2000 characters, so anything past that is generated and thrown away.
 Cover, briefly:
-1. The core subject and who the likely learner is.
-2. The biggest knowledge domains, and the order they should come in.
+1. The core subject and who the likely learner is, and how much they asked for: one chapter, topic or skill is a short course; a whole subject is a long one.
+2. The knowledge domains that scope needs, and the order they should come in.
 3. The tricky parts — ambiguous scope, prerequisites, common misconceptions.
 4. Your strategy for splitting this into phases.
 

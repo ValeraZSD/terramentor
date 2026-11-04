@@ -198,7 +198,8 @@ export function planBlock(src) {
 2. Front and back matter is not taught: a part about the book itself rather than its subject (preface, foreword, about this book, how to use it, conventions, the author, acknowledgements, contents, bibliography, index, answer keys) goes in NO phase. List its § numbers in "skip", beside "categories": { "categories": [ ... ], "skip": [1, 14] }. A part that teaches the subject is never skipped, whatever it is called.
 3. ${many ? 'Every file counts: with a textbook and past exams, or notes and a syllabus, the phases teach what all of them hold, in the order of the main text.' : 'Teach what the file holds, in its order; do not add unrelated material.'}
 4. Each phase also carries "sections": the § numbers of the parts it covers, in order, e.g. { "title": "...", "description": "...", "sections": [3, 4] }.
-5. Name each phase after what it teaches, in the files' own terms and notation. A § number is a reference for "sections" and "skip" only: never write one in a title or description.`,
+5. Name each phase after what it teaches, in the files' own terms and notation. A § number is a reference for "sections" and "skip" only: never write one in a title or description.
+6. The "size" is what the files hold: one chapter or an exam sheet is "short", a whole book "full". Phases that would be more than the size allows take several parts each.`,
         user: `\n\nSOURCE MATERIAL:${wrap(wholeBlock(src, SOURCE_BUDGET.plan))}`,
     };
 }

@@ -13,8 +13,9 @@ import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } f
 import { createSlotGate } from '../creationSlots.js';
 import {
     WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, outlineGapsError, planPhases, projectSources,
-    sendBatchDone, writePhases, writeSections, writeTopics,
+    rememberWritten, sendBatchDone, writePhases, writeSections, writeTopics,
 } from '../creationStages.js';
+import { sizeForPhaseCount } from '../courseSize.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
 import { getLanguage, getProjectLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
@@ -1076,6 +1077,13 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             await writePhases(ctx, phases);
         }
         ctx.counts.categories = phases.length;
+        // The size the plan judged, read back from the phases it produced
+        // when they were written by an earlier run, and what already exists:
+        // the phases still to be written are shown the sections before them
+        // and must not repeat any section or topic the course has.
+        ctx.size ??= sizeForPhaseCount(phases.length);
+        ctx.plan ??= phases.map(p => ({ title: p.title }));
+        phases.forEach((p, ci) => rememberWritten(ctx, ci, p, kids(p.id), s => kids(s.id)));
 
         // The run's ETA, told the shape that already exists: sections and
         // topics written count as planned, and a topic that needs no link
