@@ -174,17 +174,34 @@ const qjsWasmPath = require.resolve('@jitl/quickjs-ng-wasmfile-release-sync/wasm
 {
     const many = Array.from({ length: 20 }, (_, i) => ({ call: `f(${i})` }));
     check('at most 12 tests are kept', normalizeCodeTests(many).length === CODE_TEST_LIMITS.maxTests && pieces.codeTestsOf(many).length === pieces.MAX_TESTS);
-    const mixed = [
+    const junk = [
         { call: 'f(1)', stdin: '1' }, { expect: '3' }, { call: 42 }, null, 'f(2)', [],
-        { call: 'f(3)', expect: '9' }, { stdin: '4\\n5' }, { call: 'x'.repeat(2001) }, { call: 'f(4)', expect: 16 },
+        { call: 'f(3)', expect: '9' }, { call: 'x'.repeat(2001) }, { call: 'f(4)', expect: 16 },
     ];
-    const server = normalizeCodeTests(mixed);
+    const server = normalizeCodeTests(junk);
     check('a test is a call or a standard input, never both, never neither; junk is dropped',
-        JSON.stringify(server) === JSON.stringify([{ call: 'f(3)', expect: '9' }, { stdin: '4\n5' }, { call: 'f(4)', expect: '16' }]), JSON.stringify(server));
+        JSON.stringify(server) === JSON.stringify([{ call: 'f(3)', expect: '9' }, { call: 'f(4)', expect: '16' }]), JSON.stringify(server));
     check('the client reads what the server stored the same way', JSON.stringify(pieces.codeTestsOf(server)) === JSON.stringify(server));
+    const stdinOnly = normalizeCodeTests([{ stdin: '4\\n5' }, { stdin: '6' }]);
+    check('a standard input gets its newlines back', JSON.stringify(stdinOnly) === JSON.stringify([{ stdin: '4\n5' }, { stdin: '6' }]), JSON.stringify(stdinOnly));
+    const bothKinds = [{ call: 'f(1)' }, { call: 'f(2)' }, { stdin: '3' }];
+    check('a list mixing calls and standard inputs is no list at all, on both sides',
+        normalizeCodeTests(bothKinds).length === 0 && pieces.codeTestsOf(bothKinds).length === 0,
+        `server ${normalizeCodeTests(bothKinds).length}, client ${pieces.codeTestsOf(bothKinds).length}`);
     const big = Array.from({ length: 12 }, () => ({ stdin: 'y'.repeat(1990) }));
     const kept = normalizeCodeTests(big);
     check('all tests together stay under 16,000 characters', kept.length === 8, `${kept.length} kept`);
+    const thenSmall = [...big.slice(0, 9), { stdin: 'small' }];
+    const keptServer = normalizeCodeTests(thenSmall);
+    const keptClient = pieces.codeTestsOf(thenSmall);
+    check('…a test that does not fit is skipped, and a later one that fits is still kept, on both sides',
+        keptServer.length === 9 && keptServer[8]?.stdin === 'small' && keptClient.length === 9 && keptClient[8]?.stdin === 'small',
+        `server ${keptServer.length}, client ${keptClient.length}`);
+    const two = [{ call: 'f(1)' }, { call: 'f(2)' }];
+    const three = [...two, { call: 'f(3)' }];
+    check('fewer than three tests grade nothing (a constant answer could pass them), but still feed Run',
+        pieces.testsToGradeBy?.(two)?.length === 0 && pieces.codeTestsOf(two).length === 2 && pieces.testsToGradeBy?.(three)?.length === 3,
+        `two → ${pieces.testsToGradeBy?.(two)?.length}, three → ${pieces.testsToGradeBy?.(three)?.length}`);
     const q = normalizeQuestionFormat({ type: 'code', language: 'python', correct_answer: 'def f(x):\n    return x * 2', tests: [{ call: 'f(2)', expect: '4' }] });
     check('a code question keeps its tests through the format registry', JSON.stringify(q?.tests) === '[{"call":"f(2)","expect":"4"}]', JSON.stringify(q));
     const imported = normalizeQuestionFormat({ type: 'code', language: 'python', correct_answer: 'def f(x):\n    return x * 2', tests: [{ call: 'f(2)' }] }, { stored: true });
@@ -305,6 +322,50 @@ export function openRunnerFrame(boot) {
         firstTry.status === 'unavailable' && secondTry.status === 'unavailable' && noFrame, `${secondTry.status}, ${noFrame ? 'no new frame' : 'a new frame'}`);
     check('…while Run, pressed by the learner, still tries', door.frames.length === opened + 1 && press.status === 'unavailable');
     door.closeSpareRunner();
+
+    // A download that stalls half-way (headers and one byte, then nothing)
+    // must end at the start-up limit, here shortened to 400 ms, and must not
+    // be kept for the next run once the server answers again.
+    let stall = true;
+    const stalling = createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        if (stall) res.write(Buffer.from([0])); else res.end(Buffer.from([0]));
+    });
+    const stallPort = await listen(stalling);
+    const shortLimits = {
+        name: 'short-limits',
+        setup(build) {
+            build.onResolve({ filter: /runnerFrame\.js$/ }, () => ({ path: 'limits', namespace: 'limits' }));
+            build.onLoad({ filter: /.*/, namespace: 'limits' }, () => ({ contents: 'export const RUNNER_LIMITS = { loadMs: 400, runMs: 5000, graceMs: 2000, maxMessages: 8 };', loader: 'js' }));
+        },
+    };
+    const stallSwap = {
+        name: 'stall-files',
+        setup(build) {
+            build.onResolve({ filter: /\?(url|raw)$|^virtual:runner-worker$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
+            build.onResolve({ filter: /frameHost$/ }, () => ({ path: 'frameHost', namespace: 'fake' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => {
+                if (!a.path.endsWith('?url')) return { contents: 'export default ""', loader: 'js' };
+                return { contents: `export default ${JSON.stringify(`http://127.0.0.1:${stallPort}/${a.path.replace(/\W+/g, '-')}`)}`, loader: 'js' };
+            });
+            build.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: FAKE_HOST, loader: 'js' }));
+        },
+    };
+    const stallFile = join(scratch, 'door-stall.mjs');
+    await esbuild.build({
+        stdin: { contents: "export * from './src/runner/runCode.ts'; export { frames } from './src/runner/frameHost';", resolveDir: repoRoot, loader: 'ts' },
+        bundle: true, format: 'esm', platform: 'node', outfile: stallFile, logLevel: 'silent', plugins: [shortLimits, stallSwap],
+    });
+    const stallDoor = await import(pathToFileURL(stallFile).href);
+    const within = (p, ms) => Promise.race([p, sleep(ms).then(() => ({ status: 'still starting' }))]);
+    const stalled = await within(stallDoor.runCode('javascript', 'mine', []), 4000);
+    stall = false;
+    const after = await within(stallDoor.runCode('javascript', 'mine', []), 4000);
+    check('a runtime download that stalls ends at the start-up limit, as "could not start"', stalled.status === 'unavailable' && stalled.phase === 'load',
+        JSON.stringify(stalled).slice(0, 200));
+    check('…and the stalled download is not kept: the next Run fetches again and runs', after.status === 'done', JSON.stringify(after).slice(0, 200));
+    stalling.closeAllConnections?.();
+    stalling.close();
 }
 
 // ---------------------------------------------------------------------------
@@ -548,7 +609,16 @@ async function browserHalf(exe) {
             if (await browser.evaluate('!!window.__gate').catch(() => false)) break;
             await sleep(100);
         }
-        const run = (opts) => browser.evaluate(`window.__gate.run(${JSON.stringify(opts)})`);
+        // At most four runtimes start at once, so a slow machine does not
+        // push a cold start past the start-up limit just by starting twenty.
+        let busy = 0;
+        const waiting = [];
+        const slot = async (fn) => {
+            if (busy >= 4) await new Promise((r) => waiting.push(r));
+            busy++;
+            try { return await fn(); } finally { busy--; waiting.shift()?.(); }
+        };
+        const run = (opts) => slot(() => browser.evaluate(`window.__gate.run(${JSON.stringify(opts)})`));
         const py = (job, extra = {}) => run({ language: 'python', memoryMb: weaken === 'memory' ? 4096 : 256, job, ...extra });
         const js = (job) => run({ language: 'javascript', memoryMb: 64, job });
         const ADD = 'def add(a, b):\n    return a + b';
@@ -657,7 +727,23 @@ print(json.dumps(out))
         section('5. values the runner can and cannot compare');
         // A batch of its own: fewer runtimes starting at once.
         const DC = 'from dataclasses import dataclass\n@dataclass\nclass P:\n    x: int\n    y: list';
-        const [[pGen, pOwn, pOwnWrong, pTuple], [jPromise, jRegex, jRegexSame, jFn]] = await Promise.all([
+        // One JavaScript job, one row per kind of value: the reference and the
+        // learner each define all five, and only some of the learner's differ.
+        const VALUES_REF = `
+function hole() { return [, 1]; }
+function set() { return new Set([1, 2, 3]); }
+function map() { return new Map([["a", 1], ["b", 2]]); }
+function proto() { return JSON.parse('{"__proto__": {"x": 1}}'); }
+function wide() { const o = {}; for (let i = 0; i < 300; i++) o["k" + i] = i; return o; }`;
+        const VALUES_MINE = `
+function hole() { return [null, 1]; }
+function set() { return new Set([3, 2, 1]); }
+function map() { const m = new Map(); m.set("b", 2); m.set("a", 1); return m; }
+function proto() { return {}; }
+function wide() { const o = {}; for (let i = 0; i < 300; i++) o["k" + i] = i; o.k250 = -1; return o; }`;
+        const valueTests = ['hole()', 'set()', 'map()', 'proto()', 'wide()'].map((call) => ({ call }));
+        const OBJ = 'function o() { return { a: 1, b: [2, "x"] }; }';
+        const [[pGen, pOwn, pOwnWrong, pTuple], [jPromise, jRegex, jRegexSame, jFn, jValues, jObjExpect, jObjExpectWrong, jHuge]] = await Promise.all([
             Promise.all([
                 py({ mode: 'check', reference: 'def g():\n    return (x for x in [1, 2])', learner: 'def g():\n    return (x for x in [1, 2])', tests: [{ call: 'g()' }, { call: 'list(g())' }] }),
                 py({ mode: 'check', reference: `${DC}\ndef f(n):\n    return P(n, [n])`, learner: `${DC}\ndef f(n):\n    return P(n, [n])`, tests: [{ call: 'f(1)' }, { call: 'f(2)' }] }),
@@ -669,6 +755,10 @@ print(json.dumps(out))
                 js({ mode: 'check', reference: 'function r() { return /^\\d+$/; }', learner: 'function r() { return /^[a-z]+$/; }', tests: [{ call: 'r()' }] }),
                 js({ mode: 'check', reference: 'function r() { return /^\\d+$/; }', learner: 'const r = () => new RegExp("^\\\\d+$");', tests: [{ call: 'r()' }] }),
                 js({ mode: 'check', reference: 'function k() { return () => 1; }', learner: 'function k() { return () => 2; }', tests: [{ call: 'k()' }, { call: 'k()()' }] }),
+                js({ mode: 'check', reference: VALUES_REF, learner: VALUES_MINE, tests: valueTests }),
+                js({ mode: 'check', reference: OBJ, learner: 'const o = () => ({ b: [2, "x"], a: 1 });', tests: [{ call: 'o()', expect: '{"a": 1, "b": [2, "x"]}' }, { call: 'o().b' }, { call: 'o().a' }] }),
+                js({ mode: 'check', reference: OBJ, learner: OBJ, tests: [{ call: 'o()', expect: '{"a": 2, "b": [2, "x"]}' }] }),
+                js({ mode: 'check', reference: 'function big() { return Array.from({ length: 100000 }, (_, i) => i); }', learner: 'function big() { return Array.from({ length: 100000 }, (_, i) => i); }', tests: [{ call: 'big()' }] }),
             ]),
         ]);
         check('Python: a generator the reference returns is not compared; the model grades', pGen.result.keyProblem === 'reference-error' && !pGen.result.tests, JSON.stringify(pGen.result).slice(0, 300));
@@ -679,6 +769,15 @@ print(json.dumps(out))
         check('JavaScript: two different regular expressions are different', jRegex.result.tests?.[0]?.pass === false, JSON.stringify(jRegex.result).slice(0, 300));
         check('…and the same one written another way passes', allPass(jRegexSame), JSON.stringify(jRegexSame.result).slice(0, 300));
         check('JavaScript: a function the reference returns is not compared; the model grades', jFn.result.keyProblem === 'reference-error', JSON.stringify(jFn.result).slice(0, 300));
+        const vRows = jValues.result.tests ?? [];
+        const vPass = (i) => vRows[i]?.pass;
+        check('JavaScript: an array with a hole is not the same array with null in it', vPass(0) === false, JSON.stringify(vRows[0]));
+        check('JavaScript: a Set or a Map with the same members built in another order passes', vPass(1) === true && vPass(2) === true, JSON.stringify(vRows.slice(1, 3)));
+        check('JavaScript: an own key named __proto__ is compared like any other key', vPass(3) === false, JSON.stringify(vRows[3]));
+        check('JavaScript: an object differing only at its 251st key fails (nothing is cut off)', vPass(4) === false, JSON.stringify(vRows[4]).slice(0, 300));
+        check('JavaScript: an object expect the reference agrees with grades the answer (keys in any order)', allPass(jObjExpect), JSON.stringify(jObjExpect.result).slice(0, 300));
+        check('…and one it disputes grades nothing', jObjExpectWrong.result.keyProblem === 'expect-mismatch', JSON.stringify(jObjExpectWrong.result).slice(0, 300));
+        check('JavaScript: a value too large to compare whole is not compared; the model grades', jHuge.result.keyProblem === 'reference-error', JSON.stringify(jHuge.result).slice(0, 300));
 
         section('6. stopping a run');
         // Run apart from the rest, so their timing is their own.
