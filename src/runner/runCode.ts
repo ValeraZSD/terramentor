@@ -69,12 +69,23 @@ async function bootFor(language: RunnerLanguage): Promise<FrameBoot> {
 
 let spare: { language: RunnerLanguage; frame: RunnerFrame; expire: ReturnType<typeof setTimeout> } | null = null;
 let spareStarting = false;
+/** Bumped when the runner is switched off: a frame started before it is not kept. */
+let generation = 0;
+
+/**
+ * A runtime that could not start is remembered for a minute, so grading a
+ * sitting with several code questions does not wait out the start-up limit
+ * once per question. A Run the learner presses always tries again.
+ */
+const DOWN_MS = 60_000;
+const downUntil = new Map<RunnerLanguage, number>();
 
 function takeSpare(language: RunnerLanguage): RunnerFrame | null {
     if (!spare || spare.language !== language) return null;
     clearTimeout(spare.expire);
     const { frame } = spare;
     spare = null;
+    if (!frame.isOpen()) { frame.dispose(); return null; }
     return frame;
 }
 
@@ -89,9 +100,12 @@ export function warmRunner(language: RunnerLanguage, delayMs = 1000) {
 function startSpare(language: RunnerLanguage, delayMs = 1000) {
     if (language !== 'python' || spare || spareStarting) return;
     spareStarting = true;
+    const started = generation;
     setTimeout(() => {
+        if (started !== generation) { spareStarting = false; return; }
         bootFor(language)
             .then((boot) => {
+                if (started !== generation) return;
                 const frame = openRunnerFrame(boot);
                 const expire = setTimeout(() => {
                     if (spare?.frame === frame) spare = null;
@@ -109,6 +123,7 @@ function startSpare(language: RunnerLanguage, delayMs = 1000) {
 
 /** Close the frame kept ready, if any (the setting was switched off). */
 export function closeSpareRunner() {
+    generation++;
     if (!spare) return;
     clearTimeout(spare.expire);
     spare.frame.dispose();
@@ -120,6 +135,8 @@ async function runJob(
     job: { mode: 'run' | 'check'; learner: string; reference?: string; tests: CodeTest[] },
     onPhase?: (phase: RunPhase | 'starting') => void,
 ): Promise<RunResult> {
+    if (job.mode === 'check' && Date.now() < (downUntil.get(language) ?? 0)) return { status: 'unavailable', phase: 'load' };
+    const started = generation;
     let frame = takeSpare(language);
     if (!frame) {
         onPhase?.('starting');
@@ -127,14 +144,19 @@ async function runJob(
         try {
             boot = await bootFor(language);
         } catch (err) {
+            downUntil.set(language, Date.now() + DOWN_MS);
             return { status: 'unavailable', phase: 'load', error: String((err as Error)?.message ?? err).slice(0, 300) };
         }
         frame = openRunnerFrame(boot);
     }
     const failed = await frame.ready;
-    if (failed) return failed;
+    if (failed) {
+        downUntil.set(language, Date.now() + DOWN_MS);
+        return failed;
+    }
+    downUntil.delete(language);
     const result = await frame.run(job, onPhase);
-    startSpare(language);
+    if (started === generation) startSpare(language);
     return result;
 }
 

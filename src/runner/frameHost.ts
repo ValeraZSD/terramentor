@@ -31,6 +31,8 @@ export interface RunnerFrame {
     run(job: JobPayload, onPhase?: (phase: RunPhase) => void): Promise<RunResult>;
     /** Removes the frame, ending whatever runs in it. */
     dispose(): void;
+    /** False once the frame has ended, for whatever reason (a frame kept ready can end while it waits). */
+    isOpen(): boolean;
 }
 
 export interface FrameOptions {
@@ -146,5 +148,6 @@ export function openRunnerFrame(boot: FrameBoot, opts: FrameOptions = {}): Runne
             }
             dispose();
         },
+        isOpen: () => !settled && !disposed,
     };
 }
