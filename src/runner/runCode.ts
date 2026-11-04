@@ -14,6 +14,7 @@
 import quickjsWasmUrl from '@jitl/quickjs-ng-wasmfile-release-sync/wasm?url';
 import pyodideWasmUrl from 'pyodide/pyodide.asm.wasm?url';
 import pyodideStdlibUrl from 'pyodide/python_stdlib.zip?url';
+import { RUNNER_LIMITS } from '../../server/runnerFrame.js';
 import { openRunnerFrame } from './frameHost';
 import type { FrameBoot, RunnerFrame } from './frameHost';
 import { MEMORY_MB } from './languages';
@@ -25,7 +26,10 @@ const bytes = new Map<string, Promise<Uint8Array>>();
 function bytesOf(url: string): Promise<Uint8Array> {
     let p = bytes.get(url);
     if (!p) {
-        p = fetch(url).then(async (res) => {
+        // A download that stalls ends at the start-up limit, body included: a
+        // promise left pending here would hold "Starting…" on screen, and every
+        // later run would wait on the same one.
+        p = fetch(url, { signal: AbortSignal.timeout(RUNNER_LIMITS.loadMs) }).then(async (res) => {
             if (!res.ok) throw new Error(`runner: ${res.status} for ${url}`);
             return new Uint8Array(await res.arrayBuffer());
         });
