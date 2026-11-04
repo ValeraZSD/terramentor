@@ -220,7 +220,14 @@ const qjsWasmPath = require.resolve('@jitl/quickjs-ng-wasmfile-release-sync/wasm
 {
     // The page's door (src/runner/runCode.ts) with the browser parts swapped:
     // the frame host is a fake that records every frame it opens, the
-    // runtimes' files are a byte each.
+    // runtimes' files are a byte each. Python's come from a local server that
+    // holds them until told, so a start can be caught half-way.
+    let release;
+    const released = new Promise((r) => { release = r; });
+    let asked;
+    const askedFor = new Promise((r) => { asked = r; });
+    const holding = createServer(async (req, res) => { asked(); await released; res.end(Buffer.from([0])); });
+    const holdPort = await listen(holding);
     const FAKE_HOST = `
 export const frames = [];
 export const control = { ready: null };
@@ -231,7 +238,12 @@ export function openRunnerFrame(boot) {
     const f = {
         boot,
         ready: Promise.resolve(failed),
-        run: async () => (open ? { status: 'done', phase: 'learner', output: '' } : { status: 'unavailable', phase: 'idle' }),
+        // One job per frame, as the real host: the frame ends with its job.
+        run: async () => {
+            if (!open) return { status: 'unavailable', phase: 'idle' };
+            open = false;
+            return { status: 'done', phase: 'learner', output: '' };
+        },
         dispose() { open = false; },
         isOpen: () => open,
     };
@@ -243,7 +255,11 @@ export function openRunnerFrame(boot) {
         setup(build) {
             build.onResolve({ filter: /\?(url|raw)$|^virtual:runner-worker$/ }, (a) => ({ path: a.path, namespace: 'stub' }));
             build.onResolve({ filter: /frameHost$/ }, () => ({ path: 'frameHost', namespace: 'fake' }));
-            build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: a.path.endsWith('?url') ? 'export default "data:application/octet-stream;base64,AA=="' : 'export default ""', loader: 'js' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => {
+                if (!a.path.endsWith('?url')) return { contents: 'export default ""', loader: 'js' };
+                const url = a.path.startsWith('pyodide/') ? `http://127.0.0.1:${holdPort}/${a.path.replace(/\W+/g, '-')}` : 'data:application/octet-stream;base64,AA==';
+                return { contents: `export default ${JSON.stringify(url)}`, loader: 'js' };
+            });
             build.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: FAKE_HOST, loader: 'js' }));
         },
     };
@@ -256,10 +272,17 @@ export function openRunnerFrame(boot) {
     const openFrames = () => door.frames.filter((f) => f.isOpen()).length;
 
     door.warmRunner('python', 0);
-    await sleep(2);
+    await askedFor; // the start is under way: its files are being fetched
     door.closeSpareRunner();
+    release();
     await sleep(300);
-    check('switching the runner off while Python is starting keeps no runtime running', openFrames() === 0, `${openFrames()} open`);
+    const midStart = openFrames();
+    door.warmRunner('python', 0);
+    door.closeSpareRunner(); // before the start has even begun
+    await sleep(300);
+    check('switching the runner off while Python is starting keeps no runtime running', midStart === 0 && openFrames() === 0,
+        `${midStart} open when switched off mid-start, ${openFrames()} before it began`);
+    holding.close();
 
     door.warmRunner('python', 0);
     await sleep(300);
