@@ -484,6 +484,20 @@ check("renderP5.ts carries p5 inline, as text (`?raw`), not as an address", /imp
         }
     };
     walk(join(root, 'src'));
+    // The code runner's worker runs inside its own frame under its own policy
+    // (server/runnerFrame.js, held by tools/code-runner-gates.mjs), never in the
+    // page: it reaches the page only as text, bundled into `virtual:runner-worker`.
+    // These two files are that worker alone (the Python harness is Python source
+    // that `eval`s a test's call), so they are left out here, PROVIDED nothing in
+    // the page imports them as code.
+    const WORKER_ONLY = ['src/runner/worker.ts', 'src/runner/pythonHarness.ts'].map((p) => join(root, p));
+    const importsWorker = files.filter((f) => !WORKER_ONLY.includes(f)).filter((f) => {
+        const text = readFileSync(f, 'utf8');
+        return /import\s+(?!type\b)[^;]*?from\s+['"][./]*(?:runner\/)?(?:worker|pythonHarness)['"]/.test(text)
+            || /import\(\s*['"][./]*(?:runner\/)?(?:worker|pythonHarness)['"]\s*\)/.test(text);
+    }).map((f) => f.slice(root.length + 1).replace(/\\/g, '/'));
+    check('the code runner\'s worker reaches the page only as text, never imported as code', importsWorker.length === 0, importsWorker.join(', '));
+    files.splice(0, files.length, ...files.filter((f) => !WORKER_ONLY.includes(f)));
     // The server modules the client imports run in the page too.
     for (const f of files.slice()) {
         for (const m of readFileSync(f, 'utf8').matchAll(/from '((?:\.\.\/)+server\/[\w./-]+\.js)'/g)) {

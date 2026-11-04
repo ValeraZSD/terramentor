@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { serviceWorkerPlugin } from './tools/vite-plugin-sw.mjs';
 // @ts-expect-error — plain-JS build plugins, deliberately not typed
 import { compressPlugin } from './tools/vite-plugin-compress.mjs';
+// @ts-expect-error — plain-JS build plugins, deliberately not typed
+import { runnerWorkerPlugin } from './tools/vite-plugin-runner.mjs';
 // @ts-expect-error — plain-JS, shared with tools/worktree-setup.mjs
 import { devPorts } from './tools/dev-ports.mjs';
 
@@ -28,7 +30,7 @@ const https = fs.existsSync(keyPath) && fs.existsSync(certPath)
     : undefined;
 
 export default defineConfig({
-    plugins: [react(), serviceWorkerPlugin(), compressPlugin()],
+    plugins: [react(), runnerWorkerPlugin(), serviceWorkerPlugin(), compressPlugin()],
     resolve: {
         alias: [
             // function-plot's two formula samplers compile each formula into
@@ -94,6 +96,11 @@ export default defineConfig({
             // The frame every sketch and widget is shown in, with its own policy
             // (server/sandboxFrame.js); Vite has no copy of it.
             '/sandbox.html': {
+                target: apiTarget,
+                changeOrigin: false,
+            },
+            // The frame a learner's code runs behind (server/runnerFrame.js).
+            '/runner.html': {
                 target: apiTarget,
                 changeOrigin: false,
             },
