@@ -31,11 +31,14 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     // The card stands at the END of its topic from the moment every part is
     // written, so it is often composed before the parts above it are read and
     // its numbers are the topic's as it was then. Each SAVED answer in the
-    // topic (`feedSavedByNode`, bumped after the write resolved) asks again.
+    // topic (`feedSavedByNode`, bumped after the write resolved) asks again,
+    // and so does a passed mastery check (`done`): the check writes the
+    // estimate the card shows, so without this the card said "Estimated
+    // mastery 0%" beside "Topic completed" (Taylor clip, 4 Nov 2026).
     const savedHere = useStore(s => s.feedSavedByNode[composed.nodeId] ?? 0);
     const [live, setLive] = useState<Awaited<ReturnType<typeof api.getCheckpointFacts>> | null>(null);
     useEffect(() => {
-        if (savedHere === 0 || done) return;
+        if (savedHere === 0 && !done) return;
         let stale = false;
         api.getCheckpointFacts(composed.nodeId).then(f => { if (!stale) setLive(f); }).catch(() => { });
         return () => { stale = true; };
