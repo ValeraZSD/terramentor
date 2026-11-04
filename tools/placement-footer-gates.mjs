@@ -12,15 +12,17 @@
 // (the pixels were measured in Edge at 1280x800 and 390x844 for the PR):
 //
 //   1. no element from a footer button up to the dialog scrolls;
-//   2. the dialog does not scroll, and caps its height;
+//   2. the dialog does not scroll, and caps its height (`vh`, then `dvh`);
 //   3. the question and a long explanation are inside a scroller that sits
-//      inside the dialog, so long content can still be read.
+//      inside the dialog, so long content can still be read;
+//   4. answering brings the verdict into that scroller's view, since Next is
+//      always on screen and could otherwise be pressed unread.
 //
 //   node tools/placement-footer-gates.mjs
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -138,8 +140,23 @@ if (PlacementModal) {
     const skip = button("I don't know — skip");
     ok('the probe is asking: a question and its skip button', !!dialog && !!skip, doc.body.textContent.slice(0, 200));
 
+    // jsdom lays nothing out, so the body is given the sizes of a phone sheet
+    // holding a long question (2000px of content in a 400px window, scrolled
+    // to the top) and its `scrollTo` is recorded: answering must bring the
+    // verdict, which lands below the fold, into the body's view.
+    const inner = dialog && [...dialog.querySelectorAll('*')].find(scrolls);
+    const scrolledTo = [];
+    if (inner) {
+        Object.defineProperty(inner, 'scrollHeight', { configurable: true, get: () => 2000 });
+        Object.defineProperty(inner, 'clientHeight', { configurable: true, get: () => 400 });
+        inner.getBoundingClientRect = () => ({ top: -1000, bottom: -600, left: 0, right: 0, width: 0, height: 400, x: 0, y: -1000 });
+        inner.scrollTo = (o) => scrolledTo.push(o?.top);
+        const real = window.getComputedStyle.bind(window);
+        globalThis.getComputedStyle = window.getComputedStyle = (el, p) => el === inner ? { overflowY: 'auto' } : real(el, p);
+    }
     await act(() => [...doc.querySelectorAll('[data-answer-option]')].find(b => b.textContent.trim() === 'No')?.click());
     await settle();
+    ok('answering scrolls the body down to the verdict', !!inner && scrolledTo.some(top => top > 0), `scrollTo calls: ${JSON.stringify(scrolledTo)}`);
     const next = button('Next'), finish = button('Finish now');
     ok('answered: the long explanation, "Next" and "Finish now" are on the page', doc.body.textContent.includes(LONG.slice(0, 60)) && !!next && !!finish);
 
@@ -151,7 +168,13 @@ if (PlacementModal) {
         }
         const cls = dialog.getAttribute('class') ?? '';
         ok('the dialog itself does not scroll, and clips', !scrolls(dialog) && /(^|\s)overflow-hidden(\s|$)/.test(cls), cls);
-        ok('…and caps its height', /(^|\s)max-h-\[/.test(cls), cls);
+        // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
+        // classes the other way round, and the `vh` one would win on a phone.
+        const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
+        const rules = [...css.matchAll(/\.placement-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
+        const pairsInOrder = rules.length === 2 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
+        ok('…and caps its height with a vh-then-dvh pair (phone and sm)', /(^|\s)placement-shell(\s|$)/.test(cls) && pairsInOrder,
+            `${cls} | ${rules.length} .placement-shell rule(s)`);
         const explanation = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && e.textContent.startsWith(LONG.slice(0, 60)));
         const body = explanation && chain(explanation, dialog).find(scrolls);
         ok('the explanation sits in a scroller inside the dialog', !!body && body !== dialog);

@@ -10,6 +10,7 @@ import QuestionStem from './QuestionStem';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { useStudyClock } from '../hooks/useStudyClock';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
 import { probeRef } from '../utils/itemReports';
@@ -135,6 +136,16 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(isOpen, dialogRef, { onEscape: () => close() });
 
+    // Next sits in a footer that never scrolls away, so the verdict a learner
+    // just earned is brought into the body's view rather than left below it.
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const verdictRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = verdictRef.current, body = bodyRef.current;
+        if (!verdict || !el || !body) return;
+        scrollIntoViewWithin(el, { boundary: body, block: el.offsetHeight > body.clientHeight ? 'start' : 'nearest', padding: 12 });
+    }, [verdict]);
+
     // Each probe question is time on the topic it probes; writing the probe
     // and its summary are on screen but study nothing.
     useStudyClock(
@@ -213,7 +224,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl max-h-[92dvh] sm:max-h-[85dvh] overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
+                className="w-full sm:max-w-2xl placement-shell overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -230,7 +241,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
-                <div data-placement-body className="min-h-0 flex-1 overflow-y-auto">
+                <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto">
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -354,7 +365,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             )}
 
                             {verdict && (
-                                <div className={`rounded-lg p-3 text-sm ${verdict.correct
+                                <div ref={verdictRef} className={`rounded-lg p-3 text-sm ${verdict.correct
                                     ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200'
                                     : 'bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300'}`}>
                                     <p className="font-medium mb-1">
@@ -424,7 +435,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 </div>
 
                 {phase === 'asking' && question && (
-                    <footer data-placement-footer className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
+                    <footer className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
                         <Button variant="quiet" onClick={finish} disabled={busy}>
                             {t("Finish now")}
                         </Button>
