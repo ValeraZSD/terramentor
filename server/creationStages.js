@@ -119,7 +119,8 @@ function earlierSections(ctx, catIdx) {
 
 /**
  * `kept` (a cut of `all`), with the parts of the learner's files that the
- * items left out had cited added to the last kept one, so a part the model
+ * items left out had cited added to a kept one (the same title, else the
+ * neighbour before the cut), so a part the model
  * placed is still some node's source after the cut. Before `sectionRefs`
  * cleans them, a level's refs are whatever the model wrote; they are only
  * concatenated here. Nothing changes without files.
@@ -128,10 +129,15 @@ export function keepFiled(src, all, kept) {
     if (!hasSources(src) || !kept.length) return kept;
     const dropped = all.filter(it => !kept.includes(it) && it.sections != null);
     if (!dropped.length) return kept;
-    const last = kept[kept.length - 1];
     // The shapes `sectionRefs` reads: a list, or "3, 4" / "§3 §4" / 3.
     const refs = (v) => (Array.isArray(v) ? v : v == null ? [] : String(v).split(/[,\s]+/));
-    last.sections = [...refs(last.sections ?? []), ...dropped.flatMap(it => refs(it.sections))];
+    for (const it of dropped) {
+        // A repeat's parts go to the kept item of the same title; an item cut
+        // for size (always the tail) to the kept item just before it.
+        const key = titleKey(it.title);
+        const to = kept.find(k => key && titleKey(k.title) === key) || kept[kept.length - 1];
+        to.sections = [...refs(to.sections ?? []), ...refs(it.sections)];
+    }
     return kept;
 }
 
@@ -425,13 +431,14 @@ export async function planPhases(ctx, { thinkingText = '' } = {}) {
     // parts the dropped ones claimed beside their neighbours).
     ctx.size = readCourseSize(categories.size);
     const skipped = categories.skip;
+    // Titles lose their part numbers first, so "X §3" and "X §4" are one title.
+    cleanSourceRefs(categories, src);
     categories = keepNew(categories, new Set(), shapeOf(ctx).phases[1]);
     ctx.plan = categories.map(c => ({ title: c.title }));
     if (hasSources(src)) {
         const skip = sectionRefs(skipped, src).filter(id => src.byId.get(id).depth === 0);
         const { claims } = coverTopLevel(src, categories.map(c => sectionRefs(c.sections, src)), skip);
         categories.forEach((c, i) => { c.sections = claims[i]; });
-        cleanSourceRefs(categories, src);
     }
     return categories;
 }
@@ -471,10 +478,10 @@ export async function writeSections(ctx, catIdx, category) {
     if (answer.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: answer.lastAnswer });
     // A section another phase already has is dropped, and the phase keeps at
     // most its range's top; the rest of the run sees what was kept.
+    cleanSourceRefs(answer, src);
     const elements = keepFiled(src, answer, keepNew(answer, soFar(ctx).sections, shape.sections[1]));
     rememberWritten(ctx, catIdx, category, elements);
     elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
-    cleanSourceRefs(elements, src);
     ctx.tracker.sectionsPlanned(catIdx, elements.length);
 
     ctx.counts.elements += elements.length;
@@ -602,9 +609,9 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
     // A topic the course already has is dropped, and a section keeps at most
     // its range's top: the per-section prompt is told the range too, but a
     // count in a prompt is a request, and this is the size held.
+    cleanSourceRefs(subElements, src);
     subElements = keepFiled(src, subElements, keepNew(subElements, soFar(ctx).topics, shapeOf(ctx).topics[1]));
     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
-    cleanSourceRefs(subElements, src);
     ctx.tracker.topicsPlanned(catIdx, elIdx, subElements.length);
 
     ctx.counts.subElements += subElements.length;

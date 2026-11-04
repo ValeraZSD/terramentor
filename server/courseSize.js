@@ -92,7 +92,12 @@ export function keepNew(items, seen, max) {
         if (k) keys.add(k);
         fresh.push(it);
     }
-    const kept = (fresh.length ? fresh : items).slice(0, max);
+    // The whole-list fallback still keeps one of each sibling title.
+    const firstOfEach = items.filter((it, i) => {
+        const k = titleKey(it.title);
+        return !k || items.findIndex(o => titleKey(o.title) === k) === i;
+    });
+    const kept = (fresh.length ? fresh : firstOfEach).slice(0, max);
     for (const it of kept) {
         const k = titleKey(it.title);
         if (k) seen.add(k);

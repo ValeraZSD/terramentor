@@ -283,6 +283,8 @@ ok('…and Na+ is not Na, nor e^-x e^x', kept(['Na+', 'Na', 'Derivative of e^x',
 ok('a mark is part of a word: कि and का are two', kept(['कि', 'का'])?.length === 2);
 ok('a list whose every title the course already has is kept whole, not emptied',
     kept(['Working with series again', 'Bounding the remainder term'], ['working with series again', 'bounding the remainder term'])?.length === 2);
+ok('…but keeps one of each sibling title in it',
+    kept(['Working with series again', 'working with series again!', 'Bounding the remainder term'], ['working with series again', 'bounding the remainder term'])?.length === 2);
 ok('a specific title the course has is dropped, a fresh one beside it kept',
     JSON.stringify(kept(['Working with series again', 'Something new here'], ['working with series again'])) === '["Something new here"]');
 ok('a continued course of 5 phases is standard, of 7 full',
@@ -296,6 +298,10 @@ const all = [{ title: 'a', sections: [1] }, { title: 'b', sections: '2, 3' }, { 
 const folded = keepFiled?.(fakeSrc, all, all.slice(0, 1));
 ok('with files, a section cut by the range hands its parts to the last kept one',
     JSON.stringify(folded?.[0]?.sections) === JSON.stringify([1, '2', '3', '§4']), JSON.stringify(folded));
+const twin = [{ title: 'Seed depth', sections: [1] }, { title: 'Watering', sections: [2] }, { title: 'seed depth', sections: [3] }];
+const toTwin = keepFiled?.(fakeSrc, twin, twin.slice(0, 2));
+ok('…and a dropped repeat hands its parts to the kept item of the same title, not the last',
+    JSON.stringify(toTwin?.map(t => t.sections)) === JSON.stringify([[1, 3], [2]]), JSON.stringify(toTwin));
 ok('…and without files nothing is added', keepFiled?.(null, all.map(x => ({ ...x })), [{ title: 'a', sections: [1] }])?.[0]?.sections.length === 1);
 
 await new Promise(r2 => server.close(r2));
