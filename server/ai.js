@@ -4679,7 +4679,7 @@ Rules:
     // or '' for both — so a creation without files sends the prompts with no
     // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "short",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
     // `size` is the plan's (server/courseSize.js); `plan` every phase in

@@ -87,18 +87,20 @@ function answer(st, user) {
         if (p === brokenPhase) return 'Sorry, no sections today.';
         // Beta has one section, so its topics take the per-section prompt.
         if (p === 'Beta') return JSON.stringify({ elements: [{ title: 'Beta only', description: 'One' }] });
-        // Seven sections, the first the same in every phase (worded the same
-        // but for case and punctuation after the first phase).
-        const shared = p === 'Alpha' ? 'Shared section' : 'shared SECTION!';
-        const elements = [shared, ...[1, 2, 3, 4, 5, 6].map(i => `${p} section ${i}`)].map(t => ({ title: t, description: `About ${t}` }));
+        // Seven sections: the first the same in every phase (worded the same
+        // but for case and punctuation after the first phase), the second a
+        // short label a course may rightly have in every phase.
+        const shared = p === 'Alpha' ? 'Building on shared ideas' : 'building on SHARED ideas!';
+        const elements = [shared, 'Review', ...[1, 2, 3, 4, 5].map(i => `${p} section ${i}`)].map(t => ({ title: t, description: `About ${t}` }));
         return JSON.stringify({ elements });
     }
     if (st === 'sub_batch') {
         const listed = [...user.matchAll(/^\d+\. (.+?)(?: — .*)?$/gm)].map(m => m[1]);
-        // Twelve topics a section, one of them the same in every section.
+        // Twelve topics a section: the first the same in every section, the
+        // second a short label every section may rightly have.
         return JSON.stringify({ topics: listed.map(title => ({
             element: title,
-            subElements: ['Repeated topic', ...Array.from({ length: 11 }, (_, i) => `${title} topic ${i + 1}`)]
+            subElements: ['Practising the repeated idea', 'Worked examples', ...Array.from({ length: 10 }, (_, i) => `${title} topic ${i + 1}`)]
                 .map(t => ({ title: t, description: t })),
         })) });
     }
@@ -223,9 +225,19 @@ ok('…and the whole course plan, itself marked, the dropped phases not in it',
 const gammaBatch = batch.find(b => phaseOf(b.user) === 'Gamma')?.user || '';
 ok('a later phase\'s topics prompt lists the earlier sections too', gammaBatch.includes('SECTIONS EARLIER PHASES ALREADY TEACH') && gammaBatch.includes('Alpha section 1'));
 
-const sharedCount = sections.filter(s => s.title.toLowerCase().replace(/[^a-z]/g, '') === 'sharedsection').length;
+const sharedCount = sections.filter(s => /shared ideas/i.test(s.title)).length;
 ok('a section every phase wrote again is written once', sharedCount === 1, `${sharedCount} copies`);
-ok('a topic every section wrote again is written once', topics.filter(t => t === 'Repeated topic').length === 1);
+ok('a topic every section wrote again is written once', topics.filter(t => t === 'Practising the repeated idea').length === 1);
+const multi = tree.filter(p => p.sections.length > 1);
+ok('a short label ("Review") stays in every phase that has it', multi.length >= 3 && multi.every(p => p.sections.some(s => s.title === 'Review')),
+    tree.map(p => p.sections.map(s => s.title).join('|')).join(' / '));
+const batchedSections = tree.filter(p => p.title !== 'Beta').flatMap(p => p.sections);
+ok('…and a short topic label ("Worked examples") in every section that has it',
+    batchedSections.every(s => s.topics.includes('Worked examples')), batchedSections.map(s => s.topics.length).join(','));
+ok('the per-section topics prompt lists the earlier phases\' sections too',
+    one.some(b => phaseOf(b.user) === 'Beta' && b.user.includes('SECTIONS EARLIER PHASES ALREADY TEACH') && tree[0].sections.every(s => b.user.includes(s.title))),
+    one[0]?.user.slice(0, 900));
+ok('the plan\'s format shows no size as the example\'s answer', !/"size": "(short|standard|full)"/.test(cats?.system || ''));
 
 // ---- 4. a plan that names no size -----------------------------------------------
 console.log('\n=== the plan names no size ===');
@@ -255,15 +267,36 @@ const after = outlineOf(r.id);
 const gammaAfter = after.find(p => p.title === 'Gamma');
 ok('the section the course already has is not written again',
     gammaAfter.sections.length > 0 && !gammaAfter.sections.some(s => /shared/i.test(s.title)), JSON.stringify(gammaAfter.sections.map(s => s.title)));
+ok('…nor a topic it already has',
+    gammaAfter.sections.every(s => s.topics.length > 0 && !s.topics.includes('Practising the repeated idea')),
+    JSON.stringify(gammaAfter.sections.map(s => s.topics)));
 
 // ---- 6. titles in any script ----------------------------------------------------
 console.log('\n=== a repeat is judged on letters of any script ===');
-let keepNew = null;
-try { ({ keepNew } = await import(`${B}courseSize.js`)); } catch { /* the old tree has no such module */ }
-ok('two different Cyrillic titles are both kept',
-    !!keepNew && keepNew([{ title: 'Ряды Тейлора' }, { title: 'Радиус сходимости' }], new Set(), 5).length === 2);
-ok('the same Cyrillic title, cased and punctuated differently, is kept once',
-    !!keepNew && keepNew([{ title: 'Ряды Тейлора' }, { title: 'ряды тейлора!' }], new Set(), 5).length === 1);
+let keepNew = null, sizeForPhaseCount = null;
+try { ({ keepNew, sizeForPhaseCount } = await import(`${B}courseSize.js`)); } catch { /* the old tree has no such module */ }
+const kept = (titles, seen = []) => (keepNew ? keepNew(titles.map(title => ({ title })), new Set(seen), 9).map(t => t.title) : null);
+ok('two different Cyrillic titles are both kept', kept(['Ряды Тейлора', 'Радиус сходимости'])?.length === 2);
+ok('the same Cyrillic title, cased and punctuated differently, is kept once', kept(['Ряды Тейлора', 'ряды тейлора!'])?.length === 1);
+ok('a sign is part of a title: C#, C++ and C are three', kept(['Introduction to C#', 'Introduction to C++', 'Introduction to C'])?.length === 3);
+ok('…and Na+ is not Na, nor e^-x e^x', kept(['Na+', 'Na', 'Derivative of e^x', 'Derivative of e^-x'])?.length === 4);
+ok('a mark is part of a word: कि and का are two', kept(['कि', 'का'])?.length === 2);
+ok('a list whose every title the course already has is kept whole, not emptied',
+    kept(['Working with series again', 'Bounding the remainder term'], ['working with series again', 'bounding the remainder term'])?.length === 2);
+ok('a specific title the course has is dropped, a fresh one beside it kept',
+    JSON.stringify(kept(['Working with series again', 'Something new here'], ['working with series again'])) === '["Something new here"]');
+ok('a continued course of 5 phases is standard, of 7 full',
+    sizeForPhaseCount?.(4) === 'short' && sizeForPhaseCount?.(5) === 'standard' && sizeForPhaseCount?.(7) === 'full');
+
+// With files: an item the cut leaves out keeps its parts on a kept one.
+let keepFiled = null;
+try { ({ keepFiled } = await import(`${B}creationStages.js`)); } catch { /* old tree */ }
+const fakeSrc = { docs: [{}] };
+const all = [{ title: 'a', sections: [1] }, { title: 'b', sections: '2, 3' }, { title: 'c', sections: ['§4'] }];
+const folded = keepFiled?.(fakeSrc, all, all.slice(0, 1));
+ok('with files, a section cut by the range hands its parts to the last kept one',
+    JSON.stringify(folded?.[0]?.sections) === JSON.stringify([1, '2', '3', '§4']), JSON.stringify(folded));
+ok('…and without files nothing is added', keepFiled?.(null, all.map(x => ({ ...x })), [{ title: 'a', sections: [1] }])?.[0]?.sections.length === 1);
 
 await new Promise(r2 => server.close(r2));
 await new Promise(r2 => stub.close(r2));

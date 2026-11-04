@@ -48,30 +48,48 @@ export function sizeForPhaseCount(n) {
 /** "2 to 4": a level's range as a prompt states it. */
 export const rangeText = ([lo, hi]) => `${lo} to ${hi}`;
 
+// Sentence punctuation a model adds or drops at the ends of a title. Only
+// these, only at the ends: a sign inside or ending a title can be the whole
+// difference ("C#" and "C", "Na+" and "Na", "e^x" and "e^-x").
+const END_PUNCTUATION = /^[\s.,;:!?…'"«»“”„‘’()[\]]+|[\s.,;:!?…'"«»“”„‘’()[\]]+$/gu;
+
 /**
- * A key for "the same title", for dropping a repeat: case, accents' composed
- * form and punctuation do not count, and every script keeps its letters (a
- * Latin-only key would make every Cyrillic or Greek title the empty string,
- * and so all of them "the same").
+ * A key for "the same title", for dropping a repeat: case, spacing, the
+ * composed form of a character and sentence punctuation at the ends do not
+ * count; every letter, mark, digit and symbol does, in any script (a mark is
+ * the difference between two Devanagari or Thai words).
  */
 export function titleKey(title) {
-    return String(title ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    return String(title ?? '').normalize('NFKC').toLowerCase()
+        .replace(/\s+/gu, ' ').replace(END_PUNCTUATION, '');
 }
 
 /**
- * `items` without the ones whose title is already in `seen` or earlier in
- * `items`, then at most `max` of them; the kept titles are added to `seen`.
- * A list every item of which repeats is kept whole rather than emptied: an
- * empty level is a gap the run reports as a failure, and a repeated part is
- * the smaller harm.
+ * A title specific enough that meeting it again elsewhere in the course is a
+ * repeat: three words or more. A short label ("Grammar", "Review",
+ * "Vocabulary") may rightly head a part in every unit, and dropping one of
+ * those would lose a part the course needs. A script written without spaces
+ * reads as one word, so its titles are only compared between siblings.
+ */
+function specific(key) {
+    return (key.match(/[\p{L}\p{N}][\p{L}\p{M}\p{N}]*/gu) || []).length >= 3;
+}
+
+/**
+ * `items` without a repeat, then at most `max` of them. A repeat is a title
+ * met earlier in `items` (siblings), or a specific title already in `seen`
+ * (the rest of the course). The kept titles are added to `seen`. A list
+ * every item of which repeats is kept whole rather than emptied: an empty
+ * level is a gap the run reports as a failure, and a repeated part is the
+ * smaller harm.
  */
 export function keepNew(items, seen, max) {
     const fresh = [];
     const keys = new Set();
     for (const it of items) {
         const k = titleKey(it.title);
-        if (!k || seen.has(k) || keys.has(k)) continue;
-        keys.add(k);
+        if (k && (keys.has(k) || (seen.has(k) && specific(k)))) continue;
+        if (k) keys.add(k);
         fresh.push(it);
     }
     const kept = (fresh.length ? fresh : items).slice(0, max);

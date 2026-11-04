@@ -118,6 +118,24 @@ function earlierSections(ctx, catIdx) {
 }
 
 /**
+ * `kept` (a cut of `all`), with the parts of the learner's files that the
+ * items left out had cited added to the last kept one, so a part the model
+ * placed is still some node's source after the cut. Before `sectionRefs`
+ * cleans them, a level's refs are whatever the model wrote; they are only
+ * concatenated here. Nothing changes without files.
+ */
+export function keepFiled(src, all, kept) {
+    if (!hasSources(src) || !kept.length) return kept;
+    const dropped = all.filter(it => !kept.includes(it) && it.sections != null);
+    if (!dropped.length) return kept;
+    const last = kept[kept.length - 1];
+    // The shapes `sectionRefs` reads: a list, or "3, 4" / "§3 §4" / 3.
+    const refs = (v) => (Array.isArray(v) ? v : v == null ? [] : String(v).split(/[,\s]+/));
+    last.sections = [...refs(last.sections ?? []), ...dropped.flatMap(it => refs(it.sections))];
+    return kept;
+}
+
+/**
  * Tell the run about parts of the outline it did not write itself: a continued
  * creation's phases that already have sections, and their topics. The prompts
  * of the phases after them list those sections, and a new section or topic
@@ -453,7 +471,7 @@ export async function writeSections(ctx, catIdx, category) {
     if (answer.length === 0) ctx.gaps.push({ what: `sections for "${category.title}"`, lastAnswer: answer.lastAnswer });
     // A section another phase already has is dropped, and the phase keeps at
     // most its range's top; the rest of the run sees what was kept.
-    const elements = keepNew(answer, soFar(ctx).sections, shape.sections[1]);
+    const elements = keepFiled(src, answer, keepNew(answer, soFar(ctx).sections, shape.sections[1]));
     rememberWritten(ctx, catIdx, category, elements);
     elements.forEach(e => { e.sections = sectionRefs(e.sections, src); });
     cleanSourceRefs(elements, src);
@@ -518,15 +536,10 @@ export async function batchTopics(ctx, catIdx, category, elements) {
         const raw = await structureCall(batchPrompt, { signal, label: 'Batched sub-elements', answered });
         ctx.endCall('topics_batch');
         batchedSubs = validateSubElementBatch(parseCreationJson(raw), elements);
-        // Each group is cut to the size's range now, so the counts the run
-        // plans with are the ones it writes, and carries who wrote it to
-        // `writeTopics`, which stamps it.
-        const most = shapeOf(ctx).topics[1];
-        for (const [k, subs] of batchedSubs) {
-            const kept = subs.slice(0, most);
-            kept.answered = answered;
-            batchedSubs.set(k, kept);
-        }
+        // Each group carries who wrote it to `writeTopics`, which stamps it
+        // (and drops repeats, then cuts it to the size's range: cut first, a
+        // repeat would cost a fresh topic its place).
+        for (const subs of batchedSubs.values()) subs.answered = answered;
     } catch (batchErr) {
         ctx.tracker.abandon();
         if (signal.aborted) throw batchErr;
@@ -589,7 +602,7 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
     // A topic the course already has is dropped, and a section keeps at most
     // its range's top: the per-section prompt is told the range too, but a
     // count in a prompt is a request, and this is the size held.
-    subElements = keepNew(subElements, soFar(ctx).topics, shapeOf(ctx).topics[1]);
+    subElements = keepFiled(src, subElements, keepNew(subElements, soFar(ctx).topics, shapeOf(ctx).topics[1]));
     subElements.forEach(s => { s.sections = sectionRefs(s.sections, src); });
     cleanSourceRefs(subElements, src);
     ctx.tracker.topicsPlanned(catIdx, elIdx, subElements.length);
