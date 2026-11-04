@@ -269,6 +269,54 @@ console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes
     const storeSrc = readFileSync(fileURLToPath(new URL('../src/store.ts', import.meta.url)), 'utf8');
     check('the pull replaces the stand-in only when the page was showing "Writing the lesson"',
         /placeCheckpoints\(state\.feedCards, fresh, state\.feedLessonWrite\?\.nodeId \?\? null,\s*lessonPending\(state\.feedCards, state\.feedLessonWrite\)\)/.test(storeSrc));
+    // The store's two pulls are the ones the replay below stands in for.
+    check('both pulls send the replaced stand-in as held, and the merge records it',
+        (storeSrc.match(/const exclude = heldKeys\(get\(\)\.feedCards, get\(\)\.feedReplacedKeys\);/g) || []).length === 2
+        && /feedReplacedKeys: \[\.\.\.state\.feedReplacedKeys, \.\.\.replacedKeys\(state\.feedCards, placed\)\]/.test(storeSrc)
+        && /feedReplacedKeys: \[\]/.test(storeSrc.slice(storeSrc.indexOf('loadFeed: async'), storeSrc.indexOf('extendFeed: async'))));
+}
+
+console.log('\n--- a page that showed "Writing the lesson" still gets what is written after its lesson ---');
+{
+    // Take 8b: the lesson landed and replaced the unseen Overview, the next
+    // pull brought End of chapter, and the question written a moment later
+    // never came. The server reopens a chapter only when it closed over a
+    // stand-in, which it reads from `read-N` among the held keys; the page
+    // had dropped that card, so it no longer sent the key. The real
+    // composeFeed and the shipped client merge, pull by pull.
+    const { heldKeys, replacedKeys, lessonPending } = await import(pathToFileURL(out).href);
+    const t = mkTopic('Flat functions', 11);
+    let write = { nodeId: t, state: 'writing' };
+    let cards = composeFeed({ gate, nodeId: t, lessonWrite: write }).items;
+    let replaced = [];
+    const pull = () => {
+        const exclude = new Set(heldKeys(cards, replaced));
+        const r = composeFeed({ gate, nodeId: t, excludeKeys: exclude, lessonWrite: lessonWriteState(t) });
+        const fresh = r.items.filter(c => !exclude.has(c.key));
+        const placed = fresh.length ? placeCheckpoints(cards, fresh, write?.nodeId ?? null, lessonPending(cards, write)) : cards;
+        replaced = [...replaced, ...replacedKeys(cards, placed)];
+        cards = placed;
+        write = r.lessonWrite ?? null;
+        return fresh.map(c => c.key);
+    };
+    // The server's own state for the topic, as the route would pass it: written
+    // once a lesson exists.
+    function lessonWriteState(nodeId) {
+        return db.prepare("SELECT 1 FROM feed_items WHERE node_id = ? AND kind = 'lesson'").get(nodeId) ? null : { nodeId, state: 'writing' };
+    }
+    check('the page opens on "Writing the lesson"', lessonPending(cards, write) === true, keys(cards));
+    writePlan(t, 1);
+    const lesson = writeLesson(t, 1, 1);
+    pull();
+    check('the lesson lands in place of the unseen Overview', keys(cards).startsWith(`fi-${lesson}`) && !cards.some(c => c.key === `read-${t}`), keys(cards));
+    for (let i = 0; i < 3 && !cards.some(c => c.key === `checkpoint-${t}`); i++) pull();
+    check('nothing else written yet: the chapter ends under the lesson', cards.some(c => c.key === `checkpoint-${t}`), keys(cards));
+    const question = Number(db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) VALUES (?, 'question', 2, 'ready', ?, '{}')")
+        .run(t, JSON.stringify({ type: 'multiple_choice', question: 'Which?', options: ['a', 'b', 'c', 'd'], correct_answer: 'a' })).lastInsertRowid);
+    const got = pull();
+    check('the question written after it still comes (take 8b)', got.includes(`fi-${question}`), JSON.stringify({ got, held: heldKeys(cards, replaced) }));
+    check('…in before the End of chapter', keys(cards).indexOf(`fi-${question}`) < keys(cards).indexOf(`checkpoint-${t}`), keys(cards));
+    check('…and once held, a later pull adds nothing', pull().length === 0, keys(cards));
 }
 
 console.log('\n--- the signal that a lesson landed is never thrown away ---');

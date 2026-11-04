@@ -97,6 +97,23 @@ export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[], slotTopic:
     return out;
 }
 
+/**
+ * What a page sends as held: every card on screen, plus the stand-in a landed
+ * lesson replaced (`replaceStandIn`). The server reads a held `read-N` as "this
+ * chapter closed over a stand-in, so what is written since still comes"
+ * (composeFeed's `closedOverStandIn`); without it the question written just
+ * after the lesson was refused once the checkpoint was held.
+ */
+export function heldKeys(cards: FeedCard[], replaced: readonly string[]): string[] {
+    return [...cards.map(c => c.key), ...replaced];
+}
+
+/** Keys a merge left out of the held cards: the stand-in a lesson replaced. */
+export function replacedKeys(before: FeedCard[], after: FeedCard[]): string[] {
+    const kept = new Set(after.map(c => c.key));
+    return before.filter(c => !kept.has(c.key)).map(c => c.key);
+}
+
 /** The written lesson of a topic on screen (not the Overview standing in for it). */
 const hasLesson = (cards: FeedCard[], nodeId: number) =>
     cards.some(c => c.kind === 'lesson' && c.nodeId === nodeId && !c.degraded);

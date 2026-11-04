@@ -9,7 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
-import { lessonPending, placeCheckpoints, pullGate } from './utils/feedPlacement';
+import { heldKeys, lessonPending, placeCheckpoints, pullGate, replacedKeys } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -565,6 +565,9 @@ interface AppState {
     /** On a topic's own page, its first lesson while it is written (or failed
      *  to be): the newest page's word on it, never merged. */
     feedLessonWrite: LessonWrite | null;
+    /** Keys of held cards a landed lesson replaced (the Overview standing in
+     *  for it), still sent as held on every later page (`heldKeys`). */
+    feedReplacedKeys: string[];
     /** Card keys consumed this session (cards collapse in place, never unmount). */
     feedDone: Record<string, boolean>;
     /** Per topic: how many feed answers have been SAVED this session. A
@@ -950,6 +953,7 @@ export const useStore = create<AppState>((set, get) => ({
     feedTransfers: {},
     feedPlacements: {},
     feedLessonWrite: null,
+    feedReplacedKeys: [],
     feedLoading: false,
     feedExhausted: false,
     feedDone: {},
@@ -1611,6 +1615,7 @@ export const useStore = create<AppState>((set, get) => ({
                 feedTransfers: res.transfers || {},
                 feedPlacements: res.placements || {},
                 feedLessonWrite: res.lessonWrite ?? null,
+                feedReplacedKeys: [],
                 feedExhausted: res.exhausted,
                 feedDone: {},
                 feedFocusItemId: null,
@@ -1633,7 +1638,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ feedLoading: true });
         const seq = feedSeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             // A page for the stream the learner has left is not a page of this
             // one; the load that replaced it owns the spinner now.
@@ -1678,12 +1683,12 @@ export const useStore = create<AppState>((set, get) => ({
         set({ feedLoading: true });
         const seq = feedSeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             if (seq !== feedSeq) return;
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
-            set(state => ({
+            set(state => {
                 // Never reordered, same contract as extendFeed — cards already
                 // on screen must not move under the reader. Two exceptions keep
                 // a chapter's end its END: a topic's CHECKPOINT goes straight
@@ -1693,18 +1698,23 @@ export const useStore = create<AppState>((set, get) => ({
                 // that checkpoint (`placeCheckpoints`). A lesson the page was
                 // waiting on goes where its slot was drawn, and replaces the
                 // Overview that stood in for it while the page showed only
-                // "Writing the lesson" (nobody read that stand-in).
-                feedCards: fresh.length
+                // "Writing the lesson" (nobody read that stand-in). Its key is
+                // still sent as held (`heldKeys`).
+                const placed = fresh.length
                     ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null,
                         lessonPending(state.feedCards, state.feedLessonWrite))
-                    : state.feedCards,
-                feedHeader: res.header,
-                feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
-                feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
-                feedLessonWrite: res.lessonWrite ?? null,
-                feedExhausted: res.exhausted,
-                feedLoading: false,
-            }));
+                    : state.feedCards;
+                return {
+                    feedCards: placed,
+                    feedReplacedKeys: [...state.feedReplacedKeys, ...replacedKeys(state.feedCards, placed)],
+                    feedHeader: res.header,
+                    feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
+                    feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                    feedLessonWrite: res.lessonWrite ?? null,
+                    feedExhausted: res.exhausted,
+                    feedLoading: false,
+                };
+            });
         } catch {
             if (seq === feedSeq) set({ feedLoading: false });
         }
