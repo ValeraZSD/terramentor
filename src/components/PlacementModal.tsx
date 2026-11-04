@@ -62,6 +62,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
     const question: PlacementQuestion | undefined = probe?.questions[index];
     const answeredCount = probe?.questions.filter(q => q.answered).length ?? 0;
+    const asking = phase === 'asking' && !!question;
     // A question reported as wrong seeds nothing (server/itemReports.js): it
     // is not answered, and the way on is Next.
     const questionReportRef = probe && question ? probeRef(probe.id, question.index) : null;
@@ -230,7 +231,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 aria-modal="true"
                 aria-label={t("Placement for {{projectName}}", { projectName })}
             >
-                <header className="shrink-0 flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
+                <header className={`shrink-0 flex items-start gap-3 p-5 ${asking ? 'pb-3' : 'border-b border-slate-200 dark:border-slate-700'}`}>
                     <span className="mt-0.5 shrink-0 w-9 h-9 rounded-lg bg-accent/10 text-accent-fg flex items-center justify-center">
                         <Compass size={20} />
                     </span>
@@ -240,6 +241,20 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     </div>
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
+
+                {/* Where the learner is stays put above the scrolling body, as the
+                    header's last row: the scroll that brings a verdict into view
+                    must not carry it away. */}
+                {asking && question && (
+                    <div className="shrink-0 px-5 pb-4 space-y-2 border-b border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                            {/* Answered, never "correct so far" — a probe has no score. */}
+                            <span className="shrink-0">{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
+                            <span className="truncate min-w-0 text-right">{question.phaseTitle}</span>
+                        </div>
+                        <ProgressBar value={answeredCount} max={Math.max(1, probe?.total ?? 1)} size="sm" decorative />
+                    </div>
+                )}
 
                 <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto">
                 {error && (
@@ -296,13 +311,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     // missed answer open the same dialog.
                     <ReportScope>
                         <div className="p-5 space-y-4">
-                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                {/* Answered, never "correct so far" — a probe has no score. */}
-                                <span>{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
-                                <span className="truncate max-w-[55%] text-right">{question.phaseTitle}</span>
-                            </div>
-                            <ProgressBar value={answeredCount} max={Math.max(1, probe?.total ?? 1)} size="sm" decorative />
-
                             <div className="flex items-start gap-2">
                                 <div className="min-w-0 flex-1 space-y-4">
                                     <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>

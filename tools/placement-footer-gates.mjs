@@ -166,6 +166,12 @@ if (PlacementModal) {
             ok(`"${name}" is not inside anything that scrolls`, !scroller,
                 scroller ? `inside <${scroller.tagName.toLowerCase()} class="${scroller.getAttribute('class')}">` : '');
         }
+        // The scroll that brings the verdict into view must not carry the
+        // learner's place away with it (his photo, 4 Nov 2026).
+        const count = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && /^\d+ of \d+ answered$/.test(e.textContent.trim()));
+        const countScroller = count && chain(count, dialog).find(scrolls);
+        ok('"1 of 2 answered" is on the page and not inside anything that scrolls', !!count && !countScroller,
+            !count ? 'no "answered" line' : countScroller ? `inside <${countScroller.tagName.toLowerCase()} class="${countScroller.getAttribute('class')}">` : '');
         const cls = dialog.getAttribute('class') ?? '';
         ok('the dialog itself does not scroll, and clips', !scrolls(dialog) && /(^|\s)overflow-hidden(\s|$)/.test(cls), cls);
         // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
