@@ -5,6 +5,8 @@ import { RUNNER_LIMITS } from '../../../server/runnerFrame.js';
 import { LANGUAGE_NAME, MEMORY_MB } from '../../runner/languages';
 import { OUTPUT_MAX } from '../../runner/protocol';
 import type { CodeTest, RunResult, RunnerLanguage } from '../../runner/protocol';
+import { cx } from '../ui/vocabulary';
+import { diffChars, type DiffPart } from './charDiff';
 
 /**
  * What running a learner's code produced, under the editor (`CodeInput`).
@@ -54,8 +56,8 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
     const { t } = useTranslation();
     const stopped = stoppedLine(t, run, language);
     const output = run.output ?? '';
-    const valueLine = run.value !== undefined && test?.call ? `${test.call} → ${run.value}` : '';
-    const nothing = !stopped && !output && !valueLine && !run.error;
+    const call = run.value !== undefined && test?.call ? test.call : '';
+    const nothing = !stopped && !output && !call && !run.error;
     return (
         <section className={SECTION} aria-label={t("Output")} aria-live="polite">
             <p className={LABEL}>{t("Output")}</p>
@@ -64,14 +66,20 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
                     {t("Input")}: <span className="font-mono">{test.stdin.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || t("(empty)")}</span>
                 </p>
             )}
-            {(output || valueLine || run.error) && (
+            {(output || run.error) && (
                 <pre className={`mt-1 max-h-60 overflow-auto ${MONO}`}>
                     {output}
-                    {valueLine && <>{output && !output.endsWith('\n') ? '\n' : ''}{valueLine}</>}
                     {run.error && (
-                        <span className="text-red-700 dark:text-red-300">{output || valueLine ? '\n' : ''}{run.error}</span>
+                        <span className="text-red-700 dark:text-red-300">{output ? '\n' : ''}{run.error}</span>
                     )}
                 </pre>
+            )}
+            {/* What the call returned, apart from what the code printed on the
+                way, in the same "call → value" form as the rows after Check. */}
+            {call && (
+                <p className={cx(output || run.error ? 'mt-2' : 'mt-1', MONO)}>
+                    {call} <span className="text-slate-400 dark:text-slate-500">→</span> {run.value}
+                </p>
             )}
             {output.length >= OUTPUT_MAX && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{t("More than 64 KB of output")}</p>}
             {nothing && <p className={`mt-1 ${MUTED}`}>{t("Nothing was printed.")}</p>}
@@ -81,14 +89,59 @@ export function RunOutput({ run, test, language }: { run: RunResult; test?: Code
 }
 
 /** One side of a row: the value, the printed text, or that there was none. */
-function Shown({ text, over, kind }: { text: string; over?: boolean; kind: 'call' | 'stdin' }) {
+function Shown({ text, over, kind, parts, tone }: {
+    text: string;
+    over?: boolean;
+    kind: 'call' | 'stdin';
+    /** The same text cut where it differs from the other side (`diffChars`). */
+    parts?: DiffPart[];
+    tone?: 'got' | 'expected';
+}) {
     const { t } = useTranslation();
     if (over) return <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("More than 64 KB of output")}</span>;
     if (!text && kind === 'stdin') return <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("Nothing was printed.")}</span>;
-    return <>{text}</>;
+    if (!parts) return <>{text}</>;
+    // A marked space or line break has no ink of its own: the mark's fill is
+    // what shows it, and a break gets a ↵ so the fill has something to sit on.
+    return (
+        <>
+            {parts.map((p, i) => p.mark
+                ? <mark key={i} className={cx('rounded-sm text-inherit', tone === 'got' ? 'bg-red-200 dark:bg-red-500/35' : 'bg-emerald-100 dark:bg-emerald-500/25')}>{p.text.replace(/\n/g, '↵\n')}</mark>
+                : <span key={i}>{p.text}</span>)}
+        </>
+    );
 }
 
-/** After Check: one row per test, in the question's order. */
+/** A typed input on one line: line breaks as ⏎. */
+const inputLine = (input: string) => input.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ');
+
+/** A test's input as its row shows it: the call, the typed line, or "(empty)". */
+function InputShown({ kind, input }: { kind: 'call' | 'stdin'; input: string }) {
+    const { t } = useTranslation();
+    if (kind === 'call') return <>{input}</>;
+    const line = inputLine(input);
+    return line ? <>{line}</> : <span className="font-sans text-sm text-slate-500 dark:text-slate-400">{t("(empty)")}</span>;
+}
+
+// Each row is a grid of the same four columns: the mark, the input, an arrow,
+// the result. The input column is as wide as the longest input, counted in
+// `ch` of the monospaced face the rows are set in (so exact), and never more
+// than 45% of the row, past which an input wraps; so every arrow and every
+// result stands in one column. The list is pulled out by the rows' own side
+// padding, so a failed row's tint has room around its text and the marks
+// stand on the same edge as the count above them.
+const ROW = 'grid items-start gap-x-3 rounded-md px-2 py-1';
+const FAILED_ROW = 'bg-red-50 dark:bg-red-950/40';
+const columns = (inputChars: number) => ({ gridTemplateColumns: `1rem min(${Math.max(inputChars, 1)}ch, 45%) auto minmax(0, 1fr)` });
+// One line of the monospaced text, so an icon centred in it sits on the first line.
+const ICON_LINE = 'flex items-center h-[calc(0.85rem*1.625)]';
+
+/**
+ * After Check: one line per test, in the question's order. The input, an
+ * arrow, and what the learner's code gave, with every result in one column;
+ * a failed test is tinted and puts the expected result beside the one that
+ * came back, on the same line when both fit.
+ */
 export function TestRows({ run, language }: { run: RunResult; language: RunnerLanguage }) {
     const { t } = useTranslation();
     const rows = run.tests ?? [];
@@ -97,32 +150,76 @@ export function TestRows({ run, language }: { run: RunResult; language: RunnerLa
         return stopped ? <div className={SECTION}><p className={MUTED}>{stopped}</p></div> : null;
     }
     const passed = rows.filter((r) => r.pass).length;
+    const count = t("Tests passed: {{passed}} of {{total}}", { passed, total: rows.length });
+    // Every test passed: the count is the whole story, and four green rows
+    // restating it were what made a right answer's card look busy.
+    if (passed === rows.length) {
+        return (
+            <section className={SECTION} aria-label={t("Tests")}>
+                <p className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 tabular-nums">
+                    <Check className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                    {count}
+                </p>
+            </section>
+        );
+    }
+    // A list is all calls or all typed input (a mixed one is never run). A call
+    // says what it is; a typed line needs its two columns named.
+    const typed = rows[0].kind === 'stdin';
+    const chars = (s: string) => Array.from(s).length;
+    const grid = columns(Math.max(
+        ...rows.map((r) => (r.kind === 'call' ? chars(r.input) : chars(inputLine(r.input)) || chars(t("(empty)")))),
+        typed ? chars(t("Input")) : 0,
+    ));
     return (
         <section className={SECTION} aria-label={t("Tests")}>
-            <p className={LABEL}>{t("Tests passed: {{passed}} of {{total}}", { passed, total: rows.length })}</p>
-            <ul className="mt-1.5 space-y-2">
-                {rows.map((row, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                        {row.pass
-                            ? <Check className="mt-1 w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" aria-label={t("Passed")} />
-                            : <X className="mt-1 w-4 h-4 shrink-0 text-red-600 dark:text-red-400" aria-label={t("Failed")} />}
-                        <div className={`min-w-0 flex-1 ${MONO}`}>
-                            {row.kind === 'call'
-                                ? <span>{row.input}</span>
-                                : <span><span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Input")}: </span>{row.input.replace(/\n+$/, '').replace(/\n/g, ' ⏎ ') || t("(empty)")}</span>}
-                            {row.pass ? (
-                                <span className="text-slate-600 dark:text-slate-400"> → <Shown text={row.actual} kind={row.kind} /></span>
-                            ) : (
-                                <dl className="mt-0.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
-                                    <dt className="font-sans text-xs leading-6 text-slate-500 dark:text-slate-400">{t("Expected")}</dt>
-                                    <dd><Shown text={row.expected} kind={row.kind} /></dd>
-                                    <dt className="font-sans text-xs leading-6 text-slate-500 dark:text-slate-400">{t("Got")}</dt>
-                                    <dd><Shown text={row.actual} over={row.over} kind={row.kind} /></dd>
-                                </dl>
-                            )}
-                        </div>
-                    </li>
-                ))}
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200 tabular-nums">{count}</p>
+            {typed && (
+                // Set in the rows' face so its `ch` columns are theirs.
+                <div aria-hidden="true" className={cx(ROW, '-mx-2 mt-1 pb-0 font-mono text-[0.85rem]')} style={grid}>
+                    <span />
+                    <span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Input")}</span>
+                    <span className="invisible">→</span>
+                    <span className="font-sans text-xs text-slate-500 dark:text-slate-400">{t("Output")}</span>
+                </div>
+            )}
+            {/* A hair between rows, so two failed rows read as two bands. */}
+            <ul className={cx('-mx-2 space-y-0.5', typed ? '' : 'mt-1', MONO)}>
+                {rows.map((row, i) => {
+                    // Printed lines read as blocks; "Expected" then goes on its own line.
+                    const block = /\n./.test(row.actual) || /\n./.test(row.expected);
+                    const diff = row.pass || row.over ? null : diffChars(row.expected, row.actual);
+                    return (
+                        // A passed row steps back so the failed ones are read first.
+                        <li key={i} className={cx(ROW, row.pass ? 'text-slate-600 dark:text-slate-400' : FAILED_ROW)} style={grid}>
+                            <span className={ICON_LINE}>
+                                {row.pass
+                                    ? <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-label={t("Passed")} />
+                                    : <X className="w-4 h-4 text-red-600 dark:text-red-400" aria-label={t("Failed")} />}
+                            </span>
+                            <span className="min-w-0 [overflow-wrap:anywhere]"><InputShown kind={row.kind} input={row.input} /></span>
+                            <span className="text-slate-400 dark:text-slate-500" aria-hidden="true">→</span>
+                            <div className="min-w-0 [overflow-wrap:anywhere]">
+                                {row.pass ? (
+                                    <Shown text={row.actual} kind={row.kind} />
+                                ) : (
+                                    <div className="flex flex-wrap items-baseline gap-x-4">
+                                        <span className="text-red-700 dark:text-red-300">
+                                            <span className="sr-only">{t("Got")} </span>
+                                            <Shown text={row.actual} over={row.over} kind={row.kind} parts={diff?.actual} tone="got" />
+                                        </span>
+                                        {/* On one line the value hangs beside its label, so a
+                                            value that wraps stays in its own column. */}
+                                        <span className={block ? 'basis-full mt-1' : 'flex min-w-0 items-baseline gap-x-1.5'}>
+                                            <span className={cx('font-sans text-xs text-slate-600 dark:text-slate-300', block ? 'block' : 'shrink-0')}>{t("Expected")}</span>
+                                            <span className="min-w-0"><Shown text={row.expected} kind={row.kind} parts={diff?.expected} tone="expected" /></span>
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        </li>
+                    );
+                })}
             </ul>
         </section>
     );
