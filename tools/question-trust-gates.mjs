@@ -76,8 +76,8 @@ const stub = createServer((req, res) => {
                 title: 'Adding two and two', overview: 'Two and two make four.', flashcards: [],
                 questions: [{ question: 'CONFIRM capture: what is 2 + 2?', type: 'multiple_choice', options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two make four.' }],
             });
-        } else if (/checking a question before it is shown/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING)\w*/) || [])[0] || 'SILENT';
+        } else if (/checking a question before it is shown|audit the MODEL ANSWER/.test(system)) {
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
             content = tag === 'WORKING'
                 // Working first, TeX braces and all, then the verdict in a fence.
@@ -85,6 +85,8 @@ const stub = createServer((req, res) => {
                     + JSON.stringify({ verdict: 'ok', answer: '4', eliminable: 0, reason: 'With f\'(0)=0 the quotient is 2e^{-1/h^2}/h^4.' }) + '\n```'
                 : tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
                 : tag.startsWith('DISPUTE') ? JSON.stringify({ verdict: 'ok', answer: '5', reason: 'the key is wrong', eliminable: 0 })
+                // A word the prompt never offered, with an answer that matches the key.
+                : tag.startsWith('UNSURE') ? JSON.stringify({ verdict: 'unsure', answer: '4', reason: 'not certain', eliminable: 0 })
                 : 'I would rather not say.';
         } else {
             res.writeHead(400, { 'content-type': 'application/json' });
@@ -394,6 +396,12 @@ const working = await verifyQuestion('Two and two', mc('WORKING out: what is 2 +
 check('a verdict after TeX working is a verdict: available, confirmed',
     working.available === true && working.ok === true && working.reason === 'verified', JSON.stringify(working));
 check('...and the stub really sent the working first', verifierCalls.get('WORKING') >= 1);
+// A verdict outside "ok" | "broken" is no verdict: never a pass, even when the
+// answer it gave matches the key, and never an audit passed for an open question.
+const unsureMc = await verifyQuestion('Two and two', mc('UNSURE mc: what is 2 + 2?'));
+check('a verdict the prompt never offered ("unsure") is not a verification', unsureMc.available === false, JSON.stringify(unsureMc));
+const unsureOpen = await verifyQuestion('Two and two', { ...mc('UNSURE open: what is 2 + 2?'), type: 'short_answer', options: undefined });
+check('...nor an audit passed for an open question', unsureOpen.available === false, JSON.stringify(unsureOpen));
 const { parseAnswerVerdict } = await import(B + 'ai.js');
 const graded = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, the learner's $k = 4$ is right.
 ` + '```json\n{"correct": true, "explanation": "k = 4."}\n```');
@@ -413,6 +421,14 @@ const redone = parseObjectResponse('```json\n{"verdict": "ok", "answer": "4"}\n`
 check('a draft the model corrected loses to the correction', redone?.answer === '11', JSON.stringify(redone));
 const shaped = parseObjectResponse('Note {"hint": "x"} first. {"verdict": "ok", "answer": "4"} then {"aside": 1}.', { key: 'verdict' });
 check('an object of another shape on either side is skipped', shaped?.answer === '4', JSON.stringify(shaped));
+const fencedDraft = parseAnswerVerdict('```json\n{"correct": false, "explanation": "k = 3."}\n```\nWait, I misread the exponent. Corrected: {"correct": true, "explanation": "k = 4."}');
+check('a fenced draft loses to a bare correction written after it', fencedDraft?.verdict === 'correct', JSON.stringify(fencedDraft));
+const openSet = parseObjectResponse('Take the set {x : x > 0, x real,\n```json\n{"verdict": "ok", "answer": "4"}\n```\nand nothing else}.', { key: 'verdict' });
+check('...and a brace opened before a fence and closed after it does not swallow the fence', openSet?.answer === '4', JSON.stringify(openSet));
+const bareKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {correct: true, explanation: "k = 4."}`);
+check('a verdict with bare keys after TeX working is read', bareKey?.verdict === 'correct', JSON.stringify(bareKey));
+const singleKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {'correct': true}`);
+check("...and one with 'single-quoted' keys", singleKey?.verdict === 'correct', JSON.stringify(singleKey));
 const cut = typeof parseQuestionReply === 'function'
     ? parseQuestionReply('{"question": "What is 2 + 2?", "plot": {"fn": "x"}, "explanation": "Two and tw')
     : { fn: 'no parseQuestionReply' };

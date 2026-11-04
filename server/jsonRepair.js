@@ -66,8 +66,8 @@ export function parseJsonWithRepair(text) {
  * `{` to the last `}` began inside the TeX, so a verifier that agreed with the
  * key read as "returned nothing usable" and the question was served as
  * practice only (Taylor clip, 4 Nov 2026). So the reply's top-level `{…}`
- * spans are read, ```json fenced ones first, and the LAST that parses as a
- * non-empty object the caller `accept`s wins: a format example echoed before
+ * spans and its ```json fenced objects are read in reply order, and the LAST
+ * that parses as a non-empty object the caller `accept`s wins: a format example echoed before
  * the answer, or a draft the model then corrected, comes earlier. `{}` (TeX's
  * `{}^{14}C`) never counts. An object inside another is never a candidate of
  * its own; an opening `{"` that never closes (a cut-off reply) is repaired
@@ -86,29 +86,31 @@ export function readReplyObject(text, prepare = (s) => s, accept = () => true) {
         let prepared;
         try { prepared = prepare(slice); } catch { return null; }
         try { const v = JSON.parse(prepared); if (usable(v)) return v; } catch { /* repair below */ }
-        if (repairable && /^\{\s*"/.test(slice)) {
+        // Repaired only when it opens like an object (`{"k"`, `{'k':`, `{k:`):
+        // a TeX group such as `{f'(h)}` is never rewritten into one.
+        if (repairable && /^\{\s*(?:"|'[^'\n]*'\s*:|[A-Za-z_]\w*\s*:)/.test(slice)) {
             const v = parseJsonWithRepair(prepared);
             if (usable(v)) return v;
         }
         return null;
     };
-    const lastOf = (slices) => {
-        for (let k = slices.length - 1; k >= 0; k--) {
-            const v = read(slices[k], true);
-            if (v) return v;
-        }
-        return null;
-    };
-    const fenced = lastOf([...s.matchAll(/```(?:json)?[ \t]*\r?\n?(\{[\s\S]*?\})\s*```/gi)].map(m => m[1]));
-    if (fenced) return fenced;
-    const spans = [];
+    // Fenced objects are found by their fence as well as by the brace scan:
+    // a brace the prose opens before the fence and closes after it swallows
+    // the fence whole in the scan.
+    // Both lists merge in reply order, so a bare correction written after a
+    // fenced draft still wins.
+    const candidates = [...s.matchAll(/```(?:json)?[ \t]*\r?\n?(\{[\s\S]*?\})\s*```/gi)]
+        .map(m => ({ at: m.index + m[0].indexOf(m[1]), slice: m[1] }));
     for (let i = s.indexOf('{'); i !== -1; i = s.indexOf('{', i + 1)) {
         const end = findMatchingBracket(s, i, '{', '}');
-        if (end !== -1) { spans.push(s.slice(i, end + 1)); i = end; continue; }
-        if (/^\{\s*"/.test(s.slice(i))) { spans.push(s.slice(i)); break; }
+        if (end !== -1) { candidates.push({ at: i, slice: s.slice(i, end + 1) }); i = end; continue; }
+        if (/^\{\s*"/.test(s.slice(i))) { candidates.push({ at: i, slice: s.slice(i) }); break; }
     }
-    const found = lastOf(spans);
-    if (found) return found;
+    candidates.sort((a, b) => a.at - b.at);
+    for (let k = candidates.length - 1; k >= 0; k--) {
+        const v = read(candidates[k].slice, true);
+        if (v) return v;
+    }
     const greedy = s.match(/\{[\s\S]*\}/);
     if (!greedy) return null;
     const v = parseJsonWithRepair(prepare(greedy[0]));
