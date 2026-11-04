@@ -14,6 +14,11 @@
  * taught, so its real lessons still come; and on screen they go in BEFORE its
  * "End of chapter", never under it.
  *
+ * And while that first lesson is being written, the topic's page holds still:
+ * the server says so (`lessonWrite`), serves no checkpoint and no notice, the
+ * page draws the lesson's slot under the Overview and no end under it, and a
+ * write that fails says why and gives the chapter its end back.
+ *
  * Deterministic: a scratch database, no model, no network; the client half is
  * the shipped `src/utils/feedPlacement.ts`, bundled with esbuild.
  */
@@ -120,6 +125,53 @@ check('it held no stand-in', !heldTaught.has(`read-${taught}`), JSON.stringify(p
 const later = composeFeed({ gate, nodeId: taught, excludeKeys: heldTaught }).items.filter(c => c.nodeId === taught);
 check('a later page adds nothing to it', later.length === 0, JSON.stringify(later.map(c => c.key)));
 
+console.log('\n--- Study on a topic whose lesson is being written: one stable page ---');
+// Without a write state the page passes through four layouts in its first
+// seconds: Overview + "That's all of this topic", then "End of chapter" +
+// "Writing more lessons · 0%", then the lesson landing under the Overview with
+// the checkpoint pushed below it. While the writer is on the topic's first
+// lesson the page is the Overview and the lesson's slot; nothing closes the
+// chapter.
+{
+    const pending = mkTopic('The function e to the minus one over x squared', 3);
+    const writing = { nodeId: pending, state: 'writing' };
+    const first = composeFeed({ gate, nodeId: pending, lessonWrite: writing });
+    const keysOf = (r) => r.items.map(c => c.key);
+    check('page 1 is the Overview standing in', keysOf(first).includes(`read-${pending}`), JSON.stringify(keysOf(first)));
+    check('page 1 serves no checkpoint', !first.items.some(c => c.kind === 'checkpoint'), JSON.stringify(keysOf(first)));
+    check('the page is told the lesson is being written', first.lessonWrite?.nodeId === pending && first.lessonWrite?.state === 'writing',
+        JSON.stringify(first.lessonWrite));
+    check('no "being prepared" notice above it: the lesson\'s slot says it', !keysOf(first).includes('notice-ai'), JSON.stringify(keysOf(first)));
+    const heldPending = new Set(keysOf(first));
+    const pulls = [];
+    for (let i = 0; i < 3; i++) {
+        const r = composeFeed({ gate, nodeId: pending, excludeKeys: heldPending, lessonWrite: writing });
+        pulls.push(...keysOf(r));
+        for (const k of keysOf(r)) heldPending.add(k);
+    }
+    check('pulls while it is written serve no checkpoint either', !pulls.some(k => k.startsWith('checkpoint-')), JSON.stringify(pulls));
+    // The writer stores the outline first: a reload then still opens on the
+    // Overview, not on an empty topic.
+    writePlan(pending, 2);
+    const reload = composeFeed({ gate, nodeId: pending, lessonWrite: writing });
+    check('with only the outline written, a reload still opens on the Overview', keysOf(reload).includes(`read-${pending}`), JSON.stringify(keysOf(reload)));
+    check('…and no checkpoint', !reload.items.some(c => c.kind === 'checkpoint'), JSON.stringify(keysOf(reload)));
+    // The write fails: the page goes back to how it ends today, and says why.
+    const failed = { nodeId: pending, state: 'failed', reason: 'model not found' };
+    const afterFail = composeFeed({ gate, nodeId: pending, excludeKeys: heldPending, lessonWrite: failed });
+    check('a failed write closes the chapter as before', afterFail.items.some(c => c.key === `checkpoint-${pending}`), JSON.stringify(keysOf(afterFail)));
+    check('…and carries the reason to the page', afterFail.lessonWrite?.state === 'failed' && afterFail.lessonWrite?.reason === 'model not found',
+        JSON.stringify(afterFail.lessonWrite));
+    // A state for a topic that is not the one on the page changes nothing.
+    const other = composeFeed({ gate, nodeId: taught, lessonWrite: { nodeId: pending, state: 'writing' } });
+    const plain = composeFeed({ gate, nodeId: taught });
+    // Bank cards by kind: each page draws its own random few.
+    const shape = (r) => r.items.map(c => (c.key.startsWith('savedq-') ? 'savedq' : c.key));
+    check('a topic whose lesson exists is served exactly as before',
+        JSON.stringify(shape(other)) === JSON.stringify(shape(plain)) && other.lessonWrite == null,
+        `${JSON.stringify(keysOf(other))} vs ${JSON.stringify(keysOf(plain))}`);
+}
+
 // --- client: where a pulled card lands on screen -----------------------------
 const require = createRequire(import.meta.url);
 const esbuild = require('esbuild');
@@ -169,6 +221,45 @@ console.log('\n--- what was already right stays right ---');
     check('a flashcard in the pull does not push the checkpoint past topic 2', keys(withCard) === 'fi-1 checkpoint-1 fi-2 fcnew-5', keys(withCard));
 }
 
+console.log('\n--- the lesson\'s slot holds the page still, and the lesson takes it ---');
+{
+    const { lessonSlot, lessonPending } = await import(pathToFileURL(out).href);
+    const overview = { ...card('read-1', 'lesson', 1), degraded: true };
+    const writing = { nodeId: 1, state: 'writing' };
+    const screen = [card('notice-ai', 'notice'), overview];
+    check('the slot stands right after the Overview',
+        JSON.stringify(lessonSlot?.(screen, writing)) === JSON.stringify({ key: 'read-1', place: 'after' }), JSON.stringify(lessonSlot?.(screen, writing)));
+    check('while it is written the stream has no end yet (no junction, no "Writing more lessons" line)',
+        lessonPending?.(screen, writing) === true);
+    // A flashcard of the topic served after the Overview: the lesson still
+    // lands in the slot, above it, not appended under it as a new chapter.
+    const withCard = [overview, flash('fc-3', 1)];
+    const landed = placeCheckpoints(withCard, [card('fi-7', 'lesson', 1), card('fi-8', 'question', 1)], 1);
+    check('the lesson and its question go where the slot was', keys(landed) === 'read-1 fi-7 fi-8 fc-3', keys(landed));
+    check('and the slot is gone, even before the state says so',
+        lessonSlot?.(landed, writing) === null && lessonPending?.(landed, writing) === false, JSON.stringify(lessonSlot?.(landed, writing)));
+    const failed = { nodeId: 1, state: 'failed', reason: 'model not found' };
+    const closed = placeCheckpoints([overview], [card('checkpoint-1', 'checkpoint', 1)], 1);
+    check('a failed write keeps its slot (with the reason), above the End of chapter',
+        JSON.stringify(lessonSlot?.(closed, failed)) === JSON.stringify({ key: 'checkpoint-1', place: 'before' }), JSON.stringify(lessonSlot?.(closed, failed)));
+    check('…and the stream ends as it does today', lessonPending?.(closed, failed) === false);
+    check('no state, no slot', lessonSlot?.(screen, null) === null && lessonPending?.(screen, null) === false);
+    check('a state for a topic with no card on screen draws nothing', lessonSlot?.(screen, { nodeId: 9, state: 'writing' }) === null);
+    // A recall card carries its topic's id but is drawn on its own, outside the
+    // chapter: a slot anchored on it would never be drawn, with the end held.
+    const withRecall = [overview, card('recall-1', 'recall', 1)];
+    check('the slot anchors on a chapter card, never on a recall card drawn alone',
+        JSON.stringify(lessonSlot?.(withRecall, writing)) === JSON.stringify({ key: 'read-1', place: 'after' }), JSON.stringify(lessonSlot?.(withRecall, writing)));
+    const landedPastRecall = placeCheckpoints(withRecall, [card('fi-7', 'lesson', 1)], 1);
+    check('…and the lesson lands there too', keys(landedPastRecall) === 'read-1 fi-7 recall-1', keys(landedPastRecall));
+    // Source check only: the behaviour is in the functions above; this pins
+    // that FeedView is wired to them, and the Edge walk shows it drawn.
+    const { readFileSync } = await import('node:fs');
+    const view = readFileSync(fileURLToPath(new URL('../src/components/feed/FeedView.tsx', import.meta.url)), 'utf8');
+    check('FeedView is wired to the slot and holds its end on lessonPending',
+        /lessonPending\(feedCards, lessonWrite\)/.test(view) && /feedExhausted && feedCards\.length > 0 && !pending/.test(view) && /lessonSlot\(feedCards, lessonWrite\)/.test(view));
+}
+
 console.log('\n--- the signal that a lesson landed is never thrown away ---');
 {
     // Measured on the pre-fix build (1 Nov 2026): the page pulled at :15 on the
@@ -210,6 +301,70 @@ console.log('\n--- the signal that a lesson landed is never thrown away ---');
     check('pullFeedUpdates goes through the gate and has no bare throttle return',
         body.includes('admitFeedPull(') && !/FEED_PULL_MIN_MS\)\s*return/.test(body) && !/if \(get\(\)\.feedLoading\) return;/.test(body),
         body.slice(0, 200));
+    // A failed burst's task stays listed for minutes, and it is the OLDEST
+    // 'feed' task: a signal read from it alone never changed while the retry
+    // wrote the lesson, so the page never pulled.
+    const { feedGenSignal } = await import(pathToFileURL(out).href);
+    const task = (id, status, percent, message) => ({ id, kind: 'feed', status, progress: { percent, message } });
+    const before = feedGenSignal?.([task('a', 'error', 10, 'outline'), task('b', 'running', 20, 'lesson 1')]);
+    const after = feedGenSignal?.([task('a', 'error', 10, 'outline'), task('b', 'running', 99, 'question 1')]);
+    check('the pull signal moves with the newest burst, not a failed one left in the list', !!before && before !== after, `${before} → ${after}`);
+    check('…and a failure is still a signal (held from before, not new)',feedGenSignal?.([task('b', 'running', 20, 'lesson 1')]) !== feedGenSignal?.([task('b', 'error', 20, 'lesson 1')]));
+}
+
+console.log('\n--- the route: Study asks for the lesson, and says whether it is being written ---');
+{
+    // A stand-in model server on this machine. It HOLDS every request (the
+    // writer is "on it"), then refuses them all, as a missing model does.
+    const { createServer } = await import('node:http');
+    const heldRes = [];
+    let refuse = false;
+    const refuseNow = (res) => { res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: "model 'gate-model' not found" })); };
+    let asked = 0;
+    const stub = createServer((req, res) => { req.resume(); asked++; if (refuse) refuseNow(res); else heldRes.push(res); });
+    await new Promise(r => stub.listen(0, '127.0.0.1', r));
+    setting('ai_ollama_url', `http://127.0.0.1:${stub.address().port}`);
+    // No other topic may be in the writer's way: only the one Study opens.
+    db.prepare('UPDATE nodes SET completed_at = CURRENT_TIMESTAMP WHERE project_id = ?').run(course);
+    const route = mkTopic('Uniform convergence', 9);
+    const { createApp } = await import('../server/app.js');
+    const appServer = createServer(createApp());
+    await new Promise(r => appServer.listen(0, '127.0.0.1', r));
+    const feed = async (exclude = []) => (await fetch(`http://127.0.0.1:${appServer.address().port}/api/feed?nodeId=${route}&exclude=${encodeURIComponent(exclude.join(','))}`)).json();
+    const p1 = await feed();
+    const k1 = (p1.items || []).map(c => c.key);
+    check('the first page already knows the lesson is being written', p1.lessonWrite?.nodeId === route && p1.lessonWrite?.state === 'writing',
+        JSON.stringify(p1.lessonWrite ?? p1.error));
+    check('…serves the Overview and no checkpoint', k1.includes(`read-${route}`) && !k1.some(k => k.startsWith('checkpoint-')), JSON.stringify(k1));
+    const until = async (cond, ms = 15000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await cond()) return true; await new Promise(r => setTimeout(r, 100)); } return false; };
+    check('the writer is on it (the model was asked)', await until(() => heldRes.length > 0), `held ${heldRes.length}`);
+    const p2 = await feed(k1);
+    check('a pull meanwhile adds no checkpoint', !(p2.items || []).some(c => c.kind === 'checkpoint') && p2.lessonWrite?.state === 'writing',
+        JSON.stringify({ keys: (p2.items || []).map(c => c.key), lessonWrite: p2.lessonWrite }));
+    refuse = true;
+    for (const res of heldRes.splice(0)) refuseNow(res);
+    let p3 = null;
+    await until(async () => { p3 = await feed(k1); return p3.lessonWrite?.state === 'failed'; });
+    check('the write fails: the page is told why', p3?.lessonWrite?.state === 'failed' && /not found/.test(p3?.lessonWrite?.reason || ''),
+        JSON.stringify(p3?.lessonWrite));
+    check('…with what plainCause needs to say it in plain words', p3?.lessonWrite?.httpStatus === 404, JSON.stringify(p3?.lessonWrite));
+    check('…and gets its End of chapter back', (p3?.items || []).some(c => c.key === `checkpoint-${route}`), JSON.stringify((p3?.items || []).map(c => c.key)));
+    // The backoff belongs to the writer, the failure to the topic it was on: a
+    // topic opened meanwhile was never tried, and is written when it ends.
+    const other = mkTopic('The Weierstrass M-test', 10);
+    const po = await (await fetch(`http://127.0.0.1:${appServer.address().port}/api/feed?nodeId=${other}`)).json();
+    check('a topic opened during that backoff is not told the other topic failed', po.lessonWrite?.nodeId === other && po.lessonWrite?.state === 'writing',
+        JSON.stringify(po.lessonWrite));
+    // Nothing on the page kicks the writer while it backs off; it must kick
+    // itself when the backoff ends, or the failed page stays failed (and the
+    // other topic's slot spins) until a reload. Only time passes here.
+    const askedAtFail = asked;
+    check('the writer tries again when the backoff ends', await until(() => asked > askedAtFail, 25000), `asked ${askedAtFail} → ${asked}`);
+    setting('ai_enabled', 'false');
+    const off = await feed();
+    check('with AI off nothing is being written: no state, the page as today', off.lessonWrite == null, JSON.stringify(off.lessonWrite));
+    appServer.close();
+    stub.close();
 }
 
 db.close();
