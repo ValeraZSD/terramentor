@@ -287,6 +287,15 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
     ok('the burst asked the model for the jumped-to topic\'s check',
         quizAsks.some(a => a.includes('Parallel circuits')), true);
     ok('…and stored it as that topic\'s bank before the learner reached it', bankOf() > 0, true);
+    // The two links the call above stands in for. The page that is open asks
+    // for its own feed, and that request is what enrols the topic; and a topic
+    // picked in the outline while studying opens in the study view, not beside
+    // it (selectNode keeps the workspace view the learner is in).
+    ok('GET /api/feed?nodeId= enrols the opened topic', /if \(scopedNode\) feedGen\.requestNode\(scopedNode\)/.test(src('routes/feed.js')), true);
+    const store = readFileSync(new URL('../src/store.ts', import.meta.url), 'utf8');
+    const selectNodeBody = store.slice(store.indexOf('selectNode: async'), store.indexOf('loadProjectData: async'));
+    ok('…and an outline pick while studying stays in the study view',
+        /const view = get\(\)\.workspaceView/.test(selectNodeBody) && /nav\(`\/project\/\$\{pid\}\/\$\{view\}/.test(selectNodeBody), true);
 
     // A write the vetting leaves short of a mastery check (two questions, not
     // four) must not be asked for again on every burst while the learner
