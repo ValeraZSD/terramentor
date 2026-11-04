@@ -15,7 +15,7 @@ this file.
 
 ## p5.js (LGPL-2.1)
 
-`p5` (1.x) is the only **copyleft** dependency, and it is bundled into the
+`p5` (1.x) is a **copyleft** dependency (so is Pyodide, below), and it is bundled into the
 frontend build so a `p5` visual can run in the browser sandbox. LGPL-2.1
 requires that a user be able to replace the library with their own version.
 That is satisfied here by the shape of the project rather than by a special
