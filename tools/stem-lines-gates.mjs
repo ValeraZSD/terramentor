@@ -228,6 +228,12 @@ try {
             .map((question) => ({ type: 'multiple_choice', question, options: ['a', 'b', 'c', 'd'], correct_answer: 'a', explanation: 'Because.' }));
         const wrongly = printsWords.filter((q) => questionDefects(q).some((d) => /picture/.test(d))).map((q) => q.question);
         check('…nor is a code stem that prints "plot" or a fence', wrongly.length === 0, wrongly.join(' | '));
+        // Its lines kept but its fence lost: the kind alone on a real line, the spec under it.
+        const unfenced = { ...flattened, question: 'What value does $f(x)$ approach?\n\nplot\n{"data":[{"fn":"exp(-1/x^2)"}]}' };
+        check('a stem whose spec lost its fence but kept its lines is a defect too',
+            questionDefects(unfenced).some((d) => /picture arrived as text/.test(d)), questionDefects(unfenced).join('; '));
+        const saysPlot = { ...flattened, question: 'Which word names the command below?\nplot\nIt draws a curve.' };
+        check('…while a line that only says "plot" above prose is not', !questionDefects(saysPlot).some((d) => /picture/.test(d)), questionDefects(saysPlot).join('; '));
         db.close();
     }
 

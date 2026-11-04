@@ -444,6 +444,12 @@ export function citationFaults(question) {
  * fence in a string (`"```\n"`) is not one.
  */
 const STEM_PICTURE_AS_TEXT = /(?:(?:^|\\n)[ \t]*(?:```[ \t]*)?|```[ \t]*)(?:plot|mermaid|vega-lite|vega|smiles)[ \t]*\\n/;
+/**
+ * The same picture after the reader kept its lines but its fence was lost:
+ * the kind alone on a real line with its JSON spec on the next one. Only the
+ * JSON kinds: a line reading "plot" above prose is a stem's own word.
+ */
+const STEM_SPEC_UNFENCED = /(?:^|\n)[ \t]*(?:plot|vega-lite|vega)[ \t]*\r?\n[ \t]*\{/;
 
 /**
  * Mechanical checks on a freshly generated question — everything decidable
@@ -466,7 +472,7 @@ export function questionDefects(question, nodeId = null) {
     // kind name run into an escaped line break (`…?\n\nplot\n{"data":…}`). The
     // reader keeps a stem's lines now; this is the gate that fails closed if a
     // path ever flattens them again, instead of printing the spec at a learner.
-    if (STEM_PICTURE_AS_TEXT.test(stem)) {
+    if (STEM_PICTURE_AS_TEXT.test(stem) || STEM_SPEC_UNFENCED.test(stem)) {
         problems.push('the question\'s picture arrived as text (its fence was flattened onto one line)');
     }
 
