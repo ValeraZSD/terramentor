@@ -86,6 +86,14 @@ COPY --chown=node:node --from=build /app/dist ./dist
 COPY --chown=node:node server ./server
 COPY --chown=node:node public ./public
 COPY --chown=node:node package.json ./
+# The MCP server an agent in another app starts (docs/MCP.md), run with
+# `docker exec -i terramentor node mcp/index.js`.
+COPY --chown=node:node mcp ./mcp
+# What server/ imports from src/ (the card scheduler), and the translations the
+# MCP views read. tools/lib/runtimeSources.mjs finds the imports, and
+# tools/desktop-gates.mjs fails if a line here does not copy one of them.
+COPY --chown=node:node src/utils/srs.ts src/utils/cardText.ts ./src/utils/
+COPY --chown=node:node src/locales ./src/locales
 
 # Run unprivileged. `node` (uid 1000) ships with the base image; /data is chowned
 # so the volume is writable when Docker creates it empty on first run.
