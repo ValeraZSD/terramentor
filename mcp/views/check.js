@@ -5,7 +5,8 @@
 // check" grades the whole sitting at once. The questions arrive without their
 // keys; the score, each key and each explanation arrive only in the answer to
 // the submit, and the app writes the result. A pass marks the topic completed
-// on Continue, through the app's own completion gate.
+// in that same write (server/masteryCheck.js), so closing the host's window
+// cannot leave it open; Continue is offered only when it did not.
 (() => {
     const { h, icon, t, mount, showError, textOf, callTool, tellModel } = TM;
 
@@ -224,7 +225,8 @@
                 const pct = Math.round((r.score / r.total) * 100);
                 tellModel(`The learner finished the mastery check on "${title}": `
                     + `${r.score}/${r.total} (${pct}%), ${r.passed ? 'passed' : 'not passed'} (the pass mark is ${r.passPct}%). `
-                    + 'Terramentor recorded it.', { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct });
+                    + `Terramentor recorded it${r.passed && r.completed && !state.topicCompleted ? ' and marked the topic completed' : ''}.`,
+                { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct, completed: !!r.completed });
             }
         } catch (err) {
             // Free the button before the error's render, or Submit stays disabled.
@@ -271,7 +273,8 @@
         const pct = Math.round((r.score / r.total) * 100);
         const canComplete = r.passed && !state.topicCompleted && !r.completed;
         const line = r.passed
-            ? (state.topicCompleted ? t('You proved it again — the topic stays completed.') : t('You proved it — this topic will be marked completed.'))
+            ? (state.topicCompleted ? t('You proved it again — the topic stays completed.')
+                : r.completed ? t('You proved it — this topic is marked completed.') : t('You proved it — this topic will be marked completed.'))
             : t('You need at least {{round}}% to pass this mastery check.', { round: r.passPct });
         return [
             header(),

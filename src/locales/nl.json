@@ -3144,6 +3144,7 @@
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "Je hebt “{{title}}” in {{project}} en {{count}} ander onderwerp bewezen, en dat lijkt hetzelfde materiaal, dus dit begint bij {{priorPct}}% in plaats van nul.",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "Je hebt “{{title}}” in {{project}} en {{count}} andere onderwerpen bewezen, en dat lijkt hetzelfde materiaal, dus dit begint bij {{priorPct}}% in plaats van nul.",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "Je hebt “{{title}}” in {{project}} bewezen, en dat lijkt hetzelfde materiaal, dus dit onderwerp begint bij {{priorPct}}% in plaats van nul.",
+  "You proved it — this topic is marked completed.": "Je bewees het — dit onderwerp is als afgerond gemarkeerd.",
   "You proved it — this topic will be marked completed.": "Je bewees het — dit onderwerp wordt als afgerond gemarkeerd.",
   "You proved it again — the topic stays completed.": "Je bewees het opnieuw — het onderwerp blijft afgerond.",
   "You proved this {{count}} days ago — still got it?_one": "Je bewees dit {{count}} dag geleden — nog steeds goed?",

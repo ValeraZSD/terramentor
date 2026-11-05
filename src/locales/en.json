@@ -3243,6 +3243,7 @@
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "You proved “{{title}}” in {{project}} and {{count}} other topic, which look like the same material, so this one starts at {{priorPct}}% instead of zero.",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero.",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.",
+  "You proved it — this topic is marked completed.": "You proved it — this topic is marked completed.",
   "You proved it — this topic will be marked completed.": "You proved it — this topic will be marked completed.",
   "You proved it again — the topic stays completed.": "You proved it again — the topic stays completed.",
   "You proved this {{count}} days ago — still got it?_one": "You proved this {{count}} day ago — still got it?",

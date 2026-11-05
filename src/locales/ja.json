@@ -2965,6 +2965,7 @@
   "You need at least {{round}}% to pass this mastery check.": "この習熟チェックに合格するには {{round}}% 以上が必要です。",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "{{project}} で「{{title}}」ほか {{count}} 件のトピックを証明しており、同じ内容に見えるため、このトピックはゼロではなく {{priorPct}}% から始まります。",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "{{project}} で「{{title}}」を証明しており、同じ内容に見えるため、このトピックはゼロではなく {{priorPct}}% から始まります。",
+  "You proved it — this topic is marked completed.": "証明しました — このトピックは完了としてマークされました。",
   "You proved it — this topic will be marked completed.": "証明しました — このトピックは完了としてマークされます。",
   "You proved it again — the topic stays completed.": "もう一度証明しました — このトピックは完了のままです。",
   "You proved this {{count}} days ago — still got it?_other": "{{count}} 日前に証明しました — まだ覚えてますか？",

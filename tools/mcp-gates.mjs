@@ -881,6 +881,16 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         const opener = /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|new\s+Image\b|\bWorker\s*\(|importScripts|window\.open\b|\blocation\s*(?:\.href\s*)?=|\.(?:src|href|action)\s*=/;
         ok(`${uri}: the view's code opens no connection of its own (fetch, sockets, beacons, images, workers, navigation)`,
             !scripts.some(s => opener.test(s)), scripts.map(s => opener.exec(s)?.[0]).filter(Boolean).join(', '));
+        // Every sentence the view passes to t() ships with it: a key left out
+        // of its list in mcp/views.js shows English in every other language
+        // ("is marked completed" did, 5 Nov 2026), and nothing else notices.
+        let shipped = {};
+        try { shipped = JSON.parse(/<script type="application\/json" id="tm-strings">([\s\S]*?)<\/script>/.exec(html)?.[1] || '{}'); } catch { shipped = {}; }
+        const ru = shipped.ru || {};
+        const said = [...new Set(scripts.flatMap(s => [...s.matchAll(/\bt\(\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)]
+            .map(m => m[2].replace(/\\(['"\\])/g, '$1'))))];
+        const unshipped = said.filter(k => !(k in ru) && !(`${k}_one` in ru) && !(`${k}_other` in ru));
+        ok(`${uri}: every sentence it says ships with its translations`, said.length > 0 && unshipped.length === 0, unshipped.join(' | '));
 
         // The host's colours come in pairs: MCP Inspector 2.13 sends a white
         // --color-text-inverse with no --color-background-inverse, and the
@@ -1059,20 +1069,14 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const passedCheck = await hostCall('check_submit', { sitting: sit2, answers: answersFor(qs2, [0, 1, 2, 3, 4]) });
     ok('a passed check writes one more evidence row', data(passedCheck).result?.passed === true && checkEvidence() === evidenceBeforeCheck + 2,
         `${checkEvidence() - evidenceBeforeCheck} rows; ${JSON.stringify(data(passedCheck).result?.score)}`);
-    // The completion is the app's own, with no override: take the evidence
-    // away (as a reported question re-scoring the check would) and the app's
-    // gate refuses it, though the sitting still says passed.
-    const proof = db.prepare("SELECT id, score FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").all(checkedTopic);
-    const estimate = scoreOf(checkedTopic);
-    db.prepare("UPDATE mastery_evidence SET score = 0 WHERE node_id = ? AND evidence_type = 'mastery_check'").run(checkedTopic);
-    db.prepare('UPDATE node_mastery SET mastery_score = 0.1 WHERE node_id = ?').run(checkedTopic);
-    const unproven = await hostCall('check_complete', { sitting: sit2 });
-    ok('the completion goes through the app\'s gate: without the evidence it is refused', isErr(unproven)
-        && /not proven/i.test(textOf(unproven)) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status !== 'completed', textOf(unproven).slice(0, 200));
-    for (const row of proof) db.prepare('UPDATE mastery_evidence SET score = ? WHERE id = ?').run(row.score, row.id);
-    db.prepare('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(estimate, checkedTopic);
+    // The pass completes its topic in the write that records it: a host
+    // window closed on the result cannot leave it open, and the view offers
+    // no Continue (server/masteryCheck.js, check-pass-close-gates.mjs).
+    ok('a passed check completes its topic in the same write, before any Continue',
+        db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed' && data(passedCheck).result?.completed === true,
+        JSON.stringify(data(passedCheck).result?.completed));
     const done = await hostCall('check_complete', { sitting: sit2 });
-    ok('a passed check completes its topic through the app\'s own gate', !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed', textOf(done).slice(0, 200));
+    ok('check_complete after it changes nothing and fails nothing', !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed', textOf(done).slice(0, 200));
     const crossed = await hostCall('review_next', { sitting: sit2 });
     ok('a check\'s token is not a review\'s', isErr(crossed));
 
