@@ -177,7 +177,7 @@ function ReportDialogBody({ onClose, prefill, draftKey = 'settings', onOpened }:
                     <div
                         ref={panelRef}
                         tabIndex={-1}
-                        className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
+                        className="relative flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="report-dialog-title"

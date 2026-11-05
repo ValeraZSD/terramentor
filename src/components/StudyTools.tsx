@@ -425,8 +425,14 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                 isOpen={!!viewingQuiz}
                 onClose={() => setViewingQuiz(null)}
                 title={viewingQuiz?.title || t("Quiz Questions")}
+                footer={(
+                    <Button onClick={() => setViewingQuiz(null)}>
+                        {t("Close")}
+                    </Button>
+                )}
             >
-                <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                {/* The dialog's body is the one scroller; Close stays in its foot. */}
+                <div className="space-y-4">
                     <p>{t("Correct answers:")}</p>
                     {viewingQuiz?.questions.map((q, idx) => (
                         <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl">
@@ -461,11 +467,6 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                             </div>
                         </div>
                     ))}
-                </div>
-                <div className="mt-4 flex justify-end">
-                    <Button onClick={() => setViewingQuiz(null)}>
-                        {t("Close")}
-                    </Button>
                 </div>
             </Modal>
 

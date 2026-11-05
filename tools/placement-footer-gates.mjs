@@ -200,13 +200,15 @@ if (PlacementModal) {
         // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
         // classes the other way round, and the `vh` one would win on a phone.
         const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
-        const rules = [...css.matchAll(/\.placement-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
-        const pairsInOrder = rules.length === 2 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
+        // Since the dialog-footers PR the frame is ui/Dialog's DIALOG_SHELL,
+        // whose cap is the shared `.modal-shell`.
+        const rules = [...css.matchAll(/\.modal-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
+        const pairsInOrder = rules.length === 1 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
         // A cap past the window's height lets the footer leave the window.
         const caps = rules.flatMap(r => [...r.matchAll(/max-height:\s*(\d+(?:\.\d+)?)d?vh;/g)].map(m => Number(m[1])));
-        ok('…and caps its height with a vh-then-dvh pair (phone and sm), each within the window',
-            /(^|\s)placement-shell(\s|$)/.test(cls) && pairsInOrder && caps.length === 4 && caps.every(v => v <= 100),
-            `${cls} | ${rules.length} .placement-shell rule(s), caps ${JSON.stringify(caps)}`);
+        ok('…and caps its height with a vh-then-dvh pair, within the window',
+            /(^|\s)modal-shell(\s|$)/.test(cls) && pairsInOrder && caps.length === 2 && caps.every(v => v <= 100),
+            `${cls} | ${rules.length} .modal-shell rule(s), caps ${JSON.stringify(caps)}`);
         const explanation = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && e.textContent.startsWith(LONG.slice(0, 60)));
         const body = explanation && chain(explanation, dialog).find(scrolls);
         ok('the explanation sits in a scroller inside the dialog', !!body && body !== dialog);

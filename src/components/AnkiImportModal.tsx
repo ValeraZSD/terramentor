@@ -15,6 +15,7 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
 
 /** Sizes a person can judge a download by. */
 function formatBytes(n: number): string {
@@ -202,11 +203,11 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none"
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog" aria-modal="true" aria-label={t("Import an Anki deck")}
             >
-                <header className="flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
+                <header className="shrink-0 flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
                     <span className="mt-0.5 shrink-0 w-9 h-9 rounded-lg bg-accent/10 text-accent-fg flex items-center justify-center">
                         <Layers size={20} />
                     </span>
@@ -219,6 +220,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
+                <div className={DIALOG_BODY}>
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -442,28 +444,6 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 {t("Cards keep the intervals they earned, so you carry on instead of starting over.")}
                             </OptionRow>
                         </div>
-
-                        {/* Sticky, because the commit is the one control that
-                            must never be somewhere else on the page: the deck
-                            list, the skipped-notes block and the options all
-                            grow with the deck, and on a phone that put the
-                            button below the fold on exactly the decks that
-                            took longest to read. */}
-                        <div className="sticky bottom-0 -mx-5 -mb-5 mt-1 border-t border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 backdrop-blur px-5 py-4 space-y-2">
-                            <div className="flex justify-end gap-2">
-                                <Button variant="quiet" onClick={close} disabled={busy}>
-                                    {t("Cancel")}
-                                </Button>
-                                <Button variant="primary" onClick={commit} busy={busy}>
-                                    {busy ? t("Importing…") : t("Import {{n}} cards", { count: stats.cards, n: num(stats.cards) })}
-                                </Button>
-                            </div>
-                            {/* Said BEFORE they commit, not after — that is what
-                                makes pressing the button feel cheap. */}
-                            <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
-                                {t("This creates a new project. You can undo it in one click.")}
-                            </p>
-                        </div>
                     </div>
                 )}
 
@@ -490,15 +470,39 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                 ? <>{t("Cut into")}{' '}<span className="font-medium text-slate-700 dark:text-slate-200">{t("{{stages}} sections", { count: result.stages, stages: result.stages })}</span> {t("in the deck’s own order, so you can see where you are in it. Reviews are scheduled by FSRS, and")}{' '}{result.stages > 1 ? t("new cards arrive a few a day rather than all at once") : t("the rest of the app works on them from here")}.</>
                                 : <>{t("Your decks are now topics. Reviews are scheduled by FSRS, and the rest of the app works on them from here.")}</>}
                         </p>
-                        <div className="flex justify-end gap-2">
-                            <Button onClick={undo} disabled={busy} icon={<Undo2 size={16} aria-hidden="true" />}>
-                                {t("Undo")}
-                            </Button>
-                            <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} icon={<ArrowRight size={16} aria-hidden="true" />}>
-                                {t("Open it")}
-                            </Button>
-                        </div>
                     </div>
+                )}
+                </div>
+
+                {/* The commit is the one control that must never be somewhere
+                    else on the page: the deck list, the skipped-notes block and
+                    the options all grow with the deck, and on a phone that put
+                    the button below the fold on exactly the decks that took
+                    longest to read. */}
+                {phase === 'preview' && preview && stats && (
+                    <DialogFooter>
+                        <Button variant="quiet" onClick={close} disabled={busy}>
+                            {t("Cancel")}
+                        </Button>
+                        <Button variant="primary" onClick={commit} busy={busy}>
+                            {busy ? t("Importing…") : t("Import {{n}} cards", { count: stats.cards, n: num(stats.cards) })}
+                        </Button>
+                        {/* Said BEFORE they commit, not after — that is what
+                            makes pressing the button feel cheap. */}
+                        <p className="basis-full text-sm text-slate-500 dark:text-slate-400 text-center">
+                            {t("This creates a new project. You can undo it in one click.")}
+                        </p>
+                    </DialogFooter>
+                )}
+                {phase === 'done' && result && (
+                    <DialogFooter>
+                        <Button onClick={undo} disabled={busy} icon={<Undo2 size={16} aria-hidden="true" />}>
+                            {t("Undo")}
+                        </Button>
+                        <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} icon={<ArrowRight size={16} aria-hidden="true" />}>
+                            {t("Open it")}
+                        </Button>
+                    </DialogFooter>
                 )}
             </div>
         </div>

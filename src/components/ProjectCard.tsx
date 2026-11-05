@@ -478,7 +478,10 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                 </div>
             </div>
 
-            <Modal isOpen={showEdit} onClose={() => setShowEdit(false)} title={t("Edit Project")} maxWidth="max-w-md">
+            <Modal isOpen={showEdit} onClose={() => setShowEdit(false)} title={t("Edit Project")} maxWidth="max-w-md" footer={<>
+                <Button variant="quiet" onClick={() => setShowEdit(false)}>{t("Cancel")}</Button>
+                <Button variant="primary" onClick={handleSaveEdit}>{t("Save Changes")}</Button>
+            </>}>
                 <div className="space-y-4">
                     <ProjectFormFields
                         name={editName}
@@ -500,10 +503,6 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                         descriptionPlaceholder={project.description || t("No description")}
                         nameAutoFocus={true}
                     />
-                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-                        <Button variant="quiet" onClick={() => setShowEdit(false)}>{t("Cancel")}</Button>
-                        <Button variant="primary" onClick={handleSaveEdit}>{t("Save Changes")}</Button>
-                    </div>
                 </div>
             </Modal>
 

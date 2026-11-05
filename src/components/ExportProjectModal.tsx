@@ -48,7 +48,14 @@ export default function ExportProjectModal({ isOpen, onClose, initialProjectId }
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={t("Export Project")}>
+        <Modal isOpen={isOpen} onClose={onClose} title={t("Export Project")} footer={<>
+            <Button variant="quiet" onClick={onClose}>
+                {t("Cancel")}
+            </Button>
+            <Button variant="primary" busy={exporting} disabled={!selected} onClick={handleExport}>
+                {t("Export")}
+            </Button>
+        </>}>
             <div className="space-y-4">
                 <div>
                     <label htmlFor="export-project" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t("Select Project")}</label>
@@ -108,15 +115,6 @@ export default function ExportProjectModal({ isOpen, onClose, initialProjectId }
                         <Checkbox checked={includeProgress} onChange={setIncludeProgress} />
                         <span className="text-slate-700 dark:text-slate-200">{t("Progress (completion status)")}</span>
                     </label>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4">
-                    <Button variant="quiet" onClick={onClose}>
-                        {t("Cancel")}
-                    </Button>
-                    <Button variant="primary" busy={exporting} disabled={!selected} onClick={handleExport}>
-                        {t("Export")}
-                    </Button>
                 </div>
             </div>
         </Modal>
