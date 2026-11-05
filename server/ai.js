@@ -3573,7 +3573,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  * Maths in the descriptions the creation run writes.
  *
  * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
- * Taylor-series course came back with maths in most of its 908 Overviews and
+ * calculus course came back with maths in most of its 908 Overviews and
  * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
  * The examples are written as they appear INSIDE the JSON string, backslashes
  * doubled, because an example is copied harder than a rule;
