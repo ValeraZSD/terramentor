@@ -349,7 +349,12 @@ function registerViews(server, appFor) {
         title: 'Mark the proven topic completed',
         description: 'After a passed check, mark its topic completed through the app\'s own completion gate.',
     }, async (app, { sitting: token }) => {
-        const { nodeId, completed } = await app.post('/api/agent/check/completion', { token });
+        const { nodeId, completed, status } = await app.post('/api/agent/check/completion', { token });
+        if (completed && status && status !== 'completed') {
+            // The pass completed it, and the topic was set otherwise since: left as it is.
+            return forView(`The pass is recorded, but the topic has since been set to ${status.replace('_', ' ')}; it was left that way.`,
+                await app.post('/api/agent/check/completed', { token }));
+        }
         // A pass that completed its topic when it was recorded needs no write.
         // Otherwise the app's own completion, without override: its gate reads
         // the evidence the check wrote.

@@ -1081,6 +1081,8 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const done = await hostCall('check_complete', { sitting: sit2 });
     ok('check_complete after it writes nothing over a status set since, and fails nothing',
         !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'skipped', textOf(done).slice(0, 200));
+    ok('...and says the topic was set otherwise, never "marked completed"',
+        /since been set to skipped/.test(textOf(done)) && !/marked completed/.test(textOf(done)), textOf(done).slice(0, 200));
     db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(checkedTopic);
     const crossed = await hostCall('review_next', { sitting: sit2 });
     ok('a check\'s token is not a review\'s', isErr(crossed));

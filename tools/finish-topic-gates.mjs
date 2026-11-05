@@ -113,6 +113,8 @@ try {
                 export const openGate = (...a) => useStore.getState().openMasteryGate(...a);
                 export const resolveGate = (...a) => React.act(() => useStore.getState().resolveMasteryGate(...a));
                 export const setLoadedProject = (id) => React.act(() => useStore.setState({ currentProjectId: id }));
+                export const toasts = () => useStore.getState().toasts.map(t => t.message);
+                export const clearToasts = () => useStore.setState({ toasts: [] });
                 // What the feed does after an answer in the topic is saved.
                 export const answerSaved = (id) => React.act(() => useStore.setState(s => ({
                     feedSavedByNode: { ...s.feedSavedByNode, [id]: (s.feedSavedByNode[id] ?? 0) + 1 },
@@ -651,6 +653,7 @@ try {
         // The reload after a server-completed pass fails (offline): the topic is
         // completed all the same, so the caller must still hear it.
         harness({ getNodes: async () => { throw new Error('offline'); } });
+        app.clearToasts();
         const resolved = [];
         app.openGate(11, 'Oven spring', false, 1, (r) => resolved.push(r));
         let thrown = null;
@@ -659,6 +662,8 @@ try {
         check('in the loaded project: a failed reload after a server-completed pass still tells the caller',
             !thrown && resolved.length === 1 && resolved[0].outcome === 'completed' && !app.gate().isOpen,
             thrown ? `threw: ${thrown.message}` : JSON.stringify(resolved));
+        check('...and says the topic is completed, since the tree still shows the old status',
+            app.toasts().some(m => /Oven spring.*completed/.test(m)), JSON.stringify(app.toasts()));
     }
     await app.setLoadedProject(null);
 } finally {

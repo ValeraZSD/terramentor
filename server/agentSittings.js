@@ -351,9 +351,12 @@ export function checkCompletion(token) {
     if (!s.result?.passed) throw new SittingError(409, 'Only a passed mastery check marks its topic completed.');
     // `completed`: the pass already completed the topic when it was recorded,
     // so the caller has nothing to write (a second write would overwrite a
-    // status set since, such as a skip).
-    return { nodeId: s.nodeId, projectId: s.projectId, completed: s.result.completed === true };
+    // status set since, such as a skip). `status` is the topic's status now,
+    // which may no longer be the completion the pass wrote.
+    const status = (topicStatusStmt ??= db.prepare('SELECT status FROM nodes WHERE id = ?')).get(s.nodeId)?.status ?? null;
+    return { nodeId: s.nodeId, projectId: s.projectId, completed: s.result.completed === true, status };
 }
+let topicStatusStmt;
 
 /** The view says the completion landed, so a re-mounted view does not offer it again. */
 export function markCheckCompleted(token) {

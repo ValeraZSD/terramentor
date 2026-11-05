@@ -1030,7 +1030,12 @@ export const useStore = create<AppState>((set, get) => ({
             if (inLoadedProject) {
                 // The topic is completed whatever this reload does, so a failed
                 // reload must not stop the caller hearing it below.
-                try { await get().refreshNodes(); } catch { /* the next load shows it */ }
+                try {
+                    await get().refreshNodes();
+                } catch {
+                    // The tree still shows the old status: say what the server holds.
+                    get().addToast('success', i18n.t('"{{title}}" completed', { title: gate.nodeTitle }));
+                }
                 const project = get().projects.find(p => p.id === gate.projectId);
                 if (project?.start_date && project?.deadline) get().loadPaceData(gate.projectId!);
                 get().loadDashboard(gate.projectId!);
