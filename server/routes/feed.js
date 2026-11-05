@@ -37,28 +37,46 @@ app.get('/api/feed', (req, res) => {
         const scopedNode = Number.isInteger(nodeId) && nodeId > 0 ? nodeId : null;
         const pid = parseInt(req.query.projectId, 10);
         const scopedProject = !scopedNode && Number.isInteger(pid) && pid > 0 ? pid : null;
-        const { items, exhausted, transfers, placements } = composeFeed({
+        // A topic opened on purpose is written FIRST. Asked before composing
+        // (the burst starts after this handler returns), so the first page
+        // already knows its lesson is on the way and holds its chapter open.
+        if (scopedNode) feedGen.requestNode(scopedNode);
+        const { items, exhausted, transfers, placements, lessonWrite } = composeFeed({
             limit, excludeKeys, gate, nodeId: scopedNode, projectId: scopedProject,
+            lessonWrite: scopedNode ? feedGen.lessonWriteState(scopedNode) : null,
         });
         const header = buildFeedHeader();
         res.json({
-            date: header.date, header, items, exhausted, transfers, placements,
+            date: header.date, header, items, exhausted, transfers, placements, lessonWrite,
             nodeId: scopedNode, projectId: scopedProject,
         });
         // Top up the teaching buffer in the background (never blocks the
-        // response). A topic opened on purpose is written FIRST; a course
-        // asks for whatever its own stream is teaching next.
-        if (scopedNode) feedGen.requestNode(scopedNode);
-        else if (scopedProject) {
+        // response; a topic's page asked above). A course asks for whatever its
+        // own stream is teaching next.
+        if (scopedProject) {
             for (const id of items.map(i => i.nodeId).filter(Boolean).slice(0, 3)) feedGen.requestNode(id);
             feedGen.ensureBuffer();
         }
-        else feedGen.ensureBuffer();
+        else if (!scopedNode) feedGen.ensureBuffer();
         // Refresh head starts. Fired here rather than on a timer because this is
         // the surface that displays them, and because proving a topic elsewhere
         // (which is what changes them) always ends with the learner back on the
         // feed. Debounced and model-free, so it costs nothing on a rapid scroll.
         scheduleTransferSweep({ threshold: gate.threshold, decayDays: gate.decayDays });
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// Try again on a topic whose first lesson could not be written: the writer
+// starts on it now instead of waiting out its backoff. Answers with the state
+// the page shows next: `writing`, or null when there is nothing to wait for
+// (a lesson exists, AI is off, the topic is not taught or does not exist).
+app.post('/api/feed/nodes/:id/lesson/retry', (req, res) => {
+    try {
+        const nodeId = parseInt(req.params.id, 10);
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'id must be a positive integer' });
+        res.json({ lessonWrite: feedGen.retryLessonWrite(nodeId) });
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

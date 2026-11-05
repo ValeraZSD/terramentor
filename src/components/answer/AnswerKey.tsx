@@ -27,10 +27,14 @@ export default function AnswerKey({ question }: { question: QuizQuestion }) {
             <div className="text-sm text-slate-700 dark:text-slate-300">
                 <span className="text-slate-500 dark:text-slate-400">{label}</span>
                 <div className="mt-1.5 rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                    {/* Long lines wrap, as they do in the editor above it: the
+                        box clips, so on a phone the end of a line (the `0` a
+                        `reduce` starts from) was cut off with nothing to say so. */}
                     <SyntaxHighlighter
                         style={dark ? oneDark : oneLight}
                         language={highlightLanguage(question.language || '')}
                         PreTag="div"
+                        wrapLongLines
                         customStyle={{ margin: 0, padding: '0.75rem', fontSize: '0.85rem', background: 'transparent' }}
                         codeTagProps={{ style: { background: 'transparent' } }}
                     >

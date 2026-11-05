@@ -17,6 +17,7 @@ import { slowRequestLog } from './slowLog.js';
 import { clientError } from './clientError.js';
 import { buildId } from './buildId.js';
 import { SANDBOX_FRAME_PATH, sendSandboxFrame } from './sandboxFrame.js';
+import { RUNNER_FRAME_PATH, sendRunnerFrame } from './runnerFrame.js';
 import { appVersion } from './version.js';
 import { createDesktop, isDesktop, libraryFallbackFromEnv, NOT_DESKTOP } from './desktop.js';
 import { createAppIconRouter } from './appIcon.js';
@@ -200,6 +201,9 @@ app.use((req, res, next) => {
 // built page, since in development Vite forwards it here; outside /api, so no
 // password gate: like the page's own files, it holds nothing.
 app.get(SANDBOX_FRAME_PATH, sendSandboxFrame);
+// The document a learner's code runs behind (server/runnerFrame.js): a shell
+// under a policy with no address of any kind. Holds nothing, like the one above.
+app.get(RUNNER_FRAME_PATH, sendRunnerFrame);
 
 // Refuse the request itself, not just the answer. Mounted before the auth gate
 // so a drive-by cannot even spend a login attempt, and before the body parser so
