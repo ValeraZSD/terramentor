@@ -30,7 +30,9 @@ interface MasteryGateModalProps {
     nodeId: number;
     nodeTitle: string;
     projectId: number;
-    onPassed: () => void;
+    /** `written`: the server completed the topic with the pass, so the caller
+     *  refreshes rather than writing the completion again. */
+    onPassed: (written: boolean) => void;
     /** Advisory mode lets the learner bypass the gate ("mark done anyway"). */
     advisory?: boolean;
     /** Complete the node without proving mastery (advisory override). */
@@ -552,10 +554,10 @@ export default function MasteryGateModal({
     // Every way out of a pass is the same: Continue, the X and Escape all go
     // through onPassed. A learner who closed a pass with the X found the topic
     // still offered as next (tools/check-pass-close-gates.mjs). The
-    // server completes the topic with the pass itself, so onPassed's own
-    // write changes nothing; what it adds is the refresh. A retake has
-    // nothing to finish.
-    const leave = submitted && !retake && (shownResult?.passed || completedHere) ? onPassed : onClose;
+    // server completes the topic with the pass itself, so onPassed is told
+    // and only refreshes: a second write could undo a skip made since in
+    // another tab. A retake has nothing to finish.
+    const leave = submitted && !retake && (shownResult?.passed || completedHere) ? () => onPassed(completedHere) : onClose;
 
     // The shared dialog contract. Escape closes it only while nothing typed
     // would go with it: half-answered, the X is the deliberate way out.

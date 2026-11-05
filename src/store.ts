@@ -719,7 +719,10 @@ interface AppState {
     closeMasteryGate: () => void;
     /** Close the gate by completing (override) or skipping the node it holds;
      *  `proven` = completed by passing the check, not marked done without it. */
-    resolveMasteryGate: (outcome: 'completed' | 'skipped', proven?: boolean) => Promise<void>;
+    /** `written`: the server already completed the topic with the pass it
+     *  recorded, so this only refreshes and notifies. A second completion write
+     *  would overwrite a status set since (a skip from another tab). */
+    resolveMasteryGate: (outcome: 'completed' | 'skipped', proven?: boolean, written?: boolean) => Promise<void>;
 
     /** The finished-project summary, when one is on screen. */
     completion: ProjectCompletion | null;
@@ -1012,7 +1015,7 @@ export const useStore = create<AppState>((set, get) => ({
     closeMasteryGate: () =>
         set({ masteryGate: { isOpen: false, nodeId: null, nodeTitle: '', advisory: true, projectId: null, onResolved: null } }),
 
-    resolveMasteryGate: async (outcome, proven = false) => {
+    resolveMasteryGate: async (outcome, proven = false, written = false) => {
         const gate = get().masteryGate;
         const nodeId = gate.nodeId;
         if (!nodeId) return;
@@ -1021,7 +1024,18 @@ export const useStore = create<AppState>((set, get) => ({
         get().closeMasteryGate();
 
         let ok = false;
-        if (inLoadedProject) {
+        if (written && outcome === 'completed') {
+            // Nothing to write: refresh what a completion write would have.
+            ok = true;
+            if (inLoadedProject) {
+                await get().refreshNodes();
+                const project = get().projects.find(p => p.id === gate.projectId);
+                if (project?.start_date && project?.deadline) get().loadPaceData(gate.projectId!);
+                get().loadDashboard(gate.projectId!);
+            } else {
+                get().addToast('success', i18n.t('"{{title}}" completed', { title: gate.nodeTitle }));
+            }
+        } else if (inLoadedProject) {
             // A workspace is open: go through the normal actions so the tree,
             // pace and dashboard all refresh from one place.
             ok = outcome === 'skipped'

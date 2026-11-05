@@ -212,7 +212,9 @@ async function sitCheck({ status = 'in_progress', answer = '4', passed = true, s
     const props = {
         isOpen: true, nodeId: 3, nodeTitle: 'Vowels', projectId: 1, advisory: false,
         onClose: () => calls.push('close'),
-        onPassed: () => calls.push('passed'),
+        // `passed` means onPassed was told the server already completed the
+        // topic, so the store refreshes rather than writing it again.
+        onPassed: (written) => calls.push(written === true ? 'passed' : 'passed, to be written'),
         onSkip: () => calls.push('skip'),
         onMarkAnyway: () => calls.push('markAnyway'),
     };
@@ -234,6 +236,7 @@ const pressEscape = (host) => act(() => {
 console.log('--- a pass, left each way ---');
 {
     const m = await sitCheck();
+    // Fixture check: it passes before the fix too, so it detects nothing here.
     check('the passed result is on screen', /Mastery check passed/.test(m.host.textContent), m.host.textContent.slice(0, 200));
     check('...and says the topic IS completed, not that it will be', /this topic is marked completed/.test(m.host.textContent) && !/will be marked/.test(m.host.textContent), m.host.textContent.slice(0, 300));
     act(() => { buttons(m.host, 'Continue')[0]?.click(); });
@@ -275,7 +278,10 @@ for (const [set, way, leaveBy] of [[1, 'the X', (host) => act(() => { buttons(ho
     m.done();
 }
 
-console.log('--- nothing to finish ---');
+// Controls. Before the fix the X and Escape only ever closed, so every
+// "only closes" case below passes on that code too. They guard the other way:
+// that a check which finished nothing never takes the pass path.
+console.log('--- nothing to finish (controls) ---');
 {
     const m = await sitCheck({ answer: '3', passed: false });
     check('a failed result is on screen', /Not Yet Mastered/.test(m.host.textContent), m.host.textContent.slice(0, 200));

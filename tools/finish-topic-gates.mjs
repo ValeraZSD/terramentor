@@ -110,6 +110,9 @@ try {
                 export const ready = () => i18nReady;
                 export const gate = () => useStore.getState().masteryGate;
                 export const closeGate = () => useStore.getState().closeMasteryGate();
+                export const openGate = (...a) => useStore.getState().openMasteryGate(...a);
+                export const resolveGate = (...a) => React.act(() => useStore.getState().resolveMasteryGate(...a));
+                export const setLoadedProject = (id) => React.act(() => useStore.setState({ currentProjectId: id }));
                 // What the feed does after an answer in the topic is saved.
                 export const answerSaved = (id) => React.act(() => useStore.setState(s => ({
                     feedSavedByNode: { ...s.feedSavedByNode, [id]: (s.feedSavedByNode[id] ?? 0) + 1 },
@@ -617,6 +620,34 @@ try {
                 failedOuts.every(b => SAME_NAMES.test(b.label)), describe(failedOuts));
         });
     }
+
+    // -- a pass the server already completed is not written again ------------------
+    // recordMasteryCheck completes the topic in the write that records the pass.
+    // Sending { status: 'completed', override: true } on top would overwrite a
+    // status set since, such as a skip from another tab.
+    console.log('\n--- a pass the server completed: refreshed, never written again ---');
+    for (const [where, loaded] of [['from the feed', null], ['in the loaded project', 1]]) {
+        await app.setLoadedProject(loaded);
+        for (const written of [true, false]) {
+            const h = harness();
+            const resolved = [];
+            app.openGate(11, 'Oven spring', false, 1, (r) => resolved.push(r));
+            await app.resolveGate('completed', true, written);
+            await settle();
+            const writes = h.calls.filter(c => c[0] === 'updateNode');
+            if (written) {
+                check(`${where}: a pass the server completed sends no completion write`,
+                    writes.length === 0, JSON.stringify(writes));
+            } else {
+                check(`${where}: a pass the server did NOT complete is still written (control: this passes before the fix too)`,
+                    writes.length === 1 && writes[0][2]?.status === 'completed', JSON.stringify(writes));
+            }
+            check(`${where}, ${written ? 'server-completed' : 'written here'}: the caller still hears the pass and the gate closes`,
+                resolved.length === 1 && resolved[0].outcome === 'completed' && resolved[0].proven === true && !app.gate().isOpen,
+                JSON.stringify(resolved));
+        }
+    }
+    await app.setLoadedProject(null);
 } finally {
     for (const k of GLOBALS) {
         if (saved[k]) Object.defineProperty(g, k, saved[k]); else delete g[k];
