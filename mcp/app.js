@@ -20,6 +20,9 @@ const KEY_PLACE = 'Terramentor → Settings → Devices & security → API key';
 /** A failure the agent's model can read and pass on: what went wrong and what to do. */
 export class AppError extends Error {}
 
+/** The app took longer than the request may wait: it is running, and may still be working on it. */
+export class AppTimeout extends AppError {}
+
 export const isLoopbackHost = (hostname) => LOOPBACK_HOSTS.has(String(hostname).toLowerCase());
 
 /**
@@ -53,7 +56,7 @@ export function appOrigin(raw = DEFAULT_URL) {
  * the 401 message for that transport.
  */
 export function appClient({ origin, authorization = null, keyHint, clientName = () => null, timeZone = null }) {
-    async function request(method, path, { query = null, body = null } = {}) {
+    async function request(method, path, { query = null, body = null, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
         const url = new URL(path, origin);
         for (const [k, v] of Object.entries(query || {})) {
             if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
@@ -74,10 +77,14 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
                 // 'manual' hands the 3xx back, and it is named below rather than
                 // read as "not running".
                 redirect: 'manual',
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(timeoutMs),
             });
         } catch (err) {
-            const code = err?.cause?.code || (err?.name === 'TimeoutError' ? 'timed out' : '');
+            // A request that waited out its time reached the app; it is not "not running".
+            if (err?.name === 'TimeoutError') {
+                throw new AppTimeout(`Terramentor at ${origin} did not answer within ${Math.round(timeoutMs / 1000)} seconds. It may still be working on it.`);
+            }
+            const code = err?.cause?.code || '';
             throw new AppError(`Terramentor is not running, or this MCP server could not reach it at ${origin}${code ? ` (${code})` : ''}. Start the app, or set TERRAMENTOR_URL to the address it runs on, then try again.`);
         }
 
@@ -109,6 +116,9 @@ export function appClient({ origin, authorization = null, keyHint, clientName = 
     return {
         origin,
         get: (path, query) => request('GET', path, { query }),
-        post: (path, body) => request('POST', path, { body }),
+        // `timeoutMs` for the one call that may wait on a model: grading a
+        // check's open answers (server/agentSittings.js, checkAnswerWithAI).
+        post: (path, body, { timeoutMs } = {}) => request('POST', path, { body, timeoutMs }),
+        put: (path, body) => request('PUT', path, { body }),
     };
 }

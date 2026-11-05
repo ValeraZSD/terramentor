@@ -38,7 +38,21 @@
 //      credential from TERRAMENTOR_URL.
 //   8. Nothing under mcp/ imports the server: one process opens the library.
 //   9. A library made before `mastery_claims.evidence_mark` gains the column.
+//  10. The views: a host that draws MCP App views gets a mastery check and a
+//      card review in its own window; one that does not gets a link to the
+//      topic and no sitting. The view tools are listed to the view alone, each
+//      view is one document under a CSP of hashes with no network, takes the
+//      host's colours a fill and its text together or not at all, and no key
+//      or explanation leaves the server before the check is submitted. The
+//      check is drawn, graded and written by the app (one evidence row per
+//      sitting, a second submit or one racing the grading writes nothing and
+//      asks the checker nothing), a failed check completes nothing, a card is
+//      rated only after its answer is shown and once per presentation, Undo
+//      restores every field the rating wrote, and a rating in the view
+//      writes exactly the evidence the same rating writes in the app: card
+//      evidence, never an assessment.
 
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { networkInterfaces, tmpdir } from 'node:os';
@@ -46,6 +60,7 @@ import { join, dirname, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { connect } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = join(repoRoot, 'mcp', 'index.js');
@@ -65,7 +80,7 @@ const secrets = await import(B + 'secrets.js');
 const mastery = await import(B + 'mastery.js');
 const { buildTodayData } = await import(B + 'today.js');
 const { getGhostQuestions } = await import(B + 'dailyPlan.js');
-const { appOrigin, AppError } = await import(new URL('../mcp/app.js', import.meta.url).href);
+const { appOrigin, appClient, AppError, AppTimeout } = await import(new URL('../mcp/app.js', import.meta.url).href);
 
 let pass = 0, fail = 0;
 const ok = (label, cond, extra = '') => {
@@ -74,6 +89,44 @@ const ok = (label, cond, extra = '') => {
 };
 
 if (!DB_PATH.startsWith(scratch)) { console.error(`refusing: the library is ${DB_PATH}, not the scratch one`); process.exit(2); }
+
+/**
+ * Run a view in jsdom as its host would: answer its ui/initialize with these
+ * theme variables in a dark host context, then send `changed` (if given) as
+ * a host-context change. Returns the colour variables the view set on its
+ * root, and with `changed` also the ones it had set `before` it.
+ */
+async function hostColours(html, vars, changed, { foreign = false } = {}) {
+    const NAMES = ['--color-background-primary', '--color-text-primary', '--color-background-inverse', '--color-text-inverse'];
+    const sent = [];
+    const { window } = new JSDOM(html, {
+        runScripts: 'dangerously',
+        pretendToBeVisual: true,
+        beforeParse(w) {
+            w.postMessage = (msg) => { sent.push(msg); };
+            w.ResizeObserver = class { observe() {} disconnect() {} };
+        },
+    });
+    const read = () => Object.fromEntries(NAMES.map(n => [n, window.document.documentElement.style.getPropertyValue(n)]));
+    const reply = (data) => window.dispatchEvent(new window.MessageEvent('message', { data, source: window }));
+    const until = async (test) => { for (let i = 0; i < 200 && !test(); i++) await new Promise(r => setTimeout(r, 10)); return test(); };
+    try {
+        await until(() => sent.some(m => m.method === 'ui/initialize'));
+        const init = sent.find(m => m.method === 'ui/initialize');
+        if (!init) return { error: 'the view never asked for ui/initialize' };
+        reply({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: init.params.protocolVersion, hostContext: { theme: 'dark', styles: { variables: vars } } } });
+        if (!await until(() => sent.some(m => m.method === 'ui/notifications/initialized'))) return { error: 'no initialized notification' };
+        if (!changed) return read();
+        const before = read();
+        const change = { jsonrpc: '2.0', method: 'ui/notifications/host-context-changed', params: { styles: { variables: changed } } };
+        // `foreign`: the same message from a window that is not the host.
+        if (foreign) window.dispatchEvent(new window.MessageEvent('message', { data: change, source: null }));
+        else reply(change);
+        return { ...read(), before };
+    } finally {
+        window.close();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // The library: one course, two topics and a section, a lesson, private notes,
@@ -191,6 +244,10 @@ function done() {
 console.log('--- the server starts and lists the v1 tools ---');
 const READ_TOOLS = ['project_state', 'find_in_library', 'get_due', 'topic_material', 'get_mastery'];
 const PROPOSE_TOOLS = ['add_capture', 'record_claim'];
+// Open a check or a review the learner takes in the host's window; plain text where a host draws no views.
+const VIEW_TOOLS = ['mastery_check', 'review_cards'];
+// What the views call: listed only to a host that draws views, and to the view alone.
+const APP_TOOLS = ['check_questions', 'check_submit', 'check_complete', 'review_next', 'review_reveal', 'review_rate', 'review_undo'];
 
 ok('mcp/index.js exists', existsSync(ENTRY), ENTRY);
 if (!existsSync(ENTRY)) done();
@@ -207,7 +264,7 @@ try {
     done();
 }
 const names = tools.map(t => t.name).sort();
-ok('the tools are exactly the v1 set', JSON.stringify(names) === JSON.stringify([...READ_TOOLS, ...PROPOSE_TOOLS].sort()), names.join(', '));
+ok('the tools are exactly the v1 set and the two view tools', JSON.stringify(names) === JSON.stringify([...READ_TOOLS, ...PROPOSE_TOOLS, ...VIEW_TOOLS].sort()), names.join(', '));
 for (const t of tools) {
     const readOnly = READ_TOOLS.includes(t.name);
     ok(`${t.name} is marked ${readOnly ? 'read-only' : 'as a write'}`, t.annotations?.readOnlyHint === readOnly);
@@ -546,6 +603,19 @@ console.log('\n--- the key: none without it, and the HTTP listener holds none --
     viaRedirect.close();
     redirector.s.close();
 
+    // An app that is running but slow (a check's open answers waiting on the
+    // checker) is not "not running": a request that waited out its time says
+    // it timed out and that the app may still be working on it.
+    const held = [];
+    const slow = await stub((req, res) => { held.push(res); });
+    const slowClient = appClient({ origin: slow.url, keyHint: '' });
+    const timedOut = await slowClient.post('/api/agent/check/submit', {}, { timeoutMs: 300 }).then(() => null, (e) => e);
+    ok('a request the app is slow to answer says it timed out, never that Terramentor is not running',
+        typeof AppTimeout === 'function' && timedOut instanceof AppTimeout && timedOut instanceof AppError && !/not running/i.test(timedOut.message) && /did not answer within/.test(timedOut.message),
+        String(timedOut?.message));
+    for (const res of held) res.destroy();
+    slow.s.close();
+
     const unset = await stub((req, res) => json(res, 401,
         { error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true }));
     const viaUnset = stdioServer({ TERRAMENTOR_URL: unset.url });
@@ -695,6 +765,512 @@ function post(port, body, headers = {}) {
     const wide = await httpServer({ TERRAMENTOR_URL: appUrl }, ['--host', '0.0.0.0']);
     ok('the HTTP listener refuses to start on a non-loopback address (exit 2)', !wide.port && wide.code === 2 && /loopback/i.test(wide.out),
         `exit ${wide.code}: ${wide.out.slice(-200)}`);
+}
+
+/**
+ * Run a view in jsdom the way a host runs it for a learner: answer its
+ * ui/initialize, send `toolResult` (the MCP answer that opened it) as the
+ * tool result, pass every tools/call it makes to `callTool` (the real MCP
+ * server) and answer it with that reply, and accept every model-context
+ * update. `sent` holds every message the view sent; `until` waits on a test;
+ * `press` clicks the control named by its data-focus.
+ */
+async function driveView(html, toolResult, callTool) {
+    const sent = [];
+    let win = null;
+    const answer = (data) => win.dispatchEvent(new win.MessageEvent('message', { data, source: win }));
+    const { window } = new JSDOM(html, {
+        runScripts: 'dangerously',
+        pretendToBeVisual: true,
+        beforeParse(w) {
+            win = w;
+            w.postMessage = (msg) => {
+                sent.push(msg);
+                if (msg?.method === 'tools/call' && msg.id != null) {
+                    Promise.resolve(callTool(msg.params?.name, msg.params?.arguments || {})).then((res) => answer(res?.error
+                        ? { jsonrpc: '2.0', id: msg.id, error: res.error }
+                        : { jsonrpc: '2.0', id: msg.id, result: res?.result }));
+                } else if (msg?.method === 'ui/update-model-context' && msg.id != null) {
+                    answer({ jsonrpc: '2.0', id: msg.id, result: {} });
+                }
+            };
+            w.ResizeObserver = class { observe() {} disconnect() {} };
+        },
+    });
+    const until = async (test, tries = 500) => { for (let i = 0; i < tries && !test(); i++) await new Promise(r => setTimeout(r, 10)); return !!test(); };
+    const doc = window.document;
+    const press = async (focus) => {
+        if (!await until(() => { const b = doc.querySelector(`[data-focus="${focus}"]`); return b && !b.disabled; })) return false;
+        doc.querySelector(`[data-focus="${focus}"]`).click();
+        return true;
+    };
+    const calls = (name) => sent.filter(m => m?.method === 'tools/call' && m.params?.name === name);
+    const contexts = () => sent.filter(m => m?.method === 'ui/update-model-context');
+    await until(() => sent.some(m => m?.method === 'ui/initialize'));
+    const init = sent.find(m => m?.method === 'ui/initialize');
+    if (init) answer({ jsonrpc: '2.0', id: init.id, result: { protocolVersion: init.params.protocolVersion, hostContext: { theme: 'light' } } });
+    await until(() => sent.some(m => m?.method === 'ui/notifications/initialized'));
+    answer({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: toolResult?.result || {} });
+    return { window, doc, sent, until, press, calls, contexts, close: () => window.close() };
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- the views: a check and a review in the host\'s window ---');
+{
+    const UI_CAPS = { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } };
+    const host = stdioServer({ TERRAMENTOR_URL: appUrl, TERRAMENTOR_API_KEY: API_KEY });
+    const init = record(await host.rpc('initialize', { protocolVersion: '2025-11-25', capabilities: UI_CAPS, clientInfo: { name: 'mcp-gates-host', version: '1.0.0' } }));
+    host.notify('notifications/initialized');
+    ok('a host that renders views is answered', init?.result?.serverInfo?.name === 'terramentor');
+    const hostCall = (name, args = {}) => call(name, args, host);
+    const meta = (msg) => msg?.result?._meta || {};
+    const sittingOf = (msg) => meta(msg)['terramentor/sitting'];
+    const data = (msg) => msg?.result?.structuredContent || {};
+
+    // What each host is offered.
+    const hostTools = record(await host.rpc('tools/list'))?.result?.tools || [];
+    const byName = Object.fromEntries(hostTools.map(t => [t.name, t]));
+    const plainNames = tools.map(t => t.name);
+    for (const name of VIEW_TOOLS) {
+        const uri = byName[name]?._meta?.ui?.resourceUri;
+        ok(`${name} names its view (ui://) and is offered to the model`, typeof uri === 'string' && uri.startsWith('ui://terramentor/')
+            && !(byName[name]?._meta?.ui?.visibility || ['model']).every(v => v !== 'model'), JSON.stringify(byName[name]?._meta));
+        ok(`${name} is offered to a host without views too, as a plain tool`, plainNames.includes(name));
+    }
+    for (const name of APP_TOOLS) {
+        ok(`${name} is for the view only (visibility ["app"])`, JSON.stringify(byName[name]?._meta?.ui?.visibility) === '["app"]', JSON.stringify(byName[name]?._meta));
+        ok(`${name} is not listed to a host that cannot draw views`, !plainNames.includes(name));
+    }
+    const plainTry = await call('check_questions', { sitting: 'x'.repeat(32) });
+    ok('a host without views cannot call a view\'s tool', isErr(plainTry), textOf(plainTry).slice(0, 160));
+
+    // The views themselves: one HTML document each, locked down.
+    const resources = record(await host.rpc('resources/list'))?.result?.resources || [];
+    const viewHtmlOf = {};
+    const sha = (s) => `'sha256-${createHash('sha256').update(s, 'utf8').digest('base64')}'`;
+    for (const name of VIEW_TOOLS) {
+        const uri = byName[name]?._meta?.ui?.resourceUri;
+        const listed = resources.find(r => r.uri === uri);
+        ok(`${uri} is listed as an MCP App view`, listed?.mimeType === 'text/html;profile=mcp-app', JSON.stringify(listed));
+        const read = record(await host.rpc('resources/read', { uri }));
+        const item = read?.result?.contents?.[0] || {};
+        const html = String(item.text || '');
+        viewHtmlOf[name] = html;
+        ok(`${uri} reads as one HTML document`, item.mimeType === 'text/html;profile=mcp-app' && /^<!doctype html>/i.test(html.trim()), html.slice(0, 120));
+        const csp = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/i.exec(html)?.[1] || '';
+        const directive = (d) => (new RegExp(`(?:^|;)\\s*${d}\\s+([^;]*)`).exec(csp)?.[1] || '').trim();
+        ok(`${uri} carries its own CSP, before any script`, !!csp && html.indexOf(csp) < html.search(/<script/i));
+        ok(`${uri}: nothing loads or connects anywhere`, directive('default-src') === "'none'" && directive('connect-src') === "'none'"
+            && directive('frame-src') === "'none'" && directive('object-src') === "'none'" && directive('base-uri') === "'none'"
+            && directive('form-action') === "'none'" && /^(?:data:)?$/.test(directive('img-src')), csp);
+        const scripts = [...html.matchAll(/<script(?![^>]*type="application\/json")[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
+        const styles = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]);
+        const scriptSrc = directive('script-src').split(/\s+/).filter(Boolean);
+        const styleSrc = directive('style-src').split(/\s+/).filter(Boolean);
+        ok(`${uri}: script-src is hashes only (no 'unsafe-inline', no eval, no host)`, scriptSrc.length > 0 && scriptSrc.every(s => /^'sha256-[A-Za-z0-9+/=]+'$/.test(s)), directive('script-src'));
+        ok(`${uri}: every script is the one its hash allows`, scripts.length > 0 && scripts.every(s => scriptSrc.includes(sha(s))), `${scripts.length} scripts`);
+        ok(`${uri}: every style is the one its hash allows`, styles.length > 0 && styles.every(s => styleSrc.includes(sha(s))) && styleSrc.every(s => /^'sha256-/.test(s)), directive('style-src'));
+        ok(`${uri}: no script from a file, no link, no inline handler, no javascript: URL`,
+            !/<script[^>]+\bsrc=/i.test(html) && !/<link\b/i.test(html) && !/\son[a-z]+\s*=/i.test(html.replace(/<script[\s\S]*?<\/script>/gi, '')) && !/javascript:/i.test(html));
+        ok(`${uri}: no string becomes code or markup (eval, Function, innerHTML, document.write)`,
+            !scripts.some(s => /\beval\s*\(|new\s+Function\b|\bFunction\s*\(|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write|setTimeout\s*\(\s*['"`]/.test(s)));
+        ok(`${uri}: no address outside the document`, !/(?:src|href)\s*=\s*["']?(?:https?:)?\/\//i.test(html));
+        // A host may write its own CSP ahead of the document, and the browser
+        // then ignores the view's (MCP Inspector 2.13 does). The code itself
+        // must open nothing, so "no network" does not rest on our policy.
+        const opener = /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|new\s+Image\b|\bWorker\s*\(|importScripts|window\.open\b|\blocation\s*(?:\.href\s*)?=|\.(?:src|href|action)\s*=/;
+        ok(`${uri}: the view's code opens no connection of its own (fetch, sockets, beacons, images, workers, navigation)`,
+            !scripts.some(s => opener.test(s)), scripts.map(s => opener.exec(s)?.[0]).filter(Boolean).join(', '));
+
+        // The host's colours come in pairs: MCP Inspector 2.13 sends a white
+        // --color-text-inverse with no --color-background-inverse, and the
+        // view's own near-white dark fill under it hid the primary button.
+        const halfSent = await hostColours(html, { '--color-background-primary': '#131519', '--color-text-primary': '#c9cdd6', '--color-text-inverse': '#fff' });
+        ok(`${uri}: a host's text colour sent without its fill is dropped; a whole pair is used`,
+            halfSent['--color-text-inverse'] === '' && halfSent['--color-background-inverse'] === ''
+            && halfSent['--color-background-primary'] === '#131519' && halfSent['--color-text-primary'] === '#c9cdd6', JSON.stringify(halfSent));
+        const halfLater = await hostColours(html, { '--color-background-inverse': '#c9cdd6', '--color-text-inverse': '#131519' }, { '--color-text-inverse': '#fff' });
+        ok(`${uri}: a pair sent whole is used, and a later change carrying half of it drops both`,
+            halfLater.before['--color-background-inverse'] === '#c9cdd6' && halfLater.before['--color-text-inverse'] === '#131519'
+            && halfLater['--color-background-inverse'] === '' && halfLater['--color-text-inverse'] === '', JSON.stringify(halfLater));
+        // Only the window that framed the view is its host: the same change
+        // from any other window is ignored.
+        const PAIR = { '--color-background-inverse': '#c9cdd6', '--color-text-inverse': '#131519' };
+        const NEW_PAIR = { '--color-background-inverse': '#204060', '--color-text-inverse': '#f0f0f0' };
+        const fromHost = await hostColours(html, PAIR, NEW_PAIR);
+        const fromElsewhere = await hostColours(html, PAIR, NEW_PAIR, { foreign: true });
+        ok(`${uri}: a message from its host is taken, the same message from any other window is ignored`,
+            fromHost['--color-background-inverse'] === '#204060' && fromHost['--color-text-inverse'] === '#f0f0f0'
+            && fromElsewhere['--color-background-inverse'] === '#c9cdd6' && fromElsewhere['--color-text-inverse'] === '#131519',
+            JSON.stringify({ fromHost, fromElsewhere }));
+    }
+
+    // A bank of checked questions on a topic nothing else has measured.
+    const checkedTopic = addNode('Standing waves', section, { position: 3 });
+    const EXPL = 'EXPLANATION-CANARY-5d1e';
+    const FILL_KEY = 'interferometer';
+    const BANK = [
+        { uuid: 'gate-mc', type: 'multiple_choice', question: 'Which quantity sets the pitch of a vibrating string?', options: ['Its colour', 'Its frequency', 'Its amplitude', 'Its mass alone'], correct_answer: 'Its frequency', explanation: `${EXPL} Pitch is frequency.` },
+        { uuid: 'gate-tf', type: 'true_false', question: 'A node of a standing wave stays still.', correct_answer: 'True', explanation: `${EXPL} Nodes do not move.` },
+        { uuid: 'gate-num', type: 'numeric', question: 'A string 2 m long vibrates in its fundamental mode. How long is the wave?', correct_answer: '4', unit: 'm', explanation: `${EXPL} Twice the length.` },
+        { uuid: 'gate-seq', type: 'sequence', question: 'Put the harmonics in order of frequency, lowest first.', items: ['third harmonic', 'fundamental', 'second harmonic'], correct_answer: JSON.stringify(['fundamental', 'second harmonic', 'third harmonic']), explanation: `${EXPL} Each is a whole multiple.` },
+        { uuid: 'gate-fill', type: 'fill_in', question: 'An instrument that measures lengths by interference is an ___.', correct_answer: FILL_KEY, explanation: `${EXPL} It interferes light.` },
+    ];
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(checkedTopic, 'Standing waves', JSON.stringify(BANK));
+    const RIGHT = ['Its frequency', 'True', '4', JSON.stringify(['fundamental', 'second harmonic', 'third harmonic']), FILL_KEY];
+    const answersFor = (questions, right) => questions.map((q) => {
+        const i = BANK.findIndex(b => b.question === q.question);
+        return right.includes(i) ? RIGHT[i] : (q.type === 'sequence' ? JSON.stringify(q.items) : 'no idea');
+    });
+    const checkEvidence = () => db.prepare("SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").get(checkedTopic).n;
+    const leaksAKey = (msg) => {
+        const json = JSON.stringify(msg);
+        return /correct_?answer|"accept"|distractors|explanation/i.test(json) || json.includes(EXPL) || json.includes(FILL_KEY);
+    };
+
+    // Without views: the plain tool says where to take it, and opens nothing.
+    const plain = await call('mastery_check', { topic: checkedTopic });
+    ok('without views, mastery_check links to the topic in Terramentor and opens no sitting',
+        !isErr(plain) && textOf(plain).includes(`${appUrl}/project/${pid}/tree/${checkedTopic}`) && !sittingOf(plain), textOf(plain).slice(0, 240));
+
+    // With views: the model is told a check is open, and sees none of it.
+    const started = await hostCall('mastery_check', { topic: checkedTopic });
+    const sit = sittingOf(started);
+    ok('mastery_check opens a sitting and hands its token to the view in _meta', !isErr(started) && typeof sit === 'string' && sit.length >= 24, textOf(started).slice(0, 200));
+    const modelSees = JSON.stringify([started?.result?.content, started?.result?.structuredContent]);
+    ok('the model sees no question, no key and no token', !BANK.some(b => modelSees.includes(b.question)) && !leaksAKey({ c: started?.result?.content, s: started?.result?.structuredContent })
+        && !modelSees.includes(sit), modelSees.slice(0, 300));
+    ok('the model is told it must not answer the check itself', /must not/i.test(textOf(started)));
+    // The score reaches the model only through the view's context update,
+    // which a host may refuse: no promise of it, and the way to read it anyway.
+    ok('neither the tool nor its answer promises the score; both name get_mastery for the recorded result',
+        /get_mastery/.test(textOf(started)) && /get_mastery/.test(byName.mastery_check?.description || '')
+        && !/then the score/.test(byName.mastery_check?.description || '') && !/only how the session ended/.test(byName.review_cards?.description || ''),
+    `${textOf(started).slice(-120)} | ${byName.mastery_check?.description}`);
+
+    const shown = await hostCall('check_questions', { sitting: sit });
+    const qs = data(shown).questions || [];
+    ok('the view gets the drawn questions', !isErr(shown) && qs.length === BANK.length, textOf(shown).slice(0, 200));
+    ok('no key leaves before the answer: no key field, no explanation, no typed answer', !leaksAKey(shown), JSON.stringify(shown).slice(0, 400));
+    const seq = qs.find(q => q.type === 'sequence');
+    ok('an ordering is served in its stored order, never the key\'s', JSON.stringify(seq?.items) === JSON.stringify(BANK[3].items));
+
+    // Red: a sitting the server did not open, or of the other kind.
+    const forged = await hostCall('check_questions', { sitting: 'A'.repeat(32) });
+    ok('a token the server never issued opens nothing', isErr(forged) && !leaksAKey(forged));
+
+    // A question with a picture or a sound: the view cannot show it, so the
+    // view's check passes over it for the next one, and a bank left with too
+    // few without one sends the learner to the app instead.
+    const MEDIA = [{ hash: 'a'.repeat(64), kind: 'image' }];
+    const pictured = addNode('Wave pictures', section, { position: 7 });
+    const PICTURE_BANK = [
+        ...BANK.slice(0, 2).map(b => ({ ...b, uuid: `pic-${b.uuid}`, question: `Picture: ${b.question}`, media: MEDIA })),
+        ...BANK.map(b => ({ ...b, uuid: `plain-${b.uuid}` })),
+    ];
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(pictured, 'Wave pictures', JSON.stringify(PICTURE_BANK));
+    const picSit = sittingOf(await hostCall('mastery_check', { topic: pictured }));
+    const picQs = data(await hostCall('check_questions', { sitting: picSit })).questions || [];
+    ok('the view\'s check passes over a question with a picture or sound and draws the next one',
+        picQs.length === BANK.length && picQs.every(q => !q.question.startsWith('Picture:')), JSON.stringify(picQs.map(q => q.question.slice(0, 30))));
+    const fewPlain = addNode('Wave photos', section, { position: 8 });
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(fewPlain, 'Wave photos',
+        JSON.stringify([...BANK.slice(0, 3).map(b => ({ ...b, uuid: `photo-${b.uuid}`, media: MEDIA })), ...BANK.slice(3).map(b => ({ ...b, uuid: `few-${b.uuid}` }))]));
+    const fewStart = await hostCall('mastery_check', { topic: fewPlain });
+    ok('a bank with too few questions the view can show opens no sitting and says the check is taken in Terramentor',
+        !isErr(fewStart) && !sittingOf(fewStart) && /picture or play a sound/.test(textOf(fewStart)), textOf(fewStart).slice(0, 240));
+
+    // The result shows the counts the check was judged on. A question taken
+    // out of the bank between the draw and the grading (a report does that)
+    // is not proof: four right of five is 4/5, but judged 3/4, under the bar.
+    const reported = addNode('Wave speed', section, { position: 9 });
+    const SPEED_BANK = BANK.map(b => ({ ...b, uuid: `speed-${b.uuid}` }));
+    const speedQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(reported, 'Wave speed', JSON.stringify(SPEED_BANK)).lastInsertRowid);
+    const speedSit = sittingOf(await hostCall('mastery_check', { topic: reported }));
+    const speedQs = data(await hostCall('check_questions', { sitting: speedSit })).questions || [];
+    db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(SPEED_BANK.slice(1)), speedQuiz);
+    const judged = data(await hostCall('check_submit', { sitting: speedSit, answers: answersFor(speedQs, [0, 1, 2, 3]) })).result || {};
+    ok('a check shows the score it was judged on: 3/4 proven, not the raw 4/5, and not passed',
+        speedQs.length === BANK.length && judged.score === 3 && judged.total === 4 && judged.passed === false, JSON.stringify({ ...judged, items: undefined }));
+
+    // The check as a learner takes it in the view: one question answered, the
+    // rest left alone, Next to the end, Submit. What reaches check_submit is
+    // the view's own encoding: the answer as typed or chosen, an untouched
+    // ordering in its served order (it counts as answered), anything else null.
+    const viewed = addNode('Wave view', section, { position: 10 });
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(viewed, 'Wave view', JSON.stringify(BANK.map(b => ({ ...b, uuid: `view-${b.uuid}` }))));
+    const opened = await hostCall('mastery_check', { topic: viewed });
+    const checkView = await driveView(viewHtmlOf.mastery_check, opened, hostCall);
+    try {
+        const { doc, until, press, calls, contexts } = checkView;
+        const shownCount = await until(() => doc.querySelector('.stem')) ? BANK.length : 0;
+        const expected = [];
+        let picked = null;
+        for (let i = 0; i < shownCount; i++) {
+            const stem = doc.querySelector('.stem')?.textContent || '';
+            const b = BANK.findIndex(x => x.question === stem);
+            const q = BANK[b];
+            if (picked === null && q && q.type !== 'sequence') {
+                picked = b;
+                if (q.type === 'multiple_choice' || q.type === 'true_false') {
+                    [...doc.querySelectorAll('[role="radio"]')].find(o => o.textContent === RIGHT[b])?.click();
+                } else {
+                    const field = doc.querySelector('[data-focus="answer"]');
+                    field.value = RIGHT[b];
+                    field.dispatchEvent(new checkView.window.Event('input', { bubbles: true }));
+                }
+                expected.push(RIGHT[b]);
+            } else {
+                expected.push(q?.type === 'sequence' ? JSON.stringify(q.items) : null);
+            }
+            if (i < shownCount - 1) await press('next');
+        }
+        await press('submit');
+        await until(() => calls('check_submit').length > 0 && contexts().length > 0);
+        const submitted = calls('check_submit')[0]?.params?.arguments || {};
+        ok('the view\'s Submit sends check_submit with its sitting and each answer as its input encodes it (an untouched ordering as served, the rest null)',
+            shownCount === BANK.length && picked !== null && submitted.sitting === sittingOf(opened)
+            && JSON.stringify(submitted.answers) === JSON.stringify(expected), JSON.stringify({ submitted, expected }));
+        const told = contexts()[0]?.params?.structuredContent || {};
+        ok('the learner\'s score is passed to the model once the app has graded it', told.total === BANK.length && told.score === 1 && told.passed === false, JSON.stringify(told));
+    } finally {
+        checkView.close();
+    }
+
+    // A failed check: three of five.
+    const evidenceBeforeCheck = checkEvidence();
+    const failed = await hostCall('check_submit', { sitting: sit, answers: answersFor(qs, [0, 1, 2]) });
+    const fr = data(failed).result || {};
+    ok('a submitted check is graded by the app: 3 of 5, not passed', !isErr(failed) && fr.score === 3 && fr.total === 5 && fr.passed === false, JSON.stringify(fr).slice(0, 300));
+    ok('the key and explanation come back only after the answer', (fr.items || []).every(i => 'correctAnswer' in i) && JSON.stringify(fr).includes(EXPL));
+    ok('one check, one mastery_check evidence row, marked as taken in a view', checkEvidence() === evidenceBeforeCheck + 1
+        && JSON.parse(db.prepare("SELECT metadata FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check' ORDER BY id DESC").get(checkedTopic).metadata).via === 'agent_view');
+    // Red: the same sitting submitted again, with other answers.
+    const again = await hostCall('check_submit', { sitting: sit, answers: answersFor(qs, [0, 1, 2, 3, 4]) });
+    ok('a second submit of one sitting writes nothing and returns the first result', !isErr(again) && data(again).result?.score === 3
+        && data(again).duplicate === true && checkEvidence() === evidenceBeforeCheck + 1, JSON.stringify(data(again)).slice(0, 200));
+    const early = await hostCall('check_complete', { sitting: sit });
+    ok('a failed check does not complete its topic', isErr(early) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status !== 'completed');
+
+    // A passed check.
+    const second = await hostCall('mastery_check', { topic: checkedTopic });
+    const sit2 = sittingOf(second);
+    const qs2 = data(await hostCall('check_questions', { sitting: sit2 })).questions || [];
+    const passedCheck = await hostCall('check_submit', { sitting: sit2, answers: answersFor(qs2, [0, 1, 2, 3, 4]) });
+    ok('a passed check writes one more evidence row', data(passedCheck).result?.passed === true && checkEvidence() === evidenceBeforeCheck + 2,
+        `${checkEvidence() - evidenceBeforeCheck} rows; ${JSON.stringify(data(passedCheck).result?.score)}`);
+    // The completion is the app's own, with no override: take the evidence
+    // away (as a reported question re-scoring the check would) and the app's
+    // gate refuses it, though the sitting still says passed.
+    const proof = db.prepare("SELECT id, score FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").all(checkedTopic);
+    const estimate = scoreOf(checkedTopic);
+    db.prepare("UPDATE mastery_evidence SET score = 0 WHERE node_id = ? AND evidence_type = 'mastery_check'").run(checkedTopic);
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.1 WHERE node_id = ?').run(checkedTopic);
+    const unproven = await hostCall('check_complete', { sitting: sit2 });
+    ok('the completion goes through the app\'s gate: without the evidence it is refused', isErr(unproven)
+        && /not proven/i.test(textOf(unproven)) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status !== 'completed', textOf(unproven).slice(0, 200));
+    for (const row of proof) db.prepare('UPDATE mastery_evidence SET score = ? WHERE id = ?').run(row.score, row.id);
+    db.prepare('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(estimate, checkedTopic);
+    const done = await hostCall('check_complete', { sitting: sit2 });
+    ok('a passed check completes its topic through the app\'s own gate', !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed', textOf(done).slice(0, 200));
+    const crossed = await hostCall('review_next', { sitting: sit2 });
+    ok('a check\'s token is not a review\'s', isErr(crossed));
+
+    // Two submits racing on one sitting while the first is still being graded.
+    // Every key above is graded locally, which is over before the second
+    // request is read; an open answer goes to the checker, here a local stub
+    // that takes its time and counts what it is asked.
+    const raced = addNode('Beats', section, { position: 6 });
+    const RACE_BANK = [
+        { uuid: 'race-mc', type: 'multiple_choice', question: 'Forks of 440 Hz and 444 Hz sound together. How often does the loudness swell?', options: ['4 times a second', '440 times a second', '884 times a second', 'Never'], correct_answer: '4 times a second', explanation: 'The difference.' },
+        { uuid: 'race-tf', type: 'true_false', question: 'Two waves of the same frequency make no beats.', correct_answer: 'True', explanation: 'No difference, no beats.' },
+        { uuid: 'race-num', type: 'numeric', question: 'Strings at 256 Hz and 260 Hz sound together. How many beats a second?', correct_answer: '4', unit: 'Hz', explanation: '260 - 256.' },
+        { uuid: 'race-fill', type: 'fill_in', question: 'Two strings are in tune when their beats ___.', correct_answer: 'vanish', explanation: 'Equal pitch.' },
+        { uuid: 'race-open', type: 'short_answer', question: 'What decides how often beats are heard?', correct_answer: 'the difference between the two frequencies', explanation: 'The beat frequency.' },
+    ];
+    const RACE_RIGHT = ['4 times a second', 'True', '4', 'vanish', 'how far apart the two pitches are'];
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(raced, 'Beats', JSON.stringify(RACE_BANK));
+    const racedEvidence = () => db.prepare("SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").get(raced).n;
+    let checkerCalls = 0;
+    const checker = createServer((req, res) => {
+        req.resume();
+        req.on('end', () => {
+            checkerCalls++;
+            setTimeout(() => {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ correct: true, explanation: 'That is the beat frequency.' }) } }] }));
+            }, 800);
+        });
+    });
+    await new Promise(r => checker.listen(0, '127.0.0.1', r));
+    const AI_ENV = ['AI_PROVIDER', 'AI_BASE_URL', 'AI_MODEL'];
+    const envBefore = Object.fromEntries(AI_ENV.map(k => [k, process.env[k]]));
+    const enabledBefore = db.prepare("SELECT value FROM settings WHERE key = 'ai_enabled'").get()?.value;
+    try {
+        process.env.AI_PROVIDER = 'openai';
+        process.env.AI_BASE_URL = `http://127.0.0.1:${checker.address().port}/v1`;
+        process.env.AI_MODEL = 'stub-checker';
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_enabled', 'true')").run();
+        const sit3 = sittingOf(await hostCall('mastery_check', { topic: raced }));
+        const qs3 = data(await hostCall('check_questions', { sitting: sit3 })).questions || [];
+        const answers3 = qs3.map(q => RACE_RIGHT[RACE_BANK.findIndex(b => b.question === q.question)]);
+        const before = racedEvidence();
+        const racing = await Promise.all([1, 2].map(() => hostCall('check_submit', { sitting: sit3, answers: answers3 })));
+        const scores = racing.map(m => data(m).result?.score);
+        // Neither answer is the "already submitted" one: both arrived while the
+        // first was still being graded, so the race really overlapped.
+        ok('two submits racing on one sitting while it is graded are one check: one checker call, one score, one evidence row',
+            qs3.length === RACE_BANK.length && checkerCalls === 1 && racing.every(m => !isErr(m) && data(m).result?.passed === true && data(m).duplicate !== true)
+            && scores[0] === RACE_BANK.length && scores[1] === scores[0] && racedEvidence() === before + 1,
+            `${qs3.length} questions; ${checkerCalls} checker calls; scores ${JSON.stringify(scores)}; ${racedEvidence() - before} rows; duplicate ${JSON.stringify(racing.map(m => data(m).duplicate ?? null))}`);
+    } finally {
+        for (const k of AI_ENV) { if (envBefore[k] === undefined) delete process.env[k]; else process.env[k] = envBefore[k]; }
+        if (enabledBefore === undefined) db.prepare("DELETE FROM settings WHERE key = 'ai_enabled'").run();
+        else db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_enabled', ?)").run(enabledBefore);
+        checker.close();
+    }
+
+    // The card review: a topic with cards and nothing else.
+    const carded = addNode('Resonance', section, { position: 4 });
+    const BACK = 'BACK-CANARY-';
+    for (let i = 1; i <= 4; i++) {
+        db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(carded, `Resonance fact ${i}?`, `${BACK}${i}`);
+    }
+    const reviewRows = () => db.prepare('SELECT COUNT(*) AS n FROM review_log').get().n;
+    const plainReview = await call('review_cards', { project: String(pid) });
+    ok('without views, review_cards points to Terramentor and opens no session', !isErr(plainReview) && !sittingOf(plainReview) && textOf(plainReview).includes(appUrl), textOf(plainReview).slice(0, 200));
+    const review = await hostCall('review_cards', { project: String(pid) });
+    const rs = sittingOf(review);
+    ok('review_cards opens a session for the view and the model sees no card', typeof rs === 'string'
+        && !JSON.stringify([review?.result?.content, review?.result?.structuredContent]).includes('Resonance fact'), textOf(review).slice(0, 200));
+    const card = data(await hostCall('review_next', { sitting: rs })).card;
+    const backOf = (id) => db.prepare('SELECT back FROM flashcards WHERE id = ?').get(id)?.back || '\u0000';
+    ok('a card is shown front first: its back stays on the server', !!card?.front && !JSON.stringify(card).includes(backOf(card.cardId)) && !JSON.stringify(card).includes(BACK), JSON.stringify(card));
+    const unrevealed = await hostCall('review_rate', { sitting: rs, presentationId: card?.presentationId, rating: 'easy' });
+    ok('a card cannot be rated before its answer is shown', isErr(unrevealed));
+    const revealed = data(await hostCall('review_reveal', { sitting: rs, presentationId: card?.presentationId }));
+    ok('the answer side comes with what each rating would schedule', String(revealed.card?.back || '').length > 0
+        && ['again', 'hard', 'good', 'easy'].every(r => typeof revealed.intervals?.[r] === 'string'), JSON.stringify(revealed).slice(0, 300));
+    const logBefore = reviewRows();
+    // Every field a review writes, as it stood before the rating: Undo must
+    // put back all of them, not only the ones that are easy to see.
+    const { SRS_STATE_FIELDS } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    const schedulerOf = (id) => db.prepare(`SELECT ${SRS_STATE_FIELDS.join(', ')} FROM flashcards WHERE id = ?`).get(id);
+    const beforeRating = schedulerOf(card.cardId);
+    const rated = await hostCall('review_rate', { sitting: rs, presentationId: card.presentationId, rating: 'easy' });
+    const cardAfter = db.prepare('SELECT review_count, next_review FROM flashcards WHERE id = ?').get(card.cardId);
+    ok('a rating is the app\'s: logged and scheduled', !isErr(rated) && reviewRows() === logBefore + 1 && cardAfter.review_count === 1
+        && cardAfter.next_review > '2026-01-05T09:00:00.000Z', JSON.stringify(cardAfter));
+    // Red: the same presentation rated twice.
+    const twice = await hostCall('review_rate', { sitting: rs, presentationId: card.presentationId, rating: 'again' });
+    ok('a second rating of one presentation writes nothing', !isErr(twice) && data(twice).duplicate === true && reviewRows() === logBefore + 1
+        && db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(card.cardId).review_count === 1, JSON.stringify(data(twice)));
+    ok('the rating is the one Undo would take back (undoable)', data(rated).undoable === card.presentationId, JSON.stringify(data(rated)));
+    const undone = data(await hostCall('review_undo', { sitting: rs, presentationId: card.presentationId }));
+    ok('Undo restores the card and takes its rating out of the log, and shows the card again', undone.undone === true && reviewRows() === logBefore
+        && db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(card.cardId).review_count === 0 && undone.card?.cardId === card.cardId, JSON.stringify(undone).slice(0, 300));
+    const afterUndo = schedulerOf(card.cardId);
+    const unrestored = SRS_STATE_FIELDS.filter(k => afterUndo[k] !== beforeRating[k]);
+    ok(`Undo puts back every field the rating wrote (${SRS_STATE_FIELDS.length})`, SRS_STATE_FIELDS.length >= 10 && unrestored.length === 0,
+        unrestored.map(k => `${k}: ${JSON.stringify(beforeRating[k])} → ${JSON.stringify(afterUndo[k])}`).join('; '));
+    // Every card rated Easy, as fast as a script can.
+    const cardOfRating = new Map();
+    for (let n = 0; n < 40; n++) {
+        const next = data(await hostCall('review_next', { sitting: rs }));
+        if (next.done || !next.card) break;
+        cardOfRating.set(next.card.presentationId, next.card.cardId);
+        await hostCall('review_reveal', { sitting: rs, presentationId: next.card.presentationId });
+        await hostCall('review_rate', { sitting: rs, presentationId: next.card.presentationId, rating: 'easy' });
+    }
+    const end = data(await hostCall('review_next', { sitting: rs }));
+    ok('the session ends once every card is rated', end.done === true && end.reviewed >= 4, JSON.stringify(end));
+    // Red: a rating in the view is worth exactly what the same rating is worth
+    // in the app — the same evidence row, the same estimate — and never more.
+    // A twin topic is rated Easy through the app's own review route.
+    const { computeSrsUpdate } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    // Pinned instants, never the clock: a new card's Easy is the same at any
+    // instant after it is due, and the re-rating only needs a stamp the view's
+    // own rating did not write.
+    const TWIN_RATED_AT = new Date('2026-06-01T12:00:00.000Z');
+    const RERATED_AT = new Date('2099-01-01T12:00:00.000Z');
+    const twin = addNode('Resonance, rated in the app', section, { position: 5 });
+    for (let i = 1; i <= 4; i++) {
+        const id = Number(db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(twin, `Twin fact ${i}?`, `TWIN-${i}`).lastInsertRowid);
+        const update = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id), 'easy', TWIN_RATED_AT);
+        await fetch(`${appUrl}/api/ai/flashcards/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` }, body: JSON.stringify(update) });
+    }
+    const evidenceOf = (id) => db.prepare('SELECT evidence_type AS type, score, total FROM mastery_evidence WHERE node_id = ? ORDER BY id').all(id);
+    ok('a rating in the view writes what the same rating in the app writes', evidenceOf(carded).length > 0
+        && JSON.stringify(evidenceOf(carded)) === JSON.stringify(evidenceOf(twin)) && Math.abs(scoreOf(carded) - scoreOf(twin)) < 1e-9,
+    `${JSON.stringify(evidenceOf(carded))} ${scoreOf(carded)} vs ${JSON.stringify(evidenceOf(twin))} ${scoreOf(twin)}`);
+    const gate = mastery.checkMasteryEligibility(carded, 0.85, 0.8);
+    ok('Easy on every card in the view is card evidence only, never an assessment', gate.passed_assessment === false
+        && evidenceOf(carded).every(r => r.type === 'flashcard'), JSON.stringify(gate));
+    // Undo names the rating it takes back, so a retry whose answer was lost
+    // takes back nothing more: the session ended with every card rated.
+    const ratingOf = (id) => db.prepare('SELECT review_count FROM flashcards WHERE id = ?').get(id).review_count;
+    const lastRated = end.undoable;
+    const logAtEnd = reviewRows();
+    const firstUndo = data(await hostCall('review_undo', { sitting: rs, presentationId: lastRated }));
+    const retried = await hostCall('review_undo', { sitting: rs, presentationId: lastRated });
+    ok('an Undo sent again takes back nothing more: one rating out of the log, the same card back on screen',
+        firstUndo.undone === true && !isErr(retried) && data(retried).undone === true && data(retried).duplicate === true
+        && reviewRows() === logAtEnd - 1 && data(retried).card?.cardId === firstUndo.card?.cardId && data(retried).undoable === firstUndo.undoable
+        && firstUndo.undoable !== lastRated, `${logAtEnd} → ${reviewRows()} rows; ${JSON.stringify(data(retried)).slice(0, 240)}`);
+    const stale = await hostCall('review_undo', { sitting: rs, presentationId: 'not-the-last-one' });
+    ok('an Undo naming a rating that is not the last one is refused and takes back nothing', isErr(stale) && reviewRows() === logAtEnd - 1, textOf(stale).slice(0, 160));
+    // The rating before it is rated again in the app: Undo cannot take it back,
+    // and the session then says so by naming the next one, or none.
+    const behind = firstUndo.undoable;
+    const behindCard = cardOfRating.get(behind);
+    if (!behindCard) ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone', false, `no rating named before the last: ${JSON.stringify(firstUndo).slice(0, 200)}`);
+    else {
+        const reRated = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(behindCard), 'good', RERATED_AT);
+        await fetch(`${appUrl}/api/ai/flashcards/${behindCard}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` }, body: JSON.stringify(reRated) });
+        const countBehind = ratingOf(behindCard);
+        const kept = data(await hostCall('review_undo', { sitting: rs, presentationId: behind }));
+        ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone',
+            kept.undone === false && kept.undoable !== behind && ratingOf(behindCard) === countBehind, JSON.stringify(kept));
+    }
+
+    // The review as a learner takes it in the view: the first card Again (it
+    // comes back), the second Easy, the first again Easy. Three ratings, two
+    // cards. Then Undo on the done screen reopens the session, and the model,
+    // told it had ended, hears the counts again.
+    const viewPid = Number(db.prepare("INSERT INTO projects (name, color) VALUES ('Optics for the view gate', '#0369a1')").run().lastInsertRowid);
+    const viewTopic = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(viewPid, 'Lenses').lastInsertRowid);
+    for (const n of [1, 2]) db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(viewTopic, `Lens fact ${n}?`, `LENS-${n}`);
+    const reviewOpened = await hostCall('review_cards', { project: String(viewPid) });
+    const reviewView = await driveView(viewHtmlOf.review_cards, reviewOpened, hostCall);
+    try {
+        const { doc, until, press, calls, contexts } = reviewView;
+        const ratings = [];
+        for (let n = 0; n < 6 && await until(() => doc.querySelector('[data-focus="reveal"], .outcome-title')); n++) {
+            if (doc.querySelector('.outcome-title')) break;
+            await press('reveal');
+            const rating = ratings.length === 0 ? 'again' : 'easy';
+            await press(`rate-${rating}`);
+            ratings.push(rating);
+            await until(() => calls('review_next').length > ratings.length);
+        }
+        await until(() => doc.querySelector('.outcome-title') && contexts().length > 0);
+        const doneText = doc.querySelector('.outcome')?.textContent || '';
+        const endTold = contexts()[0]?.params?.structuredContent || {};
+        ok('the done screen counts cards finished, not ratings: 3 ratings, "You reviewed 2 flashcards"',
+            ratings.length === 3 && /You reviewed 2 flashcards/.test(doneText) && endTold.rated === 3 && endTold.reviewed === 2, `${JSON.stringify(ratings)} ${doneText} ${JSON.stringify(endTold)}`);
+        await press('undo');
+        await until(() => calls('review_undo').length > 0 && contexts().length > 1);
+        const undoArgs = calls('review_undo')[0]?.params?.arguments || {};
+        const reopened = contexts()[1]?.params?.structuredContent || {};
+        ok('Undo on the done screen names the rating it takes back, and the model hears the reopened counts',
+            typeof undoArgs.presentationId === 'string' && undoArgs.presentationId.length > 0 && reopened.rated === 2 && reopened.done === false,
+            JSON.stringify({ undoArgs, contexts: contexts().map(c => c.params?.structuredContent) }));
+    } finally {
+        reviewView.close();
+    }
+    const closeFromReview = await hostCall('check_complete', { sitting: rs });
+    ok('a review session has no way to complete a topic', isErr(closeFromReview) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(carded).status !== 'completed');
+    host.close();
 }
 
 // ---------------------------------------------------------------------------

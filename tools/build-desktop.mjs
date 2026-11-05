@@ -10,9 +10,15 @@
  *                          runtime the app needs, so nothing is installed
  *   dist/                  the built SPA
  *   server/                the API (no database, no vault, no certificates)
+ *   mcp/                   the MCP server an agent in another app starts
+ *                          (docs/MCP.md), with its two views
+ *   src/                   only what server/ imports from it (the card
+ *                          scheduler) and the translations the views read;
+ *                          the list is tools/lib/runtimeSources.mjs
  *   desktop/               the launcher
- *   node_modules/          production dependencies the SERVER imports, resolved
- *                          from package-lock.json (the client's are already in dist)
+ *   node_modules/          production dependencies the server and mcp/ import,
+ *                          resolved from package-lock.json (the client's are
+ *                          already in dist)
  *   build.json             version, commit, build time — the app's identity
  *   Terramentor.exe / .cmd   Windows: a windowless launcher (compiled here with
  *                          the C# compiler Windows ships), and a console one
@@ -35,9 +41,10 @@
  *
  * The staged copy is started with `desktop/launcher.js --check` against a
  * scratch data directory before it is zipped — a package that does not start
- * is not a package.
+ * is not a package. Its MCP server is then started against that copy's own
+ * server and asked for its tools, a view and a project list.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
     existsSync, mkdirSync, rmSync, cpSync, copyFileSync, readFileSync, writeFileSync,
     readdirSync, statSync, createReadStream, createWriteStream, chmodSync,
@@ -48,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import JSZip from 'jszip';
 import { buildIco, buildIcns } from './lib/icons.mjs';
+import { codeFiles, runtimeSources, RUNTIME_DATA } from './lib/runtimeSources.mjs';
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(toolsDir, '..');
@@ -127,6 +135,15 @@ cpSync(join(repoRoot, 'desktop'), join(stage, 'desktop'), {
         return !rel.startsWith('wrappers') && rel !== 'README.txt';
     },
 });
+// The MCP server, and the few files from src/ that server/ imports and the
+// translations the MCP views read (tools/lib/runtimeSources.mjs says why).
+cpSync(join(repoRoot, 'mcp'), join(stage, 'mcp'), { recursive: true });
+const sharedSources = runtimeSources(repoRoot);
+for (const rel of [...sharedSources, ...RUNTIME_DATA]) {
+    mkdirSync(dirname(join(stage, rel)), { recursive: true });
+    cpSync(join(repoRoot, rel), join(stage, rel), { recursive: true });
+}
+log(`▸ shipped from src/: ${[...sharedSources, ...RUNTIME_DATA].join(', ')}`);
 for (const f of ['package.json', 'package-lock.json', 'LICENSE']) copyFileSync(join(repoRoot, f), join(stage, f));
 
 // --- 3. production node_modules, server-side closure only ------------------------
@@ -145,14 +162,20 @@ const DATA_DEPS = {
     '@tesseract.js-data/eng': true,
 };
 
-const serverDeps = scanServerDependencies(join(repoRoot, 'server'));
+// Everything that runs: the server, the MCP server, and the files from src/
+// they import (whose own imports, ts-fsrs for one, are the server's too).
+const serverDeps = scanDependencies([
+    ...codeFiles(join(repoRoot, 'server')),
+    ...codeFiles(join(repoRoot, 'mcp')),
+    ...sharedSources.map((rel) => join(repoRoot, rel)),
+]);
 const declared = Object.keys(pkg.dependencies || {});
 const missingData = Object.keys(DATA_DEPS).filter((d) => !declared.includes(d));
 if (missingData.length) throw new Error(`package.json no longer declares: ${missingData.join(', ')}`);
 const keep = declared.filter((d) => serverDeps.has(d) || DATA_DEPS[d]);
 const undeclared = [...serverDeps].filter((d) => !declared.includes(d));
-if (undeclared.length) throw new Error(`server imports packages package.json does not declare: ${undeclared.join(', ')}`);
-log(`▸ server needs ${keep.length} of ${declared.length} declared packages; pruning the rest`);
+if (undeclared.length) throw new Error(`the server or mcp/ imports packages package.json does not declare: ${undeclared.join(', ')}`);
+log(`▸ the server and mcp/ need ${keep.length} of ${declared.length} declared packages; pruning the rest`);
 const stagedPkg = { ...pkg, dependencies: Object.fromEntries(keep.map((d) => [d, pkg.dependencies[d]])), devDependencies: {} };
 delete stagedPkg.scripts;
 writeFileSync(join(stage, 'package.json'), JSON.stringify(stagedPkg, null, 2));
@@ -254,6 +277,12 @@ if (!noCheck) {
         }
         port++;
     }
+    // The MCP server is a second program in the same folder, started by the
+    // agent's app rather than by the launcher, so the launcher's check never
+    // loads it: a package missing mcp/, its SDK (pruned when only server/ was
+    // scanned) or the views' translations would start, pass, and ship.
+    log('▸ starting the staged MCP server against the staged server');
+    await checkMcp(port);
 }
 
 // --- 8. the file list ----------------------------------------------------------------------
@@ -299,33 +328,89 @@ log(`✓ ${relative(repoRoot, finalDir)}`);
 
 // --- helpers ------------------------------------------------------------------------------
 
-/** Every bare package specifier imported anywhere under server/. */
-function scanServerDependencies(dir) {
+/** Every bare package specifier the given modules import. */
+function scanDependencies(files) {
     const found = new Set();
-    const walk = (d) => {
-        for (const f of readdirSync(d)) {
-            const p = join(d, f);
-            if (statSync(p).isDirectory()) { walk(p); continue; }
-            if (!/\.(js|mjs|cjs)$/.test(f)) continue;
-            const src = readFileSync(p, 'utf8');
-            // Real import shapes only — `from 'x';` closing a line, `import('x')`,
-            // `require('x')` — and a specifier that is a legal package name, so
-            // prose in a comment ("…from 'the page was blank'") cannot match.
-            const re = /(?:^\s*(?:import|export)\b[^;]*?\bfrom\s*|^\s*import\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/gm;
-            const PKG = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*(\/.*)?$/;
-            let m;
-            while ((m = re.exec(src))) {
-                const spec = m[1];
-                if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:') || !PKG.test(spec)) continue;
-                const pkgName = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
-                found.add(pkgName);
-            }
+    for (const p of files) {
+        const src = readFileSync(p, 'utf8');
+        // Real import shapes only — `from 'x';` closing a line, `import('x')`,
+        // `require('x')` — and a specifier that is a legal package name, so
+        // prose in a comment ("…from 'the page was blank'") cannot match.
+        // `import type` (in the .ts files from src/) is erased before the
+        // module runs, so the package it names is not needed.
+        const re = /(?:^\s*(?:import(?!\s+type\b)|export)\b[^;]*?\bfrom\s*|^\s*import\s*|\bimport\s*\(\s*|\brequire\s*\(\s*)['"]([^'"]+)['"]/gm;
+        const PKG = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*(\/.*)?$/;
+        let m;
+        while ((m = re.exec(src))) {
+            const spec = m[1];
+            if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:') || !PKG.test(spec)) continue;
+            const pkgName = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
+            found.add(pkgName);
         }
-    };
-    walk(dir);
+    }
     // Node built-ins written without the prefix.
     for (const b of ['fs', 'path', 'url', 'crypto', 'os', 'http', 'https', 'child_process', 'stream', 'util', 'events', 'zlib', 'worker_threads', 'buffer', 'net', 'dns', 'string_decoder', 'readline', 'assert']) found.delete(b);
     return found;
+}
+
+/**
+ * Start the staged server on a scratch library, then tools/mcp-smoke.mjs,
+ * which starts the staged `mcp/index.js` against it the way an agent's app
+ * does and asks for its tools, a view and a project list.
+ */
+async function checkMcp(port) {
+    const node = join(runtimeDir, nodeName);
+    const scratch = join(tmpdir(), `terramentor-build-mcp-${process.pid}-${port}`);
+    rmSync(scratch, { recursive: true, force: true });
+    mkdirSync(scratch, { recursive: true });
+    const url = `http://127.0.0.1:${port}`;
+    // The builder's own environment minus anything that would point either
+    // program somewhere else (a developer's TERRAMENTOR_URL, their key, their
+    // library), plus the scratch library, set here rather than by a shell.
+    const env = (extra) => {
+        const e = { ...process.env };
+        for (const k of Object.keys(e)) if (/^(TERRAMENTOR_|DB_PATH$|VAULT_ROOT$|DATA_DIR$|PORT$|HOST$)/.test(k)) delete e[k];
+        return { ...e, ...extra };
+    };
+    const children = [];
+    const start = (args, extra) => {
+        const c = spawn(node, args, { cwd: stage, env: env(extra), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+        const exited = new Promise((r) => c.once('exit', r));
+        children.push({ c, exited });
+        return c;
+    };
+    try {
+        const server = start(['server/index.js'], {
+            PORT: String(port), HOST: '127.0.0.1', DATA_DIR: scratch,
+            DB_PATH: join(scratch, 'terramentor.db'), VAULT_ROOT: join(scratch, 'vault'),
+        });
+        let serverLog = '';
+        server.stdout.on('data', (d) => { serverLog += d; });
+        server.stderr.on('data', (d) => { serverLog += d; });
+        for (const deadline = Date.now() + 60_000; ;) {
+            if (server.exitCode !== null) throw new Error(`the staged server exited (${server.exitCode}): ${serverLog.slice(-600)}`);
+            const up = await fetch(`${url}/api/version`).then((r) => r.ok, () => false);
+            if (up) break;
+            if (Date.now() > deadline) throw new Error(`the staged server did not answer within 60 s: ${serverLog.slice(-600)}`);
+            await new Promise((r) => setTimeout(r, 250));
+        }
+
+        // The probe is a script of this repository run by the staged Node; the
+        // MCP server it starts resolves its packages from the stage alone.
+        const probe = start([join(toolsDir, 'mcp-smoke.mjs'), stage, url], {});
+        let probeOut = '';
+        probe.stdout.on('data', (d) => { probeOut += d; });
+        probe.stderr.on('data', (d) => { probeOut += d; });
+        const code = await Promise.race([children.at(-1).exited, new Promise((r) => setTimeout(() => r('timeout'), 120_000))]);
+        process.stdout.write(probeOut);
+        if (code !== 0) throw new Error(`the staged MCP server failed its check (${code === 'timeout' ? 'no answer in 120 s' : `exit ${code}`})`);
+    } finally {
+        for (const { c } of children) c.kill();
+        // The scratch library stays open until the server has gone (Windows
+        // will not delete an open file).
+        await Promise.all(children.map(({ exited }) => Promise.race([exited, new Promise((r) => setTimeout(r, 10_000))])));
+        rmSync(scratch, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
 }
 
 /** Compile Launcher.cs with the .NET Framework compiler behind Add-Type. */
