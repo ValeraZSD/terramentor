@@ -355,7 +355,8 @@ architecture has to make that claim *checkable* (see [SECURITY.md](../SECURITY.m
   key for scripted clients) covers every `/api` route except sign-in itself
   (and the auth routes that check the session on their own), pairing a device
   by its one-time code, the desktop launcher's status probe and the app icon
-  and manifest; the empty `/sandbox.html` frame is open too. Without a
+  and manifest; the empty `/sandbox.html` and `/runner.html` frames are open too
+  (the second runs code answers in the browser, `src/runner/`). Without a
   password, another device gets in only as a device connected by a one-time QR
   code or as the computer's own Tailscale account (`server/devices.js`); a
   connected device also works beside a password, Tailscale alone does not.

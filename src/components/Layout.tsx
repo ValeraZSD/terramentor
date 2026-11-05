@@ -554,7 +554,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     nodeTitle={masteryGate.nodeTitle}
                     projectId={masteryGate.projectId}
                     advisory={masteryGate.advisory}
-                    onPassed={() => resolveMasteryGate('completed')}
+                    onPassed={() => resolveMasteryGate('completed', true)}
                     onMarkAnyway={() => resolveMasteryGate('completed')}
                     onSkip={() => resolveMasteryGate('skipped')}
                 />

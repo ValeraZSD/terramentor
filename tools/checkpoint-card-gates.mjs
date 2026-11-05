@@ -5,7 +5,7 @@
 // and its numbers are the topic's as it was then. It asked the server again
 // after each answer saved in the topic, but never after the mastery check: the
 // check is a modal, and passing it marks the card done, which also switched the
-// refresh off. So the Taylor clip (4 Nov 2026) ended on
+// refresh off. So a topic ended on
 //
 //     Estimated mastery 0%   ·   Topic completed
 //
@@ -56,7 +56,7 @@ const stubs = {
     'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });`,
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: { feedSavedByNode: {}, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };
+        g.__st = { state: { feedSavedByNode: {}, masteryGate: { isOpen: false, nodeId: null }, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
             () => sel(g.__st.state));
@@ -122,7 +122,7 @@ if (CheckpointCard) {
     await settle();
     ok('done: the card asked the server for its numbers again', asked.includes(63), `${asked.length} request(s)`);
     ok('…and shows the estimate the check left (99%), not the composed 0%', masteryShown(host) === '99', `shown ${masteryShown(host)}%: ${host.textContent.slice(0, 160)}`);
-    // Context, true before the fix too: the screen the clip showed.
+    // Context, true before the fix too: the screen the bug showed.
     ok('…beside "Topic completed"', host.textContent.includes('Topic completed'));
 
     await act(() => r.unmount());

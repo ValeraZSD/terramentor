@@ -7,7 +7,7 @@ import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
 import { formatOf, defaultAnswer } from './answer/formats';
 import { isUnchecked, askedEntry } from './UncheckedKeyNote';
-import { gradeAnswer } from '../utils/grading';
+import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useStore } from '../store';
 import { aiRuntime, slowGenerationHint, timeoutHint } from '../utils/aiHints';
 import { useTranslation } from 'react-i18next';
@@ -20,6 +20,9 @@ import { DialogFooter } from './ui/Dialog';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
+
+/** One graded answer of the check; `run` = the test rows behind a run-graded code answer. */
+type CheckResult = { correct: boolean; explanation?: string; run?: GradedAnswer['run'] };
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -60,7 +63,7 @@ export default function MasteryGateModal({
     const [answers, setAnswers] = useState<Record<number, string>>({});
     // Per-question correctness + explanation, so the results screen can show the
     // learner exactly which questions they missed (they can pass with a few wrong).
-    const [answerResults, setAnswerResults] = useState<Record<number, { correct: boolean; explanation?: string }>>({});
+    const [answerResults, setAnswerResults] = useState<Record<number, CheckResult>>({});
     const [submitted, setSubmitted] = useState(false);
     const [result, setResult] = useState<{ score: number; total: number; passed: boolean; passThreshold: number } | null>(null);
     /** The smallest check the server judges, as the draw said (MIN_GATE_QUESTIONS). */
@@ -423,7 +426,7 @@ export default function MasteryGateModal({
         try {
             const out = new Set(questions.flatMap((_, i) => (isReported(i) ? [i] : [])));
             let correct = 0;
-            const results: Record<number, { correct: boolean; explanation?: string }> = {};
+            const results: Record<number, CheckResult> = {};
             for (let i = 0; i < questions.length; i++) {
                 if (out.has(i)) continue;
                 const q = questions[i];
@@ -438,7 +441,7 @@ export default function MasteryGateModal({
                 if (!userAnswer.trim()) { results[i] = { correct: false, explanation: q.explanation }; continue; }
                 const graded = await gradeAnswer(q, userAnswer);
                 if (graded.correct) correct++;
-                results[i] = { correct: graded.correct, explanation: graded.explanation };
+                results[i] = { correct: graded.correct, explanation: graded.explanation, run: graded.run };
             }
             setAnswerResults(results);
 
@@ -812,6 +815,7 @@ export default function MasteryGateModal({
                                                     answer={answers[i] || defaultAnswer(q)}
                                                     correct={answerResults[i]?.correct ?? false}
                                                     explanation={answerResults[i]?.explanation}
+                                                    run={answerResults[i]?.run}
                                                     nodeId={nodeId}
                                                     nodeTitle={nodeTitle}
                                                     projectName={projectName}
@@ -840,11 +844,12 @@ export default function MasteryGateModal({
                     Retry below the window, as the questions once did Submit. */}
                 {error && !submitted && (
                     // One group: the learner is never stuck — even with the AI
-                    // unavailable, they can move on honestly.
+                    // unavailable, they can move on honestly. No primary: with
+                    // no check to take, closing the topic without one is a way
+                    // out, never the default. All outlined, since next to
+                    // outlined buttons a bare "Close" reads as text.
                     <DialogFooter inset="px-6">
-                        {/* Quiet only beside a primary: next to two outlined
-                            buttons a bare "Close" reads as text. */}
-                        <Button variant={offerMarkAnyway ? 'quiet' : 'neutral'} onClick={onClose}>
+                        <Button onClick={onClose}>
                             {t("Close")}
                         </Button>
                         {!uncheckedOnly && (
@@ -854,12 +859,12 @@ export default function MasteryGateModal({
                         )}
                         {offerSkip && (
                             <Button onClick={onSkip}>
-                                {t("Skip this topic")}
+                                {t("Skip topic")}
                             </Button>
                         )}
                         {offerMarkAnyway && (
-                            <Button variant="primary" onClick={onMarkAnyway}>
-                                {t("Mark done anyway")}
+                            <Button onClick={onMarkAnyway}>
+                                {t("Mark done without the check")}
                             </Button>
                         )}
                     </DialogFooter>
@@ -876,17 +881,20 @@ export default function MasteryGateModal({
                             </Button>
                         ) : (
                             <>
+                                {/* The ways out of a failed check are quiet, as in
+                                    the footer while answering: a new draw is the
+                                    way on, not an outlined equal of these. */}
                                 <Button variant="quiet" className="mr-auto" onClick={onClose}>
                                     {t("Study More")}
                                 </Button>
                                 {offerSkip && (
-                                    <Button onClick={onSkip}>
+                                    <Button variant="quiet" onClick={onSkip}>
                                         {t("Skip topic")}
                                     </Button>
                                 )}
                                 {offerMarkAnyway && (
-                                    <Button onClick={onMarkAnyway}>
-                                        {t("Mark done anyway")}
+                                    <Button variant="quiet" onClick={onMarkAnyway}>
+                                        {t("Mark done without the check")}
                                     </Button>
                                 )}
                                 <Button
@@ -921,12 +929,12 @@ export default function MasteryGateModal({
                         <div className="flex flex-wrap items-center gap-2">
                             {offerSkip && (
                                 <Button variant="quiet" onClick={onSkip}>
-                                    {t("Skip")}
+                                    {t("Skip topic")}
                                 </Button>
                             )}
                             {offerMarkAnyway && (
                                 <Button variant="quiet" onClick={onMarkAnyway}>
-                                    {t("Mark done anyway")}
+                                    {t("Mark done without the check")}
                                 </Button>
                             )}
                             <div className="ml-auto flex gap-2">

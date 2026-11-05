@@ -3,9 +3,8 @@
 //
 // A dialog that scrolled as ONE box carried its action row (Cancel / Save /
 // Next) at the bottom of the scrolled content. A long explanation, a long form
-// or a short window pushed the row past the dialog's edge: in the Taylor clip
-// (4 Nov 2026, 1280x800) the placement probe showed an explanation and no way
-// on. PR #188 fixed that one dialog by hand; a dozen others had the same shape.
+// or a short window pushed the row past the dialog's edge: at 1280x800 the
+// placement probe showed an explanation and no way on. PR #188 fixed that one dialog by hand; a dozen others had the same shape.
 // They are now built from `src/components/ui/Dialog.tsx` (a frame, ONE scrolling
 // body, a footer outside it) or from `Modal`'s `footer` prop, and this gate
 // reads every dialog in `src/` for the two ways the old shape comes back:

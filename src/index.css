@@ -709,6 +709,20 @@ body.assistant-overlay-open {
   max-height: 90dvh;
 }
 
+/* The placement dialog: a bottom sheet on a phone, a centred box from `sm`.
+   Two Tailwind classes cannot carry the pair: it emits `max-h-[92vh]` AFTER
+   `max-h-[92dvh]`, so the `vh` one would win everywhere. */
+.placement-shell {
+  max-height: 92vh;
+  max-height: 92dvh;
+}
+@media (min-width: 640px) {
+  .placement-shell {
+    max-height: 85vh;
+    max-height: 85dvh;
+  }
+}
+
 /*
  * A frame that holds the SAME height whatever is inside it. Content-sized
  * modals look fine in isolation but make a quiz feel unstable: a two-line

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
  * A dialog that scrolled as ONE box carried its Cancel / Save / Next row at the
  * bottom of the scrolled content: a long explanation, a long form or a short
  * window pushed the row past the dialog's edge, and the learner saw text and no
- * way on (the placement probe in the Taylor clip, 4 Nov 2026, at 1280x800).
+ * way on (at 1280x800 the placement probe's explanation hid "Next").
  * Now the head and the foot stay put and only the body between them scrolls.
  *
  *   <div className={`${DIALOG_SHELL} …width, colours, radius…`} role="dialog">
