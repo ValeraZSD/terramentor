@@ -22,6 +22,7 @@ import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
+import { loadedRunner } from './runner/load';
 import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
@@ -528,6 +529,10 @@ interface AppState {
      *  double, triple, or no clock). Chosen on a drill's intro screen and kept,
      *  so a slow typist does not have to ask again every round. */
     drillTimeScale: DrillTimeScale;
+    /** Code answers in Python and JavaScript are run on this device and
+     *  checked against the question's tests (src/runner/); off, the model
+     *  judges them as before. On unless switched off. */
+    codeRunner: boolean;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -626,7 +631,7 @@ interface AppState {
         kind: 'lesson' | 'question' | 'recall';
         feedItemId?: number | null;
         nodeId?: number;
-        result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
+        result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback' | 'run'; read?: boolean };
         attemptId?: string;
         uuid?: string;
     }) => Promise<boolean>;
@@ -754,6 +759,7 @@ interface AppState {
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
     setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
+    setCodeRunner: (on: boolean) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -929,6 +935,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
     drillTimeScale: '1',
+    codeRunner: true,
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1284,6 +1291,14 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'drill_time_scale', scale, before, scale, value => set({ drillTimeScale: value }));
     },
 
+    setCodeRunner: async (on) => {
+        const before = get().codeRunner;
+        set({ codeRunner: on });
+        // A Python frame kept ready has no further use.
+        if (!on) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
+        await saveSetting(get, 'code_runner', on ? 'on' : 'off', before, on, value => set({ codeRunner: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1381,11 +1396,15 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js, so this is the same single comparison the
             // server makes and it fails closed on anything else.
             const aiWebSearch = settings.ai_web_search === 'on';
+            const codeRunner = settings.code_runner !== 'off';
             // Written by the welcome screen, or by the migration in
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, welcome });
+            // As in setCodeRunner: a library loaded with the runner off keeps
+            // no Python frame ready from before (an unlock, another library).
+            if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
             // The non-component call sites read a module variable rather than
             // the store, so it has to be written here too.
             setNumberPreference(numberFormat);

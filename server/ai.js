@@ -3573,7 +3573,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  * Maths in the descriptions the creation run writes.
  *
  * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
- * Taylor-series course came back with maths in most of its 908 Overviews and
+ * calculus course came back with maths in most of its 908 Overviews and
  * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
  * The examples are written as they appear INSIDE the JSON string, backslashes
  * doubled, because an example is copied harder than a rule;
@@ -4360,16 +4360,25 @@ ${priorFault}` : ''}`
         // against the task's own example, and against the edge cases the task
         // states. A key that does not solve its own task grades every correct
         // learner wrong.
+        // Its TESTS are part of the key: the app runs the reference and the
+        // learner's code on each input and compares the two, so an input the
+        // task rules out, or one a different correct program answers
+        // differently, grades a correct learner wrong. They are read here
+        // with the solution, never served unread.
         if (question.type === 'code') {
+            const tests = Array.isArray(question.tests) && question.tests.length
+                ? `\n\nTEST INPUTS (the reference and the learner's code are both run on each; what they produce must match):\n${question.tests.map((t, i) => `${i + 1}. ${typeof t.call === 'string' ? `call: ${t.call}` : `standard input: ${JSON.stringify(t.stdin)}`}${typeof t.expect === 'string' ? `  (author expects: ${t.expect})` : ''}`).join('\n')}`
+                : '';
             return {
                 system: `You audit the REFERENCE SOLUTION to a programming task before it is used to grade a learner. You are checking the solution, not writing one.
 CRITICAL: Output ONLY a JSON object:
 {"verdict": "ok" | "broken", "answer": "", "reason": "..."}
 Rules:
 1. verdict "broken" if ANY of these hold: the solution does not produce the result the task requires on the example the task gives (trace it line by line); it would not run in the stated language (syntax error, undefined name, wrong call); it mishandles an input the task explicitly allows; the task is ambiguous enough that two different correct programs would give different results; or the task cannot be solved as stated.
-2. verdict "ok" if the solution is a correct program for the task as written. Style, naming and efficiency are NOT your business.
-3. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
-                user: `Subject/topic: ${nodeTitle}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
+2. If TEST INPUTS are listed, verdict "broken" also when a test calls something the task does not ask for, passes an input the task rules out or leaves undefined, depends on randomness, the clock or the order of a set, or would be answered differently by another correct program (for example an output format the task never fixes); or when an "author expects" value is not what the reference produces.
+3. verdict "ok" if the solution is a correct program for the task as written. Style, naming and efficiency are NOT your business.
+4. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
+                user: `Subject/topic: ${nodeTitle}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}${tests}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
             };
         }
         // An ordering is solved cold like a closed question: the verifier gets

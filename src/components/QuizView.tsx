@@ -11,7 +11,7 @@ import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
 import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
-import { gradeAnswer } from '../utils/grading';
+import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
@@ -32,6 +32,8 @@ interface Props {
 interface AnswerResult {
     correct: boolean;
     explanation?: string;
+    /** A code answer graded by running it: the rows the review shows under it. */
+    run?: GradedAnswer['run'];
 }
 
 /**
@@ -145,7 +147,7 @@ export default function QuizView({ quiz, onClose }: Props) {
     const checkAnswer = async (question: QuizQuestion, userAnswer: string): Promise<AnswerResult> => {
         if (!userAnswer.trim()) return { correct: false, explanation: question.explanation };
         const graded = await gradeAnswer(question, userAnswer);
-        return { correct: graded.correct, explanation: graded.explanation };
+        return { correct: graded.correct, explanation: graded.explanation, run: graded.run };
     };
 
     const handleSubmit = async () => {
@@ -319,6 +321,7 @@ export default function QuizView({ quiz, onClose }: Props) {
                             answer={effectiveAnswer(q, answers[idx])}
                             correct={answerResults[idx]?.correct || false}
                             explanation={answerResults[idx]?.explanation}
+                            run={answerResults[idx]?.run}
                             nodeId={q.ghostNodeId ?? quiz.node_id}
                             nodeTitle={q.ghostNodeTitle || nodeTitle || undefined}
                             projectName={projectName}
