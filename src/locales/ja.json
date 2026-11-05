@@ -2773,6 +2773,7 @@
   "Too little for a course.": "コースにするには少なすぎます。",
   "Too long for one link, so {{fields}} will arrive cut short. Press Copy report and paste the rest on GitHub.": "1つのリンクには長すぎるため、{{fields}} は途中で切れて届きます。「レポートをコピー」を押して、残りを GitHub に貼り付けてください。",
   "Too long for one short course: make a full course of it, or pick a few chapters for a short one.": "ショートコース1つには長すぎます: 完全なコースにすることも、数章だけ選んでショートコースにすることもできます。",
+  "Too much for one short course.": "ショートコース1つには多すぎます。",
   "Took {{time}}": "所要時間 {{time}}",
   "Tool": "ツール",
   "Tools": "ツール",

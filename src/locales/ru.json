@@ -3295,6 +3295,7 @@
   "Too little for a course.": "Для курса маловато.",
   "Too long for one link, so {{fields}} will arrive cut short. Press Copy report and paste the rest on GitHub.": "Слишком длинно для одной ссылки, поэтому {{fields}} придёт обрезанным. Нажмите «Скопировать отчёт» и вставьте остальное на GitHub.",
   "Too long for one short course: make a full course of it, or pick a few chapters for a short one.": "Слишком много для одного короткого курса: сделайте из этого полный курс или выберите несколько глав для короткого.",
+  "Too much for one short course.": "Слишком много для одного короткого курса.",
   "Took {{time}}": "Заняло {{time}}",
   "Tool": "Инструмент",
   "Tools": "Инструменты",

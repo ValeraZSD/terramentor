@@ -2773,6 +2773,7 @@
   "Too little for a course.": "内容太少，不足以做成课程。",
   "Too long for one link, so {{fields}} will arrive cut short. Press Copy report and paste the rest on GitHub.": "内容太长，一个链接放不下，因此 {{fields}} 会被截短。请点“复制报告”，然后把其余部分粘贴到 GitHub。",
   "Too long for one short course: make a full course of it, or pick a few chapters for a short one.": "一门短课程放不下：可以做成完整课程，也可以挑几章做成短课程。",
+  "Too much for one short course.": "内容太多，一门短课程放不下。",
   "Took {{time}}": "用时 {{time}}",
   "Tool": "工具",
   "Tools": "工具",

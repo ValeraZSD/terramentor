@@ -3121,6 +3121,7 @@
   "Too little for a course.": "Trop peu pour un cours.",
   "Too long for one link, so {{fields}} will arrive cut short. Press Copy report and paste the rest on GitHub.": "Trop long pour un seul lien : {{fields}} arrivera tronqué. Appuyez sur « Copier le rapport » et collez la suite sur GitHub.",
   "Too long for one short course: make a full course of it, or pick a few chapters for a short one.": "Trop long pour un seul cours court : faites-en un cours complet, ou choisissez quelques chapitres pour un cours court.",
+  "Too much for one short course.": "Trop pour un seul cours court.",
   "Took {{time}}": "Terminé en {{time}}",
   "Tool": "Outil",
   "Tools": "Outils",

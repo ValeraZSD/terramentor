@@ -583,6 +583,31 @@ ok('a course deleted while it was written ends its task quietly, with nothing wr
     delStatus === 200 && endState === 'done' && db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ?').get(held.json.projectId).c === 0,
     [delStatus, endState]);
 
+// A build cancelled while it waits its turn never runs: the course must not
+// stay "building", where Retry refuses it.
+{
+    const concurrencyBefore = process.env.AI_CONCURRENCY;
+    process.env.AI_CONCURRENCY = '1';
+    try {
+        hold = new Promise(res => { release = res; });
+        bodies.length = 0;
+        const first = await api('POST', '/api/short-courses', { stagedId: (await api('POST', '/api/short-courses/read', { url: 'https://money.example/index-funds' })).json.stagedId, name: 'Running first' });
+        await callOut(1);
+        const waiting = await api('POST', '/api/short-courses', { stagedId: (await api('POST', '/api/short-courses/read', { url: 'https://money.example/plain' })).json.stagedId, name: 'Waiting its turn' });
+        const wasQueued = tasksMod.listTasks().find(x => x.id === waiting.json?.taskId)?.status === 'queued';
+        const cancel = await api('POST', `/api/tasks/${waiting.json?.taskId}/cancel`);
+        const flag = db.prepare('SELECT ai_generating FROM projects WHERE id = ?').get(waiting.json?.projectId)?.ai_generating;
+        const listed = (await api('GET', '/api/short-courses')).json?.courses?.find(x => x.id === waiting.json?.projectId)?.state;
+        release();
+        hold = null;
+        await waitBuilt(first.json?.projectId);
+        ok('a build cancelled while it waited is not left "building": the course can be retried',
+            wasQueued && cancel.status === 200 && flag === 0 && listed === 'failed', [wasQueued, cancel.status, flag, listed]);
+    } finally {
+        if (concurrencyBefore === undefined) delete process.env.AI_CONCURRENCY; else process.env.AI_CONCURRENCY = concurrencyBefore;
+    }
+}
+
 // The assistant's card pressed twice, the second press coming in while the
 // first is still reading the page: one course, not two.
 let releasePage;
@@ -860,6 +885,26 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
         [tinyLink, tinyStaged].every(r => r.status === 400 && r.json?.reason === 'too_small' && !/chapter/i.test(r.json?.error || ''))
         && projectsAfter === projectsBefore && stagedAfterTiny === stagedBeforeTiny && bodies.length === 0,
     [tinyLink.status, tinyLink.json, tinyStaged.status, tinyStaged.json, projectsAfter - projectsBefore, stagedAfterTiny - stagedBeforeTiny, bodies.length]);
+    // Every chapter of a big book picked is the whole book again: each
+    // chapter fits, their sum does not.
+    const big = ['One', 'Two', 'Three', 'Four'].map((w, i) => `# Part ${w}\n\n${chapter(`PART_${w.toUpperCase()}_MARK`, 1300 + i)}`).join('\n\n');
+    const bigForm = new FormData();
+    bigForm.append('file', new Blob([big], { type: 'text/markdown' }), 'big-book.md');
+    const bigRead = await (await fetch(`${base}/api/short-courses/read-file`, { method: 'POST', body: bigForm })).json();
+    const bigParts = (bigRead.chapters || []).map(ch => ch.part);
+    const bigSum = (bigRead.chapters || []).reduce((n, ch) => n + ch.words, 0);
+    const [bigProjects] = counts();
+    bodies.length = 0;
+    const allPicked = await api('POST', '/api/short-courses', { stagedId: bigRead.stagedId, parts: bigParts, name: 'Every part' });
+    ok('every chapter of a big book picked is refused as the book itself, and makes nothing',
+        bigRead.size === 'too-big' && bigRead.maxWords === short.SHORT.maxWords && bigParts.length === 4 && bigSum > short.SHORT.maxWords
+        && allPicked.status === 413 && allPicked.json?.reason === 'too_big' && /fewer chapters/.test(allPicked.json?.error || '')
+        && counts()[0] === bigProjects && bodies.length === 0,
+    [bigRead.size, bigRead.maxWords, bigParts.length, bigSum, allPicked.status, allPicked.json, bodies.length]);
+    const stripSource = readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8');
+    ok('…and the picker says so and holds Create back before the server has to',
+        /const tooMany = words > \(read\.maxWords \?\? Infinity\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew \|\| tooMany\}/.test(stripSource)
+        && /tooMany && ` · \$\{t\("Too much for one short course\."\)\}`/.test(stripSource));
 }
 {
     // So many parts that the later ones are left out of the model's call: a
@@ -997,7 +1042,7 @@ ok('a row counts its topics as topics, the word the read used', stripSource.incl
 ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(stripSource));
 ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(stripSource) && !/<textarea\b/.test(stripSource));
 ok('chapters picked that come to too few words say so, and Create waits for more',
-    /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\}/.test(stripSource)
+    /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));

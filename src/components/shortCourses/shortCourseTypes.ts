@@ -43,6 +43,8 @@ export interface ShortReadOk {
     staged?: StagedDocument;
     /** The fewest words the chapters picked may come to. */
     minWords?: number;
+    /** The most words the chapters picked may come to. */
+    maxWords?: number;
 }
 
 /** A source that could not be read: why, and what the screen offers instead. */

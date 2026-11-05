@@ -299,6 +299,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         const words = chapters.filter(c => picked.includes(c.part)).reduce((n, c) => n + c.words, 0);
         // A preface alone is a note: the server refuses it, so Create waits for more.
         const tooFew = picked.length > 0 && words < (read.minWords ?? 0);
+        // Every chapter of a book is the book again: refused too.
+        const tooMany = words > (read.maxWords ?? Infinity);
         return (
             <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -324,11 +326,11 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     {picked.length > 0 && (
                         <span className="mr-auto text-sm text-slate-500 dark:text-slate-400">
-                            {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}
+                            {t("{{words}} words", { count: words, words: num(words) })}{tooFew && ` · ${t("Too little for a course.")}`}{tooMany && ` · ${t("Too much for one short course.")}`}
                         </span>
                     )}
                     <Button variant="quiet" onClick={() => setBox({ state: 'read', read })}>{t("Back")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!picked.length || tooFew} onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
+                    <Button variant="primary" busy={busy} disabled={!picked.length || tooFew || tooMany} onClick={() => void create({ stagedId: read.stagedId, parts: picked }, read)}>
                         {t("Create short course")}
                     </Button>
                 </div>

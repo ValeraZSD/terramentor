@@ -189,8 +189,10 @@ function finishStaging(stagedId, origin) {
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
             staged: stagedSummary(loadStagedRow(stagedId)),
-            // The chapters picked must come to this many words, as any source must.
+            // The chapters picked must come to this many words, and no more
+            // than this, as any source must.
             minWords: SHORT.minWords,
+            maxWords: SHORT.maxWords,
         } : {}),
     };
 }
@@ -439,9 +441,11 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     if (fromAttachment) madeFrom.attachment = fromAttachment;
 
     // A book is a few of its chapters or a full course, whichever door it came
-    // in by: the strip asks before Create, the assistant's card does not.
-    if (staged && !picked && sizeOf(words) === 'too-big') {
-        refuse(413, 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+    // in by: the strip asks before Create, the assistant's card does not. Every
+    // chapter of a book picked is still the whole book.
+    if (staged && sizeOf(words) === 'too-big') {
+        refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
+            : 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
     }
     // A source under the floor is a note, not three topics, whichever door it
     // came in by: the strip offers no Create for it, the card can still send it.
@@ -569,6 +573,11 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 db.prepare('UPDATE projects SET ai_generating = 0 WHERE id = ?').run(projectId);
             }
         },
+    });
+    // A build cancelled while still queued never runs, so neither does its
+    // `finally`: the course would stay "building" and Retry would refuse it.
+    tasks.subscribe(task.id, (evt) => {
+        if (evt?.cancelled) db.prepare('UPDATE projects SET ai_generating = 0 WHERE id = ?').run(projectId);
     });
     return task.id;
 }
