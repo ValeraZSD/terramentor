@@ -1504,6 +1504,24 @@ export interface FeedResponse {
     transfers?: Record<number, TransferInfo>;
     /** Placement head starts for the topics in `items`, keyed by node id. */
     placements?: Record<number, PlacementHeadStart>;
+    /** On a topic's own page: its first lesson is being written, or failed to be. */
+    lessonWrite?: LessonWrite | null;
+}
+
+/** The background writer on a topic's first lesson (`lessonWriteState`, server/feedGen.js). */
+export interface LessonWrite {
+    nodeId: number;
+    state: 'writing' | 'failed';
+    /** Why the write stopped, as the model or the writer said it. */
+    reason?: string;
+    /** What `plainCause` and `retryMayHelp` read to say it in plain words. */
+    httpStatus?: number | null;
+    model?: string | null;
+    attempts?: number | null;
+    looped?: boolean | null;
+    emptyReply?: boolean | null;
+    reasoningTokens?: number | null;
+    thinkingChars?: number | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */
