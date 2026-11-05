@@ -3500,6 +3500,7 @@
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "Вы подтвердили «{{title}}» в {{project}} и ещё {{count}} тему, и это похоже на тот же материал, поэтому эта тема начинается с {{priorPct}}%, а не с нуля.",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "Вы подтвердили «{{title}}» в {{project}} и ещё {{count}} темы, и это похоже на тот же материал, поэтому эта тема начинается с {{priorPct}}%, а не с нуля.",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "Вы подтвердили «{{title}}» в {{project}}, и это похоже на тот же материал, поэтому эта тема начинается с {{priorPct}}%, а не с нуля.",
+  "You proved it — this topic is marked completed.": "Вы доказали это — тема отмечена как пройденная.",
   "You proved it — this topic will be marked completed.": "Вы доказали это — эта тема будет отмечена как пройденная.",
   "You proved it again — the topic stays completed.": "Вы снова это доказали — тема остаётся пройденной.",
   "You proved this {{count}} days ago — still got it?_few": "Вы доказывали это {{count}} дня назад — всё ещё помните?",

@@ -330,7 +330,8 @@ export async function submitCheck(token, answers) {
                     correctAnswer: shownKey(d.question),
                     explanation: graded[i].explanation,
                 })),
-                completed: false,
+                // The pass completed the topic in the same write that recorded it.
+                completed: !!outcome.passed && outcome.completed === true,
             };
         })().finally(() => { s.grading = null; });
     }
@@ -339,9 +340,11 @@ export async function submitCheck(token, answers) {
 }
 
 /**
- * After a pass, the topic the check proved. The completion itself is the
- * app's own PUT /api/nodes/:id (the MCP server sends it), whose gate reads the
- * evidence this check wrote; this only says whether the sitting earned it.
+ * After a pass, the topic the check proved. The pass already completed it
+ * (server/masteryCheck.js); a view offers Continue only when it did not, and
+ * then the completion is the app's own PUT /api/nodes/:id (the MCP server
+ * sends it), whose gate reads the evidence this check wrote. This only says
+ * whether the sitting earned it.
  */
 export function checkCompletion(token) {
     const s = find(token, 'check');

@@ -409,7 +409,10 @@ check('a retake is decided by the status the draw returns', /setRetake\(drawn\.s
 check('a retake offers neither Skip nor "Mark done anyway"',
     /offerMarkAnyway = advisory && !!onMarkAnyway && !retake/.test(gateSrc) && /offerSkip = !!onSkip && !retake/.test(gateSrc)
     && !/\{onSkip && \(/.test(gateSrc) && !/\{advisory && onMarkAnyway && \(/.test(gateSrc));
-check('a passed retake closes rather than completing the topic again', /onClick=\{retake \? onClose : onPassed\}/.test(gateSrc));
+// Every way out of the result screen goes through `leave` (Continue, the X,
+// Escape); clicked through, check-pass-close-gates.mjs.
+check('a passed retake closes rather than completing the topic again',
+    /const leave = submitted && !retake && \(shownResult\?\.passed \|\| completedHere\) \? onPassed : onClose;/.test(gateSrc));
 
 section('a turn is drawn in the order it happened');
 // With native tool calls, text from consecutive rounds runs together

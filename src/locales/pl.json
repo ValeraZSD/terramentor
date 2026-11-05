@@ -3500,6 +3500,7 @@
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "Temat „{{title}}” w {{project}} i {{count}} inny temat są już potwierdzone i wyglądają na ten sam materiał, więc ten zaczyna się od {{priorPct}}%, a nie od zera.",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "Temat „{{title}}” w {{project}} i {{count}} innego tematu są już potwierdzone i wyglądają na ten sam materiał, więc ten zaczyna się od {{priorPct}}%, a nie od zera.",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "Temat „{{title}}” w {{project}} jest już potwierdzony i wygląda na ten sam materiał, więc ten zaczyna się od {{priorPct}}%, a nie od zera.",
+  "You proved it — this topic is marked completed.": "Temat potwierdzony — jest oznaczony jako ukończony.",
   "You proved it — this topic will be marked completed.": "Temat potwierdzony — zostanie oznaczony jako ukończony.",
   "You proved it again — the topic stays completed.": "Temat potwierdzony ponownie — pozostaje ukończony.",
   "You proved this {{count}} days ago — still got it?_few": "Potwierdzone {{count}} dni temu — nadal pamiętasz?",

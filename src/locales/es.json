@@ -3321,6 +3321,7 @@
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._one": "Demostraste «{{title}}» en {{project}} y {{count}} tema más, que parecen el mismo material, así que este empieza en {{priorPct}}% en lugar de cero.",
   "You proved “{{title}}” in {{project}} and {{count}} other topics, which look like the same material, so this one starts at {{priorPct}}% instead of zero._other": "Demostraste «{{title}}» en {{project}} y {{count}} temas más, que parecen el mismo material, así que este empieza en {{priorPct}}% en lugar de cero.",
   "You proved “{{title}}” in {{project}}, which looks like the same material, so this one starts at {{priorPct}}% instead of zero.": "Demostraste «{{title}}» en {{project}}, que parece el mismo material, así que este empieza en {{priorPct}}% en lugar de cero.",
+  "You proved it — this topic is marked completed.": "Lo demostraste: este tema está marcado como completado.",
   "You proved it — this topic will be marked completed.": "Lo demostraste: este tema se marcará como completado.",
   "You proved it again — the topic stays completed.": "Lo demostraste de nuevo: el tema sigue completado.",
   "You proved this {{count}} days ago — still got it?_many": "Lo demostraste hace {{count}} días — ¿sigues teniendo la idea?",
