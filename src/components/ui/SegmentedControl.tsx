@@ -48,6 +48,14 @@ interface Props<T extends string | number> {
      * the right that read as a layout that had not finished.
      */
     block?: boolean;
+    /**
+     * The control sits on the page's own grey, not on a white panel.
+     *
+     * Its track is that same grey (`slate-100`), so on the page it vanished
+     * and the unchosen segments read as loose words (the Projects page's
+     * Active / Finished / Archived). One step darker shows it again.
+     */
+    onPage?: boolean;
     className?: string;
 }
 
@@ -64,7 +72,7 @@ interface Props<T extends string | number> {
  */
 export function SegmentedControl<T extends string | number>({
     label, value, options, onChange, size = 'md', orientation = 'horizontal',
-    track = true, block = false, className,
+    track = true, block = false, onPage = false, className,
 }: Props<T>) {
     const vertical = orientation === 'vertical';
     const ref = useRef<HTMLDivElement>(null);
@@ -202,7 +210,7 @@ export function SegmentedControl<T extends string | number>({
                 block ? 'flex w-full' : 'inline-flex max-w-full',
                 'flex-wrap items-stretch rounded-lg',
                 wrapped ? 'gap-1.5' : 'gap-0.5 p-1',
-                track && !wrapped && 'bg-slate-100 dark:bg-slate-700/70',
+                track && !wrapped && (onPage ? 'bg-slate-200/80 dark:bg-slate-700/70' : 'bg-slate-100 dark:bg-slate-700/70'),
                 vertical ? 'flex-col' : size === 'md' ? 'min-h-10 touch:min-h-11' : 'min-h-8 touch:min-h-11',
                 className,
             )}
