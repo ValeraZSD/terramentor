@@ -276,7 +276,10 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
     };
 
     return (
-        <Modal isOpen onClose={onClose} title={t('This is wrong')} maxWidth="max-w-md" layer="z-[65]">
+        <Modal isOpen onClose={onClose} title={t('This is wrong')} maxWidth="max-w-md" layer="z-[65]" footer={<>
+            <Button variant="quiet" onClick={onClose}>{t('Cancel')}</Button>
+            <Button variant="primary" busy={busy} onClick={send}>{t('Report')}</Button>
+        </>}>
             <div className="space-y-4">
                 {target?.item && <ItemQuote item={target.item} kind={target.kind} hideKey={hideKey} />}
                 <fieldset>
@@ -315,10 +318,6 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
                             : t("Couldn't tell whether the report was sent. Sending it again will not file it twice.")}
                     </p>
                 )}
-                <div className="flex items-center justify-end gap-3 pt-1">
-                    <Button variant="quiet" onClick={onClose}>{t('Cancel')}</Button>
-                    <Button variant="primary" busy={busy} onClick={send}>{t('Report')}</Button>
-                </div>
             </div>
         </Modal>
     );

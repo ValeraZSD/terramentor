@@ -11,6 +11,7 @@ import { countsInCards } from '../utils/projectShape';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
+import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
 import ProgressBar, { type ProgressTone } from './ui/ProgressBar';
 
 interface SchedulePreset {
@@ -365,9 +366,9 @@ export default function ScheduleModal() {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto outline-none"
+                className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 ${DIALOG_SHELL} outline-none`}
             >
-                <div className="px-6 pt-6 pb-4">
+                <div className="shrink-0 px-6 pt-6 pb-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
@@ -396,7 +397,7 @@ export default function ScheduleModal() {
                     )}
                 </div>
 
-                <div className="px-6 pb-4 space-y-5">
+                <div className={`${DIALOG_BODY} px-6 pb-4 space-y-5`}>
                     {pace && (
                         <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40">
                             <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -587,7 +588,7 @@ export default function ScheduleModal() {
                     )}
                 </div>
 
-                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-700/30 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
+                <div className="shrink-0 px-6 py-4 bg-slate-50 dark:bg-slate-700/30 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
                     <div>
                         {isEditing && (
                             <Button

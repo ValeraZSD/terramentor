@@ -4,6 +4,7 @@ import { Sparkles, X } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput, TextArea, Select } from '../ui/Field';
 import ProgressBar from '../ui/ProgressBar';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from '../ui/Dialog';
 import Radio from '../ui/Radio';
 import { api } from '../../api';
 import type { VisualPalette } from './registry';
@@ -172,15 +173,15 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     return createPortal(
         <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
             <div className="absolute inset-0 bg-black/50" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }} aria-hidden="true" />
-            <div className="relative w-full max-w-lg max-h-[90vh] overflow-auto rounded-2xl bg-white dark:bg-slate-800 shadow-xl">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">
+            <div className={`relative w-full max-w-lg ${DIALOG_SHELL} rounded-2xl bg-white dark:bg-slate-800 shadow-xl`}>
+                <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">
                     <h2 id="export-visual-title" className="text-base font-semibold text-slate-900 dark:text-white">
                         {animated ? tr("Save as GIF") : tr("Save as image")}
                     </h2>
                     <IconButton size="sm" onClick={cancel} label={tr("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
                 </div>
 
-                <div className="px-5 py-4 space-y-4">
+                <div className={`${DIALOG_BODY} px-5 py-4 space-y-4`}>
                     {!target && (
                         <p className="text-sm text-slate-600 dark:text-slate-300">{tr("Nothing here can be saved as a picture yet — wait for the drawing to finish rendering.")}</p>
                     )}
@@ -260,14 +261,14 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                     {note && <p className="text-sm text-slate-700 dark:text-slate-300" aria-live="polite">{note}</p>}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
+                <DialogFooter>
                     <Button variant="quiet" onClick={cancel}>
                         {busy ? tr("Stop") : tr("Close")}
                     </Button>
                     <Button variant="primary" onClick={save} disabled={!target} busy={busy}>
                         {animated ? tr("Save GIF") : tr("Save PNG")}
                     </Button>
-                </div>
+                </DialogFooter>
             </div>
         </div>,
         document.body,

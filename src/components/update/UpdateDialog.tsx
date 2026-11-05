@@ -187,14 +187,13 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-lg">
-            <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">{body}</div>
+        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-lg" footer={<>
             {/* The buttons are one group pushed right, so on a phone they wrap
                 together under "What's new" instead of one by one. */}
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-                {left}
-                <div className="ml-auto flex flex-wrap justify-end gap-2">{buttons}</div>
-            </div>
+            {left}
+            <div className="ml-auto flex flex-wrap justify-end gap-2">{buttons}</div>
+        </>}>
+            <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">{body}</div>
         </Modal>
     );
 }

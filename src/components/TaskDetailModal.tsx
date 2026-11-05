@@ -152,7 +152,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
+                className="flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"

@@ -4,9 +4,11 @@ import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-
 import { Button, IconButton } from './ui/Button';
 import { TextArea } from './ui/Field';
 import ProgressBar from './ui/ProgressBar';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
+import ChoiceInput from './answer/ChoiceInput';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
@@ -50,6 +52,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const [summary, setSummary] = useState<PlacementSummary | null>(null);
     const [index, setIndex] = useState(0);
     const [draft, setDraft] = useState('');
+    // The option pressed, so the verdict can paint it beside the key.
+    const [picked, setPicked] = useState('');
     const [phase, setPhase] = useState<'idle' | 'authoring' | 'asking' | 'done'>('idle');
     const [progress, setProgress] = useState({ written: 0, total: 0 });
     const [verdict, setVerdict] = useState<{ correct: boolean; explanation: string; correctAnswer: string } | null>(null);
@@ -163,6 +167,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setVerdict({ correct: res.correct, explanation: res.explanation, correctAnswer: res.correctAnswer });
             setProbe(res.probe);
         } catch (err: any) {
+            setPicked('');
             setError(err.message || 'That answer could not be recorded.');
         } finally {
             setBusy(false);
@@ -175,6 +180,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     function advance() {
         setVerdict(null);
         setDraft('');
+        setPicked('');
         if (!probe) return;
         const next = probe.questions.findIndex((q, i) => i > index && !q.answered);
         if (next === -1) finish();
@@ -217,20 +223,21 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     return (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
             onClick={close}>
-            {/* The dialog never scrolls as a whole: the header and the asking
-                footer stay put and only the body between them scrolls, so a
-                long explanation cannot push "Next" below the window (at
-                1280x800 it was cut off). dvh, so a phone's
+            {/* The dialog never scrolls as a whole: the header and every
+                phase's footer stay put and only the body between them
+                scrolls, so a long explanation cannot push "Next" below the
+                window (at 1280x800 it was cut off). dvh, so a phone's
                 address bar does not hide the footer either. The dialog's own
                 scroll is the fallback for a window too short for even that
                 (a phone on its side, a zoomed page): the body gives up its
                 height first, down to 6rem so the question stays readable,
                 and only then does the dialog scroll, so the footer can
-                still be reached rather than clipped. */}
+                still be reached rather than clipped. The frame, body and
+                footer are ui/Dialog's. */}
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl placement-shell overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -261,7 +268,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     </div>
                 )}
 
-                <div ref={bodyRef} className="min-h-24 flex-1 overflow-y-auto">
+                <div ref={bodyRef} className={DIALOG_BODY}>
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -284,11 +291,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             <li>{t("· A head start is never a pass: it can't prove a topic for you.")}</li>
                             <li>{t("· You can undo the whole thing afterwards.")}</li>
                         </ul>
-                        <div className="flex justify-end">
-                            <Button variant="primary" onClick={begin}>
-                                {t("Start")}
-                            </Button>
-                        </div>
                     </div>
                 )}
 
@@ -304,9 +306,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
                             {t("Each question is written and then solved again independently; if the two answers disagree, the question is thrown out. There's no hard timeout — it's fine to keep waiting.")}
                         </p>
-                        <Button wrap onClick={close}>
-                            {t("Close — it keeps going in the background")}
-                        </Button>
                     </div>
                 )}
 
@@ -338,25 +337,24 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             )}
 
                             {question.type === 'multiple_choice' ? (
-                                <div className="space-y-2">
-                                    {question.options?.map(opt => {
-                                        const isKey = verdict && opt === verdict.correctAnswer;
-                                        return (
-                                            <button data-answer-option
-                                                key={opt}
-                                                disabled={locked}
-                                                onClick={() => submit(opt)}
-                                                className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
-                                                    ${isKey
-                                                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                                                        : 'border-slate-200 dark:border-slate-700 hover:border-accent can-hover:hover:bg-accent/5'}
-                                                    disabled:cursor-default`}
-                                            >
-                                                <MathText content={opt} />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                // The quiz's own tiles: the same size, layout and
+                                // verdict paint as the feed and the mastery check.
+                                <ChoiceInput
+                                    question={{
+                                        type: 'multiple_choice',
+                                        question: question.question,
+                                        options: question.options,
+                                        correct_answer: verdict?.correctAnswer ?? '',
+                                        explanation: '',
+                                    }}
+                                    value={picked}
+                                    onChange={setPicked}
+                                    onCommit={opt => void submit(opt)}
+                                    disabled={locked}
+                                    // Only the key is marked: a miss here is "we'll cover
+                                    // this", never a red verdict on the learner's pick.
+                                    result={verdict ? { correct: verdict.correct, answer: '' } : null}
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     <TextArea
@@ -435,35 +433,49 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 {t("Your schedule now gives them less time, inside the same dates.")}
                             </p>
                         )}
-                        <div className="flex flex-wrap justify-end gap-2">
-                            <Button onClick={discard} disabled={busy}>
-                                {t("Discard")}
-                            </Button>
-                            <Button variant="primary" onClick={close}>
-                                {t("Done")}
-                            </Button>
-                        </div>
                     </div>
                 )}
                 </div>
 
+                {phase === 'idle' && (
+                    <DialogFooter>
+                        <Button variant="primary" onClick={begin}>
+                            {t("Start")}
+                        </Button>
+                    </DialogFooter>
+                )}
+                {phase === 'authoring' && (
+                    <DialogFooter>
+                        <Button wrap onClick={close}>
+                            {t("Close — it keeps going in the background")}
+                        </Button>
+                    </DialogFooter>
+                )}
                 {phase === 'asking' && question && (
-                    <footer className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
-                        <Button variant="quiet" onClick={finish} disabled={busy}>
+                    <DialogFooter>
+                        <Button variant="quiet" className="mr-auto" onClick={finish} disabled={busy}>
                             {t("Finish now")}
                         </Button>
-                        <div className="ml-auto">
-                            {verdict || questionReport ? (
-                                <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
-                                    {t("Next")}
-                                </Button>
-                            ) : (
-                                <Button onClick={advance} disabled={busy}>
-                                    {t("I don't know — skip")}
-                                </Button>
-                            )}
-                        </div>
-                    </footer>
+                        {verdict || questionReport ? (
+                            <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                {t("Next")}
+                            </Button>
+                        ) : (
+                            <Button onClick={advance} disabled={busy}>
+                                {t("I don't know — skip")}
+                            </Button>
+                        )}
+                    </DialogFooter>
+                )}
+                {phase === 'done' && (
+                    <DialogFooter>
+                        <Button onClick={discard} disabled={busy}>
+                            {t("Discard")}
+                        </Button>
+                        <Button variant="primary" onClick={close}>
+                            {t("Done")}
+                        </Button>
+                    </DialogFooter>
                 )}
             </div>
         </div>
