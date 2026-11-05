@@ -9,8 +9,7 @@
  * (`checkpoint-N`). The background writer stores the real lesson a few seconds
  * later and the open page pulls again, holding both keys. A held checkpoint
  * closes its chapter for later pages (chapter-end-gates), so the lesson was
- * never served: the page stayed on the Overview until a reload (found filming
- * the Taylor take, 1 Nov 2026). A chapter that held only the stand-in was never
+ * never served: the page stayed on the Overview until a reload. A chapter that held only the stand-in was never
  * taught, so its real lessons still come; and on screen they go in BEFORE its
  * "End of chapter", never under it.
  *
@@ -54,7 +53,7 @@ setting('ai_enabled', 'true');
 setting('ai_model', 'gate-model');
 
 const day = (n) => new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
-const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Taylor', 0, ?, ?)").run(day(-10), day(300)).lastInsertRowid);
+const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Calculus', 0, ?, ?)").run(day(-10), day(300)).lastInsertRowid);
 const mkTopic = (title, position) => Number(db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, position, role, scheduled_start, scheduled_end, description)
     VALUES (?, NULL, ?, ?, ?, ?, ?, 'Overview.')
@@ -133,7 +132,7 @@ console.log('\n--- Study on a topic whose lesson is being written: one stable pa
 // lesson the page is the Overview and the lesson's slot; nothing closes the
 // chapter.
 {
-    const pending = mkTopic('The function e to the minus one over x squared', 3);
+    const pending = mkTopic('Continuity on a closed interval', 3);
     const writing = { nodeId: pending, state: 'writing' };
     const first = composeFeed({ gate, nodeId: pending, lessonWrite: writing });
     const keysOf = (r) => r.items.map(c => c.key);
@@ -327,12 +326,12 @@ console.log('\n--- while its lesson is written (or failed to be) the page shows 
 
 console.log('\n--- a page that showed "Writing the lesson" still gets what is written after its lesson ---');
 {
-    // Take 8b: the lesson landed and replaced the unseen Overview, the next
-    // pull brought End of chapter, and the question written a moment later
-    // never came. The server reopens a chapter only when it closed over a
-    // stand-in, which it reads from `read-N` among the held keys; the page
-    // had dropped that card, so it no longer sent the key. The real
-    // composeFeed and the shipped client merge, pull by pull.
+    // A page whose lesson replaced the unseen Overview must still send that
+    // Overview's `read-N` as held: the server reopens a chapter that closed
+    // over a stand-in only when it reads `read-N` among the held keys, so a
+    // page that stopped sending it got End of chapter on the next pull and
+    // never the question written after the lesson. The real composeFeed and
+    // the shipped client merge, pull by pull.
     const { heldKeys, replacedKeys, lessonPending } = await import(pathToFileURL(out).href);
     const t = mkTopic('Flat functions', 11);
     let write = { nodeId: t, state: 'writing' };
@@ -363,14 +362,14 @@ console.log('\n--- a page that showed "Writing the lesson" still gets what is wr
     const question = Number(db.prepare("INSERT INTO feed_items (node_id, kind, seq, status, content, meta) VALUES (?, 'question', 2, 'ready', ?, '{}')")
         .run(t, JSON.stringify({ type: 'multiple_choice', question: 'Which?', options: ['a', 'b', 'c', 'd'], correct_answer: 'a' })).lastInsertRowid);
     const got = pull();
-    check('the question written after it still comes (take 8b)', got.includes(`fi-${question}`), JSON.stringify({ got, held: heldKeys(cards, replaced) }));
+    check('the question written after it still comes', got.includes(`fi-${question}`), JSON.stringify({ got, held: heldKeys(cards, replaced) }));
     check('…in before the End of chapter', keys(cards).indexOf(`fi-${question}`) < keys(cards).indexOf(`checkpoint-${t}`), keys(cards));
     check('…and once held, a later pull adds nothing', pull().length === 0, keys(cards));
 }
 
 console.log('\n--- the signal that a lesson landed is never thrown away ---');
 {
-    // Measured on the pre-fix build (1 Nov 2026): the page pulled at :15 on the
+    // Measured on the pre-fix build: the page pulled at :15 on the
     // generator's previous tick, the lesson was written at :16, and both later
     // ticks fell inside the 4 s window and were dropped: no pull, no lesson.
     const { pullGate } = await import(pathToFileURL(out).href);
