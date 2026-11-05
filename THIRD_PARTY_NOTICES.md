@@ -2,7 +2,7 @@
 
 This project is **AGPL-3.0-or-later** (`LICENSE`). It ships and bundles code
 written by other people, and the licences below are theirs, not ours. Only the
-three licences that need a decision are written out, plus, under *Everything
+licences that need a decision or a source offer are written out, plus, under *Everything
 else*, the one package that declares no licence at all; everything else is
 permissive and needs nothing beyond its own copyright notice, which stays inside
 the package in `node_modules/`.
@@ -15,7 +15,7 @@ this file.
 
 ## p5.js (LGPL-2.1)
 
-`p5` (1.x) is the only **copyleft** dependency, and it is bundled into the
+`p5` (1.x) is a **copyleft** dependency (so is Pyodide, below), and it is bundled into the
 frontend build so a `p5` visual can run in the browser sandbox. LGPL-2.1
 requires that a user be able to replace the library with their own version.
 That is satisfied here by the shape of the project rather than by a special
@@ -39,6 +39,27 @@ MIT keeps that dependency permissive.
 the browser build because mermaid renders there. It is offered under
 `(MPL-2.0 OR Apache-2.0)` and **this project takes it under Apache-2.0**, the
 same election made for `jszip` above. Nothing here relies on the MPL option.
+
+## Pyodide (MPL-2.0) and CPython (PSF License)
+
+`pyodide` (314.0.7, pinned exact) runs Python code answers in the browser
+(`src/runner/`). Its JavaScript and WebAssembly files are copied unmodified
+into the frontend build and served by the app. Pyodide is under the Mozilla
+Public License 2.0, a file-level copyleft: the files that came from it stay
+under MPL-2.0 and their source must be available to anyone who receives them.
+They are not modified here, and their source is Pyodide's own repository
+(`github.com/pyodide/pyodide`, tag `314.0.7`) and the npm package of the same
+version. The rest of this project is unaffected by MPL-2.0, which allows
+combining its files with code under other licences.
+
+Pyodide is CPython compiled to WebAssembly, so the build also carries
+CPython's interpreter and standard library (`python_stdlib.zip`), under the
+Python Software Foundation License, a permissive licence whose copyright
+notice travels inside that archive.
+
+The JavaScript runner, `quickjs-emscripten-core` with the
+`@jitl/quickjs-ng-wasmfile-release-sync` build of QuickJS-ng (both 0.32.0,
+pinned exact), is MIT.
 
 ## Everything else
 

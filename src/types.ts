@@ -727,6 +727,12 @@ export interface QuizQuestion {
     language?: string;
     /** `code`: optional scaffolding the editor opens with — a signature, a stub. Never the solution. */
     starter?: string;
+    /**
+     * `code`: inputs the answer is run on (a call, or a standard input). What
+     * each should produce is what `correct_answer`, the reference, produces;
+     * an `expect` is the author's cross-check. Read through `codeTestsOf`.
+     */
+    tests?: { call?: string; stdin?: string; expect?: string }[];
     /** `sequence`: the items in the SERVED (shuffled) order; the key is `correct_answer`. */
     items?: string[];
     /**
@@ -1510,7 +1516,7 @@ export interface FeedResponse {
 export interface FeedConsumeResult {
     correct?: boolean;
     answer?: string;
-    gradedBy?: 'local' | 'ai' | 'fallback';
+    gradedBy?: 'local' | 'ai' | 'fallback' | 'run';
     read?: boolean;
 }
 
