@@ -56,7 +56,7 @@ const stubs = {
     'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });`,
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: { feedSavedByNode: {}, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };
+        g.__st = { state: { feedSavedByNode: {}, masteryGate: { isOpen: false, nodeId: null }, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
             () => sel(g.__st.state));

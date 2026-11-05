@@ -120,7 +120,7 @@ const { checkpointFacts } = await import('../server/feed.js');
 const cp = composeFeed({ gate, nodeId: diphthongs }).items.find(c => c.kind === 'checkpoint');
 const facts = checkpointFacts(diphthongs, gate);
 check('checkpointFacts carries every number the card shows',
-    ['feedCorrect', 'feedTotal', 'masteryScore', 'eligible', 'borrowedEstimate', 'borrowedFrom'].every(k => JSON.stringify(facts[k]) === JSON.stringify(cp[k])),
+    ['feedCorrect', 'feedTotal', 'masteryScore', 'eligible', 'borrowedEstimate', 'borrowedFrom', 'nodeStatus', 'gateMode'].every(k => JSON.stringify(facts[k]) === JSON.stringify(cp[k])),
     JSON.stringify({ facts, cp }));
 
 console.log('\n--- a page too short for every card still ends the chapter ---');
