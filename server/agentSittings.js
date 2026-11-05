@@ -349,7 +349,10 @@ export async function submitCheck(token, answers) {
 export function checkCompletion(token) {
     const s = find(token, 'check');
     if (!s.result?.passed) throw new SittingError(409, 'Only a passed mastery check marks its topic completed.');
-    return { nodeId: s.nodeId, projectId: s.projectId };
+    // `completed`: the pass already completed the topic when it was recorded,
+    // so the caller has nothing to write (a second write would overwrite a
+    // status set since, such as a skip).
+    return { nodeId: s.nodeId, projectId: s.projectId, completed: s.result.completed === true };
 }
 
 /** The view says the completion landed, so a re-mounted view does not offer it again. */

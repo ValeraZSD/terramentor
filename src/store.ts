@@ -1028,7 +1028,9 @@ export const useStore = create<AppState>((set, get) => ({
             // Nothing to write: refresh what a completion write would have.
             ok = true;
             if (inLoadedProject) {
-                await get().refreshNodes();
+                // The topic is completed whatever this reload does, so a failed
+                // reload must not stop the caller hearing it below.
+                try { await get().refreshNodes(); } catch { /* the next load shows it */ }
                 const project = get().projects.find(p => p.id === gate.projectId);
                 if (project?.start_date && project?.deadline) get().loadPaceData(gate.projectId!);
                 get().loadDashboard(gate.projectId!);

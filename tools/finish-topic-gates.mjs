@@ -642,10 +642,23 @@ try {
                 check(`${where}: a pass the server did NOT complete is still written (control: this passes before the fix too)`,
                     writes.length === 1 && writes[0][2]?.status === 'completed', JSON.stringify(writes));
             }
-            check(`${where}, ${written ? 'server-completed' : 'written here'}: the caller still hears the pass and the gate closes`,
+            check(`${where}, ${written ? 'server-completed' : 'written here'}: the caller still hears the pass and the gate closes (control: this passes before the fix too)`,
                 resolved.length === 1 && resolved[0].outcome === 'completed' && resolved[0].proven === true && !app.gate().isOpen,
                 JSON.stringify(resolved));
         }
+    }
+    {
+        // The reload after a server-completed pass fails (offline): the topic is
+        // completed all the same, so the caller must still hear it.
+        harness({ getNodes: async () => { throw new Error('offline'); } });
+        const resolved = [];
+        app.openGate(11, 'Oven spring', false, 1, (r) => resolved.push(r));
+        let thrown = null;
+        try { await app.resolveGate('completed', true, true); } catch (e) { thrown = e; }
+        await settle();
+        check('in the loaded project: a failed reload after a server-completed pass still tells the caller',
+            !thrown && resolved.length === 1 && resolved[0].outcome === 'completed' && !app.gate().isOpen,
+            thrown ? `threw: ${thrown.message}` : JSON.stringify(resolved));
     }
     await app.setLoadedProject(null);
 } finally {

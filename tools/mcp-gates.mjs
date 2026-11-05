@@ -1075,8 +1075,13 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('a passed check completes its topic in the same write, before any Continue',
         db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed' && data(passedCheck).result?.completed === true,
         JSON.stringify(data(passedCheck).result?.completed));
+    // Skipped since (another tab, the app): check_complete must not write the
+    // completion again over it.
+    db.prepare("UPDATE nodes SET status = 'skipped' WHERE id = ?").run(checkedTopic);
     const done = await hostCall('check_complete', { sitting: sit2 });
-    ok('check_complete after it changes nothing and fails nothing', !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'completed', textOf(done).slice(0, 200));
+    ok('check_complete after it writes nothing over a status set since, and fails nothing',
+        !isErr(done) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(checkedTopic).status === 'skipped', textOf(done).slice(0, 200));
+    db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(checkedTopic);
     const crossed = await hostCall('review_next', { sitting: sit2 });
     ok('a check\'s token is not a review\'s', isErr(crossed));
 
