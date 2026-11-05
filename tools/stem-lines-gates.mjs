@@ -22,7 +22,7 @@
 // The last section is the server's half: a stem a MODEL wrote reaches the
 // database with its lines and its fenced picture. A reader that makes every
 // `\n` literal and strips every ``` (even inside strings) prints a mastery check
-// as `…?\n\nplot\n{"data":…}` in plain text (Taylor clip, take 7b, 4 Nov 2026).
+// as `…?\n\nplot\n{"data":…}` in plain text.
 // That half needs a scratch library (set below, before any server import) and
 // no model: the replies are written out here.
 
@@ -166,7 +166,7 @@ try {
         const { normalizeModelQuestion } = await import('../server/feed.js');
         const agentic = await import('../server/agentic.js');
         const { questionDefects } = await import('../server/feedQuality.js');
-        const pid = db.prepare("INSERT INTO projects (name) VALUES ('Taylor series')").run().lastInsertRowid;
+        const pid = db.prepare("INSERT INTO projects (name) VALUES ('Calculus')").run().lastInsertRowid;
         const nid = db.prepare("INSERT INTO nodes (project_id, title, position) VALUES (?, 'The function e to the minus one over x squared', 0)").run(pid).lastInsertRowid;
 
         // Written the way a model writes them: TeX with single backslashes
@@ -217,7 +217,7 @@ try {
         const fed = typeof agentic.parseQuestionReply === 'function' ? normalizeModelQuestion(agentic.parseQuestionReply(feedReply)) : null;
         check('the feed\'s question writer reads the same stem the same way', fed?.question === want, JSON.stringify(fed?.question)?.slice(0, 200));
 
-        // Fail closed: the stem take 7b stored, verbatim.
+        // Fail closed: a flattened stem as it was stored, verbatim.
         const flattened = { type: 'multiple_choice', question: 'The graph below shows $f(x) = e^{-1/x^2}$. The graph is extremely flat near $x = 0$. What value does $f(x)$ approach as $x \\to \\pm\\infty$?\\n\\nplot\\n{"data":[{"fn":"exp(-1/x^2)"}],"xAxis":{"domain":[-4,4]},"yAxis":{"domain":[-0.2,1.2]}}\\n', options: ['$\\infty$', '$0$', '$e$', '$1$'], correct_answer: '$1$', explanation: 'It tends to one.' };
         check('a stem whose picture arrived as text is a defect (vetoed before it is served)',
             questionDefects(flattened).some((d) => /picture arrived as text/.test(d)), questionDefects(flattened).join('; '));
