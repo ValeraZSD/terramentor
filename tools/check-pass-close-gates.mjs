@@ -191,7 +191,9 @@ const act = (fn) => React.act(fn);
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 40)); });
 globalThis.__setState({ projects: [], nodes: [], searchProviders: [], addToast() { }, aiProvider: 'openai', aiModel: 'stub' });
 
-const mcq = (i) => ({ type: 'multiple_choice', question: `Question ${i}?`, options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two.', quizId: 7, index: i, uuid: `uuid-${i}` });
+// `set` keeps one case's questions apart from another's: a report filed in one
+// case stays in the report store for the rest of the run.
+const mcq = (i, set = 0) => ({ type: 'multiple_choice', question: `Question ${i}?`, options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two.', quizId: 7, index: i, uuid: `${set}000000${i}-0000-4000-8000-000000000000` });
 const buttons = (host, label) => [...host.querySelectorAll('button')].filter(b => b.textContent.trim() === label || b.getAttribute('aria-label') === label);
 
 /**
@@ -199,10 +201,10 @@ const buttons = (host, label) => [...host.querySelectorAll('button')].filter(b =
  * `answer` and submit; the server says `passed`. Returns the mounted dialog
  * and a log of which callback each way out called.
  */
-async function sitCheck({ status = 'in_progress', answer = '4', passed = true } = {}) {
+async function sitCheck({ status = 'in_progress', answer = '4', passed = true, set = 0 } = {}) {
     const calls = [];
     globalThis.__api = {
-        drawMasteryCheck: async () => ({ size: 4, bankSize: 4, unverified: 0, minQuestions: 4, status, questions: [0, 1, 2, 3].map(mcq) }),
+        drawMasteryCheck: async () => ({ size: 4, bankSize: 4, unverified: 0, minQuestions: 4, status, questions: [0, 1, 2, 3].map(i => mcq(i, set)) }),
         submitMasteryCheck: async (_p, _n, score, total) => ({ passed, pass_threshold: 0.8, score, total, completed: passed || status === 'completed' }),
     };
     const host = document.createElement('div'); document.body.append(host);
@@ -248,6 +250,28 @@ console.log('--- a pass, left each way ---');
     const m = await sitCheck();
     pressEscape(m.host);
     check('Escape finishes the topic too, never a bare close', m.calls.join() === 'passed', m.calls.join() || 'nothing called');
+    m.done();
+}
+
+console.log('--- a pass, then a question reported on the result screen ---');
+// The server completed the topic with the pass. A report filed afterwards
+// leaves three graded answers of a four-question check, too few to count, so
+// the screen's own score no longer passes. The topic is still completed, so
+// the X and Escape must still take the refresh path, not a bare close.
+for (const [set, way, leaveBy] of [[1, 'the X', (host) => act(() => { buttons(host, 'Close')[0]?.click(); })], [2, 'Escape', pressEscape]]) {
+    const m = await sitCheck({ set });
+    const ref = `q:${mcq(0, set).uuid}`;
+    globalThis.__api.itemReportTarget = () => Promise.resolve({ item: null, kind: 'question', canRewrite: false, report: null });
+    globalThis.__api.reportItem = () => Promise.resolve({ report: { id: 9, ref, kind: 'question', reason: 'wrong', note: null, surface: 'quiz', editable: false, undoneAt: null, canRewrite: false, rewrite: null } });
+    await act(async () => { m.host.querySelector('button[aria-label="This is wrong"]')?.click(); });
+    await settle();
+    await act(async () => { [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Report')?.click(); });
+    await settle();
+    const reported = !!m.host.querySelector('button[aria-label="Undo report"]');
+    check(`reported after the pass (${way}): the report is filed and the screen says the topic stays completed`,
+        reported && /The topic stays completed/.test(m.host.textContent), `reported ${reported}; ${m.host.textContent.slice(0, 300)}`);
+    leaveBy(m.host);
+    check(`...and ${way} still finishes the topic, never a bare close`, m.calls.join() === 'passed', m.calls.join() || 'nothing called');
     m.done();
 }
 
