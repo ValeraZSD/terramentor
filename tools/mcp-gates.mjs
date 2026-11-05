@@ -1188,10 +1188,15 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     // in the app — the same evidence row, the same estimate — and never more.
     // A twin topic is rated Easy through the app's own review route.
     const { computeSrsUpdate } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    // Pinned instants, never the clock: a new card's Easy is the same at any
+    // instant after it is due, and the re-rating only needs a stamp the view's
+    // own rating did not write.
+    const TWIN_RATED_AT = new Date('2026-06-01T12:00:00.000Z');
+    const RERATED_AT = new Date('2099-01-01T12:00:00.000Z');
     const twin = addNode('Resonance, rated in the app', section, { position: 5 });
     for (let i = 1; i <= 4; i++) {
         const id = Number(db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(twin, `Twin fact ${i}?`, `TWIN-${i}`).lastInsertRowid);
-        const update = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id), 'easy', new Date());
+        const update = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id), 'easy', TWIN_RATED_AT);
         await fetch(`${appUrl}/api/ai/flashcards/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` }, body: JSON.stringify(update) });
     }
     const evidenceOf = (id) => db.prepare('SELECT evidence_type AS type, score, total FROM mastery_evidence WHERE node_id = ? ORDER BY id').all(id);
@@ -1220,7 +1225,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const behindCard = cardOfRating.get(behind);
     if (!behindCard) ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone', false, `no rating named before the last: ${JSON.stringify(firstUndo).slice(0, 200)}`);
     else {
-        const reRated = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(behindCard), 'good', new Date(Date.now() + 60_000));
+        const reRated = computeSrsUpdate(db.prepare('SELECT * FROM flashcards WHERE id = ?').get(behindCard), 'good', RERATED_AT);
         await fetch(`${appUrl}/api/ai/flashcards/${behindCard}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` }, body: JSON.stringify(reRated) });
         const countBehind = ratingOf(behindCard);
         const kept = data(await hostCall('review_undo', { sitting: rs, presentationId: behind }));
