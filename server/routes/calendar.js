@@ -8,8 +8,9 @@ const app = routeTable('calendar');
 // Global calendar feed: scheduled leaves of active projects in a date range.
 // GlobalCalendarView's swipe carousel fetches the whole prev→next window in one
 // request; in month mode that's three consecutive 6-week grids (up to ~104 days),
-// so the cap must clear three month-grids with headroom. The query is a single
-// range scan (cost is span-independent), so a generous bound is free.
+// so the cap must clear three month-grids with headroom. The span costs little;
+// what grows a call is the library's late work, which is sent whatever the
+// range (`buildCalendarRange`), so it is paid once per page turn.
 const CALENDAR_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CALENDAR_MAX_RANGE_DAYS = 120;
 

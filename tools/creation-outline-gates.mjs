@@ -74,7 +74,12 @@ function answer(st, user) {
         { title: 'Waves', description: 'What a wave is' },
         { title: 'Optics', description: 'Light as a wave' },
     ] });
-    if (st === 'elements') return JSON.stringify({ elements: [
+    // Each phase its own sections: a phase that writes the earlier one's
+    // again has them dropped as repeats (course-size-gates.mjs).
+    if (st === 'elements') return JSON.stringify({ elements: user.includes('Learning Phase: Optics') ? [
+        { title: 'Describing light', description: 'Rays and wavefronts' },
+        { title: 'Lenses and mirrors', description: 'Images' },
+    ] : [
         { title: 'Describing a wave', description: 'Amplitude, wavelength, frequency' },
         { title: 'Wave behaviour', description: 'Reflection, refraction, interference' },
     ] });

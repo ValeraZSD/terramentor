@@ -5,6 +5,7 @@ import { FeedCheckpointCard } from '../../types';
 import { Award, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { isReadyToProve } from '../../utils/tree';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
@@ -199,9 +200,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                         <span className="text-xs text-slate-500 dark:text-slate-400">{t("Estimated mastery")}</span>
                         <span className="text-sm font-semibold text-slate-800 dark:text-slate-100 tabular-nums">{masteryPct}%</span>
                     </div>
-                    <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                        <div className="h-full bg-accent transition-all" style={{ width: `${masteryPct}%` }} />
-                    </div>
+                    <ProgressBar value={masteryPct} decorative />
                     {/* Otherwise a healthy-looking bar sits next to a refusal to
                         complete and reads as a bug. Part of it was borrowed —
                         from a topic proven in another project or from a

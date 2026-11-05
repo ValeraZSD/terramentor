@@ -24,7 +24,7 @@ export const isWeekGrid = (viewMode: CalendarViewMode, width: number): boolean =
     viewMode === 'week' && !isNarrowCalendar(width) && width >= 1000;
 
 /**
- * Do the chips name their course (so the legend row above would say it twice)?
+ * Do the chips name their course?
  *
  * Always in the day list. In a week's columns only from 20rem a column, a
  * calendar 2240px wide at 100%: at 1280 the state and the dates fill the line

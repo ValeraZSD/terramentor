@@ -22,7 +22,7 @@ On the computer:
 
 1. Install Tailscale and sign in.
 2. In Terramentor: Settings → Devices & security → *Other devices* → *Show code*. If it says
-   Tailscale does not pass the app on yet, press *Turn it on*.
+   Terramentor isn't shared on Tailscale yet, press *Share it on Tailscale*.
 3. Settings → Library & about → *This computer* → make sure the app keeps running with
    the window closed (on Windows it already does; the tray icon means it never
    stops when you close a window).
@@ -52,7 +52,7 @@ only those devices can reach.
 
 ### 2. Publish the app onto your tailnet
 
-Settings → Devices & security → *Other devices* → *Show code* → *Turn it on* does this for
+Settings → Devices & security → *Other devices* → *Show code* → *Share it on Tailscale* does this for
 you. It runs `tailscale serve` on the first free HTTPS port (443, or 8443 and
 up when another site already uses 443, so it never takes a second app's
 address) and then shows the code to scan. It never uses Funnel, so the app is
@@ -126,7 +126,7 @@ Then install it as an app:
 - **Android:** Chrome → ⋮ → *Install app* / *Add to Home screen*
 
 You get an icon, a full-screen app with no address bar, and it remembers you are
-signed in. Reviews, the feed, the schedule and the atlas all work; so does
+signed in. Reviews, the feed, the calendar and the atlas all work; so does
 everything that needs the model, because the model call happens on the computer.
 
 ---

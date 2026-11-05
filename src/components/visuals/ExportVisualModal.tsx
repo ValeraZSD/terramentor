@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Sparkles, X } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput, TextArea, Select } from '../ui/Field';
+import ProgressBar from '../ui/ProgressBar';
 import Radio from '../ui/Radio';
 import { api } from '../../api';
 import type { VisualPalette } from './registry';
@@ -252,9 +253,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
 
                     {progress && (
                         <div className="space-y-1" aria-live="polite">
-                            <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                                <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round((100 * progress[0]) / Math.max(1, progress[1]))}%` }} />
-                            </div>
+                            <ProgressBar value={Math.round((100 * progress[0]) / Math.max(1, progress[1]))} size="sm" decorative />
                             <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Encoding frame {{value}} of {{value2}}…", { value: progress[0], value2: progress[1] })}</p>
                         </div>
                     )}

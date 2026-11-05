@@ -6,6 +6,7 @@ import Reveal from '../ui/Reveal';
 import { uiLocale } from '../../utils/locale';
 import { Course, CourseTrace, JourneyTimeline, journeyTimeline } from './coursePaths';
 import { CHROME_SURFACE } from './chromeSurface';
+import { PROGRESS_TRACK } from '../ui/ProgressBar';
 
 interface Props {
     /**
@@ -284,7 +285,7 @@ export default function TracePanel({
                             aria-label={tr("The journey runs from {{from}} to {{to}}", {
                                 from: dateLabel(timeline.startMs, true), to: dateLabel(timeline.lastMs, true),
                             })}
-                            className="relative h-2 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700"
+                            className={`relative h-2 rounded-full overflow-hidden ${PROGRESS_TRACK}`}
                         >
                             {/* How far along in TIME the replay has got — from
                                 the bar's own start, because a bar that begins

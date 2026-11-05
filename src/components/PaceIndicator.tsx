@@ -3,6 +3,7 @@ import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle } from 'lucide-rea
 import { useTranslation } from 'react-i18next';
 import { dateRangeLabel, uiLocale } from '../utils/locale';
 import { paceHeadline } from '../utils/pace';
+import ProgressBar, { type ProgressTone } from './ui/ProgressBar';
 
 /**
  * `full` is decided by the row this sits in (`Workspace` measures whether the
@@ -36,13 +37,13 @@ export default function PaceIndicator({ full }: { full: boolean }) {
         no_tasks: CheckCircle,
     };
 
-    const barColor: Record<string, string> = {
-        ahead: 'bg-emerald-500',
-        on_track: 'bg-blue-500',
-        falling_behind: 'bg-amber-500',
-        critical: 'bg-red-500',
-        no_schedule: 'bg-slate-400',
-        no_tasks: 'bg-slate-400',
+    const barColor: Record<string, ProgressTone> = {
+        ahead: 'success',
+        on_track: 'info',
+        falling_behind: 'warning',
+        critical: 'danger',
+        no_schedule: 'neutral',
+        no_tasks: 'neutral',
     };
 
     const statusText: Record<string, string> = {
@@ -127,16 +128,12 @@ export default function PaceIndicator({ full }: { full: boolean }) {
             <div className="flex flex-col gap-1 shrink-0">
                 <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500 dark:text-slate-400 w-7">{t("Exp")}</span>
-                    <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                        <div className="h-full bg-slate-400 dark:bg-slate-500 rounded-full transition-all duration-500" style={{ width: `${expectedProgress}%` }} />
-                    </div>
+                    <ProgressBar value={expectedProgress} tone="neutral" size="sm" decorative className="w-16" />
                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{expectedProgress}%</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-500 dark:text-slate-400 w-7">{t("Act")}</span>
-                    <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                        <div className={`h-full ${bar} rounded-full transition-all duration-500`} style={{ width: `${actualProgress}%` }} />
-                    </div>
+                    <ProgressBar value={actualProgress} tone={bar} size="sm" decorative className="w-16" />
                     <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{actualProgress}%</span>
                 </div>
             </div>

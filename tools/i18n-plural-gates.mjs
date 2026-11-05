@@ -167,6 +167,13 @@ const SAME_SINCE_PLURAL_SWEEP = {
 };
 for (const [loc, list] of Object.entries(SAME_SINCE_PLURAL_SWEEP)) SAME_BY_DESIGN[loc] = [...(SAME_BY_DESIGN[loc] || []), ...list];
 
+// The calendar's late counts ("4 overdue", "1 ready to prove"): the count sits
+// beside an ADJECTIVE, and English, German, Dutch and French "en retard" do not
+// inflect one; the Slavic labels avoid agreement with a colon ("Просрочено: 4").
+const SAME_LATE_COUNTS = ['{{count}} overdue', '{{count}} ready to prove'];
+for (const loc of ['en', 'de', 'nl', 'pl', 'ru', 'uk']) SAME_BY_DESIGN[loc] = [...(SAME_BY_DESIGN[loc] || []), ...SAME_LATE_COUNTS];
+SAME_BY_DESIGN.fr = [...SAME_BY_DESIGN.fr, '{{count}} overdue'];
+
 // English's own singular is written by hand, so it gets the same check as every
 // locale: a hand-written `_one` is exactly where "1 sections" appears.
 for (const loc of [...locales, 'en']) {
