@@ -736,7 +736,9 @@ ended if the host passes a view's updates on to it.
   two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
   in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to
   the model, and the view sends it back as an argument of each of its own tool calls, which
-  pass through the host. Seven tools that only the view calls (`check_*`, `review_*`) carry
+  pass through the host. Seven tools that only the view calls (`check_questions`,
+  `check_submit`, `check_complete`, `review_next`, `review_reveal`, `review_rate`,
+  `review_undo`; not `review_cards`, which the model calls to open a review) carry
   `visibility: ["app"]`; they are listed only to a host whose `initialize` says it draws
   views, and each refuses a host that does not. A host that does not draw views gets a link
   that opens the topic in Terramentor instead.
