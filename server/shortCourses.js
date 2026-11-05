@@ -443,10 +443,11 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     if (staged && !picked && sizeOf(words) === 'too-big') {
         refuse(413, 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
     }
-    // Chapters picked are held to the same floor as any source: a preface of a
-    // hundred words is a note, not three topics.
-    if (picked && sizeOf(words) === 'too-small') {
-        refuse(400, 'Too little for a course: pick a longer chapter, or more of them.', { reason: 'too_small' });
+    // A source under the floor is a note, not three topics, whichever door it
+    // came in by: the strip offers no Create for it, the card can still send it.
+    // Chapters picked are measured as what was picked.
+    if (staged && sizeOf(words) === 'too-small') {
+        refuse(400, picked ? 'Too little for a course: pick a longer chapter, or more of them.' : 'Too little for a course.', { reason: 'too_small' });
     }
 
     // A second press of the same card that came in while the first was still

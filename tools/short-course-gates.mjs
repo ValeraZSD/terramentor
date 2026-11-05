@@ -847,6 +847,19 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
     const noParts = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', parts: [] });
     ok('a link read for a request that is then refused is not left staged', noParts.status === 400
         && db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c === stagedBefore, [noParts.status, stagedBefore, db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c]);
+    // The strip offers no Create for a note-sized source; the assistant's card
+    // can still send one, by link or by what was staged, and is held to the
+    // same floor: no course, no model call, and a link it read is not kept.
+    const counts = () => [db.prepare('SELECT COUNT(*) c FROM projects').get().c, db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c];
+    const [projectsBefore, stagedBeforeTiny] = counts();
+    bodies.length = 0;
+    const tinyLink = await api('POST', '/api/short-courses', { url: 'https://money.example/tiny', name: 'A tiny page', once: true });
+    const tinyStaged = await api('POST', '/api/short-courses', { stagedId: small.json?.stagedId, name: 'A tiny page' });
+    const [projectsAfter, stagedAfterTiny] = counts();
+    ok('a source too little for a course is refused whichever door it comes in by, and makes nothing',
+        [tinyLink, tinyStaged].every(r => r.status === 400 && r.json?.reason === 'too_small' && !/chapter/i.test(r.json?.error || ''))
+        && projectsAfter === projectsBefore && stagedAfterTiny === stagedBeforeTiny && bodies.length === 0,
+    [tinyLink.status, tinyLink.json, tinyStaged.status, tinyStaged.json, projectsAfter - projectsBefore, stagedAfterTiny - stagedBeforeTiny, bodies.length]);
 }
 {
     // So many parts that the later ones are left out of the model's call: a
@@ -879,7 +892,18 @@ section('10. the assistant\'s ```short block');
 const esbuild = require('esbuild');
 const outWrites = join(scratch, 'assistantWrites.mjs');
 await esbuild.build({ entryPoints: [join(ROOT, 'src/utils/assistantWrites.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outWrites, logLevel: 'silent' });
-const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace, liveOutcome } = await import(pathToFileURL(outWrites).href);
+const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace, liveOutcome, linkOf } = await import(pathToFileURL(outWrites).href);
+// A link typed without https is one the server reads (`parseLink` adds it), so
+// the card offers Create for it too, and sends what the server would open.
+{
+    const typed = ['money.example/index-funds', 'www.money.example/a?b=1', '//money.example/x', 'money.example:8080/x', 'https://money.example/x',
+        'HTTP://Money.Example/y', 'youtu.be/AAAAAAAAAAA', 'file 12', '12', 'localhost:3000', 'javascript:alert(1)', 'mailto:a@money.example',
+        'file:///C:/x.pdf', 'data:text/html,hi', 'money', 'money.example/a b', ''];
+    const differ = typeof linkOf === 'function'
+        ? typed.filter(x => { const p = reader.parseLink(x); const l = linkOf(x); return p.ok !== (l !== null) || (l !== null && reader.parseLink(l).url !== p.url); })
+        : typed;
+    ok('the card takes a link typed without https exactly when the server does, as the same address', typeof linkOf === 'function' && differ.length === 0, differ);
+}
 // The card's "Already one of your short courses" and the server's `once` are one rule.
 {
     const addresses = ['https://money.example/index-funds', 'https://www.money.example/index-funds/', 'http://M.Money.Example/a/b//?z=1&a=2',
@@ -926,11 +950,12 @@ ok('the card\'s address is all of it: site, path and query, no scheme',
     && shownAddress('https://money.example/') === 'money.example' && shownAddress('file 12') === null && shownAddress('javascript:alert(1)') === null);
 {
     const cardSource = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8').replace(/\r\n/g, '\n');
-    ok('…and the card prints it whole, wrapped, never cut to the site', /shownAddress\(s\.from\)/.test(cardSource)
+    ok('…and the card prints it whole, wrapped, never cut to the site', /const link = att \? null : linkOf\(s\.from\)/.test(cardSource) && /shownAddress\(link\)/.test(cardSource)
+        && /\{ url: link \}/.test(cardSource) && !/url: s\.from/.test(cardSource)
         && /name: address \|\| s\.from/.test(cardSource) && /att \? 'truncate' : 'break-all'/.test(cardSource) && !/new URL\(s\.from\)\.hostname/.test(cardSource));
     ok('…and reads its own outcome through liveOutcome, its file by id and name, a whole book by its reason',
         /liveOutcome\(outcomes\.get\(key\), projects\)/.test(cardSource) && /shortCourseMade\(projects, s, att \? \{ id: att\.id, name: att\.name \} : null\)/.test(cardSource)
-        && /reason === 'too_big'/.test(cardSource));
+        && /reason === 'too_big'/.test(cardSource) && /reason === 'too_small' \? t\("Too little for a course\."\)/.test(cardSource));
     // Open closes a floating drawer before the refresh lands, and a closed
     // drawer draws no card: the refresh itself marks the course seen, so
     // deleting it later is noticed when the drawer opens again.
@@ -939,7 +964,7 @@ ok('the card\'s address is all of it: site, path and query, no scheme',
     // Too big is about length: a long page or a long video is no book.
     ok('a source too long for one short course is not called a book on the card, the strip or the server',
         !/t\("[^"]*whole book/i.test(cardSource) && !/t\("[^"]*whole book/i.test(readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8'))
-        && !/ShortCourseError\(\d+, '[^']*whole book/i.test(readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8')));
+        && !/(?:ShortCourseError|refuse)\(\d+,[^)]*whole book/i.test(readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8')));
 }
 const w = splitWriteBlocks('Yes.\n\n```short\nname: Leash walking\nfrom: file 12\nicon: heart\ntopics:\n- Why puppies pull\n- Reward the spot\n- Stop and go\n```\n');
 ok('a block gives its name, source and topics, and leaves the prose', w.shorts.length === 1 && w.shorts[0].name === 'Leash walking' && w.shorts[0].from === 'file 12' && w.shorts[0].topics.length === 3 && w.body.trim() === 'Yes.', w);

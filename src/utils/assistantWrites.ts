@@ -284,6 +284,26 @@ export function shownAddress(from: string): string | null {
 }
 
 /**
+ * A link as the learner typed it, made openable: a bare address
+ * ("example.com/page") gets https, as the server's `parseLink` gives it; null
+ * for whatever `parseLink` refuses (another scheme, spaces, a bare host with no
+ * dotted name). tools/short-course-gates.mjs holds the two to the same answer.
+ */
+export function linkOf(from: string): string | null {
+    const s = String(from ?? '').trim();
+    if (!s || s.length > 4096 || /\s/.test(s)) return null;
+    if (/^https?:\/\//i.test(s)) return s;
+    // "example.com:8080/x" looks like a scheme to a URL parser; a real other
+    // scheme ("javascript:", "file:") is not a link at all.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s) && !/^[^/:?#]+\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(s)) return null;
+    const link = `https://${s.replace(/^\/\//, '')}`;
+    try {
+        const x = new URL(link);
+        return x.protocol === 'https:' && /\.[a-z]{2,}$/i.test(x.hostname) ? link : null;
+    } catch { return null; }
+}
+
+/**
  * The course a short-course card already made, so a card read again (a reload,
  * another device) says Created instead of offering Create a second time. The
  * server's own `once` rule (`existingShortCourse`): the same name and the same
@@ -295,7 +315,7 @@ export function shortCourseMade<P extends { name: string; made_from?: string | n
     projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, file?: { id: number; name: string } | null,
 ): P | undefined {
     const place = sourcePlace;
-    const wanted = file ? null : place(proposal.from);
+    const wanted = file ? null : place(linkOf(proposal.from) ?? '');
     if (!file && !wanted) return undefined;
     const name = proposal.name.trim();
     return projects.find(p => {

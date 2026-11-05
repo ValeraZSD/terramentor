@@ -18,7 +18,7 @@ import ReportProblemDialog from './ReportProblemDialog';
 import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
-    liveOutcome, similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
+    linkOf, liveOutcome, similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
     type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
     type WrongProposal,
 } from '../utils/assistantWrites';
@@ -1130,6 +1130,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
             addToast('error', t("Could not create the short course"),
                 reason === 'no_ai' ? t("Writing it needs an AI connection.")
                     : reason === 'too_big' ? t("It is too long for one short course. Add it in Short courses on Projects and pick a few of its chapters.")
+                    : reason === 'too_small' ? t("Too little for a course.")
                     : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
                         : err.message);
         } finally {
@@ -1145,13 +1146,15 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                 const att = Number.isFinite(fileId) ? attachments.get(fileId) : undefined;
                 // The whole address the app will open, not just its site: a
                 // link with words of this conversation in its query is seen.
-                const address = att ? null : shownAddress(s.from);
+                // A link typed without https is still a link (the server adds it too).
+                const link = att ? null : linkOf(s.from);
+                const address = link ? shownAddress(link) : null;
                 const fromLine = att
                     ? (att.pages ? t("From {{name}} · {{count}} pages", { name: att.name, count: att.pages }) : t("From {{name}}", { name: att.name }))
                     : t("From {{name}}", { name: address || s.from });
                 // Only a file of this conversation or a web address: anything
                 // else in `from` is not a source the app could read.
-                const source = att ? { attachmentId: att.id } : address ? { url: s.from.trim() } : null;
+                const source = att ? { attachmentId: att.id } : link && address ? { url: link } : null;
                 // Pressed here, its course not deleted since.
                 const made = liveOutcome(outcomes.get(key), projects);
                 // Pressed here, or made earlier (the conversation read again):
