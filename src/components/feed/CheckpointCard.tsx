@@ -161,13 +161,17 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     // 0 = not measured yet: side by side, which is what a wide card draws.
     const stack = width > 0 && width < STACK_BELOW_REM * rootPx;
 
-    const skipped = skippedHere || (!done && card.nodeStatus === 'skipped');
-    const completed = !skippedHere && (done || card.nodeStatus === 'completed');
+    // How the topic closed, from the server's facts: the composed ones predate a
+    // `done` set elsewhere (a passed check closes it too), fresh ones do not.
+    // Fresh facts also cover a card mounted again on a feed it left: `done`
+    // outlives the card, the two flags below do not.
+    const statusKnown = live !== null || !done;
+    const skipped = skippedHere || (statusKnown && card.nodeStatus === 'skipped');
+    const completed = !skipped && (done || card.nodeStatus === 'completed');
     // Closed without proof: marked done here, or found completed while the
-    // gate is on and the evidence does not pass. Not when `done` came from
-    // elsewhere (a passed check closes it too, and these facts predate it).
+    // gate is on and the evidence does not pass.
     const unproven = overrodeHere
-        || (!done && card.nodeStatus === 'completed' && gateMode !== 'off' && !card.eligible);
+        || (statusKnown && card.nodeStatus === 'completed' && gateMode !== 'off' && !card.eligible);
     // The server refused a completion the card thought proven: it is not.
     const proven = card.eligible && !gateMsg;
     const checkLeads = gateMode !== 'off' && !proven;

@@ -315,6 +315,34 @@ try {
                 /Topic completed/.test(el.textContent || ''), (el.textContent || '').slice(0, 160));
         });
     }
+    // Back on the feed after leaving it: `feedDone` is the store's and outlives
+    // the card, which mounts again with done=true, no memory of how it closed,
+    // and the numbers it was composed with. The server's fresh facts say how.
+    for (const mode of ['advisory', 'enforced']) {
+        const stale = { gateMode: mode, nodeStatus: 'in_progress' };
+        const fresh = { feedCorrect: 1, feedTotal: 3, masteryScore: 0.3, eligible: false, borrowedEstimate: false, borrowedFrom: null, gateMode: mode };
+        harness({ facts: async () => ({ ...fresh, nodeStatus: 'skipped' }) });
+        await withCard(card(stale), async (el) => {
+            await settle(10);
+            const text = el.textContent || '';
+            check(`${mode}, skipped, card mounted again: it says skipped, not "Topic completed"`,
+                /Skipped/.test(text) && !/Topic completed/.test(text), text.slice(0, 160));
+        }, true);
+        harness({ facts: async () => ({ ...fresh, nodeStatus: 'completed' }) });
+        await withCard(card(stale), async (el) => {
+            await settle(10);
+            const text = el.textContent || '';
+            check(`${mode}, marked done without the check, card mounted again: still not proven, check on offer`,
+                /Completed, not proven yet/.test(text) && !/Topic completed/.test(text)
+                && buttonsIn(el).some(b => CHECK.test(b.label)), `${text.slice(0, 160)} · ${describe(buttonsIn(el))}`);
+        }, true);
+        harness({ facts: async () => ({ ...fresh, masteryScore: 0.95, eligible: true, nodeStatus: 'completed' }) });
+        await withCard(card(stale), async (el) => {
+            await settle(10);
+            check(`${mode}, passed, card mounted again: "Topic completed"`,
+                /Topic completed/.test(el.textContent || ''), (el.textContent || '').slice(0, 160));
+        }, true);
+    }
     console.log('\n--- the end card: what each line under the gate says ---');
     for (const [mode, want] of [['advisory', /Pass it to show you know it\./], ['enforced', /Pass it to finish the topic\./]]) {
         harness();
