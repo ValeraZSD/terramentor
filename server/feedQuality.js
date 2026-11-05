@@ -447,9 +447,10 @@ const STEM_PICTURE_AS_TEXT = /(?:(?:^|\\n)[ \t]*(?:```[ \t]*)?|```[ \t]*)(?:plot
 /**
  * The same picture after the reader kept its lines but its fence was lost:
  * the kind alone on a real line with its JSON spec on the next one. Only the
- * JSON kinds: a line reading "plot" above prose is a stem's own word.
+ * JSON kinds: a line reading "plot" above prose is a stem's own word. Mermaid
+ * is caught by the diagram keyword its spec opens with instead of a brace.
  */
-const STEM_SPEC_UNFENCED = /(?:^|\n)[ \t]*(?:plot|vega-lite|vega)[ \t]*\r?\n[ \t]*\{/;
+const STEM_SPEC_UNFENCED = /(?:^|\n)[ \t]*(?:(?:plot|vega-lite|vega)[ \t]*\r?\n[ \t]*\{|mermaid[ \t]*\r?\n[ \t]*(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|mindmap|timeline|gitGraph)\b)/;
 
 /**
  * Mechanical checks on a freshly generated question — everything decidable
