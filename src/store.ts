@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -9,7 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
-import { placeCheckpoints, pullGate } from './utils/feedPlacement';
+import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate, replacedKeys } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -344,6 +344,8 @@ const dashboardStillLoading = (projectId: number) => [...dashboardPending.values
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+// Moves on each Try again on a failed lesson (`pulledLessonWrite`).
+let lessonRetrySeq = 0;
 /** The project list request on its way, if any. The Dashboard badge's fallback
  *  (a course opened before the list arrived) waits for it instead of asking
  *  again, so a cold open sends one list request. loadProjects never reuses it:
@@ -570,6 +572,12 @@ interface AppState {
     feedTransfers: Record<number, TransferInfo>;
     /** Placement head starts, kept the same way and for the same reason. */
     feedPlacements: Record<number, PlacementHeadStart>;
+    /** On a topic's own page, its first lesson while it is written (or failed
+     *  to be): the newest page's word on it, never merged. */
+    feedLessonWrite: LessonWrite | null;
+    /** Keys of held cards a landed lesson replaced (the Overview standing in
+     *  for it), still sent as held on every later page (`heldKeys`). */
+    feedReplacedKeys: string[];
     /** Card keys consumed this session (cards collapse in place, never unmount). */
     feedDone: Record<string, boolean>;
     /** Per topic: how many feed answers have been SAVED this session. A
@@ -606,6 +614,8 @@ interface AppState {
      */
     /** `force` skips the throttle: the caller knows a new card exists. */
     pullFeedUpdates: (opts?: { force?: boolean }) => Promise<void>;
+    /** Try again on the topic whose first lesson could not be written. */
+    retryLessonWrite: () => Promise<void>;
     /**
      * A visual block inside a feed card was repaired: splice the fixed spec into
      * that card — lesson, question or practice alike — and persist it, so the
@@ -957,6 +967,8 @@ export const useStore = create<AppState>((set, get) => ({
     feedHeader: null,
     feedTransfers: {},
     feedPlacements: {},
+    feedLessonWrite: null,
+    feedReplacedKeys: [],
     feedLoading: false,
     feedExhausted: false,
     feedDone: {},
@@ -1618,7 +1630,14 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadFeed: async (scope = null) => {
         const seq = ++feedSeq;
-        set({ feedLoading: true, feedScope: scope });
+        const retrySeq = lessonRetrySeq;
+        // Another topic's lesson state is not this one's: kept until the load
+        // lands, the new topic's header sat over it and its Try again asked
+        // for the topic the learner had left.
+        const sameScope = scopeKey(get().feedScope) === scopeKey(scope);
+        set(sameScope
+            ? { feedLoading: true, feedScope: scope }
+            : { feedLoading: true, feedScope: scope, feedLessonWrite: null, feedReplacedKeys: [] });
         try {
             const res = await api.getFeed(undefined, 15, scope);
             // A slower load — for another scope, or an older load of this one —
@@ -1629,6 +1648,10 @@ export const useStore = create<AppState>((set, get) => ({
                 feedHeader: res.header,
                 feedTransfers: res.transfers || {},
                 feedPlacements: res.placements || {},
+                feedLessonWrite: sameScope
+                    ? pulledLessonWrite(res.lessonWrite, get().feedLessonWrite, retrySeq !== lessonRetrySeq)
+                    : res.lessonWrite ?? null,
+                feedReplacedKeys: [],
                 feedExhausted: res.exhausted,
                 feedDone: {},
                 feedFocusItemId: null,
@@ -1650,8 +1673,9 @@ export const useStore = create<AppState>((set, get) => ({
         if (get().feedLoading || get().feedExhausted) return;
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             // A page for the stream the learner has left is not a page of this
             // one; the load that replaced it owns the spinner now.
@@ -1668,6 +1692,7 @@ export const useStore = create<AppState>((set, get) => ({
                 // blank the banner on chapters still on screen.
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
                 feedExhausted: res.exhausted,
                 feedLoading: false,
             }));
@@ -1694,29 +1719,59 @@ export const useStore = create<AppState>((set, get) => ({
 
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             if (seq !== feedSeq) return;
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
-            set(state => ({
+            set(state => {
                 // Never reordered, same contract as extendFeed — cards already
                 // on screen must not move under the reader. Two exceptions keep
                 // a chapter's end its END: a topic's CHECKPOINT goes straight
                 // after that topic's last card (appended, it sat below the next
                 // topics the learner had moved on to), and on a topic's own page
                 // a lesson written after its checkpoint arrived goes in before
-                // that checkpoint (`placeCheckpoints`).
-                feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
-                feedHeader: res.header,
-                feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
-                feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
-                feedExhausted: res.exhausted,
-                feedLoading: false,
-            }));
+                // that checkpoint (`placeCheckpoints`). A lesson the page was
+                // waiting on goes where its slot was drawn, and replaces the
+                // Overview that stood in for it while the page showed only
+                // "Writing the lesson" (nobody read that stand-in). Its key is
+                // still sent as held (`heldKeys`).
+                const placed = fresh.length
+                    ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null,
+                        lessonPending(state.feedCards, state.feedLessonWrite))
+                    : state.feedCards;
+                return {
+                    feedCards: placed,
+                    feedReplacedKeys: [...state.feedReplacedKeys, ...replacedKeys(state.feedCards, placed)],
+                    feedHeader: res.header,
+                    feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
+                    feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                    feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
+                    feedExhausted: res.exhausted,
+                    feedLoading: false,
+                };
+            });
         } catch {
             if (seq === feedSeq) set({ feedLoading: false });
+        }
+    },
+
+    retryLessonWrite: async () => {
+        const write = get().feedLessonWrite;
+        if (write?.state !== 'failed') return;
+        lessonRetrySeq++;
+        try {
+            const res = await api.retryLessonWrite(write.nodeId);
+            // The page shows "Writing the lesson" at once; the burst's task
+            // signal pulls the lesson when it lands. Ignored when the page has
+            // moved to another topic meanwhile.
+            if (get().feedLessonWrite?.nodeId !== write.nodeId) return;
+            set({ feedLessonWrite: res.lessonWrite });
+            if (!res.lessonWrite) void get().pullFeedUpdates({ force: true });
+        } catch (e) {
+            get().addToast('error', i18n.t("Couldn't start the lesson again."), messageOf(e));
         }
     },
 

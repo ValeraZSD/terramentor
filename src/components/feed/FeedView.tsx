@@ -15,6 +15,8 @@ import NoticeCard from './NoticeCard';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
+import { LessonBeingWritten, LessonWriteFailed } from './LessonPending';
+import { feedGenSignal, lessonPending } from '../../utils/feedPlacement';
 import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
@@ -124,6 +126,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     const loadFeed = useStore(s => s.loadFeed);
     const extendFeed = useStore(s => s.extendFeed);
     const pullFeedUpdates = useStore(s => s.pullFeedUpdates);
+    const retryLessonWrite = useStore(s => s.retryLessonWrite);
     const setView = useStore(s => s.setView);
     const openProjectNode = useStore(s => s.openProjectNode);
     const setFeedFocusItem = useStore(s => s.setFeedFocusItem);
@@ -136,11 +139,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // re-render the whole feed at that rate. `genSignal` changes only when the
     // generator moves to another item — which is exactly when a new card exists.
     const generating = useStore(s => s.aiTasks.some(t => t.kind === 'feed' && t.status === 'running'));
-    const generatingPct = useStore(s => s.aiTasks.find(t => t.kind === 'feed')?.progress.percent ?? null);
-    const genSignal = useStore(s => {
-        const t = s.aiTasks.find(x => x.kind === 'feed');
-        return t ? `${t.status}|${t.progress.percent ?? ''}|${t.progress.message ?? ''}` : '';
-    });
+    const generatingPct = useStore(s => s.aiTasks.find(t => t.kind === 'feed' && t.status === 'running')?.progress.percent ?? null);
+    const genSignal = useStore(s => feedGenSignal(s.aiTasks));
+    const lessonWrite = useStore(s => s.feedLessonWrite);
 
     const cardRefs = useRef(new Map<string, HTMLElement>());
     const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -297,7 +298,21 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         void pullFeedUpdates();
     }, [genSignal, pullFeedUpdates]);
 
+    // A lesson slot waits on the writer, and no task moves when AI is switched
+    // off or its model changed: ask again then, or the slot would keep saying
+    // "writing" with nothing writing behind it.
+    const aiConfigRev = useStore(s => s.aiConfigRev);
+    const waitingOnWrite = useRef(false);
+    waitingOnWrite.current = lessonWrite != null;
+    useEffect(() => {
+        if (!aiConfigRev || !waitingOnWrite.current) return;
+        void pullFeedUpdates();
+    }, [aiConfigRev, pullFeedUpdates]);
+
     const groups = useMemo(() => groupCards(feedCards), [feedCards]);
+    // The topic's first lesson, still being written or failed to be: the page
+    // shows that and nothing else until it lands.
+    const pending = studying && lessonPending(feedCards, lessonWrite);
 
     // The header of a TOPIC stream, and only a topic stream.
     //
@@ -361,6 +376,19 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     <Loader2 className="w-10 h-10 text-accent-fg animate-spin mx-auto mb-4" />
                     <p className="text-slate-600 dark:text-slate-300 font-medium">{tr("Building your feed…")}</p>
                 </div>
+            </div>
+        );
+    }
+
+    // The topic's first lesson is being written, or failed to be: nothing to
+    // read yet, so the page says that and holds no card (see LessonPending.tsx).
+    if (pending) {
+        return (
+            <div className="h-full flex flex-col bg-slate-100 dark:bg-slate-900">
+                {studyHeader}
+                {lessonWrite?.state === 'failed'
+                    ? <LessonWriteFailed write={lessonWrite} title={studyNode?.title} onRetry={retryLessonWrite} />
+                    : <LessonBeingWritten title={studyNode?.title} />}
             </div>
         );
     }

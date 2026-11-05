@@ -272,6 +272,64 @@ function requestedTargets() {
 }
 let consecutiveFailures = 0;
 let backoffUntil = 0;
+// Why the last burst stopped and on which topic, for the page waiting on a
+// lesson it was writing: the facts `plainCause` reads on the client.
+let lastFailure = null;
+// One pending kick for when the backoff ends, while a topic page waits on its
+// lesson. Armed from every burst that finds the backoff running, not only the
+// one that failed: a failure while nothing was asked for armed nothing, and a
+// topic opened inside that backoff kept its page on "Writing the lesson" with
+// no writer coming.
+let backoffKick = null;
+function kickWhenBackoffEnds() {
+    const now = Date.now();
+    if (backoffKick || !(backoffUntil > now)) return;
+    if (![...requested.values()].some(until => until > now)) return;
+    backoffKick = setTimeout(() => { backoffKick = null; ensureBuffer(); }, backoffUntil - now + 50);
+    backoffKick.unref?.();
+}
+
+/**
+ * Is the writer on this topic's FIRST lesson right now? What the topic's own
+ * page shows in the lesson's slot (`composeFeed`'s `lessonWrite`):
+ * `{ nodeId, state: 'writing' }` while it is asked for and nothing stops it
+ * (a backoff after ANOTHER topic failed only delays it: the burst is kicked
+ * again when the backoff ends), `{ nodeId, state: 'failed', reason,
+ * httpStatus, model }` while the burst that failed on THIS topic backs off,
+ * and null when there is nothing to wait for — a lesson exists, the topic is
+ * not taught, AI is off or has no model (the page's notice says that), or the
+ * topic was not asked for.
+ */
+export function lessonWriteState(nodeId) {
+    if (!Number.isInteger(nodeId) || nodeId <= 0 || !aiEnabled()) return null;
+    if (!(requested.get(nodeId) >= Date.now())) return null;
+    if (db.prepare(`SELECT 1 FROM feed_items WHERE node_id = ? AND kind = 'lesson' LIMIT 1`).get(nodeId)) return null;
+    const row = db.prepare('SELECT is_note FROM nodes WHERE id = ?').get(nodeId);
+    if (!row || row.is_note || !nodeIsTeachable(nodeId)) return null;
+    const missing = nextMissing(nodeId);
+    if (missing?.type !== 'plan' && missing?.type !== 'lesson') return null;
+    // The write on this topic failed and is backing off: say so rather than
+    // promise a lesson that is not coming yet.
+    if (Date.now() < backoffUntil && lastFailure?.nodeId === nodeId) {
+        const { nodeId: _, message, ...facts } = lastFailure;
+        return { nodeId, state: 'failed', reason: message, ...facts };
+    }
+    return { nodeId, state: 'writing' };
+}
+
+/**
+ * The learner pressed Try again on a topic whose lesson could not be written:
+ * the backoff that failure started ends now (a press is never declined), and
+ * the topic is asked for again. The failure count stays, so a write that fails
+ * again backs off longer. Returns the topic's state as the page should show it.
+ */
+export function retryLessonWrite(nodeId) {
+    if (!Number.isInteger(nodeId) || nodeId <= 0) return null;
+    // The failure is shown only while its backoff runs (`lessonWriteState`).
+    if (lastFailure?.nodeId === nodeId) backoffUntil = 0;
+    requestNode(nodeId);
+    return lessonWriteState(nodeId);
+}
 
 // Topics whose questions a DRAW had to hold back because no verifier had
 // confirmed them (questionLog.js tells us, after the draw — never on the
@@ -1441,11 +1499,12 @@ function pickTarget(list, find, onEmpty) {
 
 async function runBurst() {
     if (!aiEnabled()) return;
-    if (Date.now() < backoffUntil) return;
+    if (Date.now() < backoffUntil) { kickWhenBackoffEnds(); return; }
 
     let handle = null;
     let cancelled = false;
     const controller = new AbortController();
+    let onTopic = null;
 
     try {
         while (!cancelled) {
@@ -1536,6 +1595,7 @@ async function runBurst() {
             }
             if (!hit) break; // every focus sequence is complete
             const { target, missing } = hit;
+            onTopic = target.nodeId;
 
             if (!handle) {
                 handle = tasks.registerExternal({
@@ -1587,6 +1647,24 @@ async function runBurst() {
         }
         consecutiveFailures++;
         backoffUntil = Date.now() + Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (consecutiveFailures - 1));
+        lastFailure = {
+            nodeId: onTopic,
+            message: String(err?.message || err).slice(0, 200),
+            // The Ollama client says it as `status_code` (as server/ai.js reads it).
+            httpStatus: err?.httpStatus ?? err?.status_code ?? null,
+            model: err?.model ?? null,
+            // The rest of what `plainCause` and `retryMayHelp` read, as a
+            // task's failure record carries it (server/tasks.js).
+            attempts: err?.attempts ?? null,
+            looped: err?.looped === true ? true : null,
+            emptyReply: err?.emptyReply === true ? true : null,
+            reasoningTokens: err?.reasoningTokens ?? null,
+            thinkingChars: err?.thinkingChars ?? null,
+        };
+        // A topic page still waits on its lesson: try again when the backoff
+        // ends, or the page would say "couldn't be written" (or keep its
+        // slot spinning) until something else happened to kick the writer.
+        kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
         if (handle) handle.fail(err.message);
     }
