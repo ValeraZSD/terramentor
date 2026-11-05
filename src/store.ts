@@ -42,6 +42,9 @@ type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atla
  * that every `isDarkTheme(theme)` call site would have had to be taught.
  */
 export type Theme = 'light' | 'dark';
+
+/** How the mastery check modal closed its topic, for the surface that opened it. */
+export type MasteryGateResolved = (how: { outcome: 'completed' | 'skipped'; proven: boolean }) => void;
 export const THEME_IDS: readonly Theme[] = ['light', 'dark'];
 
 /** What the four old names become. Warm's tint is SOLVED, not guessed: it is
@@ -699,18 +702,19 @@ interface AppState {
         nodeTitle: string;
         advisory: boolean;
         projectId: number | null;
-        onResolved: (() => void) | null;
+        onResolved: MasteryGateResolved | null;
     };
     openMasteryGate: (
         nodeId: number,
         nodeTitle: string,
         advisory?: boolean,
         projectId?: number | null,
-        onResolved?: (() => void) | null,
+        onResolved?: MasteryGateResolved | null,
     ) => void;
     closeMasteryGate: () => void;
-    /** Close the gate by completing (override) or skipping the node it holds. */
-    resolveMasteryGate: (outcome: 'completed' | 'skipped') => Promise<void>;
+    /** Close the gate by completing (override) or skipping the node it holds;
+     *  `proven` = completed by passing the check, not marked done without it. */
+    resolveMasteryGate: (outcome: 'completed' | 'skipped', proven?: boolean) => Promise<void>;
 
     /** The finished-project summary, when one is on screen. */
     completion: ProjectCompletion | null;
@@ -1001,7 +1005,7 @@ export const useStore = create<AppState>((set, get) => ({
     closeMasteryGate: () =>
         set({ masteryGate: { isOpen: false, nodeId: null, nodeTitle: '', advisory: true, projectId: null, onResolved: null } }),
 
-    resolveMasteryGate: async (outcome) => {
+    resolveMasteryGate: async (outcome, proven = false) => {
         const gate = get().masteryGate;
         const nodeId = gate.nodeId;
         if (!nodeId) return;
@@ -1034,7 +1038,7 @@ export const useStore = create<AppState>((set, get) => ({
                 get().addToast('error', i18n.t('Failed to update topic'), e.message);
             }
         }
-        if (ok) onResolved?.();
+        if (ok) onResolved?.({ outcome, proven });
         if (ok && gate.projectId) get().checkProjectCompletion(gate.projectId);
     },
 

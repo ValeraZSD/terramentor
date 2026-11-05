@@ -882,6 +882,8 @@ export interface FeedCheckpointCard extends FeedCardCommon {
     borrowedEstimate?: boolean;
     /** Which seed set the borrowed part, so the card names the right one. */
     borrowedFrom?: 'transfer' | 'placement' | null;
+    /** The topic's stored status: its own page serves it after it closed, too. */
+    nodeStatus?: Node['status'];
     gateMode: 'off' | 'advisory' | 'enforced';
     scheduledEnd: string | null;
     isOverdue: boolean;

@@ -522,7 +522,13 @@ export function checkpointFacts(nodeId, gate) {
             borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
         }
     } catch { /* mastery tables always exist; belt and braces */ }
-    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom };
+    // A topic's own page serves its closed leaves too (last), so a completed
+    // topic's card must not offer to complete it, and a skipped one must not
+    // offer to skip it again.
+    const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
+    // The mode as it is NOW: a card composed before the setting changed would
+    // otherwise keep offering the old mode's ways out.
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus, gateMode: gate.mode };
 }
 
 /** Common card fields carried by every node-bound card. */
@@ -907,7 +913,6 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         return {
             key, kind: 'checkpoint', ...cardBase(f),
             ...checkpointFacts(f.nodeId, gate),
-            gateMode: gate.mode,
             scheduledEnd: f.scheduledEnd,
             isOverdue: f.isOverdue,
             deadline: daysLeft != null ? { daysLeft, paceStatus: f.pace?.paceStatus || null } : null,
