@@ -30,7 +30,9 @@ interface MasteryGateModalProps {
     nodeId: number;
     nodeTitle: string;
     projectId: number;
-    onPassed: () => void;
+    /** `written`: the server completed the topic with the pass, so the caller
+     *  refreshes rather than writing the completion again. */
+    onPassed: (written: boolean) => void;
     /** Advisory mode lets the learner bypass the gate ("mark done anyway"). */
     advisory?: boolean;
     /** Complete the node without proving mastery (advisory override). */
@@ -65,7 +67,9 @@ export default function MasteryGateModal({
     // learner exactly which questions they missed (they can pass with a few wrong).
     const [answerResults, setAnswerResults] = useState<Record<number, CheckResult>>({});
     const [submitted, setSubmitted] = useState(false);
-    const [result, setResult] = useState<{ score: number; total: number; passed: boolean; passThreshold: number } | null>(null);
+    // `completed`: the server finished the topic in the same write that
+    // recorded this pass (server/masteryCheck.js), so nothing here has to.
+    const [result, setResult] = useState<{ score: number; total: number; passed: boolean; passThreshold: number; completed: boolean } | null>(null);
     /** The smallest check the server judges, as the draw said (MIN_GATE_QUESTIONS). */
     const [minQ, setMinQ] = useState(4);
     const [loading, setLoading] = useState(false);
@@ -102,8 +106,12 @@ export default function MasteryGateModal({
     const uncheckedMessage = (someChecked = false) => someChecked
         ? t("Too few of this topic's questions have been checked yet to count as a mastery check. The rest will be checked again in the background. Try again later.")
         : t("None of these questions could be checked yet, so they cannot count as a mastery check. They will be checked again in the background. Try again later.");
-    const offerMarkAnyway = advisory && !!onMarkAnyway && !retake && !notTopic;
-    const offerSkip = !!onSkip && !retake && !notTopic;
+    // Completed by this check's pass: a question reported on the result screen
+    // can take the score back under the bar, but the topic stays completed,
+    // and a completed topic is neither skipped nor marked done again.
+    const completedHere = !retake && !!result?.completed;
+    const offerMarkAnyway = advisory && !!onMarkAnyway && !retake && !notTopic && !completedHere;
+    const offerSkip = !!onSkip && !retake && !notTopic && !completedHere;
 
     // Whether the model runs on this machine or on a remote endpoint — the
     // waiting/timeout copy below differs, and guessing "local" is wrong for
@@ -494,12 +502,14 @@ export default function MasteryGateModal({
                 total,
                 passed,
                 passThreshold: typeof result.pass_threshold === 'number' ? result.pass_threshold : 0.8,
+                completed: passed && result.completed === true,
             });
 
             setSubmitted(true);
-            // On pass we show the success screen; the actual completion write
-            // (with override, so it always lands) happens in onPassed/Continue.
-            // The mastery check already recorded raw evidence, so eligibility holds.
+            // A pass is already a completed topic on the server. Leaving the
+            // result (Continue, the X, Escape) still goes through onPassed,
+            // which re-reads the tree and the dashboard, tells the card that
+            // opened the check and looks for a finished project.
         } catch (err: unknown) {
             const reason = err instanceof Error ? err.message : String(err);
             setSubmitError(t("Your answers were not saved ({{reason}}). They are still here — press Submit to send them again.", { reason }));
@@ -541,11 +551,19 @@ export default function MasteryGateModal({
     // and there's nothing to hold still.
     const questionPhase = !loading && !error && !submitted && questions.length > 0;
 
+    // Every way out of a pass is the same: Continue, the X and Escape all go
+    // through onPassed. A learner who closed a pass with the X found the topic
+    // still offered as next (tools/check-pass-close-gates.mjs). The
+    // server completes the topic with the pass itself, so onPassed is told
+    // and only refreshes: a second write could undo a skip made since in
+    // another tab. A retake has nothing to finish.
+    const leave = submitted && !retake && (shownResult?.passed || completedHere) ? () => onPassed(completedHere) : onClose;
+
     // The shared dialog contract. Escape closes it only while nothing typed
     // would go with it: half-answered, the X is the deliberate way out.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(isOpen, dialogRef, {
-        onEscape: () => { if (submitted || answeredCount === 0) onClose(); },
+        onEscape: () => { if (submitted || answeredCount === 0) leave(); },
     });
 
     // The check, and reading its results back, is time on this topic. Waiting
@@ -588,7 +606,7 @@ export default function MasteryGateModal({
                             )}
                         </div>
                     </div>
-                    <IconButton size="sm" onClick={onClose} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
+                    <IconButton size="sm" onClick={leave} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
                 </div>
 
                 {/* Progress sits in the fixed chrome, above the scroll area, so it
@@ -749,6 +767,14 @@ export default function MasteryGateModal({
                                         <p className="text-slate-600 dark:text-slate-300">
                                             {t("Too few questions are left once the reported ones are taken out, so this can't count as a mastery check.")}
                                         </p>
+                                        {/* A report filed after a pass: the server
+                                            completed the topic with the pass, and a
+                                            report does not undo that. */}
+                                        {(retake || completedHere) && (
+                                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                                {t("The topic stays completed.")}
+                                            </p>
+                                        )}
                                     </>
                                 ) : result.passed ? (
                                     <>
@@ -764,7 +790,9 @@ export default function MasteryGateModal({
                                         <p className="text-sm text-emerald-500 dark:text-emerald-400 mt-1">
                                             {retake
                                                 ? t("You proved it again — the topic stays completed.")
-                                                : t("You proved it — this topic will be marked completed.")}
+                                                : result.completed
+                                                    ? t("You proved it — this topic is marked completed.")
+                                                    : t("You proved it — this topic will be marked completed.")}
                                         </p>
                                     </>
                                 ) : (
@@ -781,7 +809,7 @@ export default function MasteryGateModal({
                                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                                             {t("You need at least {{round}}% to pass this mastery check.", { round: Math.round(result.passThreshold * 100) })}
                                         </p>
-                                        {retake && (
+                                        {(retake || completedHere) && (
                                             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                                                 {t("The topic stays completed. This score goes into its mastery estimate.")}
                                             </p>
@@ -874,8 +902,9 @@ export default function MasteryGateModal({
                         {shownResult.passed ? (
                             <Button
                                 variant="primary"
-                                // A retake has nothing to finish: the topic is already completed.
-                                onClick={retake ? onClose : onPassed}
+                                // The same way out as the X and Escape (`leave`):
+                                // a retake has nothing to finish.
+                                onClick={leave}
                             >
                                 {t("Continue")}
                             </Button>
@@ -884,7 +913,7 @@ export default function MasteryGateModal({
                                 {/* The ways out of a failed check are quiet, as in
                                     the footer while answering: a new draw is the
                                     way on, not an outlined equal of these. */}
-                                <Button variant="quiet" className="mr-auto" onClick={onClose}>
+                                <Button variant="quiet" className="mr-auto" onClick={leave}>
                                     {t("Study More")}
                                 </Button>
                                 {offerSkip && (

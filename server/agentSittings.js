@@ -330,7 +330,8 @@ export async function submitCheck(token, answers) {
                     correctAnswer: shownKey(d.question),
                     explanation: graded[i].explanation,
                 })),
-                completed: false,
+                // The pass completed the topic in the same write that recorded it.
+                completed: !!outcome.passed && outcome.completed === true,
             };
         })().finally(() => { s.grading = null; });
     }
@@ -339,15 +340,23 @@ export async function submitCheck(token, answers) {
 }
 
 /**
- * After a pass, the topic the check proved. The completion itself is the
- * app's own PUT /api/nodes/:id (the MCP server sends it), whose gate reads the
- * evidence this check wrote; this only says whether the sitting earned it.
+ * After a pass, the topic the check proved. The pass already completed it
+ * (server/masteryCheck.js); a view offers Continue only when it did not, and
+ * then the completion is the app's own PUT /api/nodes/:id (the MCP server
+ * sends it), whose gate reads the evidence this check wrote. This only says
+ * whether the sitting earned it.
  */
 export function checkCompletion(token) {
     const s = find(token, 'check');
     if (!s.result?.passed) throw new SittingError(409, 'Only a passed mastery check marks its topic completed.');
-    return { nodeId: s.nodeId, projectId: s.projectId };
+    // `completed`: the pass already completed the topic when it was recorded,
+    // so the caller has nothing to write (a second write would overwrite a
+    // status set since, such as a skip). `status` is the topic's status now,
+    // which may no longer be the completion the pass wrote.
+    const status = (topicStatusStmt ??= db.prepare('SELECT status FROM nodes WHERE id = ?')).get(s.nodeId)?.status ?? null;
+    return { nodeId: s.nodeId, projectId: s.projectId, completed: s.result.completed === true, status };
 }
+let topicStatusStmt;
 
 /** The view says the completion landed, so a re-mounted view does not offer it again. */
 export function markCheckCompleted(token) {

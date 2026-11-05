@@ -114,7 +114,8 @@ Terramentor's own screen inside its window:
 - **The mastery check** draws its questions from the topic's checked question bank, the same
   draw as the check in the app, passing over any question with a picture or a sound, which only
   Terramentor shows. You answer, move between questions and submit; Terramentor grades it and
-  records it exactly as its own check, and after a pass, Continue completes the topic.
+  records it exactly as its own check. A pass completes the topic in the same step, so closing
+  the window on the result loses nothing.
 - **The card review** shows each card's front, then the answer and Again / Hard / Good / Easy
   with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
   Terramentor's scheduler handles each card exactly as the review screen in the app does.
