@@ -30,15 +30,54 @@
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 
 const scratch = mkdtempSync(join(tmpdir(), 'material-gates-'));
 process.env.DB_PATH = join(scratch, 'test.db');
 // …and VAULT_ROOT, or the blob store resolves to the learner's real server/vault.
 process.env.VAULT_ROOT = join(scratch, 'vault');
+process.env.DATA_DIR = scratch;
+
+// A stub model on loopback, for the last section only (a real burst): it
+// writes a quiz when asked for one, confirms every key, refuses the rest.
+// Set before any server module can read the AI settings.
+const quizAsks = [];
+const stub = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+        const msgs = (() => { try { return JSON.parse(body).messages || []; } catch { return []; } })();
+        const all = msgs.map(m => m.content).join('\n');
+        let content = null;
+        if (/quiz generator/i.test(all)) {
+            quizAsks.push(all);
+            // "Short circuits" gets a bank too small to be a mastery check.
+            content = JSON.stringify(Array.from({ length: /Short circuits/.test(all) ? 2 : 6 }, (_, i) => ({
+                type: 'multiple_choice', question: `What is ${i} + 4 in this circuit sum?`,
+                options: [`${i + 3}`, `${i + 4}`, `${i + 5}`, `${i + 6}`], correct_answer: `${i + 4}`, explanation: `${i} and 4 make ${i + 4}.`,
+            })));
+        } else if (/checking a question before it is shown/.test(all)) {
+            const n = Number((all.match(/What is (\d+) \+ 4/) || [])[1] ?? 0);
+            content = JSON.stringify({ verdict: 'ok', answer: String(n + 4), reason: 'agrees', eliminable: 0 });
+        }
+        if (content == null) {
+            res.writeHead(400, { 'content-type': 'application/json' });
+            res.end('{"error":{"message":"stub: not part of this gate"}}');
+            return;
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 20 } }));
+    });
+});
+await new Promise(r => stub.listen(0, '127.0.0.1', r));
+process.env.AI_PROVIDER = 'openai';
+process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
+process.env.AI_MODEL = 'stub-model';
+process.env.AI_API_KEY = 'stub-key';
 
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
-const { pendingMaterial } = await import(B + 'feedGen.js');
+const { pendingMaterial, requestNode } = await import(B + 'feedGen.js');
 const { MIN_GATE_QUESTIONS } = await import(B + 'mastery.js');
 
 let pass = 0, fail = 0;
@@ -197,11 +236,80 @@ ok('bulkGen goes through generateMaterial', /generateMaterial\(/.test(bulk), tru
 ok('…and no longer finalises a quiz itself', /finalizeQuiz\(|finalizeFlashcards\(/.test(bulk), false);
 ok('feedGen goes through generateMaterial', /generateMaterial\(/.test(gen), true);
 ok('…and no longer finalises a quiz itself', /finalizeQuiz\(|finalizeFlashcards\(/.test(gen), false);
-// The look-ahead must be the LAST thing the burst reaches for: everything above
-// it is a card on screen now.
+// The focus window's look-ahead must be the LAST thing the burst reaches for:
+// everything above it is a card on screen now, or the opened topic's own check.
 const burst = gen.slice(gen.indexOf('async function runBurst'));
-ok('the look-ahead is picked after the widget pre-build',
-    burst.indexOf('pendingMaterial(') > burst.indexOf('pendingWidget('), true);
+ok('the focus window\'s look-ahead is picked after the widget pre-build',
+    burst.indexOf('pickTarget(teachable, f => pendingMaterial(') > burst.indexOf('pendingWidget('), true);
+
+// ---------------------------------------------------------------------------
+console.log('\n--- a topic the learner jumped to gets its check written while they read ---');
+// ---------------------------------------------------------------------------
+// The look-ahead walked the focus window only: the first open topics by the
+// schedule. A topic opened from the outline ("Study this") is REQUESTED, and
+// the burst wrote its lessons first but dropped it the moment they were done,
+// so its check was written only when the learner pressed "Take the mastery
+// check" and sat on the model (Taylor clip, 4 Nov 2026: topic 63 of 71). A
+// real burst here, against the stub model: the requested topic is taught, the
+// focus topic has everything, and the next thing written is the requested
+// topic's bank.
+{
+    db.prepare(`UPDATE nodes SET status = 'completed'`).run();
+    setSetting('feed_practice', 'false');
+    setSetting('feed_focus_total', '1');
+    setSetting('feed_focus_per_project', '1');
+    setSetting('ai_enabled', 'true');
+    const pid = db.prepare(`INSERT INTO projects (name, description) VALUES ('Circuits', 'burst fixture')`).run().lastInsertRowid;
+    const topic = (title, position) => db.prepare(
+        `INSERT INTO nodes (project_id, title, description, position) VALUES (?, ?, 'Currents and sums.', ?)`,
+    ).run(pid, title, position).lastInsertRowid;
+    const taught = (id) => {
+        db.prepare(`INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'plan', 0, ?, '{}', 'internal')`)
+            .run(id, JSON.stringify({ parts: [{ title: 'The one part', focus: '' }] }));
+        for (const [kind, seq] of [['lesson', 1], ['question', 2]]) {
+            db.prepare(`INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, ?, ?, 'x', '{}', 'consumed')`).run(id, kind, seq);
+        }
+    };
+    const focusTopic = topic('Series circuits', 0);
+    taught(focusTopic);
+    db.prepare(`INSERT INTO quizzes (node_id, title, questions) VALUES (?, 'bank', ?)`)
+        .run(focusTopic, JSON.stringify(Array.from({ length: MIN_GATE_QUESTIONS }, (_, i) => q(`s${i}`))));
+    db.prepare(`INSERT INTO flashcards (node_id, front, back) VALUES (?, 'Q', 'A')`).run(focusTopic);
+    for (let i = 1; i <= 3; i++) topic(`Filler ${i}`, i);
+    const jumped = topic('Parallel circuits', 9);
+    taught(jumped);
+    ok('fixture: the jumped-to topic is taught and wants its check', decide(jumped), { type: 'material', kind: 'mastery_check' });
+    ok('fixture: the focus topic wants nothing', decide(focusTopic), null);
+
+    requestNode(jumped);   // what GET /api/feed?nodeId= does for the page that is open
+    const bankOf = () => db.prepare(`SELECT COUNT(*) AS n FROM quizzes WHERE node_id = ?`).get(jumped).n;
+    for (let waited = 0; waited < 6000 && bankOf() === 0; waited += 100) await new Promise(r => setTimeout(r, 100));
+    ok('the burst asked the model for the jumped-to topic\'s check',
+        quizAsks.some(a => a.includes('Parallel circuits')), true);
+    ok('…and stored it as that topic\'s bank before the learner reached it', bankOf() > 0, true);
+    // The two links the call above stands in for. The page that is open asks
+    // for its own feed, and that request is what enrols the topic; and a topic
+    // picked in the outline while studying opens in the study view, not beside
+    // it (selectNode keeps the workspace view the learner is in).
+    ok('GET /api/feed?nodeId= enrols the opened topic', /if \(scopedNode\) feedGen\.requestNode\(scopedNode\)/.test(src('routes/feed.js')), true);
+    const store = readFileSync(new URL('../src/store.ts', import.meta.url), 'utf8');
+    const selectNodeBody = store.slice(store.indexOf('selectNode: async'), store.indexOf('loadProjectData: async'));
+    ok('…and an outline pick while studying stays in the study view',
+        /const view = get\(\)\.workspaceView/.test(selectNodeBody) && /nav\(`\/project\/\$\{pid\}\/\$\{view\}/.test(selectNodeBody), true);
+
+    // A write the vetting leaves short of a mastery check (two questions, not
+    // four) must not be asked for again on every burst while the learner
+    // stays on the page: it is recorded as skipped, like a failed write.
+    const short = topic('Short circuits', 10);
+    taught(short);
+    requestNode(short);
+    const skipped = () => !!JSON.parse(db.prepare(`SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'plan'`).get(short).meta || '{}').skippedCheck;
+    const asksFor = () => quizAsks.filter(a => a.includes('Short circuits')).length;
+    for (let waited = 0; waited < 6000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 500));
+    ok('a bank written short is recorded as skipped', skipped(), true);
+    ok('…and the model is asked for it once, not on every burst', asksFor(), 1);
+}
 
 console.log(`\n${fail ? 'FAILED' : 'PASSED'} — ${pass} passed, ${fail} failed`);
 try { db.close(); } catch { /* already closed */ }

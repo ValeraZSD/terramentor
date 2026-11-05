@@ -76,11 +76,17 @@ const stub = createServer((req, res) => {
                 title: 'Adding two and two', overview: 'Two and two make four.', flashcards: [],
                 questions: [{ question: 'CONFIRM capture: what is 2 + 2?', type: 'multiple_choice', options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two make four.' }],
             });
-        } else if (/checking a question before it is shown/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT)\w*/) || [])[0] || 'SILENT';
+        } else if (/checking a question before it is shown|audit the MODEL ANSWER/.test(system)) {
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
-            content = tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
+            content = tag === 'WORKING'
+                // Working first, TeX braces and all, then the verdict in a fence.
+                ? 'Since $\\dfrac{f\'(h) - f\'(0)}{h} = \\dfrac{2}{h^4}e^{-1/h^2}$, that is $\\dfrac{e^{-1/h^2}}{h^k}$ with $k = 4$; likewise $2 + 2 = 4$.\n\n```json\n'
+                    + JSON.stringify({ verdict: 'ok', answer: '4', eliminable: 0, reason: 'With f\'(0)=0 the quotient is 2e^{-1/h^2}/h^4.' }) + '\n```'
+                : tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
                 : tag.startsWith('DISPUTE') ? JSON.stringify({ verdict: 'ok', answer: '5', reason: 'the key is wrong', eliminable: 0 })
+                // A word the prompt never offered, with an answer that matches the key.
+                : tag.startsWith('UNSURE') ? JSON.stringify({ verdict: 'unsure', answer: '4', reason: 'not certain', eliminable: 0 })
                 : 'I would rather not say.';
         } else {
             res.writeHead(400, { 'content-type': 'application/json' });
@@ -378,6 +384,63 @@ check('fixture: enrichment wrote one question from the stub', enriched?.question
 check('...stored stamped pending, so it is practice until a verifier confirms it', capBank[0]?.unverified?.tries === 0, JSON.stringify(capBank[0]?.unverified ?? null));
 const { pendingVerification } = await import(B + 'feedGen.js');
 check('...and due at once for the background chain', pendingVerification(cap.nodeId)?.entry?.question?.question === 'CONFIRM capture: what is 2 + 2?');
+
+// ---- 9. a verdict written after the working ---------------------------------------------
+// The lesson question in the Taylor clip (4 Nov 2026) was stamped "verifier
+// returned nothing usable" although the verifier had answered `ok` with the
+// key: it worked the limit out in TeX first, and the reader took the JSON to
+// start at the first `{` of `\dfrac{f'(h)}{h}`. Its reply, shape for shape.
+console.log('\n--- 9. a verifier that shows its working before the verdict is read ---');
+const { verifyQuestion } = await import(B + 'feedQuality.js');
+const working = await verifyQuestion('Two and two', mc('WORKING out: what is 2 + 2?'));
+check('a verdict after TeX working is a verdict: available, confirmed',
+    working.available === true && working.ok === true && working.reason === 'verified', JSON.stringify(working));
+check('...and the stub really sent the working first', verifierCalls.get('WORKING') >= 1);
+// A verdict outside "ok" | "broken" is no verdict: never a pass, even when the
+// answer it gave matches the key, and never an audit passed for an open question.
+const unsureMc = await verifyQuestion('Two and two', mc('UNSURE mc: what is 2 + 2?'));
+check('a verdict the prompt never offered ("unsure") is not a verification', unsureMc.available === false, JSON.stringify(unsureMc));
+const unsureOpen = await verifyQuestion('Two and two', { ...mc('UNSURE open: what is 2 + 2?'), type: 'short_answer', options: undefined });
+check('...nor an audit passed for an open question', unsureOpen.available === false, JSON.stringify(unsureOpen));
+const { parseAnswerVerdict } = await import(B + 'ai.js');
+const graded = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, the learner's $k = 4$ is right.
+` + '```json\n{"correct": true, "explanation": "k = 4."}\n```');
+check('the open-answer grader reads its verdict after working the same way', graded?.verdict === 'correct', JSON.stringify(graded));
+
+// The reader itself, on the shapes a reply takes around its answer.
+const { parseObjectResponse, parseQuestionReply } = await import(B + 'agentic.js');
+const bare = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, $k = 4$ is right. {"correct": true, "explanation": "k = 4."}`);
+check('working with no fence, then the verdict: read', bare?.verdict === 'correct', JSON.stringify(bare));
+const nuclide = parseAnswerVerdict('The nuclide ${}^{14}_{6}C$ decays to ${}^{14}_{7}N$. {"correct": false, "explanation": "It is beta decay."}');
+check('an empty TeX brace pair ({}^{14}C) is never taken for the reply', nuclide?.verdict === 'incorrect', JSON.stringify(nuclide));
+const trailing = parseObjectResponse('{"verdict": "ok", "answer": "4"} The decay is ${}^{14}_{6}C \\to {}^{14}_{7}N$.');
+check('...not even after the answer, by a reader that names no shape', trailing?.answer === '4', JSON.stringify(trailing));
+const echoed = parseObjectResponse('Format: {"verdict": "ok|wrong", "answer": "..."}. My reply:\n{"verdict": "wrong", "answer": "5"}', { key: 'verdict' });
+check('a format example echoed before the answer loses to the answer', echoed?.answer === '5', JSON.stringify(echoed));
+const redone = parseObjectResponse('```json\n{"verdict": "ok", "answer": "4"}\n```\nWait, 2 + 2 here is in base 3. Redone:\n```json\n{"verdict": "wrong", "answer": "11"}\n```', { key: 'verdict' });
+check('a draft the model corrected loses to the correction', redone?.answer === '11', JSON.stringify(redone));
+const shaped = parseObjectResponse('Note {"hint": "x"} first. {"verdict": "ok", "answer": "4"} then {"aside": 1}.', { key: 'verdict' });
+check('an object of another shape on either side is skipped', shaped?.answer === '4', JSON.stringify(shaped));
+const fencedDraft = parseAnswerVerdict('```json\n{"correct": false, "explanation": "k = 3."}\n```\nWait, I misread the exponent. Corrected: {"correct": true, "explanation": "k = 4."}');
+check('a fenced draft loses to a bare correction written after it', fencedDraft?.verdict === 'correct', JSON.stringify(fencedDraft));
+const openSet = parseObjectResponse('Take the set {x : x > 0, x real,\n```json\n{"verdict": "ok", "answer": "4"}\n```\nand nothing else}.', { key: 'verdict' });
+check('...and a brace opened before a fence and closed after it does not swallow the fence', openSet?.answer === '4', JSON.stringify(openSet));
+const texSet = parseObjectResponse(String.raw`The set is $\{x: x > 0\}$, so {"verdict": "ok", "answer": "4"}`, { key: 'verdict' });
+check('a TeX set ($\\{x: x > 0\\}$) before the verdict is not read as a cut-off object', texSet?.answer === '4', JSON.stringify(texSet));
+const bareKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {correct: true, explanation: "k = 4."}`);
+check('a verdict with bare keys after TeX working is read', bareKey?.verdict === 'correct', JSON.stringify(bareKey));
+const singleKey = parseAnswerVerdict(String.raw`Since $\dfrac{2}{h^4}$, $k = 4$. {'correct': true}`);
+check("...and one with 'single-quoted' keys", singleKey?.verdict === 'correct', JSON.stringify(singleKey));
+// A cut-off outer object keyed the same loose ways is never scanned into: its
+// nested `{"correct": true}` is not the grader's reply.
+for (const reply of [`{'answer': {"correct": true}`, `{answer: {"correct": true}`]) {
+    const v = parseAnswerVerdict(reply);
+    check(`a cut-off ${reply.slice(0, 9)}… reply is not read as its inner object`, v?.verdict !== 'correct', JSON.stringify(v));
+}
+const cut = typeof parseQuestionReply === 'function'
+    ? parseQuestionReply('{"question": "What is 2 + 2?", "plot": {"fn": "x"}, "explanation": "Two and tw')
+    : { fn: 'no parseQuestionReply' };
+check('a cut-off reply never yields an object from inside it', !cut || (cut.question === 'What is 2 + 2?' && !('fn' in cut)), JSON.stringify(cut));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));
