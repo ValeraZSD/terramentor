@@ -20,6 +20,7 @@ import {
     Loader2, SkipForward, Pencil, Undo2, CircleStop
 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 import { RatingButton } from './flashcards/RatingButton';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { cardRef } from '../utils/itemReports';
@@ -679,12 +680,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             </div>
 
             {/* Progress bar */}
-            <div className="h-1 bg-slate-200 dark:bg-slate-700 shrink-0">
-                <div
-                    className="h-full bg-gradient-to-r from-accent to-accent transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
-                />
-            </div>
+            <ProgressBar value={progressPercent} size="sm" flush decorative className="shrink-0" />
 
             {/* Card area. The CARD is the scroll region, and that is the whole
                 fix: the frame around it (header, rating footer) never moves, so

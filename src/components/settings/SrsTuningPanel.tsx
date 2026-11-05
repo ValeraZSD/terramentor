@@ -8,6 +8,7 @@ import { Explain } from '../ui/Disclosure';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { uiLocale } from '../../utils/locale';
 import { TuningBlock, Fact, FactStrip } from './tuningParts';
+import { PROGRESS_TRACK } from '../ui/ProgressBar';
 
 /**
  * Spaced-repetition tuning: how much review history exists, whether the
@@ -219,7 +220,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                                             held a hair inside the track so a 0% or 100% bin still
                                             draws one. */}
                                         <span
-                                            className="relative h-2.5 self-center rounded bg-slate-100 dark:bg-slate-700 overflow-hidden"
+                                            className={`relative h-2.5 self-center rounded overflow-hidden ${PROGRESS_TRACK}`}
                                             role="img"
                                             aria-label={tr("Predicted {{p}}%, recalled {{o}}% over {{n}} reviews", { count: b.n, p: predicted, o: observed, n: b.n })}
                                         >

@@ -7,6 +7,7 @@ import { onActivateKey } from '../../utils/a11y';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { DashboardSection } from './DashboardSection';
+import ProgressBar, { PROGRESS_TRACK } from '../ui/ProgressBar';
 
 /** From this list width a phase is ONE row (title, bar, count), in rem so
  *  `ui_scale` moves it with the type. Below it the bar goes under the title. */
@@ -143,10 +144,11 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                         aria-label={segment.title}
                         title={segment.title}
                         /* A tick is a TOPIC, not a slice of a track, and a
-                           focusable control besides. An unfinished one is the
-                           PAGE's own colour with a hairline edge, in both modes:
-                           it reads as a slot cut into the card, and the emerald
-                           as what fills it. */
+                           focusable control besides. An unfinished one is an
+                           empty progress track (`ui/ProgressBar`'s
+                           PROGRESS_TRACK): a slot in the card, and the
+                           emerald as what fills it. A slate-100 tick with a
+                           slate-200 hairline measured 1.2:1 and drew no slot. */
                         className={`h-full min-w-0 flex-1 cursor-pointer rounded-sm ${segment.completed
                             ? (segment.skipped
                                 /* Skipped is CLOSED, so it must out-ink an
@@ -154,10 +156,10 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                                    emerald that means proven. */
                                 ? 'bg-slate-600 dark:bg-slate-300'
                                 : 'bg-emerald-500 dark:bg-emerald-500')
-                            : 'bg-slate-100 dark:bg-slate-900'
+                            : PROGRESS_TRACK
                         } ${segment.id === selectedNodeId
                             ? 'ring-2 ring-inset ring-slate-700 dark:ring-white'
-                            : `hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white${segment.completed ? '' : ' ring-1 ring-inset ring-slate-200 dark:ring-black/30'}`
+                            : 'hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white'
                         }`}
                     />
                 ))}
@@ -172,15 +174,15 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
             tabIndex={0}
             aria-label={milestone.title}
             title={milestone.title}
-            className="h-3 w-full cursor-pointer overflow-hidden rounded-full bg-slate-300 hover:opacity-80 dark:bg-slate-600"
+            className="w-full cursor-pointer rounded-full hover:opacity-80"
         >
-            {/* An empty track and a 0% fill must not be the same invisible
-                colour, or a phase with no leaves draws nothing at all: the
-                track carries the shape and only real progress is inked. */}
-            <div
-                className={`h-full rounded-full transition-all duration-500 ${milestone.percentage === 100 ? 'bg-emerald-500'
-                    : isActive ? 'bg-accent-fg' : 'bg-sky-500'}`}
-                style={{ width: `${milestone.percentage}%` }}
+            {/* The track carries the shape, so a phase with no leaves still
+                draws its full length; only real progress is inked. */}
+            <ProgressBar
+                value={milestone.percentage}
+                tone={milestone.percentage === 100 ? 'success' : isActive ? 'accent' : 'info'}
+                size="lg"
+                decorative
             />
         </div>
     );

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Check, Copy, Download, ExternalLink, Loader2 } from 'lucide-react';
 import Modal from '../Modal';
 import { Button, ButtonLink } from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { useStore } from '../../store';
 import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
@@ -127,16 +128,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
                 {overtaken?.to === view.version && (
                     <p role="status">{t("A newer version came out after {{version}} was downloaded, so Terramentor is getting that one instead. Nothing was installed yet.", { version: unbroken(overtaken.from) })}</p>
                 )}
-                <div
-                    role="progressbar"
-                    aria-label={t("Download progress")}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={view.percent ?? undefined}
-                    className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden"
-                >
-                    <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${view.percent ?? 2}%` }} />
-                </div>
+                <ProgressBar value={view.percent ?? 2} unknown={view.percent == null} label={t("Download progress")} />
                 <p className="text-slate-600 dark:text-slate-300">
                     {install.total <= 0 || view.checking
                         ? t("Checking what you already have, so that only the changes are downloaded.")

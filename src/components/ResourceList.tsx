@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { Button, IconButton, IconLink } from './ui/Button';
 import { TextInput } from './ui/Field';
+import ProgressBar from './ui/ProgressBar';
 
 // Type configuration
 
@@ -461,12 +462,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
               {completedCount}/{resources.length}
             </span>
           </div>
-          <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${resources.length > 0 ? (completedCount / resources.length) * 100 : 0}%` }}
-            />
-          </div>
+          <ProgressBar value={completedCount} max={resources.length} tone="success" size="sm" decorative />
         </div>
       )}
 
