@@ -87,18 +87,24 @@ const mayBeEmpty = (c) => {
 /** The file being read: `classText` needs its text, deep inside the walk. */
 let textOfFile = () => '';
 
-/** What an element's children END with: from the last drawn child back past every child that may draw nothing. */
-function endOf(el, out = []) {
+/**
+ * What an element's children END with: from the last drawn child back past every child that may draw nothing.
+ * `frame`: el is a DIALOG_SHELL, whose `shrink-0` rows sit beside its DIALOG_BODY and stay put.
+ */
+function endOf(el, out = [], frame = false) {
     const kids = drawn(el);
     for (let i = kids.length - 1; i >= 0; i--) {
-        lastThings(kids[i], out);
+        if (!(frame && kids[i].type === 'JSXElement' && /(?:^|\s)shrink-0\b/.test(classText(kids[i], textOfFile)))) lastThings(kids[i], out);
         if (!mayBeEmpty(kids[i])) break;
     }
     return out;
 }
 
-/** A row pinned outside the scroll: the shared footer, a <footer>, or a flex item that will not shrink. */
-const isPinned = (el) => ['DialogFooter', 'footer', 'header'].includes(nameOf(el)) ||/(?:^|\s)shrink-0\b/.test(classText(el, textOfFile));
+/**
+ * A row pinned outside the scroll: the shared footer, a <footer>, a <header>.
+ * Never a class: inside a scrolling body a `shrink-0` row scrolls with the rest.
+ */
+const isPinned = (el) => ['DialogFooter', 'footer', 'header'].includes(nameOf(el));
 
 /** What a body ENDS with: the last drawn child, followed down through wrappers and both arms of a conditional. */
 function lastThings(node, out = []) {
@@ -160,7 +166,7 @@ function checkSource(text, rel) {
     const findings = [];
     const seen = new Set();
     for (const { el, why } of bodiesOf(program, textOf)) {
-        for (const b of endOf(el)) {
+        for (const b of endOf(el, [], /\bDIALOG_SHELL\b/.test(classText(el, textOf)))) {
             // A button ends both the body and the frame around it: said once.
             if (seen.has(b.start)) continue;
             seen.add(b.start);
@@ -208,6 +214,13 @@ const FIXTURES = [
         rule: 'the last row is in the scroll',
         bad: `<div role="dialog" className={DIALOG_SHELL}><div className={DIALOG_BODY}>{done && (() => { const n = 1; return <div><p>{n}</p><div className="flex"><Button>Continue</Button></div></div>; })()}</div></div>`,
         good: `<div role="dialog" className={DIALOG_SHELL}><div className={DIALOG_BODY}><p>x</p><button aria-expanded={open}>Details</button>{open && <pre>log</pre>}</div><DialogFooter><Button>Continue</Button></DialogFooter></div>`,
+    },
+    {
+        // `shrink-0` pins a row only beside the body, as the frame's own child:
+        // inside the scrolling body it scrolls away with the rest.
+        rule: 'the last row is in the scroll',
+        bad: `<div role="dialog" className={DIALOG_SHELL}><div className={DIALOG_BODY}><p>long</p><div className="flex shrink-0 gap-2"><Button>Save</Button></div></div></div>`,
+        good: `<div role="dialog" className={DIALOG_SHELL}><div className={DIALOG_BODY}><p>long</p></div><div className="shrink-0 border-t flex gap-2"><Button>Save</Button></div></div>`,
     },
     {
         rule: 'the frame is sized in vh alone',
