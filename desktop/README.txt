@@ -53,7 +53,7 @@ USING IT FROM YOUR PHONE
   Install Tailscale on this computer and on your phone, sign both in to the
   same account, and run:  tailscale serve --bg 3001
   Then open the https://...ts.net address it prints, on the phone, and add it
-  to your home screen. Set a password first: Settings -> Data -> Security.
+  to your home screen. Set a password first: Settings -> Devices & security.
   Full instructions: docs/REMOTE_ACCESS.md in the source repository.
 
 UPDATING
@@ -74,6 +74,17 @@ AI
   this computer. Change it later in Settings -> AI & Models. Without a model the
   app still opens your courses, their saved lessons and questions, and your
   flashcards, but writes nothing new.
+
+USING IT FROM AN AI AGENT (MCP)
+  Claude Code, Claude Desktop, VS Code, Cursor and other MCP clients can read
+  your library, and open Terramentor's mastery check or card review in their
+  own window. The server they start is in this folder; give your client the
+  full path to this folder in front of each part:
+    Windows        runtime\node.exe  mcp\index.js
+    macOS, Linux   runtime/node  mcp/index.js
+  If your library has a password, also give it the API key from Settings ->
+  Devices & security -> API key, as TERRAMENTOR_API_KEY. The app never starts
+  this server itself. Full instructions: docs/MCP.md in the source repository.
 
 PROBLEMS
   The log is in the data folder, under logs/app.log. Settings -> General ->

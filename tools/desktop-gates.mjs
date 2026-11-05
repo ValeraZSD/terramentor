@@ -35,6 +35,7 @@ const launcherInstanceKey = desktopLib.launcherInstanceKey
     ?? ((chosen) => loadInstanceKey(resolveDataPaths({ env: { DATA_DIR: chosen.dir } }).dataDir));
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
+import { runtimeSources, RUNTIME_DIRS, RUNTIME_DATA } from './lib/runtimeSources.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1165,6 +1166,46 @@ console.log('\n--- packaging pieces are present ---');
     ok('the zip README names the data folder on every platform', ['%LOCALAPPDATA%', 'Application Support', '.local/share'].every((s) => readme.includes(s)));
     const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     ok('the release workflow builds the desktop packages on all three OSes', ['windows-latest', 'macos-latest', 'ubuntu-latest'].every((s) => wf.includes(s)) && wf.includes('build-desktop'));
+}
+
+// ---------------------------------------------------------------------------
+// WHAT EACH PACKAGE CARRIES BESIDES server/. The server imports the card
+// scheduler from src/, and the MCP server is a folder of its own; a package
+// without them starts on nothing (the server) or not at all (mcp/), and only
+// the release's own start would say so. The desktop build copies the list
+// tools/lib/runtimeSources.mjs computes; the Dockerfile names its files by
+// hand, so it is held to that list here.
+console.log('\n--- both packages ship mcp/ and what server/ imports from src/ ---');
+{
+    const shared = runtimeSources(repoRoot);
+    ok('server/ imports the card scheduler from src/ (the list is not empty by accident)', shared.includes('src/utils/srs.ts'), shared.join(', '));
+    ok('a lazy import() is not counted (desktop/ is left out of the image on purpose)', !shared.some((p) => p.startsWith('desktop/')), shared.join(', '));
+
+    /** The sources each COPY of the Dockerfile's runtime stage takes from the build context. */
+    const runtimeCopies = (text) => {
+        const lines = text.split(/\r?\n/);
+        const from = lines.findIndex((l) => /^FROM\b.*\bAS\s+runtime\b/i.test(l));
+        return lines.slice(from + 1).filter((l) => /^COPY\s/i.test(l))
+            .map((l) => l.trim().split(/\s+/).slice(1))
+            .filter((args) => !args.some((a) => a.startsWith('--from=')))
+            .flatMap((args) => args.filter((a) => !a.startsWith('--')).slice(0, -1));
+    };
+    const ships = (copies, rel) => copies.some((src) => rel === src || rel.startsWith(`${src.replace(/\/$/, '')}/`));
+    const dockerfile = readFileSync(join(repoRoot, 'Dockerfile'), 'utf8');
+    const copies = runtimeCopies(dockerfile);
+    for (const rel of [...RUNTIME_DIRS, ...shared, ...RUNTIME_DATA]) {
+        ok(`the image copies ${rel}`, ships(copies, rel), copies.join(' '));
+    }
+    // The check above, against a Dockerfile that lost one line.
+    const lost = dockerfile.split(/\r?\n/).filter((l) => !/src\/utils\/srs\.ts/.test(l)).join('\n');
+    ok('…and a Dockerfile without the scheduler line fails it', !ships(runtimeCopies(lost), 'src/utils/srs.ts'));
+
+    const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
+    ok('the desktop build copies mcp/ and the same list', /cpSync\(join\(repoRoot, 'mcp'\)/.test(build) && /runtimeSources\(repoRoot\)/.test(build) && /RUNTIME_DATA/.test(build));
+    ok('the desktop build scans mcp/ and the shared files for the packages it keeps', /codeFiles\(join\(repoRoot, 'mcp'\)\)/.test(build) && /sharedSources\.map/.test(build));
+    ok('the desktop build starts the staged MCP server before it zips', build.indexOf('await checkMcp(') > 0 && build.indexOf('await checkMcp(') < build.indexOf('// --- 9. zip'));
+    const release = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
+    ok('the release workflow starts the image\'s MCP server too', /docker exec -i [^\n]*\bsmoke node --input-type=module - \/app < tools\/mcp-smoke\.mjs/.test(release));
 }
 
 // ---------------------------------------------------------------------------

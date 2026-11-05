@@ -66,6 +66,10 @@ on:
       - tools/first-visit-smoke.sh
       - Dockerfile
       - desktop/**
+      # The MCP server ships in both packages and is started against each.
+      - mcp/**
+      - tools/mcp-smoke.mjs
+      - tools/lib/runtimeSources.mjs
 
 # Read-only by default; only the jobs that actually publish grant write, and
 # only the scope they need (image → packages, release → contents). Workflow-wide
@@ -259,9 +263,23 @@ jobs:
         # `${IMG,,}`: the repository is ValeraZSD/terramentor, and a Docker
         # reference must be lowercase (the metadata action lowercases its tags;
         # a reference built here has to do it itself).
+        #
+        # Then the MCP server in the image, started inside the container the way
+        # docs/MCP.md tells a Docker user to start it (`docker exec -i`), with
+        # the probe piped in because the image has no tools/ folder. The first
+        # visit has set a password, as it does for everyone who runs the image,
+        # so the server needs the API key: sign in with that password (the one
+        # first-visit-smoke.sh sets), make a key, and pass it in.
         run: |
           docker run -d --name smoke -p 127.0.0.1:3001:3001 "${IMG,,}"
           bash tools/first-visit-smoke.sh http://127.0.0.1:3001 "docker logs smoke"
+          jar="$(mktemp)"
+          curl -sSf -c "$jar" -H 'Origin: http://127.0.0.1:3001' -H 'Content-Type: application/json' \
+            -d '{"password":"first-visit-smoke"}' http://127.0.0.1:3001/api/auth/login > /dev/null
+          key="$(curl -sSf -b "$jar" -H 'Origin: http://127.0.0.1:3001' -X POST http://127.0.0.1:3001/api/auth/apikey/regenerate \
+            | node -e "let s='';process.stdin.on('data',(d)=>{s+=d}).on('end',()=>process.stdout.write(JSON.parse(s).apiKey))")"
+          echo "::add-mask::$key"
+          docker exec -i -e TERRAMENTOR_API_KEY="$key" smoke node --input-type=module - /app < tools/mcp-smoke.mjs
           docker rm -f smoke
 
   # The desktop packages: one zip per OS, each carrying its own Node runtime,

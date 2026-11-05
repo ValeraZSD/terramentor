@@ -15,7 +15,7 @@ import { getProjectLanguage, languageDirective, languageDirectiveForResponse, le
 // the prompt or the answer.
 import { logActivity, failureFacts } from './activityLog.js';
 import { formatAuthoring } from './answerFormats.js';
-import { parseJsonWithRepair } from './jsonRepair.js';
+import { parseJsonWithRepair, readReplyObject } from './jsonRepair.js';
 import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
@@ -3573,7 +3573,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  * Maths in the descriptions the creation run writes.
  *
  * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
- * Taylor-series course came back with maths in most of its 908 Overviews and
+ * calculus course came back with maths in most of its 908 Overviews and
  * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
  * The examples are written as they appear INSIDE the JSON string, backslashes
  * doubled, because an example is copied harder than a rule;
@@ -4807,16 +4807,13 @@ const QUICK_ACCEPT_STOPWORDS = new Set([
  * suite can drive it without a model.
  */
 export function parseAnswerVerdict(text) {
-    const m = String(text || '').match(/\{[\s\S]*\}/);
-    if (!m) return null;
     let r;
     // Strict first; then the same repair the question parsers use (a trailing
     // comma, an unescaped quote inside the explanation, a comment). A verdict
     // the model DID give must not turn into "the grader could not be reached"
     // over punctuation — that sentence tells the learner to trust themselves.
-    try { r = JSON.parse(m[0]); } catch {
-        try { r = parseJsonWithRepair(m[0]); } catch { return null; }
-    }
+    // Nor over working written before it: `readReplyObject` skips TeX braces.
+    try { r = readReplyObject(text, undefined, (o) => 'correct' in o); } catch { return null; }
     if (!r || typeof r !== 'object') return null;
     const c = r?.correct;
     const verdict = c === true ? 'correct'

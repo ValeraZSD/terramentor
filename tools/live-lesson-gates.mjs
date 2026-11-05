@@ -9,8 +9,7 @@
  * (`checkpoint-N`). The background writer stores the real lesson a few seconds
  * later and the open page pulls again, holding both keys. A held checkpoint
  * closes its chapter for later pages (chapter-end-gates), so the lesson was
- * never served: the page stayed on the Overview until a reload (found filming
- * the Taylor take, 1 Nov 2026). A chapter that held only the stand-in was never
+ * never served: the page stayed on the Overview until a reload. A chapter that held only the stand-in was never
  * taught, so its real lessons still come; and on screen they go in BEFORE its
  * "End of chapter", never under it.
  *
@@ -49,7 +48,7 @@ setting('ai_enabled', 'true');
 setting('ai_model', 'gate-model');
 
 const day = (n) => new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
-const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Taylor', 0, ?, ?)").run(day(-10), day(300)).lastInsertRowid);
+const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Calculus', 0, ?, ?)").run(day(-10), day(300)).lastInsertRowid);
 const mkTopic = (title, position) => Number(db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, position, role, scheduled_start, scheduled_end, description)
     VALUES (?, NULL, ?, ?, ?, ?, ?, 'Overview.')
