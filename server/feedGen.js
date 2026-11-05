@@ -275,6 +275,19 @@ let backoffUntil = 0;
 // Why the last burst stopped and on which topic, for the page waiting on a
 // lesson it was writing: the facts `plainCause` reads on the client.
 let lastFailure = null;
+// One pending kick for when the backoff ends, while a topic page waits on its
+// lesson. Armed from every burst that finds the backoff running, not only the
+// one that failed: a failure while nothing was asked for armed nothing, and a
+// topic opened inside that backoff kept its page on "Writing the lesson" with
+// no writer coming.
+let backoffKick = null;
+function kickWhenBackoffEnds() {
+    const now = Date.now();
+    if (backoffKick || !(backoffUntil > now)) return;
+    if (![...requested.values()].some(until => until > now)) return;
+    backoffKick = setTimeout(() => { backoffKick = null; ensureBuffer(); }, backoffUntil - now + 50);
+    backoffKick.unref?.();
+}
 
 /**
  * Is the writer on this topic's FIRST lesson right now? What the topic's own
@@ -1486,7 +1499,7 @@ function pickTarget(list, find, onEmpty) {
 
 async function runBurst() {
     if (!aiEnabled()) return;
-    if (Date.now() < backoffUntil) return;
+    if (Date.now() < backoffUntil) { kickWhenBackoffEnds(); return; }
 
     let handle = null;
     let cancelled = false;
@@ -1651,10 +1664,7 @@ async function runBurst() {
         // A topic page still waits on its lesson: try again when the backoff
         // ends, or the page would say "couldn't be written" (or keep its
         // slot spinning) until something else happened to kick the writer.
-        const now = Date.now();
-        if ([...requested.values()].some(until => until > now)) {
-            setTimeout(ensureBuffer, backoffUntil - now + 50).unref();
-        }
+        kickWhenBackoffEnds();
         console.error(`[FeedGen] Generation failed (attempt ${consecutiveFailures}, backing off):`, err.message);
         if (handle) handle.fail(err.message);
     }

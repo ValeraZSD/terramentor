@@ -315,8 +315,16 @@ console.log('\n--- while its lesson is written (or failed to be) the page shows 
         /lessonRetrySeq\+\+;[\s\S]{0,80}api\.retryLessonWrite\(write\.nodeId\)/.test(retrySrc)
         && /if \(get\(\)\.feedLessonWrite\?\.nodeId !== write\.nodeId\) return;\s*set\(\{ feedLessonWrite: res\.lessonWrite \}\)/.test(retrySrc));
     check('both pulls drop a failure composed before the press',
-        (storeSrc.match(/const retrySeq = lessonRetrySeq;/g) || []).length === 2
+        (storeSrc.match(/const retrySeq = lessonRetrySeq;/g) || []).length === 3
         && (storeSrc.match(/feedLessonWrite: pulledLessonWrite\(res\.lessonWrite, state\.feedLessonWrite, retrySeq !== lessonRetrySeq\)/g) || []).length === 2);
+    // Opening another topic: the one left behind may not keep its state under
+    // the new header (its Try again would ask for the topic left behind), and
+    // a reload of the same topic drops a failure composed before the press.
+    const loadSrc = storeSrc.slice(storeSrc.indexOf('loadFeed: async'), storeSrc.indexOf('extendFeed: async'));
+    check('a load for another topic clears the lesson state at once; a reload of the same one drops a stale failure',
+        /const sameScope = scopeKey\(get\(\)\.feedScope\) === scopeKey\(scope\);/.test(loadSrc)
+        && /: \{ feedLoading: true, feedScope: scope, feedLessonWrite: null, feedReplacedKeys: \[\] \}\);/.test(loadSrc)
+        && /feedLessonWrite: sameScope\s*\?\s*pulledLessonWrite\(res\.lessonWrite, get\(\)\.feedLessonWrite, retrySeq !== lessonRetrySeq\)\s*:\s*res\.lessonWrite \?\? null/.test(loadSrc));
     // The store's two pulls are the ones the replay below stands in for.
     check('both pulls send the replaced stand-in as held, and the merge records it',
         (storeSrc.match(/const exclude = heldKeys\(get\(\)\.feedCards, get\(\)\.feedReplacedKeys\);/g) || []).length === 2
@@ -500,6 +508,33 @@ console.log('\n--- the route: Study asks for the lesson, and says whether it is 
     const refused = [];
     for (const id of ['abc', '0', '-3']) refused.push((await fetch(`${base}/api/feed/nodes/${id}/lesson/retry`, { method: 'POST' })).status);
     check('Try again on no topic is refused', refused.every(s => s === 400), JSON.stringify(refused));
+    // Stopped from the task dock while the page waits: the cancel changes the
+    // page's task signal, and the pull it makes asks for the topic again, so
+    // "Writing the lesson" stays true: the writer is on it once more.
+    await until(async () => (await feed(k1)).lessonWrite?.state === 'failed');
+    refuse = false;
+    const heldBefore = heldRes.length;
+    await fetch(`${base}/api/feed/nodes/${route}/lesson/retry`, { method: 'POST' });
+    await until(() => heldRes.length > heldBefore);
+    const running = (await (await fetch(`${base}/api/tasks`)).json()).filter(tk => tk.kind === 'feed' && tk.status === 'running');
+    for (const tk of running) await fetch(`${base}/api/tasks/${tk.id}/cancel`, { method: 'POST' });
+    const askedAtCancel = asked;
+    const pc = await feed(k1);
+    check('stopped from the dock: the next pull says writing and the writer is on the topic again',
+        running.length > 0 && pc?.lessonWrite?.state === 'writing'
+        && await until(() => prompts.slice(askedAtCancel).some(b => b.includes('Uniform convergence')), 5000),
+        JSON.stringify({ running: running.length, lessonWrite: pc?.lessonWrite, asked: asked - askedAtCancel }));
+    refuse = true;
+    for (const res of heldRes.splice(0)) refuseNow(res);
+    {
+        // A burst that finds the backoff running arms the kick for its end, so
+        // a topic opened after a failure nobody waited on is still written.
+        const { readFileSync } = await import('node:fs');
+        const writerSrc = readFileSync(fileURLToPath(new URL('../server/feedGen.js', import.meta.url)), 'utf8');
+        check('a burst that meets the backoff arms the kick for its end',
+            /if \(Date\.now\(\) < backoffUntil\) \{ kickWhenBackoffEnds\(\); return; \}/.test(writerSrc)
+            && /backoffKick = setTimeout\(\(\) => \{ backoffKick = null; ensureBuffer\(\); \}, backoffUntil - now \+ 50\)/.test(writerSrc));
+    }
     setting('ai_enabled', 'false');
     const off = await feed();
     check('with AI off nothing is being written: no state, the page as today', off.lessonWrite == null, JSON.stringify(off.lessonWrite));

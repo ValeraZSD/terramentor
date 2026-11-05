@@ -1630,7 +1630,14 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadFeed: async (scope = null) => {
         const seq = ++feedSeq;
-        set({ feedLoading: true, feedScope: scope });
+        const retrySeq = lessonRetrySeq;
+        // Another topic's lesson state is not this one's: kept until the load
+        // lands, the new topic's header sat over it and its Try again asked
+        // for the topic the learner had left.
+        const sameScope = scopeKey(get().feedScope) === scopeKey(scope);
+        set(sameScope
+            ? { feedLoading: true, feedScope: scope }
+            : { feedLoading: true, feedScope: scope, feedLessonWrite: null, feedReplacedKeys: [] });
         try {
             const res = await api.getFeed(undefined, 15, scope);
             // A slower load — for another scope, or an older load of this one —
@@ -1641,7 +1648,9 @@ export const useStore = create<AppState>((set, get) => ({
                 feedHeader: res.header,
                 feedTransfers: res.transfers || {},
                 feedPlacements: res.placements || {},
-                feedLessonWrite: res.lessonWrite ?? null,
+                feedLessonWrite: sameScope
+                    ? pulledLessonWrite(res.lessonWrite, get().feedLessonWrite, retrySeq !== lessonRetrySeq)
+                    : res.lessonWrite ?? null,
                 feedReplacedKeys: [],
                 feedExhausted: res.exhausted,
                 feedDone: {},
