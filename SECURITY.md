@@ -654,12 +654,14 @@ and is described here in the same detail as the update check.
 ## The MCP server (an agent in another app)
 
 `mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
-such as Claude Code, Claude Desktop, VS Code or Cursor, read your library and propose two things
-to it. It is a separate program that you or your harness start. The app never starts it, and
+such as Claude Code, Claude Desktop, VS Code or Cursor, read your library, propose two things
+to it, and open the app's own mastery check or card review for you to take in its window. It is
+a separate program that you or your harness start. The app never starts it, and
 while nobody runs it nothing here changes.
 
 - **It opens no database and keeps no data.** It is a client of the running app's own HTTP API
-  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`), behind the same password
+  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`, plus the app's own
+  `PUT /api/nodes/:id` to complete a topic after a passed check), behind the same password
   check as every page. `tools/mcp-gates.mjs` fails if anything under `mcp/` imports the server.
   It connects to `TERRAMENTOR_URL` and nowhere else.
 - **What an agent can read:**
@@ -676,7 +678,7 @@ while nobody runs it nothing here changes.
 
   What it reads goes to the model of the harness you use, under that provider's terms, like
   anything you paste into it.
-- **What it can write is two things, and neither is a proof.**
+- **What the agent's model can write is two things, and neither is a proof.**
   - **A note into the Inbox**, through the capture route. A note without a link whose text is
     already there is not saved again; this tool takes only an `http(s)` link. If a model is
     connected, the note is tidied as every capture is.
@@ -690,11 +692,12 @@ while nobody runs it nothing here changes.
     - a wrong claim never lowers the estimate below a head start while that head start stands;
     - an `attempt_id` sent again for a different answer is refused.
 
-  Proving a topic stays the app's own mastery check.
+  Proving a topic stays the app's own mastery check, which you take in the app or in the
+  view below; no tool the model calls submits one.
 - **With a password set, it needs the API key.** On stdio the harness passes
   `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
-  agents: a program holding it can call any `/api` route the key opens, not only the seven
-  tools. Treat a harness config file that holds it like the password. Settings → Devices &
+  agents: a program holding it can call any `/api` route the key opens, not only the MCP
+  server's tools. Treat a harness config file that holds it like the password. Settings → Devices &
   security → API key → Regenerate key or Delete key ends it. Without a password the app answers only
   this computer, and the server needs no key.
 - **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
@@ -713,6 +716,58 @@ while nobody runs it nothing here changes.
   - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
     `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
     password.
+- **It is shipped, never started.** The desktop app and the Docker image carry `mcp/`, but
+  the app does not run it and nothing listens for it. A harness starts it.
+
+### The mastery check and the card review in the agent's window
+
+Two tools, `mastery_check` and `review_cards`, open a view that a host which draws MCP Apps
+(Claude, for one) shows in its own window (`mcp/views/`). The learner takes the check or rates
+the cards there. The host's model only asks for it, and is told when it opened, and how it
+ended if the host passes a view's updates on to it.
+
+- **The model never sees a question, an answer or a key.** The check is drawn by the app
+  (`server/agentSittings.js`, the app's own draw), graded by the app, and written through the
+  same function as the app's own gate dialog (`server/masteryCheck.js`), once per sitting. A
+  card is rated by the app's own scheduler and written by the same function as the review
+  screen (`server/cardWrite.js`). Keys and explanations leave the app only after the whole
+  check is submitted, and only to the view.
+- **The sitting is a random token** (24 random bytes), held in the app's memory for at most
+  two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
+  in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to
+  the model, and the view sends it back as an argument of each of its own tool calls, which
+  pass through the host. Seven tools that only the view calls (`check_questions`,
+  `check_submit`, `check_complete`, `review_next`, `review_reveal`, `review_rate`,
+  `review_undo`; not `review_cards`, which the model calls to open a review) carry
+  `visibility: ["app"]`; they are listed only to a host whose `initialize` says it draws
+  views, and each refuses a host that does not. A host that does not draw views gets a link
+  that opens the topic in Terramentor instead.
+- **Residual risk: a host that breaks those two rules.** A host that shows its model the
+  token (in a tool result's `_meta`, or in the arguments of the view's own calls), and also
+  lets the model call the view's own tools, would let that model read the questions of an
+  open check (never their keys before submission) and submit it for the learner. The answers
+  would still be graded and recorded by the app, and a check passed that way counts like any
+  other: the app cannot tell who pressed the buttons in the host's window.
+- **"The model never sees a question" is about the MCP server.** A program on this computer
+  that can reach the app (any program while no password is set, or one holding the API key)
+  can call `/api/agent/check/*` itself and read an open check's questions. That is no new
+  reach: such a program can already call the app's own check and quiz routes.
+- **A view can reach nothing but its host.** Each view is one HTML document with its script
+  and style inline. Its own Content-Security-Policy allows exactly that script and that style
+  by their SHA-256 hashes, and `default-src`, `connect-src`, `frame-src`, `form-action` and
+  `base-uri` are `'none'`: it loads no file, makes no request and talks only to the window
+  that framed it, by `postMessage`, ignoring messages from any other window. The page text
+  it shows is built from text nodes; no string from the library is parsed as markup or run as
+  code. `tools/mcp-gates.mjs` reads both documents back and checks each of these.
+- **The host's own policy can replace the view's.** A host that writes its own
+  Content-Security-Policy into the frame ahead of the document makes the browser ignore the
+  view's. MCP Inspector 2.13 does this, and its own policy also forbids every connection. So
+  "no network" does not rest on the view's policy alone: the view's script contains no
+  `fetch`, socket, beacon, image, worker or navigation, and `tools/mcp-gates.mjs` fails if one
+  appears.
+- **No new outbound connection.** The views make none; the MCP server still talks to
+  `TERRAMENTOR_URL` only. A free-text answer in the check is graded by the model connected in
+  Settings, exactly as in the app's own check.
 
 ## Verifying the no-telemetry claim
 

@@ -27,7 +27,7 @@
 import crypto from 'node:crypto';
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
-import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
+import { parseObjectResponse } from './agentic.js';
 import { sameAnswer } from './feedQuality.js';
 import { sameOption } from './questionOptions.js';
 import { bankTitle } from './studyMaterial.js';
@@ -66,10 +66,8 @@ function remember(key, kind, v) {
     return v;
 }
 
-function parseObject(resp) {
-    const match = String(resp || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try { return parseJsonWithRepair(escapeLatexBackslashes(match[0])); } catch { return null; }
+function parseObject(resp, key) {
+    try { return parseObjectResponse(resp, { key }); } catch { return null; }
 }
 
 /** One check per content at a time: a preview and an Add pressed together share it. */
@@ -113,7 +111,7 @@ async function checkTopicCards(title, group, { signal }) {
     try {
         const { system, user } = AI_PROMPTS.feed_drill_check(title, set, null);
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'assistant_check' });
-        const answers = parseObject(resp)?.answers;
+        const answers = parseObject(resp, 'answers')?.answers;
         if (Array.isArray(answers)) {
             cold = new Map();
             answers.forEach((a, k) => {
@@ -149,7 +147,7 @@ async function checkTopicCards(title, group, { signal }) {
     try {
         const { system, user } = AI_PROMPTS.feed_drill_arbiter(title, set, rows);
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'assistant_check' });
-        const list = parseObject(resp)?.verdicts;
+        const list = parseObject(resp, 'verdicts')?.verdicts;
         if (Array.isArray(list)) looks = new Map(list.map((x, k) => [Number.isInteger(x?.n) ? x.n : k + 1, String(x?.correct || '').trim().toLowerCase()]));
     } catch (err) {
         if (err?.name === 'AbortError') throw err;

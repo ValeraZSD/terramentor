@@ -1,6 +1,6 @@
 import db from './database.js';
 import { generateResponse, AI_PROMPTS } from './ai.js';
-import { parseJsonWithRepair, escapeLatexBackslashes } from './agentic.js';
+import { parseObjectResponse } from './agentic.js';
 import {
     sameCode, parseNumber, normalizeTyped,
     readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
@@ -438,6 +438,21 @@ export function citationFaults(question) {
 }
 
 /**
+ * A stem visual's kind (QUIZ_VISUALS_GUIDE) on a "line" of its own between
+ * literal `\n`s, or right after a fence: `…?\n\nplot\n{…}`, "```plot\n{…}".
+ * A code stem that prints the word (`print("plot\n")`, `plt.plot\n`) or a
+ * fence in a string (`"```\n"`) is not one.
+ */
+const STEM_PICTURE_AS_TEXT = /(?:(?:^|\\n)[ \t]*(?:```[ \t]*)?|```[ \t]*)(?:plot|mermaid|vega-lite|vega|smiles)[ \t]*\\n/;
+/**
+ * The same picture after the reader kept its lines but its fence was lost:
+ * the kind alone on a real line with its JSON spec on the next one. Only the
+ * JSON kinds: a line reading "plot" above prose is a stem's own word. Mermaid
+ * is caught by the diagram keyword its spec opens with instead of a brace.
+ */
+const STEM_SPEC_UNFENCED = /(?:^|\n)[ \t]*(?:(?:plot|vega-lite|vega)[ \t]*\r?\n[ \t]*\{|mermaid[ \t]*\r?\n[ \t]*(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|mindmap|timeline|gitGraph)\b)/;
+
+/**
  * Mechanical checks on a freshly generated question — everything decidable
  * without a model call, run BEFORE the (expensive) answer-key verifier so a
  * malformed candidate costs nothing to reject. Returns problem strings; empty
@@ -454,6 +469,13 @@ export function questionDefects(question, nodeId = null) {
 
     const stem = String(question.question || '').trim();
     if (stem.length < 10) problems.push('the question stem is empty or too short to answer');
+    // A picture that reached the stem as text: a fence marker or a visual's
+    // kind name run into an escaped line break (`…?\n\nplot\n{"data":…}`). The
+    // reader keeps a stem's lines now; this is the gate that fails closed if a
+    // path ever flattens them again, instead of printing the spec at a learner.
+    if (STEM_PICTURE_AS_TEXT.test(stem) || STEM_SPEC_UNFENCED.test(stem)) {
+        problems.push('the question\'s picture arrived as text (its fence was flattened onto one line)');
+    }
 
     // The app's own bookkeeping is not the subject. Needs the node, so it is
     // skipped by the callers that have none (a gate case, a repair tool).
@@ -757,7 +779,7 @@ export async function auditLesson(nodeTitle, partTitle, markdown, { priorParts =
             nodeTitle, partTitle, stripSpecFences(markdown), priorParts, { computes },
         );
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-        const parsed = parseObject(resp);
+        const parsed = parseObject(resp, 'verdict');
         if (!parsed || typeof parsed.verdict !== 'string') {
             return { ok: true, available: false, reason: 'auditor returned nothing usable', computes };
         }
@@ -803,11 +825,9 @@ export function isStaticAnimation(kind, spec) {
     return kind === 'animation' && !/<animate(Transform|Motion)?\b/i.test(spec);
 }
 
-function parseObject(resp) {
-    const match = String(resp || '').match(/\{[\s\S]*\}/);
-    if (!match) return null;
+function parseObject(resp, key) {
     try {
-        return parseJsonWithRepair(escapeLatexBackslashes(match[0]));
+        return parseObjectResponse(resp, { key });
     } catch {
         return null;
     }
@@ -893,15 +913,22 @@ export async function verifyQuestion(nodeTitle, question, { signal } = {}) {
     try {
         const { system, user } = AI_PROMPTS.feed_question_verify(nodeTitle, question);
         const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-        const parsed = parseObject(resp);
+        const parsed = parseObject(resp, 'verdict');
         if (!parsed || typeof parsed.verdict !== 'string') {
             // A verifier that produced nothing usable is not evidence of a bad
             // question, nor of a good one: the caller serves it as practice,
             // stamped unverified (the mechanical gates already passed).
             return { ok: true, available: false, reason: 'verifier returned nothing usable' };
         }
+        const verdict = parsed.verdict.trim().toLowerCase();
+        // The prompt allows two words. Anything else (`unsure`, an echoed
+        // `ok | broken`) is no verdict at all, never a pass: an open question
+        // would otherwise count as audited on it.
+        if (verdict !== 'ok' && verdict !== 'broken') {
+            return { ok: true, available: false, reason: `verifier gave no verdict ("${parsed.verdict.slice(0, 40)}")` };
+        }
         const reason = String(parsed.reason || '').slice(0, 200);
-        if (parsed.verdict.toLowerCase() === 'broken') {
+        if (verdict === 'broken') {
             return { ok: false, available: true, reason: reason || 'verifier called the question broken' };
         }
         // How many options the verifier could rule out WITHOUT knowing the
@@ -1002,7 +1029,7 @@ export async function vetLessonVisuals(markdown, partTitle, { signal } = {}) {
             try {
                 const { system, user } = AI_PROMPTS.feed_visual_check(partTitle, v.prose, v.kind, v.spec);
                 const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-                const parsed = parseObject(resp);
+                const parsed = parseObject(resp, 'verdict');
                 const verdict = String(parsed?.verdict || '').toLowerCase();
                 if (!verdict) unchecked.push({ kind: v.kind, reason: 'checker returned nothing usable' });
                 if (verdict === 'text-wrong' || verdict === 'text_wrong') {
@@ -1093,7 +1120,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         try {
             const { system, user } = AI_PROMPTS.feed_drill_check(nodeTitle, set, free ? null : answerPool(items));
             const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-            const answers = parseObject(resp)?.answers;
+            const answers = parseObject(resp, 'answers')?.answers;
             if (Array.isArray(answers)) {
                 verdicts = new Map();
                 answers.forEach((a, k) => {
@@ -1137,7 +1164,7 @@ export async function checkItemKeys(nodeTitle, set, { signal } = {}) {
         try {
             const { system, user } = AI_PROMPTS.feed_drill_arbiter(nodeTitle, set, rows);
             const resp = await generateResponse(user, system, [], { temperature: 0.1, signal, operation: 'verify' });
-            const list = parseObject(resp)?.verdicts;
+            const list = parseObject(resp, 'verdicts')?.verdicts;
             if (Array.isArray(list)) verdicts = new Map(list.map((v, k) => [Number.isInteger(v?.n) ? v.n : k + 1, String(v?.correct || '').trim().toLowerCase()]));
         } catch (err) {
             if (err?.name === 'AbortError') throw err;

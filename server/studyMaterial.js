@@ -77,7 +77,8 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
     if (!jsonMatch) throw new Error('No JSON array found in response');
 
-    let questions = parseJsonWithRepair(escapeLatexBackslashes(jsonMatch[0]));
+    // `lineBreaks`: a stem's paragraphs and its fenced picture are lines.
+    let questions = parseJsonWithRepair(escapeLatexBackslashes(jsonMatch[0], { lineBreaks: true }));
     if (!Array.isArray(questions)) throw new Error('Quiz response was not a JSON array');
 
     // A saved quiz is reused by every mastery check on its topic, and the gate must

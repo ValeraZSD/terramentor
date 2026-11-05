@@ -62,7 +62,7 @@ import { applySeededPrior, forgetSeed, GUESS_BY_QUESTION_TYPE } from './mastery.
 import { allocateSchedule, persistSchedule, readStudyDays } from './scheduling.js';
 import { projectCountsInCards } from './progress.js';
 import { AI_PROMPTS, buildNodeContext, generateResponse, checkAnswerWithAI } from './ai.js';
-import { parseJsonWithRepair, escapeLatexBackslashes, normalizeChoice, sanitizeExplanation } from './agentic.js';
+import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
 import { isUnverified } from './questionTrust.js';
@@ -729,9 +729,8 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
             const resp = await generateResponse(user, system, [], {
                 temperature: 0.4, signal, operation: 'questions',
             });
-            const match = resp.match(/\{[\s\S]*\}/);
-            if (!match) { priorFault = 'the reply contained no JSON object'; continue; }
-            parsed = parseJsonWithRepair(escapeLatexBackslashes(match[0]));
+            if (!/\{[\s\S]*\}/.test(resp)) { priorFault = 'the reply contained no JSON object'; continue; }
+            parsed = parseQuestionReply(resp);
         } catch (err) {
             if (err?.name === 'AbortError') throw err;
             // Not retried like a content failure: the same prompt carries no new
