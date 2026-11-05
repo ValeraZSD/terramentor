@@ -2,8 +2,7 @@
 //
 // Run:  node tools/overview-math-gates.mjs
 //
-// A Taylor-series course built by the app's own creation run (Claude Opus 5.5,
-// 2026-11-01) came back with maths in most of its 908 Overviews and not one `$`
+// A calculus course built by the app's own creation run came back with maths in most of its 908 Overviews and not one `$`
 // in any of them: "the coefficients have the form f^(n)(a)/n!", "e^x, sin x,
 // 1/(1-x)". The topic panel and the feed's reading cards draw an Overview through
 // `Markdown.tsx`, which runs remark-math and KaTeX, so the learner saw raw

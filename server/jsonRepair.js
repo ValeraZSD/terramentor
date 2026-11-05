@@ -65,7 +65,7 @@ export function parseJsonWithRepair(text) {
  * (`$\dfrac{f'(h)}{h}$ … {"verdict": "ok"}`), and the old slice from the first
  * `{` to the last `}` began inside the TeX, so a verifier that agreed with the
  * key read as "returned nothing usable" and the question was served as
- * practice only (Taylor clip, 4 Nov 2026). So the reply's top-level `{…}`
+ * practice only. So the reply's top-level `{…}`
  * spans and its ```json fenced objects are read in reply order, and the LAST
  * that parses as a non-empty object the caller `accept`s wins: a format example echoed before
  * the answer, or a draft the model then corrected, comes earlier. `{}` (TeX's

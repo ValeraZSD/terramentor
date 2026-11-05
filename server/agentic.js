@@ -215,9 +215,8 @@ export function sanitizeExplanation(explanation, options) {
 // `\not`, `\nless`; `LINE_START_COMMANDS`) is TeX only inside a `$…$` span of
 // a string whose spans pair, and a line break outside one. A stem is told to
 // carry its picture as a fenced spec on lines of its own, and with every `\n`
-// made literal the fence arrived as one line of text (take 7 of the Taylor
-// clip, 4 Nov 2026: "…approach?\n\nplot\n{"data":…}" printed in a mastery
-// check). A doubled `\\n` stays the two characters it was written as.
+// made literal the fence arrives as one line of text
+// ("…approach?\n\nplot\n{"data":…}" printed in a mastery check). A doubled `\\n` stays the two characters it was written as.
 export function escapeLatexBackslashes(jsonStr, { mathSpans = false, lineBreaks = false } = {}) {
     let out = '';
     let inString = false;

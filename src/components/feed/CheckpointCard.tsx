@@ -49,7 +49,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     // topic (`feedSavedByNode`, bumped after the write resolved) asks again,
     // and so does a passed mastery check (`done`): the check writes the
     // estimate the card shows, so without this the card said "Estimated
-    // mastery 0%" beside "Topic completed" (Taylor clip, 4 Nov 2026).
+    // mastery 0%" beside "Topic completed".
     const savedHere = useStore(s => s.feedSavedByNode[composed.nodeId] ?? 0);
     const [live, setLive] = useState<Awaited<ReturnType<typeof api.getCheckpointFacts>> | null>(null);
     // The check modal closing on THIS topic asks again too: a pass, or a

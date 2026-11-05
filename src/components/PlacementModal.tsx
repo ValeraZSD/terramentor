@@ -219,8 +219,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             onClick={close}>
             {/* The dialog never scrolls as a whole: the header and the asking
                 footer stay put and only the body between them scrolls, so a
-                long explanation cannot push "Next" below the window (Taylor
-                clip, 4 Nov 2026: cut off at 1280x800). dvh, so a phone's
+                long explanation cannot push "Next" below the window (at
+                1280x800 it was cut off). dvh, so a phone's
                 address bar does not hide the footer either. The dialog's own
                 scroll is the fallback for a window too short for even that
                 (a phone on its side, a zoomed page): the body gives up its

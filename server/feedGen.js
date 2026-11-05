@@ -1495,7 +1495,7 @@ async function runBurst() {
             // check is the end of the page they are reading. Without it a topic
             // reached from the outline, not the schedule, had no bank until
             // "Take the mastery check" was pressed, and the learner sat on the
-            // model there (Taylor clip, 4 Nov 2026).
+            // model there.
             if (!hit) {
                 hit = pickTarget(wanted, f => pendingMaterial(f.nodeId), f => requested.delete(f.nodeId));
             }
