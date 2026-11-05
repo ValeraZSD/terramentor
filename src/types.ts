@@ -1536,7 +1536,8 @@ export interface GlobalCalendarTask {
 }
 
 export interface GlobalCalendarData {
-    projects: { id: number; name: string; color: string }[];
+    /** `scheduled`: the course has dates, so the course filter lists it. */
+    projects: { id: number; name: string; color: string; scheduled?: boolean }[];
     tasks: GlobalCalendarTask[];
 }
 

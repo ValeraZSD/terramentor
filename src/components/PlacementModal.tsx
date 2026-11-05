@@ -3,6 +3,7 @@ import { api } from '../api';
 import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
 import { TextArea } from './ui/Field';
+import ProgressBar from './ui/ProgressBar';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
@@ -283,10 +284,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 <span>{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
                                 <span className="truncate max-w-[55%] text-right">{question.phaseTitle}</span>
                             </div>
-                            <div className="h-1 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                                <div className="h-full bg-accent transition-all"
-                                    style={{ width: `${((answeredCount) / Math.max(1, probe?.total ?? 1)) * 100}%` }} />
-                            </div>
+                            <ProgressBar value={answeredCount} max={Math.max(1, probe?.total ?? 1)} size="sm" decorative />
 
                             <div className="flex items-start gap-2">
                                 <div className="min-w-0 flex-1 space-y-4">

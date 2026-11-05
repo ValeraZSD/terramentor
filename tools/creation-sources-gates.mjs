@@ -205,7 +205,11 @@ function answer(st, system, user) {
         if (!chapters.length) return JSON.stringify({ elements: [{ title: 'Getting started', description: 'Start here' }, { title: 'Next steps', description: 'Then this' }] });
         // The first chapter's title cites its § number, the way a model echoes
         // the block's marks: the stored title must not.
-        return JSON.stringify({ elements: chapters.map((c, i) => ({ title: i === 0 ? `${c.title} (§${c.id})` : c.title, description: `From ${c.title}`, sections: [c.id] })) });
+        // It also writes that chapter twice, the copy citing another part: once
+        // the marks are gone the two are one title, and one is stored.
+        const els = chapters.map((c, i) => ({ title: i === 0 ? `${c.title} (§${c.id})` : c.title, description: `From ${c.title}`, sections: [c.id] }));
+        if (chapters.length > 1) els.push({ title: `${chapters[0].title} (§${chapters[1].id})`, description: 'Again', sections: [chapters[0].id] });
+        return JSON.stringify({ elements: els });
     }
     if (st === 'sub_batch') {
         const listed = [...user.matchAll(/^\d+\. (.+?)(?: — .*)?$/gm)].map(m => m[1]);
@@ -375,8 +379,12 @@ ok('...and the rule that the phases follow and cover it', cats?.system.includes(
 ok('...and that both files count', cats?.system.includes('Every file counts') && cats.user.includes('final-exam.txt'));
 ok('the exam, with no contents, is shown as excerpts', cats?.user.includes('Excerpts of [2]') && cats.user.includes('germination temperature'));
 const els = r.bodies.filter(b => b.stage === 'elements');
-ok('each phase\'s topics prompt carries only its own parts', els.length === 2 && els[0].user.includes('1 Soil structure') && !els[0].user.includes('3 Picking')
-    && els[1].user.includes('3 Picking') && !els[1].user.includes('1 Soil structure'));
+// Inside the source block: outside it, a later phase's prompt also names the
+// sections the earlier phases already have (course-size-gates.mjs), and the
+// first one here is titled after its chapter.
+const blockOf = (b) => between(b?.user || '') || '';
+ok('each phase\'s topics prompt carries only its own parts', els.length === 2 && blockOf(els[0]).includes('1 Soil structure') && !blockOf(els[0]).includes('3 Picking')
+    && blockOf(els[1]).includes('3 Picking') && !blockOf(els[1]).includes('1 Soil structure'));
 const batch = r.bodies.find(b => b.stage === 'sub_batch' && b.user.includes('Topic "1 Soil structure"'));
 ok('the sub-topics prompt carries each topic\'s sub-sections', batch?.user.includes('1.1 Clay and sand') && batch.user.includes('1.2 Compost'), batch?.user.slice(-800));
 
@@ -404,6 +412,8 @@ ok('no stored title or description carries a § mark of the source block',
     JSON.stringify(db.prepare(`SELECT title FROM nodes WHERE project_id = ? AND (title LIKE '%§%' OR description LIKE '%§%')`).all(pid)));
 ok('...and the titles it echoed are kept whole otherwise ("1 Soil structure (§n)" → "1 Soil structure", "Clay and sand of §n" → "Clay and sand")',
     srcOf('1 Soil structure').length === 1 && srcOf('Clay and sand').length === 1);
+const twins = db.prepare(`SELECT parent_id, title, COUNT(*) c FROM nodes WHERE project_id = ? GROUP BY parent_id, title HAVING c > 1`).all(pid);
+ok('two sections that differ only by the § mark they cite are stored once', twins.length === 0, JSON.stringify(twins));
 const harvest = srcOf('Harvest');
 ok('...and the exam goes to the phase before it in reading order', harvest.length === 2 && harvest.some(x => x.page_from === 9 && x.page_to === 10)
     && harvest.some(x => x.document_id === docs[1].id && x.char_from === 0), JSON.stringify(harvest));

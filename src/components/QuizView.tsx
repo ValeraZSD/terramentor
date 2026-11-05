@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { ArrowLeft, Loader2, History } from 'lucide-react';
 import { Button } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
@@ -372,12 +373,7 @@ export default function QuizView({ quiz, onClose }: Props) {
             )}
 
             {/* Progress bar */}
-            <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${((currentIndex + 1) / totalQuestions) * 100}%` }}
-                />
-            </div>
+            <ProgressBar value={currentIndex + 1} max={totalQuestions} decorative />
 
             {/* Question */}
             <div className="py-4">

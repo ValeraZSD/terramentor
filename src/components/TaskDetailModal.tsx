@@ -10,6 +10,7 @@ import { uiLocale } from '../utils/locale';
 import { taskPlace, taskEta, durationParts, originSentence, KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 
 /**
  * What one background task is, where it belongs, and what it is doing — the
@@ -178,12 +179,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
                         rather than an empty one pretending to be at zero. */}
                     {task.status === 'running' && percent != null && (
                         <div className="mb-4">
-                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                                <div
-                                    className="h-full rounded-full bg-accent transition-[width] duration-500"
-                                    style={{ width: `${Math.max(2, percent)}%` }}
-                                />
-                            </div>
+                            <ProgressBar value={percent} minVisible={2} decorative />
                             <p className="mt-1 text-right text-xs tabular-nums text-slate-500 dark:text-slate-400">{percent}%</p>
                         </div>
                     )}

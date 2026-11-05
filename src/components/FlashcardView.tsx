@@ -8,6 +8,7 @@ import CardFace from './CardFace';
 import FlashcardEditor from './FlashcardEditor';
 import { ArrowLeft, ThumbsUp, Pencil, Undo2 } from 'lucide-react';
 import { Button } from './ui/Button';
+import ProgressBar from './ui/ProgressBar';
 import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
@@ -191,12 +192,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             {/* Progress reflects cards actually reviewed, not the current card's
                 position — otherwise the bar reads as already-full before the
                 last card is rated. */}
-            <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                <div
-                    className="h-full bg-accent transition-all"
-                    style={{ width: `${(queue.reviewedCount / flashcards.length) * 100}%` }}
-                />
-            </div>
+            <ProgressBar value={queue.reviewedCount} max={flashcards.length} decorative />
 
             {/* Card */}
             <div

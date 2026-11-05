@@ -31,6 +31,9 @@ interface Props {
     title: string;
     subtitle: string | null;
     loading: boolean;
+    /** Topics past their last day and still open: owed today, so Today says
+     *  how many (`splitLateTasks`, src/utils/tree.ts). */
+    overdue?: number;
 }
 
 /**
@@ -54,7 +57,7 @@ interface Props {
  * hand-rolled pills before them had no track and no edge, so "Month · Week ·
  * Day" and "Today" read as loose words.
  */
-export function CalendarNav({ narrow, compact = false, viewMode, onMode, onPointerPick, onPrev, onNext, onToday, title, subtitle, loading }: Props) {
+export function CalendarNav({ narrow, compact = false, viewMode, onMode, onPointerPick, onPrev, onNext, onToday, title, subtitle, loading, overdue = 0 }: Props) {
     const { t: tr } = useTranslation();
     const hasKeyboard = usePhysicalKeyboard();
     const size = narrow ? 'sm' : 'md';
@@ -91,9 +94,23 @@ export function CalendarNav({ narrow, compact = false, viewMode, onMode, onPoint
             />
         </div>
     );
+    // TODAY CARRIES WHAT IS OWED TODAY. Late work is drawn once, on today, so
+    // the button that brings today back says how much of it there is: the
+    // count beside the word, styled like the workspace's Calendar tab count.
+    // The word stays "Today" (every calendar's word for it), so the button
+    // keeps its width rule: as wide as both arrows on a phone.
+    const owed = overdue > 0 ? tr("{{count}} overdue", { count: overdue }) : null;
     const today = (
         <Button size={size} variant="neutral" onClick={onToday} block={narrow}
-            title={hint(tr("Today"), 'today')} aria-keyshortcuts={ariaKeys('today')}>
+            title={[hint(tr("Today"), 'today'), owed].filter(Boolean).join(' · ') || undefined}
+            aria-keyshortcuts={ariaKeys('today')}
+            trailing={owed ? (
+                <span data-overdue-count={overdue}
+                    className="px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full bg-red-600 text-white">
+                    <span aria-hidden="true">{overdue}</span>
+                    <span className="sr-only">{owed}</span>
+                </span>
+            ) : undefined}>
             {tr("Today")}
         </Button>
     );
