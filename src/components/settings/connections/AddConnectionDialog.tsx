@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, LogIn } from 'lucide-react';
 import Modal from '../../Modal';
@@ -53,6 +53,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     onDone: (id: number, opts: { testIt: boolean }) => void;
 }) {
     const { t, i18n } = useTranslation();
+    const formId = useId();
     const [step, setStep] = useState<Step>('pick');
     const [kind, setKind] = useState<ConnectionKind>('openrouter');
     const [apiKey, setApiKey] = useState('');
@@ -221,9 +222,45 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
         : step === 'pick' ? t("Connect a model")
         : kind === 'custom' ? t("Connect a server") : t("Connect {{name}}", { name });
 
+    // Each step's way on, in the dialog's foot so a long form never scrolls it
+    // away. The form's submit button sits outside the <form>, tied to it by id,
+    // so Enter in a field still submits.
+    const footer = step === 'form' ? (
+        <>
+            {!editing && !initialKind && (
+                <Button variant="quiet" className="mr-auto" onClick={() => setStep('pick')} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
+            )}
+            {kind === 'chatgpt' ? (
+                <Button variant="primary" onClick={chatgpt} busy={busy} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
+                    {t("Continue with ChatGPT")}
+                </Button>
+            ) : (
+                <div className="flex flex-wrap gap-2 ml-auto">
+                    {failure && canSaveAnyway && !editing && (
+                        <Button variant="neutral" onClick={() => void submit(true)} disabled={busy}>{t("Save anyway")}</Button>
+                    )}
+                    <Button type="submit" form={formId} variant="primary" busy={busy}>
+                        {busy ? t("Testing…") : editing ? t("Test and save") : t("Test and connect")}
+                    </Button>
+                </div>
+            )}
+        </>
+    ) : step === 'model' ? (
+        choosingFor ? (
+            <Button variant="primary" onClick={() => void finish(true)} busy={busy}>{t("Use this model")}</Button>
+        ) : othersInUse ? (
+            <>
+                <Button variant="neutral" onClick={() => void finish(false)} disabled={busy}>{t("Keep for later")}</Button>
+                <Button variant="primary" onClick={() => void finish(true)} busy={busy}>{t("Use this connection")}</Button>
+            </>
+        ) : (
+            <Button variant="primary" onClick={() => void finish(false)} busy={busy}>{t("Done")}</Button>
+        )
+    ) : undefined;
+
     return (
         // The choice is two columns of lists; a form is one column of fields.
-        <Modal isOpen={open} onClose={onClose} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'}>
+        <Modal isOpen={open} onClose={onClose} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'} footer={footer}>
             {step === 'pick' && (
                 <div className="space-y-4">
                     <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -234,7 +271,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
             )}
 
             {step === 'form' && (
-                <form className="space-y-4" onSubmit={e => { e.preventDefault(); if (kind !== 'chatgpt') void submit(); }}>
+                <form id={formId} className="space-y-4" onSubmit={e => { e.preventDefault(); if (kind !== 'chatgpt') void submit(); }}>
                     <p className="text-sm text-slate-600 dark:text-slate-300">{t(info.blurb)}</p>
 
                     {/* The one step a form cannot do for you: Ollama has to be on
@@ -253,9 +290,6 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                                 {t("Requests then count against your ChatGPT plan, not an API bill. ChatGPT Plus shares one five-hour limit across every app that uses the plan. You can see and limit this app's use in ChatGPT under Settings, Usage.")}
                             </p>
-                            <Button variant="primary" size="lg" onClick={chatgpt} busy={busy} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Continue with ChatGPT")}
-                            </Button>
                         </div>
                     )}
 
@@ -365,22 +399,6 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                                 : t("The key is stored on this computer and sent only to {{name}}, which bills your account for what you use. Terramentor itself charges nothing.", { name })}
                         </p>
                     )}
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                        {!editing && !initialKind ? (
-                            <Button variant="quiet" onClick={() => setStep('pick')} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
-                        ) : <span />}
-                        {kind !== 'chatgpt' && (
-                            <div className="flex flex-wrap gap-2 ml-auto">
-                                {failure && canSaveAnyway && !editing && (
-                                    <Button variant="neutral" onClick={() => void submit(true)} disabled={busy}>{t("Save anyway")}</Button>
-                                )}
-                                <Button type="submit" variant="primary" busy={busy}>
-                                    {busy ? t("Testing…") : editing ? t("Test and save") : t("Test and connect")}
-                                </Button>
-                            </div>
-                        )}
-                    </div>
                 </form>
             )}
 
@@ -419,18 +437,6 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
                         </Field>
                     )}
                     {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-                    <div className="flex flex-wrap justify-end gap-2">
-                        {choosingFor ? (
-                            <Button variant="primary" onClick={() => void finish(true)} busy={busy}>{t("Use this model")}</Button>
-                        ) : othersInUse ? (
-                            <>
-                                <Button variant="neutral" onClick={() => void finish(false)} disabled={busy}>{t("Keep for later")}</Button>
-                                <Button variant="primary" onClick={() => void finish(true)} busy={busy}>{t("Use this connection")}</Button>
-                            </>
-                        ) : (
-                            <Button variant="primary" onClick={() => void finish(false)} busy={busy}>{t("Done")}</Button>
-                        )}
-                    </div>
                 </div>
             )}
         </Modal>

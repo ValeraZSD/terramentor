@@ -334,26 +334,23 @@ export default function NodeTree() {
                 )}
             </div>
 
-            <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title={t("Create Category")}>
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t("Category Name")}</label>
-                        <TextInput
-                            value={newTitle}
-                            onChange={e => setNewTitle(e.target.value)}
-                            placeholder={t("e.g., Chapter 1, Module A…")}
-                            autoFocus
-                            onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                        />
-                    </div>
-                    <div className="flex justify-end gap-3">
-                        <Button variant="quiet" onClick={() => setShowCreate(false)}>
-                            {t("Cancel")}
-                        </Button>
-                        <Button variant="primary" onClick={handleCreate} disabled={!newTitle.trim()}>
-                            {t("Create")}
-                        </Button>
-                    </div>
+            <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title={t("Create Category")} footer={<>
+                <Button variant="quiet" onClick={() => setShowCreate(false)}>
+                    {t("Cancel")}
+                </Button>
+                <Button variant="primary" onClick={handleCreate} disabled={!newTitle.trim()}>
+                    {t("Create")}
+                </Button>
+            </>}>
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t("Category Name")}</label>
+                    <TextInput
+                        value={newTitle}
+                        onChange={e => setNewTitle(e.target.value)}
+                        placeholder={t("e.g., Chapter 1, Module A…")}
+                        autoFocus
+                        onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                    />
                 </div>
             </Modal>
         </div>

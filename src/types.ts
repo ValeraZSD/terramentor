@@ -727,6 +727,12 @@ export interface QuizQuestion {
     language?: string;
     /** `code`: optional scaffolding the editor opens with — a signature, a stub. Never the solution. */
     starter?: string;
+    /**
+     * `code`: inputs the answer is run on (a call, or a standard input). What
+     * each should produce is what `correct_answer`, the reference, produces;
+     * an `expect` is the author's cross-check. Read through `codeTestsOf`.
+     */
+    tests?: { call?: string; stdin?: string; expect?: string }[];
     /** `sequence`: the items in the SERVED (shuffled) order; the key is `correct_answer`. */
     items?: string[];
     /**
@@ -1504,13 +1510,31 @@ export interface FeedResponse {
     transfers?: Record<number, TransferInfo>;
     /** Placement head starts for the topics in `items`, keyed by node id. */
     placements?: Record<number, PlacementHeadStart>;
+    /** On a topic's own page: its first lesson is being written, or failed to be. */
+    lessonWrite?: LessonWrite | null;
+}
+
+/** The background writer on a topic's first lesson (`lessonWriteState`, server/feedGen.js). */
+export interface LessonWrite {
+    nodeId: number;
+    state: 'writing' | 'failed';
+    /** Why the write stopped, as the model or the writer said it. */
+    reason?: string;
+    /** What `plainCause` and `retryMayHelp` read to say it in plain words. */
+    httpStatus?: number | null;
+    model?: string | null;
+    attempts?: number | null;
+    looped?: boolean | null;
+    emptyReply?: boolean | null;
+    reasoningTokens?: number | null;
+    thinkingChars?: number | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */
 export interface FeedConsumeResult {
     correct?: boolean;
     answer?: string;
-    gradedBy?: 'local' | 'ai' | 'fallback';
+    gradedBy?: 'local' | 'ai' | 'fallback' | 'run';
     read?: boolean;
 }
 

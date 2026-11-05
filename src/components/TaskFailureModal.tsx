@@ -99,7 +99,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
+                className="flex modal-shell w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"

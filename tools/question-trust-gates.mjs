@@ -386,7 +386,7 @@ const { pendingVerification } = await import(B + 'feedGen.js');
 check('...and due at once for the background chain', pendingVerification(cap.nodeId)?.entry?.question?.question === 'CONFIRM capture: what is 2 + 2?');
 
 // ---- 9. a verdict written after the working ---------------------------------------------
-// The lesson question in the Taylor clip (4 Nov 2026) was stamped "verifier
+// A lesson question was stamped "verifier
 // returned nothing usable" although the verifier had answered `ok` with the
 // key: it worked the limit out in TeX first, and the reader took the JSON to
 // start at the first `{` of `\dfrac{f'(h)}{h}`. Its reply, shape for shape.

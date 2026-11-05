@@ -4,8 +4,8 @@
 // Nothing used to budget a creation. The phase plan named no phase count, a
 // phase's sections no section count, and the per-section topic prompt no topic
 // count at all, so a course grew with the model's enthusiasm rather than the
-// learner's request: "Taylor series" with the goal "I want to understand
-// Taylor series" came back on 1 Nov 2026 as 8 phases, 89 sections and 811
+// learner's request: a course on one calculus topic, with the goal "I want to
+// understand it", came back as 8 phases, 89 sections and 811
 // topics. The batched topic prompt did say "3 to 6", and the phases that went
 // through it held 4 to 6; phases of 11 or 12 sections are wider than
 // BATCH_MAX, fell to the per-section prompt, and wrote 9 to 14 each.

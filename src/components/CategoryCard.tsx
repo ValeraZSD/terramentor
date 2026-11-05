@@ -247,20 +247,17 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
         )}
       </div>
 
-      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={t("Add New Item")}>
-        <div className="space-y-4">
-          <TextInput
-            value={newItemTitle}
-            onChange={(e) => setNewItemTitle(e.target.value)}
-            placeholder={t("Item title…")}
-            autoFocus
-            onKeyDown={(e) => e.key === 'Enter' && handleAddChild()}
-          />
-          <div className="flex justify-end gap-3">
-            <Button variant="quiet" onClick={() => setShowAddModal(false)}>{t("Cancel")}</Button>
-            <Button variant="primary" onClick={handleAddChild} disabled={!newItemTitle.trim()}>{t("Add")}</Button>
-          </div>
-        </div>
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title={t("Add New Item")} footer={<>
+        <Button variant="quiet" onClick={() => setShowAddModal(false)}>{t("Cancel")}</Button>
+        <Button variant="primary" onClick={handleAddChild} disabled={!newItemTitle.trim()}>{t("Add")}</Button>
+      </>}>
+        <TextInput
+          value={newItemTitle}
+          onChange={(e) => setNewItemTitle(e.target.value)}
+          placeholder={t("Item title…")}
+          autoFocus
+          onKeyDown={(e) => e.key === 'Enter' && handleAddChild()}
+        />
       </Modal>
     </>
   );

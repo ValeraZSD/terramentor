@@ -4,7 +4,7 @@
 // The probe dialog was ONE scroller (`overflow-y-auto` on the dialog itself)
 // with "Finish now" and "Next" at the bottom of the scrolled content. A long
 // explanation under an answer pushed them past the dialog's edge: at 1280x800
-// in the Taylor clip (4 Nov 2026) the learner saw the explanation and no way
+// the learner saw the explanation and no way
 // on. Now the dialog never scrolls, the body between header and footer does,
 // and the buttons sit in a footer outside it.
 //
@@ -122,7 +122,7 @@ const scrolls = (el) => SCROLLS.test(el.getAttribute('class') ?? '');
 const chain = (el, top) => { const out = []; for (let n = el; n; n = n.parentElement) { out.push(n); if (n === top) break; } return out; };
 const button = (text) => [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === text) ?? null;
 
-// The Taylor take's explanation: long enough to fill a laptop screen.
+// An explanation long enough to fill a laptop screen.
 const LONG = 'Write g(x) = e^{-1/x^2} for x ≠ 0 and g(0) = 0. '.repeat(40);
 
 if (PlacementModal) {
@@ -134,7 +134,7 @@ if (PlacementModal) {
     const host = doc.createElement('div');
     doc.body.appendChild(host);
     const r = createRoot(host);
-    await act(() => r.render(h(PlacementModal, { isOpen: true, onClose() { }, projectId: 1, projectName: 'Taylor series' })));
+    await act(() => r.render(h(PlacementModal, { isOpen: true, onClose() { }, projectId: 1, projectName: 'Calculus' })));
     await settle();
     const dialog = doc.querySelector('[role="dialog"]');
     const skip = button("I don't know — skip");
@@ -200,20 +200,22 @@ if (PlacementModal) {
         // The cap is a CSS pair, `vh` then `dvh`: Tailwind would emit two
         // classes the other way round, and the `vh` one would win on a phone.
         const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
-        const rules = [...css.matchAll(/\.placement-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
-        const pairsInOrder = rules.length === 2 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
+        // Since the dialog-footers PR the frame is ui/Dialog's DIALOG_SHELL,
+        // whose cap is the shared `.modal-shell`.
+        const rules = [...css.matchAll(/\.modal-shell\s*\{([^}]*)\}/g)].map(m => m[1]);
+        const pairsInOrder = rules.length === 1 && rules.every(r => /max-height:\s*\d+vh;[\s\S]*max-height:\s*\d+dvh;/.test(r));
         // A cap past the window's height lets the footer leave the window.
         const caps = rules.flatMap(r => [...r.matchAll(/max-height:\s*(\d+(?:\.\d+)?)d?vh;/g)].map(m => Number(m[1])));
-        ok('…and caps its height with a vh-then-dvh pair (phone and sm), each within the window',
-            /(^|\s)placement-shell(\s|$)/.test(cls) && pairsInOrder && caps.length === 4 && caps.every(v => v <= 100),
-            `${cls} | ${rules.length} .placement-shell rule(s), caps ${JSON.stringify(caps)}`);
+        ok('…and caps its height with a vh-then-dvh pair, within the window',
+            /(^|\s)modal-shell(\s|$)/.test(cls) && pairsInOrder && caps.length === 2 && caps.every(v => v <= 100),
+            `${cls} | ${rules.length} .modal-shell rule(s), caps ${JSON.stringify(caps)}`);
         const explanation = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && e.textContent.startsWith(LONG.slice(0, 60)));
         const body = explanation && chain(explanation, dialog).find(scrolls);
         ok('the explanation sits in a scroller inside the dialog', !!body && body !== dialog);
         // flex-1 lets it shrink below its content; its min-height is a small
         // floor (at most 8rem), so it, not the dialog, gives up height first.
         // Never zero: at 480x220 a zero floor left a sliver of body and the
-        // question could not be read (measured in Edge, 4 Nov 2026).
+        // question could not be read (measured in Edge).
         const bodyCls = body?.getAttribute('class') ?? '';
         const floor = /(?:^|\s)min-h-(\d+)(?:\s|$)/.exec(bodyCls);
         ok('…which is a flex child that shrinks below its content to a small, non-zero floor', !!body && /(^|\s)flex-1(\s|$)/.test(bodyCls) && !!floor && Number(floor[1]) >= 16 && Number(floor[1]) <= 32,

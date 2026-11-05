@@ -3,8 +3,8 @@
 //
 // Run:  node tools/course-size-gates.mjs [--server <dir>]
 //
-// "Taylor series" with the goal "I want to understand Taylor series" came back
-// on 1 Nov 2026 as 8 phases, 89 sections and 811 topics. Nothing budgeted the
+// A course on one calculus topic, with the goal "I want to understand it", came
+// back as 8 phases, 89 sections and 811 topics. Nothing budgeted the
 // size: the phase plan named no count, a phase's sections no count, and the
 // per-section topic prompt (taken by every phase wider than BATCH_MAX, five of
 // the eight) no count at all, so those phases wrote 9 to 14 topics a section.

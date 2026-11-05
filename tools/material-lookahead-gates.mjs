@@ -249,7 +249,7 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
 // schedule. A topic opened from the outline ("Study this") is REQUESTED, and
 // the burst wrote its lessons first but dropped it the moment they were done,
 // so its check was written only when the learner pressed "Take the mastery
-// check" and sat on the model (Taylor clip, 4 Nov 2026: topic 63 of 71). A
+// check" and sat on the model. A
 // real burst here, against the stub model: the requested topic is taught, the
 // focus topic has everything, and the next thing written is the requested
 // topic's bank.

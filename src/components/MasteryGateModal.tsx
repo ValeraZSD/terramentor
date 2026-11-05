@@ -7,7 +7,7 @@ import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
 import { formatOf, defaultAnswer } from './answer/formats';
 import { isUnchecked, askedEntry } from './UncheckedKeyNote';
-import { gradeAnswer } from '../utils/grading';
+import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useStore } from '../store';
 import { aiRuntime, slowGenerationHint, timeoutHint } from '../utils/aiHints';
 import { useTranslation } from 'react-i18next';
@@ -16,9 +16,13 @@ import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
+import { DialogFooter } from './ui/Dialog';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { questionRef } from '../utils/itemReports';
 import { useItemReports } from '../utils/itemReportStore';
+
+/** One graded answer of the check; `run` = the test rows behind a run-graded code answer. */
+type CheckResult = { correct: boolean; explanation?: string; run?: GradedAnswer['run'] };
 
 interface MasteryGateModalProps {
     isOpen: boolean;
@@ -59,7 +63,7 @@ export default function MasteryGateModal({
     const [answers, setAnswers] = useState<Record<number, string>>({});
     // Per-question correctness + explanation, so the results screen can show the
     // learner exactly which questions they missed (they can pass with a few wrong).
-    const [answerResults, setAnswerResults] = useState<Record<number, { correct: boolean; explanation?: string }>>({});
+    const [answerResults, setAnswerResults] = useState<Record<number, CheckResult>>({});
     const [submitted, setSubmitted] = useState(false);
     // `completed`: the server finished the topic in the same write that
     // recorded this pass (server/masteryCheck.js), so nothing here has to.
@@ -428,7 +432,7 @@ export default function MasteryGateModal({
         try {
             const out = new Set(questions.flatMap((_, i) => (isReported(i) ? [i] : [])));
             let correct = 0;
-            const results: Record<number, { correct: boolean; explanation?: string }> = {};
+            const results: Record<number, CheckResult> = {};
             for (let i = 0; i < questions.length; i++) {
                 if (out.has(i)) continue;
                 const q = questions[i];
@@ -443,7 +447,7 @@ export default function MasteryGateModal({
                 if (!userAnswer.trim()) { results[i] = { correct: false, explanation: q.explanation }; continue; }
                 const graded = await gradeAnswer(q, userAnswer);
                 if (graded.correct) correct++;
-                results[i] = { correct: graded.correct, explanation: graded.explanation };
+                results[i] = { correct: graded.correct, explanation: graded.explanation, run: graded.run };
             }
             setAnswerResults(results);
 
@@ -546,9 +550,8 @@ export default function MasteryGateModal({
     const questionPhase = !loading && !error && !submitted && questions.length > 0;
 
     // Every way out of a pass is the same: Continue, the X and Escape all go
-    // through onPassed. Only Continue did, and it sits below the review of
-    // every answer, often out of sight; a learner who closed with the X found
-    // the topic still offered as next (tools/check-pass-close-gates.mjs). The
+    // through onPassed. A learner who closed a pass with the X found the topic
+    // still offered as next (tools/check-pass-close-gates.mjs). The
     // server completes the topic with the pass itself, so onPassed's own
     // write changes nothing; what it adds is the refresh. A retake has
     // nothing to finish.
@@ -693,33 +696,6 @@ export default function MasteryGateModal({
                                     </pre>
                                 </div>
                             )}
-
-                            {/* One group: the learner is never stuck — even with
-                                the AI unavailable, they can move on honestly. No
-                                primary: with no check to take, closing the topic
-                                without one is a way out, never the default. All
-                                outlined, since next to outlined buttons a bare
-                                "Close" reads as text. */}
-                            <div className="flex gap-2 mt-6 justify-center w-full flex-wrap">
-                                <Button onClick={onClose}>
-                                    {t("Close")}
-                                </Button>
-                                {!uncheckedOnly && (
-                                    <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
-                                        {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
-                                    </Button>
-                                )}
-                                {offerSkip && (
-                                    <Button onClick={onSkip}>
-                                        {t("Skip topic")}
-                                    </Button>
-                                )}
-                                {offerMarkAnyway && (
-                                    <Button onClick={onMarkAnyway}>
-                                        {t("Mark done without the check")}
-                                    </Button>
-                                )}
-                            </div>
                         </div>
                     )}
 
@@ -865,6 +841,7 @@ export default function MasteryGateModal({
                                                     answer={answers[i] || defaultAnswer(q)}
                                                     correct={answerResults[i]?.correct ?? false}
                                                     explanation={answerResults[i]?.explanation}
+                                                    run={answerResults[i]?.run}
                                                     nodeId={nodeId}
                                                     nodeTitle={nodeTitle}
                                                     projectName={projectName}
@@ -884,47 +861,81 @@ export default function MasteryGateModal({
                                     </div>
                                 );
                             })()}
-
-                            <div className="mt-8 flex gap-2 justify-center flex-wrap">
-                                {result.passed ? (
-                                    <Button
-                                        variant="primary"
-                                        onClick={leave}
-                                    >
-                                        {t("Continue")}
-                                    </Button>
-                                ) : (
-                                    <>
-                                        {/* The ways out of a failed check are quiet, as in
-                                            the footer while answering: a new draw is the
-                                            way on, not an outlined equal of these. */}
-                                        <Button variant="quiet" onClick={leave}>
-                                            {t("Study More")}
-                                        </Button>
-                                        {offerSkip && (
-                                            <Button variant="quiet" onClick={onSkip}>
-                                                {t("Skip topic")}
-                                            </Button>
-                                        )}
-                                        {offerMarkAnyway && (
-                                            <Button variant="quiet" onClick={onMarkAnyway}>
-                                                {t("Mark done without the check")}
-                                            </Button>
-                                        )}
-                                        <Button
-                                            variant="primary"
-                                            // A fresh draw, never the same ten with their
-                                            // answer keys just shown on the review screen.
-                                            onClick={() => setDrawSeq(s => s + 1)}
-                                        >
-                                            {t("Retry the mastery check")}
-                                        </Button>
-                                    </>
-                                )}
-                            </div>
                         </div>
                     ); })()}
                 </div>
+
+                {/* Every phase's way on sits in the foot, outside the scroll: a
+                    result with a long "Review answers" list put Continue and
+                    Retry below the window, as the questions once did Submit. */}
+                {error && !submitted && (
+                    // One group: the learner is never stuck — even with the AI
+                    // unavailable, they can move on honestly. No primary: with
+                    // no check to take, closing the topic without one is a way
+                    // out, never the default. All outlined, since next to
+                    // outlined buttons a bare "Close" reads as text.
+                    <DialogFooter inset="px-6">
+                        <Button onClick={onClose}>
+                            {t("Close")}
+                        </Button>
+                        {!uncheckedOnly && (
+                            <Button onClick={() => setShowRawOutput(!showRawOutput)} aria-expanded={showRawOutput}>
+                                {showRawOutput ? t("Hide Raw Output") : t("See Raw Output")}
+                            </Button>
+                        )}
+                        {offerSkip && (
+                            <Button onClick={onSkip}>
+                                {t("Skip topic")}
+                            </Button>
+                        )}
+                        {offerMarkAnyway && (
+                            <Button onClick={onMarkAnyway}>
+                                {t("Mark done without the check")}
+                            </Button>
+                        )}
+                    </DialogFooter>
+                )}
+                {submitted && shownResult && (
+                    <DialogFooter inset="px-6">
+                        {shownResult.passed ? (
+                            <Button
+                                variant="primary"
+                                // The same way out as the X and Escape (`leave`):
+                                // a retake has nothing to finish.
+                                onClick={leave}
+                            >
+                                {t("Continue")}
+                            </Button>
+                        ) : (
+                            <>
+                                {/* The ways out of a failed check are quiet, as in
+                                    the footer while answering: a new draw is the
+                                    way on, not an outlined equal of these. */}
+                                <Button variant="quiet" className="mr-auto" onClick={leave}>
+                                    {t("Study More")}
+                                </Button>
+                                {offerSkip && (
+                                    <Button variant="quiet" onClick={onSkip}>
+                                        {t("Skip topic")}
+                                    </Button>
+                                )}
+                                {offerMarkAnyway && (
+                                    <Button variant="quiet" onClick={onMarkAnyway}>
+                                        {t("Mark done without the check")}
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="primary"
+                                    // A fresh draw, never the same ten with their
+                                    // answer keys just shown on the review screen.
+                                    onClick={() => setDrawSeq(s => s + 1)}
+                                >
+                                    {t("Retry the mastery check")}
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                )}
 
                 {questionPhase && (
                     <div className="flex-shrink-0 px-6 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">

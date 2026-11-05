@@ -93,6 +93,8 @@ function isBypassed(url) {
         // Loading it is a navigation, and a navigation below is cached as the
         // app's own page: one sketch would replace the offline shell.
         url.pathname === '/sandbox.html' ||
+        // The frame a learner's code runs behind (server/runnerFrame.js), the same way.
+        url.pathname === '/runner.html' ||
         url.pathname.startsWith('/@') ||        // /@vite, /@react-refresh, /@fs/...
         url.pathname.startsWith('/src/') ||     // dev: unbundled source modules
         url.pathname.startsWith('/node_modules') ||

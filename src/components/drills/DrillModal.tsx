@@ -58,7 +58,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
             onClick={onClose}
         >
             <div
-                className="relative flex w-full flex-col bg-white dark:bg-slate-800 shadow-xl sm:max-w-lg sm:rounded-2xl sm:max-h-[84vh]"
+                className="relative flex w-full flex-col bg-white dark:bg-slate-800 shadow-xl sm:max-w-lg sm:rounded-2xl sm:max-h-[84dvh]"
                 onClick={e => e.stopPropagation()}
             >
                 {/* The close button is a ROW, not an overlay.

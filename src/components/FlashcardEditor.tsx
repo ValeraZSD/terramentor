@@ -118,7 +118,17 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
     );
 
     return (
-        <Modal isOpen onClose={onClose} title={t("Edit card")} maxWidth="max-w-lg">
+        <Modal isOpen onClose={onClose} title={t("Edit card")} maxWidth="max-w-lg" footer={<>
+            {/* Deleting is the one action here that cannot be taken
+                back, so it sits apart, at the start of the row. */}
+            <IconButton variant="danger" onClick={remove} disabled={busy} label={t("Delete this card")} icon={<Trash2 className="w-4 h-4" />} className="mr-auto" />
+            <Button variant="quiet" onClick={onClose} disabled={busy}>
+                {t("Cancel")}
+            </Button>
+            <Button variant="primary" onClick={save} disabled={!dirty} busy={busy}>
+                {t("Save")}
+            </Button>
+        </>}>
             <div className="space-y-4">
                 {field('Question', front, setFront, 2)}
                 {/* What the card shows WITH the question — a phrasebook asks
@@ -130,18 +140,6 @@ export default function FlashcardEditor({ card, onClose, onSaved, onDeleted }: P
                 {field('Answer', back, setBack, 2)}
                 {field('Supporting lines', extra, setExtra, 3,
                     'Shown under the answer — a reading, an example sentence, its translation. One per line.')}
-
-                <div className="flex items-center gap-2 pt-1">
-                    {/* Deleting is the one action here that cannot be taken
-                        back, so it sits apart, at the start of the row. */}
-                    <IconButton variant="danger" onClick={remove} disabled={busy} label={t("Delete this card")} icon={<Trash2 className="w-4 h-4" />} className="mr-auto" />
-                    <Button variant="quiet" onClick={onClose} disabled={busy}>
-                        {t("Cancel")}
-                    </Button>
-                    <Button variant="primary" onClick={save} disabled={!dirty} busy={busy}>
-                        {t("Save")}
-                    </Button>
-                </div>
             </div>
         </Modal>
     );
