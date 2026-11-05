@@ -350,7 +350,12 @@ function registerViews(server, appFor) {
         description: 'After a passed check, mark its topic completed through the app\'s own completion gate.',
     }, async (app, { sitting: token }) => {
         const { nodeId, completed, status } = await app.post('/api/agent/check/completion', { token });
-        if (completed && status && status !== 'completed') {
+        if (completed && !status) {
+            // The pass completed it, and the topic was deleted since.
+            return forView('The pass is recorded, but the topic has since been deleted.',
+                await app.post('/api/agent/check/completed', { token }));
+        }
+        if (completed && status !== 'completed') {
             // The pass completed it, and the topic was set otherwise since: left as it is.
             return forView(`The pass is recorded, but the topic has since been set to ${status.replace('_', ' ')}; it was left that way.`,
                 await app.post('/api/agent/check/completed', { token }));

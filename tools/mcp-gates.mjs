@@ -1084,6 +1084,20 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     ok('...and says the topic was set otherwise, never "marked completed"',
         /since been set to skipped/.test(textOf(done)) && !/marked completed/.test(textOf(done)), textOf(done).slice(0, 200));
     db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(checkedTopic);
+    {
+        // Deleted since: check_complete must not claim a topic that is gone.
+        const gone = addNode('Beats', section, { position: 9 });
+        db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(gone, 'Beats', JSON.stringify(BANK));
+        const sitGone = sittingOf(await hostCall('mastery_check', { topic: gone }));
+        const qsGone = data(await hostCall('check_questions', { sitting: sitGone })).questions || [];
+        const passedGone = await hostCall('check_submit', { sitting: sitGone, answers: answersFor(qsGone, [0, 1, 2, 3, 4]) });
+        db.prepare('DELETE FROM nodes WHERE id = ?').run(gone);
+        const doneGone = await hostCall('check_complete', { sitting: sitGone });
+        ok('check_complete on a topic deleted since says so, never "marked completed"',
+            data(passedGone).result?.completed === true && !isErr(doneGone)
+                && /since been deleted/.test(textOf(doneGone)) && !/marked completed/.test(textOf(doneGone)),
+            `${JSON.stringify(data(passedGone).result?.completed)} ${textOf(doneGone).slice(0, 200)}`);
+    }
     const crossed = await hostCall('review_next', { sitting: sit2 });
     ok('a check\'s token is not a review\'s', isErr(crossed));
 
