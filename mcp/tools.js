@@ -35,8 +35,13 @@ const UI_EXTENSION = 'io.modelcontextprotocol/ui';
 const SITTING = 'terramentor/sitting';
 const LANGUAGE = 'terramentor/language';
 const NOTHING = 'terramentor/nothing';
-/** How long check_submit waits on the grading: open answers go to the answer checker one at a time. */
-const SUBMIT_TIMEOUT_MS = 180_000;
+/**
+ * How long check_submit waits on the grading before it answers "still grading". Open answers
+ * go to the answer checker one at a time, so it can take longer; it stays under the 60 s that
+ * the MCP SDK's client, and so many hosts, allow a tool call, or the host's own timeout would
+ * reach the view first. The grading carries on, and the next Submit waits on the same grading.
+ */
+const SUBMIT_TIMEOUT_MS = 50_000;
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const PROPOSE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
