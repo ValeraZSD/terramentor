@@ -12,6 +12,7 @@
 // so main, the tag and the running app never disagree about what 1.2.0 is.
 
 import { compareVersions } from '../../server/version.js';
+import { BUNDLE_ROOT } from '../../desktop/updateCore.js';
 
 /** The schedule never publishes twice inside this window. */
 export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
@@ -312,8 +313,9 @@ export function buildManifest({ repo, channel, version, commit, builtAt, issuedA
         if (f.files !== undefined && !listOk(f.files)) {
             throw new Error(`${f.name}: its file list is not described as {path: "files.json", size, sha256}`);
         }
-        // A macOS package: the app inside its bundle, the list beside the app.
-        if (f.bundle !== undefined && (f.files !== undefined || !f.bundle || !/^[^/]+\.app\/Contents\/Resources\/app$/.test(f.bundle.root) || !listOk(f.bundle.files))) {
+        // A macOS package: the app inside its bundle (the updater's own rule),
+        // the list beside the app.
+        if (f.bundle !== undefined && (f.files !== undefined || !f.bundle || !BUNDLE_ROOT.test(f.bundle.root) || !listOk(f.bundle.files))) {
             throw new Error(`${f.name}: its app bundle is not described as {root: "<name>.app/Contents/Resources/app", files: {path: "files.json", size, sha256}}`);
         }
         assets[platform] = {

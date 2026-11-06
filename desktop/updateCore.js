@@ -40,6 +40,10 @@ export const UPDATE_DIR = '.update';
  *  either would make the next start open an empty library. */
 export const NEVER_MOVED = new Set([UPDATE_DIR, 'data', 'library-location.txt']);
 
+/** A macOS package's app folder: inside a bundle at the package's top. The
+ *  release manifest's writer (tools/lib/releaseChannel.mjs) checks the same. */
+export const BUNDLE_ROOT = /^[^/]+\.app\/Contents\/Resources\/app$/;
+
 /** A path from a file list or a zip, made safe to join under a folder: forward
  *  slashes, no empty, `.` or `..` segment, no drive or root, nothing hidden in
  *  a backslash. Returns null for anything else, and the caller refuses it. */
@@ -172,10 +176,9 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
         // One description of the file list, never two: a package that named
         // both would be staged by a version reading `files` as if its app sat
         // at the top of the zip.
-        // The root is the app folder of a bundle at the package's top, the one
-        // shape tools/lib/releaseChannel.mjs writes.
+        // The root is the app folder of a bundle at the package's top.
         if (asset.files !== undefined || !b || typeof b.root !== 'string' || safeRelPath(b.root) !== b.root
-            || !/^[^/]+\.app\/Contents\/Resources\/app$/.test(b.root) || badList(b.files)) throw unreadable();
+            || !BUNDLE_ROOT.test(b.root) || badList(b.files)) throw unreadable();
     }
     return asset;
 }
