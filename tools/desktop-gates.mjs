@@ -1141,9 +1141,16 @@ console.log('\n--- macOS: the browser is started through `open` ---');
             lib.whenStarted(child, {
                 started: () => { said.push('started'); heard(); },
                 failed: (e) => { said.push(`failed ${e.code}`); heard(); },
+                stopped: (e) => { said.push(`stopped ${e.signal}`); heard(); },
             }, { byExit: true });
             setTimeout(() => done(said), 20_000).unref();
         });
+        // Quit stops a window that is still starting (by its profile, in the
+        // go-between's command line): no answer, so no default browser after it.
+        const starting = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+        starting.once('spawn', () => setTimeout(() => starting.kill('SIGTERM'), 200));
+        check('judged by exit: a launcher stopped by a signal was stopped, not a failure',
+            await byExit(starting), ['stopped SIGTERM']);
         check('judged by exit: a launcher that exits 0 is a start',
             await byExit(spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })), ['started']);
         check('judged by exit: a launcher that exits non-zero is a failure, though it did spawn',

@@ -298,6 +298,8 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
                 console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
                 openDefault(url).then(done);
             },
+            // Quitting stops a window still starting; no other browser then.
+            stopped: (e) => { console.log(`The window starting in ${browser} was stopped (${e.signal}); no other browser is opened`); done(); },
         }, { byExit });
         // No kill is armed here. A transient open — "already running, show me
         // a window" — exits at once, and an armed kill would close the window
