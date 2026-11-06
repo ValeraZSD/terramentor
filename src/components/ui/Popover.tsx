@@ -171,7 +171,16 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         // still floating there would belong to nothing on screen.
         if (r.bottom < 0 || r.top > window.innerHeight) { closeRef.current(); return; }
         const borders = el.offsetHeight - el.clientHeight;
-        setPlace(placePopover(r, { width: el.offsetWidth, height: el.scrollHeight + borders },
+        // The surface's own width, not the cap the last placement put on it: a
+        // capped box measured as capped would lose its cap on the next scroll,
+        // grow back past the edge and be capped again, on every scroll event.
+        const { maxWidth, minWidth } = el.style;
+        el.style.maxWidth = 'none';
+        el.style.minWidth = '';
+        const width = el.offsetWidth;
+        el.style.maxWidth = maxWidth;
+        el.style.minWidth = minWidth;
+        setPlace(placePopover(r, { width, height: el.scrollHeight + borders },
             popoverBounds(), { align, gap }));
     }, [anchorRef, surfaceRef, align, gap]);
 
@@ -320,6 +329,10 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                         left: place?.left ?? 0,
                         top: place?.top ?? 0,
                         maxWidth: place?.maxWidth,
+                        // A capped menu drops its 13rem floor: in CSS a
+                        // min-width beats a max-width, and the box would run
+                        // past the edge it was placed against.
+                        minWidth: place?.maxWidth != null ? 0 : undefined,
                         maxHeight: place?.maxHeight,
                         visibility: place ? 'visible' : 'hidden',
                     }}
@@ -375,6 +388,18 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
         onEscape: e => { e.preventDefault(); closeRef.current(); },
         initialFocus: startRef,
     });
+    // As the sheet does: Safari does not focus a clicked button, so
+    // `useDialogFocus` may have had no opener to hand focus back to. Declared
+    // after it, so this cleanup runs after its own and only fills that gap.
+    useEffect(() => {
+        if (!open || sheet) return;
+        return () => {
+            const active = document.activeElement;
+            if ((!active || active === document.body) && anchorRef.current?.isConnected) {
+                anchorRef.current.focus({ preventScroll: true });
+            }
+        };
+    }, [open, sheet, anchorRef]);
 
     if (open && sheet) {
         return (

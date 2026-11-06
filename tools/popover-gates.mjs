@@ -87,18 +87,22 @@ try {
                 // One opener of each kind, open or shut.
                 globalThis.__mount = (el, kind) => {
                     const r = createRoot(el);
-                    const log = { closes: 0 };
+                    const log = { closes: 0, card: 0 };
+                    // The opener sits on a card that opens something on a press,
+                    // as a project card does: a press inside the portalled menu
+                    // must not be a press on the card too.
+                    const card = { onClick: () => { log.card++; }, onPointerDown: () => { log.card++; } };
                     function Host({ open }) {
                         const btn = React.useRef(null);
                         const close = () => { log.closes++; };
                         const trigger = h('button', { ref: btn, id: 'trigger' }, 'Open');
-                        if (kind === 'menu') return h(React.Fragment, null, trigger,
+                        if (kind === 'menu') return h('div', card, trigger,
                             h(Pop.MenuPopover, { open, onClose: close, anchorRef: btn, label: 'Project options' },
                                 h(Pop.MenuItem, { onSelect: () => { } }, 'Edit'),
                                 h(Pop.MenuItem, { onSelect: () => { } }, 'Export'),
                                 h(Pop.MenuItem, { onSelect: () => { }, tone: 'danger' }, 'Delete')));
                         if (kind === 'panel') return Pop.PanelPopover
-                            ? h(React.Fragment, null, trigger,
+                            ? h('div', card, trigger,
                                 h(Pop.PanelPopover, { open, onClose: close, anchorRef: btn, label: 'Icon and colour', width: 'w-72' },
                                     h('button', { id: 'inside' }, 'A control')))
                             : h('div', null, 'no PanelPopover');
@@ -255,6 +259,8 @@ section('2. under a finger, what opens from a button is the ONE bottom sheet');
     // floats, placed in the same room.
     check('the model picker (a typed search) floats in the visual viewport less the insets',
         /popoverBounds\(\)/.test(read('src/components/ModelPicker.tsx')));
+    check('…and moves when the keyboard it raises shrinks the visual viewport',
+        /followVisualViewport\(/.test(read('src/components/ModelPicker.tsx')));
     // One sheet.
     const handles = files.filter(f => /data-sheet-handle/.test(read(f)) && f !== 'src/components/AtlasView.tsx');
     check('one sheet: only ui/Sheet.tsx draws a pull handle (the atlas\'s index is a page, not an opener)',
@@ -270,6 +276,12 @@ const host = document.getElementById('root');
 const settle = () => globalThis.__act(async () => { await new Promise(r => setTimeout(r, 30)); });
 const pressKey = (k) => globalThis.__act(() => { document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); });
 const dialogOf = (el) => el?.closest('[role="dialog"][aria-modal="true"]');
+// A press as a finger or a mouse makes it: pointerdown, then click.
+const press = (el) => globalThis.__act(() => {
+    el?.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+    el?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+});
+const inside = (kind, root) => root?.querySelector(kind === 'menu' ? '[role="menuitem"]' : '#inside');
 
 if (bundled) {
     for (const kind of ['menu', 'panel']) {
@@ -281,6 +293,8 @@ if (bundled) {
         await m.render(true); await settle();
         let surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
         check(`${what} with a mouse floats beside its button (no sheet)`, !!surface && !document.querySelector('[data-bottom-sheet]'));
+        await press(inside(kind, surface));
+        check('…a press inside it is not a press on the card it opened from', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         await m.render(false); m.unmount();
 
         // A finger: the sheet.
@@ -308,6 +322,8 @@ if (bundled) {
         const backdrop = document.querySelector('[data-bottom-sheet] > [aria-hidden="true"]');
         await globalThis.__act(() => { backdrop?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
         check('…a tap outside it closes it', m.log.closes === 2, `${m.log.closes} close(s)`);
+        await press(inside(kind, document.querySelector('[data-bottom-sheet]')));
+        check('…and no tap on the sheet (the dimmed backdrop, a row) reaches the card behind it', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         await m.render(false); m.unmount();
     }
 

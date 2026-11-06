@@ -13,7 +13,7 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
-import { popoverBounds } from './ui/Popover';
+import { followVisualViewport, popoverBounds } from './ui/Popover';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -151,9 +151,13 @@ export default function ModelPicker({
         // `true` — a scroll inside any ancestor moves the trigger too.
         window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', onScroll);
+        // The keyboard the filter field raises shrinks only the visual
+        // viewport: no window resize fires for it.
+        const unfollow = followVisualViewport(onScroll);
         return () => {
             window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', onScroll);
+            unfollow();
         };
     }, [open, place]);
 

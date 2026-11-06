@@ -281,7 +281,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 aria-haspopup="menu"
                                 aria-expanded={showMenu}
                                 icon={<MoreVertical className="w-4 h-4" />}
-                                className="can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100"
+                                className="can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
                             />
 
                             <MenuPopover open={showMenu} onClose={() => setShowMenu(false)} anchorRef={menuBtnRef} label={t("Project options")} align="end">

@@ -55,8 +55,10 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     // wherever hovering isn't possible.
     const hoverCapable = useCanHover();
     // Revealed by the pointer, and by the keyboard too: a Tab into the row's
-    // title must not leave its drag handle and ⋮ menu invisible.
-    const rowControls = !hoverCapable || isHovered ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100';
+    // title must not leave its drag handle and ⋮ menu invisible. Nor may the
+    // ⋮ vanish while its menu is open: the menu is portalled, so focus on its
+    // rows is no longer within the row.
+    const rowControls = !hoverCapable || isHovered ? 'opacity-100' : 'opacity-0 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100';
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: node.id, data: { kind: 'row', cardId } });
     const style = { transform: CSS.Translate.toString(transform), transition };
