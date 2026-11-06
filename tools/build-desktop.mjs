@@ -61,14 +61,14 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
     existsSync, mkdirSync, rmSync, cpSync, copyFileSync, readFileSync, writeFileSync,
-    readdirSync, statSync, createReadStream, createWriteStream, chmodSync, realpathSync,
+    readdirSync, statSync, chmodSync, realpathSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import JSZip from 'jszip';
 import { buildIco, buildIcns } from './lib/icons.mjs';
+import { zipFolder } from './lib/zipFolder.mjs';
 import { codeFiles, runtimeSources, RUNTIME_DATA } from './lib/runtimeSources.mjs';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
 
@@ -380,7 +380,7 @@ mkdirSync(outRoot, { recursive: true });
 if (!noZip) {
     const zipPath = join(outRoot, `${name}.zip`);
     log(`▸ zipping → ${relative(repoRoot, zipPath)}`);
-    await zipFolder(stage, zipPath, name);
+    await zipFolder(stage, zipPath, name, platform);
     log(`  ${(statSync(zipPath).size / 1024 / 1024).toFixed(1)} MB`);
 }
 const finalDir = join(outRoot, name);
@@ -508,27 +508,4 @@ function compileWindowsLauncher(exePath, icoPath) {
     }
 }
 
-/** Zip a folder, streaming, keeping executable bits for macOS/Linux readers. */
-async function zipFolder(folder, zipPath, rootName) {
-    const zip = new JSZip();
-    const walk = (d) => {
-        for (const f of readdirSync(d)) {
-            const p = join(d, f);
-            const rel = `${rootName}/${relative(folder, p).split(sep).join('/')}`;
-            const st = statSync(p);
-            if (st.isDirectory()) { walk(p); continue; }
-            const exec = platform !== 'win32' && (st.mode & 0o111) !== 0;
-            // The full mode, regular-file type bits included, as Info-ZIP
-            // writes it: a reader may ignore permissions that carry no type.
-            zip.file(rel, createReadStream(p), { unixPermissions: exec ? 0o100755 : 0o100644, date: st.mtime });
-        }
-    };
-    walk(folder);
-    await new Promise((res, rej) => {
-        zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, platform: platform === 'win32' ? 'DOS' : 'UNIX', compression: 'DEFLATE', compressionOptions: { level: 6 } })
-            .pipe(createWriteStream(zipPath))
-            .on('finish', res)
-            .on('error', rej);
-    });
-}
 
