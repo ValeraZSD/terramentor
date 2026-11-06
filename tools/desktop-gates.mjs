@@ -1134,9 +1134,15 @@ console.log('\n--- macOS: the browser is started through `open` ---');
 
     if (typeof lib.whenStarted === 'function') {
         const byExit = (child) => new Promise((done) => {
+            // Settled a moment after the first answer, so a second one would be
+            // heard; bounded for a runner that never answers.
             const said = [];
-            lib.whenStarted(child, { started: () => said.push('started'), failed: (e) => said.push(`failed ${e.code}`) }, { byExit: true });
-            setTimeout(() => done(said), 2000);
+            const heard = () => setTimeout(() => done(said), 300);
+            lib.whenStarted(child, {
+                started: () => { said.push('started'); heard(); },
+                failed: (e) => { said.push(`failed ${e.code}`); heard(); },
+            }, { byExit: true });
+            setTimeout(() => done(said), 20_000).unref();
         });
         check('judged by exit: a launcher that exits 0 is a start',
             await byExit(spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })), ['started']);
@@ -1188,10 +1194,20 @@ console.log('\n--- macOS: the bundle carries its own app ---');
 
     // A translocated copy is gone on the next start, so it never becomes the
     // login item or the shortcut target.
-    const launcher = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
-    const targetAt = launcher.indexOf('process.env.TERRAMENTOR_LAUNCH_TARGET =');
-    const guardAt = launcher.lastIndexOf("placement?.problem !== 'translocated'", targetAt);
-    ok('the launch target is withheld from a translocated copy', targetAt > 0 && guardAt > 0 && targetAt - guardAt < 120);
+    const lib = await import('../desktop/lib.js');
+    ok('desktop/lib.js says what a login item may name', typeof lib.launchTargetEnv === 'function');
+    if (typeof lib.launchTargetEnv === 'function') {
+        const launch = { target: '/Applications/Terramentor.app/Contents/Resources/app/runtime/node', args: ['launcher.js', '--data-dir', '/d'] };
+        check('a translocated copy names nothing', lib.launchTargetEnv(launch, { bundle: '/x.app', problem: 'translocated' }), {});
+        const named = { TERRAMENTOR_LAUNCH_TARGET: launch.target, TERRAMENTOR_LAUNCH_ARGS: JSON.stringify(launch.args) };
+        check('a bundle in Applications names itself', lib.launchTargetEnv(launch, { bundle: '/Applications/Terramentor.app', problem: null }), named);
+        check('…as does a read-only one, which is still there at the next sign-in', lib.launchTargetEnv(launch, { bundle: '/x.app', problem: 'read-only' }), named);
+        check('…and any copy that is not a macOS bundle', lib.launchTargetEnv(launch, null), named);
+    }
+    const launcher = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8').replace(/\r\n/g, '\n');
+    ok('the launcher sets the target only through it',
+        launcher.includes('Object.assign(process.env, launchTargetEnv(launch, placement));')
+        && !/process\.env\.TERRAMENTOR_LAUNCH_(?:TARGET|ARGS)\s*=/.test(launcher));
 
     const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
     ok('the macOS build puts the app inside the bundle', /MAC_APP_IN_BUNDLE/.test(build) && /bundleDir/.test(build));
@@ -1263,6 +1279,15 @@ console.log('\n--- macOS: the bundle\'s executable runs from a copy of the .app 
             check('a bundle with no app inside runs nothing', none.who, '(nothing ran)');
             ok('…fails', none.status !== 0, `exit ${none.status}`);
             ok('…and says to download it again', /download Terramentor again/i.test(none.stderr), none.stderr);
+
+            // An app folder that lost its node (a copy cut short) says the
+            // same, rather than the shell's "No such file" that nobody sees.
+            const partial = join(scratch, 'partial', 'Terramentor.app');
+            put(join(partial, 'Contents', 'MacOS', 'Terramentor'), wrapper, 0o755);
+            put(join(partial, 'Contents', 'Resources', 'app', 'desktop', 'launcher.js'), '');
+            const cut = run(join(partial, 'Contents', 'MacOS', 'Terramentor'), scratch);
+            ok('an app folder without its node fails and says to download it again',
+                cut.status !== 0 && /download Terramentor again/i.test(cut.stderr), `exit ${cut.status}: ${cut.stderr}`);
         } finally {
             rmSync(scratch, { recursive: true, force: true });
         }

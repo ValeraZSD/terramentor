@@ -549,6 +549,18 @@ export function launchCommand({
 }
 
 /**
+ * The environment that tells the server what a login item may name: `launch`
+ * (launchCommand above), except from a macOS copy macOS runs translocated
+ * (server/appPlacement.js). That path is gone once the app quits, so a login
+ * item naming it would fail at the next sign-in; with nothing set, the server
+ * says starting at sign-in is not available here.
+ */
+export function launchTargetEnv(launch, placement) {
+    if (placement?.problem === 'translocated') return {};
+    return { TERRAMENTOR_LAUNCH_TARGET: launch.target, TERRAMENTOR_LAUNCH_ARGS: JSON.stringify(launch.args) };
+}
+
+/**
  * What the updater starts after it has swapped a new version in: the login
  * item's command line, except where that names a batch file.
  *

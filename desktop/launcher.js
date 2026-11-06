@@ -31,7 +31,7 @@ import {
     APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserCommand,
     defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
-    DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
+    DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
     whenStarted,
 } from './lib.js';
@@ -136,13 +136,8 @@ const launch = launchCommand({
     scriptPath: fileURLToPath(import.meta.url),
     dataDir: chosen.dir,
 });
-// …except from a translocated copy: its path is gone once it quits, so a login
-// item naming it would fail at the next sign-in. Untold, the server says that
-// starting at sign-in is not available here, and the app says where to move it.
-if (placement?.problem !== 'translocated') {
-    process.env.TERRAMENTOR_LAUNCH_TARGET = launch.target;
-    process.env.TERRAMENTOR_LAUNCH_ARGS = JSON.stringify(launch.args);
-}
+// …except from a translocated copy, which the app asks to be moved (lib.js).
+Object.assign(process.env, launchTargetEnv(launch, placement));
 process.env.TERRAMENTOR_LAUNCH_DIR = appRoot;
 {
     const ico = join(appRoot, `${APP_NAME}.ico`);

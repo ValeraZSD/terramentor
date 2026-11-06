@@ -6,9 +6,10 @@
 # may look outside the bundle. One-click updates replace the app folder and
 # never this file, so it stays this small.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$(cd "$HERE/../Resources/app" 2>/dev/null && pwd)" || {
-    echo "Terramentor: the app is missing from $HERE/../Resources/app; download Terramentor again." >&2
+APP="$(cd "$HERE/../Resources/app" 2>/dev/null && pwd)"
+if [ -z "$APP" ] || [ ! -x "$APP/runtime/node" ] || [ ! -f "$APP/desktop/launcher.js" ]; then
+    echo "Terramentor: the app in $HERE/../Resources/app is missing or incomplete; download Terramentor again." >&2
     exit 1
-}
+fi
 cd "$APP" || exit 1
 exec "$APP/runtime/node" "$APP/desktop/launcher.js" "$@"
