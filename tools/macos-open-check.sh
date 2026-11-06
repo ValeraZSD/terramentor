@@ -39,7 +39,7 @@ say() { printf '%s\n' "$*"; }
 bad() { say "FAIL $*"; fail=1; }
 app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -v grep | head -1; }
 # What the launcher logs once its window has opened, or has not.
-window_said='Opened app window with|Opened default browser|Could not start|Could not open a browser'
+window_said='Opened app window with|Opened default browser|Could not start|Could not open a browser|was stopped'
 status() { curl -s -m 5 "http://127.0.0.1:$port/api/desktop/status"; }
 
 # limit SECONDS COMMAND...: run COMMAND, stopping it after SECONDS. Its exit
@@ -115,6 +115,11 @@ open_run() {
             sleep 1
         done
         [ -f "$log" ] && sed 's/^/  log: /' "$log"
+        if ! grep -qE "$window_said" "$log" 2>/dev/null; then
+            say "  no window line 30 s after the server answered; browser processes now:"
+            ps -axww -o pid=,command= | grep -E 'Google Chrome|open -n -a' | grep -v grep | cut -c1-240 | sed 's/^/    /'
+            [ -n "$shots" ] && mkdir -p "$shots" && limit 15 screencapture -x "$shots/macos-$name-no-window.png" && say "  screenshot: macos-$name-no-window.png"
+        fi
         local seen
         seen="$(cat "$log" 2>/dev/null | wc -l)"
         local from
@@ -144,9 +149,16 @@ open_run() {
             # A second launch finds the running app and leaves; it starts no
             # second server, and its window goes to the browser already
             # holding the app's profile.
+            local handed
+            handed="$(grep -c 'already running on port' "$log")"
             limit 20 open -n -a "$copy" --args --data-dir "$data" --port "$port"
             say "  second launch: open exited $?"
-            # It stays while its window opens (at most 15 s), then leaves.
+            # It takes a few seconds to arrive, stays while its window opens (at
+            # most 15 s), then leaves.
+            for _ in $(seq 1 30); do
+                [ "$(grep -c 'already running on port' "$log")" -gt "$handed" ] && break
+                sleep 1
+            done
             local again
             for _ in $(seq 1 25); do
                 again="$(pgrep -f -- "desktop/launcher.js --data-dir $data" | wc -l | tr -d ' ')"
@@ -155,7 +167,7 @@ open_run() {
             done
             [ "$again" = 1 ] && say "  ok: the second launch left; one app process runs" || bad "run '$name': $again app processes 25 s after the second launch"
             tail -n +"$((seen + 1))" "$log" | sed 's/^/  log: /'
-            grep -q 'already running on port' "$log" && say "  ok: the second launch handed over to the running app" || bad "run '$name': the second launch did not find the running app"
+            [ "$(grep -c 'already running on port' "$log")" -gt "$handed" ] && say "  ok: the second launch handed over to the running app" || bad "run '$name': the second launch did not find the running app"
             seen="$(cat "$log" 2>/dev/null | wc -l)"
 
             curl -s -m 10 -o /dev/null -X POST "http://127.0.0.1:$port/api/desktop/quit"
@@ -185,6 +197,19 @@ open_run() {
 }
 
 stop || { say "FAIL port $port is taken by something this script did not start"; exit 1; }
+
+# A person's browser has started before; a runner's has not, and its first start
+# (macOS checking a large app it has never run) can outlast every wait below.
+# Start it once on a profile of its own, as a stranger to the app.
+chrome="/Applications/Google Chrome.app"
+if [ -d "$chrome" ]; then
+    t0="$(date +%s)"
+    limit 120 open -n -a "$chrome" --args --user-data-dir="$work/warm-profile" --no-first-run --no-default-browser-check about:blank
+    say "▸ $chrome started once beforehand: open exited $? after $(( $(date +%s) - t0 )) s"
+    sleep 3
+    pkill -f -- "--user-data-dir=$work/warm-profile" 2>/dev/null
+    sleep 2
+fi
 xattr -w -r com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
 say "▸ quarantined: $(xattr -p com.apple.quarantine "$copy")"
 say "▸ Gatekeeper's verdict on it: $(spctl --assess --type execute -vv "$copy" 2>&1 | tr '\n' ' ')"
