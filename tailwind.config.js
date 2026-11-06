@@ -69,5 +69,31 @@ export default {
             addVariant('can-hover', '@media (hover: hover) and (pointer: fine)');
             addVariant('touch', '@media (hover: none)');
         }),
+        // Safe-area insets: the status bar, the island, the home indicator and,
+        // held sideways, the rounded corners of a phone. `index.html` asks for
+        // the whole screen (`viewport-fit=cover`, a translucent status bar), so
+        // a surface that touches an edge draws under them unless it pads.
+        //   safe-p{,x,y,t,r,b,l}-N   padding of at least N, more where a
+        //                            screen edge is covered: max(N, inset)
+        //   safe-{top,bottom}-N      an offset N clear of the covered strip:
+        //                            N + inset (a floating chip, a toast)
+        // The insets are `--safe-*` in `index.css` (env(), 0px on a plain
+        // screen), so off a phone every one of these is exactly its base.
+        // `safe-area-gates.mjs` fails a fixed surface on an edge without one.
+        plugin(({ matchUtilities, theme }) => {
+            // Widest first, so `safe-p-4 safe-pb-0` lets the one side win, the
+            // way `p-4 pb-0` does.
+            const side = { '': ['top', 'right', 'bottom', 'left'], x: ['left', 'right'], y: ['top', 'bottom'], t: ['top'], r: ['right'], b: ['bottom'], l: ['left'] };
+            const cap = s => s[0].toUpperCase() + s.slice(1);
+            const values = theme('spacing');
+            for (const [key, edges] of Object.entries(side)) {
+                matchUtilities({
+                    [`safe-p${key}`]: v => Object.fromEntries(edges.map(e => [`padding${cap(e)}`, `max(${v}, var(--safe-${e}))`])),
+                }, { values });
+            }
+            for (const e of ['top', 'bottom']) {
+                matchUtilities({ [`safe-${e}`]: v => ({ [e]: `calc(${v} + var(--safe-${e}))` }) }, { values });
+            }
+        }),
     ],
 };

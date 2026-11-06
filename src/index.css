@@ -21,6 +21,38 @@ html.dark {
   background-color: rgb(var(--c-slate-900));
 }
 
+/* THE SCREEN'S COVERED EDGES. `index.html` asks for the whole screen
+   (`viewport-fit=cover`, and on iOS a `black-translucent` status bar), so an
+   installed app on a notched or island iPhone is drawn under the status bar,
+   behind the home indicator and, held sideways, past the rounded corners.
+   These are those strips, 0px on any screen without them; the `safe-*`
+   utilities (tailwind.config.js) read them, and nothing else should. */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* The status bar's clock and icons over a LIGHT theme. iOS draws them white
+   in a `black-translucent` app whatever is under them, and fixes the style at
+   launch, so it cannot follow a theme change. Over the dark theme each surface
+   paints its own colour up under them; over the light one white on white is
+   nothing at all, so the strip takes the theme's ink colour instead, above
+   every layer. Zero tall wherever the top is not covered (a browser tab, a
+   desktop, Android), so it exists only where the clock does. */
+html:not(.dark) body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--safe-top);
+  background-color: rgb(var(--c-slate-900));
+  z-index: 2147483647;
+  pointer-events: none;
+}
+
 :root {
   /* Theme accent (space-separated RGB triplet). Overridden per-project in the
      workspace via an inline style; falls back here to a neutral blue-cyan.
