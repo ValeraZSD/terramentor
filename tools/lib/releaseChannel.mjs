@@ -308,8 +308,13 @@ export function buildManifest({ repo, channel, version, commit, builtAt, issuedA
         if (!platform) throw new Error(`${f.name} is not a desktop package for ${version}`);
         if (assets[platform]) throw new Error(`Two packages for ${platform}; the manifest names one file per platform twice`);
         if (!/^[0-9a-f]{64}$/.test(f.sha256)) throw new Error(`${f.name}: "${f.sha256}" is not a sha256 hex digest`);
-        if (f.files !== undefined && !(f.files && f.files.path === 'files.json' && /^[0-9a-f]{64}$/.test(f.files.sha256) && f.files.size > 0)) {
+        const listOk = (l) => l && l.path === 'files.json' && /^[0-9a-f]{64}$/.test(l.sha256) && l.size > 0;
+        if (f.files !== undefined && !listOk(f.files)) {
             throw new Error(`${f.name}: its file list is not described as {path: "files.json", size, sha256}`);
+        }
+        // A macOS package: the app inside its bundle, the list beside the app.
+        if (f.bundle !== undefined && (f.files !== undefined || !f.bundle || !/^[^/]+\.app\/Contents\/Resources\/app$/.test(f.bundle.root) || !listOk(f.bundle.files))) {
+            throw new Error(`${f.name}: its app bundle is not described as {root: "<name>.app/Contents/Resources/app", files: {path: "files.json", size, sha256}}`);
         }
         assets[platform] = {
             name: f.name,
@@ -317,8 +322,11 @@ export function buildManifest({ repo, channel, version, commit, builtAt, issuedA
             size: f.size,
             sha256: f.sha256,
             // The package's per-file hashes (files.json inside it), which is
-            // what a one-click update fetches single files against.
+            // what a one-click update fetches single files against. Under
+            // `bundle` for a macOS package, so a version that predates bundles
+            // offers it as a download (desktop/updateCore.js fileListRef).
             ...(f.files ? { files: f.files } : {}),
+            ...(f.bundle ? { bundle: { root: f.bundle.root, files: f.bundle.files } } : {}),
         };
     }
     const issued = Date.parse(issuedAt);
@@ -409,10 +417,13 @@ export function releaseBody({ channel, version, repo, changelog, nightlyText }) 
         '**Desktop app, nothing to install:** download the zip for your system',
         'below (`win32-x64` for Windows, `darwin-arm64` for a Mac with Apple',
         'Silicon, `linux-x64` for Linux), unpack it anywhere, and start',
-        '`Terramentor.exe`, `Terramentor.app` (right-click → Open the first',
-        'time) or `./terramentor.sh`. Your library lives in your user data',
-        'folder, so updating is unpacking the next zip and deleting the old',
-        `folder. Details: [docs/DESKTOP.md](https://github.com/${repo}/blob/${tag}/docs/DESKTOP.md).`,
+        '`Terramentor.exe` or `./terramentor.sh`; on a Mac, drag',
+        '`Terramentor.app` into Applications and open it there (if macOS blocks',
+        'it the first time: System Settings → Privacy & Security → Open Anyway).',
+        'Your library lives',
+        'in your user data folder, so updating by hand is unpacking the next zip',
+        'and deleting the old folder, or dragging the new app over the old one.',
+        `Details: [docs/DESKTOP.md](https://github.com/${repo}/blob/${tag}/docs/DESKTOP.md).`,
         '`SHA256SUMS` lists the hash of every file here, and `manifest.json` gives',
         'the same for each platform in a form a program can read.',
         '',

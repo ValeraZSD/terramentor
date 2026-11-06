@@ -164,13 +164,35 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
         throw new Error('The release manifest points at another file than this version\'s package.');
     }
     if (!/^[0-9a-f]{64}$/.test(asset.sha256 || '') || !(asset.size > 0)) throw new Error('The release manifest has no checksum for the package.');
-    if (asset.files !== undefined) {
-        const f = asset.files;
-        if (!f || safeRelPath(f.path) !== f.path || !/^[0-9a-f]{64}$/.test(f.sha256 || '') || !(f.size > 0)) {
-            throw new Error('The release manifest describes its file list in a way this version cannot read.');
-        }
+    const unreadable = () => new Error('The release manifest describes its file list in a way this version cannot read.');
+    const badList = (f) => !f || safeRelPath(f.path) !== f.path || !/^[0-9a-f]{64}$/.test(f.sha256 || '') || !(f.size > 0);
+    if (asset.files !== undefined && badList(asset.files)) throw unreadable();
+    if (asset.bundle !== undefined) {
+        const b = asset.bundle;
+        // One description of the file list, never two: a package that named
+        // both would be staged by a version reading `files` as if its app sat
+        // at the top of the zip.
+        if (asset.files !== undefined || !b || safeRelPath(b.root) !== b.root || badList(b.files)) throw unreadable();
     }
     return asset;
+}
+
+/**
+ * Where a package's app sits and how its file list is named. A Windows or
+ * Linux package is the app folder itself (`files`, paths from the zip's top
+ * folder). A macOS package is an app bundle with the app inside it
+ * (`bundle.root`, below the top folder) and its file list beside the app
+ * (`bundle.files`). Paths in the file list are relative to the app either way.
+ *
+ * `bundle` is a key of its own, not `files` with a longer path, on purpose:
+ * a version from before bundles reads only `files`, finds none, and says the
+ * release can only be installed by downloading it. Given `files`, it would
+ * have staged a bundle's files as if they were a flat folder's.
+ */
+export function fileListRef(asset) {
+    if (asset?.bundle) return { root: `${asset.bundle.root}/`, files: asset.bundle.files };
+    if (asset?.files) return { root: '', files: asset.files };
+    return null;
 }
 
 /**
@@ -263,7 +285,8 @@ export function readCentralDirectory(cd, cdOffset) {
 }
 
 /** The archive's single top folder (`Terramentor-1.4.0-win32-x64/`), which
- *  every path in files.json leaves out. */
+ *  every path in files.json leaves out (with a macOS package's bundle root
+ *  below it, `fileListRef`). */
 export function topFolder(entries) {
     const first = entries.find((e) => e.name.includes('/'));
     const top = first ? first.name.slice(0, first.name.indexOf('/') + 1) : '';

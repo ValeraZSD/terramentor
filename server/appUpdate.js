@@ -37,6 +37,7 @@ import { appVersion, compareVersions, downloadPrefix, readBuildInfo, updateChann
 // socket pinned) like any other fetch the server makes. The gates pass their
 // own fetch for the stand-in GitHub on loopback.
 import { safeFetch } from './netSafety.js';
+import { appPlacement, macBundleOf } from './appPlacement.js';
 
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -94,13 +95,22 @@ const updateDir = (appRoot) => join(appRoot, '.update');
 /**
  * Can THIS copy update itself, and if not, why not — in the words the panel
  * shows. A packaged desktop copy, with the file list a release ships, in a
- * folder this user may write to, started by the launcher.
+ * folder this user may write to, started by the launcher. A macOS app bundle
+ * must also be somewhere it can stay (server/appPlacement.js): a translocated
+ * copy is read-only and gone when it quits.
  */
-export function installSupport({ appRoot = APP_ROOT, deployment = appVersion().deployment, hasInstaller = installer !== null } = {}) {
+export function installSupport({
+    appRoot = APP_ROOT, deployment = appVersion().deployment, hasInstaller = installer !== null,
+    platform = process.platform, writable,
+} = {}) {
     if (deployment !== 'desktop') return { supported: false, reason: deployment };
     if (!readBuildInfo(appRoot)) return { supported: false, reason: 'checkout' };
     if (!existsSync(join(appRoot, 'files.json'))) return { supported: false, reason: 'no-file-list' };
     if (!hasInstaller) return { supported: false, reason: 'no-launcher' };
+    const placement = appPlacement({ appRoot, platform, ...(writable ? { writable } : {}) });
+    if (placement?.problem) return { supported: false, reason: placement.problem };
+    // Inside a bundle the permissions answer, never a test write: see mayWrite.
+    if (placement) return { supported: true, reason: null };
     try {
         mkdirSync(updateDir(appRoot), { recursive: true });
         const probe = join(updateDir(appRoot), '.write-test');
@@ -332,7 +342,16 @@ export async function stageUpdate({
     } catch (e) {
         throw new UpdateError(e.kind || 'origin', e.message);
     }
-    if (!asset.files) throw new UpdateError('manual', 'This release was built before one-click updates, so it can only be installed by downloading it.');
+    const ref = core.fileListRef(asset);
+    if (!ref) throw new UpdateError('manual', 'This release was built before one-click updates, so it can only be installed by downloading it.');
+    // A macOS copy is either an app bundle with the app inside it or, built
+    // before that layout, a folder beside a thin bundle; files move between
+    // two copies of the same shape only. The jump from the folder to the
+    // bundle is one download, because the bundle is a new thing to put in
+    // Applications.
+    if (!!asset.bundle !== !!macBundleOf(appRoot)) {
+        throw new UpdateError('manual', 'This release is packaged differently from this copy, so it can only be installed by downloading it.');
+    }
 
     const upd = updateDir(appRoot);
     const nextDir = join(upd, 'next');
@@ -349,10 +368,10 @@ export async function stageUpdate({
 
     let staged;
     try {
-        staged = await stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version: latest.version, chunkBytes });
+        staged = await stageByRanges({ core, asset, ref, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version: latest.version, chunkBytes });
     } catch (e) {
         if (!(e instanceof UpdateError) || e.kind !== 'no-range') throw e;
-        staged = await stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version: latest.version, idleMs });
+        staged = await stageFromZip({ core, asset, ref, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version: latest.version, idleMs });
     }
 
     const problem = await core.verifyTree(nextDir, staged.list, { linkedFrom: appRoot });
@@ -362,7 +381,7 @@ export async function stageUpdate({
         // copy followed while it downloaded: on Nightly that can be a stable
         // release, which a later switch to Stable still takes.
         schema: 1, version: latest.version, tag: latest.tag, channel: manifest.channel, platform, from: current,
-        files: asset.files, mode: staged.mode, bytes: staged.bytes, stagedAt: new Date().toISOString(),
+        files: ref.files, mode: staged.mode, bytes: staged.bytes, stagedAt: new Date().toISOString(),
     };
     // The signed manifest as it arrived, for the updater: it checks the
     // signature again and takes the file list's hash from these bytes, never
@@ -391,8 +410,10 @@ function needSpace(freeBytes, dir, bytes) {
 }
 
 /** The delta path: the zip's table of contents, the file list, then only the
- *  files that changed. */
-async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version, chunkBytes }) {
+ *  files that changed. Only the app's own entries count (`ref.root` below the
+ *  top folder); a macOS package's bundle files and README around the app are
+ *  never installed by an update. */
+async function stageByRanges({ core, asset, ref, appRoot, nextDir, fetchImpl, signal, onProgress, freeBytes, version, chunkBytes }) {
     // Every byte this path takes off the network, for the "downloaded N MB" line.
     let fetched = 0;
     const read = async (start, end, onChunk) => {
@@ -416,15 +437,16 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
         if (e instanceof UpdateError) throw e;
         throw new UpdateError('hash', e.message);
     }
-    const byPath = new Map(entries.filter((e) => !e.name.endsWith('/')).map((e) => [e.name.slice(top.length), e]));
-    const listEntry = byPath.get(asset.files.path);
+    const base = top + ref.root;
+    const byPath = new Map(entries.filter((e) => !e.name.endsWith('/') && e.name.startsWith(base)).map((e) => [e.name.slice(base.length), e]));
+    const listEntry = byPath.get(ref.files.path);
     if (!listEntry) throw new UpdateError('hash', 'The package has no file list.');
-    if (listEntry.usize !== asset.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
+    if (listEntry.usize !== ref.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
     const listBytes = core.entryBytes(listEntry, (await read(listEntry.start, listEntry.end - 1)).buf);
-    if (core.sha256(listBytes) !== asset.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
+    if (core.sha256(listBytes) !== ref.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
     let list;
     try { list = core.parseFileList(listBytes.toString('utf8'), { version }); } catch (e) { throw new UpdateError('hash', e.message); }
-    put(nextDir, asset.files.path, listBytes, false);
+    put(nextDir, ref.files.path, listBytes, false);
 
     let installed = null;
     try { installed = core.parseFileList(readFileSync(join(appRoot, 'files.json'), 'utf8')); } catch { /* fetch everything */ }
@@ -491,8 +513,9 @@ async function stageByRanges({ core, asset, appRoot, nextDir, fetchImpl, signal,
 }
 
 /** The fallback: the whole zip, appended to a `.part` file so a cut resumes,
- *  checked against the manifest's hash, then unpacked into the staging area. */
-async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version, idleMs }) {
+ *  checked against the manifest's hash, then the app's part of it (`ref.root`)
+ *  unpacked into the staging area. */
+async function stageFromZip({ core, asset, ref, appRoot, nextDir, upd, fetchImpl, signal, onProgress, freeBytes, version, idleMs }) {
     const dlDir = join(upd, 'download');
     mkdirSync(dlDir, { recursive: true });
     const part = join(dlDir, `${asset.name}.part`);
@@ -549,20 +572,22 @@ async function stageFromZip({ core, asset, appRoot, nextDir, upd, fetchImpl, sig
         const tailStart = Math.max(0, asset.size - core.TAIL_BYTES);
         const end = core.readEndRecord(read(tailStart, asset.size - tailStart), asset.size);
         const entries = core.readCentralDirectory(read(end.offset, end.size), end.offset);
-        const top = core.topFolder(entries);
-        const files = entries.filter((e) => !e.name.endsWith('/'));
-        const listEntry = files.find((e) => e.name.slice(top.length) === asset.files.path);
+        const base = core.topFolder(entries) + ref.root;
+        // The app's entries only: on macOS the bundle's Info.plist, its
+        // executable and the README sit around the app and are not the app's.
+        const files = entries.filter((e) => !e.name.endsWith('/') && e.name.startsWith(base));
+        const listEntry = files.find((e) => e.name.slice(base.length) === ref.files.path);
         if (!listEntry) throw new UpdateError('hash', 'The package has no file list.');
-        if (listEntry.usize !== asset.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
+        if (listEntry.usize !== ref.files.size) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
         const listBytes = core.entryBytes(listEntry, read(listEntry.start, listEntry.end - listEntry.start));
-        if (core.sha256(listBytes) !== asset.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
+        if (core.sha256(listBytes) !== ref.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
         const list = core.parseFileList(listBytes.toString('utf8'), { version });
         const want = new Map(list.files.map((f) => [f.path, f]));
         for (const e of files) {
-            const rel = core.safeRelPath(e.name.slice(top.length));
+            const rel = core.safeRelPath(e.name.slice(base.length));
             if (!rel) throw new UpdateError('hash', `The package names an unsafe path: ${e.name}`);
             const f = want.get(rel);
-            if (!f && rel !== asset.files.path) throw new UpdateError('hash', `${rel} is in the package but not in its file list.`);
+            if (!f && rel !== ref.files.path) throw new UpdateError('hash', `${rel} is in the package but not in its file list.`);
             put(nextDir, rel, core.entryBytes(e, read(e.start, e.end - e.start)), f?.exec);
         }
         return { list, mode: 'full', bytes: asset.size };
