@@ -38,6 +38,8 @@ fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "FAIL $*"; fail=1; }
 app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -v grep | head -1; }
+# What the launcher logs once its window has opened, or has not.
+window_said='Opened app window with|Opened default browser|Could not start|Could not open a browser'
 status() { curl -s -m 5 "http://127.0.0.1:$port/api/desktop/status"; }
 
 # limit SECONDS COMMAND...: run COMMAND, stopping it after SECONDS. Its exit
@@ -58,6 +60,8 @@ limit() {
 # this run's folder on their command line). Returns 1 if the port still answers.
 stop() {
     pkill -f -- "desktop/launcher.js --data-dir $work/" 2>/dev/null
+    # The bundle's script itself, when Gatekeeper holds it before it starts node.
+    pkill -f -- "Terramentor.app/Contents/MacOS/Terramentor --data-dir $work/" 2>/dev/null
     pkill -f -- "--user-data-dir=$work/" 2>/dev/null
     for _ in $(seq 1 20); do
         status >/dev/null || return 0
@@ -103,8 +107,16 @@ open_run() {
     log="$data/logs/app.log"
     if [ "$started" = 1 ]; then
         say "  serving at http://127.0.0.1:$port"
-        sleep 4   # the window is opened after the server answers
+        # The window is opened after the server answers, and on macOS the line
+        # comes once `open` has launched the browser, which takes a while the
+        # first time a browser starts on a fresh profile.
+        for _ in $(seq 1 30); do
+            grep -qE "$window_said" "$log" 2>/dev/null && break
+            sleep 1
+        done
         [ -f "$log" ] && sed 's/^/  log: /' "$log"
+        local seen
+        seen="$(cat "$log" 2>/dev/null | wc -l)"
         local from
         from="$(grep -o 'packaged copy at .*' "$log" | head -1 | sed 's/^packaged copy at //')"
         case "$from" in
@@ -124,7 +136,7 @@ open_run() {
             else bad "run '$name': the log says an app window opened, but no browser runs with --app"; fi
             [ -n "$shots" ] && mkdir -p "$shots" && limit 15 screencapture -x "$shots/macos-$name.png" && say "  screenshot: macos-$name.png"
         else
-            say "  no Chromium browser was used: $(grep -oE 'Opened default browser.*|Could not start.*' "$log" | head -1)"
+            say "  no app window: $(grep -oE "$window_said.*" "$log" | head -1 || true)"
         fi
         curl -s -m 5 "http://127.0.0.1:$port/api/desktop/info" | grep -o '"appPlacement":[^,}]*' | sed 's/^/  info: /'
 
@@ -134,11 +146,17 @@ open_run() {
             # holding the app's profile.
             limit 20 open -n -a "$copy" --args --data-dir "$data" --port "$port"
             say "  second launch: open exited $?"
-            sleep 6
+            # It stays while its window opens (at most 15 s), then leaves.
             local again
-            again="$(pgrep -f -- "desktop/launcher.js --data-dir $data" | wc -l | tr -d ' ')"
-            [ "$again" = 1 ] && say "  ok: one app process after the second launch" || bad "run '$name': $again app processes after the second launch"
-            say "  second launch logged: $(grep -o 'already running on port.*' "$log" | tail -1)"
+            for _ in $(seq 1 25); do
+                again="$(pgrep -f -- "desktop/launcher.js --data-dir $data" | wc -l | tr -d ' ')"
+                [ "$again" = 1 ] && break
+                sleep 1
+            done
+            [ "$again" = 1 ] && say "  ok: the second launch left; one app process runs" || bad "run '$name': $again app processes 25 s after the second launch"
+            tail -n +"$((seen + 1))" "$log" | sed 's/^/  log: /'
+            grep -q 'already running on port' "$log" && say "  ok: the second launch handed over to the running app" || bad "run '$name': the second launch did not find the running app"
+            seen="$(cat "$log" 2>/dev/null | wc -l)"
 
             curl -s -m 10 -o /dev/null -X POST "http://127.0.0.1:$port/api/desktop/quit"
             local gone=0
@@ -147,6 +165,7 @@ open_run() {
                 sleep 0.5
             done
             [ "$gone" = 1 ] && say "  ok: Quit stopped the app" || bad "run '$name': Quit did not stop the app"
+            tail -n +"$((seen + 1))" "$log" | sed 's/^/  log: /'
             if [ "$window" = 1 ]; then
                 sleep 2
                 [ -z "$(app_window)" ] && say "  ok: Quit closed the --app window" || bad "run '$name': an --app window is still open after Quit"
