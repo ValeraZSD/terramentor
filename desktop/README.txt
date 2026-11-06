@@ -58,7 +58,7 @@ say), it tells you rather than quietly opening an empty library.
 Portable use (Windows and Linux): make an empty folder called `data` next to
 this file before the first start, and the library lives there instead — on a
 USB stick, say. On macOS the library is never inside Terramentor.app (an
-update replaces what is inside the app), so there is no portable folder: to
+update replaces the app folder inside it), so there is no portable folder: to
 keep it on a USB stick, name the stick's folder in library-location.txt.
 
 USING IT FROM YOUR PHONE

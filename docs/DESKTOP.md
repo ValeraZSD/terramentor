@@ -90,9 +90,10 @@ pointer back.
 **Portable use (Windows and Linux):** create an empty folder named `data` next
 to `Terramentor.exe` or `terramentor.sh` before the first start and the library
 lives there instead, so the whole app then moves with the folder. This beats
-the pointer file. On macOS there is no portable folder (an update replaces
-everything inside `Terramentor.app`); to keep the library on a USB stick, name
-the stick's folder in `library-location.txt`. A Mac copy from before the app
+the pointer file. On macOS there is no portable folder (an update replaces the
+app folder inside `Terramentor.app`, `Contents/Resources/app`, where the folder
+would sit); to keep the library on a USB stick, name the stick's folder in
+`library-location.txt`. A Mac copy from before the app
 moved inside the bundle may have a `data` folder beside `Terramentor.app`: this
 version does not look there, so write that folder's path into
 `library-location.txt`.
