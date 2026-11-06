@@ -739,6 +739,9 @@ body.assistant-overlay-open {
 .modal-shell {
   max-height: 90vh;
   max-height: 90dvh;
+  /* Never taller than the room between the status bar and the home indicator,
+     less the overlay's own 1rem a side. */
+  max-height: min(90dvh, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 2rem));
 }
 
 /*

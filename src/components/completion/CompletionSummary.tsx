@@ -168,7 +168,9 @@ export default function CompletionSummary() {
             >
                 <div className="h-1.5 shrink-0 bg-accent" />
 
-                <div className="absolute right-2 top-4 z-10 flex gap-0.5">
+                {/* An absolute child sits against the panel's padding edge, not
+                    inside its inset padding: on a phone it offsets by the inset. */}
+                <div className="absolute right-2 top-4 max-sm:right-[calc(0.5rem+var(--safe-right))] max-sm:safe-top-4 z-10 flex gap-0.5">
                     <IconButton
                         label={t("Save this as a picture")}
                         icon={<Download className="h-5 w-5" />}

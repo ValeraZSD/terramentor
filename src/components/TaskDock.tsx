@@ -578,7 +578,7 @@ export default function TaskDock() {
             // the end of a horizontal scroller nobody scrolls. `width:
             // max-content` is not clamped by the available space, so the cap is
             // the only thing that limits it — which is what it was written for.
-            className="fixed safe-bottom-3 left-1/2 z-40 w-max max-w-[calc(100vw-1.5rem-var(--assistant-w,0px))]"
+            className="fixed safe-bottom-3 left-1/2 z-40 w-max max-w-[calc(100vw-1.5rem-var(--assistant-w,0px)-var(--safe-left)-var(--safe-right))]"
             style={DOCK_CENTRE}
             role="status"
             aria-label={tr("Background AI tasks")}
