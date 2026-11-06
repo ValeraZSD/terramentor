@@ -101,7 +101,7 @@ type UndoStep =
  * covering the control pressed hundreds of times a session to show a progress
  * chip is the wrong trade. It reappears the moment the session closes.
  */
-const SURFACE = 'fixed inset-0 z-[45] flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900';
+const SURFACE = 'fixed inset-0 z-[45] safe-p-0 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900';
 
 /** The session's own screens (cards waiting, paused, complete) are the whole
  *  screen and are pressed on a phone: their actions stack at full width, lg. */
@@ -436,7 +436,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     if (waiting) {
         return (
-            <SessionSurface label={sessionLabel} className="items-center justify-center p-8">
+            <SessionSurface label={sessionLabel} className="items-center justify-center safe-p-8">
                 <div className="max-w-sm w-full text-center space-y-5">
                     <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-700">
                         <RotateCcw className="w-10 h-10 text-slate-400" aria-hidden="true" />
@@ -496,7 +496,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             + (skipped > 0 ? t(", skipped {{skipped}}", { skipped }) : '')
             + (removed > 0 ? t(", deleted {{removed}}", { removed }) : '');
         return (
-            <SessionSurface label={sessionLabel} className="items-center justify-center p-8 overflow-y-auto">
+            <SessionSurface label={sessionLabel} className="items-center justify-center safe-p-8 overflow-y-auto">
                 <div className="max-w-md w-full text-center space-y-6">
                     <div className={`w-24 h-24 mx-auto rounded-full flex items-center justify-center ${totalReviewed > 0 && !stoppedShort ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-slate-100 dark:bg-slate-700'}`}>
                         {stoppedShort ? (
@@ -818,8 +818,10 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                 a session, so they are in the same place, at the same size, on
                 every card — reachable by thumb without looking. They are laid
                 out (not removed) before the flip, so revealing the answer never
-                moves them either. */}
-            <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 pb-2 pt-1.5 sm:px-8 sm:py-3">
+                moves them either. Its colour runs on down through the strip the
+                surface keeps clear of a phone's home indicator, and the buttons
+                stay above it. */}
+            <div className="shrink-0 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 -mb-[var(--safe-bottom)] safe-pb-2 pt-1.5 sm:px-8 sm:safe-pb-3 sm:pt-3">
                 <div className="w-full max-w-2xl mx-auto space-y-1.5 sm:space-y-2">
                     {reportHolds ? (
                         <>

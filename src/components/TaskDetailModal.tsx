@@ -11,6 +11,7 @@ import { taskPlace, taskEta, durationParts, originSentence, KIND_LABEL, taskTitl
 import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
+import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 
 /**
  * What one background task is, where it belongs, and what it is doing — the
@@ -145,14 +146,14 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
     // screen. See tools/dock-harness/run.mjs, which asserts it from the DOM.
     return createPortal(
         <div
-            className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+            className={`fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center ${SHEET_OVERLAY}`}
             onClick={onClose}
             role="presentation"
         >
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
+                className={`flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl ${SHEET_PANEL}`}
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"

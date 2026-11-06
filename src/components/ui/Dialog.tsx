@@ -31,6 +31,21 @@ import type { ReactNode } from 'react';
  */
 export const DIALOG_SHELL = 'modal-shell flex flex-col overflow-y-auto';
 
+/*
+ * Clear of a phone's covered edges (the status bar, the home indicator, the
+ * corners held sideways; the `safe-*` utilities in tailwind.config.js). The
+ * overlay is the full-screen layer a dialog is centred in, the panel the dialog.
+ *
+ * A dialog that is a bottom SHEET on a phone and a card from `sm` up: the sheet
+ * keeps its colour down to the screen's edge and lifts its buttons above the
+ * home indicator, rather than floating over a strip of dimmed page.
+ */
+export const SHEET_OVERLAY = 'safe-pt-0 safe-px-0 sm:safe-p-4';
+export const SHEET_PANEL = 'max-sm:safe-pb-0';
+/** A dialog that FILLS a phone and is a card from `sm` up: the same, on all four sides. */
+export const FILL_OVERLAY = 'sm:safe-p-4';
+export const FILL_PANEL = 'max-sm:safe-p-0';
+
 /** The one region that scrolls. Padding is the caller's. */
 export const DIALOG_BODY = 'min-h-24 flex-1 overflow-y-auto overscroll-contain';
 

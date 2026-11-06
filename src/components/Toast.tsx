@@ -125,8 +125,8 @@ export default function ToastContainer() {
                 do nothing at all. It stays below ConfirmDialog (`z-[100]`),
                 which is modal and must not be talked over. */}
             <div
-                className="fixed top-4 z-[60] flex flex-col gap-2 max-w-sm"
-                style={{ right: 'calc(1rem + var(--assistant-w, 0px))' }}
+                className="fixed safe-top-4 z-[60] flex flex-col gap-2 max-w-sm"
+                style={{ right: 'calc(1rem + var(--assistant-w, 0px) + var(--safe-right))' }}
             >
                 {toasts.map(toast => (
                     <ToastItem

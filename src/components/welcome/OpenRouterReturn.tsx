@@ -38,7 +38,7 @@ export default function OpenRouterReturn() {
     }, [returnTo, t]);
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4">
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-0">
             <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 text-center">
                 {error ? (
                     <>

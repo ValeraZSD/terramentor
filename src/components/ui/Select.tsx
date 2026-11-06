@@ -675,7 +675,7 @@ function SelectSheet(props: ListProps & { close: () => void; title: string }) {
         <>
             <span ref={accentAnchor} className="hidden" aria-hidden="true" />
             {createPortal(
-                <div className="fixed inset-0 z-[110] flex items-end justify-center" style={accent} data-select-list="">
+                <div className="fixed inset-0 z-[110] flex items-end justify-center safe-pt-0 safe-px-0" style={accent} data-select-list="">
                     <div
                         className={cx('absolute inset-0 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none', shown ? 'opacity-100' : 'opacity-0')}
                         onClick={close}
@@ -691,7 +691,7 @@ function SelectSheet(props: ListProps & { close: () => void; title: string }) {
                         className={cx(
                             // The home-indicator inset is the sheet's, outside the
                             // list, so the "more below" cue never sits in it.
-                            'relative flex w-full max-w-lg max-h-[min(80dvh,40rem)] flex-col pb-[env(safe-area-inset-bottom)] outline-none',
+                            'relative flex w-full max-w-lg max-h-[min(80dvh,40rem)] flex-col safe-pb-0 outline-none',
                             'rounded-t-2xl border border-b-0 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl',
                             'transition-transform duration-200 ease-out motion-reduce:transition-none',
                             shown ? 'translate-y-0' : 'translate-y-full',

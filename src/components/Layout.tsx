@@ -361,7 +361,10 @@ export default function Layout({ children }: { children: ReactNode }) {
                 every tab reachable at any width, and the active one is
                 scrolled into view on navigation so it is never the hidden
                 one. */}
-            <header ref={headerRef} className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 px-2 sm:px-4 shrink-0">
+            {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
+                under its status bar the bar's colour runs up behind the clock and
+                its row starts below it, the same 56px as the assistant's header. */}
+            <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
                 <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
@@ -524,7 +527,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <UpdateNotice />
             <AppPlacementNotice />
 
-            <main className="flex-1 min-h-0 overflow-hidden">
+            <main className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0">
                 {children}
             </main>
 

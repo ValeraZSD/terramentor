@@ -67,7 +67,7 @@ export function Strip({ children, onClose, closeLabel }: { children: ReactNode; 
     return (
         <div
             role="status"
-            className="shrink-0 border-b px-3 sm:px-4 py-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
+            className="shrink-0 border-b safe-px-3 sm:safe-px-4 py-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
         >
             {/* The close button sits outside the wrapping row, so on a phone
                 it stays at the top right instead of falling to a line of its own. */}
