@@ -1,5 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useRef } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -14,7 +13,7 @@ import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, Ro
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
 import { Button, IconButton } from './ui/Button';
-import { MenuItem, MENU_PANEL } from './ui/Popover';
+import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -201,58 +200,11 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
         if (saved) setShowEdit(false);
     };
 
-    useEffect(() => {
-        if (!showMenu) return;
-        const handleClickOutside = () => setShowMenu(false);
-        const timer = setTimeout(() => document.addEventListener('click', handleClickOutside), 0);
-        // A portalled menu is positioned once, in viewport coordinates, so it
-        // would slide away from its card on a scroll. Close it instead.
-        document.addEventListener('scroll', handleClickOutside, true);
-        // Escape closes it and hands focus back to the ⋮ it came from.
-        const handleKey = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
-            e.preventDefault();
-            e.stopPropagation();
-            setShowMenu(false);
-            menuBtnRef.current?.focus();
-        };
-        document.addEventListener('keydown', handleKey, true);
-        return () => {
-            clearTimeout(timer);
-            document.removeEventListener('click', handleClickOutside);
-            document.removeEventListener('scroll', handleClickOutside, true);
-            document.removeEventListener('keydown', handleKey, true);
-        };
-    }, [showMenu]);
-
-    // The options menu is portalled to the body for the same reason the dialogs
-    // are (see `Modal`): the archived and completed grids dim themselves with
-    // `opacity-70`, and a menu inside that subtree is painted at 70% alpha with
-    // the cards behind it showing through — permanently on a phone, where
-    // nothing ever hovers to lift the dim.
+    // The options menu is a `MenuPopover`, portalled to the body for the same
+    // reason the dialogs are (see `Modal`): the archived and completed grids
+    // dim themselves with `opacity-70`, and a menu inside that subtree is
+    // painted at 70% alpha with the cards behind it showing through.
     const menuBtnRef = useRef<HTMLButtonElement>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
-    const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
-
-    const openMenu = () => {
-        const r = menuBtnRef.current?.getBoundingClientRect();
-        if (r) setMenuPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
-        setShowMenu(true);
-    };
-
-    // Flip above the button when the menu would run off the bottom: a fixed
-    // menu is outside the page's scroll, so what leaves the viewport is gone.
-    useLayoutEffect(() => {
-        if (!showMenu || !menuRef.current || !menuBtnRef.current) return;
-        const height = menuRef.current.offsetHeight;
-        const anchor = menuBtnRef.current.getBoundingClientRect();
-        const below = anchor.bottom + 4;
-        const flipped = below + height > window.innerHeight - 8
-            ? anchor.top - height - 4
-            : below;
-        const top = Math.max(8, Math.min(flipped, window.innerHeight - 8 - height));
-        if (top !== menuPos.top) setMenuPos(p => ({ ...p, top }));
-    }, [showMenu, menuPos.top]);
 
     const progressColor = progress === 100 ? '#22C55E' : project.color;
 
@@ -322,7 +274,8 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 unreachable on a phone. Keyboard focus reveals it too. */}
                             <IconButton
                                 ref={menuBtnRef}
-                                onClick={e => { e.stopPropagation(); if (showMenu) setShowMenu(false); else openMenu(); }}
+                                onClick={e => { e.stopPropagation(); setShowMenu(o => !o); }}
+                                onKeyDown={menuTriggerKeys(() => setShowMenu(true))}
                                 label={t("Project options")}
                                 tooltip={false}
                                 aria-haspopup="menu"
@@ -331,23 +284,17 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                 className="can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100"
                             />
 
-                            {showMenu && createPortal(
-                                <div
-                                    ref={menuRef}
-                                    style={{ top: menuPos.top, right: menuPos.right }}
-                                    onClick={e => e.stopPropagation()}
-                                    className={`fixed min-w-44 w-max z-50 ${MENU_PANEL}`}
-                                >
-                                    <MenuItem roving={false} onSelect={handleEdit} icon={<Edit2 className="w-4 h-4" />}>
+                            <MenuPopover open={showMenu} onClose={() => setShowMenu(false)} anchorRef={menuBtnRef} label={t("Project options")} align="end">
+                                    <MenuItem onSelect={handleEdit} icon={<Edit2 className="w-4 h-4" />}>
                                         {t("Edit")}
                                     </MenuItem>
-                                    <MenuItem roving={false} onSelect={handleExport} icon={<Upload className="w-4 h-4" />}>
+                                    <MenuItem onSelect={handleExport} icon={<Upload className="w-4 h-4" />}>
                                         {t("Export")}
                                     </MenuItem>
                                     {/* A deck has no phases and no topics to write
                                         readings for — its material is its cards. */}
                                     {!isDeck && (
-                                        <MenuItem roving={false} onSelect={handleAddMaterial} icon={<BookPlus className="w-4 h-4" />}>
+                                        <MenuItem onSelect={handleAddMaterial} icon={<BookPlus className="w-4 h-4" />}>
                                             {t("Add material")}
                                         </MenuItem>
                                     )}
@@ -356,7 +303,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                         moment the last item is done. This is how it is
                                         reached afterwards. */}
                                     {(progress >= 100 || status === 'completed') && (
-                                        <MenuItem roving={false} onSelect={handleSummary} icon={<Trophy className="w-4 h-4 text-amber-500" />}>
+                                        <MenuItem onSelect={handleSummary} icon={<Trophy className="w-4 h-4 text-amber-500" />}>
                                             {t("Summary")}
                                         </MenuItem>
                                     )}
@@ -366,7 +313,7 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                         so it lives with the other ways of
                                         changing what the project is. */}
                                     {hasWindow && (
-                                        <MenuItem roving={false} onSelect={handleRemoveSchedule} icon={<CalendarX className="w-4 h-4" />}>
+                                        <MenuItem onSelect={handleRemoveSchedule} icon={<CalendarX className="w-4 h-4" />}>
                                             {t("Remove schedule")}
                                         </MenuItem>
                                     )}
@@ -374,28 +321,27 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                     <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
 
                                     {status !== 'completed' && (
-                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'completed')} icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />}>
+                                        <MenuItem onSelect={e => changeStatus(e, 'completed')} icon={<CheckCircle2 className="w-4 h-4 text-emerald-500" />}>
                                             {t("Mark completed")}
                                         </MenuItem>
                                     )}
                                     {status !== 'archived' && (
-                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'archived')} icon={<Archive className="w-4 h-4" />}>
+                                        <MenuItem onSelect={e => changeStatus(e, 'archived')} icon={<Archive className="w-4 h-4" />}>
                                             {t("Archive")}
                                         </MenuItem>
                                     )}
                                     {status !== 'active' && (
-                                        <MenuItem roving={false} onSelect={e => changeStatus(e, 'active')} icon={<RotateCcw className="w-4 h-4" />}>
+                                        <MenuItem onSelect={e => changeStatus(e, 'active')} icon={<RotateCcw className="w-4 h-4" />}>
                                             {t("Move to active")}
                                         </MenuItem>
                                     )}
 
                                     <div className="my-1 h-px bg-slate-100 dark:bg-slate-600" />
 
-                                    <MenuItem roving={false} tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
+                                    <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                                         {t("Delete")}
                                     </MenuItem>
-                                </div>,
-                                document.body)}
+                            </MenuPopover>
                         </div>
                     </div>
 

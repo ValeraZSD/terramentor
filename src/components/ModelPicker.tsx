@@ -13,6 +13,7 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
+import { popoverBounds } from './ui/Popover';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -126,14 +127,18 @@ export default function ModelPicker({
         const el = triggerRef.current;
         if (!el) return;
         const r = el.getBoundingClientRect();
-        const below = window.innerHeight - r.bottom - 12;
-        const above = r.top - 12;
+        // The room is the visual viewport less the phone's covered edges: the
+        // search field raises a phone's keyboard, which takes the bottom half.
+        const b = popoverBounds();
+        const below = b.bottom - r.bottom - 12;
+        const above = r.top - b.top - 12;
         // Drop upward only when below genuinely cannot hold a usable list.
         const drop = below < 260 && above > below ? 'up' : 'down';
+        const width = Math.min(Math.max(r.width, 300), b.right - b.left - 16);
         setRect({
             top: drop === 'down' ? r.bottom + 6 : r.top - 6,
-            left: r.left,
-            width: Math.max(r.width, 300),
+            left: Math.max(b.left + 8, Math.min(r.left, b.right - 8 - width)),
+            width,
             drop,
             max: Math.min(420, (drop === 'down' ? below : above) - 8),
         });
@@ -189,7 +194,7 @@ export default function ModelPicker({
             const target = e.target as Node;
             if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
             // The sort dropdown's own list is portalled beside this one: a press in it is a press in the picker.
-            if ((target as Element).closest?.('[data-select-list]')) return;
+            if ((target as Element).closest?.('[data-select-list], [data-bottom-sheet]')) return;
             close(false);
         };
         document.addEventListener('mousedown', onDown);

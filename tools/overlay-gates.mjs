@@ -175,13 +175,14 @@ console.log('\n--- two dialogs open at once: the top one answers, and the lock i
 
 console.log('\n--- the project card\'s options menu, same problem ---');
 {
+    // The menu is a `MenuPopover`, which portals to the body and is `fixed`
+    // (the floating form) or the phone's sheet: an `absolute` menu inside the
+    // card is dimmed with it — permanently on a phone, where nothing hovers.
     const src = readFileSync(join(root, 'src', 'components', 'ProjectCard.tsx'), 'utf8');
-    check('the menu is portalled to the body', /createPortal\(/.test(src) && /document\.body\)\}/.test(src));
-    // `fixed` is the wiring: an `absolute` menu inside the card is dimmed with
-    // it — permanently on a phone, where nothing hovers. The width beside it is
-    // a design choice, and pinning `w-44` made this fail on a restyle that
-    // changed nothing about positioning.
-    check('and positioned against the viewport, not the card', /className=(?:"|\{`)fixed\b/.test(src),
+    const pop = readFileSync(join(root, 'src', 'components', 'ui', 'Popover.tsx'), 'utf8');
+    check('the menu is a MenuPopover, portalled to the body', /<MenuPopover\b/.test(src)
+        && /createPortal\(/.test(pop) && /document\.body,?\s*\)\}/.test(pop));
+    check('and positioned against the viewport, not the card', /className=\{cx\('fixed\b/.test(pop) && !/className="[^"]*\babsolute\b[^"]*shadow/.test(src),
         'an `absolute` menu inside the card is dimmed with it — permanently on a phone, where nothing hovers');
 }
 

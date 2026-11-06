@@ -1,16 +1,13 @@
 import {
     Children, Fragment, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
 } from 'react';
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, RefObject } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
-import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { useCanHover } from '../../utils/platform';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { IconButton } from './Button';
-import { placePopover, MENU_SURFACE } from './Popover';
+import { placePopover, popoverBounds, followVisualViewport, MENU_SURFACE } from './Popover';
+import { BottomSheet, opensAsSheet } from './Sheet';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 
@@ -174,7 +171,6 @@ export function Select({
     const selectedIndex = options.findIndex(o => o.value === current);
     const selected = selectedIndex >= 0 ? options[selectedIndex] : options[0];
 
-    const canHover = useCanHover();
     const [open, setOpen] = useState(false);
     // Fixed for the life of one opening: a pointer change mid-list would swap
     // the surface out from under the finger.
@@ -196,7 +192,7 @@ export function Select({
         // Safari and Firefox on macOS do not focus a button on a click, and
         // the open list's keys (and its claim on Escape) follow the box's focus.
         buttonRef.current?.focus({ preventScroll: true });
-        setSheet(!canHover);
+        setSheet(opensAsSheet());
         // Lit on the choice; on nothing while the box stands on an instruction
         // row, which lit would read as chosen. ↓ then starts from the top.
         const start = selectedIndex >= 0
@@ -204,7 +200,7 @@ export function Select({
             : options.findIndex(o => !o.disabled);
         setActive(at ?? start);
         setOpen(true);
-    }, [disabled, canHover, selectedIndex, options]);
+    }, [disabled, selectedIndex, options]);
 
     const close = useCallback((refocus = true) => {
         setOpen(false);
@@ -508,8 +504,9 @@ function SelectList(props: ListProps & {
         if (scrolledAway(btn, r)) { closeRef.current(false); return; }
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const margin = 8, gap = 4;
-        const below = window.innerHeight - r.bottom - gap - margin;
-        const above = r.top - gap - margin;
+        const bounds = popoverBounds();
+        const below = bounds.bottom - r.bottom - gap - margin;
+        const above = r.top - bounds.top - gap - margin;
         // Below when the list fits there, or when eight rows or so do: a list
         // that flips over the box covers what the reader was reading above it.
         // Only a cramped bottom sends it to the roomier side.
@@ -522,8 +519,9 @@ function SelectList(props: ListProps & {
         list.style.maxHeight = `${maxHeight}px`;
         panel.style.minWidth = `${r.width}px`;
         const p = placePopover(r, { width: panel.offsetWidth, height: Math.min(list.scrollHeight, maxHeight) + 2 },
-            { width: window.innerWidth, height: window.innerHeight }, { gap, margin });
-        setPlace({ ...p, maxHeight, minWidth: r.width });
+            bounds, { gap, margin });
+        // Its 3rem floor can be more than a keyboard leaves: then the room is the cap.
+        setPlace({ ...p, maxHeight: p.maxHeight != null ? p.maxHeight - 2 : maxHeight, minWidth: r.width });
     }, [anchorRef]);
 
     useLayoutEffect(() => { measure(); }, [measure]);
@@ -569,11 +567,13 @@ function SelectList(props: ListProps & {
         document.addEventListener('keydown', onKey, true);
         window.addEventListener('scroll', onMove, true);
         window.addEventListener('resize', onMove);
+        const unfollow = followVisualViewport(measure);
         return () => {
             document.removeEventListener('pointerdown', onDown, true);
             document.removeEventListener('keydown', onKey, true);
             window.removeEventListener('scroll', onMove, true);
             window.removeEventListener('resize', onMove);
+            unfollow();
         };
     }, [measure, anchorRef]);
 
@@ -622,43 +622,9 @@ function SelectList(props: ListProps & {
 }
 
 function SelectSheet(props: ListProps & { close: () => void; title: string }) {
-    const { t } = useTranslation();
     const { listId, optionId, active, close, onListKey, title } = props;
-    const dialogRef = useRef<HTMLDivElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
-    const titleId = useId();
-    const [shown, setShown] = useState(false);
-    const { anchor: accentAnchor, accent } = usePortalAccent(true);
     const { more, check: checkMore } = useMoreBelow(listRef);
-
-    useDialogFocus(true, dialogRef, { onEscape: e => { e.preventDefault(); close(); }, initialFocus: listRef });
-
-    // Slide up once mounted (a frame later, so the start position is painted).
-    useEffect(() => {
-        const f = requestAnimationFrame(() => setShown(true));
-        return () => cancelAnimationFrame(f);
-    }, []);
-
-    // Pulled down by its header, as a phone's own sheets are: it follows the
-    // finger, and let go past a fifth of its height (or 6rem) it closes.
-    const drag = useRef<{ id: number; y: number } | null>(null);
-    const [pulled, setPulled] = useState(0);
-    const onPullStart = (e: ReactPointerEvent<HTMLDivElement>) => {
-        // The close button keeps its own tap (a capture would retarget it).
-        if (e.pointerType === 'mouse' || (e.target as Element).closest('button')) return;
-        drag.current = { id: e.pointerId, y: e.clientY };
-        e.currentTarget.setPointerCapture?.(e.pointerId);
-    };
-    const onPullMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-        if (drag.current?.id === e.pointerId) setPulled(Math.max(0, e.clientY - drag.current.y));
-    };
-    const onPullEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
-        if (drag.current?.id !== e.pointerId) return;
-        const d = e.type === 'pointercancel' ? 0 : e.clientY - drag.current.y;
-        drag.current = null;
-        const h = dialogRef.current?.offsetHeight ?? 0;
-        if (d > Math.min(96, h / 5 || 96)) close(); else setPulled(0);
-    };
 
     useLayoutEffect(() => {
         const row = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
@@ -672,75 +638,24 @@ function SelectSheet(props: ListProps & { close: () => void; title: string }) {
     }, [active]);
 
     return (
-        <>
-            <span ref={accentAnchor} className="hidden" aria-hidden="true" />
-            {createPortal(
-                <div className="fixed inset-0 z-[110] flex items-end justify-center safe-pt-0 safe-px-0" style={accent} data-select-list="">
-                    <div
-                        className={cx('absolute inset-0 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none', shown ? 'opacity-100' : 'opacity-0')}
-                        onClick={close}
-                        aria-hidden="true"
-                    />
-                    <div
-                        ref={dialogRef}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby={title ? titleId : undefined}
-                        aria-label={title ? undefined : t("Choose one")}
-                        tabIndex={-1}
-                        className={cx(
-                            // The home-indicator inset is the sheet's, outside the
-                            // list, so the "more below" cue never sits in it.
-                            'relative flex w-full max-w-lg max-h-[min(80dvh,40rem)] flex-col safe-pb-0 outline-none',
-                            'rounded-t-2xl border border-b-0 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl',
-                            'transition-transform duration-200 ease-out motion-reduce:transition-none',
-                            shown ? 'translate-y-0' : 'translate-y-full',
-                        )}
-                        style={pulled ? { transform: `translateY(${pulled}px)`, transition: 'none' } : undefined}
-                    >
-                        <div
-                            data-sheet-handle=""
-                            className="shrink-0 touch-none select-none"
-                            onPointerDown={onPullStart}
-                            onPointerMove={onPullMove}
-                            onPointerUp={onPullEnd}
-                            onPointerCancel={onPullEnd}
-                        >
-                            <div aria-hidden="true" className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
-                            <div className="flex items-center justify-between gap-3 pl-5 pr-3 pt-1 pb-2">
-                                <h2 id={titleId} className="min-w-0 text-base font-semibold text-slate-900 dark:text-white">
-                                    {title || t("Choose one")}
-                                </h2>
-                                <IconButton
-                                    size="md"
-                                    onClick={close}
-                                    label={t("Close dialog")}
-                                    tooltip={false}
-                                    icon={<X className="w-5 h-5" />}
-                                />
-                            </div>
-                        </div>
-                        <div
-                            ref={listRef}
-                            id={listId}
-                            role="listbox"
-                            tabIndex={0}
-                            aria-labelledby={title ? titleId : undefined}
-                            aria-activedescendant={active >= 0 ? props.optionId(active) : undefined}
-                            onKeyDown={e => { if (onListKey(e)) { e.preventDefault(); e.stopPropagation(); } }}
-                            onScroll={checkMore}
-                            className="list-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 outline-none"
-                        >
-                            <Rows {...props} roomy />
-                            {/* The list's bottom gap as content, not padding: a
-                                sticky cue stops at the padding edge and rows showed under it. */}
-                            <div aria-hidden="true" className="h-3" />
-                            {more && <MoreBelow from="from-white dark:from-slate-800" />}
-                        </div>
-                    </div>
-                </div>,
-                document.body,
-            )}
-        </>
+        <BottomSheet title={title} onClose={close} initialFocus={listRef}>
+            <div
+                ref={listRef}
+                id={listId}
+                role="listbox"
+                tabIndex={0}
+                aria-label={title || undefined}
+                aria-activedescendant={active >= 0 ? props.optionId(active) : undefined}
+                onKeyDown={e => { if (onListKey(e)) { e.preventDefault(); e.stopPropagation(); } }}
+                onScroll={checkMore}
+                className="list-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 outline-none"
+            >
+                <Rows {...props} roomy />
+                {/* The list's bottom gap as content, not padding: a
+                    sticky cue stops at the padding edge and rows showed under it. */}
+                <div aria-hidden="true" className="h-3" />
+                {more && <MoreBelow from="from-white dark:from-slate-800" />}
+            </div>
+        </BottomSheet>
     );
 }

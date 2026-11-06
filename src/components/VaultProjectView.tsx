@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useStore } from '../store';
 import { api } from '../api';
 import VaultPanel from './VaultPanel';
@@ -6,6 +6,7 @@ import Checkbox from './Checkbox';
 import { Upload, Loader2, Check, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
+import { PanelPopover } from './ui/Popover';
 
 /**
  * Project-level Vault view. Manage the original files that ground this
@@ -27,6 +28,7 @@ export default function VaultProjectView() {
     // your own second machine, and "how far along I am" is not part of a course.
     const [includeNotes, setIncludeNotes] = useState(false);
     const [includeProgress, setIncludeProgress] = useState(false);
+    const optionsRef = useRef<HTMLButtonElement>(null);
 
     if (!project) return null;
 
@@ -124,8 +126,10 @@ export default function VaultProjectView() {
                             {t("Export to Anki")}
                         </Button>
                         <Button
+                            ref={optionsRef}
                             onClick={() => setShowOptions(v => !v)}
                             busy={exporting}
+                            aria-haspopup="dialog"
                             aria-expanded={showOptions}
                             title={t("Export project + files as a .studyvault bundle")}
                             icon={<Upload className="w-4 h-4" aria-hidden="true" />}
@@ -133,39 +137,34 @@ export default function VaultProjectView() {
                             {t("Export bundle")}
                         </Button>
 
-                        {showOptions && (
-                            <>
-                                <div className="fixed inset-0 z-10" onClick={() => setShowOptions(false)} />
-                                {/* `top-full` is load-bearing. An absolutely
-                                    positioned child of a FLEX container takes
-                                    its static position from the container's
-                                    alignment — `items-center` centred this
-                                    panel on the 32px button row, so it opened
-                                    ON TOP of the two buttons that raise it and
-                                    spilled up over the header. A block parent
-                                    would have dropped it below on its own; a
-                                    flex one never will. */}
-                                <div className="absolute right-0 top-full mt-1.5 z-20 w-72 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
-                                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-1.5">
-                                        {t("The curriculum and your uploaded files are always included. Choose what else to add:")}
-                                    </p>
-                                    <Toggle
-                                        on={includeNotes}
-                                        onChange={setIncludeNotes}
-                                        label={t("My private notes")}
-                                        hint={t("Off by default — leave off when sharing.")}
-                                    />
-                                    <Toggle
-                                        on={includeProgress}
-                                        onChange={setIncludeProgress}
-                                        label={t("Progress (completion status)")}
-                                    />
-                                    <Button variant="primary" block onClick={handleExportBundle} className="mt-2">
-                                        {t("Export")}
-                                    </Button>
-                                </div>
-                            </>
-                        )}
+                        {/* The bundle's options: a `PanelPopover` on the button's
+                            right edge, and the bottom sheet on a phone. */}
+                        <PanelPopover
+                            open={showOptions}
+                            onClose={() => setShowOptions(false)}
+                            anchorRef={optionsRef}
+                            label={t("Export bundle")}
+                            align="end"
+                            width="w-72"
+                        >
+                            <p className="text-sm text-slate-500 dark:text-slate-300 mb-1.5">
+                                {t("The curriculum and your uploaded files are always included. Choose what else to add:")}
+                            </p>
+                            <Toggle
+                                on={includeNotes}
+                                onChange={setIncludeNotes}
+                                label={t("My private notes")}
+                                hint={t("Off by default — leave off when sharing.")}
+                            />
+                            <Toggle
+                                on={includeProgress}
+                                onChange={setIncludeProgress}
+                                label={t("Progress (completion status)")}
+                            />
+                            <Button variant="primary" block onClick={handleExportBundle} className="mt-2">
+                                {t("Export")}
+                            </Button>
+                        </PanelPopover>
                     </div>
                 </div>
                 <VaultPanel projectId={project.id} />

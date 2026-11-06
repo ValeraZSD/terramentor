@@ -217,19 +217,19 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                         trigger={<IconButton size="sm" tooltip={false} label={t("Actions for {{title}}", { title: node.title })} icon={<MoreVertical className="w-3.5 h-3.5" />} />}
                     >
                         {!node.is_note && currentProjectId != null && (
-                            <MenuItem roving={false} onSelect={() => studyNode(currentProjectId, node.id)} icon={<BookOpen className="w-4 h-4" />}>
+                            <MenuItem onSelect={() => studyNode(currentProjectId, node.id)} icon={<BookOpen className="w-4 h-4" />}>
                                 {isLeaf ? t("Study this topic") : t("Study this section")}
                             </MenuItem>
                         )}
-                        <MenuItem roving={false} onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
+                        <MenuItem onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
                             {t("Add Child")}
                         </MenuItem>
                         {isLeaf && node.status !== 'skipped' && (
-                            <MenuItem roving={false} onSelect={() => skipNode(node.id)} icon={<SkipForward className="w-4 h-4" />}>
+                            <MenuItem onSelect={() => skipNode(node.id)} icon={<SkipForward className="w-4 h-4" />}>
                                 {t("Skip topic")}
                             </MenuItem>
                         )}
-                        <MenuItem roving={false} tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
+                        <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                             {t("Delete")}
                         </MenuItem>
                     </DropdownMenu>
