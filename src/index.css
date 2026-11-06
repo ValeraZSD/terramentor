@@ -756,6 +756,8 @@ body.assistant-overlay-open {
 .modal-frame-stable {
   height: min(90vh, 42rem);
   height: min(90dvh, 42rem);
+  /* The same room as .modal-shell: never under the status bar or the home indicator. */
+  height: min(90dvh, 42rem, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 2rem));
 }
 
 /* A collapsible step (src/utils/details.ts, rendered by Markdown.tsx).
