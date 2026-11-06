@@ -4,7 +4,18 @@
  *
  *   node tools/build-desktop.mjs [--out release] [--skip-build] [--no-zip] [--no-check]
  *
- * Produces release/Terramentor-<version>-<platform>-<arch>/ and a zip of it:
+ * Produces release/Terramentor-<version>-<platform>-<arch>/ and a zip of it.
+ * On Windows and Linux that folder IS the app; on macOS it holds an app bundle
+ * with the app inside it, so the bundle can be dragged into Applications alone:
+ *
+ *   Terramentor-<version>-darwin-arm64/
+ *     README.txt
+ *     Terramentor.app/Contents/
+ *       Info.plist, MacOS/Terramentor (desktop/wrappers/app-bundle-main.sh),
+ *       Resources/icon.icns
+ *       Resources/app/      everything listed below
+ *
+ * The app folder:
  *
  *   runtime/node(.exe)     the Node binary this script is running on — the only
  *                          runtime the app needs, so nothing is installed
@@ -22,7 +33,6 @@
  *   build.json             version, commit, build time — the app's identity
  *   Terramentor.exe / .cmd   Windows: a windowless launcher (compiled here with
  *                          the C# compiler Windows ships), and a console one
- *   Terramentor.app / .command  macOS: a thin app bundle beside the folder
  *   terramentor.sh + install-desktop-entry.sh   Linux
  *
  * Why the bundled Node rather than an installer that asks for one: the audience
@@ -42,12 +52,16 @@
  * The staged copy is started with `desktop/launcher.js --check` against a
  * scratch data directory before it is zipped — a package that does not start
  * is not a package. Its MCP server is then started against that copy's own
- * server and asked for its tools, a view and a project list.
+ * server and asked for its tools, a view and a project list. On macOS the
+ * bundle is also copied ALONE into another folder, made read-only (as macOS
+ * runs a downloaded app it has translocated) and started through its own
+ * executable, so a bundle that reaches outside itself, or writes into itself
+ * while it starts, fails the build.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import {
     existsSync, mkdirSync, rmSync, cpSync, copyFileSync, readFileSync, writeFileSync,
-    readdirSync, statSync, createReadStream, createWriteStream, chmodSync,
+    readdirSync, statSync, createReadStream, createWriteStream, chmodSync, realpathSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname, relative, resolve, sep } from 'node:path';
@@ -56,6 +70,7 @@ import { tmpdir } from 'node:os';
 import JSZip from 'jszip';
 import { buildIco, buildIcns } from './lib/icons.mjs';
 import { codeFiles, runtimeSources, RUNTIME_DATA } from './lib/runtimeSources.mjs';
+import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(toolsDir, '..');
@@ -76,7 +91,12 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 const platform = process.platform;
 const arch = process.arch;
 const name = `${APP}-${pkg.version}-${platform}-${arch}`;
+/** What the zip holds: the package's top folder. */
 const stage = join(tmpdir(), 'terramentor-stage', name);
+/** Where the app itself goes: the top folder, or the bundle's app folder on
+ *  macOS (server/appPlacement.js, which the launcher and the updater read). */
+const bundleDir = join(stage, `${APP}.app`);
+const appDir = platform === 'darwin' ? join(bundleDir, ...MAC_APP_IN_BUNDLE.split('/')) : stage;
 const log = (m) => process.stdout.write(`${m}\n`);
 
 function run(cmd, args, opts = {}) {
@@ -99,13 +119,13 @@ if (!skipBuild) {
 if (!existsSync(join(repoRoot, 'dist', 'index.html'))) throw new Error('dist/index.html missing — build failed?');
 
 // --- 2. stage ------------------------------------------------------------------
-log(`▸ staging ${stage}`);
+log(`▸ staging ${appDir}`);
 rmSync(stage, { recursive: true, force: true });
-mkdirSync(stage, { recursive: true });
+mkdirSync(appDir, { recursive: true });
 
-cpSync(join(repoRoot, 'dist'), join(stage, 'dist'), { recursive: true });
+cpSync(join(repoRoot, 'dist'), join(appDir, 'dist'), { recursive: true });
 // The server, minus anything that is state rather than code.
-cpSync(join(repoRoot, 'server'), join(stage, 'server'), {
+cpSync(join(repoRoot, 'server'), join(appDir, 'server'), {
     recursive: true,
     filter: (src) => {
         const rel = relative(join(repoRoot, 'server'), src);
@@ -128,7 +148,7 @@ cpSync(join(repoRoot, 'server'), join(stage, 'server'), {
 // README.txt is left out as well: it is the template of the zip's top-level
 // README (written below with the version filled in), and a second, raw copy in
 // desktop/ read "Terramentor __VERSION__" inside every 1.0.0 zip.
-cpSync(join(repoRoot, 'desktop'), join(stage, 'desktop'), {
+cpSync(join(repoRoot, 'desktop'), join(appDir, 'desktop'), {
     recursive: true,
     filter: (src) => {
         const rel = relative(join(repoRoot, 'desktop'), src);
@@ -137,18 +157,18 @@ cpSync(join(repoRoot, 'desktop'), join(stage, 'desktop'), {
 });
 // The MCP server, and the few files from src/ that server/ imports and the
 // translations the MCP views read (tools/lib/runtimeSources.mjs says why).
-cpSync(join(repoRoot, 'mcp'), join(stage, 'mcp'), { recursive: true });
+cpSync(join(repoRoot, 'mcp'), join(appDir, 'mcp'), { recursive: true });
 const sharedSources = runtimeSources(repoRoot);
 for (const rel of [...sharedSources, ...RUNTIME_DATA]) {
-    mkdirSync(dirname(join(stage, rel)), { recursive: true });
-    cpSync(join(repoRoot, rel), join(stage, rel), { recursive: true });
+    mkdirSync(dirname(join(appDir, rel)), { recursive: true });
+    cpSync(join(repoRoot, rel), join(appDir, rel), { recursive: true });
 }
 log(`▸ shipped from src/: ${[...sharedSources, ...RUNTIME_DATA].join(', ')}`);
-for (const f of ['package.json', 'package-lock.json', 'LICENSE']) copyFileSync(join(repoRoot, f), join(stage, f));
+for (const f of ['package.json', 'package-lock.json', 'LICENSE']) copyFileSync(join(repoRoot, f), join(appDir, f));
 
 // --- 3. production node_modules, server-side closure only ------------------------
 log('▸ npm ci --omit=dev (production dependencies)');
-run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: stage });
+run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: appDir });
 
 // Packages the server NEEDS but never imports, so the scanner cannot see them.
 // Each is data a library is pointed at by path, and each would be pruned into a
@@ -178,15 +198,15 @@ if (undeclared.length) throw new Error(`the server or mcp/ imports packages pack
 log(`▸ the server and mcp/ need ${keep.length} of ${declared.length} declared packages; pruning the rest`);
 const stagedPkg = { ...pkg, dependencies: Object.fromEntries(keep.map((d) => [d, pkg.dependencies[d]])), devDependencies: {} };
 delete stagedPkg.scripts;
-writeFileSync(join(stage, 'package.json'), JSON.stringify(stagedPkg, null, 2));
-run('npm', ['prune', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: stage });
+writeFileSync(join(appDir, 'package.json'), JSON.stringify(stagedPkg, null, 2));
+run('npm', ['prune', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: appDir });
 // The lockfile did its job; a copy would only invite `npm install` in the folder.
-rmSync(join(stage, 'package-lock.json'), { force: true });
+rmSync(join(appDir, 'package-lock.json'), { force: true });
 // Restore the real package.json (the app reads its version and engines from it).
-writeFileSync(join(stage, 'package.json'), JSON.stringify({ ...pkg, devDependencies: {}, scripts: { start: 'node desktop/launcher.js' } }, null, 2));
+writeFileSync(join(appDir, 'package.json'), JSON.stringify({ ...pkg, devDependencies: {}, scripts: { start: 'node desktop/launcher.js' } }, null, 2));
 
 // --- 4. the runtime -------------------------------------------------------------
-const runtimeDir = join(stage, 'runtime');
+const runtimeDir = join(appDir, 'runtime');
 mkdirSync(runtimeDir, { recursive: true });
 const nodeName = platform === 'win32' ? 'node.exe' : 'node';
 copyFileSync(process.execPath, join(runtimeDir, nodeName));
@@ -205,7 +225,7 @@ const build = {
     arch,
     node: process.versions.node,
 };
-writeFileSync(join(stage, 'build.json'), JSON.stringify(build, null, 2));
+writeFileSync(join(appDir, 'build.json'), JSON.stringify(build, null, 2));
 
 // --- 6. icons and wrappers -------------------------------------------------------
 const png512 = readFileSync(join(repoRoot, 'public', 'icons', 'icon-512.png'));
@@ -218,16 +238,16 @@ if (platform === 'win32') {
     copyFileSync(join(wrappers, `${APP}.cmd`), join(stage, `${APP}.cmd`));
     compileWindowsLauncher(join(stage, `${APP}.exe`), join(stage, `${APP}.ico`));
 } else if (platform === 'darwin') {
+    // The rest of the bundle around the app staged above. Nothing of the app
+    // sits beside the bundle: dragged into Applications on its own, or run by
+    // macOS from a translocated copy, it has everything it needs.
     const icns = await buildIcns(png512);
-    const bundle = join(stage, `${APP}.app`, 'Contents');
-    mkdirSync(join(bundle, 'MacOS'), { recursive: true });
-    mkdirSync(join(bundle, 'Resources'), { recursive: true });
-    writeFileSync(join(bundle, 'Info.plist'), readFileSync(join(wrappers, 'Info.plist'), 'utf8').replaceAll('__VERSION__', pkg.version));
-    writeFileSync(join(bundle, 'Resources', 'icon.icns'), icns);
-    copyFileSync(join(wrappers, 'app-bundle-main.sh'), join(bundle, 'MacOS', APP));
-    chmodSync(join(bundle, 'MacOS', APP), 0o755);
-    copyFileSync(join(wrappers, `${APP}.command`), join(stage, `${APP}.command`));
-    chmodSync(join(stage, `${APP}.command`), 0o755);
+    const contents = join(bundleDir, 'Contents');
+    mkdirSync(join(contents, 'MacOS'), { recursive: true });
+    writeFileSync(join(contents, 'Info.plist'), readFileSync(join(wrappers, 'Info.plist'), 'utf8').replaceAll('__VERSION__', pkg.version));
+    writeFileSync(join(contents, 'Resources', 'icon.icns'), icns);
+    copyFileSync(join(wrappers, 'app-bundle-main.sh'), join(contents, 'MacOS', APP));
+    chmodSync(join(contents, 'MacOS', APP), 0o755);
 } else {
     copyFileSync(join(repoRoot, 'public', 'icons', 'icon-512.png'), join(stage, 'icon.png'));
     for (const f of ['terramentor.sh', 'install-desktop-entry.sh']) {
@@ -235,9 +255,12 @@ if (platform === 'win32') {
         chmodSync(join(stage, f), 0o755);
     }
 }
+// The package's top level: beside the app on Windows and Linux (and in its
+// file list), beside the bundle on macOS.
 writeFileSync(join(stage, 'README.txt'), readme.replaceAll('__VERSION__', pkg.version));
 
 // --- 7. does it start? ----------------------------------------------------------------
+let port = 3901;
 if (!noCheck) {
     // TWICE, and the second one is not redundant. The tray host starts the
     // launcher with TERRAMENTOR_TRAY=1, and code that only runs under that flag
@@ -250,13 +273,12 @@ if (!noCheck) {
         ['plain', {}],
         ['under the tray host', { TERRAMENTOR_TRAY: '1' }],
     ];
-    let port = 3901;
     for (const [label, extraEnv] of runs) {
         log(`▸ starting the staged copy (--check, ${label})`);
         const scratch = join(tmpdir(), `terramentor-build-check-${process.pid}-${port}`);
         rmSync(scratch, { recursive: true, force: true });
         const r = spawnSync(join(runtimeDir, nodeName), ['desktop/launcher.js', '--check', '--data-dir', scratch, '--port', String(port)],
-            { cwd: stage, encoding: 'utf8', timeout: 120_000, env: { ...process.env, ...extraEnv } });
+            { cwd: appDir, encoding: 'utf8', timeout: 120_000, env: { ...process.env, ...extraEnv } });
         process.stdout.write(r.stdout || '');
         process.stderr.write(r.stderr || '');
         rmSync(scratch, { recursive: true, force: true });
@@ -283,14 +305,18 @@ if (!noCheck) {
     // scanned) or the views' translations would start, pass, and ship.
     log('▸ starting the staged MCP server against the staged server');
     await checkMcp(port);
+    port++;
 }
 
 // --- 8. the file list ----------------------------------------------------------------------
 // Every file of the app with its SHA-256, so an installed copy can update
 // itself by fetching only the files that changed (server/appUpdate.js): the
 // release manifest carries this list's hash, and this list carries each file's.
-// Written AFTER the self-check, which runs inside the stage, and it does not
-// list itself.
+// Written AFTER the self-check, which runs inside the app folder, and it does
+// not list itself. Paths are relative to the app folder on every platform; a
+// macOS bundle's Info.plist and executable are not the app's and an update
+// never replaces them, which is why app-bundle-main.sh does nothing but find
+// the app and start it.
 {
     const files = [];
     const walk = (d) => {
@@ -298,7 +324,7 @@ if (!noCheck) {
             const p = join(d, f);
             const st = statSync(p);
             if (st.isDirectory()) { walk(p); continue; }
-            const path = relative(stage, p).split(sep).join('/');
+            const path = relative(appDir, p).split(sep).join('/');
             if (path === 'files.json') continue;
             files.push({
                 path, size: st.size,
@@ -307,9 +333,46 @@ if (!noCheck) {
             });
         }
     };
-    walk(stage);
-    writeFileSync(join(stage, 'files.json'), `${JSON.stringify({ schema: 1, version: pkg.version, platform: `${platform}-${arch}`, files })}\n`);
+    walk(appDir);
+    writeFileSync(join(appDir, 'files.json'), `${JSON.stringify({ schema: 1, version: pkg.version, platform: `${platform}-${arch}`, files })}\n`);
     log(`▸ file list: ${files.length} files`);
+}
+
+// --- 8b. the bundle by itself (macOS) ------------------------------------------------------
+// What a person does with the download: take Terramentor.app out of the
+// unpacked folder (into Applications), or open it where it is, in which case
+// macOS runs it from a read-only copy at a random path. Both are this: the
+// bundle ALONE in another folder, unwritable, started through its own
+// executable from an unrelated working directory. A bundle that looks for its
+// files beside itself, or writes into itself while starting, fails here.
+if (!noCheck && platform === 'darwin') {
+    log('▸ starting the bundle on its own, read-only, from another folder');
+    const away = join(tmpdir(), `terramentor-bundle-check-${process.pid}`);
+    const copy = join(away, 'elsewhere', `${APP}.app`);
+    rmSync(away, { recursive: true, force: true });
+    mkdirSync(dirname(copy), { recursive: true });
+    const sh = (cmd, args) => {
+        const r = spawnSync(cmd, args, { encoding: 'utf8' });
+        if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed: ${r.stderr || r.error?.message}`);
+    };
+    sh('cp', ['-R', bundleDir, copy]);
+    sh('chmod', ['-R', 'a-w', copy]);
+    let r;
+    try {
+        r = spawnSync(join(copy, 'Contents', 'MacOS', APP), ['--check', '--data-dir', join(away, 'library'), '--port', String(port)],
+            { cwd: away, encoding: 'utf8', timeout: 120_000, env: { ...process.env } });
+    } finally {
+        spawnSync('chmod', ['-R', 'u+w', copy]);
+    }
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    process.stdout.write(out);
+    // Node starts its main script by its real path, and macOS's temp folder
+    // sits behind a symlink (/var → /private/var).
+    const inside = realpathSync(join(copy, ...MAC_APP_IN_BUNDLE.split('/')));
+    rmSync(away, { recursive: true, force: true });
+    if (r.status !== 0 || !out.includes('Check OK:')) throw new Error(`the bundle did not start on its own (exit ${r.status ?? r.error?.message})`);
+    if (!out.includes(`packaged copy at ${inside}`)) throw new Error(`the bundle started an app outside itself (expected ${inside})`);
+    log(`▸ the bundle started on its own from ${inside}`);
 }
 
 // --- 9. zip -----------------------------------------------------------------------------
@@ -374,7 +437,7 @@ async function checkMcp(port) {
     };
     const children = [];
     const start = (args, extra) => {
-        const c = spawn(node, args, { cwd: stage, env: env(extra), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+        const c = spawn(node, args, { cwd: appDir, env: env(extra), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
         const exited = new Promise((r) => c.once('exit', r));
         children.push({ c, exited });
         return c;
@@ -397,7 +460,7 @@ async function checkMcp(port) {
 
         // The probe is a script of this repository run by the staged Node; the
         // MCP server it starts resolves its packages from the stage alone.
-        const probe = start([join(toolsDir, 'mcp-smoke.mjs'), stage, url], {});
+        const probe = start([join(toolsDir, 'mcp-smoke.mjs'), appDir, url], {});
         let probeOut = '';
         probe.stdout.on('data', (d) => { probeOut += d; });
         probe.stderr.on('data', (d) => { probeOut += d; });

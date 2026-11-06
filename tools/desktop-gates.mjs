@@ -10,13 +10,15 @@
  * fetch — no model, no database, no window.
  *
  *   node tools/desktop-gates.mjs
+ *   node tools/desktop-gates.mjs --base <sha>   (the macOS bundle's executable
+ *                                               taken from that commit instead)
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import express from 'express';
 import { resolveDataPaths, userDataDir, DATA_FOLDER_NAME, libraryId } from '../server/paths.js';
@@ -1019,7 +1021,8 @@ console.log('\n--- does a sign-in start open a window? ---');
 console.log('\n--- the tray open path in source ---');
 {
     const src = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
-    const spawnMatch = src.match(/spawn\(browser,[^;]+/);
+    // The spawn inside openWindow: the browser itself, or macOS `open` on it.
+    const spawnMatch = (src.match(/function openWindow\([\s\S]*?\r?\n}\r?\n/)?.[0] || '').match(/spawn\(cmd,[^;]+/);
     ok('the browser spawn is there to pin', !!spawnMatch);
     ok('…and it hides nothing — a GUI window is this call\'s product',
         !!spawnMatch && !spawnMatch[0].includes('windowsHide'));
@@ -1094,7 +1097,175 @@ console.log('\n--- a window is reported open only once it started ---');
         const body = src.match(new RegExp(`function ${fn}\\([\\s\\S]*?\\r?\\n}\\r?\\n`))?.[0] || '';
         const opened = body.match(/console\.log\(`Opened/g) || [];
         ok(`${fn} says "Opened" only once the program started`,
-            opened.length === 1 && /started:\s*\(\)\s*=>\s*console\.log\(`Opened/.test(body), `${opened.length} "Opened" line(s)`);
+            opened.length === 1 && /started:\s*\(\)\s*=>\s*\{?\s*console\.log\(`Opened/.test(body), `${opened.length} "Opened" line(s)`);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ON macOS THE BROWSER IS STARTED BY LAUNCHSERVICES. A browser spawned as the
+// launcher's own child counts the launcher as its responsible process: macOS
+// then names the bundled `node` in its privacy notices (a browser updating
+// itself trips "prevented from modifying apps"), and a browser that is already
+// running hands the URL to its open window and drops --app. `open -n -a` starts
+// a separate instance as if from the Dock, and passes everything after --args.
+// `open` exits non-zero when the app cannot be launched, so its exit code is
+// the start, not its spawn.
+console.log('\n--- macOS: the browser is started through `open` ---');
+{
+    const lib = await import('../desktop/lib.js');
+    const url = 'http://127.0.0.1:3001', profile = '/Users/x/Library/Application Support/Terramentor/browser-profile';
+    const chrome = '/Applications/Google Chrome.app';
+    ok('desktop/lib.js says how each platform starts the browser', typeof lib.browserCommand === 'function');
+    if (typeof lib.browserCommand === 'function') {
+        const mac = lib.browserCommand(chrome, url, profile, 'maximized', 'darwin');
+        check('macOS: open -n -a <the browser\'s bundle> --args <the same arguments>', mac,
+            { cmd: 'open', args: ['-n', '-a', chrome, '--args', ...browserArgs(url, profile, 'maximized')], byExit: true });
+        ok('…so the window is an --app window with its own profile, whatever was already running',
+            mac.args[mac.args.indexOf('--args') + 1] === `--app=${url}` && mac.args.includes(`--user-data-dir=${profile}`));
+        check('Windows: the browser itself, unchanged', lib.browserCommand('C:\\PF\\msedge.exe', url, 'C:\\p', 'window', 'win32'),
+            { cmd: 'C:\\PF\\msedge.exe', args: browserArgs(url, 'C:\\p', 'window'), byExit: false });
+        check('Linux: the browser itself, unchanged', lib.browserCommand('/usr/bin/chromium', url, '/p', 'fullscreen', 'linux'),
+            { cmd: '/usr/bin/chromium', args: browserArgs(url, '/p', 'fullscreen'), byExit: false });
+    }
+    const darwin = browserCandidates('darwin', { HOME: '/Users/x' });
+    ok('macOS: the candidates are app bundles, in /Applications and the user\'s own Applications',
+        darwin.every((c) => c.endsWith('.app')) && darwin.includes('/Users/x/Applications/Google Chrome.app')
+        && darwin.indexOf('/Applications/Google Chrome.app') < darwin.indexOf('/Users/x/Applications/Google Chrome.app'));
+
+    if (typeof lib.whenStarted === 'function') {
+        const byExit = (child) => new Promise((done) => {
+            const said = [];
+            lib.whenStarted(child, { started: () => said.push('started'), failed: (e) => said.push(`failed ${e.code}`) }, { byExit: true });
+            setTimeout(() => done(said), 2000);
+        });
+        check('judged by exit: a launcher that exits 0 is a start',
+            await byExit(spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })), ['started']);
+        check('judged by exit: a launcher that exits non-zero is a failure, though it did spawn',
+            await byExit(spawn(process.execPath, ['-e', 'process.exit(1)'], { stdio: 'ignore' })), ['failed 1']);
+        check('judged by exit: a launcher that is not there is a failure',
+            await byExit(spawn('terramentor-no-such-program', [], { stdio: 'ignore' })), ['failed ENOENT']);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE macOS APP IS INSIDE ITS BUNDLE. A downloaded .app that macOS runs from a
+// read-only translocated copy, or that was dragged into Applications on its
+// own, has nothing beside it: whatever the bundle needs is in
+// Terramentor.app/Contents/Resources/app. These are the decisions that follow.
+console.log('\n--- macOS: the bundle carries its own app ---');
+{
+    const placementMod = await import('../server/appPlacement.js').catch(() => null);
+    ok('server/appPlacement.js says where a macOS package keeps its app', !!placementMod);
+    if (placementMod) {
+        const { macBundleOf, isTranslocated, appPlacement, MAC_APP_IN_BUNDLE } = placementMod;
+        check('the app folder inside a bundle', MAC_APP_IN_BUNDLE, 'Contents/Resources/app');
+        check('the bundle of an app folder inside one', macBundleOf('/Applications/Terramentor.app/Contents/Resources/app'), '/Applications/Terramentor.app');
+        check('…a trailing slash changes nothing', macBundleOf('/Applications/Terramentor.app/Contents/Resources/app/'), '/Applications/Terramentor.app');
+        check('a flat package folder has no bundle', macBundleOf('/Users/x/Downloads/Terramentor-1.4.0-darwin-arm64'), null);
+        check('…nor does a checkout', macBundleOf(repoRoot), null);
+        const transl = '/private/var/folders/xy/abc/T/AppTranslocation/0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0/d/Terramentor.app';
+        ok('a translocated path is recognised', isTranslocated(transl));
+        ok('…and a path that merely mentions it is not', !isTranslocated('/Users/x/AppTranslocation.txt') && !isTranslocated('/Applications/Terramentor.app'));
+        const at = (bundle, writable = () => true, platform = 'darwin') =>
+            appPlacement({ appRoot: `${bundle}/Contents/Resources/app`, platform, writable });
+        check('in Applications: fine', at('/Applications/Terramentor.app'), { bundle: '/Applications/Terramentor.app', problem: null });
+        check('in ~/Applications: fine', at('/Users/x/Applications/Terramentor.app').problem, null);
+        check('translocated: said, whatever the permissions say', at(transl).problem, 'translocated');
+        check('in a folder this account cannot write: said', at('/Volumes/Terramentor/Terramentor.app', () => false).problem, 'read-only');
+        let asked = 0;
+        at(transl, () => { asked++; return true; });
+        check('a translocated copy is never probed for writing', asked, 0);
+        check('not macOS: no opinion', at('/Applications/Terramentor.app', () => true, 'linux'), null);
+        check('a flat folder on macOS: no opinion', appPlacement({ appRoot: '/Users/x/Downloads/Terramentor', platform: 'darwin', writable: () => true }), null);
+    }
+
+    // No portable data/ folder inside a bundle: a library inside an app bundle
+    // would be replaced by the next update and is lost to a translocated copy.
+    const inBundle = { appRoot: '/Applications/Terramentor.app/Contents/Resources/app', platform: 'darwin', env: {}, home: '/Users/x', packaged: true };
+    const chosenInBundle = chooseDataDir({ ...inBundle, exists: (p) => p.replace(/\\/g, '/').endsWith('/Contents/Resources/app/data') });
+    check('macOS bundle: a data/ folder inside it is never the library', chosenInBundle.why, 'user');
+    ok('…the library is Application Support', chosenInBundle.dir.replace(/\\/g, '/').endsWith('/Users/x/Library/Application Support/Terramentor'));
+
+    // A translocated copy is gone on the next start, so it never becomes the
+    // login item or the shortcut target.
+    const launcher = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
+    const targetAt = launcher.indexOf('process.env.TERRAMENTOR_LAUNCH_TARGET =');
+    const guardAt = launcher.lastIndexOf("placement?.problem !== 'translocated'", targetAt);
+    ok('the launch target is withheld from a translocated copy', targetAt > 0 && guardAt > 0 && targetAt - guardAt < 120);
+
+    const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
+    ok('the macOS build puts the app inside the bundle', /MAC_APP_IN_BUNDLE/.test(build) && /bundleDir/.test(build));
+    ok('…ships no .command beside it', !/Terramentor\.command/.test(build) && !existsSync(join(repoRoot, 'desktop', 'wrappers', 'Terramentor.command')));
+    ok('…and starts a copy of the bundle on its own before it zips', /bundle started on its own/.test(build));
+}
+
+// ---------------------------------------------------------------------------
+// THE BUNDLE STARTS FROM A COPY OF ITSELF ALONE. The real thing, run: the
+// bundle's executable (desktop/wrappers/app-bundle-main.sh) in a Terramentor.app
+// whose app folder holds a stand-in `node`, copied ON ITS OWN into another
+// folder (as Finder does when it is dragged to Applications, and as macOS does
+// when it translocates it), with a decoy app beside the copy. Any path that
+// leaves the bundle runs the decoy or nothing. `--base <sha>` runs the same
+// check on that commit's executable.
+console.log('\n--- macOS: the bundle\'s executable runs from a copy of the .app alone ---');
+{
+    const baseAt = process.argv.indexOf('--base');
+    const baseSha = baseAt > 0 ? process.argv[baseAt + 1] : null;
+    const wrapperRel = 'desktop/wrappers/app-bundle-main.sh';
+    const wrapper = (baseSha
+        ? execFileSync('git', ['show', `${baseSha}:${wrapperRel}`], { cwd: repoRoot, encoding: 'utf8' })
+        : readFileSync(join(repoRoot, wrapperRel), 'utf8')).replace(/\r\n/g, '\n');
+    if (baseSha) console.log(`  (the bundle's executable from ${baseSha})`);
+    // Git for Windows' bash; a bare `bash` on Windows can be WSL's, which
+    // cannot see this drive.
+    const bash = process.platform === 'win32'
+        ? [join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'), 'C:\\Program Files\\Git\\bin\\bash.exe'].find((p) => existsSync(p))
+        : 'bash';
+    ok('a bash to run the bundle\'s executable with', !!bash);
+    if (bash) {
+        const scratch = mkdtempSync(join(tmpdir(), 'tm-bundle-'));
+        try {
+            const stub = (who) => `#!/bin/bash\nprintf '%s\\n' "${who}" "$PWD" "$@" > "$TM_GATE_OUT"\n`;
+            const put = (path, text, mode) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, text); if (mode) chmodSync(path, mode); };
+            // As unzipped: the bundle, with its app inside.
+            const unzipped = join(scratch, 'unzipped');
+            const app = join(unzipped, 'Terramentor.app');
+            put(join(app, 'Contents', 'MacOS', 'Terramentor'), wrapper, 0o755);
+            put(join(app, 'Contents', 'Resources', 'app', 'runtime', 'node'), stub('inside'), 0o755);
+            put(join(app, 'Contents', 'Resources', 'app', 'desktop', 'launcher.js'), '');
+            // Copied alone into a folder with a space in its name, beside a decoy.
+            const elsewhere = join(scratch, 'Some Applications');
+            cpSync(app, join(elsewhere, 'Terramentor.app'), { recursive: true });
+            put(join(elsewhere, 'runtime', 'node'), stub('OUTSIDE the bundle'), 0o755);
+            put(join(elsewhere, 'desktop', 'launcher.js'), '');
+            const out = join(scratch, 'ran.txt');
+            const run = (exe, cwd) => {
+                rmSync(out, { force: true });
+                const r = spawnSync(bash, [exe, '--data-dir', '/x y/library', '--port', '3901'],
+                    { cwd, env: { ...process.env, TM_GATE_OUT: out }, encoding: 'utf8', timeout: 20_000 });
+                const lines = existsSync(out) ? readFileSync(out, 'utf8').replace(/\r/g, '').split('\n') : [];
+                return { status: r.status, stderr: (r.stderr || '').trim(), who: lines[0] || '(nothing ran)', cwd: lines[1] || '', args: lines.slice(2, -1) };
+            };
+            // Started from somewhere unrelated, as LaunchServices does (cwd /).
+            const ran = run(join(elsewhere, 'Terramentor.app', 'Contents', 'MacOS', 'Terramentor'), scratch);
+            check('the copy runs the node inside itself', ran.who, 'inside');
+            ok('…from its own app folder', /\/Some Applications\/Terramentor\.app\/Contents\/Resources\/app$/.test(ran.cwd), ran.cwd || ran.stderr);
+            ok('…with the launcher inside itself', /\/Some Applications\/Terramentor\.app\/Contents\/Resources\/app\/desktop\/launcher\.js$/.test(ran.args[0] || ''), ran.args[0]);
+            check('…and every argument passed through, spaces kept', ran.args.slice(1), ['--data-dir', '/x y/library', '--port', '3901']);
+            check('…and it exits as the app does', ran.status, 0);
+
+            // A bundle whose app is missing says so and stops; it never goes
+            // looking beside itself.
+            const hollow = join(scratch, 'hollow', 'Terramentor.app');
+            put(join(hollow, 'Contents', 'MacOS', 'Terramentor'), wrapper, 0o755);
+            put(join(scratch, 'hollow', 'runtime', 'node'), stub('OUTSIDE the bundle'), 0o755);
+            const none = run(join(hollow, 'Contents', 'MacOS', 'Terramentor'), scratch);
+            check('a bundle with no app inside runs nothing', none.who, '(nothing ran)');
+            ok('…fails', none.status !== 0, `exit ${none.status}`);
+            ok('…and says to download it again', /download Terramentor again/i.test(none.stderr), none.stderr);
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
     }
 }
 
@@ -1141,7 +1312,7 @@ console.log('\n--- identity of a packaged copy ---');
 console.log('\n--- packaging pieces are present ---');
 {
     for (const f of ['desktop/launcher.js', 'desktop/lib.js', 'desktop/README.txt', 'tools/build-desktop.mjs',
-        'desktop/wrappers/Terramentor.cmd', 'desktop/wrappers/Terramentor.command', 'desktop/wrappers/terramentor.sh',
+        'desktop/wrappers/Terramentor.cmd', 'desktop/wrappers/terramentor.sh',
         'desktop/wrappers/install-desktop-entry.sh', 'desktop/wrappers/Launcher.cs', 'desktop/wrappers/Info.plist',
         'desktop/wrappers/app-bundle-main.sh']) {
         ok(`${f} exists`, existsSync(join(repoRoot, f)));

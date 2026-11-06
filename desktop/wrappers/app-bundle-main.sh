@@ -1,8 +1,14 @@
 #!/bin/bash
-# Terramentor.app/Contents/MacOS/Terramentor — the bundle's executable. The app's
-# files live in the folder BESIDE the bundle (../../..), so the bundle stays a
-# thin launcher and the folder stays what the zip unpacks to.
+# Terramentor.app/Contents/MacOS/Terramentor, the bundle's executable. The app
+# is INSIDE the bundle, in Contents/Resources/app, so the bundle works wherever
+# it is: dragged into Applications on its own, or run by macOS from the
+# read-only copy it makes of a downloaded app (App Translocation). Nothing here
+# may look outside the bundle. One-click updates replace the app folder and
+# never this file, so it stays this small.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"
-cd "$ROOT"
-exec "$ROOT/runtime/node" "$ROOT/desktop/launcher.js" "$@"
+APP="$(cd "$HERE/../Resources/app" 2>/dev/null && pwd)" || {
+    echo "Terramentor: the app is missing from $HERE/../Resources/app; download Terramentor again." >&2
+    exit 1
+}
+cd "$APP" || exit 1
+exec "$APP/runtime/node" "$APP/desktop/launcher.js" "$@"
