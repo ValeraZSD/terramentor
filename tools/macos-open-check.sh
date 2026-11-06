@@ -8,20 +8,25 @@
 # left beside it to reach. Then it is opened through LaunchServices (`open`),
 # never by running its script directly:
 #
-#   1. marked as downloaded (com.apple.quarantine), as a browser marks it. An app
-#      that is not notarized may be stopped here by Gatekeeper, and whether
-#      macOS translocates it depends on the runner's Gatekeeper settings, so this
-#      run says what happened rather than requiring either; if it was
-#      translocated, the log must say so;
-#   2. with the mark removed (README.txt's fallback), from where it was copied.
+#   1. marked as downloaded (com.apple.quarantine), as a browser marks it.
+#      Gatekeeper stops an app that is not notarized with a dialog nobody on a
+#      runner can answer, and `open` waits for that answer, so this run (like
+#      every command here that waits on macOS) has a time limit and only says
+#      what happened;
+#   2. marked as downloaded AND approved by the person, as Open Anyway leaves
+#      it. If macOS then translocates it, the app's log must say so; whether it
+#      starts at all is reported, not required;
+#   3. with the mark removed (README.txt's fallback), from where it was copied.
 #      A second launch while it runs must hand over to it, and Quit must stop
 #      the app and close its --app window;
-#   3. the same bundle made read-only.
+#   4. the same bundle made read-only.
 #
-# Each run must serve the app from the copy's own Contents/Resources/app; runs 2
-# and 3 must start. A browser, when the runner has one, must be an --app window.
-# Only processes started with this run's own folder are stopped, so it can run
-# on a Mac where Terramentor is in use.
+# The unpacked bundle's script and runtime must be executable (a zip entry whose
+# mode has no file type loses its executable bit in ditto). Each run must serve
+# the app from the copy's own Contents/Resources/app; runs 3 and 4 must start. A
+# browser, when the runner has one, must be an --app window. Only processes
+# started with this run's own folder are stopped, so it can run on a Mac where
+# Terramentor is in use.
 set -uo pipefail
 
 zip="${1:?the darwin zip}"
@@ -33,6 +38,21 @@ fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "FAIL $*"; fail=1; }
 app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -v grep | head -1; }
+status() { curl -s -m 5 "http://127.0.0.1:$port/api/desktop/status"; }
+
+# limit SECONDS COMMAND...: run COMMAND, stopping it after SECONDS. Its exit
+# status, or 143 when it was stopped.
+limit() {
+    local secs="$1"; shift
+    "$@" &
+    local pid=$!
+    ( sleep "$secs"; kill "$pid" 2>/dev/null ) &
+    local timer=$!
+    wait "$pid"
+    local rc=$?
+    pkill -P "$timer" 2>/dev/null; kill "$timer" 2>/dev/null; wait "$timer" 2>/dev/null
+    return "$rc"
+}
 
 # Stop what this run started: the app, and the browser it opened (both carry
 # this run's folder on their command line). Returns 1 if the port still answers.
@@ -40,7 +60,7 @@ stop() {
     pkill -f -- "desktop/launcher.js --data-dir $work/" 2>/dev/null
     pkill -f -- "--user-data-dir=$work/" 2>/dev/null
     for _ in $(seq 1 20); do
-        curl -s -o /dev/null "http://127.0.0.1:$port/api/desktop/status" || return 0
+        status >/dev/null || return 0
         sleep 0.5
     done
     say "  (port $port still answers after stopping this run's processes)"
@@ -59,7 +79,10 @@ mkdir -p "$work/elsewhere"
 ditto "$work/unzipped/$top/Terramentor.app" "$copy"
 rm -rf "$work/unzipped"
 say "▸ the bundle alone at $copy; the unpacked folder is gone"
-stat -f '    %Sp  %N' "$copy/Contents/MacOS/Terramentor" "$copy/Contents/Resources/app/runtime/node" | sed "s#$copy/##"
+for f in Contents/MacOS/Terramentor Contents/Resources/app/runtime/node; do
+    if [ -x "$copy/$f" ]; then say "    $(stat -f '%Sp' "$copy/$f")  $f"
+    else bad "$f is not executable once unpacked ($(stat -f '%Sp' "$copy/$f")): macOS cannot start the app"; fi
+done
 say "▸ Gatekeeper on this runner: $(spctl --status 2>&1)"
 
 # open_run NAME MUST_START [quit]: open the copy, wait for it to serve, check its
@@ -69,10 +92,12 @@ open_run() {
     mkdir -p "$data"
     say ""
     say "▸ run '$name': open -n -a $copy --args --data-dir $data --port $port"
-    open -n -a "$copy" --args --data-dir "$data" --port "$port"
-    say "  open exited $?"
+    limit 20 open -n -a "$copy" --args --data-dir "$data" --port "$port"
+    local rc=$?
+    if [ "$rc" = 143 ]; then say "  open did not return within 20 s: macOS is holding the app at a dialog"
+    else say "  open exited $rc"; fi
     for _ in $(seq 1 60); do
-        if curl -s "http://127.0.0.1:$port/api/desktop/status" | grep -q '"desktop":true'; then started=1; break; fi
+        if status | grep -q '"desktop":true'; then started=1; break; fi
         sleep 1
     done
     log="$data/logs/app.log"
@@ -97,17 +122,17 @@ open_run() {
             ps_line="$(app_window)"
             if [ -n "$ps_line" ]; then window=1; say "  ok: the browser runs as an --app window: ${ps_line:0:300}"
             else bad "run '$name': the log says an app window opened, but no browser runs with --app"; fi
-            [ -n "$shots" ] && mkdir -p "$shots" && screencapture -x "$shots/macos-$name.png" && say "  screenshot: macos-$name.png"
+            [ -n "$shots" ] && mkdir -p "$shots" && limit 15 screencapture -x "$shots/macos-$name.png" && say "  screenshot: macos-$name.png"
         else
             say "  no Chromium browser was used: $(grep -oE 'Opened default browser.*|Could not start.*' "$log" | head -1)"
         fi
-        curl -s "http://127.0.0.1:$port/api/desktop/info" | grep -o '"appPlacement":[^,}]*' | sed 's/^/  info: /'
+        curl -s -m 5 "http://127.0.0.1:$port/api/desktop/info" | grep -o '"appPlacement":[^,}]*' | sed 's/^/  info: /'
 
         if [ "${3:-}" = quit ]; then
             # A second launch finds the running app and leaves; it starts no
             # second server, and its window goes to the browser already
             # holding the app's profile.
-            open -n -a "$copy" --args --data-dir "$data" --port "$port"
+            limit 20 open -n -a "$copy" --args --data-dir "$data" --port "$port"
             say "  second launch: open exited $?"
             sleep 6
             local again
@@ -115,10 +140,10 @@ open_run() {
             [ "$again" = 1 ] && say "  ok: one app process after the second launch" || bad "run '$name': $again app processes after the second launch"
             say "  second launch logged: $(grep -o 'already running on port.*' "$log" | tail -1)"
 
-            curl -s -o /dev/null -X POST "http://127.0.0.1:$port/api/desktop/quit"
+            curl -s -m 10 -o /dev/null -X POST "http://127.0.0.1:$port/api/desktop/quit"
             local gone=0
             for _ in $(seq 1 30); do
-                curl -s -o /dev/null "http://127.0.0.1:$port/api/desktop/status" || { gone=1; break; }
+                status >/dev/null || { gone=1; break; }
                 sleep 0.5
             done
             [ "$gone" = 1 ] && say "  ok: Quit stopped the app" || bad "run '$name': Quit did not stop the app"
@@ -145,6 +170,12 @@ xattr -w -r com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;$(uui
 say "▸ quarantined: $(xattr -p com.apple.quarantine "$copy")"
 say "▸ Gatekeeper's verdict on it: $(spctl --assess --type execute -vv "$copy" 2>&1 | tr '\n' ' ')"
 open_run quarantined may
+
+# 0x40 in the flags marks the download as approved by the person.
+xattr -w -r com.apple.quarantine "00c1;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
+say ""
+say "▸ marked approved: $(xattr -p com.apple.quarantine "$copy")"
+open_run approved may
 
 xattr -dr com.apple.quarantine "$copy"
 open_run unquarantined must quit
