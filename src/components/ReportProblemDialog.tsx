@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import Radio from './ui/Radio';
 import { Button, ButtonLink, IconButton } from './ui/Button';
 import { Field, TextArea, TextInput } from './ui/Field';
+import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { usePortalAccent } from '../hooks/usePortalAccent';
 import { useDialogFocus } from '../hooks/useDialogFocus';
@@ -169,7 +170,7 @@ function ReportDialogBody({ onClose, prefill, draftKey = 'settings', onOpened }:
             <span ref={anchor} className="hidden" aria-hidden="true" />
             {createPortal(
                 <div
-                    className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4"
+                    className={`fixed inset-0 z-[60] flex items-end justify-center sm:items-center ${SHEET_OVERLAY}`}
                     style={accent}
                     role="presentation"
                 >
@@ -177,7 +178,7 @@ function ReportDialogBody({ onClose, prefill, draftKey = 'settings', onOpened }:
                     <div
                         ref={panelRef}
                         tabIndex={-1}
-                        className="relative flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl"
+                        className={`relative flex modal-shell w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl outline-none dark:bg-slate-800 sm:rounded-2xl ${SHEET_PANEL}`}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="report-dialog-title"

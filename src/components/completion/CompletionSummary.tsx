@@ -13,6 +13,7 @@ import { useAccentVars } from '../../hooks/useAccentVars';
 import { readVisualPalette, parseColor, rgbToHex, ensureContrast, readableOn } from '../visuals/palette';
 import { downloadBlob, fileSlug } from '../../utils/exportVisual';
 import { Button, IconButton } from '../ui/Button';
+import { FILL_OVERLAY, FILL_PANEL } from '../ui/Dialog';
 import { ProjectIcon, iconName, projectIconImage } from '../ProjectIcon';
 import { renderCertificate } from './certificate';
 import {
@@ -155,7 +156,7 @@ export default function CompletionSummary() {
     };
 
     return createPortal((
-        <div className="fixed inset-0 z-[70] flex items-stretch justify-center sm:items-center sm:p-4" style={accentStyle}>
+        <div className={`fixed inset-0 z-[70] flex items-stretch justify-center sm:items-center ${FILL_OVERLAY}`} style={accentStyle}>
             <div className="absolute inset-0 bg-slate-900/60" {...backdrop} aria-hidden="true" />
             <div
                 ref={dialogRef}
@@ -163,7 +164,7 @@ export default function CompletionSummary() {
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("{{name}} is finished", { name: project.name })}
-                className="relative flex w-full flex-col overflow-hidden bg-white shadow-2xl outline-none dark:bg-slate-900 sm:max-h-[94dvh] sm:max-w-md sm:rounded-3xl"
+                className={`relative flex w-full flex-col overflow-hidden bg-white shadow-2xl outline-none dark:bg-slate-900 sm:max-h-[94dvh] sm:max-w-md sm:rounded-3xl ${FILL_PANEL}`}
             >
                 <div className="h-1.5 shrink-0 bg-accent" />
 

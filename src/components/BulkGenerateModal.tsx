@@ -13,6 +13,7 @@ import Checkbox from './Checkbox';
 import { Button, IconButton } from './ui/Button';
 import { SegmentedControl } from './ui/SegmentedControl';
 import ProgressBar from './ui/ProgressBar';
+import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 
 /**
  * "Make me the material for all of this" — the exam-week button.
@@ -203,7 +204,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-4"
+            className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 ${SHEET_OVERLAY}`}
             onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         >
             <div
@@ -212,7 +213,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("Generate study material")}
-                className="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-[92dvh] sm:h-auto modal-shell flex flex-col overflow-hidden outline-none"
+                className={`bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-3xl h-[92dvh] sm:h-auto modal-shell flex flex-col overflow-hidden outline-none ${SHEET_PANEL}`}
             >
                 <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3 min-w-0">
