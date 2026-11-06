@@ -68,7 +68,8 @@ stop() {
     pkill -f -- "desktop/launcher.js --data-dir $work/" 2>/dev/null
     # The bundle's script itself, when Gatekeeper holds it before it starts node.
     pkill -f -- "Terramentor.app/Contents/MacOS/Terramentor --data-dir $work/" 2>/dev/null
-    pkill -f -- "--user-data-dir=$work/" 2>/dev/null
+    # Without the dashes: ps shows an `open` go-between's arguments with one.
+    pkill -f -- "user-data-dir=$work/" 2>/dev/null
     for _ in $(seq 1 20); do
         status >/dev/null || return 0
         sleep 0.5
@@ -217,11 +218,19 @@ stop || { say "FAIL port $port is taken by something this script did not start";
 # Start it once on a profile of its own, as a stranger to the app.
 chrome="/Applications/Google Chrome.app"
 if [ -d "$chrome" ]; then
+    # The runner's Chrome comes from Homebrew still marked as downloaded, so
+    # every start of it waits at "Are you sure you want to open it?" (seen in
+    # this check's screenshots). A person's Chrome was approved the first time
+    # it was opened. Cleared on CI only: on a person's Mac it is theirs.
+    if [ -n "${CI:-}" ]; then
+        limit 60 xattr -dr com.apple.quarantine "$chrome" 2>/dev/null || limit 60 sudo -n xattr -dr com.apple.quarantine "$chrome" 2>/dev/null
+        say "▸ $chrome marked as downloaded: $(xattr -p com.apple.quarantine "$chrome" 2>/dev/null || echo no)"
+    fi
     t0="$(date +%s)"
     limit 120 open -n -a "$chrome" --args --user-data-dir="$work/warm-profile" --no-first-run --no-default-browser-check about:blank
     say "▸ $chrome started once beforehand: open exited $? after $(( $(date +%s) - t0 )) s"
     sleep 3
-    pkill -f -- "--user-data-dir=$work/warm-profile" 2>/dev/null
+    pkill -f -- "user-data-dir=$work/warm-profile" 2>/dev/null
     sleep 2
 fi
 xattr -w -r com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
