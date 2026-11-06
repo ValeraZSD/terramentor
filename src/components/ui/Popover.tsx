@@ -43,6 +43,8 @@ export interface Placement {
 /** Below this much room on its roomier side, a menu would show two rows and a
  *  scroll bar beside its button: it is laid over the button instead. */
 const MIN_SIDE_ROOM = 120;
+/** How far inside its bounds a floating menu keeps, by default. */
+const MARGIN = 8;
 
 /**
  * Where a menu of `size` goes against a button at `anchor`, inside `bounds`:
@@ -64,7 +66,7 @@ export function placePopover(
     anchor: Box,
     size: { width: number; height: number },
     bounds: Box,
-    { align = 'start', gap = 4, margin = 8 }: { align?: 'start' | 'end'; gap?: number; margin?: number } = {},
+    { align = 'start', gap = 4, margin = MARGIN }: { align?: 'start' | 'end'; gap?: number; margin?: number } = {},
 ): Placement {
     const minX = bounds.left + margin, maxX = bounds.right - margin;
     const minY = bounds.top + margin, maxY = bounds.bottom - margin;
@@ -141,6 +143,20 @@ export function followVisualViewport(fn: () => void): () => void {
     return () => { vv.removeEventListener('resize', fn); vv.removeEventListener('scroll', fn); };
 }
 
+/** Is the box (at `r`) wholly out of sight: off the screen, or past the edge
+ *  of an element that scrolls or clips it (a dialog's body, a category's list
+ *  of rows)? A menu still floating from it would act on something not shown. */
+export function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
+    if (r.bottom < 0 || r.top > window.innerHeight) return true;
+    for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if (!/auto|scroll|hidden|clip/.test(`${s.overflowX} ${s.overflowY}`)) continue;
+        const b = p.getBoundingClientRect();
+        if (r.bottom <= b.top || r.top >= b.bottom) return true;
+    }
+    return false;
+}
+
 /**
  * A floating surface's place beside its button, kept up to date while `active`:
  * measured before paint, again as the page scrolls or the window or the visual
@@ -167,9 +183,11 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         const btn = anchorRef.current, el = surfaceRef.current;
         if (!btn || !el) return;
         const r = btn.getBoundingClientRect();
-        // The button has left the screen (the feed scrolled it away): a menu
-        // still floating there would belong to nothing on screen.
-        if (r.bottom < 0 || r.top > window.innerHeight) { closeRef.current(); return; }
+        // The button has left the screen, or the list that scrolls it (the feed
+        // scrolled it away): a menu still floating there would belong to
+        // nothing on screen.
+        if (scrolledAway(btn, r)) { closeRef.current(); return; }
+        const bounds = popoverBounds();
         const borders = el.offsetHeight - el.clientHeight;
         // The surface's own width, not the cap the last placement put on it: a
         // capped box measured as capped would lose its cap on the next scroll,
@@ -178,10 +196,14 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         el.style.maxWidth = 'none';
         el.style.minWidth = '';
         const width = el.offsetWidth;
+        // Its height at the width it will HAVE: capped, its text wraps and it
+        // grows taller than it measured uncapped.
+        const roomX = Math.max(0, bounds.right - bounds.left - 2 * MARGIN);
+        if (width > roomX) { el.style.maxWidth = `${roomX}px`; el.style.minWidth = '0'; }
+        const height = el.scrollHeight + borders;
         el.style.maxWidth = maxWidth;
         el.style.minWidth = minWidth;
-        setPlace(placePopover(r, { width, height: el.scrollHeight + borders },
-            popoverBounds(), { align, gap }));
+        setPlace(placePopover(r, { width, height }, bounds, { align, gap }));
     }, [anchorRef, surfaceRef, align, gap]);
 
     // Measured before paint, so the surface never flashes at 0,0; it is
@@ -220,6 +242,22 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
  *  dialog's `useDialogFocus` hears Escape and Tab. */
 const stop = (e: SyntheticEvent) => e.stopPropagation();
 const KEEP_EVENTS = { onClick: stop, onPointerDown: stop };
+
+/** When a floating surface closes and focus fell to nothing (the chosen row
+ *  unmounted with it; Safari never focused the clicked button), the button it
+ *  opened from gets focus back. A surface that moved focus on (a dialog a row
+ *  opened) keeps it. The sheet does the same through `returnFocus`. */
+function useFocusBackOnClose(active: boolean, anchorRef: RefObject<HTMLElement | null>) {
+    useEffect(() => {
+        if (!active) return;
+        return () => {
+            const now = document.activeElement;
+            if ((!now || now === document.body) && anchorRef.current?.isConnected) {
+                anchorRef.current.focus({ preventScroll: true });
+            }
+        };
+    }, [active, anchorRef]);
+}
 
 /** Focus the n-th item of a menu, wrapping at both ends. */
 function focusItem(menu: HTMLElement | null, which: 'first' | 'last' | 'next' | 'prev') {
@@ -267,6 +305,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
     useEffect(() => {
         if (open && placed) focusItem(menuRef.current, 'first');
     }, [open, placed]);
+    useFocusBackOnClose(open && !sheet, anchorRef);
 
     useEffect(() => {
         if (!open) return;
@@ -388,18 +427,8 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
         onEscape: e => { e.preventDefault(); closeRef.current(); },
         initialFocus: startRef,
     });
-    // As the sheet does: Safari does not focus a clicked button, so
-    // `useDialogFocus` may have had no opener to hand focus back to. Declared
-    // after it, so this cleanup runs after its own and only fills that gap.
-    useEffect(() => {
-        if (!open || sheet) return;
-        return () => {
-            const active = document.activeElement;
-            if ((!active || active === document.body) && anchorRef.current?.isConnected) {
-                anchorRef.current.focus({ preventScroll: true });
-            }
-        };
-    }, [open, sheet, anchorRef]);
+    // Declared after `useDialogFocus`, so its own hand-back runs first.
+    useFocusBackOnClose(open && !sheet, anchorRef);
 
     if (open && sheet) {
         return (
@@ -419,6 +448,8 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
                     ref={panelRef}
                     role="dialog"
                     aria-label={label}
+                    // Where focus lands when nothing inside asks for it.
+                    tabIndex={-1}
                     {...KEEP_EVENTS}
                     style={{
                         ...accent,
@@ -430,7 +461,7 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
                         // dialog takes it as it mounts, before it is placed.
                         opacity: place ? 1 : 0,
                     }}
-                    className={cx('fixed z-50 overflow-y-auto overscroll-contain p-3', width, MENU_SURFACE)}
+                    className={cx('fixed z-50 overflow-y-auto overscroll-contain p-3 outline-none', width, MENU_SURFACE)}
                 >
                     <div className={className}>{children}</div>
                 </div>,

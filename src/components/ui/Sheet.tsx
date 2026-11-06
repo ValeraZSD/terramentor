@@ -159,7 +159,9 @@ export function BottomSheet({ title, onClose, onEscape, initialFocus, returnFocu
                         >
                             <div aria-hidden="true" className="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" />
                             <div className="flex items-center justify-between gap-3 pl-5 pr-3 pt-1 pb-2">
-                                <h2 id={titleId} className="min-w-0 text-base font-semibold text-slate-900 dark:text-white">
+                                {/* Two lines at most: a long topic title would otherwise
+                                    fill a sheet on a phone held sideways. Its name stays whole. */}
+                                <h2 id={titleId} className="min-w-0 line-clamp-2 break-words text-base font-semibold text-slate-900 dark:text-white">
                                     {title || t("Choose one")}
                                 </h2>
                                 <IconButton

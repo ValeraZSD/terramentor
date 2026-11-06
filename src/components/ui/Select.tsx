@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { placePopover, popoverBounds, followVisualViewport, MENU_SURFACE } from './Popover';
+import { placePopover, popoverBounds, followVisualViewport, scrolledAway, MENU_SURFACE } from './Popover';
 import { BottomSheet, opensAsSheet } from './Sheet';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
@@ -463,19 +463,6 @@ const LIST_MAX_REM = 30;
 /** Room below the box that is enough to open there even if the list must scroll. */
 const LIST_BELOW_REM = 18;
 
-/** Is the box (at `r`) wholly out of sight: off the screen, or past the edge
- *  of an element that scrolls or clips it (a dialog's body, a panel)? */
-function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
-    if (r.bottom < 0 || r.top > window.innerHeight) return true;
-    for (let p = box.parentElement; p && p !== document.body; p = p.parentElement) {
-        const s = getComputedStyle(p);
-        if (!/auto|scroll|hidden|clip/.test(`${s.overflowX} ${s.overflowY}`)) continue;
-        const b = p.getBoundingClientRect();
-        if (r.bottom <= b.top || r.top >= b.bottom) return true;
-    }
-    return false;
-}
-
 function SelectList(props: ListProps & {
     anchorRef: RefObject<HTMLButtonElement | null>;
     close: (refocus?: boolean) => void;
@@ -517,11 +504,19 @@ function SelectList(props: ListProps & {
         const maxHeight = Math.max(Math.min(LIST_MAX_REM * rem, room - 2), 3 * rem);
         // Measure at the height it will have, then place that box.
         list.style.maxHeight = `${maxHeight}px`;
-        panel.style.minWidth = `${r.width}px`;
-        const p = placePopover(r, { width: panel.offsetWidth, height: Math.min(list.scrollHeight, maxHeight) + 2 },
+        // As wide as the box, but never wider than the room: a min-width beats
+        // the max-width a narrow room gives it. Measured at its own width, not
+        // at the cap the last placement left (which would drop the cap again).
+        const minWidth = Math.min(r.width, Math.max(0, bounds.right - bounds.left - 2 * margin));
+        const capped = panel.style.maxWidth;
+        panel.style.minWidth = `${minWidth}px`;
+        panel.style.maxWidth = '28rem';
+        const width = panel.offsetWidth;
+        panel.style.maxWidth = capped;
+        const p = placePopover(r, { width, height: Math.min(list.scrollHeight, maxHeight) + 2 },
             bounds, { gap, margin });
         // Its 3rem floor can be more than a keyboard leaves: then the room is the cap.
-        setPlace({ ...p, maxHeight: p.maxHeight != null ? p.maxHeight - 2 : maxHeight, minWidth: r.width });
+        setPlace({ ...p, maxHeight: p.maxHeight != null ? p.maxHeight - 2 : maxHeight, minWidth });
     }, [anchorRef]);
 
     useLayoutEffect(() => { measure(); }, [measure]);

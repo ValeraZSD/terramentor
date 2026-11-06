@@ -237,6 +237,26 @@ section('…and the app gives it that room');
     const callers = globSync('src/**/*.tsx', { cwd: ROOT }).map(f => f.replace(/\\/g, '/')).filter(f => /placePopover\(/.test(read(f)));
     const bad = callers.filter(f => /placePopover\([\s\S]{0,300}?innerWidth/.test(read(f)));
     check('no caller places against innerWidth/innerHeight', bad.length === 0, bad.join(', '));
+
+    // What it returns, not only what it reads: the keyboard up and the page
+    // panned under it (the visual viewport 516 tall at offset 10, 220), with a
+    // phone's insets on the root.
+    if (Pop.popoverBounds) {
+        const root = document.documentElement.style;
+        const insets = { top: 59, right: 3, bottom: 34, left: 5 };
+        for (const [side, px] of Object.entries(insets)) root.setProperty(`--safe-${side}`, `${px}px`);
+        const had = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+        Object.defineProperty(window, 'visualViewport', { configurable: true,
+            value: { offsetLeft: 10, offsetTop: 220, width: 393, height: 516, addEventListener() { }, removeEventListener() { } } });
+        const got = Pop.popoverBounds();
+        const want = { left: 15, top: 279, right: 400, bottom: 702 };
+        check('popoverBounds() returns the visual viewport less each inset, on all four edges',
+            ['left', 'top', 'right', 'bottom'].every(k => got[k] === want[k]), `${JSON.stringify(got)} (want ${JSON.stringify(want)})`);
+        if (had) Object.defineProperty(window, 'visualViewport', had); else delete window.visualViewport;
+        for (const side of Object.keys(insets)) root.removeProperty(`--safe-${side}`);
+    } else {
+        check('popoverBounds() exists', false);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +313,8 @@ if (bundled) {
         await m.render(true); await settle();
         let surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
         check(`${what} with a mouse floats beside its button (no sheet)`, !!surface && !document.querySelector('[data-bottom-sheet]'));
+        check('…fixed, portalled to the body (no ancestor\'s transform or overflow traps it)',
+            !!surface && surface.parentElement === document.body && /(^|\s)fixed(\s|$)/.test(surface.className), surface?.parentElement?.tagName);
         await press(inside(kind, surface));
         check('…a press inside it is not a press on the card it opened from', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         await m.render(false); m.unmount();
@@ -327,9 +349,24 @@ if (bundled) {
         await m.render(false); m.unmount();
     }
 
+    // A row chosen from the floating ⋮ menu: the row goes with the menu, and
+    // focus must not fall to the page — it goes back to the ⋮.
+    hovers = true;
+    let m = globalThis.__mount(host, 'dropdown');
+    await m.render(true); await settle();
+    await globalThis.__act(() => { document.getElementById('trigger').click(); });
+    await settle();
+    const row = document.querySelector('[role="menu"] [role="menuitem"]');
+    check('a row chosen from a floating ⋮ menu: the menu was open with its first row focused', !!row && document.activeElement === row, document.activeElement?.tagName);
+    await globalThis.__act(() => { row?.click(); });
+    await settle();
+    check('…it closes, and focus goes back to the ⋮ (not to the page)',
+        !document.querySelector('[role="menu"]') && document.activeElement?.id === 'trigger', document.activeElement?.tagName);
+    m.unmount();
+
     // The ⋮ menus written with DropdownMenu (the tree's rows, a category card).
     hovers = false;
-    let m = globalThis.__mount(host, 'dropdown');
+    m = globalThis.__mount(host, 'dropdown');
     await m.render(true); await settle();
     await globalThis.__act(() => { document.getElementById('trigger').click(); });
     await settle();

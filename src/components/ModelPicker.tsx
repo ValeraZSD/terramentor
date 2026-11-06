@@ -135,12 +135,19 @@ export default function ModelPicker({
         // Drop upward only when below genuinely cannot hold a usable list.
         const drop = below < 260 && above > below ? 'up' : 'down';
         const width = Math.min(Math.max(r.width, 300), b.right - b.left - 16);
+        // The list's near edge sits by the field but never outside the room
+        // (a field panned out of sight above it, a room shorter than the
+        // gaps), and its height is what is left there, never below nothing.
+        const edge = drop === 'down'
+            ? Math.min(Math.max(r.bottom + 6, b.top + 8), b.bottom - 8)
+            : Math.max(Math.min(r.top - 6, b.bottom - 8), b.top + 8);
+        const room = drop === 'down' ? b.bottom - 8 - edge : edge - (b.top + 8);
         setRect({
-            top: drop === 'down' ? r.bottom + 6 : r.top - 6,
+            top: edge,
             left: Math.max(b.left + 8, Math.min(r.left, b.right - 8 - width)),
             width,
             drop,
-            max: Math.min(420, (drop === 'down' ? below : above) - 8),
+            max: Math.max(0, Math.min(420, room)),
         });
     }, []);
 
