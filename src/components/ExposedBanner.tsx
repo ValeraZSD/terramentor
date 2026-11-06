@@ -25,7 +25,7 @@ export default function ExposedBanner() {
     return (
         <div
             role="status"
-            className="shrink-0 border-b px-3 sm:px-4 py-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
+            className="shrink-0 border-b safe-px-3 sm:safe-px-4 py-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60"
         >
             <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-sm text-slate-800 dark:text-slate-100">
                 <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" aria-hidden="true" />

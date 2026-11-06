@@ -370,7 +370,10 @@ export default function Workspace() {
                             {...(navDrawerOpen
                                 ? { role: 'dialog', 'aria-modal': true, 'aria-label': tr("Navigation") }
                                 : {})}
-                            className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs outline-none transition-[transform,box-shadow] duration-300 ${navDrawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
+                            // The sidebar's own surface behind the strips it is
+                            // padded clear of (status bar, home indicator, the
+                            // left corners held sideways).
+                            className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-xs safe-pt-0 safe-pb-0 safe-pl-0 bg-white dark:bg-slate-800 outline-none transition-[transform,box-shadow] duration-300 ${navDrawerOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
                         >
                             <Sidebar isDrawer />
                         </div>
@@ -402,7 +405,7 @@ export default function Workspace() {
                     doesn't spend 3rem of screen repeating the title. */}
                 {selectedNodeId && (
                     isMobile ? (
-                        <div className="fixed inset-0 z-40 flex flex-col bg-white dark:bg-slate-800">
+                        <div className="fixed inset-0 z-40 safe-p-0 flex flex-col bg-white dark:bg-slate-800">
                             <DetailPanel />
                         </div>
                     ) : (

@@ -543,7 +543,7 @@ export default function TaskDock() {
             // `w-max` for the same reason as the open bar below: a left-50%
             // fixed box otherwise gets only the half-screen to its right, and
             // this pill's label is a translated sentence.
-            <div ref={dockRef} className="fixed bottom-3 left-1/2 z-40 w-max" style={DOCK_CENTRE}>
+            <div ref={dockRef} className="fixed safe-bottom-3 left-1/2 z-40 w-max" style={DOCK_CENTRE}>
                 <button data-dock
                     type="button"
                     onClick={() => setCollapsed(false)}
@@ -578,7 +578,7 @@ export default function TaskDock() {
             // the end of a horizontal scroller nobody scrolls. `width:
             // max-content` is not clamped by the available space, so the cap is
             // the only thing that limits it — which is what it was written for.
-            className="fixed bottom-3 left-1/2 z-40 w-max max-w-[calc(100vw-1.5rem-var(--assistant-w,0px))]"
+            className="fixed safe-bottom-3 left-1/2 z-40 w-max max-w-[calc(100vw-1.5rem-var(--assistant-w,0px))]"
             style={DOCK_CENTRE}
             role="status"
             aria-label={tr("Background AI tasks")}

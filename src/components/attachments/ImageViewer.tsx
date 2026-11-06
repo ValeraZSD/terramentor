@@ -57,7 +57,7 @@ export default function ImageViewer({ attachment, box, label, onClose }: {
                     // keeps the app's own words behind it from reading through
                     // beside the file name.
                     // The safe-area padding keeps ✕ out from under a notch.
-                    className="dark fixed inset-0 z-[58] flex flex-col bg-black/85 backdrop-blur-md outline-none pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+                    className="dark fixed inset-0 z-[58] flex flex-col bg-black/85 backdrop-blur-md outline-none safe-p-0"
                     style={accent}
                     onDragEnter={noDrop}
                     onDragOver={noDrop}
@@ -88,8 +88,8 @@ export default function ImageViewer({ attachment, box, label, onClose }: {
                             height={attachment.height}
                             box={box}
                             label={label ?? undefined}
-                            maxWidth="calc(100vw - 2rem - env(safe-area-inset-left) - env(safe-area-inset-right))"
-                            maxHeight="calc(100dvh - 4.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))"
+                            maxWidth="calc(100vw - 2rem - var(--safe-left) - var(--safe-right))"
+                            maxHeight="calc(100dvh - 4.75rem - var(--safe-top) - var(--safe-bottom))"
                             className="rounded-lg"
                         />
                     </div>
