@@ -47,6 +47,11 @@ export interface DesktopStatus {
      *  pointer file lost since the last launch. Carries where the library was
      *  last served from and the file to write to get back to it. */
     libraryFallback?: LibraryFallback | null;
+    /** A macOS copy opened where it cannot stay (server/appPlacement.js):
+     *  'translocated' = macOS runs it from a temporary read-only copy because
+     *  it was opened where it was unzipped; 'read-only' = this account cannot
+     *  change the bundle. Null everywhere else. */
+    appPlacement?: 'translocated' | 'read-only' | null;
     /** Whether the gated half arrived. False on a locked app, which answers the
      *  probe and refuses the rest — so a panel that needs `dataDir` knows the
      *  difference between "not a desktop install" and "not asked yet". */

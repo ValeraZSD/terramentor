@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
 import UpdateControl from './update/UpdateControl';
 import UpdateNotice from './update/UpdateNotice';
+import AppPlacementNotice from './update/AppPlacementNotice';
 import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
@@ -517,9 +518,11 @@ export default function Layout({ children }: { children: ReactNode }) {
                 the note after an update, or the one-time "check for updates?"
                 question. The update itself lives in the header's button.
                 Above it, for as long as it is true, that the app can be
-                reached from other devices and has no password. */}
+                reached from other devices and has no password. Below it, once,
+                that macOS is running a temporary copy of the app. */}
             <ExposedBanner />
             <UpdateNotice />
+            <AppPlacementNotice />
 
             <main className="flex-1 min-h-0 overflow-hidden">
                 {children}

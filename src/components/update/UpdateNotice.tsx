@@ -62,7 +62,8 @@ export default function UpdateNotice() {
     return null;
 }
 
-function Strip({ children, onClose, closeLabel }: { children: ReactNode; onClose?: () => void; closeLabel?: string }) {
+/** The strip's shape, shared with AppPlacementNotice.tsx. */
+export function Strip({ children, onClose, closeLabel }: { children: ReactNode; onClose?: () => void; closeLabel?: string }) {
     return (
         <div
             role="status"
