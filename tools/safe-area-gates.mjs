@@ -25,7 +25,9 @@
 //      touches with a `safe-*` class, on itself or on a direct child (a dialog's
 //      panel, a `{panel}` written as a const in the same file), or an inline
 //      style that reads `var(--safe-<edge>)`. Only base and `max-sm:` classes
-//      count as cover: an `sm:` one is not the phone's. An element with no
+//      count as cover: an `sm:` one is not the phone's, a `dark:` one leaves the
+//      light theme bare, and a child with nothing in it (a backdrop) covers
+//      nothing for its siblings. A `{panel}` is looked up in its own scope. An element with no
 //      children at all is a layer (a dim, a click catcher) with nothing to keep
 //      clear, and is skipped.
 //
@@ -91,7 +93,7 @@ function coveredBy(tokens) {
     const out = new Set();
     for (const t of tokens) {
         const variants = t.includes(':') ? t.slice(0, t.lastIndexOf(':')).split(':') : [];
-        if (!variants.every(v => v === 'max-sm' || v === 'dark')) continue;
+        if (!variants.every(v => v === 'max-sm')) continue; // a `dark:` cover leaves the light theme bare
         const bare = t.slice(t.lastIndexOf(':') + 1);
         let m = /^safe-p([xytrbl]?)-/.exec(bare);
         if (m) COVER[m[1]].forEach(s => out.add(s));
@@ -109,14 +111,8 @@ function readModule(file) {
     if (parsed.has(file)) return parsed.get(file);
     const text = readFileSync(file, 'utf8');
     const { program, lineOf } = parseTsx(text, file);
-    const mod = { file, text, program, lineOf, consts: new Map(), imports: new Map() };
+    const mod = { file, text, program, lineOf, imports: new Map() };
     parsed.set(file, mod);
-    // Consts at any depth (a component's `const panel = (<aside …/>)`), the first of a name winning.
-    const collect = (n) => {
-        if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.init && !mod.consts.has(n.id.name)) mod.consts.set(n.id.name, n.init);
-        for (const c of childrenOf(n)) collect(c);
-    };
-    collect(program);
     for (const st of program.body) {
         if (st.type === 'ImportDeclaration' && st.source.value.startsWith('.')) {
             for (const s of st.specifiers) {
@@ -133,15 +129,34 @@ function resolveImport(mod, rel) {
     }
     return null;
 }
-/** The node an identifier names: a const in this file, or a const exported by a relative import. */
-function lookup(mod, name) {
-    if (mod.consts.has(name)) return { mod, node: mod.consts.get(name) };
+/** The initialiser of a `const name = …` written directly in a block (or a module's top level). */
+function declaredIn(block, name) {
+    for (const st of block.body ?? []) {
+        const decl = st.type === 'ExportNamedDeclaration' ? st.declaration : st;
+        if (decl?.type !== 'VariableDeclaration') continue;
+        for (const d of decl.declarations) if (d.id.type === 'Identifier' && d.id.name === name && d.init) return d.init;
+    }
+    return null;
+}
+/**
+ * The node an identifier names, in its own scope: the nearest enclosing block
+ * that declares it (so two components' `panel` are two consts), then the
+ * module, then a const exported by a relative import.
+ */
+function lookup(mod, name, from) {
+    for (let n = from; n; n = n.parent) {
+        if (n.type === 'BlockStatement' || n.type === 'Program') {
+            const hit = declaredIn(n, name);
+            if (hit) return { mod, node: hit };
+        }
+    }
     const imp = mod.imports.get(name);
     if (!imp) return null;
     const file = resolveImport(mod, imp.from);
     if (!file) return null;
     const other = readModule(file);
-    return other.consts.has(imp.name) ? { mod: other, node: other.consts.get(imp.name) } : null;
+    const hit = declaredIn(other.program, imp.name);
+    return hit ? { mod: other, node: hit } : null;
 }
 
 /** Every class token any string in an expression could contribute (both arms of a conditional, a cx() call, a const). */
@@ -155,7 +170,7 @@ function tokensIn(mod, node, seen = new Set()) {
             const key = `${m.file}#${n.name}`;
             if (seen.has(key)) return;
             seen.add(key);
-            const hit = lookup(m, n.name);
+            const hit = lookup(m, n.name, n);
             if (hit && hit.node.type !== 'JSXElement' && hit.node.type !== 'ParenthesizedExpression') walk(hit.mod, hit.node);
             return;
         }
@@ -191,7 +206,7 @@ function childElements(mod, el) {
             const e = unparen(c.expression);
             if (e?.type === 'JSXElement') out.push({ mod, el: e });
             else if (e?.type === 'Identifier') {
-                const hit = lookup(mod, e.name);
+                const hit = lookup(mod, e.name, e);
                 const jsx = unparen(hit?.node);
                 if (jsx?.type === 'JSXElement') out.push({ mod: hit.mod, el: jsx });
             }
@@ -200,6 +215,10 @@ function childElements(mod, el) {
     return out;
 }
 
+/** Does an element hold anything (text, an element, an expression)? A self-closing or empty one is a layer. */
+const hasContent = (el) => el.children.some(c => (c.type === 'JSXText' ? c.value.trim() !== ''
+    : !(c.type === 'JSXExpressionContainer' && c.expression.type === 'JSXEmptyExpression')));
+
 /** Rule 4 on one module: returns [{ line, edges, missing }] for every fixed edge surface. */
 function edgeSurfaces(mod) {
     const found = [];
@@ -207,10 +226,11 @@ function edgeSurfaces(mod) {
         if (n.type === 'JSXElement') {
             const tokens = classTokens(mod, n);
             const edges = edgesOf(tokens);
-            const kids = childElements(mod, n);
-            const hasContent = n.children.some(c => c.type === "JSXText" ? c.value.trim() !== "" : !(c.type === "JSXExpressionContainer" && c.expression.type === "JSXEmptyExpression"));
-            if (edges.length && hasContent) {
+            if (edges.length && hasContent(n)) {
                 const cover = new Set([...coveredBy(tokens), ...styleCover(mod, n)]);
+                // A child covers only if it holds something: padding on an empty
+                // backdrop keeps nothing clear for its foreground sibling.
+                const kids = childElements(mod, n).filter(k => hasContent(k.el));
                 for (const k of kids) for (const s of [...coveredBy(classTokens(k.mod, k.el)), ...styleCover(k.mod, k.el)]) cover.add(s);
                 found.push({ line: mod.lineOf(n), edges, missing: edges.filter(s => !cover.has(s)) });
             }
@@ -248,6 +268,13 @@ const FIXTURES = [
       src: `export const A = () => <div className="fixed bottom-4 right-8 safe-bottom-0"><b>x</b></div>;` },
     { name: 'a stack whose children are a list', bad: true,
       src: `export const A = ({ items }) => <div className="fixed top-4">{items.map(i => <p key={i}>{i}</p>)}</div>;` },
+    { name: 'two components each with their own panel const', bad: true,
+      src: `export function Good() { const panel = (<aside className="safe-p-0">x</aside>); return <div className="fixed inset-0">{panel}</div>; }
+            export function Bad() { const panel = (<aside className="p-0">x</aside>); return <div className="fixed inset-0">{panel}</div>; }` },
+    { name: 'a cover in the dark theme only', bad: true,
+      src: `export const A = () => <div className="fixed inset-0 dark:safe-p-4"><div className="panel">x</div></div>;` },
+    { name: 'only the empty backdrop is padded, not the foreground', bad: true,
+      src: `export const A = () => <div className="fixed inset-0"><div className="absolute inset-0 safe-p-4" /><div className="panel">x</div></div>;` },
     { name: 'a dim with nothing in it', bad: false,
       src: `export const A = () => <div className="fixed inset-0 bg-black/50" />;` },
     { name: 'a box centred on a line, not on an edge', bad: false,
@@ -314,11 +341,19 @@ for (const s of SIDES) {
 
 {
     checks++;
-    const rule = /html:not\(\.dark\)[^{]*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    // A pseudo-element of <body> (always present), drawn (`content`), fixed at the
+    // top, as tall as the inset, in a DARK colour (the theme's ink, slate 700-950)
+    // so the white clock reads, and never in the way of a tap.
+    const rule = /html:not\(\.dark\)\s+body::(?:after|before)\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
     const flat = rule.replace(/\s+/g, ' ');
-    if (!/position: fixed/.test(flat) || !/height: var\(--safe-top\)/.test(flat) || !/top: 0/.test(flat)) {
-        fail('status strip', 'src/index.css', 'no fixed layer as tall as var(--safe-top) under the clock over the light theme');
-    }
+    const need = [
+        [/content: (''|"")/, 'content'], [/position: fixed/, 'position: fixed'], [/top: 0/, 'top: 0'],
+        [/height: var\(--safe-top\)/, 'height: var(--safe-top)'],
+        [/background(-color)?: rgb\(var\(--c-slate-(700|800|900|950)\)\)/, 'a dark ink background'],
+        [/pointer-events: none/, 'pointer-events: none'],
+    ];
+    const missing = rule ? need.filter(([re]) => !re.test(flat)).map(([, what]) => what) : ['the html:not(.dark) body::after rule'];
+    if (missing.length) fail('status strip', 'src/index.css', `the light theme's strip under the white status bar lacks ${missing.join(', ')}`);
 }
 
 // --------------------------------------------------------- 3. the shell's bar
