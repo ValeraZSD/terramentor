@@ -171,7 +171,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     };
 
     return createPortal(
-        <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
+        <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center safe-p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
             <div className="absolute inset-0 bg-black/50" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }} aria-hidden="true" />
             <div className={`relative w-full max-w-lg ${DIALOG_SHELL} rounded-2xl bg-white dark:bg-slate-800 shadow-xl`}>
                 <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">

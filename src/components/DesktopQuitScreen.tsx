@@ -64,7 +64,7 @@ export default function DesktopQuitScreen({ onStillRunning }: { onStillRunning: 
     // is the last thing the page ever shows, and a "connection lost" toast
     // painted over it would be describing what the reader just asked for.
     return createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-6">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-50 dark:bg-slate-900 safe-p-6">
             <div className="max-w-sm text-center">
                 <PowerOff className="w-10 h-10 mx-auto text-slate-400 dark:text-slate-500" aria-hidden="true" />
                 <p className="mt-4 text-lg font-semibold text-slate-900 dark:text-white" role="status">

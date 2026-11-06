@@ -257,7 +257,7 @@ export default function CaptureModal({ open, onClose }: Props) {
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/60 dark:bg-black/80"
+            className="fixed inset-0 z-50 flex items-center justify-center safe-p-3 sm:safe-p-6 bg-black/60 dark:bg-black/80"
             {...backdrop}
             {...dragProps}
         >

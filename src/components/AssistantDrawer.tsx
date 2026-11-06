@@ -1368,7 +1368,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
 
     const panel = (
         <aside
-            className={`relative h-full min-h-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col ${
+            // Docked or not it runs the screen's full height at its right edge.
+            className={`relative h-full min-h-0 safe-pt-0 safe-pb-0 safe-pr-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col ${
                 docked ? 'shrink-0' : 'w-full sm:w-[28rem] max-w-full shadow-2xl'
             }`}
             style={docked ? { width } : undefined}
@@ -1850,7 +1851,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     if (docked) return panel;
 
     return (
-        <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-50 flex justify-end outline-none" role="dialog" aria-modal="true" aria-label={tr("Assistant")}>
+        <div ref={overlayRef} tabIndex={-1} className="fixed inset-0 z-50 flex justify-end safe-pl-0 outline-none" role="dialog" aria-modal="true" aria-label={tr("Assistant")}>
             <div className="absolute inset-0 bg-black/50" {...backdrop} aria-hidden="true" />
             {panel}
         </div>

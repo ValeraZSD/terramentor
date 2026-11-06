@@ -135,7 +135,7 @@ export default function WelcomeFlow() {
         : LANGUAGES.find(l => l.code === uiLanguage)?.name ?? uiLanguage;
 
     return (
-        <div className="min-h-screen bg-slate-100 dark:bg-slate-900 px-4 py-6 sm:py-12 flex justify-center">
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-6 sm:safe-py-12 flex justify-center">
             <main className="w-full max-w-xl">
                 <header className="flex items-center justify-between gap-3 mb-4 sm:mb-6">
                     <span className="flex items-center gap-2 text-base font-semibold text-slate-900 dark:text-white">

@@ -578,7 +578,7 @@ export default function MasteryGateModal({
     // z-[55]: above the assistant's phone overlay (z-50, later in the tree),
     // which offers this check and would otherwise cover it; below the toasts.
     return (
-        <div className="fixed inset-0 z-[55] flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/80">
+        <div className="fixed inset-0 z-[55] flex items-center justify-center safe-p-3 sm:safe-p-4 bg-black/60 dark:bg-black/80">
             <div
                 ref={dialogRef}
                 role="dialog"
