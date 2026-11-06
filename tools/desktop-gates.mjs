@@ -1151,6 +1151,12 @@ console.log('\n--- macOS: the browser is started through `open` ---');
         starting.once('spawn', () => setTimeout(() => starting.kill('SIGTERM'), 200));
         check('judged by exit: a launcher stopped by a signal was stopped, not a failure',
             await byExit(starting), ['stopped SIGTERM']);
+        // Only what Quit sends counts as stopped; a launcher killed outright
+        // (out of memory, say) failed, and another browser is tried.
+        const killed = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' });
+        killed.once('spawn', () => setTimeout(() => killed.kill('SIGKILL'), 200));
+        check('judged by exit: a launcher killed outright is a failure',
+            await byExit(killed), ['failed null']);
         check('judged by exit: a launcher that exits 0 is a start',
             await byExit(spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })), ['started']);
         check('judged by exit: a launcher that exits non-zero is a failure, though it did spawn',
@@ -1213,13 +1219,47 @@ console.log('\n--- macOS: the bundle carries its own app ---');
     }
     const launcher = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8').replace(/\r\n/g, '\n');
     ok('the launcher sets the target only through it',
-        launcher.includes('Object.assign(process.env, launchTargetEnv(launch, placement));')
+        /Object\.assign\(\s*process\.env\s*,\s*launchTargetEnv\(\s*launch\s*,\s*placement\s*\)\s*\)/.test(launcher)
         && !/process\.env\.TERRAMENTOR_LAUNCH_(?:TARGET|ARGS)\s*=/.test(launcher));
+    ok('…and clears an inherited one first, which a translocated copy names nothing over',
+        /delete process\.env\[[^\]]+\][\s\S]{0,200}Object\.assign\(\s*process\.env\s*,\s*launchTargetEnv/.test(launcher));
+    // A window that Quit stopped while it was starting opens nothing else.
+    const stoppedHandler = /stopped:\s*\(e\)\s*=>\s*\{([^\n]*)\}/.exec(launcher.slice(launcher.indexOf('function openWindow(')));
+    ok('the launcher opens no other browser when a starting window was stopped',
+        !!stoppedHandler && !/openDefault|spawn\(/.test(stoppedHandler[1]), stoppedHandler?.[1] ?? '(no stopped handler in openWindow)');
 
     const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
     ok('the macOS build puts the app inside the bundle', /MAC_APP_IN_BUNDLE/.test(build) && /bundleDir/.test(build));
     ok('…ships no .command beside it', !/Terramentor\.command/.test(build) && !existsSync(join(repoRoot, 'desktop', 'wrappers', 'Terramentor.command')));
     ok('…and starts a copy of the bundle on its own before it zips', /bundle started on its own/.test(build));
+
+    // What the zip stores, read back. macOS ditto unpacks an entry whose mode
+    // has no file type as -rw-r--r--: the bundle's script then cannot start.
+    {
+        const { zipFolder } = await import('./lib/zipFolder.mjs');
+        const { default: JSZip } = await import('jszip');
+        ok('the build zips through tools/lib/zipFolder.mjs', /from '\.\/lib\/zipFolder\.mjs'/.test(build) && /await zipFolder\(stage, zipPath, name, platform\)/.test(build));
+        const scratch = mkdtempSync(join(tmpdir(), 'tm-zip-'));
+        try {
+            const pkg = join(scratch, 'pkg');
+            mkdirSync(join(pkg, 'Terramentor.app', 'Contents', 'MacOS'), { recursive: true });
+            writeFileSync(join(pkg, 'Terramentor.app', 'Contents', 'MacOS', 'Terramentor'), '#!/bin/bash\n');
+            chmodSync(join(pkg, 'Terramentor.app', 'Contents', 'MacOS', 'Terramentor'), 0o755);
+            writeFileSync(join(pkg, 'README.txt'), 'x\n');
+            chmodSync(join(pkg, 'README.txt'), 0o644);
+            await zipFolder(pkg, join(scratch, 'darwin.zip'), 'Terramentor-x-darwin-arm64', 'darwin');
+            const back = await JSZip.loadAsync(readFileSync(join(scratch, 'darwin.zip')));
+            const mode = (rel) => (back.file(`Terramentor-x-darwin-arm64/${rel}`)?.unixPermissions ?? 0).toString(8);
+            check('a darwin zip stores a plain file as a regular file, 0644', mode('README.txt'), '100644');
+            // Windows has no executable bit to read, so only a Unix host can
+            // make the script executable to begin with (CI's verify job is one).
+            if (process.platform !== 'win32') {
+                check('…and an executable one as a regular executable file, 0755', mode('Terramentor.app/Contents/MacOS/Terramentor'), '100755');
+            }
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1287,14 +1327,27 @@ console.log('\n--- macOS: the bundle\'s executable runs from a copy of the .app 
             ok('…fails', none.status !== 0, `exit ${none.status}`);
             ok('…and says to download it again', /download Terramentor again/i.test(none.stderr), none.stderr);
 
-            // An app folder that lost its node (a copy cut short) says the
-            // same, rather than the shell's "No such file" that nobody sees.
-            const partial = join(scratch, 'partial', 'Terramentor.app');
-            put(join(partial, 'Contents', 'MacOS', 'Terramentor'), wrapper, 0o755);
-            put(join(partial, 'Contents', 'Resources', 'app', 'desktop', 'launcher.js'), '');
-            const cut = run(join(partial, 'Contents', 'MacOS', 'Terramentor'), scratch);
-            ok('an app folder without its node fails and says to download it again',
-                cut.status !== 0 && /download Terramentor again/i.test(cut.stderr), `exit ${cut.status}: ${cut.stderr}`);
+            // An app folder that lost its node (a copy cut short), whose node
+            // cannot be run (unpacked without its executable bit), or that
+            // lost its launcher says which, rather than the shell's "No such
+            // file" or "Permission denied".
+            const partial = (name, files) => {
+                const app = join(scratch, name, 'Terramentor.app');
+                put(join(app, 'Contents', 'MacOS', 'Terramentor'), wrapper, 0o755);
+                for (const [rel, text, mode] of files) put(join(app, 'Contents', 'Resources', 'app', ...rel.split('/')), text, mode);
+                return run(join(app, 'Contents', 'MacOS', 'Terramentor'), scratch);
+            };
+            const says = (r, part) => r.status !== 0 && /download Terramentor again/i.test(r.stderr) && r.stderr.includes(part);
+            const cut = partial('no-node', [['desktop/launcher.js', '']]);
+            ok('an app folder without its node fails, names it and says to download it again',
+                says(cut, 'runtime/node'), `exit ${cut.status}: ${cut.stderr}`);
+            // No "#!" line: Git Bash on Windows counts a file that starts with
+            // one as executable whatever its mode.
+            const inert = partial('inert-node', [['runtime/node', 'not a program', 0o644], ['desktop/launcher.js', '']]);
+            ok('…as does one whose node cannot be run', says(inert, 'runtime/node') && inert.who === '(nothing ran)',
+                `exit ${inert.status}: ${inert.stderr}`);
+            const headless = partial('no-launcher', [['runtime/node', stub('inside'), 0o755]]);
+            ok('…and one without its launcher', says(headless, 'desktop/launcher.js'), `exit ${headless.status}: ${headless.stderr}`);
         } finally {
             rmSync(scratch, { recursive: true, force: true });
         }

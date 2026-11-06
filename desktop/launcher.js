@@ -137,6 +137,7 @@ const launch = launchCommand({
     dataDir: chosen.dir,
 });
 // …except from a translocated copy, which the app asks to be moved (lib.js).
+for (const name of ['TERRAMENTOR_LAUNCH_TARGET', 'TERRAMENTOR_LAUNCH_ARGS']) delete process.env[name];
 Object.assign(process.env, launchTargetEnv(launch, placement));
 process.env.TERRAMENTOR_LAUNCH_DIR = appRoot;
 {

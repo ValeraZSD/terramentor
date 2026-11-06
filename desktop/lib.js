@@ -301,10 +301,11 @@ export function defaultBrowserCommand(url, platform = process.platform) {
  * `byExit`: the child is a go-between whose exit code is the answer (macOS
  * `open`, which exits 1 when the application cannot be launched), so success
  * is an exit with 0 rather than the start of the go-between. A go-between
- * ended by a signal gave no answer: it was stopped, which is what quitting the
- * app does to a window still starting (its command line holds the app's
- * profile), so that goes to `stopped` when given, never to `failed`, whose
- * caller would open another browser on a server that is going away.
+ * ended by SIGTERM gave no answer: it was stopped, which is what quitting the
+ * app does to a window still starting (pkill, on a command line that holds the
+ * app's profile), so that goes to `stopped` when given, never to `failed`,
+ * whose caller would open another browser on a server that is going away. Any
+ * other end, a SIGKILL included, is a failure.
  */
 export function whenStarted(child, { started, failed, stopped = failed }, { byExit = false } = {}) {
     let settled = false;
@@ -312,7 +313,7 @@ export function whenStarted(child, { started, failed, stopped = failed }, { byEx
     if (byExit) {
         child.once('exit', (code, signal) => (code === 0
             ? settle(started)
-            : code === null && signal
+            : code === null && signal === 'SIGTERM'
                 ? settle(stopped, Object.assign(new Error(`it was stopped (${signal})`), { code, signal }))
                 : settle(failed, Object.assign(new Error(`it exited with ${code ?? signal}`), { code }))));
     } else {

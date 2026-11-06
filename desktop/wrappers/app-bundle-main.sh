@@ -7,8 +7,13 @@
 # never this file, so it stays this small.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 APP="$(cd "$HERE/../Resources/app" 2>/dev/null && pwd)"
-if [ -z "$APP" ] || [ ! -x "$APP/runtime/node" ] || [ ! -f "$APP/desktop/launcher.js" ]; then
-    echo "Terramentor: the app in $HERE/../Resources/app is missing or incomplete; download Terramentor again." >&2
+# Said on stderr, which a Terminal shows; opened from Finder it reaches no one.
+if [ -z "$APP" ]; then why="there is no app folder at $HERE/../Resources/app"
+elif [ ! -x "$APP/runtime/node" ]; then why="$APP/runtime/node is missing or cannot be run"
+elif [ ! -f "$APP/desktop/launcher.js" ]; then why="$APP/desktop/launcher.js is missing"
+fi
+if [ -n "${why:-}" ]; then
+    echo "Terramentor cannot start: $why. Download Terramentor again." >&2
     exit 1
 fi
 cd "$APP" || exit 1
