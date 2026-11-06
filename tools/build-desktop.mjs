@@ -243,7 +243,7 @@ if (platform === 'win32') {
     // macOS from a translocated copy, it has everything it needs.
     const icns = await buildIcns(png512);
     const contents = join(bundleDir, 'Contents');
-    mkdirSync(join(contents, 'MacOS'), { recursive: true });
+    for (const d of ['MacOS', 'Resources']) mkdirSync(join(contents, d), { recursive: true });
     writeFileSync(join(contents, 'Info.plist'), readFileSync(join(wrappers, 'Info.plist'), 'utf8').replaceAll('__VERSION__', pkg.version));
     writeFileSync(join(contents, 'Resources', 'icon.icns'), icns);
     copyFileSync(join(wrappers, 'app-bundle-main.sh'), join(contents, 'MacOS', APP));
@@ -355,21 +355,21 @@ if (!noCheck && platform === 'darwin') {
         const r = spawnSync(cmd, args, { encoding: 'utf8' });
         if (r.status !== 0) throw new Error(`${cmd} ${args.join(' ')} failed: ${r.stderr || r.error?.message}`);
     };
-    sh('cp', ['-R', bundleDir, copy]);
-    sh('chmod', ['-R', 'a-w', copy]);
-    let r;
+    let r, inside;
     try {
+        sh('cp', ['-R', bundleDir, copy]);
+        // Node starts its main script by its real path, and macOS's temp
+        // folder sits behind a symlink (/var → /private/var).
+        inside = realpathSync(join(copy, ...MAC_APP_IN_BUNDLE.split('/')));
+        sh('chmod', ['-R', 'a-w', copy]);
         r = spawnSync(join(copy, 'Contents', 'MacOS', APP), ['--check', '--data-dir', join(away, 'library'), '--port', String(port)],
             { cwd: away, encoding: 'utf8', timeout: 120_000, env: { ...process.env } });
     } finally {
-        spawnSync('chmod', ['-R', 'u+w', copy]);
+        spawnSync('chmod', ['-R', 'u+w', away]);
+        rmSync(away, { recursive: true, force: true });
     }
     const out = `${r.stdout || ''}${r.stderr || ''}`;
     process.stdout.write(out);
-    // Node starts its main script by its real path, and macOS's temp folder
-    // sits behind a symlink (/var → /private/var).
-    const inside = realpathSync(join(copy, ...MAC_APP_IN_BUNDLE.split('/')));
-    rmSync(away, { recursive: true, force: true });
     if (r.status !== 0 || !out.includes('Check OK:')) throw new Error(`the bundle did not start on its own (exit ${r.status ?? r.error?.message})`);
     if (!out.includes(`packaged copy at ${inside}`)) throw new Error(`the bundle started an app outside itself (expected ${inside})`);
     log(`▸ the bundle started on its own from ${inside}`);
@@ -518,7 +518,9 @@ async function zipFolder(folder, zipPath, rootName) {
             const st = statSync(p);
             if (st.isDirectory()) { walk(p); continue; }
             const exec = platform !== 'win32' && (st.mode & 0o111) !== 0;
-            zip.file(rel, createReadStream(p), { unixPermissions: exec ? 0o755 : 0o644, date: st.mtime });
+            // The full mode, regular-file type bits included, as Info-ZIP
+            // writes it: a reader may ignore permissions that carry no type.
+            zip.file(rel, createReadStream(p), { unixPermissions: exec ? 0o100755 : 0o100644, date: st.mtime });
         }
     };
     walk(folder);
