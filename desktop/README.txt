@@ -57,8 +57,9 @@ say), it tells you rather than quietly opening an empty library.
 
 Portable use (Windows and Linux): make an empty folder called `data` next to
 this file before the first start, and the library lives there instead — on a
-USB stick, say. On macOS the library is always in the folder above, never
-inside Terramentor.app: an update replaces what is inside the app.
+USB stick, say. On macOS the library is never inside Terramentor.app (an
+update replaces what is inside the app), so there is no portable folder: to
+keep it on a USB stick, name the stick's folder in library-location.txt.
 
 USING IT FROM YOUR PHONE
   Install Tailscale on this computer and on your phone, sign both in to the
@@ -75,8 +76,11 @@ UPDATING
   Your library is not in this folder, unless you made a "data" folder here
   (a portable copy): then move "data" into the new folder first, check your
   library is there, and only then delete this one. On macOS, drag the new
-  Terramentor.app into Applications over the old one. The app backs the
-  database up automatically before any release that changes it.
+  Terramentor.app into Applications over the old one. An older Mac copy may
+  keep its library in a "data" folder beside Terramentor.app; this version
+  does not look there, so write that folder's full path into
+  library-location.txt (see above) and it opens that library. The
+  app backs the database up automatically before any release that changes it.
 
 AI
   Lessons, questions and the tutor are written by a model you connect. The

@@ -1,8 +1,9 @@
 # The desktop app
 
 Terramentor runs as a desktop program on Windows, macOS and Linux: download a
-zip, unpack it, double-click. The app carries its own runtime, so your machine
-needs nothing else, and there is no account.
+zip, unpack it, double-click (on a Mac, drag the app into Applications first).
+The app carries its own runtime, so your machine needs nothing else, and there
+is no account.
 
 This page is for two readers: someone running it, and someone changing how it
 is built. The first half is for the first reader.
@@ -86,13 +87,19 @@ library was (`last-library.txt`, beside the pointer), and the first launch that
 lands somewhere else says so on the home page, with a button that writes the
 pointer back.
 
-**Portable use:** create an empty folder named `data` next to `Terramentor.exe`
-before the first start and the library lives there instead, so the whole app
-then moves with the folder. This beats the pointer file.
+**Portable use (Windows and Linux):** create an empty folder named `data` next
+to `Terramentor.exe` or `terramentor.sh` before the first start and the library
+lives there instead, so the whole app then moves with the folder. This beats
+the pointer file. On macOS there is no portable folder (an update replaces
+everything inside `Terramentor.app`); to keep the library on a USB stick, name
+the stick's folder in `library-location.txt`. A Mac copy from before the app
+moved inside the bundle may have a `data` folder beside `Terramentor.app`: this
+version does not look there, so write that folder's path into
+`library-location.txt`.
 
 The full order, first match wins: `--data-dir` on the command line, then
-`DATA_DIR` in the environment, then a `data` folder beside the app, then the
-pointer file, then the per-user folder above.
+`DATA_DIR` in the environment, then a `data` folder beside the app (not on
+macOS), then the pointer file, then the per-user folder above.
 
 ### Updating
 
