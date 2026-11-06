@@ -172,7 +172,10 @@ export function assertManifest(manifest, { version, tag, platform, downloadPrefi
         // One description of the file list, never two: a package that named
         // both would be staged by a version reading `files` as if its app sat
         // at the top of the zip.
-        if (asset.files !== undefined || !b || safeRelPath(b.root) !== b.root || badList(b.files)) throw unreadable();
+        // The root is the app folder of a bundle at the package's top, the one
+        // shape tools/lib/releaseChannel.mjs writes.
+        if (asset.files !== undefined || !b || typeof b.root !== 'string' || safeRelPath(b.root) !== b.root
+            || !/^[^/]+\.app\/Contents\/Resources\/app$/.test(b.root) || badList(b.files)) throw unreadable();
     }
     return asset;
 }

@@ -318,6 +318,7 @@ for (const [why, patch] of [
         ['a bundle and a top-level file list at once', { root: MAC_ROOT, files: listRef }, { files: listRef }],
         ['a bundle path that leaves the package', { root: '../x', files: listRef }],
         ['an absolute bundle path', { root: '/Applications/Terramentor.app', files: listRef }],
+        ['a bundle path that is not a bundle\'s app folder', { root: 'Terramentor.app/Contents', files: listRef }],
         ['a bundle with no file list', { root: MAC_ROOT }],
         ['a bundle whose file list has no checksum', { root: MAC_ROOT, files: { ...listRef, sha256: 'x' } }],
         ['a bundle that is not an object', 'Terramentor.app'],
