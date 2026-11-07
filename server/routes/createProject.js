@@ -67,6 +67,7 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
+const markCreationFinished = db.prepare('UPDATE projects SET creation_finished = 1 WHERE id = ?');
 const clearGeneratingStmt = db.prepare(`UPDATE projects SET ai_generating = 0, updated_at = ${NOW_ISO} WHERE id = ? AND ai_generating = 1`);
 const findNotice = db.prepare(`
     SELECT id FROM nodes
@@ -709,7 +710,7 @@ app.post('/api/ai/create-project', (req, res) => {
         await checkModel(send);
 
         const projectResult = db.prepare(
-            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
+            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
         ).run(
             name.substring(0, 500),
             (description || name).substring(0, 5000),
@@ -875,6 +876,7 @@ app.post('/api/ai/create-project', (req, res) => {
         // What was written is mapped and named like any finished course;
         // a part left empty still makes this run a failure, not `complete`.
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
+        markCreationFinished.run(projectId);
 
         return run.finish({
             phase: 'complete',
@@ -953,7 +955,9 @@ function outlineHasWork({ kids, phases, topics }, pending) {
  * Did a creation stop before it finished this project? Read when the course is
  * opened, which may be days after the run: a run the app was closed in the
  * middle of reached no catch, so neither the notice (unless the next start
- * wrote it) nor a run record can be relied on. What the run WROTE can:
+ * wrote it) nor a run record can be relied on. `creation_finished` can: 1 is
+ * no, 0 is yes while anything is missing. A course with no value (created
+ * before the column) is read from what its run WROTE:
  *
  *  - a topic it recorded as still waiting for its link pass;
  *  - a phase it wrote with no sections, or a section it wrote (in a phase it
@@ -965,10 +969,14 @@ function outlineHasWork({ kids, phases, topics }, pending) {
  *
  * No model is asked; the same gaps are what POST below fills.
  */
-function creationUnfinished(projectId) {
+function creationUnfinished(projectId, finished) {
+    // A run since `creation_finished` came says it outright: a course it
+    // completed stays finished whatever the learner deletes from it later.
+    if (finished === 1) return false;
     const outline = readOutline(projectId);
     const { kids, phases, topics } = outline;
     const pending = storedPendingLinks(projectId);
+    if (finished === 0) return outlineHasWork(outline, pending);
     if (topics.some(t => pending.has(t.id))) return true;
     const byModel = (n) => n.generated_by != null;
     const emptyByModel = phases.some(p => byModel(p)
@@ -981,10 +989,10 @@ function creationUnfinished(projectId) {
 app.get('/api/ai/continue-creation/:projectId', (req, res) => {
     const projectId = requestedId(req.params.projectId);
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const project = db.prepare('SELECT id, kind FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, kind, creation_finished FROM projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const running = activeGenerations.has(projectId);
-    res.json({ canContinue: !running && project.kind !== 'deck' && creationUnfinished(projectId), running });
+    res.json({ canContinue: !running && project.kind !== 'deck' && creationUnfinished(projectId, project.creation_finished), running });
 });
 
 /**
@@ -1065,6 +1073,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             resuming();
             if (stored.size) db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
             removeUnfinishedNotice(projectId);
+            markCreationFinished.run(projectId);
             return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { categories: 0, elements: 0, subElements: 0, resources: 0 } });
         }
 
@@ -1093,6 +1102,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
 
         resuming();
         setGeneratingFlag(projectId, true);
+        db.prepare('UPDATE projects SET creation_finished = 0 WHERE id = ?').run(projectId);
 
         // The work the bar is sized from: what exists counts as done, what is
         // missing as a fresh run would estimate it.
@@ -1199,6 +1209,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
         db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
         removeUnfinishedNotice(projectId);
+        markCreationFinished.run(projectId);
 
         return run.finish({
             phase: 'complete',

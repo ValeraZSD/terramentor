@@ -49,7 +49,7 @@
 //  13. pressing it with no run record makes one and carries it on through the
 //      same screen; a second press while it runs opens that run.
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -620,16 +620,39 @@ ok('with its notice, Continue is offered', (await canOffer(crashed.id)) === true
 // What a shut-down leaves: the same outline, no notice, no pending record.
 db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(crashed.id).id);
 db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(crashed.id);
+// `creation_finished` is 0 for a run that never completed; a course created
+// before that column has none, and is read from its outline alone.
+const finishedState = (id) => db.prepare('SELECT creation_finished f FROM projects WHERE id = ?').get(id).f;
+const setFinished = (id, v) => db.prepare('UPDATE projects SET creation_finished = ? WHERE id = ?').run(v, id);
+ok('a run that stops records the course as unfinished', finishedState(crashed.id) === 0, String(finishedState(crashed.id)));
 let o = await offer(crashed.id);
-ok('closed mid-run (no notice, no run record, no pending links): Continue is still offered from the empty phase the run wrote',
+ok('closed mid-run (no notice, no run record, no pending links): Continue is still offered',
+    o.status === 200 && o.json?.canContinue === true, JSON.stringify(o));
+setFinished(crashed.id, null);
+o = await offer(crashed.id);
+ok('…and so is the same course from before the state was kept, from the empty phase the run wrote',
     o.status === 200 && o.json?.canContinue === true, JSON.stringify(o));
 const sectionOnly = await create('Waves and Light 12b', { sub_batch: 'all', sub_one: [2] });
 db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(sectionOnly.id).id);
-ok('closed between a phase\'s sections (an empty section the run wrote): offered', (await canOffer(sectionOnly.id)) === true);
+ok('closed between a phase\'s sections: offered', (await canOffer(sectionOnly.id)) === true);
+setFinished(sectionOnly.id, null);
+ok('…and from before the state was kept (an empty section the run wrote): offered', (await canOffer(sectionOnly.id)) === true);
 // Every level written, one topic still waiting for its link pass.
 const linksOnly = await create('Waves and Light 12c', {});
 const someTopic = outline(linksOnly.id).find(n => !outline(linksOnly.id).some(c => c.parent_id === n.id));
+ok('a run that completes records the course as finished', finishedState(linksOnly.id) === 1, String(finishedState(linksOnly.id)));
 ok('a finished course is not offered', (await canOffer(linksOnly.id)) === false);
+// The learner prunes it: an emptied phase still carries the model's name.
+const stamp = JSON.stringify({ provider: 'openai', model: 'stub-model' });
+const prunedPhase = Number(db.prepare(
+    `INSERT INTO nodes (project_id, parent_id, title, description, status, is_note, position, generated_by) VALUES (?, NULL, 'Emptied by the learner', '', 'not_started', 0, 50, ?)`,
+).run(linksOnly.id, stamp).lastInsertRowid);
+ok('a finished course the learner emptied a phase of is not offered', (await canOffer(linksOnly.id)) === false);
+setFinished(linksOnly.id, 0);
+ok('…while a run that never completed is offered for anything missing', (await canOffer(linksOnly.id)) === true);
+db.prepare('DELETE FROM nodes WHERE id = ?').run(prunedPhase);
+// The rest read a course from before the state was kept.
+setFinished(linksOnly.id, null);
 db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?').run(JSON.stringify([someTopic.id]), linksOnly.id);
 ok('closed during the link pass (a topic recorded as waiting for links): offered', (await canOffer(linksOnly.id)) === true);
 db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?').run(JSON.stringify([999999]), linksOnly.id);
@@ -662,6 +685,9 @@ const noticeId = Number(db.prepare(
 ).run(linksOnly.id).lastInsertRowid);
 ok('…but with the stopped run\'s notice and something missing, it is', (await canOffer(linksOnly.id)) === true);
 db.prepare('DELETE FROM nodes WHERE id = ?').run(noticeId);
+// A card project shaped like a stopped run: only its kind keeps it off.
+addNode(Number(deckId), null, 'An empty phase', stamp);
+setFinished(Number(deckId), 0);
 ok('the door: a bad id is 400, an unknown project 404, a card project is not offered',
     (await offer('x')).status === 400 && (await offer(999999)).status === 404 && (await offer(Number(deckId))).json?.canContinue === false,
     JSON.stringify([(await offer('x')).status, (await offer(999999)).status, (await offer(Number(deckId))).json]));
@@ -678,6 +704,10 @@ for (let i = 0; i < 400 && !mid12?.running; i++) {
 stubHold = null;
 releaseStub();
 ok('while a continuation of it runs, it is not offered', mid12?.running === true && mid12.canContinue === false, JSON.stringify(mid12));
+// The note's panel finds the note by the title the server writes on it.
+const serverTitle = readFileSync('server/routes/createProject.js', 'utf8').match(/const NOTICE_TITLE = '([^']+)'/)?.[1];
+const clientTitle = readFileSync('src/components/creation/ContinueCreationOffer.tsx', 'utf8').match(/CREATION_NOTICE_TITLE = '([^']+)'/)?.[1];
+ok('the note\'s panel looks for the title the server gives the note', !!serverTitle && serverTitle === clientTitle, JSON.stringify([serverTitle, clientTitle]));
 await cont12;
 ok('a continuation that failed leaves it offered (and writes the notice)', (await canOffer(crashed.id)) === true && !!notice(crashed.id));
 r = await resume(crashed.id);
