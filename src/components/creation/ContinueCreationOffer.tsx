@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles } from 'lucide-react';
+import { CircleDashed } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
@@ -74,12 +74,12 @@ export default function ContinueCreationCard({ projectId }: { projectId: number 
     const { can, press } = useContinueOffer(projectId);
     if (!can) return null;
     return (
-        <DashboardSection icon={Sparkles} title={t("This course is not finished")}>
+        <DashboardSection icon={CircleDashed} title={t("This course is not finished")}>
             <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                 {t("Creating it stopped before every part was written. Continue creating writes only what is missing, and everything already here stays as it is.")}
             </p>
             <div className="mt-4">
-                <Button variant="neutral" size="sm" onClick={press} icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />}>
+                <Button variant="neutral" size="sm" onClick={press}>
                     {t("Continue creating")}
                 </Button>
             </div>
@@ -98,7 +98,7 @@ export function ContinueCreationNote({ projectId }: { projectId: number }) {
                 {t("Continue creating writes only what is missing, and everything already here stays as it is.")}
             </p>
             <div className="mt-3">
-                <Button variant="neutral" size="sm" onClick={press} icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />}>
+                <Button variant="neutral" size="sm" onClick={press}>
                     {t("Continue creating")}
                 </Button>
             </div>
