@@ -67,6 +67,7 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
+const projectExistsStmt = db.prepare('SELECT id FROM projects WHERE id = ?');
 const refreshNoticeStmt = db.prepare(`
     UPDATE nodes
     SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -91,7 +92,7 @@ const findNotice = db.prepare(`
 
 function upsertUnfinishedNotice(projectId, reason) {
     if (!projectId) return;
-    const projectExists = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+    const projectExists = projectExistsStmt.get(projectId);
     if (!projectExists) {
         console.log('[upsertUnfinishedNotice] Project not found, skipping notice insertion');
         return;

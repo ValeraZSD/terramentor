@@ -67,9 +67,9 @@ function useContinueOffer(projectId: number) {
             })
             .catch(() => {
                 if (!current) return;
-                // A request that failed is no answer: ask again, a few times.
-                if (failures < 3) timer = setTimeout(ask, 3000 * 2 ** failures++);
-                else setOffer({ projectId, can: false });
+                // A request that failed is no answer: ask again, soon at first,
+                // then every 30 s for as long as the page is open.
+                timer = setTimeout(ask, failures < 3 ? 3000 * 2 ** failures++ : 30000);
             });
         void ask();
         return () => { current = false; clearTimeout(timer); };

@@ -85,6 +85,12 @@ const { ContinueCreationCard } = require(out);
 const h = React.createElement;
 const act = (fn) => React.act(fn);
 const wait = (ms) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
+// The card's own 3 s timers run for real; the checks wait for the state they
+// expect (up to 10 s), never a fixed time, so a loaded machine cannot fail them.
+const until = async (cond, ms = 10000) => {
+    for (let t = 0; t < ms && !cond(); t += 100) await wait(100);
+    return cond();
+};
 
 const PID = 7;
 const loads = [];
@@ -126,13 +132,13 @@ console.log('--- the card asks again until it has an answer ---');
 {
     const m = await mount([new Error('connection reset'), { canContinue: true, running: false }]);
     check('while the first request has failed, no card yet', !m.shown());
-    await wait(3300);
+    await until(() => m.shown());
     check('a failed request is asked again, and the card comes', m.shown() && m.asks() === 2, `asks ${m.asks()}, shown ${m.shown()}`);
     m.done();
 }
 {
     const m = await mount([{ canContinue: false, running: false }]);
-    await wait(3300);
+    await wait(4000);   // past the card's 3 s timer: a second ask would have happened by now
     check('a settled "no" is not asked again', !m.shown() && m.asks() === 1, `asks ${m.asks()}`);
     m.done();
 }
@@ -142,7 +148,8 @@ console.log('--- a run this page did not start ---');
     loads.length = 0;
     const m = await mount([{ canContinue: false, running: true }, { canContinue: false, running: false }]);
     check('while the server reports a run, no card and nothing reloaded', !m.shown() && loads.length === 0, JSON.stringify(loads));
-    await wait(3300);
+    await until(() => loads.length >= 2);
+    await wait(200);   // a second reload, if one were coming, lands here
     check('when it ends, the outline and the course page reload, once each',
         m.asks() === 2 && loads.filter(l => l === `outline ${PID}`).length === 1 && loads.filter(l => l === `dashboard ${PID}`).length === 1,
         `asks ${m.asks()}, ${JSON.stringify(loads)}`);
