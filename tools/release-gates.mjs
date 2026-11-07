@@ -366,6 +366,10 @@ check('the macOS package names its app\'s folder inside the bundle and that list
 check('…and no top-level `files`, which a copy from before the bundle would misread', 'files' in (written.assets['darwin-arm64'] || {}), false);
 check('buildManifest refuses a bundle that is not <name>.app/Contents/Resources/app',
     (() => { try { buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: 'x', files: [{ name: `Terramentor-${V}-darwin-arm64.zip`, size: 1, sha256: 'a'.repeat(64), bundle: { root: '../app', files: { path: 'files.json', size: 1, sha256: 'a'.repeat(64) } } }] }); return 'accepted'; } catch (e) { return /app bundle/.test(e.message); } })(), true);
+// The writer refuses what the reader refuses: a root its path check rejects
+// would be signed and then read by no client.
+check('buildManifest refuses a bundle root with a backslash, which clients cannot read',
+    (() => { try { buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: 'x', files: [{ name: `Terramentor-${V}-darwin-arm64.zip`, size: 1, sha256: 'a'.repeat(64), bundle: { root: 'Bad\\Name.app/Contents/Resources/app', files: { path: 'files.json', size: 1, sha256: 'a'.repeat(64) } } }] }); return 'accepted'; } catch (e) { return /app bundle/.test(e.message); } })(), true);
 const sumsFile = readFileSync(join(dist, 'SHA256SUMS'), 'utf8');
 ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');

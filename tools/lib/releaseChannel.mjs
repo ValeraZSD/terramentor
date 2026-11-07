@@ -12,7 +12,7 @@
 // so main, the tag and the running app never disagree about what 1.2.0 is.
 
 import { compareVersions } from '../../server/version.js';
-import { BUNDLE_ROOT } from '../../desktop/updateCore.js';
+import { BUNDLE_ROOT, safeRelPath } from '../../desktop/updateCore.js';
 
 /** The schedule never publishes twice inside this window. */
 export const NIGHTLY_GAP_MS = 6 * 60 * 60 * 1000;
@@ -314,8 +314,10 @@ export function buildManifest({ repo, channel, version, commit, builtAt, issuedA
             throw new Error(`${f.name}: its file list is not described as {path: "files.json", size, sha256}`);
         }
         // A macOS package: the app inside its bundle (the updater's own rule),
-        // the list beside the app.
-        if (f.bundle !== undefined && (f.files !== undefined || !f.bundle || !BUNDLE_ROOT.test(f.bundle.root) || !listOk(f.bundle.files))) {
+        // the list beside the app. The root passes the reader's own path check
+        // (desktop/updateCore.js), so nothing is signed that a client refuses.
+        if (f.bundle !== undefined && (f.files !== undefined || !f.bundle || typeof f.bundle.root !== 'string'
+            || safeRelPath(f.bundle.root) !== f.bundle.root || !BUNDLE_ROOT.test(f.bundle.root) || !listOk(f.bundle.files))) {
             throw new Error(`${f.name}: its app bundle is not described as {root: "<name>.app/Contents/Resources/app", files: {path: "files.json", size, sha256}}`);
         }
         assets[platform] = {

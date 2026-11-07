@@ -446,6 +446,12 @@ async function stageByRanges({ core, asset, ref, appRoot, nextDir, fetchImpl, si
     if (core.sha256(listBytes) !== ref.files.sha256) throw new UpdateError('hash', 'The package\'s file list does not match the release manifest.');
     let list;
     try { list = core.parseFileList(listBytes.toString('utf8'), { version }); } catch (e) { throw new UpdateError('hash', e.message); }
+    // The same refusal as the whole-zip path: a package holding an app file its
+    // signed list does not name was not built as the list says.
+    const listed = new Set(list.files.map((f) => f.path));
+    for (const rel of byPath.keys()) {
+        if (rel !== ref.files.path && !listed.has(rel)) throw new UpdateError('hash', `${rel} is in the package but not in its file list.`);
+    }
     put(nextDir, ref.files.path, listBytes, false);
 
     let installed = null;

@@ -766,6 +766,26 @@ let M;
     check('a bundle copy offered a flat package: sent to the download page',
         await throwsWith(() => stageMac(B.latest), /^manual .*packaged differently/) === true);
 
+    // A package holding an app file its signed list does not name is refused
+    // by both paths, not quietly trimmed to the list by the delta one.
+    const macSrcExtra = join(scratch, 'mac-src-1.5.1');
+    makeApp(join(macSrcExtra, ...MAC_ROOT.split('/')), '1.5.1', { changed: 'three' });
+    dressBundle(join(macSrcExtra, 'Terramentor.app'), '1.5.1');
+    writeFileSync(join(macSrcExtra, ...MAC_ROOT.split('/'), 'unlisted.js'), 'export {};');
+    const X = await publish('1.5.1', macSrcExtra, { bundle: MAC_ROOT });
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    check('bundle, delta: an app file missing from the list is refused',
+        await throwsWith(() => stageMac(X.latest), /^hash unlisted\.js is in the package but not in its file list/) === true);
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    behaviour.ranges = false;
+    try {
+        check('bundle, whole zip: the same file is refused',
+            await throwsWith(() => stageMac(X.latest), /^hash unlisted\.js is in the package but not in its file list/) === true);
+    } finally {
+        behaviour.ranges = true;
+    }
+    check('…and nothing was staged', !existsSync(join(macApp, '.update', 'ready.json')));
+
     // Installing: the permissions answer inside a bundle, never a test write.
     const mac = (appRoot, writable) => appUpdate.installSupport({ appRoot, deployment: 'desktop', hasInstaller: true, platform: 'darwin', writable });
     rmSync(join(macApp, '.update'), { recursive: true, force: true });
