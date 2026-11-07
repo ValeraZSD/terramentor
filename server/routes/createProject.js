@@ -3,7 +3,7 @@
 // links) are server/creationStages.js; this file is the run around them: the
 // stream, the cancel handle, the task-dock mirror and how a run ends.
 import { randomUUID } from 'node:crypto';
-import db, { NOW_ISO } from '../database.js';
+import db, { NOW_ISO, interruptedCreations } from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
@@ -120,6 +120,16 @@ function removeUnfinishedNotice(projectId) {
           AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id)
           AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
     `).run(projectId, NOTICE_TITLE);
+}
+
+// The runs the last process was in the middle of when it ended: no catch
+// wrote their notice, so it is written now, once, as the app starts.
+for (const id of interruptedCreations) {
+    try {
+        upsertUnfinishedNotice(id, 'The app was closed while this course was being created.');
+    } catch (e) {
+        console.error('[AI Creation] Could not mark an interrupted creation:', e.message);
+    }
 }
 
 // A settled run stays readable for a few minutes, so a reloaded page (or a
@@ -914,7 +924,7 @@ function storedPendingLinks(projectId) {
  */
 function readOutline(projectId) {
     const rows = db.prepare(`
-        SELECT n.id, n.parent_id, n.title, n.description,
+        SELECT n.id, n.parent_id, n.title, n.description, n.generated_by,
                (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
         FROM nodes n
         WHERE n.project_id = ? AND n.is_note = 0
@@ -938,6 +948,44 @@ function outlineHasWork({ kids, phases, topics }, pending) {
         || phases.some(p => !kids(p.id).length || kids(p.id).some(s => !kids(s.id).length))
         || topics.some(t => pending.has(t.id));
 }
+
+/**
+ * Did a creation stop before it finished this project? Read when the course is
+ * opened, which may be days after the run: a run the app was closed in the
+ * middle of reached no catch, so neither the notice (unless the next start
+ * wrote it) nor a run record can be relied on. What the run WROTE can:
+ *
+ *  - a topic it recorded as still waiting for its link pass;
+ *  - a phase it wrote with no sections, or a section it wrote (in a phase it
+ *    wrote) with no topics. A run that finishes leaves neither: a level no
+ *    answer filled fails it (`outlineGapsError`). Levels the learner made carry
+ *    no `generated_by` and are theirs to leave empty, and model-written nodes
+ *    under a node of the learner's (an Inbox capture's) are not an outline;
+ *  - the stopped run's own notice, with anything at all missing.
+ *
+ * No model is asked; the same gaps are what POST below fills.
+ */
+function creationUnfinished(projectId) {
+    const outline = readOutline(projectId);
+    const { kids, phases, topics } = outline;
+    const pending = storedPendingLinks(projectId);
+    if (topics.some(t => pending.has(t.id))) return true;
+    const byModel = (n) => n.generated_by != null;
+    const emptyByModel = phases.some(p => byModel(p)
+        && (!kids(p.id).length || kids(p.id).some(s => byModel(s) && !kids(s.id).length)));
+    if (emptyByModel) return true;
+    return !!findNotice.get(projectId, NOTICE_TITLE) && outlineHasWork(outline, pending);
+}
+
+/** Whether the course page offers "Continue creating" (`running`: a run is writing it now). */
+app.get('/api/ai/continue-creation/:projectId', (req, res) => {
+    const projectId = requestedId(req.params.projectId);
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const project = db.prepare('SELECT id, kind FROM projects WHERE id = ?').get(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const running = activeGenerations.has(projectId);
+    res.json({ canContinue: !running && project.kind !== 'deck' && creationUnfinished(projectId), running });
+});
 
 /**
  * Carry on a creation that stopped (failed or cancelled) half-way: fill only
