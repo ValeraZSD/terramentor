@@ -7,7 +7,7 @@ import { splitOpenTargets, splitDestinations, splitTutorActions, type Destinatio
 import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
-    CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
+    CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
     SaveProposals, TopicChangeProposals, WrongProposals,
 } from './AssistantProposals';
 import { screenItems } from '../utils/itemReportStore';
@@ -1516,7 +1516,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     const writes = splitWriteBlocks(m.content);
                     const prepared = writes.cards.length + writes.captures.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
-                        + writes.saves.length + writes.wrongs.length > 0;
+                        + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
                     return (
                     <div key={m.id} className="space-y-4">
@@ -1666,6 +1666,12 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                             <CourseDraftProposals
                                                 courses={writes.courses}
                                                 onOpen={() => { navigate('/projects', { state: { create: true } }); if (!docked) onClose(); }}
+                                            />
+                                            <ShortCourseProposals
+                                                shorts={writes.shorts}
+                                                attachments={conversationFiles}
+                                                turnKey={turnKey}
+                                                onOpen={() => { navigate('/projects'); if (!docked) onClose(); }}
                                             />
                                             {/* Copy the WHOLE answer — the markdown as
                                                 written, not the rendered text, so a

@@ -2110,6 +2110,12 @@ db.exec(`
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
+// A short course (server/shortCourses.js): where it was made from, as JSON
+// `{ kind: page|pdf|video|file|topic, url?, host?, file?, title?, minutes? }`;
+// NULL for every other course. Never the source's text, which is a document.
+addColumnIfMissing('projects', 'made_from', 'TEXT DEFAULT NULL');
+// The same, for a source Read staged before its course exists.
+addColumnIfMissing('staged_documents', 'origin', 'TEXT DEFAULT NULL');
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

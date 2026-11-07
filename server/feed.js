@@ -254,7 +254,7 @@ export function normalizeModelQuestion(raw) {
  * then today's scheduled leaves. Only when NOTHING is overdue or due today
  * anywhere does the feed "get ahead" with upcoming/unscheduled leaves.
  */
-export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}) {
+export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now } = {}) {
     const fs = getFeedSettings();
     // One project's own stream is not rationed against its neighbours: the
     // per-project cap exists so six courses share a window, and with five of
@@ -262,9 +262,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     const onlyProject = Number.isInteger(projectId) && projectId > 0 ? projectId : null;
     maxTotal = maxTotal ?? fs.focusTotal;
     maxPerProject = maxPerProject ?? (onlyProject ? maxTotal : fs.focusPerProject);
-    const today = studyToday();
+    // `now`: a gate's pinned instant; everyone else asks for the learner's real today.
+    const today = studyToday({ now });
     const projects = db.prepare(`
-        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline,
+        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
                    SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
                    WHERE n.project_id = p.id
@@ -338,9 +339,14 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     // serve, no dates it could ever be late against — not "did this arrive
     // from Anki". The card test stays right the moment a course is given cards
     // or a deck is given a deadline.
+    //
+    // A SHORT COURSE (shortCourses.js, `made_from`) is the third: a few topics
+    // from one page or video, made to be studied now and never scheduled, so on
+    // a day of overdue work it would wait behind all of it.
+    const undated = (p) => !(p.start_date && p.deadline);
     const isStanding = (info) =>
         info.project.id === inboxId
-        || (!!info.project.has_cards && !(info.project.start_date && info.project.deadline));
+        || ((!!info.project.has_cards || !!info.project.made_from) && undated(info.project));
 
     // ...and a standing slot has to be RESERVED, not merely last in line. Sorting
     // by urgency put the standing projects at the end (they have nothing overdue
@@ -352,7 +358,9 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null } = {}
     //
     // This was latent for the Inbox too: a capture was equally unreachable on a
     // busy day, which is the opposite of what an inbox is for.
-    const standingInfos = infos.filter(isStanding);
+    // Only one with a topic to serve: a short course still being written, or
+    // one whose writing failed, would hold a slot and fill it with nothing.
+    const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))
         : 0;

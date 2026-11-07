@@ -4,6 +4,7 @@ import type { ClientSettingKey } from './settingKeys';
 import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenItem } from './utils/itemReports';
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
+import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
@@ -2228,6 +2229,41 @@ export const api = {
 
     discardStagedDocument: (id: string) =>
         request<{ removed: boolean }>(`/documents/staged/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+    // ---- Short courses (server/routes/shortCourses.js) ----
+
+    /** Read a link, or a transcript the learner pasted, and stage it. An
+     *  unreadable source is an answer (`ok: false`), not an error. A page or a
+     *  video can take a while, so the wait is longer than a plain call's. */
+    readShortSource: (body: { url?: string; transcript?: string; title?: string }, signal?: AbortSignal) =>
+        request<ShortRead>('/short-courses/read', { method: 'POST', body: JSON.stringify(body), signal, timeout: 120_000 }),
+
+    readShortFile: async (file: File, signal?: AbortSignal): Promise<ShortRead> => {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await apiFetch(`${BASE}/short-courses/read-file`, { method: 'POST', body: form, signal });
+        if (!res.ok) {
+            let msg = `Upload failed: ${res.status}`;
+            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+            throw new Error(msg);
+        }
+        return res.json();
+    },
+
+    discardShortSource: (stagedId: string) =>
+        request<{ ok: boolean }>(`/short-courses/read/${encodeURIComponent(stagedId)}`, { method: 'DELETE' }),
+
+    /** Make the course and start writing it (a `short_course` task). A link
+     *  sent here is read first, so this waits as long as a read. */
+    createShortCourse: (body: ShortCourseCreate) =>
+        request<{ projectId: number; taskId: string | null; existed?: boolean }>('/short-courses', {
+            method: 'POST', body: JSON.stringify(body), timeout: 120_000,
+        }),
+
+    listShortCourses: () => request<{ courses: ShortCourseRow[] }>('/short-courses'),
+
+    retryShortCourse: (projectId: number) =>
+        request<{ projectId: number; taskId: string | null }>(`/short-courses/${projectId}/retry`, { method: 'POST' }),
 
     // Full extracted text of one document, for the "view extracted text" preview.
     getDocumentText: (id: number) =>

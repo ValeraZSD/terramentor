@@ -386,6 +386,37 @@ console.log('\n--- the vault heals itself ---');
     await new Promise(r => stub.close(r));
 }
 
+// ---- a connection that has no embeddings ------------------------------------
+// Anthropic and a ChatGPT plan answer chat but have no embeddings route, so
+// openAIEmbeddingTarget refuses before any request is made. That is "no model",
+// like Ollama being down: the document waits as unavailable and the task dock
+// shows no failure. Read as a genuine error, every short course made on an
+// Anthropic connection left a red "Indexing … failed" chip in the dock.
+console.log('\n--- a connection that has no embeddings ---');
+{
+    const emb = await import(B + 'embeddings.js');
+    const { listTasks } = await import(B + 'tasks.js');
+    const status = (id) => db.prepare('SELECT embedding_status s FROM documents WHERE id = ?').get(id)?.s;
+    const settle = () => syncNodeEmbeddings();
+    setSetting.run('embedding_provider', 'openai');
+    for (const format of ['anthropic', 'chatgpt']) {
+        setSetting.run('ai_api_format', format);
+        const title = `added on the ${format} wire`;
+        const id = db.prepare(`INSERT INTO documents (project_id, title, content, status) VALUES (?, ?, 'text', 'ready')`)
+            .run(physics, title).lastInsertRowid;
+        db.prepare(`INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, 0, 'compound interest chunk')`).run(id);
+        const calls = embedCalls;
+        emb.indexDocument(id);
+        await settle();
+        check(`a document added on the ${format} wire waits as unavailable, not as an error`, status(id) === 'unavailable', status(id));
+        const failed = listTasks().filter(t => t.kind === 'embed' && t.labelParams?.title === title && t.status !== 'done');
+        check('...and the task dock shows no failure for it', failed.length === 0, failed.map(t => `${t.status}: ${t.errorMessage ?? ''}`).join('; '));
+        check('...and no request was made', embedCalls === calls, `${embedCalls - calls} calls`);
+    }
+    db.prepare(`DELETE FROM settings WHERE key = 'ai_api_format'`).run();
+    setSetting.run('embedding_provider', 'ollama');
+}
+
 // ---- the picker's list: the endpoint's EMBEDDING models ---------------------
 // OpenRouter for chat, the embedding field on the built-in Ollama default, and
 // a picker offering only chat models would leave the atlas undrawn. The list must be the endpoint's embedding catalogue, read

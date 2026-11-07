@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import {
     AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Flag, Inbox, Layers, Lightbulb, Link2, Loader2,
-    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Undo2,
+    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Undo2,
 } from 'lucide-react';
 import Checkbox from './Checkbox';
 import { ItemQuote, ReportedNote, reasonLabel, reportedLine, undoItemReport } from './ui/ReportItem';
@@ -18,8 +18,9 @@ import ReportProblemDialog from './ReportProblemDialog';
 import { ProjectIcon, PROJECT_ICONS } from './ProjectIcon';
 import { useLanguages } from './ProjectFormFields';
 import {
-    similarFront, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
-    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type TopicEditProposal, type WrongProposal,
+    linkOf, liveOutcome, similarFront, shortCourseMade, shownAddress, PROJECT_FIELDS, type CardProposal, type CheckTarget, type CourseDraftProposal, type LinkProposal,
+    type ProjectEditProposal, type ProjectField, type ReportProposal, type SaveProposal, type ShortCourseProposal, type TopicEditProposal,
+    type WrongProposal,
 } from '../utils/assistantWrites';
 import { REPORT_FORMS } from '../utils/report';
 import { accentSolidTriplet } from '../utils/color';
@@ -29,6 +30,9 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { uiLocale } from '../utils/locale';
 import { k } from '../i18n';
 import { cx } from './ui/vocabulary';
+import { freeColour } from '../utils/freeColour';
+import { MAX_FILE_BYTES } from './creation/SourceFiles';
+import { READ_REASON, READ_REASON_OTHER } from './shortCourses/readReasons';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import type { AssistantCheck, AssistantEditKind, ChatAttachment } from '../types';
@@ -59,7 +63,7 @@ export interface TopicLabel {
  * a turn under a new key when a history reload swaps its provisional id for
  * the stored one; kept in the component, "Added" would turn back into "Add".
  */
-const outcomes = new Map<string, { state: 'added' | 'existed' | 'undone' | 'kept' | 'saved' | 'opened'; cardId?: number; nodeId?: number; projectId?: number }>();
+const outcomes = new Map<string, { state: 'added' | 'existed' | 'undone' | 'kept' | 'saved' | 'opened'; cardId?: number; nodeId?: number; projectId?: number; seen?: boolean }>();
 
 /** Open the app's own mastery check on a topic. The gate mode is read on the press. */
 export function CheckButtons({ checks, labels }: { checks: CheckTarget[]; labels: Record<number, TopicLabel> }) {
@@ -1077,6 +1081,132 @@ export function CourseDraftProposals({ courses, onOpen }: { courses: CourseDraft
                         </div>
                         <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
                             <Button size="sm" variant="neutral" icon={<Plus className="w-3.5 h-3.5" aria-hidden="true" />} onClick={open}>{t("Open in New course")}</Button>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+/**
+ * A short course from one source in this chat (server/shortCourses.js): a
+ * file attached here or a link the learner gave. Create reads the source and
+ * makes the course at once (POST /api/short-courses), keeping the name and the
+ * topics shown here; it appears among the Projects page's short courses with
+ * its topics being written. Nothing is asked in between, because there is
+ * nothing left to fill in. `once`: this card is drawn again on every re-read
+ * of the conversation, and a second press finds the course the first made.
+ */
+export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
+    shorts: ShortCourseProposal[];
+    attachments: Map<number, ChatAttachment>;
+    turnKey: string;
+    onOpen: () => void;
+}) {
+    const { t } = useTranslation();
+    const addToast = useStore(s => s.addToast);
+    const projects = useStore(s => s.projects);
+    const loadProjects = useStore(s => s.loadProjects);
+    const [, redraw] = useState(0);
+    const [busy, setBusy] = useState<string | null>(null);
+    if (!shorts.length) return null;
+
+    const create = async (s: ShortCourseProposal, source: { attachmentId: number } | { url: string }, key: string) => {
+        setBusy(key);
+        try {
+            const r = await api.createShortCourse({
+                ...source, name: s.name, topics: s.topics, icon: s.icon, color: freeColour(projects), via: 'assistant', once: true,
+            });
+            outcomes.set(key, { state: r.existed ? 'existed' : 'saved', projectId: r.projectId });
+            redraw(n => n + 1);
+            // The refresh marks the course seen even if this card is gone by
+            // then (Open closed the drawer), so a later delete is noticed; a
+            // failed refresh leaves the old list, which marks nothing.
+            void loadProjects({ silent: true }).then(() => { liveOutcome(outcomes.get(key), useStore.getState().projects); });
+        } catch (e) {
+            const err = e as { data?: { reason?: string } } & Error;
+            const reason = err.data?.reason;
+            addToast('error', t("Could not create the short course"),
+                reason === 'no_ai' ? t("Writing it needs an AI connection.")
+                    : reason === 'too_big' ? t("It is too long for one short course. Add it in Short courses on Projects and pick a few of its chapters.")
+                    : reason === 'too_small' ? t("Too little for a course.")
+                    : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
+                        : err.message);
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    return (
+        <div className="space-y-2">
+            {shorts.map((s, i) => {
+                const key = `${turnKey}:short:${i}`;
+                const fileId = Number(s.from.match(/^\s*(?:file|attachment)?\s*#?(\d+)\s*$/i)?.[1] ?? NaN);
+                const att = Number.isFinite(fileId) ? attachments.get(fileId) : undefined;
+                // The whole address the app will open, not just its site: a
+                // link with words of this conversation in its query is seen.
+                // A link typed without https is still a link (the server adds it too).
+                const link = att ? null : linkOf(s.from);
+                const address = link ? shownAddress(link) : null;
+                const fromLine = att
+                    ? (att.pages ? t("From {{name}} · {{count}} pages", { name: att.name, count: att.pages }) : t("From {{name}}", { name: att.name }))
+                    : t("From {{name}}", { name: address || s.from });
+                // Only a file of this conversation or a web address: anything
+                // else in `from` is not a source the app could read.
+                const source = att ? { attachmentId: att.id } : link && address ? { url: link } : null;
+                // Pressed here, its course not deleted since.
+                const made = liveOutcome(outcomes.get(key), projects);
+                // Pressed here, or made earlier (the conversation read again):
+                // then the card says so rather than offering Create twice.
+                const earlier = made ? undefined : (source ? shortCourseMade(projects, s, att ? { id: att.id, name: att.name } : null) : undefined);
+                const state = made?.state === 'saved' ? 'saved' : (made?.state === 'existed' || earlier) ? 'existed' : null;
+                // The colour Create will give it (the next one free), then the one it got.
+                const colour = earlier?.color ?? (made ? projects.find(p => p.id === made.projectId)?.color : freeColour(projects));
+                return (
+                    <div key={key} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+                        <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
+                            <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {t("A short course")}
+                        </div>
+                        <div className="px-3 py-2 space-y-2">
+                            <div className="flex items-center gap-2.5">
+                                <CourseTile icon={s.icon} color={colour} />
+                                <div className="min-w-0">
+                                    <p className="text-sm font-medium text-slate-800 dark:text-slate-100 break-words">{s.name}</p>
+                                    <p className={cx('flex gap-1.5 text-sm text-slate-500 dark:text-slate-400 min-w-0', att ? 'items-center' : 'items-start')}>
+                                        {att ? <FileGlyph fileType={att.fileType} name={att.name} className="w-3.5 h-3.5 shrink-0" /> : <Link2 className="w-3.5 h-3.5 shrink-0 mt-[0.1875rem]" aria-hidden="true" />}
+                                        <span className={att ? 'truncate' : 'break-all'} data-short="address">{fromLine}</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <ol className="list-decimal pl-5 text-sm leading-6 text-slate-700 dark:text-slate-200">
+                                {s.topics.map((topic, n) => <li key={n}>{topic}</li>)}
+                            </ol>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                            {state ? (
+                                <>
+                                    {state === 'saved' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+                                            <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Created. Its topics are being written.")}
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400">
+                                            <Check className="w-4 h-4" aria-hidden="true" />{t("Already one of your short courses")}
+                                        </span>
+                                    )}
+                                    <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={onOpen}>{t("Open")}</Button>
+                                </>
+                            ) : source ? (
+                                <Button size="sm" variant="neutral" icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy === key} disabled={busy !== null && busy !== key} onClick={() => void create(s, source, key)}>
+                                    {t("Create short course")}
+                                </Button>
+                            ) : (
+                                <span className="text-sm text-slate-500 dark:text-slate-400">
+                                    {Number.isFinite(fileId) ? t("That file is no longer in this conversation.") : t("The app cannot read this source.")}
+                                </span>
+                            )}
                         </div>
                     </div>
                 );

@@ -139,6 +139,8 @@ export function embeddingReady() {
  * address). A refusal is a thrown error to `embedBatch`'s callers, who already
  * read any failure as "no embeddings available"; nothing here throws past them.
  */
+const NO_EMBEDDINGS = 'NO_EMBEDDINGS';
+
 function openAIEmbeddingTarget(ai) {
     const settings = { ...ai, provider: 'openai' };
     const wire = wireOf(settings);
@@ -164,7 +166,7 @@ export async function embedBatch(texts) {
 
     if (provider === 'openai') {
         const target = openAIEmbeddingTarget(ai);
-        if (target.refused) throw new Error(`embeddings: ${target.refused}`);
+        if (target.refused) throw Object.assign(new Error(`embeddings: ${target.refused}`), { code: NO_EMBEDDINGS });
         const base = target.base;
         const res = await wireFetch(target.settings)(`${base}/embeddings`, {
             method: 'POST',
@@ -328,6 +330,9 @@ export function isUnavailable(err) {
     // "call-failed: Request was cancelled" against a region and spending one of
     // its three attempts on it. AbortSignal.timeout() reports TimeoutError.
     if (err?.name === 'AbortError' || err?.name === 'TimeoutError') return true;
+    // A connection with no embeddings route (Anthropic, a ChatGPT plan, or no
+    // endpoint at all) is refused before any request: no model, not a fault.
+    if (err?.code === NO_EMBEDDINGS) return true;
     return m.includes('no router') || m.includes('not found') || m.includes('404')
         || m.includes('econnrefused') || m.includes('fetch failed')
         || m.includes('timeout') || m.includes('timed out')
