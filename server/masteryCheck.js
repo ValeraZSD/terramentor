@@ -3,12 +3,26 @@
 // and the check an agent host draws in its own window (server/agentSittings.js).
 // One body, so a check taken in Claude's window is the same evidence, the same
 // pass bar and the same "written once" as one taken in the app.
-import db from './database.js';
+import db, { NOW_ISO } from './database.js';
 import { MIN_GATE_QUESTIONS, recordOnce, updateMasteryFromAttempt } from './mastery.js';
 import { logAsked } from './questionLog.js';
 import { provenSitting } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 import { saveSittingReview } from './sittingReview.js';
+import { WORK_LEAF } from './today.js';
+
+// A pass finishes its topic: an open (or skipped) topic becomes completed, a
+// completed one keeps its date. Only a topic, never a section or a note.
+let completeStmt = null;
+let statusStmt = null;
+const completeProvenTopic = (nodeId) => {
+    completeStmt ??= db.prepare(`
+        UPDATE nodes SET status = 'completed', completed_at = ${NOW_ISO}, updated_at = ${NOW_ISO}
+        WHERE id IN (SELECT n.id FROM nodes n WHERE n.id = ? AND n.status != 'completed' AND ${WORK_LEAF})
+    `);
+    completeStmt.run(nodeId);
+};
+const topicStatus = (nodeId) => (statusStmt ??= db.prepare('SELECT status FROM nodes WHERE id = ?')).get(nodeId)?.status;
 
 /**
  * Record a mastery check once. `asked` names what the sitting asked
@@ -84,12 +98,23 @@ export function recordMasteryCheck({ nodeId, score, total, questions, asked, att
         // evidence, so a passing mastery check reliably unlocks completion.
         // Judged on the proven score, the same numbers the evidence holds.
         const passed = proven.score / proven.total >= checkPass;
+        // A pass completes its topic HERE, in the transaction that records the
+        // evidence, not in a second request after the result is read: the
+        // result said "this topic will be marked completed" and only Continue
+        // sent that write, so a window closed with the X, a killed app or a
+        // shut-down PC left a passed topic open (a learner's report on
+        // 1.4.0-nightly, 5 Nov 2026). No override is needed: the pass just
+        // written is what the completion gate asks for.
+        if (passed) completeProvenTopic(Number(nodeId));
         // pass_threshold lets the UI show the *configured* bar instead of a
         // hardcoded percentage; proven_score / proven_total are the counts
         // judged, which leave out a question the bank no longer holds.
+        // `completed` is the topic's state after this check, so a surface
+        // says "is marked completed" rather than offering to do it.
         return {
             ...result, passed, raw_score_pct: Math.round((proven.score / proven.total) * 100), pass_threshold: checkPass,
             proven_score: proven.score, proven_total: proven.total,
+            completed: topicStatus(nodeId) === 'completed',
         };
     });
 }

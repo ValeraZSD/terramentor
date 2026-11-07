@@ -4,7 +4,7 @@ import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-
 import { Button, IconButton } from './ui/Button';
 import { TextArea } from './ui/Field';
 import ProgressBar from './ui/ProgressBar';
-import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter, SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
@@ -221,7 +221,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+        <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
             onClick={close}>
             {/* The dialog never scrolls as a whole: the header and every
                 phase's footer stay put and only the body between them
@@ -237,7 +237,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} ${SHEET_PANEL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"

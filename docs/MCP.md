@@ -49,7 +49,8 @@ how you run Terramentor, with the full path to the folder you unpacked or cloned
 | you run | command | arguments |
 |---|---|---|
 | the desktop app, Windows | `C:/Apps/Terramentor/runtime/node.exe` | `C:/Apps/Terramentor/mcp/index.js` |
-| the desktop app, macOS or Linux | `/path/to/Terramentor/runtime/node` | `/path/to/Terramentor/mcp/index.js` |
+| the desktop app, macOS | `/Applications/Terramentor.app/Contents/Resources/app/runtime/node` | `/Applications/Terramentor.app/Contents/Resources/app/mcp/index.js` |
+| the desktop app, Linux | `/path/to/Terramentor/runtime/node` | `/path/to/Terramentor/mcp/index.js` |
 | Docker (the `terramentor` container of `docker-compose.yml`) | `docker` | `exec -i -e TERRAMENTOR_API_KEY terramentor node mcp/index.js` |
 | a source checkout | `node` | `/path/to/Terramentor/mcp/index.js` |
 
@@ -114,7 +115,8 @@ Terramentor's own screen inside its window:
 - **The mastery check** draws its questions from the topic's checked question bank, the same
   draw as the check in the app, passing over any question with a picture or a sound, which only
   Terramentor shows. You answer, move between questions and submit; Terramentor grades it and
-  records it exactly as its own check, and after a pass, Continue completes the topic.
+  records it exactly as its own check. A pass completes the topic in the same step, so closing
+  the window on the result loses nothing.
 - **The card review** shows each card's front, then the answer and Again / Hard / Good / Easy
   with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
   Terramentor's scheduler handles each card exactly as the review screen in the app does.

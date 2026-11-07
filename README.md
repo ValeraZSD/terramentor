@@ -144,7 +144,8 @@ outbound connection.
 [releases page](https://github.com/ValeraZSD/terramentor/releases), unpack it and start
 `Terramentor.exe` (Windows), `Terramentor.app` (macOS, Apple Silicon) or `./terramentor.sh`
 (Linux). There is nothing else to install. The launcher is unsigned, so Windows asks once
-(*More info → Run anyway*) and macOS wants a right-click → *Open* the first time.
+(*More info → Run anyway*). On a Mac, drag `Terramentor.app` into Applications first; if macOS
+blocks it the first time, open *System Settings*, then *Privacy & Security*, and press *Open Anyway*.
 
 **Docker:**
 

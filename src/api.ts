@@ -2345,6 +2345,11 @@ export const api = {
     continueCreation: (projectId: number, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> =>
         streamCreationSse('/ai/continue-creation', { projectId }, signal),
 
+    /** Did a creation stop before it finished this project, so the course page
+     *  offers to carry it on? Read from what the run wrote; no model is asked. */
+    getContinueCreation: (projectId: number) =>
+        request<{ canContinue: boolean; running: boolean }>(`/ai/continue-creation/${projectId}`),
+
     /** Cancel ONE run — by its run id when known (the only handle before the
      *  project row exists), else by project. Never sends an empty body: that
      *  cancels every run on the server, and several may be live at once. */

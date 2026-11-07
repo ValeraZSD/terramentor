@@ -85,7 +85,7 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
         <>
             <span ref={anchor} className="hidden" aria-hidden="true" />
             {createPortal((
-                <div className={`fixed inset-0 ${layer} flex items-center justify-center p-4`} style={accent}>
+                <div className={`fixed inset-0 ${layer} flex items-center justify-center safe-p-4`} style={accent}>
                     <div className="absolute inset-0 bg-black/50" {...backdrop} aria-hidden="true" />
                     <div
                         ref={dialogRef}

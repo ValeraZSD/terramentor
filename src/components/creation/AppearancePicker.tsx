@@ -8,19 +8,17 @@
 // pressing it opens the two pickers in a panel over the dialog.
 //
 // The panel is a small dialog, not a menu: two grids and a value field are
-// not a list of commands. `useDialogFocus` makes it the topmost dialog while it
-// is open, so Escape and Tab are its own and the course dialog under it keeps
-// still; focus goes back to the tile when it closes.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+// not a list of commands. It is a `PanelPopover`, which makes it the topmost
+// dialog while it is open, so Escape and Tab are its own and the course dialog
+// under it keeps still; focus goes back to the tile when it closes. On a phone
+// it is the bottom sheet.
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import IconPicker from '../IconPicker';
 import { ProjectIcon } from '../ProjectIcon';
 import ColorField, { PROJECT_COLORS } from '../ui/ColorField';
 import { IconButton } from '../ui/Button';
-import { placePopover, type Placement } from '../ui/Popover';
-import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { usePortalAccent } from '../../hooks/usePortalAccent';
+import { PanelPopover } from '../ui/Popover';
 import { accentSolidTriplet } from '../../utils/color';
 
 export default function AppearancePicker({ icon, color, onIcon, onColor }: {
@@ -32,53 +30,13 @@ export default function AppearancePicker({ icon, color, onIcon, onColor }: {
     const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement>(null);
-    const panelRef = useRef<HTMLDivElement>(null);
-    const [place, setPlace] = useState<Placement | null>(null);
-    const { anchor: accentAnchor, accent } = usePortalAccent(open);
-    const close = useCallback(() => setOpen(false), []);
 
     // The tile shows the colour the card and the course's buttons will wear:
     // the chosen one made safe for a white label (accentSolidTriplet).
     const tile = { backgroundColor: `rgb(${accentSolidTriplet(color)})` };
 
-    const measure = useCallback(() => {
-        const btn = buttonRef.current, panel = panelRef.current;
-        if (!btn || !panel) return;
-        setPlace(placePopover(btn.getBoundingClientRect(), { width: panel.offsetWidth, height: panel.offsetHeight },
-            { width: window.innerWidth, height: window.innerHeight }));
-    }, []);
-    useLayoutEffect(() => {
-        if (!open) { setPlace(null); return; }
-        measure();
-    }, [open, measure]);
-
-    // Focus starts on the icon that is chosen: the roving grid's one tab stop.
-    const selectedRef = useRef<HTMLElement | null>(null);
-    useLayoutEffect(() => {
-        selectedRef.current = open ? panelRef.current?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]') ?? null : null;
-    }, [open]);
-    useDialogFocus(open, panelRef, { onEscape: close, initialFocus: selectedRef });
-
-    useEffect(() => {
-        if (!open) return;
-        const onDown = (e: PointerEvent) => {
-            const target = e.target as Node;
-            if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
-            close();
-        };
-        document.addEventListener('pointerdown', onDown, true);
-        window.addEventListener('scroll', measure, true);
-        window.addEventListener('resize', measure);
-        return () => {
-            document.removeEventListener('pointerdown', onDown, true);
-            window.removeEventListener('scroll', measure, true);
-            window.removeEventListener('resize', measure);
-        };
-    }, [open, close, measure]);
-
     return (
         <>
-            <span ref={accentAnchor} className="hidden" aria-hidden="true" />
             <IconButton
                 ref={buttonRef}
                 size="sm"
@@ -92,39 +50,31 @@ export default function AppearancePicker({ icon, color, onIcon, onColor }: {
                     </span>
                 )}
             />
-            {open && createPortal(
-                <div
-                    ref={panelRef}
-                    role="dialog"
-                    aria-label={t("Icon and colour")}
-                    style={{
-                        ...accent,
-                        left: place?.left ?? 0,
-                        top: place?.top ?? 0,
-                        maxWidth: place?.maxWidth,
-                        // Not `visibility: hidden` before it is placed: a hidden
-                        // element refuses focus, and focus goes in on open.
-                        opacity: place ? 1 : 0,
-                    }}
-                    className="fixed z-50 w-[19rem] max-h-[calc(100dvh-1rem)] overflow-y-auto space-y-4 p-3 rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg"
-                >
-                    {/* ALL sixty-four icons, no scrolling: at 19rem the eight
-                        columns are small enough that eight rows and the
-                        palette fit under the tile on a laptop and a phone.
-                        A grid cut after five rows reads as a rendering bug,
-                        even with a fade over the cut; at 22rem the whole
-                        set makes a panel taller than a laptop screen that
-                        covers the tile it was opened from. */}
-                    <IconPicker label={t("Icon")} value={icon} onChange={onIcon} color={color} />
-                    {/* The palette alone: no "In your library" row (twelve more
-                        swatches is a second panel's worth, and matching another
-                        course is Edit project's question) and no eyedropper or
-                        value field (it reads as jargon here; any colour at
-                        all is Edit project's too). */}
-                    <ColorField label={t("Colour")} value={color} onChange={onColor} colors={PROJECT_COLORS} anyColour={false} />
-                </div>,
-                document.body,
-            )}
+            <PanelPopover
+                open={open}
+                onClose={() => setOpen(false)}
+                anchorRef={buttonRef}
+                label={t("Icon and colour")}
+                width="w-[19rem]"
+                className="space-y-4"
+                // Focus starts on the icon that is chosen: the roving grid's one tab stop.
+                initialFocus={'[role="radio"][aria-checked="true"]'}
+            >
+                {/* ALL sixty-four icons, no scrolling: at 19rem the eight
+                    columns are small enough that eight rows and the
+                    palette fit under the tile on a laptop and a phone.
+                    A grid cut after five rows reads as a rendering bug,
+                    even with a fade over the cut; at 22rem the whole
+                    set makes a panel taller than a laptop screen that
+                    covers the tile it was opened from. */}
+                <IconPicker label={t("Icon")} value={icon} onChange={onIcon} color={color} />
+                {/* The palette alone: no "In your library" row (twelve more
+                    swatches is a second panel's worth, and matching another
+                    course is Edit project's question) and no eyedropper or
+                    value field (it reads as jargon here; any colour at
+                    all is Edit project's too). */}
+                <ColorField label={t("Colour")} value={color} onChange={onColor} colors={PROJECT_COLORS} anyColour={false} />
+            </PanelPopover>
         </>
     );
 }

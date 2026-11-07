@@ -1,7 +1,7 @@
 import { ReactNode, CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { ArrowLeft, ChevronDown, Inbox, MessageSquare, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Inbox, Loader2, MessageSquare, Settings } from 'lucide-react';
 import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
@@ -12,6 +12,7 @@ import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
 import UpdateControl from './update/UpdateControl';
 import UpdateNotice from './update/UpdateNotice';
+import AppPlacementNotice from './update/AppPlacementNotice';
 import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
@@ -360,7 +361,10 @@ export default function Layout({ children }: { children: ReactNode }) {
                 every tab reachable at any width, and the active one is
                 scrolled into view on navigation so it is never the hidden
                 one. */}
-            <header ref={headerRef} className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 px-2 sm:px-4 shrink-0">
+            {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
+                under its status bar the bar's colour runs up behind the clock and
+                its row starts below it, the same 56px as the assistant's header. */}
+            <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
                 <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
@@ -455,8 +459,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-                            className="motion-safe:animate-pulse"
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
@@ -517,11 +520,13 @@ export default function Layout({ children }: { children: ReactNode }) {
                 the note after an update, or the one-time "check for updates?"
                 question. The update itself lives in the header's button.
                 Above it, for as long as it is true, that the app can be
-                reached from other devices and has no password. */}
+                reached from other devices and has no password. Below it, once,
+                that macOS is running a temporary copy of the app. */}
             <ExposedBanner />
             <UpdateNotice />
+            <AppPlacementNotice />
 
-            <main className="flex-1 min-h-0 overflow-hidden">
+            <main className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0">
                 {children}
             </main>
 
@@ -554,7 +559,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     nodeTitle={masteryGate.nodeTitle}
                     projectId={masteryGate.projectId}
                     advisory={masteryGate.advisory}
-                    onPassed={() => resolveMasteryGate('completed', true)}
+                    onPassed={(written) => resolveMasteryGate('completed', true, written)}
                     onMarkAnyway={() => resolveMasteryGate('completed')}
                     onSkip={() => resolveMasteryGate('skipped')}
                 />

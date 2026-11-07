@@ -303,6 +303,10 @@ let phoneCookie = '';
     const panel = await call('/api/updates', { from: PHONE, cookie: phoneCookie });
     ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
     ok('…while this computer may', (await call('/api/updates')).body?.controls === true);
+    // The page replaces its whole status with whichever update answer came
+    // last, so a press's answer says it too (a check, a dismissed note).
+    const pressedHere = await call('/api/updates/result/dismiss', { method: 'POST' });
+    ok('…and a press\'s answer says so as well', pressedHere.status === 200 && pressedHere.body?.controls === true, JSON.stringify(pressedHere.body?.controls));
     ok('…which this computer itself still presses', (await call('/api/updates/download', { method: 'POST' })).status !== 403);
     // Where the app sends prompts and documents is the computer's to decide
     // too (server/settingsSchema.js, the 'network' rows): a device changes the

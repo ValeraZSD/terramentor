@@ -10,8 +10,9 @@ Download the zip for your system from the
 [releases page](https://github.com/ValeraZSD/terramentor/releases), unpack it anywhere, and start
 `Terramentor.exe` (Windows), `Terramentor.app` (macOS, Apple Silicon) or `./terramentor.sh`
 (Linux). The zip carries its own runtime, so there is nothing else to install. Windows warns once
-that the launcher is unsigned (*More info → Run anyway*); macOS needs a right-click → *Open* the
-first time. The tray icon, starting at sign-in and where your data lives are in
+that the launcher is unsigned (*More info → Run anyway*). On macOS, drag `Terramentor.app` into
+Applications first; if macOS blocks it the first time, open *System Settings*, then *Privacy &
+Security*, and press *Open Anyway* (macOS 14 and earlier: right-click → *Open*). The tray icon, starting at sign-in and where your data lives are in
 [DESKTOP.md](DESKTOP.md).
 
 ## Docker

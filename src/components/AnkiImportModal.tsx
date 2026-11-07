@@ -15,7 +15,7 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
-import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from './ui/Dialog';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter, SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 
 /** Sizes a person can judge a download by. */
 function formatBytes(n: number): string {
@@ -198,12 +198,12 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
     const mediaCount = stats?.mediaFiles ?? 0;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+        <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
             onClick={close}>
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} ${SHEET_PANEL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog" aria-modal="true" aria-label={t("Import an Anki deck")}
             >
