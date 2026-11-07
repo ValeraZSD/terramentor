@@ -40,7 +40,9 @@ export default function AppPlacementNotice() {
             .catch(() => setDismissed(null));
     }, [placement]);
 
-    if (placement !== 'translocated' || controls === false || dismissed === undefined || dismissed === placement) return null;
+    // Only once the server has said this device may quit the app: before the
+    // update status arrives, a phone over the network would be offered Quit.
+    if (placement !== 'translocated' || controls !== true || dismissed === undefined || dismissed === placement) return null;
 
     const dismiss = async () => {
         setDismissed(placement);
