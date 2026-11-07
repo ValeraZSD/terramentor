@@ -47,6 +47,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } };
 globalThis.ResizeObserver = window.ResizeObserver;
 window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
+// No hovering pointer above, so "More" opens as the phone's bottom sheet, which
+// slides up on the next frame.
+globalThis.requestAnimationFrame ??= (cb) => setTimeout(() => cb(Date.now()), 0);
+globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
 
 // jsdom lays nothing out, so the two widths the toolbar folds on are set here:
 // the block's own (`clientWidth` of `.visual-block`) and the toolbar row's

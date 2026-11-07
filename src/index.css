@@ -745,6 +745,18 @@ body.assistant-overlay-open {
 }
 
 /*
+ * A bottom sheet (ui/Sheet.tsx): up to 40rem, and on a short screen (a phone
+ * on its side) as tall as the room under the status bar allows, less a strip
+ * of dimmed page that shows it is a sheet. A fixed share of the height (80%)
+ * left a six-row menu in landscape ending exactly at a row's edge, its last
+ * row hidden with nothing to say the list scrolls.
+ */
+.sheet-shell {
+  max-height: min(40rem, calc(100vh - 0.75rem));
+  max-height: min(40rem, calc(100dvh - var(--safe-top) - 0.75rem));
+}
+
+/*
  * A frame that holds the SAME height whatever is inside it. Content-sized
  * modals look fine in isolation but make a quiz feel unstable: a two-line
  * true/false question renders a short box and a four-option multiple choice a

@@ -1,106 +1,43 @@
-import { cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ReactElement } from 'react';
-import { createPortal } from 'react-dom';
-import { placePopover, MENU_PANEL } from './ui/Popover';
+import { cloneElement, isValidElement, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent, ReactElement, ReactNode } from 'react';
+import { MenuPopover, menuTriggerKeys } from './ui/Popover';
 
 interface Props {
-    trigger: React.ReactNode;
-    children: React.ReactNode;
-    className?: string;
+    /** The ⋮ button. Its `label` names the menu (and titles the phone's sheet). */
+    trigger: ReactNode;
+    /** `MenuItem`s. Any of them closes the menu when chosen. */
+    children: ReactNode;
 }
 
-export default function DropdownMenu({ trigger, children, className = '' }: Props) {
+/**
+ * A row's ⋮ menu: a `MenuPopover` on the trigger itself, so it floats beside
+ * the ⋮ with a mouse and is the bottom sheet on a phone, with the menu's keys.
+ */
+export default function DropdownMenu({ trigger, children }: Props) {
     const [isOpen, setIsOpen] = useState(false);
-    const [position, setPosition] = useState({ top: 0, left: 0 });
-    const triggerRef = useRef<HTMLDivElement>(null);
-    const menuRef = useRef<HTMLDivElement>(null);
-
-    // Placed from the menu's MEASURED box, before paint: a fixed width and
-    // height are true of `w-36` only at 100% `ui_scale`, and at larger scales
-    // the menu would start left of the ⋮ it belongs to.
-    useLayoutEffect(() => {
-        if (!isOpen || !triggerRef.current || !menuRef.current) return;
-        const p = placePopover(
-            triggerRef.current.getBoundingClientRect(),
-            { width: menuRef.current.offsetWidth, height: menuRef.current.offsetHeight },
-            { width: window.innerWidth, height: window.innerHeight },
-            { align: 'end' },
-        );
-        setPosition({ top: p.top, left: p.left });
-    }, [isOpen]);
-
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (
-                menuRef.current &&
-                !menuRef.current.contains(e.target as Node) &&
-                triggerRef.current &&
-                !triggerRef.current.contains(e.target as Node)
-            ) {
-                setIsOpen(false);
-            }
-        };
-
-        const handleScroll = () => {
-            setIsOpen(false);
-        };
-
-        // Escape closes it and hands focus back to the ⋮ — claimed in the
-        // capture phase, so a page or drawer listening for Escape does not
-        // also act on the press that only meant "close this menu".
-        const handleKey = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
-            e.preventDefault();
-            e.stopPropagation();
-            setIsOpen(false);
-            triggerRef.current?.querySelector<HTMLElement>('button, [tabindex]')?.focus();
-        };
-
-        if (isOpen) {
-            document.addEventListener('mousedown', handleClickOutside);
-            document.addEventListener('scroll', handleScroll, true);
-            document.addEventListener('keydown', handleKey, true);
-        }
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('scroll', handleScroll, true);
-            document.removeEventListener('keydown', handleKey, true);
-        };
-    }, [isOpen]);
+    const buttonRef = useRef<HTMLElement>(null);
 
     // The trigger IS the control: it is a real button, so its own Enter and
     // Space reach the click below and it carries the menu's state. Wrapped in a
     // focusable button-role div it was a button inside a button and two Tab stops.
-    const control = isValidElement(trigger)
-        ? cloneElement(trigger as ReactElement<Record<string, unknown>>, { 'aria-haspopup': 'menu', 'aria-expanded': isOpen })
-        : trigger;
+    if (!isValidElement(trigger)) return null;
+    const label = (trigger.props as { label?: string }).label ?? '';
+    const control = cloneElement(trigger as ReactElement<Record<string, unknown>>, {
+        ref: buttonRef,
+        'aria-haspopup': 'menu', 'aria-expanded': isOpen,
+        // The row under it opens on a click: the ⋮ is not the row.
+        onClick: (e: ReactMouseEvent) => { e.stopPropagation(); setIsOpen(o => !o); },
+        onKeyDown: menuTriggerKeys(() => setIsOpen(true)),
+    });
 
     return (
         <>
-            <div
-                ref={triggerRef}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setIsOpen(!isOpen);
-                }}
-            >
-                {control}
-            </div>
-
-            {isOpen && createPortal(
-                <div
-                    ref={menuRef}
-                    className={`fixed z-[9999] min-w-36 w-max ${MENU_PANEL} ${className}`}
-                    style={{ top: position.top, left: position.left }}
-                    onClick={(e) => e.stopPropagation()}
-                >
-                    <div onClick={() => setIsOpen(false)} role="presentation">
-                        {children}
-                    </div>
-                </div>,
-                document.body
-            )}
+            {control}
+            <MenuPopover open={isOpen} onClose={() => setIsOpen(false)} anchorRef={buttonRef} label={label} align="end">
+                <div role="none" onClick={() => setIsOpen(false)}>
+                    {children}
+                </div>
+            </MenuPopover>
         </>
     );
 }
