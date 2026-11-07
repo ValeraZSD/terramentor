@@ -24,7 +24,7 @@ import { promptTitle } from './citations.js';
 import { sectionText, withoutPageMarks } from './sourceMap.js';
 
 /** Characters each prompt's source block may carry, all files together. */
-export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000, languageCheck: 1200 };
+export const SOURCE_BUDGET = { plan: 12000, think: 6000, brief: 1500, phase: 6000, topics: 6000, languageCheck: 1200, short: 24000 };
 
 const OPEN = '<<<SOURCES';
 const CLOSE = 'SOURCES>>>';
@@ -40,9 +40,15 @@ const METHOD_WORDS = {
     contents: 'contents read from its printed Contents page',
     headings: 'contents read from its headings',
     none: 'no table of contents: shown as excerpts',
+    parts: 'no table of contents: cut into parts in reading order',
 };
 
-const KIND_WORDS = { pdf: 'PDF', docx: 'Word document', pptx: 'slides', xlsx: 'spreadsheet', text: 'text file' };
+const KIND_WORDS = {
+    pdf: 'PDF', docx: 'Word document', pptx: 'slides', xlsx: 'spreadsheet', text: 'text file',
+    // A short course's sources (shortCourses.js), which are text files in the
+    // vault but not to the model reading them.
+    page: 'web page', video: 'video transcript, [m:ss] marks the time',
+};
 
 /**
  * The staged files of one creation, numbered.
@@ -297,6 +303,87 @@ export function topicsBlock(src, elements = []) {
     return {
         system: `\n\nSOURCE MATERIAL: the parts of the learner's files each topic covers are listed in the message between ${OPEN} and ${CLOSE}. A topic's sub-topics follow the parts listed under it, in order, and cover what they teach; each sub-topic also carries "sections": the § numbers it covers. ${FRONT_MATTER_RULE} Use the files' own terms and notation.`,
         user: `\n\nSOURCE MATERIAL FOR THESE TOPICS:${wrap([outline, ...ex].join('\n\n'))}`,
+    };
+}
+
+/**
+ * For a short course's one call (server/shortCourses.js): the source ITSELF,
+ * every part opened by its § line, in reading order. A short course is built
+ * from one page, one video or one chapter, which mostly fits whole; past the
+ * budget each part keeps the same share of its own opening, so a long part
+ * cannot crowd out the ones after it. A file whose parts carry no character
+ * offsets is shown as the other blocks show it, outline and excerpts. When
+ * the parts are so many that the later ones are left out, `shown` lists the
+ * § ids that made it in.
+ */
+export function shortBlock(src) {
+    if (!hasSources(src)) return { system: '', user: '' };
+    const budget = SOURCE_BUDGET.short;
+    const located = src.sections.every(s => s.start != null);
+    let body;
+    let shown = null;
+    if (!located) {
+        body = wholeBlock(src, budget);
+    } else {
+        const slices = [];
+        for (const d of src.docs) {
+            const secs = d.sectionIds.map(id => src.byId.get(id)).sort((a, b) => a.start - b.start);
+            const pieces = [];
+            // A few picked chapters of a book (`d.picked`) are shown alone:
+            // no opening before the first, nothing between two of them.
+            if (!d.picked && secs.length && secs[0].start > 0) pieces.push({ head: null, from: 0, to: secs[0].start });
+            secs.forEach((s, i) => {
+                const next = secs[i + 1]?.start ?? d.text.length;
+                pieces.push({ head: s, from: s.start, to: d.picked && s.end != null ? Math.min(next, s.end) : next });
+            });
+            for (const p of pieces) {
+                const text = withoutPageMarks(d.text.slice(p.from, p.to)).replace(/\n{3,}/g, '\n\n').trim();
+                // A heading's own line opens its slice; the § line says it already.
+                const own = p.head ? text.replace(/^#{1,6}\s+[^\n]*\n?/, '').trim() : text;
+                slices.push({ doc: d, head: p.head, text: own });
+            }
+        }
+        const total = slices.reduce((n, s) => n + s.text.length, 0);
+        const room = budget - slices.length * 80 - src.docs.length * 120;
+        const ratio = total > room ? Math.max(0, room) / total : 1;
+        // Each part keeps a few lines of its own, but only while there is room
+        // for them all: hundreds of parts share the budget, not double it.
+        const least = Math.min(120, Math.floor(Math.max(0, room) / Math.max(1, slices.length)));
+        // Each entry remembers where it starts and which part it opens.
+        const out = [];
+        let doc = null;
+        let at = 0;
+        const add = (text, id = null) => {
+            if (!text) return;
+            if (out.length) at += 2;
+            out.push({ text, id, from: at });
+            at += text.length;
+        };
+        for (const s of slices) {
+            if (s.doc !== doc) {
+                doc = s.doc;
+                add(docHeader(doc));
+            }
+            const keep = ratio < 1 ? Math.max(least, Math.floor(s.text.length * ratio)) : s.text.length;
+            const cut = s.text.slice(0, keep).trim();
+            const text = defang(s.text.length > keep ? (cut ? `${cut}…` : '') : s.text);
+            add(s.head ? [lineOf(s.head, 0), text].filter(Boolean).join('\n') : text, s.head?.id ?? null);
+        }
+        body = out.map(e => e.text).join('\n\n');
+        // So many parts that their headings alone overrun it: the first ones,
+        // whole, and a line saying the rest were left out. Which parts the model
+        // was shown is said too, so nothing it never saw is cited for a topic.
+        if (body.length > budget) {
+            const end = body.lastIndexOf('\n\n', budget - 60);
+            const stop = end > 0 ? end : budget - 60;
+            body = `${body.slice(0, stop)}\n\n(The rest of the source is left out here.)`;
+            shown = out.filter(e => e.id != null && e.from < stop).map(e => e.id);
+        }
+    }
+    return {
+        system: `\n\nSOURCE MATERIAL: the course is built FROM the source in the message between ${OPEN} and ${CLOSE}, every part numbered §1, §2, … Each topic carries "sections": the § numbers of the parts it teaches, e.g. { "title": "...", "description": "...", "sections": [2, 3] }. Together the topics cover what the source teaches, in its order; teach what it holds and add nothing it does not. ${FRONT_MATTER_RULE} Use the source's own terms and notation.`,
+        user: `\n\nSOURCE MATERIAL:${wrap(body)}`,
+        ...(shown ? { shown } : {}),
     };
 }
 

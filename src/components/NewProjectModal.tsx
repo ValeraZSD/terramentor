@@ -24,8 +24,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
 import { StudyLanguageField } from './ProjectFormFields';
-import { PROJECT_COLORS, sameColor } from './ui/ColorField';
-import { parseCssColor } from '../utils/color';
+import { freeColour } from '../utils/freeColour';
 import { OutlineBriefPanel } from './ExternalAuthoring';
 import ProjectImportZone from './ProjectImportZone';
 import SourceFiles, { MAX_FILE_BYTES, usableSource, type SourceFile } from './creation/SourceFiles';
@@ -41,7 +40,7 @@ import AppearancePicker from './creation/AppearancePicker';
 import { DEFAULT_PROJECT_ICON } from './ProjectIcon';
 import { findLearningLanguage } from '../../server/learningLanguage.js';
 import { catalogLanguage, languagesFromAcceptHeader, resolveCreationLanguage, typedName } from '../../server/creationLanguage.js';
-import type { Project, StagedDocument } from '../types';
+import type { StagedDocument } from '../types';
 
 /** One upload request's share of a batch of files: under the server's 100
  *  files and 256 MB per request, with room to spare. */
@@ -50,21 +49,6 @@ const STAGE_BATCH_BYTES = 200 * 1024 * 1024;
 /** The form's own width at which the foot is one row: its sentence, then the
  *  import button, then Create (the sentence may wrap to two lines there). */
 const ONE_ROW_FOOT_REM = 38;
-
-/**
- * The order a new course is offered a colour in: the VIVID row from blue
- * round the wheel, then the soft row the same way, the greys last. Not the
- * palette's own order, which starts on the soft row's grey; and not red
- * first, which beside a focused Name field reads as an error.
- */
-const OFFER_ORDER = [13, 14, 15, 9, 10, 11, 12, 5, 6, 7, 1, 2, 3, 4, 8, 0];
-
-/** The first colour in `OFFER_ORDER` no other project wears, else blue. */
-function freeColour(projects: Project[]): string {
-    const worn = projects.map(p => parseCssColor(p.color)).filter((c): c is string => !!c);
-    const offered = OFFER_ORDER.map(i => PROJECT_COLORS[i]);
-    return offered.find(c => !worn.some(w => sameColor(w, c))) || offered[0];
-}
 
 /** `draft` refills the form: a creation that failed before it made a project
  *  hands back what was typed, and its files, still read (see `takeDraft`). */

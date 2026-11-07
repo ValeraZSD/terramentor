@@ -82,6 +82,10 @@ export interface Project {
     search_words?: string | null;
     /** The model that wrote `search_words`, or 'user'. */
     search_words_by?: string | null;
+    /** A SHORT COURSE's source, as JSON (server/shortCourses.js): where it was
+     *  made from, never its text. NULL for every other course. The strip on
+     *  Projects lists the ones still one level deep. */
+    made_from?: string | null;
     created_at: string;
     updated_at: string;
     node_count?: number;
@@ -525,7 +529,7 @@ export type AITaskKind =
     | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
     | 'bulk' | 'recover' | 'capture' | 'placement' | 'atlas'
-    | 'media_describe' | 'srs_optimize' | 'search_words';
+    | 'media_describe' | 'srs_optimize' | 'search_words' | 'short_course';
 
 export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 

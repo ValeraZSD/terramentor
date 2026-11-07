@@ -34,11 +34,13 @@ import ProjectCard from './ProjectCard';
 import NewProjectModal from './NewProjectModal';
 import { Plus } from 'lucide-react';
 import { Button } from './ui/Button';
-import { Project, ScheduleOverviewRow } from '../types';
+import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
+import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
+import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
 
 import { projectOrderAfterDrop, type ProjectStatusValue } from '../utils/dragOrder';
 import { endDropFlash, endDropFlashIf, flashAfterDrop } from '../utils/dropFlash';
@@ -95,6 +97,7 @@ export default function ProjectsGrid() {
     const setProjects = useStore(s => s.setProjects);
     const loadProjects = useStore(s => s.loadProjects);
     const addToast = useStore(s => s.addToast);
+    const aiTasks = useStore(s => s.aiTasks);
 
     const [showCreate, setShowCreate] = useState(false);
     const [draft, setDraft] = useState<CreationInput | null>(null);
@@ -121,6 +124,44 @@ export default function ProjectsGrid() {
         .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.completed_topic_count}:${p.progress_fraction}`)
         .join(',');
     useEffect(() => { void loadSchedule(); }, [loadSchedule, scheduleKey]);
+
+    // The short courses (shortCourses/ShortCourses.tsx): drawn on their strip
+    // above the grid and left out of it. Re-read when a project changes (made,
+    // written, archived, deleted, a topic closed) and when a short course's
+    // task moves, which is when its topics land. Only the LATEST request lands.
+    const [shortRows, setShortRows] = useState<ShortCourseRow[] | null>(null);
+    const shortSeq = useRef(0);
+    const loadShort = useCallback(async () => {
+        const seq = ++shortSeq.current;
+        try {
+            const data = await api.listShortCourses();
+            if (seq === shortSeq.current) setShortRows(data.courses);
+        } catch {
+            // The strip keeps what it had; until a first answer the courses
+            // stay in the grid rather than nowhere.
+            if (seq === shortSeq.current) setShortRows(rows => rows ?? []);
+        }
+    }, []);
+    const shortKey = projects
+        .map(p => `${p.id}:${p.status}:${p.ai_generating ?? 0}:${p.topic_count ?? 0}:${p.completed_topic_count ?? 0}:${p.made_from ? 1 : 0}`)
+        .join(',');
+    useEffect(() => { void loadShort(); }, [loadShort, shortKey]);
+    const shortTaskKey = aiTasks.filter(task => task.kind === 'short_course').map(task => `${task.id}:${task.status}`).join(',');
+    useEffect(() => {
+        if (!shortTaskKey) return;
+        void loadShort();
+        void loadProjects({ silent: true });
+    }, [shortTaskKey, loadShort, loadProjects]);
+    const shortChanged = useCallback(() => {
+        void loadShort();
+        void loadProjects({ silent: true });
+    }, [loadShort, loadProjects]);
+    // A book read on the strip, made a FULL course instead: the New course
+    // dialog opens with it as the course's material.
+    const fullCourse = useCallback((doc: StagedDocument, title: string) => {
+        setDraft({ name: title, description: '', color: '', icon: '', language: '', documents: [doc] });
+        setShowCreate(true);
+    }, []);
 
     const sensors = useSensors(
         // Desktop: start dragging as soon as the mouse moves a little.
@@ -200,9 +241,15 @@ export default function ProjectsGrid() {
     // archived below their own dividers.
     // The learner's own order is the only order: a "Sort: Deadline" control
     // was built and taken out, since every card already shows its own dates.
-    const activeProjects = projects.filter(p => (p.status ?? 'active') === 'active');
-    const completedProjects = projects.filter(p => p.status === 'completed');
-    const archivedProjects = projects.filter(p => p.status === 'archived');
+    // A short course is on the strip, not in these sections; before the strip's
+    // list arrives, every unarchived course made from a source is taken to be
+    // one, so none flashes into the grid and out again.
+    const shortIds = new Set((shortRows ?? []).map(r => r.id));
+    const onStrip = (p: Project) => (shortRows ? shortIds.has(p.id) : !!p.made_from && p.status !== 'archived');
+    const gridProjects = projects.filter(p => !onStrip(p));
+    const activeProjects = gridProjects.filter(p => (p.status ?? 'active') === 'active');
+    const completedProjects = gridProjects.filter(p => p.status === 'completed');
+    const archivedProjects = gridProjects.filter(p => p.status === 'archived');
 
     // ------
     // RENDER
@@ -236,6 +283,11 @@ export default function ProjectsGrid() {
                             {t("New Project")}
                         </Button>
                     </div>
+
+                    <ShortCourses rows={shortRows} projects={projects} onChanged={shortChanged} onFullCourse={fullCourse} />
+                    {activeProjects.length > 0 && (
+                        <SectionLabel>{t("Courses")} · {activeProjects.length}</SectionLabel>
+                    )}
 
                     <DndContext
                         sensors={sensors}

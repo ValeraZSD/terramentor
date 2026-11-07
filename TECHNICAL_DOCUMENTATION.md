@@ -61,7 +61,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`. |
+| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`, `made_from` (a short course's source as JSON: kind, address or file name (and the chat attachment's id, for a file from the assistant's chat), the chapters picked and the topics the assistant showed, so Retry writes the same course; never the source's text; NULL for every other course). |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |

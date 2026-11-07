@@ -89,9 +89,9 @@ export function splitChecks(content: string, streaming = false): { body: string;
 }
 
 /** A complete prepared block (```card, ```project, …), on lines of its own. */
-const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save|wrong)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
+const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
 /** An opener with no closer after it: still arriving, or never closed. */
-const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|save|wrong)[ \t]*(?:\n([\s\S]*))?$/i;
+const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*(?:\n([\s\S]*))?$/i;
 /** A fence opener still being typed at the very end of a stream (`` ``ca ``). */
 const PARTIAL_OPENER_RE = /(^|\n)[ \t]*`{1,3}[a-z]*$/i;
 
@@ -233,6 +233,113 @@ export interface CourseDraftProposal {
 }
 
 /**
+ * A short course from one source in this conversation (server/shortCourses.js):
+ * a file the learner attached or a link they pasted, with the topics the model
+ * would make of it. Create writes it at once; there is no dialog in between,
+ * because there is nothing left to fill in.
+ */
+export interface ShortCourseProposal {
+    name: string;
+    /** `file 12` (an attachment of this chat) or a URL, as the model wrote it. */
+    from: string;
+    icon: string | null;
+    topics: string[];
+}
+
+/**
+ * Which source a link is, for "was a course made from it": a YouTube video by
+ * its id (every address form of it), anything else by host, path and query,
+ * `www.` and a trailing slash aside. The query counts: every YouTube video is
+ * `/watch`, and many sites name a page only in it.
+ */
+export function sourcePlace(u: string): string | null {
+    try {
+        const x = new URL(u.trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const host = x.hostname.toLowerCase().replace(/^(?:www|m)\./, '');
+        const video = host === 'youtu.be' ? x.pathname.slice(1)
+            : host === 'youtube.com' ? (x.searchParams.get('v') || x.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1] || '')
+                : '';
+        if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
+        // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
+        const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+    } catch { return null; }
+}
+
+/**
+ * The address a card shows for a link: all of what the app will open (host,
+ * path and query, no scheme), so a link the assistant was talked into, one
+ * carrying words from the conversation in its query, is seen before Create.
+ * Null when `from` is not a web address.
+ */
+export function shownAddress(from: string): string | null {
+    try {
+        const x = new URL(from.trim());
+        if (!/^https?:$/.test(x.protocol)) return null;
+        const path = x.pathname === '/' ? '' : x.pathname;
+        const raw = `${x.host.replace(/^www\./, '')}${path}${x.search}`;
+        try { return decodeURI(raw); } catch { return raw; }
+    } catch { return null; }
+}
+
+/**
+ * A link as the learner typed it, made openable: a bare address
+ * ("example.com/page") gets https, as the server's `parseLink` gives it; null
+ * for whatever `parseLink` refuses (another scheme, spaces, a bare host with no
+ * dotted name). tools/short-course-gates.mjs holds the two to the same answer.
+ */
+export function linkOf(from: string): string | null {
+    const s = String(from ?? '').trim();
+    if (!s || s.length > 4096 || /\s/.test(s)) return null;
+    if (/^https?:\/\//i.test(s)) return s;
+    // "example.com:8080/x" looks like a scheme to a URL parser; a real other
+    // scheme ("javascript:", "file:") is not a link at all.
+    if (/^[a-z][a-z0-9+.-]*:/i.test(s) && !/^[^/:?#]+\.[a-z]{2,}(?::\d+)?(?:[/?#]|$)/i.test(s)) return null;
+    const link = `https://${s.replace(/^\/\//, '')}`;
+    try {
+        const x = new URL(link);
+        return x.protocol === 'https:' && /\.[a-z]{2,}$/i.test(x.hostname) ? link : null;
+    } catch { return null; }
+}
+
+/**
+ * The course a short-course card already made, so a card read again (a reload,
+ * another device) says Created instead of offering Create a second time. The
+ * server's own `once` rule (`existingShortCourse`): the same name and the same
+ * source, a file by the chat attachment it was (its id and name), a link by
+ * `sourcePlace`, the server's twin of which it must agree with. The server
+ * stays the judge: a press still sends `once`.
+ */
+export function shortCourseMade<P extends { name: string; made_from?: string | null }>(
+    projects: P[], proposal: Pick<ShortCourseProposal, 'name' | 'from'>, file?: { id: number; name: string } | null,
+): P | undefined {
+    const place = sourcePlace;
+    const wanted = file ? null : place(linkOf(proposal.from) ?? '');
+    if (!file && !wanted) return undefined;
+    const name = proposal.name.trim();
+    return projects.find(p => {
+        if (!p.made_from || p.name.trim() !== name) return false;
+        let from: { url?: string; file?: string; attachment?: number } | null = null;
+        try { from = JSON.parse(p.made_from); } catch { return false; }
+        if (!from) return false;
+        return file ? !from.url && from.attachment === file.id && from.file === file.name : !!from.url && place(from.url) === wanted;
+    });
+}
+
+/**
+ * A card's remembered Create, while it still holds: once its course has been
+ * seen among the projects, the course gone from them (deleted) means the card
+ * offers Create again rather than Open on nothing. Marks `seen` on the entry.
+ */
+export function liveOutcome<O extends { projectId?: number; seen?: boolean }>(made: O | undefined, projects: { id: number }[]): O | undefined {
+    if (!made || made.projectId == null) return made;
+    const there = projects.some(p => p.id === made.projectId);
+    if (there) made.seen = true;
+    return there || !made.seen ? made : undefined;
+}
+
+/**
  * A file from this conversation, prepared to be saved into the library
  * (server/assistantEdits.js `saveAssistantAttachment`). The description is the
  * model's — written now, because this is where the words outlive the picture.
@@ -361,6 +468,18 @@ function parseCourse(text: string): CourseDraftProposal | null {
     };
 }
 
+function parseShort(text: string): ShortCourseProposal | null {
+    const f = fieldsOf(text, { name: 'name', title: 'name', from: 'from', source: 'from', icon: 'icon', topics: 'topics' });
+    const name = projectName(f.name ?? '') ?? '';
+    const from = (f.from ?? '').trim();
+    const topics = (f.topics ?? '').split('\n')
+        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
+        .filter(Boolean)
+        .slice(0, 8);
+    if (!name || !from || topics.length < 2) return null;
+    return { name, from, icon: projectIconName(f.icon ?? ''), topics };
+}
+
 function parseSave(text: string): SaveProposal | null {
     const f = fieldsOf(text, {
         file: 'file', attachment: 'file', 'attachment-id': 'file', id: 'file',
@@ -436,12 +555,13 @@ export interface WriteBlocks {
     topics: TopicEditProposal[];
     links: LinkProposal[];
     courses: CourseDraftProposal[];
+    shorts: ShortCourseProposal[];
     saves: SaveProposal[];
     wrongs: WrongProposal[];
 }
 
 export function splitWriteBlocks(content: string, streaming = false): WriteBlocks {
-    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], saves: [], wrongs: [] };
+    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [], wrongs: [] };
     if (!content.includes('`')) return { body: content, ...none };
     const cards: CardProposal[] = [];
     const captures: string[] = [];
@@ -450,6 +570,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     const topics: TopicEditProposal[] = [];
     const links: LinkProposal[] = [];
     const courses: CourseDraftProposal[] = [];
+    const shorts: ShortCourseProposal[] = [];
     const saves: SaveProposal[] = [];
     const wrongs: WrongProposal[] = [];
     const take = (kind: string, inner: string) => {
@@ -480,6 +601,9 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
         } else if (k === 'course') {
             const c = parseCourse(inner);
             if (c && courses.length < MAX_COURSES) courses.push(c);
+        } else if (k === 'short') {
+            const s = parseShort(inner);
+            if (s && shorts.length < MAX_COURSES) shorts.push(s);
         } else {
             const note = inner.trim();
             if (note && note.length <= SIDE_MAX && captures.length < MAX_CAPTURES) captures.push(note);
@@ -493,7 +617,7 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     if (streaming) body = body.replace(PARTIAL_OPENER_RE, '$1');
     // Tidied only where something came out: a blank line inside someone's
     // code block is theirs.
-    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, saves, wrongs };
+    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, shorts, saves, wrongs };
 }
 
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []));

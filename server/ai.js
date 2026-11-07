@@ -3751,6 +3751,16 @@ language: the code of the language the lessons are written in (en, nl, ru, …) 
 icon: an icon name from the list above (optional)
 colour: a colour name from the list above (optional)
 \`\`\`
+- A SHORT COURSE FROM ONE SOURCE, when they want to learn what one link they gave or one file attached in this conversation teaches, soon and without planning a course: one level of 3 to 8 topics written from that source, no phases and no dates. Create reads the source and makes the course at once, keeping your name and topics; it appears among the short courses on the Projects screen. At most 1 per message:
+\`\`\`short
+name: a short name for what it teaches
+from: the exact link they gave, or file ATTACHMENT_ID for a file of this conversation
+icon: an icon name from the list above (optional)
+topics:
+- the first topic
+- the next one, one per line, 3 to 8 in all, in the order they are best learned
+\`\`\`
+Only from a link the learner gave or a file of this conversation, never an address you found or rebuilt. For a whole subject with no single source, prepare A NEW COURSE instead. If the link cannot be read, the app says why and offers its own way on.
 EVERYTHING YOU PREPARE IS CHECKED before they can press it: every value by the app's own rules (an icon or a colour not on the lists is refused and shown as refused), a card by a second model that answers its front without seeing your back, a page by opening it. So write what is right, not what sounds right, and when a check refuses something, say so plainly rather than argue with it.
 You cannot delete anything, change a course's dates or the language its lessons are written in, or mark a topic done or skipped: dates are set on the course's card on the Projects screen, the language in Edit project, and a topic is proven by its mastery check.`;
 
@@ -4697,6 +4707,25 @@ Rules:
     generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null } = {}) => ({
         system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
+    }),
+    // A short course (server/shortCourses.js): the whole outline in ONE call,
+    // one level of `topics` sized by the source, from the source in `sources`
+    // (sourceMaterial.js shortBlock). `proposed` are topics the learner was
+    // already shown (the assistant's ```short card) and are kept as titled.
+    // `fromTopic`: there is no source, only what the course is about, and
+    // nothing in the prompt says where that came from.
+    short_course: (title, { topics = 4, proposed = [], fromTopic = false, lang = null, sources = null } = {}) => ({
+        system: `You plan a SHORT COURSE: one level of topics, no phases and no dates, learned in a few sittings.
+CRITICAL: Output ONLY a JSON object:
+{ "name": "...", "description": "...", "topics": [ { "title": "...", "description": "..." } ] }
+Rules:
+1. ${proposed.length ? `Write exactly the ${proposed.length} topics listed under PROPOSED TOPICS, in that order, each title copied exactly as given.` : `Write ${topics} topics (a short course always has between 3 and 8), in the order they are best learned.`}
+2. Each topic is one idea or skill a learner can study in one sitting. Its "description" says what it covers and why it matters, in one or two sentences.
+3. Titles are specific to this subject: never "Introduction", "Overview", "Conclusion", "Summary" or "Review".
+4. "name" names the course after what it teaches, in a few words. "description" is one or two sentences: what the learner can do after it.
+5. ${fromTopic ? 'There is no source material: write the topics from what the subject itself needs. Name no video, channel, website or author.' : 'Teach the subject of the source, not the source: never "In this video" or "the article says".'}
+${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
     }),
     generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
         system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,

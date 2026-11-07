@@ -425,7 +425,7 @@ function namedEntity(name) {
  * `&eacute;t&eacute;`) split it, so the match missed it, and the excerpt carried
  * the entity's text to the model.
  */
-function decodeEntities(s) {
+export function decodeEntities(s) {
     return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
         if (e[0] !== '#') return namedEntity(e) ?? m;
         const cp = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
