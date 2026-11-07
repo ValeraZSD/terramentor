@@ -844,7 +844,10 @@ about ten minutes:
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
    Reading a short course's link reaches that link's host (and `www.youtube.com` for a video,
-   up to six requests), once per press of Read, or of Create on the assistant's card.
+   up to six requests), once per press of Read, or of Create on the assistant's card. Any of
+   these requests that is redirected follows at most three redirect hops, each one more request,
+   each vetted like the first address (never your own machine or network): a page link's
+   redirect may reach another host, a caption request's only one on `youtube.com`.
 6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
    again and the connection should not recur.
