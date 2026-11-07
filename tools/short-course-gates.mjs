@@ -960,13 +960,18 @@ const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace,
     const addresses = ['https://money.example/index-funds', 'https://www.money.example/index-funds/', 'http://M.Money.Example/a/b//?z=1&a=2',
         'https://money.example/?id=7', 'https://youtu.be/AAAAAAAAAAA?si=x', 'https://m.youtube.com/watch?v=AAAAAAAAAAA&t=40s',
         'https://www.youtube.com/shorts/BBBBBBBBBBB', 'https://www.youtube.com/watch?v=short', 'file 7', 'javascript:alert(1)', ''];
-    addresses.push('https://money.example/p?a=1&b=2', 'https://money.example/p?a=1%26b%3D2');
+    addresses.push('https://money.example/p?a=1&b=2', 'https://money.example/p?a=1%26b%3D2', 'http://wiki.example:8080/a', 'https://wiki.example:443/a');
     const differ = typeof short.sourcePlace === 'function' ? addresses.filter(u => cardPlace(u) !== short.sourcePlace(u)) : addresses;
     ok('the card and the server tell two links apart the same way', typeof short.sourcePlace === 'function' && differ.length === 0, differ);
     // Decoded and joined as they were, an `&` inside one value read as two.
     ok('a value holding an escaped & or = is not two values', short.sourcePlace('https://money.example/p?a=1&b=2') !== short.sourcePlace('https://money.example/p?a=1%26b%3D2')
         && cardPlace('https://money.example/p?a=1&b=2') !== cardPlace('https://money.example/p?a=1%26b%3D2'),
     [short.sourcePlace('https://money.example/p?a=1&b=2'), short.sourcePlace('https://money.example/p?a=1%26b%3D2')]);
+    // Two services on one host are told apart by an explicit port; the
+    // scheme's own port written out is the same address.
+    const ports = ['http://wiki.example:8080/a', 'http://wiki.example:9090/a', 'https://wiki.example:443/a', 'https://wiki.example/a'].map(u => [short.sourcePlace(u), cardPlace(u)]);
+    ok('another port on one host is another source, a written default port is not', ports.every(([s, c]) => s === c)
+        && ports[0][0] !== ports[1][0] && ports[0][0] !== ports[3][0] && ports[2][0] === ports[3][0], ports);
 }
 ok('a card pressed here says Created until its course is deleted, then offers Create again', typeof liveOutcome === 'function' && (() => {
     const o = { state: 'saved', projectId: 5 };
@@ -1025,6 +1030,9 @@ ok('no source, no course', splitWriteBlocks('```short\nname: X\ntopics:\n- A\n- 
 // A short course has 3 to 8 topics: a card of two would be made as a course of two.
 ok('two topics are not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n```').shorts.length === 0);
 ok('three lines where two are the same title are two topics, not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n- One\n```').shorts.length === 0);
+// The server keeps a title's first 200 characters, then drops repeats.
+ok('two titles that differ only after 200 characters are one topic, as the server keeps them',
+    splitWriteBlocks(`\`\`\`short\nname: X\nfrom: https://a.example\ntopics:\n- ${'L'.repeat(200)} one\n- ${'L'.repeat(200)} two\n- Three\n\`\`\``).shorts.length === 0);
 // The block the assistant is SHOWN (server/ai.js, A SHORT COURSE FROM ONE
 // SOURCE) is one this parser reads: a prompt whose example the client drops
 // would teach the model to write cards nobody sees.

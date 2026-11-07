@@ -263,7 +263,8 @@ export function sourcePlace(u: string): string | null {
         if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
         // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
         const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+        // An explicit port is another service on the host (URL leaves the scheme's own port empty).
+        return `${host}${x.port ? `:${x.port}` : ''}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
     } catch { return null; }
 }
 
@@ -475,7 +476,7 @@ function parseShort(text: string): ShortCourseProposal | null {
     // 3 to 8 distinct titles, as server/shortCourses.js proposedTopics keeps
     // them: a card of two would be made as a course of two.
     const topics = [...new Set((f.topics ?? '').split('\n')
-        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/\s+/g, ' ').trim())
+        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 200))
         .filter(Boolean))]
         .slice(0, 8);
     if (!name || !from || topics.length < 3) return null;

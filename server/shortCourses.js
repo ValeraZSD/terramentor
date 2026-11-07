@@ -517,7 +517,7 @@ function existingShortCourse({ name, url, attachmentId }) {
 
 /**
  * Which source a link is, for "was a course made from it": a YouTube video by
- * its id, anything else by host, path and query, `www.`/`m.` and a trailing
+ * its id, anything else by host, port, path and query, `www.`/`m.` and a trailing
  * slash aside. The client's twin is `sourcePlace` in src/utils/assistantWrites.ts
  * (the card's "Already one of your short courses"); the two must agree, and
  * tools/short-course-gates.mjs holds them to it.
@@ -533,7 +533,8 @@ export function sourcePlace(u) {
         if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
         // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
         const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+        // An explicit port is another service on the host (URL leaves the scheme's own port empty).
+        return `${host}${x.port ? `:${x.port}` : ''}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
     } catch { return null; }
 }
 
