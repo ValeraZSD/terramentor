@@ -224,13 +224,16 @@ function putManifest(version, manifest, key = STABLE_KEY) {
 }
 
 /** Publish `version` from `dir` on the stand-in: zip + signed manifest. */
-async function publish(version, dir, { zipBytes, channel = 'stable', key = channel === 'nightly' ? NIGHTLY_KEY : STABLE_KEY, expires = FAR_FUTURE } = {}) {
+async function publish(version, dir, { zipBytes, channel = 'stable', key = channel === 'nightly' ? NIGHTLY_KEY : STABLE_KEY, expires = FAR_FUTURE, bundle = null } = {}) {
     const name = `Terramentor-${version}-${PLATFORM}.zip`;
     const zip = zipBytes || await zipApp(dir, `Terramentor-${version}-${PLATFORM}`);
-    const list = readFileSync(join(dir, 'files.json'));
+    // `bundle`: the app folder sits at that path inside the package (macOS:
+    // Terramentor.app/Contents/Resources/app), as release.mjs describes it.
+    const list = readFileSync(join(dir, ...(bundle ? bundle.split('/') : []), 'files.json'));
+    const listRef = { path: 'files.json', size: list.length, sha256: sha(list) };
     const manifest = {
         schema: 1, app: 'Terramentor', channel, version, tag: TAG(version), expires,
-        assets: { [PLATFORM]: { name, url: `${REPO}/releases/download/${TAG(version)}/${name}`, size: zip.length, sha256: sha(zip), files: { path: 'files.json', size: list.length, sha256: sha(list) } } },
+        assets: { [PLATFORM]: { name, url: `${REPO}/releases/download/${TAG(version)}/${name}`, size: zip.length, sha256: sha(zip), ...(bundle ? { bundle: { root: bundle, files: listRef } } : { files: listRef }) } },
     };
     files.set(dl(version, name), zip);
     putManifest(version, manifest, key);
@@ -301,6 +304,30 @@ for (const [why, patch] of [
     ['no name', { name: undefined }],
     ['a URL to another file than the one named', { url: `${prefix}v1.4.1/SHA256SUMS` }],
 ]) check(`manifest: ${why} is refused`, await throwsWith(withAsset(patch), /this version's package/) === true);
+// A macOS package keeps its app inside Terramentor.app, so its file list is
+// named under `bundle` with the folder it is relative to, and never as `files`:
+// a copy that reads only `files` (1.4.0) sends the person to the download page
+// instead of staging a tree laid out another way.
+{
+    const MAC_ROOT = 'Terramentor.app/Contents/Resources/app';
+    const { files: listRef, ...noList } = goodManifest.assets[PLATFORM];
+    const withBundle = (bundle, extra = {}) => am({ assets: { [PLATFORM]: { ...noList, bundle, ...extra } } });
+    check('manifest: a package with its app inside a bundle passes',
+        (() => { try { return withBundle({ root: MAC_ROOT, files: listRef })().bundle.root === MAC_ROOT; } catch (e) { return e.message; } })() === true);
+    for (const [why, bundle, extra] of [
+        ['a bundle and a top-level file list at once', { root: MAC_ROOT, files: listRef }, { files: listRef }],
+        ['a bundle path that leaves the package', { root: '../x', files: listRef }],
+        ['an absolute bundle path', { root: '/Applications/Terramentor.app', files: listRef }],
+        ['a bundle path that is not a bundle\'s app folder', { root: 'Terramentor.app/Contents', files: listRef }],
+        ['a bundle with no file list', { root: MAC_ROOT }],
+        ['a bundle whose file list has no checksum', { root: MAC_ROOT, files: { ...listRef, sha256: 'x' } }],
+        ['a bundle that is not an object', 'Terramentor.app'],
+    ]) check(`manifest: ${why} is refused`, await throwsWith(withBundle(bundle, extra), /cannot read/) === true);
+    check('fileListRef: a bundle\'s list is read below its folder', JSON.stringify(core.fileListRef?.({ bundle: { root: MAC_ROOT, files: listRef } }))
+        === JSON.stringify({ root: `${MAC_ROOT}/`, files: listRef }));
+    check('fileListRef: a flat package\'s list is read at the top', JSON.stringify(core.fileListRef?.({ files: listRef })) === JSON.stringify({ root: '', files: listRef }));
+    check('fileListRef: no list, nothing to stage', core.fileListRef?.(noList) === null);
+}
 const asked = (url, name) => [core.releaseAssetUrl(url, { downloadPrefix: prefix, tag: 'v1.4.1', name }), serverRule(url, { downloadPrefix: prefix, tag: 'v1.4.1', name })];
 check('both rules hold a URL to the file name asked for', JSON.stringify([
     asked(`${prefix}v1.4.1/manifest.json`, 'manifest.json'), asked(`${prefix}v1.4.1/SHA256SUMS`, 'manifest.json'), asked(`${prefix}v1.4.1/${pkg}`, 'manifest.json'),
@@ -684,6 +711,94 @@ check('a copy not started by the launcher cannot install', appUpdate.installSupp
 check('a packaged copy with a file list can install', appUpdate.installSupport({ appRoot: appA, deployment: 'desktop', hasInstaller: true }).supported === true);
 
 // =============================================================================================
+console.log('\n2c. a macOS package: the app inside Terramentor.app');
+// The zip holds README.txt and Terramentor.app; the app folder is
+// Terramentor.app/Contents/Resources/app, and that folder is what an installed
+// copy updates. Info.plist and the bundle's executable sit outside it and are
+// never staged or replaced.
+const MAC_ROOT = 'Terramentor.app/Contents/Resources/app';
+const macBundle = join(scratch, 'mac', 'Applications', 'Terramentor.app');
+const macApp = join(macBundle, ...MAC_ROOT.split('/').slice(1));
+const macSrc = join(scratch, 'mac-src-1.5.0');
+let M;
+{
+    const dressBundle = (bundle, version) => {
+        writeFileSync(join(bundle, 'Contents', 'Info.plist'), `<plist>${version}</plist>`);
+        mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true });
+        writeFileSync(join(bundle, 'Contents', 'MacOS', 'Terramentor'), `#!/bin/bash\n# ${version}\n`);
+    };
+    makeApp(macApp, '1.4.0');
+    dressBundle(macBundle, '1.4.0');
+    makeApp(join(macSrc, ...MAC_ROOT.split('/')), '1.5.0', { changed: 'two' });
+    dressBundle(join(macSrc, 'Terramentor.app'), '1.5.0');
+    writeFileSync(join(macSrc, 'README.txt'), 'Drag Terramentor into Applications.');
+    M = await publish('1.5.0', macSrc, { bundle: MAC_ROOT });
+    const wantList = () => core.parseFileList(readFileSync(join(macSrc, ...MAC_ROOT.split('/'), 'files.json'), 'utf8'));
+    const macNext = join(macApp, '.update', 'next');
+    const stageMac = (latest) => appUpdate.stageUpdate({ appRoot: macApp, current: '1.4.0', platform: PLATFORM, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW, latest });
+    const outsideStaged = () => ['README.txt', 'Terramentor.app', 'Contents', 'Info.plist', 'MacOS'].filter((f) => existsSync(join(macNext, f)));
+
+    served.bytes = 0;
+    const delta = await stageMac(M.latest);
+    check('bundle, delta: staged', delta.mode === 'delta', JSON.stringify(delta));
+    check('bundle, delta: the staged tree is the app folder from inside the bundle, file for file', await core.verifyTree(macNext, wantList()) === null);
+    check('bundle, delta: nothing from outside the app folder is staged', outsideStaged().length === 0, outsideStaged().join());
+    check(`bundle, delta: only what changed was fetched (${served.bytes} of ${M.zip.length} bytes)`, served.bytes < M.zip.length / 3, `${served.bytes}`);
+    check('bundle, delta: the installed copy was not touched', JSON.parse(readFileSync(join(macApp, 'package.json'), 'utf8')).version === '1.4.0');
+
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    behaviour.ranges = false;
+    try {
+        const full = await stageMac(M.latest);
+        check('bundle, whole zip: staged', full.mode === 'full', JSON.stringify(full));
+        check('bundle, whole zip: the staged tree is the app folder, file for file', await core.verifyTree(macNext, wantList()) === null);
+        check('bundle, whole zip: nothing from outside the app folder is staged', outsideStaged().length === 0, outsideStaged().join());
+    } finally {
+        behaviour.ranges = true;
+    }
+
+    // A copy laid out one way is never updated from a package laid out the other.
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    check('a flat copy offered a bundle package: sent to the download page',
+        await throwsWith(() => stage({ latest: M.latest }), /^manual .*packaged differently/) === true);
+    check('…and nothing was staged', !existsSync(join(appA, '.update', 'ready.json')));
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    check('a bundle copy offered a flat package: sent to the download page',
+        await throwsWith(() => stageMac(B.latest), /^manual .*packaged differently/) === true);
+
+    // A package holding an app file its signed list does not name is refused
+    // by both paths, not quietly trimmed to the list by the delta one.
+    const macSrcExtra = join(scratch, 'mac-src-1.5.1');
+    makeApp(join(macSrcExtra, ...MAC_ROOT.split('/')), '1.5.1', { changed: 'three' });
+    dressBundle(join(macSrcExtra, 'Terramentor.app'), '1.5.1');
+    writeFileSync(join(macSrcExtra, ...MAC_ROOT.split('/'), 'unlisted.js'), 'export {};');
+    const X = await publish('1.5.1', macSrcExtra, { bundle: MAC_ROOT });
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    check('bundle, delta: an app file missing from the list is refused',
+        await throwsWith(() => stageMac(X.latest), /^hash unlisted\.js is in the package but not in its file list/) === true);
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    behaviour.ranges = false;
+    try {
+        check('bundle, whole zip: the same file is refused',
+            await throwsWith(() => stageMac(X.latest), /^hash unlisted\.js is in the package but not in its file list/) === true);
+    } finally {
+        behaviour.ranges = true;
+    }
+    check('…and nothing was staged', !existsSync(join(macApp, '.update', 'ready.json')));
+
+    // Installing: the permissions answer inside a bundle, never a test write.
+    const mac = (appRoot, writable) => appUpdate.installSupport({ appRoot, deployment: 'desktop', hasInstaller: true, platform: 'darwin', writable });
+    rmSync(join(macApp, '.update'), { recursive: true, force: true });
+    let probed = 0;
+    check('a bundle in Applications can install', mac(macApp, () => { probed++; return true; }).supported === true);
+    check('…asked by permission, once, with no test file written', probed === 1 && !existsSync(join(macApp, '.update')), `${probed}`);
+    check('a bundle in a folder this account cannot write: read-only', mac(macApp, () => false).reason === 'read-only');
+    const translocated = join(scratch, 'private', 'var', 'folders', 'xy', 'T', 'AppTranslocation', '0F1E2D3C', 'd', 'Terramentor.app', ...MAC_ROOT.split('/').slice(1));
+    makeApp(translocated, '1.4.0');
+    check('a translocated bundle: says so, and is never probed', mac(translocated, () => { throw new Error('probed'); }).reason === 'translocated');
+}
+
+// =============================================================================================
 console.log('\n3. desktop/updater.js: swap, start, roll back');
 // The portable library and the pointer must survive every swap untouched.
 mkdirSync(join(appA, 'data'), { recursive: true });
@@ -743,6 +858,20 @@ check('swap: the old file list goes with it, the new one takes its place', JSON.
 check('swap: the portable library and the pointer were not moved', readFileSync(join(appA, 'data', 'terramentor.db'), 'utf8') === 'the library' && existsSync(join(appA, 'library-location.txt')));
 check('swap: the staging area and the journal are cleaned up', !existsSync(join(appA, '.update', 'next')) && !existsSync(join(appA, '.update', 'swap.json')) && !existsSync(join(appA, '.update', 'ready.json')));
 await killApp();
+
+// 3a-mac. The same swap inside a macOS bundle: the app folder is replaced, the
+// bundle around it (Info.plist, the executable) is left as it was.
+{
+    await appUpdate.stageUpdate({ appRoot: macApp, current: '1.4.0', platform: PLATFORM, latest: M.latest, fetchImpl: loopback, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    const macRun = runUpdater({ app: macApp });
+    check('bundle swap: the updater installed 1.5.0 inside the bundle and it answered', macRun.result.ok === true && installedVersion(macApp) === '1.5.0', macRun.stdout + macRun.stderr);
+    check('bundle swap: the new file list is the bundle\'s', JSON.parse(readFileSync(join(macApp, 'files.json'), 'utf8')).version === '1.5.0');
+    check('bundle swap: Info.plist and the executable are the installed bundle\'s own',
+        readFileSync(join(macBundle, 'Contents', 'Info.plist'), 'utf8') === '<plist>1.4.0</plist>'
+        && readFileSync(join(macBundle, 'Contents', 'MacOS', 'Terramentor'), 'utf8').includes('# 1.4.0'));
+    check('bundle swap: nothing from outside the package\'s app folder arrived', !existsSync(join(macApp, 'README.txt')) && !existsSync(join(macApp, 'Terramentor.app')));
+    await killApp();
+}
 
 // 3b. 1.4.2 dies on start: rolled back to 1.4.1, which is started again.
 const C = await publish('1.4.2', srcC);

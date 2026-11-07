@@ -154,6 +154,9 @@ export const SETTINGS = {
     ai_setup_dismissed: client('ui', bool),
     // The library folder the notice was dismissed for, or '' to show it again.
     library_notice_dismissed: client('ui', text(4096)),
+    // Which "move Terramentor into Applications" notice was dismissed (macOS:
+    // server/appPlacement.js), or '' to show it again.
+    app_placement_notice_dismissed: client('ui', oneOf('', 'translocated')),
     activity_log_enabled: client('ui', bool),
 
     // ---- What is taught, scheduled and measured -----------------------------------

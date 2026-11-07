@@ -14,7 +14,7 @@ export const CLIENT_SETTING_KEYS = [
     'ui_scale', 'ui_language', 'number_format', 'week_start_day',
     'sidebarWidth', 'detailPanelWidth',
     'atlas_color_mode', 'atlas_surface', 'atlas_viewer',
-    'welcome_done', 'ai_setup_dismissed', 'library_notice_dismissed', 'activity_log_enabled',
+    'welcome_done', 'ai_setup_dismissed', 'library_notice_dismissed', 'app_placement_notice_dismissed', 'activity_log_enabled',
     // What is taught, scheduled and measured
     'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size', 'decay_days',
     'feed_focus_total', 'feed_focus_per_project', 'feed_due_per_day', 'feed_new_per_project', 'feed_recall_per_batch', 'feed_max_parts',

@@ -340,6 +340,12 @@ const zipOf = async (top, entries) => {
 const linuxZip = await zipOf(`Terramentor-${V}-linux-x64`, [['files.json', fileList], ['a.txt', 'a']]);
 writeFileSync(join(dist, zipName), linuxZip);
 writeFileSync(join(dist, `Terramentor-${V}-win32-x64.zip`), await zipOf(`Terramentor-${V}-win32-x64`, [['a.txt', 'b']]));
+// The macOS package: README.txt and the bundle, the app and its list inside it.
+const MAC_ROOT = 'Terramentor.app/Contents/Resources/app';
+writeFileSync(join(dist, `Terramentor-${V}-darwin-arm64.zip`), await zipOf(`Terramentor-${V}-darwin-arm64`, [
+    ['README.txt', 'r'], ['Terramentor.app/Contents/Info.plist', 'p'], ['Terramentor.app/Contents/MacOS/Terramentor', 's'],
+    [`${MAC_ROOT}/files.json`, fileList], [`${MAC_ROOT}/a.txt`, 'a'],
+]));
 let r = cli(['assets', '--dir', dist, '--channel', 'nightly', '--version', V, '--commit', 'd'.repeat(40), '--repo', 'ValeraZSD/terramentor'], scratch);
 check('assets exits 0', r.status, 0);
 const written = JSON.parse(readFileSync(join(dist, 'manifest.json'), 'utf8'));
@@ -352,6 +358,18 @@ check('the manifest names the package\'s file list by its real hash', written.as
 // a package without a list must not grow `files: null`, which the updater
 // would read as a malformed manifest instead of "download this one by hand".
 check('regression guard: a package without a file list gets no `files` key at all, not null', 'files' in written.assets['win32-x64'], false);
+check('the macOS package names its app\'s folder inside the bundle and that list by its real hash', written.assets['darwin-arm64']?.bundle,
+    { root: MAC_ROOT, files: { path: 'files.json', size: fileList.length, sha256: createHash('sha256').update(fileList).digest('hex') } });
+// A copy that reads only `files` (1.4.0 and the nightlies before this layout)
+// must find none, so it offers the download instead of staging a tree laid out
+// another way.
+check('…and no top-level `files`, which a copy from before the bundle would misread', 'files' in (written.assets['darwin-arm64'] || {}), false);
+check('buildManifest refuses a bundle that is not <name>.app/Contents/Resources/app',
+    (() => { try { buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: 'x', files: [{ name: `Terramentor-${V}-darwin-arm64.zip`, size: 1, sha256: 'a'.repeat(64), bundle: { root: '../app', files: { path: 'files.json', size: 1, sha256: 'a'.repeat(64) } } }] }); return 'accepted'; } catch (e) { return /app bundle/.test(e.message); } })(), true);
+// The writer refuses what the reader refuses: a root its path check rejects
+// would be signed and then read by no client.
+check('buildManifest refuses a bundle root with a backslash, which clients cannot read',
+    (() => { try { buildManifest({ repo: 'o/r', channel: 'nightly', version: V, commit: 'd'.repeat(40), builtAt: 'x', files: [{ name: `Terramentor-${V}-darwin-arm64.zip`, size: 1, sha256: 'a'.repeat(64), bundle: { root: 'Bad\\Name.app/Contents/Resources/app', files: { path: 'files.json', size: 1, sha256: 'a'.repeat(64) } } }] }); return 'accepted'; } catch (e) { return /app bundle/.test(e.message); } })(), true);
 const sumsFile = readFileSync(join(dist, 'SHA256SUMS'), 'utf8');
 ok('SHA256SUMS covers the zip', sumsFile.includes(`${expectHash}  ${zipName}`));
 const manifestHash = createHash('sha256').update(readFileSync(join(dist, 'manifest.json'))).digest('hex');
@@ -397,7 +415,7 @@ ok('SHA256SUMS covers the manifest too', sumsFile.includes(`${manifestHash}  man
 // against the ones above, delete a leftover draft of the same tag, and only
 // then make the release public. Spawned asynchronously, so this process can
 // answer for GitHub while the CLI waits.
-const builtFiles = ['SHA256SUMS', 'manifest.json', 'manifest.json.sig', zipName,`Terramentor-${V}-win32-x64.zip`].map((name) => {
+const builtFiles = ['SHA256SUMS', 'manifest.json', 'manifest.json.sig', zipName, `Terramentor-${V}-win32-x64.zip`, `Terramentor-${V}-darwin-arm64.zip`].map((name) => {
     const bytes = readFileSync(join(dist, name));
     return { name, size: bytes.length, digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, state: 'uploaded' };
 });
@@ -480,7 +498,8 @@ ok('a tag that is already published is refused, and nothing is deleted',
 // another file of this set. A package import there fails only on GitHub.
 // desktop/updateCore.js is on the list for a second reason: the desktop
 // updater runs it from a bare copy with nothing else beside it.
-const NO_INSTALL = ['tools/release.mjs', 'tools/lib/releaseChannel.mjs', 'server/version.js', 'desktop/updateCore.js'];
+// server/appPlacement.js names where a macOS package keeps its app.
+const NO_INSTALL = ['tools/release.mjs', 'tools/lib/releaseChannel.mjs', 'server/version.js', 'desktop/updateCore.js', 'server/appPlacement.js'];
 const importsOf = (file) => [...readFileSync(join(repoRoot, file), 'utf8').matchAll(/^\s*import\s[^'"]*['"]([^'"]+)['"]/gm)].map((m) => m[1]);
 const foreign = NO_INSTALL.flatMap((file) => importsOf(file)
     .filter((spec) => !spec.startsWith('node:'))

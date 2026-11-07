@@ -49,7 +49,8 @@ how you run Terramentor, with the full path to the folder you unpacked or cloned
 | you run | command | arguments |
 |---|---|---|
 | the desktop app, Windows | `C:/Apps/Terramentor/runtime/node.exe` | `C:/Apps/Terramentor/mcp/index.js` |
-| the desktop app, macOS or Linux | `/path/to/Terramentor/runtime/node` | `/path/to/Terramentor/mcp/index.js` |
+| the desktop app, macOS | `/Applications/Terramentor.app/Contents/Resources/app/runtime/node` | `/Applications/Terramentor.app/Contents/Resources/app/mcp/index.js` |
+| the desktop app, Linux | `/path/to/Terramentor/runtime/node` | `/path/to/Terramentor/mcp/index.js` |
 | Docker (the `terramentor` container of `docker-compose.yml`) | `docker` | `exec -i -e TERRAMENTOR_API_KEY terramentor node mcp/index.js` |
 | a source checkout | `node` | `/path/to/Terramentor/mcp/index.js` |
 

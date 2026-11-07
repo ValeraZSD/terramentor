@@ -1,8 +1,9 @@
 # The desktop app
 
 Terramentor runs as a desktop program on Windows, macOS and Linux: download a
-zip, unpack it, double-click. The app carries its own runtime, so your machine
-needs nothing else, and there is no account.
+zip, unpack it, double-click (on a Mac, drag the app into Applications first).
+The app carries its own runtime, so your machine needs nothing else, and there
+is no account.
 
 This page is for two readers: someone running it, and someone changing how it
 is built. The first half is for the first reader.
@@ -16,7 +17,7 @@ anywhere you like: your Downloads folder, `C:\Apps`, a USB stick.
 | System  | Start it with                                                                      |
 |---------|------------------------------------------------------------------------------------|
 | Windows | `Terramentor.exe` (`Terramentor.cmd` does the same with a console, for diagnosing) |
-| macOS   | `Terramentor.app`, or `Terramentor.command` (Apple Silicon Macs)                   |
+| macOS   | `Terramentor.app`, dragged into Applications first (Apple Silicon Macs)            |
 | Linux   | `./terramentor.sh`; run `./install-desktop-entry.sh` once for a menu entry         |
 
 The app opens in its own window. On macOS and Linux closing the window stops the app; on
@@ -28,9 +29,24 @@ another window on the same library rather than a second copy of the app.
 your PC") because the launcher is not code-signed. *More info → Run anyway*.
 The first start also adds a Start Menu shortcut.
 
-**macOS** may say the app is from an unidentified developer. Right-click the
-app → *Open*, once. (If macOS refuses even that: `xattr -dr com.apple.quarantine`
-on the unpacked folder, or use `Terramentor.command`.)
+**macOS**: the zip holds `Terramentor.app` and a README. Drag the app into
+Applications and open it from there. The app is not notarized, so the first
+time macOS 15 and later may say it cannot check it: press *Done*, open *System
+Settings*, then *Privacy & Security*, press *Open Anyway* beside "Terramentor was
+blocked to protect your Mac", and confirm. On macOS 14 and earlier,
+right-click the app → *Open*, once. If there is no *Open Anyway* button:
+
+```
+xattr -dr com.apple.quarantine /Applications/Terramentor.app
+```
+
+Everything the app runs is inside the bundle (`Contents/Resources/app`), so it
+works wherever the bundle is. Opened straight from the folder it was unzipped
+into, macOS runs it from a temporary read-only copy (App Translocation): it
+starts, but it cannot update itself and is not offered as a login item, and a
+strip under the header says to move it into Applications. Moving it with
+Finder ends the translocation. The library is never inside the bundle; on
+macOS there is no portable `data` folder.
 
 ### Where your data is
 
@@ -71,13 +87,20 @@ library was (`last-library.txt`, beside the pointer), and the first launch that
 lands somewhere else says so on the home page, with a button that writes the
 pointer back.
 
-**Portable use:** create an empty folder named `data` next to `Terramentor.exe`
-before the first start and the library lives there instead, so the whole app
-then moves with the folder. This beats the pointer file.
+**Portable use (Windows and Linux):** create an empty folder named `data` next
+to `Terramentor.exe` or `terramentor.sh` before the first start and the library
+lives there instead, so the whole app then moves with the folder. This beats
+the pointer file. On macOS there is no portable folder (an update replaces the
+app folder inside `Terramentor.app`, `Contents/Resources/app`, where the folder
+would sit); to keep the library on a USB stick, name the stick's folder in
+`library-location.txt`. A Mac copy from before the app
+moved inside the bundle may have a `data` folder beside `Terramentor.app`: this
+version does not look there, so write that folder's path into
+`library-location.txt`.
 
 The full order, first match wins: `--data-dir` on the command line, then
-`DATA_DIR` in the environment, then a `data` folder beside the app, then the
-pointer file, then the per-user folder above.
+`DATA_DIR` in the environment, then a `data` folder beside the app (not on
+macOS), then the pointer file, then the per-user folder above.
 
 ### Updating
 
@@ -230,8 +253,33 @@ node_modules/        the server's production dependencies only, from package-loc
 build.json           version, commit, build time; the app's identity
 Terramentor.exe      Windows: a windowless launcher with a tray icon, compiled
                      from desktop/wrappers/Launcher.cs
-Terramentor.app      macOS: a thin bundle; Info.plist + icon.icns + a shell script
 ```
+
+On macOS the same app folder is inside the bundle, and the zip's top level is
+the bundle and the README:
+
+```
+Terramentor.app/Contents/Info.plist
+Terramentor.app/Contents/MacOS/Terramentor      a shell script: runs the node and
+                                                launcher below, nothing outside
+Terramentor.app/Contents/Resources/icon.icns
+Terramentor.app/Contents/Resources/app/         the folder above, files.json included
+README.txt
+```
+
+A one-click update replaces `Contents/Resources/app` and leaves `Info.plist`
+and the script alone, so Finder shows the version the bundle was downloaded
+as until the next download by hand. The build starts a copy of the bundle on
+its own in another folder, read-only, before it zips it
+(`tools/build-desktop.mjs`), and `desktop-gates.mjs` runs the bundle's script
+from a copy of the `.app` alone beside a decoy app.
+
+On macOS the launcher starts the browser through LaunchServices
+(`open -n -a "<browser>.app" --args --app=… --user-data-dir=…`), not as its
+own child: macOS then treats the browser as a separate app instead of naming
+the bundled `node` in its privacy prompts, and a browser that is already
+running still opens its own `--app` window (`browserCommand` in
+`desktop/lib.js`).
 
 Design decisions worth knowing before changing it:
 
