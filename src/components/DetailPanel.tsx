@@ -17,6 +17,7 @@ import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from './ui/Button';
 import { uiLocale } from '../utils/locale';
+import { CREATION_NOTICE_TITLE, ContinueCreationNote } from './creation/ContinueCreationOffer';
 
 type Tab = 'details' | 'quizzes' | 'flashcards';
 
@@ -369,6 +370,12 @@ export default function DetailPanel() {
                         {/* No Title field here — the header IS the title, editable
                             in place. Space on this panel is scarce; the same string
                             twice was the most expensive thing on it. */}
+
+                        {/* The note a stopped creation leaves says what went
+                            wrong; this is how to carry on from it. */}
+                        {isNote && node.parent_id == null && node.title === CREATION_NOTICE_TITLE && currentProjectId != null && (
+                            <ContinueCreationNote projectId={currentProjectId} />
+                        )}
 
                         {/* Overview (topics) / Material (notes) — the shared curriculum
                             text. Same markdown editor as My notes; this is what the

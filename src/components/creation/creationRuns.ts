@@ -408,6 +408,31 @@ export async function continueCreationRun(key: string) {
     void consume(key, replacing(taskId, signal => api.continueCreation(projectId, signal)));
 }
 
+/**
+ * "Continue creating" from the course itself, when the page that watched the
+ * run is gone (a reload, the app closed, another day). A run this page still
+ * knows for the project is opened, and carried on if it stopped; otherwise a
+ * record is made the way a stopped run's looks, and carried on: one stream
+ * consumer and one screen, never a second.
+ */
+export function continueCreationForProject(projectId: number, name: string, color: string) {
+    const { runs, order } = useCreationRuns.getState();
+    const known = order.map(k => runs[k]).filter(r => r?.projectId === projectId);
+    const live = known.find(r => isRunLive(r));
+    if (live) { openCreationRun(live.key); return; }
+    const stopped = known.filter(r => canContinue(r)).pop();
+    const key = stopped?.key ?? `continue-${projectId}-${Date.now().toString(36)}`;
+    if (!stopped) {
+        const input: CreationInput = { name, description: '', color, icon: '', language: '', documents: [] };
+        useCreationRuns.setState(s => ({
+            runs: { ...s.runs, [key]: newRun(key, input, { projectId, status: 'cancelled', inputKnown: false, finishedAt: Date.now() }) },
+            order: [...s.order, key],
+        }));
+    }
+    openCreationRun(key);
+    void continueCreationRun(key);
+}
+
 export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
     !!run && run.status === 'error' && run.projectId == null && run.inputKnown;
 

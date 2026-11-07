@@ -38,7 +38,16 @@
 //      written spins (its batch frame carries the phase's index, and the
 //      client marks the phase from it), and nothing spins once it is done;
 //  10. a request longer than the model's context is named in words and leads
-//      with Set up AI, never Try again (`src/utils/failureCause.ts`).
+//      with Set up AI, never Try again (`src/utils/failureCause.ts`);
+//  12. the course page offers Continue (GET /api/ai/continue-creation/:id) from
+//      what a stopped run wrote, with no notice and no run record (the app was
+//      closed mid-run): an empty phase or section the model wrote, a topic
+//      waiting for links, or the notice with anything missing; never for a
+//      finished course, a learner's own empty phase or section, model-written
+//      nodes under a learner's node, a card project, or while a run writes it;
+//      the next start writes the notice for a run the app closed in;
+//  13. pressing it with no run record makes one and carries it on through the
+//      same screen; a second press while it runs opens that run.
 
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -117,11 +126,14 @@ let calls = {};
 let bodies = [];
 // What the model list answers: 503 is a server still loading its model.
 let modelsStatus = 200;
+// While set, every answer waits for it (a run held mid-call).
+let stubHold = null;
 
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
-    req.on('end', () => {
+    req.on('end', async () => {
+        if (stubHold) await stubHold;
         if (req.url.endsWith('/models')) {
             res.writeHead(modelsStatus, { 'content-type': 'application/json' });
             return res.end(JSON.stringify(modelsStatus === 200 ? { data: [{ id: 'stub-model' }] } : { error: { message: 'Loading model' } }));
@@ -590,6 +602,105 @@ ok('…and leads with Set up AI: the same request again fails the same way', !re
 ok('a 503 while the model loads still leads with Try again', retryMayHelp({ message: 'model server is loading', httpStatus: 503 }));
 ok('an unrelated 400 is left to its raw text', plainCause({ message: 'failed (400): invalid temperature', httpStatus: 400 }) === null);
 
+// ---- 12. a course reopened long after its run stopped ---------------------------
+// The app closed mid-run (a laptop lid, a quit): no catch runs, so no notice is
+// written and the server keeps no record of the run. The course page asks
+// GET /api/ai/continue-creation/:id whether to offer Continue, and it must
+// answer from what the run left in the database alone. A course the learner
+// built by hand may hold an empty phase on purpose: that is never an offer.
+console.log('\n12. offering Continue on a course reopened later');
+const offer = async (id) => {
+    const res = await fetch(`${base}/api/ai/continue-creation/${id}`);
+    return { status: res.status, json: await res.json().catch(() => null) };
+};
+const canOffer = async (id) => (await offer(id)).json?.canContinue;
+const crashed = await create('Waves and Light 12', { elements: [2] });
+ok('a run stops after phase 1, phase 2 an empty shell', !!crashed.error && childrenTitles(crashed.id, 'Light')?.length === 0, JSON.stringify(crashed.frames.at(-1)));
+ok('with its notice, Continue is offered', (await canOffer(crashed.id)) === true, JSON.stringify(await offer(crashed.id)));
+// What a shut-down leaves: the same outline, no notice, no pending record.
+db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(crashed.id).id);
+db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(crashed.id);
+let o = await offer(crashed.id);
+ok('closed mid-run (no notice, no run record, no pending links): Continue is still offered from the empty phase the run wrote',
+    o.status === 200 && o.json?.canContinue === true, JSON.stringify(o));
+const sectionOnly = await create('Waves and Light 12b', { sub_batch: 'all', sub_one: [2] });
+db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(sectionOnly.id).id);
+ok('closed between a phase\'s sections (an empty section the run wrote): offered', (await canOffer(sectionOnly.id)) === true);
+// Every level written, one topic still waiting for its link pass.
+const linksOnly = await create('Waves and Light 12c', {});
+const someTopic = outline(linksOnly.id).find(n => !outline(linksOnly.id).some(c => c.parent_id === n.id));
+ok('a finished course is not offered', (await canOffer(linksOnly.id)) === false);
+db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?').run(JSON.stringify([someTopic.id]), linksOnly.id);
+ok('closed during the link pass (a topic recorded as waiting for links): offered', (await canOffer(linksOnly.id)) === true);
+db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?').run(JSON.stringify([999999]), linksOnly.id);
+ok('a waiting topic that has since been deleted is no reason to offer', (await canOffer(linksOnly.id)) === false);
+db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(linksOnly.id);
+// Hand-made: the learner's own phase and section, empty, no model's name on them.
+const handId = Number((await (await fetch(`${base}/api/projects`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'My own plan' }),
+})).json()).id);
+const addNode = (projectId, parentId, title, by = null) => Number(db.prepare(
+    `INSERT INTO nodes (project_id, parent_id, title, description, status, is_note, position, generated_by) VALUES (?, ?, ?, '', 'not_started', 0, 0, ?)`,
+).run(projectId, parentId, title, by).lastInsertRowid);
+ok('an empty project the learner made is not offered', (await canOffer(handId)) === false);
+const handPhase = addNode(handId, null, 'Later');
+ok('a hand-made project with an empty phase is not offered', (await canOffer(handId)) === false);
+addNode(handId, handPhase, 'Some day');
+ok('…nor with an empty section', (await canOffer(handId)) === false);
+// The Inbox shape: a capture is the learner's node; the model fans it out into
+// children of its own, which have no children.
+const inboxId = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Inbox-like')`).run().lastInsertRowid);
+const capture = addNode(inboxId, null, 'A pasted article');
+addNode(inboxId, capture, 'An idea the model drew out', JSON.stringify({ provider: 'openai', model: 'stub-model' }));
+ok('model-written nodes under a node the learner made are not an unfinished creation', (await canOffer(inboxId)) === false);
+// A learner's own empty phase in a course whose notice says the run failed:
+// the notice is the run's own word that it stopped, so it is offered.
+addNode(linksOnly.id, null, 'My extra phase');
+ok('a finished course with a learner\'s empty phase is not offered', (await canOffer(linksOnly.id)) === false);
+const noticeId = Number(db.prepare(
+    `INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position) VALUES (?, NULL, 'AI generation failed', 'x', 'x', 'not_started', 1, 99)`,
+).run(linksOnly.id).lastInsertRowid);
+ok('…but with the stopped run\'s notice and something missing, it is', (await canOffer(linksOnly.id)) === true);
+db.prepare('DELETE FROM nodes WHERE id = ?').run(noticeId);
+ok('the door: a bad id is 400, an unknown project 404, a card project is not offered',
+    (await offer('x')).status === 400 && (await offer(999999)).status === 404 && (await offer(Number(deckId))).json?.canContinue === false,
+    JSON.stringify([(await offer('x')).status, (await offer(999999)).status, (await offer(Number(deckId))).json]));
+// While a continuation runs, the page must not offer a second one. The stub
+// holds its answers, so the run is mid-call while the page asks.
+let releaseStub;
+stubHold = new Promise(res2 => { releaseStub = res2; });
+const cont12 = resume(crashed.id, { elements: 'all' });
+let mid12 = null;
+for (let i = 0; i < 400 && !mid12?.running; i++) {
+    mid12 = (await offer(crashed.id)).json;
+    if (!mid12?.running) await new Promise(res2 => setTimeout(res2, 5));
+}
+stubHold = null;
+releaseStub();
+ok('while a continuation of it runs, it is not offered', mid12?.running === true && mid12.canContinue === false, JSON.stringify(mid12));
+await cont12;
+ok('a continuation that failed leaves it offered (and writes the notice)', (await canOffer(crashed.id)) === true && !!notice(crashed.id));
+r = await resume(crashed.id);
+ok('once a continuation finishes it, it is no longer offered', !!r.done && (await canOffer(crashed.id)) === false, JSON.stringify(r.error || r.frames.at(-1)));
+// The next start of the app writes the notice for a run the last one was in
+// the middle of (`ai_generating` still 1), so the course says what happened.
+const startup = await create('Waves and Light 12d', { elements: [2] });
+db.prepare('DELETE FROM nodes WHERE id = ?').run(notice(startup.id).id);
+db.prepare('UPDATE projects SET ai_generating = 1 WHERE id = ?').run(startup.id);
+const { execFileSync } = await import('node:child_process');
+const child = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    const { pathToFileURL } = await import('node:url');
+    await import(pathToFileURL(${JSON.stringify(join(process.cwd(), 'server/app.js'))}).href);
+    const { default: db } = await import(pathToFileURL(${JSON.stringify(join(process.cwd(), 'server/database.js'))}).href);
+    const row = db.prepare("SELECT notes FROM nodes WHERE project_id = ? AND is_note = 1 AND title = 'AI generation failed'").get(${Number(startup.id)});
+    const flag = db.prepare('SELECT ai_generating FROM projects WHERE id = ?').get(${Number(startup.id)}).ai_generating;
+    console.log('RESULT ' + JSON.stringify({ notes: row?.notes ?? null, flag }));
+    process.exit(0);
+`], { env: { ...process.env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const restarted = JSON.parse((child.match(/^RESULT (.*)$/m) || [])[1] || '{}');
+ok('a run the app was closed in the middle of gets its notice at the next start, saying so',
+    restarted.flag === 0 && /closed while this course was being created/.test(restarted.notes || ''), JSON.stringify(restarted));
+
 // ---- 11. the screen while a continuation writes only topics ---------------------
 // Phase 2's sections were written and its topic batch refused, so the
 // continuation's one call is that batch. No `generating_elements` frame comes
@@ -666,5 +777,29 @@ release();
 await waitFor(() => !client.isRunLive(runOf(key11)));
 ok('once it completes, nothing spins', runOf(key11)?.status === 'complete' && spinning(runOf(key11).tree).length === 0,
     `${runOf(key11)?.status}; spinning ${JSON.stringify(spinning(runOf(key11)?.tree || []))}`);
+
+// ---- 13. Continue pressed on the course page -------------------------------------
+// The page that watched the run is gone, so there is no record to continue:
+// the press makes one for the project and carries it on through the same
+// screen and stream consumer; a second press while it runs opens that run.
+console.log('\n13. Continue from the course page, with no run record');
+const recordsOf = (projectId) => Object.values(client.useCreationRuns.getState().runs).filter(x => x.projectId === projectId);
+const beforeKeys = new Set(recordsOf(first11.id).map(x => x.key));
+globalThis.__hold = new Promise(r2 => { release = r2; });
+client.continueCreationForProject(first11.id, 'Waves and Light 11', '#3366cc');
+const seeded = recordsOf(first11.id).find(x => !beforeKeys.has(x.key));
+ok('a record is made for the project, and its screen is the one open',
+    !!seeded && client.useCreationRuns.getState().viewing === seeded.key && seeded.name === 'Waves and Light 11',
+    JSON.stringify([seeded?.key, client.useCreationRuns.getState().viewing]));
+await waitFor(() => runOf(seeded.key)?.phase === 'generating_sub_elements');
+ok('it is carried on: live, as a continuation', client.isRunLive(runOf(seeded.key)) && runOf(seeded.key).attempt === 1,
+    JSON.stringify([runOf(seeded.key)?.status, runOf(seeded.key)?.attempt]));
+client.useCreationRuns.setState({ viewing: null });
+client.continueCreationForProject(first11.id, 'Waves and Light 11', '#3366cc');
+ok('a second press while it runs opens that run and makes no other',
+    recordsOf(first11.id).filter(x => !beforeKeys.has(x.key)).length === 1 && client.useCreationRuns.getState().viewing === seeded.key);
+release();
+await waitFor(() => !client.isRunLive(runOf(seeded.key)));
+ok('and it completes on the replayed frames', runOf(seeded.key)?.status === 'complete', runOf(seeded.key)?.status);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
