@@ -67,6 +67,20 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
+const refreshNoticeStmt = db.prepare(`
+    UPDATE nodes
+    SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND COALESCE(notes, '') = COALESCE(description, '')
+`);
+const nextTopPositionStmt = db.prepare(`
+    SELECT COALESCE(MAX(position), -1) + 1 as pos
+    FROM nodes
+    WHERE project_id = ? AND parent_id IS NULL
+`);
+const insertNoticeStmt = db.prepare(`
+    INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
+    VALUES (?, NULL, ?, ?, ?, 'not_started', 1, ?)
+`);
 const markCreationFinished = db.prepare('UPDATE projects SET creation_finished = 1 WHERE id = ?');
 const clearGeneratingStmt = db.prepare(`UPDATE projects SET ai_generating = 0, updated_at = ${NOW_ISO} WHERE id = ? AND ai_generating = 1`);
 const findNotice = db.prepare(`
@@ -88,22 +102,11 @@ function upsertUnfinishedNotice(projectId, reason) {
     if (existing) {
         // A notice the learner wrote in is theirs: a later failure does not
         // overwrite it (the same test removeUnfinishedNotice keeps it by).
-        db.prepare(`
-            UPDATE nodes
-            SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND COALESCE(notes, '') = COALESCE(description, '')
-        `).run(body, body, existing.id);
+        refreshNoticeStmt.run(body, body, existing.id);
         return;
     }
-    const maxPos = db.prepare(`
-        SELECT COALESCE(MAX(position), -1) + 1 as pos
-        FROM nodes
-        WHERE project_id = ? AND parent_id IS NULL
-    `).get(projectId);
-    db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
-        VALUES (?, NULL, ?, ?, ?, 'not_started', 1, ?)
-    `).run(projectId, title, body, body, maxPos.pos);
+    const maxPos = nextTopPositionStmt.get(projectId);
+    insertNoticeStmt.run(projectId, title, body, body, maxPos.pos);
 }
 
 function markProjectAsUnfinished(projectId, reason) {
