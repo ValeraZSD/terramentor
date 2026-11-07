@@ -50,7 +50,8 @@ your data at all." Those are different claims and we only make the second one.
   press Read in the Short courses box on Projects, or Create on a short course the assistant
   prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
   the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
-  own machine or network is refused before any connection, a redirect is vetted again), with a
+  own machine or network is refused before any connection unless the server was started with
+  `ALLOW_PRIVATE_FETCH=1`, a redirect is vetted again), with a
   generic browser `User-Agent` and an `Accept-Language` naming the app's language; a page is
   read up to 3 MB, a PDF or other file up to 25 MB (a page served under another type is
   downloaded under that 25 MB limit, and only its first 3 MB decoded and parsed). A YouTube video is read from its captions: up to three
@@ -846,7 +847,8 @@ about ten minutes:
    Reading a short course's link reaches that link's host (and `www.youtube.com` for a video,
    up to six requests), once per press of Read, or of Create on the assistant's card. Any of
    these requests that is redirected follows at most three redirect hops, each one more request,
-   each vetted like the first address (never your own machine or network): a page link's
+   each vetted like the first address (never your own machine or network, unless the server
+   was started with `ALLOW_PRIVATE_FETCH=1`; cloud metadata addresses stay refused): a page link's
    redirect may reach another host, a caption request's only one on `youtube.com`.
 6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
