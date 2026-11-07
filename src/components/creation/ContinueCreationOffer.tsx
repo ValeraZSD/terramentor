@@ -22,6 +22,14 @@ export const CREATION_NOTICE_TITLE = 'AI generation failed';
 // note may both be mounted, and one reload is enough.
 const refreshedAfter = new Set<string>();
 
+/** Reload the outline and the course page, if this course is the open one. */
+function refreshCourse(projectId: number) {
+    const store = useStore.getState();
+    if (store.currentProjectId !== projectId) return;
+    void store.loadProjectData(projectId);
+    void store.loadDashboard(projectId);
+}
+
 /** Is there something to carry on in `projectId`? Asked again whenever a run
  *  of it starts or ends on this page, so the offer goes once a continuation
  *  finishes and comes back if it stops again. Never while one runs here. */
@@ -37,26 +45,32 @@ function useContinueOffer(projectId: number) {
         const ended = `${projectId}|${runSig}`;
         if (was.projectId === projectId && was.live && !live && !refreshedAfter.has(ended)) {
             refreshedAfter.add(ended);
-            const store = useStore.getState();
-            if (store.currentProjectId === projectId) {
-                void store.loadProjectData(projectId);
-                void store.loadDashboard(projectId);
-            }
+            refreshCourse(projectId);
         }
         seen.current = { projectId, live };
         // The answer from before the run is stale: never show it again after.
         if (live) { setOffer(null); return; }
         let current = true;
         let timer: ReturnType<typeof setTimeout> | undefined;
+        let sawRunning = false;
+        let failures = 0;
         const ask = () => api.getContinueCreation(projectId)
             .then(r => {
                 if (!current) return;
+                failures = 0;
                 setOffer({ projectId, can: r.canContinue });
                 // A run still winding down (a Stop just pressed), or one this
-                // page did not start: ask again once it is over.
-                if (r.running) timer = setTimeout(ask, 3000);
+                // page did not start: ask again once it is over, and show
+                // what it wrote when it is.
+                if (r.running) { sawRunning = true; timer = setTimeout(ask, 3000); }
+                else if (sawRunning) { sawRunning = false; refreshCourse(projectId); }
             })
-            .catch(() => { if (current) setOffer({ projectId, can: false }); });
+            .catch(() => {
+                if (!current) return;
+                // A request that failed is no answer: ask again, a few times.
+                if (failures < 3) timer = setTimeout(ask, 3000 * 2 ** failures++);
+                else setOffer({ projectId, can: false });
+            });
         void ask();
         return () => { current = false; clearTimeout(timer); };
     }, [projectId, runSig, live]);
