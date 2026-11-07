@@ -5,6 +5,7 @@ import Modal from '../Modal';
 import { Button, ButtonLink } from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { useStore } from '../../store';
+import { useDesktop } from '../../hooks/useDesktop';
 import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
 import { canReloadNow, reloadOntoNewBuild } from '../../utils/freshness';
@@ -222,6 +223,8 @@ function HowToUpdate() {
     const status = useStore(s => s.updateStatus)!;
     const [copied, setCopied] = useState(false);
     const reason = status.install?.reason;
+    // A macOS copy is one app, Terramentor.app, not a folder to move.
+    const mac = useDesktop().status?.platform === 'darwin';
     const command = status.updateCommand;
     if (command) {
         return (
@@ -245,7 +248,11 @@ function HowToUpdate() {
     }
     return (
         <>
-            <p>{reason === 'read-only'
+            <p>{reason === 'translocated'
+                ? t("macOS is running Terramentor from a temporary copy, so it cannot update itself. Quit it, drag Terramentor into your Applications folder and open it from there, and it will update with one click from then on.")
+                : reason === 'read-only' && mac
+                ? t("This account is not allowed to change Terramentor where it is, so it cannot update itself. Download the new version and drag it over this one; your library stays where it is.")
+                : reason === 'read-only'
                 ? t("Terramentor is in a folder it is not allowed to change, so it cannot update itself there. Move the Terramentor folder somewhere of your own, such as Documents, and it will update with one click from then on.")
                 : t("This copy cannot replace itself. Download the new version and unpack it over this one; your library stays where it is.")}</p>
             <ButtonLink href={status.latest?.url || `${status.repoUrl}/releases`} target="_blank" rel="noopener noreferrer" variant="neutral" size="sm" icon={<Download className="w-4 h-4" aria-hidden="true" />}>

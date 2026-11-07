@@ -42,7 +42,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
 import {
-    SIGNATURE_NAME, UPDATE_DIR, appTopLevel, parseFileList, readJson, safeRelPath, sha256, swapIn, undoSwap, verifySignedManifest, verifyTree,
+    SIGNATURE_NAME, UPDATE_DIR, appTopLevel, fileListRef, parseFileList, readJson, safeRelPath, sha256, swapIn, undoSwap, verifySignedManifest, verifyTree,
 } from './updateCore.js';
 import { compareVersions } from '../server/version.js';
 import { newNonce, provesInstance, readInstanceKeyFile } from '../server/instanceKey.js';
@@ -217,7 +217,9 @@ function finish(result) {
         if (manifest.version !== ready.version) throw new Error(`The signed manifest (${manifest.version}) does not match the staged update (${ready.version}).`);
         if (compareVersions(manifest.version, installed) <= 0) throw new Error(`${manifest.version} is not newer than ${installed}.`);
         // The file list's hash from the signed manifest, never from ready.json.
-        const ref = manifest.assets?.[`${process.platform}-${process.arch}`]?.files;
+        // Relative to the app either way, so a macOS bundle's list (fileListRef)
+        // is read from the staging area exactly where a flat package's is.
+        const ref = fileListRef(manifest.assets?.[`${process.platform}-${process.arch}`])?.files;
         if (!ref || safeRelPath(ref.path) !== ref.path || !/^[0-9a-f]{64}$/.test(ref.sha256 || '')) throw new Error('The signed manifest names no file list for this computer.');
         const text = readFileSync(join(nextDir, ...ref.path.split('/')));
         if (sha256(text) !== ref.sha256) throw new Error('The staged file list is not the release\'s.');

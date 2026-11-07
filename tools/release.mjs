@@ -26,13 +26,14 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
     buildManifest, checkBuildVersion, highestStable, isSemver, latestNightly, nightlyBase, nightlyDecision,
     nightlyNotes, nightlyVersion, promotion, releaseBody, releasePlan, sha256sums, stampedPackage, utcDate, assetPlatform,
     draftProblems,
 } from './lib/releaseChannel.mjs';
 import { repoSlug } from '../server/version.js';
+import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
 import {
     entryBytes, readCentralDirectory, readEndRecord, RELEASE_KEYS, SIGNATURE_NAME, TAIL_BYTES, topFolder, verifySignedManifest,
 } from '../desktop/updateCore.js';
@@ -297,16 +298,28 @@ const sha256 = (file) => new Promise((resolve, reject) => {
  * reader, so the two can never disagree about where a file is. A package
  * without one (built before the list existed) gets none, and the updater
  * offers that release as a download instead.
+ *
+ * `{ files }` for a package that is the app folder (Windows, Linux),
+ * `{ bundle: { root, files } }` for a macOS package, whose app sits inside
+ * `Terramentor.app/Contents/Resources/app` with its list beside it
+ * (desktop/updateCore.js fileListRef says why the two are separate keys).
  */
 function fileListOf(zipPath) {
     const buf = readFileSync(zipPath);
     const end = readEndRecord(buf.subarray(Math.max(0, buf.length - TAIL_BYTES)), buf.length);
     const entries = readCentralDirectory(buf.subarray(end.offset, end.offset + end.size), end.offset);
     const top = topFolder(entries);
-    const entry = entries.find((e) => e.name === `${top}files.json`);
-    if (!entry) return undefined;
-    const bytes = entryBytes(entry, buf.subarray(entry.start, entry.end));
-    return { path: 'files.json', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+    const describe = (entry) => {
+        const bytes = entryBytes(entry, buf.subarray(entry.start, entry.end));
+        return { path: 'files.json', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+    };
+    const flat = entries.find((e) => e.name === `${top}files.json`);
+    if (flat) return { files: describe(flat) };
+    const inBundle = new RegExp(`^${top.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^/]+\\.app/${MAC_APP_IN_BUNDLE})/files\\.json$`);
+    const listed = entries.filter((e) => inBundle.test(e.name));
+    if (listed.length > 1) throw new Error(`${basename(zipPath)} holds more than one app bundle`);
+    if (listed.length === 1) return { bundle: { root: inBundle.exec(listed[0].name)[1], files: describe(listed[0]) } };
+    return {};
 }
 
 async function assets() {
@@ -316,7 +329,7 @@ async function assets() {
     const files = [];
     for (const name of zips) {
         const path = join(dir, name);
-        files.push({ name, size: statSync(path).size, sha256: await sha256(path), files: fileListOf(path) });
+        files.push({ name, size: statSync(path).size, sha256: await sha256(path), ...fileListOf(path) });
     }
     const manifest = buildManifest({
         repo: repo(), channel: args.channel, version: args.version, commit: args.commit,

@@ -44,9 +44,14 @@ import { spawn } from 'node:child_process';
 import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { libraryId } from './paths.js';
+import { appPlacement } from './appPlacement.js';
 import { instanceProof, validNonce } from './instanceKey.js';
 import { clientError } from './clientError.js';
+
+/** The app folder this server runs from (inside the bundle on macOS). */
+const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /* Where the launcher told us it was started from, which is what an autostart
  * entry has to name. Set by desktop/launcher.js before this process imports the
@@ -246,7 +251,10 @@ function openFolder(dir) {
  * library is also what a genuine first run looks like, so neither half alone
  * may speak.
  */
-export function createDesktop({ dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now }) {
+export function createDesktop({
+    dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now,
+    placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null,
+}) {
     const state = {
         startedAt: now(),
         lastPing: 0,
@@ -358,6 +366,10 @@ export function createDesktop({ dataDir, dbPath, version, port, getSetting, setS
         libraryFallback: libraryFallback && libraryEmpty()
             ? { ...libraryFallback, lastDirExists: existsSync(libraryFallback.lastDir) }
             : null,
+        // A macOS bundle opened where it cannot stay: 'translocated' or
+        // 'read-only' (server/appPlacement.js), null otherwise. The app asks
+        // the person to move it into Applications.
+        appPlacement: placement(),
     });
 
     function stop(reason) {

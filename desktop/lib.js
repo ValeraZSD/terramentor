@@ -10,6 +10,7 @@ import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
 import { libraryId, resolveDataPaths, userDataDir } from '../server/paths.js';
 import { loadInstanceKey, newNonce, provesInstance } from '../server/instanceKey.js';
+import { macBundleOf } from '../server/appPlacement.js';
 
 export const APP_NAME = 'Terramentor';
 export const DEFAULT_PORT = 3001;
@@ -41,6 +42,10 @@ export const DEFAULT_WINDOW_MODE = 'maximized';
  *                             USB stick or a folder somebody wants self-contained,
  *                             and making a `data` folder beside it is the whole
  *                             gesture. Never created by us — only honoured.
+ *                             Not on macOS: there the app folder is inside the
+ *                             app bundle, and a library inside a bundle goes
+ *                             wherever the bundle goes, read-only when macOS
+ *                             translocates it, and is replaced with it.
  *   a pointer file            packaged, and the per-user folder holds a
  *                             `library-location.txt` naming somewhere else —
  *                             a library on the big disk rather than the full one
@@ -52,8 +57,8 @@ export const DEFAULT_WINDOW_MODE = 'maximized';
 export function chooseDataDir({ argDataDir, envDataDir, appRoot, packaged, platform, env, home, exists = existsSync, readFile = readFileSync }) {
     if (argDataDir) return { dir: resolve(argDataDir), why: 'argument' };
     if (envDataDir) return { dir: resolve(envDataDir), why: 'environment' };
-    const portable = join(appRoot, 'data');
-    if (exists(portable)) return { dir: portable, why: 'portable' };
+    const portable = macBundleOf(appRoot) ? null : join(appRoot, 'data');
+    if (portable && exists(portable)) return { dir: portable, why: 'portable' };
     if (packaged) {
         const perUser = userDataDir({ platform, env, home });
         const note = join(perUser, LIBRARY_POINTER);
@@ -193,13 +198,16 @@ export function browserCandidates(platform, env = {}) {
         return out;
     }
     if (platform === 'darwin') {
-        return [
-            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-            '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
-            '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
-            '/Applications/Chromium.app/Contents/MacOS/Chromium',
-            '/Applications/Vivaldi.app/Contents/MacOS/Vivaldi',
-        ];
+        // The application bundles, not the programs inside them: on macOS the
+        // window is started through LaunchServices (`browserCommand`), which
+        // takes an application. In the shared Applications folder or the
+        // person's own, where a browser installed without an administrator goes.
+        const roots = ['/Applications', ...(env.HOME ? [posix.join(env.HOME, 'Applications')] : [])];
+        const out = [];
+        for (const app of ['Google Chrome', 'Microsoft Edge', 'Brave Browser', 'Chromium', 'Vivaldi']) {
+            for (const root of roots) out.push(posix.join(root, `${app}.app`));
+        }
+        return out;
     }
     // Linux and the BSDs: names on PATH.
     return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser', 'vivaldi'];
@@ -219,9 +227,13 @@ export function whichOnPath(name, env = process.env, exists = existsSync) {
 /** The first installed Chromium-family browser, or null. */
 export function findBrowser({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
     for (const candidate of browserCandidates(platform, env)) {
-        const found = platform === 'win32' || platform === 'darwin'
-            ? (exists(candidate) ? candidate : null)
-            : whichOnPath(candidate, env, exists);
+        // A bundle counts only with its program inside: a half-removed browser
+        // leaves the folder, and `open -a` on it fails where the next would not.
+        const found = platform === 'darwin'
+            ? (exists(posix.join(candidate, 'Contents', 'MacOS', posix.basename(candidate, '.app'))) ? candidate : null)
+            : platform === 'win32'
+                ? (exists(candidate) ? candidate : null)
+                : whichOnPath(candidate, env, exists);
         if (found) return found;
     }
     return null;
@@ -254,10 +266,34 @@ export function browserArgs(url, profileDir, windowMode = DEFAULT_WINDOW_MODE) {
     return args;
 }
 
+/**
+ * The command that opens the app window in `browser`, one of the candidates
+ * above, and whether its exit code says if the window came (`byExit`).
+ *
+ * On macOS through LaunchServices: `open -n -a <browser>.app --args …`. A
+ * browser started as a child of this process is not an application macOS
+ * launched: macOS holds the process that started it responsible for it, so
+ * whatever the browser does to its own bundle (updating itself) is asked of
+ * the person as this process modifying apps. `-n` starts a new instance even
+ * while the person's own browser is running; without it macOS brings that one
+ * forward and drops every argument, which is an ordinary browser window in
+ * place of the app's. With `-n` and the app's own profile, a second window
+ * goes to the instance already holding that profile, as on other systems.
+ * `open` exits non-zero when it could not launch the application, so the
+ * launcher waits for its exit before saying the window opened.
+ */
+export function browserCommand(browser, url, profileDir, windowMode = DEFAULT_WINDOW_MODE, platform = process.platform) {
+    const args = browserArgs(url, profileDir, windowMode);
+    if (platform === 'darwin') return { cmd: 'open', args: ['-n', '-a', browser, '--args', ...args], byExit: true };
+    return { cmd: browser, args, byExit: false };
+}
+
 /** The command that opens a URL in whatever the default browser is. */
 export function defaultBrowserCommand(url, platform = process.platform) {
     if (platform === 'win32') return { cmd: 'cmd.exe', args: ['/c', 'start', '', url] };
-    if (platform === 'darwin') return { cmd: 'open', args: [url] };
+    // `open` exits once LaunchServices has the browser running, non-zero when it
+    // could not: its exit is the answer, not its start.
+    if (platform === 'darwin') return { cmd: 'open', args: [url], byExit: true };
     return { cmd: 'xdg-open', args: [url] };
 }
 
@@ -267,11 +303,29 @@ export function defaultBrowserCommand(url, platform = process.platform) {
  * 'error' event, so a success logged on the line after the call is printed
  * even when nothing opened. Exactly one of the two callbacks runs; an error
  * after the start is ignored rather than left unhandled.
+ *
+ * `byExit`: the child is a go-between whose exit code is the answer (macOS
+ * `open`, which exits 1 when the application cannot be launched), so success
+ * is an exit with 0 rather than the start of the go-between. A go-between
+ * ended by SIGTERM gave no answer: it was stopped, which is what quitting the
+ * app does to a window still starting (pkill, on a command line that holds the
+ * app's profile), so that goes to `stopped` when given, never to `failed`,
+ * whose caller would open another browser on a server that is going away. Any
+ * other end, a SIGKILL included, is a failure.
  */
-export function whenStarted(child, { started, failed }) {
+export function whenStarted(child, { started, failed, stopped = failed }, { byExit = false } = {}) {
     let settled = false;
-    child.once('spawn', () => { if (!settled) { settled = true; started(); } });
-    child.on('error', (e) => { if (!settled) { settled = true; failed(e); } });
+    const settle = (fn, arg) => { if (!settled) { settled = true; fn(arg); } };
+    if (byExit) {
+        child.once('exit', (code, signal) => (code === 0
+            ? settle(started)
+            : code === null && signal === 'SIGTERM'
+                ? settle(stopped, Object.assign(new Error(`it was stopped (${signal})`), { code, signal }))
+                : settle(failed, Object.assign(new Error(`it exited with ${code ?? signal}`), { code }))));
+    } else {
+        child.once('spawn', () => settle(started));
+    }
+    child.on('error', (e) => settle(failed, e));
 }
 
 // --- is that server ours? -----------------------------------------------------
@@ -505,6 +559,18 @@ export function launchCommand({
         }
     }
     return { target: execPath, args: [scriptPath, ...pin], console: platform === 'win32' };
+}
+
+/**
+ * The environment that tells the server what a login item may name: `launch`
+ * (launchCommand above), except from a macOS copy macOS runs translocated
+ * (server/appPlacement.js). That path is gone once the app quits, so a login
+ * item naming it would fail at the next sign-in; with nothing set, the server
+ * says starting at sign-in is not available here.
+ */
+export function launchTargetEnv(launch, placement) {
+    if (placement?.problem === 'translocated') return {};
+    return { TERRAMENTOR_LAUNCH_TARGET: launch.target, TERRAMENTOR_LAUNCH_ARGS: JSON.stringify(launch.args) };
 }
 
 /**
