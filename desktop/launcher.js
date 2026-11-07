@@ -28,19 +28,22 @@ import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
-    APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserArgs,
+    APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserCommand,
     defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
-    DEFAULT_WINDOW_MODE, launchCommand, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
+    DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
     whenStarted,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
+import { appPlacement } from '../server/appPlacement.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
 const packaged = existsSync(join(appRoot, 'build.json'));
+/** On macOS, whether this bundle runs from somewhere it can stay (server/appPlacement.js). */
+const placement = packaged ? appPlacement({ appRoot }) : null;
 /** Where an update is staged and swapped (desktop/updater.js). */
 const updateDir = join(appRoot, '.update');
 
@@ -133,8 +136,9 @@ const launch = launchCommand({
     scriptPath: fileURLToPath(import.meta.url),
     dataDir: chosen.dir,
 });
-process.env.TERRAMENTOR_LAUNCH_TARGET = launch.target;
-process.env.TERRAMENTOR_LAUNCH_ARGS = JSON.stringify(launch.args);
+// …except from a translocated copy, which the app asks to be moved (lib.js).
+for (const name of ['TERRAMENTOR_LAUNCH_TARGET', 'TERRAMENTOR_LAUNCH_ARGS']) delete process.env[name];
+Object.assign(process.env, launchTargetEnv(launch, placement));
 process.env.TERRAMENTOR_LAUNCH_DIR = appRoot;
 {
     const ico = join(appRoot, `${APP_NAME}.ico`);
@@ -170,6 +174,12 @@ console.log(`Data directory: ${chosen.dir || '(historical layout under server/)'
  * ever noticed as "the app opened empty". Naming the path turns a recurrence
  * into one readable line instead of a reconstruction from timestamps. */
 if (chosen.why === 'user') console.log(`No library pointer at ${join(chosen.dir, LIBRARY_POINTER)} — using this folder.`);
+if (placement?.problem === 'translocated') {
+    console.log(`macOS is running this copy from a temporary read-only location (${placement.bundle}); `
+        + 'move Terramentor into Applications to update it and start it at sign-in.');
+} else if (placement?.problem === 'read-only') {
+    console.log(`This copy (${placement.bundle}) is in a folder this account cannot write to, so it cannot update itself.`);
+}
 
 /* The launcher's memory of where the library was. Written on every packaged
  * launch whose resolution came from the pointer machinery, into the per-user
@@ -265,9 +275,16 @@ const profileDir = join(chosen.dir || join(appRoot, 'server'), 'browser-profile'
  * below), never by a transient open. */
 let appProfile = null;
 
+/** Resolves once the start has been answered (and any fallback started), so a
+ *  transient launch can wait for it before it exits. */
 function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
     const browser = findBrowser();
-    if (browser) {
+    if (!browser) return openDefault(url);
+    return new Promise((done) => {
+        // On macOS this is `open -n -a <browser>.app --args …` (lib.js
+        // browserCommand), so the browser is an application macOS launched
+        // rather than a child of this process.
+        const { cmd, args, byExit } = browserCommand(browser, url, profileDir, windowMode);
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and
@@ -275,22 +292,22 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
         // the flag showed a hidden 'Terramentor' window; Start-Process without
         // it showed the same window in 6.4 s). A GUI window is this call's
         // product; the flag belongs on console spawns only.
-        const child = spawn(browser, browserArgs(url, profileDir, windowMode), { detached: true, stdio: 'ignore' });
+        const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
         whenStarted(child, {
-            started: () => console.log(`Opened app window with ${browser}`),
+            started: () => { console.log(`Opened app window with ${browser}`); done(); },
             failed: (e) => {
                 console.warn(`Could not start ${browser}: ${e.message}; opening the default browser instead`);
-                openDefault(url);
+                openDefault(url).then(done);
             },
-        });
+            // Quitting stops a window still starting; no other browser then.
+            stopped: (e) => { console.log(`The window starting in ${browser} was stopped (${e.signal}); no other browser is opened`); done(); },
+        }, { byExit });
         // No kill is armed here. A transient open — "already running, show me
         // a window" — exits at once, and an armed kill would close the window
         // it just opened, and every other window of the app with it, the
         // profile being one shared directory.
         child.unref();
-        return;
-    }
-    openDefault(url);
+    });
 }
 
 /* Quit ends the process; this ends the app's windows — the one this run
@@ -348,17 +365,20 @@ process.on('exit', () => {
 });
 
 function openDefault(url) {
-    const { cmd, args } = defaultBrowserCommand(url);
-    try {
-        const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
-        whenStarted(child, {
-            started: () => console.log(`Opened default browser at ${url}`),
-            failed: () => console.warn(`Could not open a browser. Open this address yourself: ${url}`),
-        });
-        child.unref();
-    } catch {
-        console.warn(`Could not open a browser. Open this address yourself: ${url}`);
-    }
+    const { cmd, args, byExit = false } = defaultBrowserCommand(url);
+    return new Promise((done) => {
+        try {
+            const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
+            whenStarted(child, {
+                started: () => { console.log(`Opened default browser at ${url}`); done(); },
+                failed: () => { console.warn(`Could not open a browser. Open this address yourself: ${url}`); done(); },
+            }, { byExit });
+            child.unref();
+        } catch {
+            console.warn(`Could not open a browser. Open this address yourself: ${url}`);
+            done();
+        }
+    });
 }
 
 // --- Start Menu shortcut (Windows, packaged) ---------------------------------------
@@ -486,10 +506,13 @@ async function finishInterruptedSwap() {
                 trayHosted: running.status?.trayHosted === true,
             });
             console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
-            if (show) openWindow(running.url, running.status?.windowMode);
-            // whenStarted hears `spawn`/`error` on process.nextTick (a fallback
-            // spawn's too); exiting before them logged nothing on this path.
-            await new Promise((r) => setImmediate(r));
+            // Waited for: whenStarted hears `spawn`/`error` on process.nextTick,
+            // and on macOS the answer is `open`'s exit, a moment later. Exiting
+            // first logged nothing, and lost the fallback to the default
+            // browser when the app window could not be opened. Bounded, so a
+            // go-between that never answers cannot keep this run alive; the
+            // timer is what keeps it alive until then (the child is unref'd).
+            if (show) await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => setTimeout(r, 15_000))]);
             process.exit(0);
         }
     }

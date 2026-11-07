@@ -2308,7 +2308,8 @@ export interface UpdateInstall {
     /** This copy can download and install an update itself. */
     supported: boolean;
     /** Why not: `docker` | `git` | `source` | `checkout` | `no-file-list` |
-     *  `no-launcher` | `read-only`. */
+     *  `no-launcher` | `read-only` | `translocated` (macOS runs a temporary
+     *  copy of an app opened where it was unzipped). */
     reason: string | null;
     phase: 'idle' | 'downloading' | 'ready' | 'failed';
     /** The version downloading, or staged and ready. */

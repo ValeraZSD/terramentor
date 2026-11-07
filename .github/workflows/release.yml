@@ -63,6 +63,7 @@ on:
       - tools/release.mjs
       - tools/lib/releaseChannel.mjs
       - tools/build-desktop.mjs
+      - tools/macos-open-check.sh
       - tools/first-visit-smoke.sh
       - Dockerfile
       - desktop/**
@@ -320,6 +321,19 @@ jobs:
         run: node tools/build-desktop.mjs --skip-build
         env:
           GIT_SHA: ${{ needs.plan.outputs.ref }}
+      # The macOS package opened as a person opens it: the bundle copied on its
+      # own out of the unpacked zip, started through LaunchServices, marked as
+      # downloaded, then not, then read-only (tools/macos-open-check.sh).
+      - name: Open the macOS app from a copy of the bundle alone
+        if: runner.os == 'macOS'
+        timeout-minutes: 15
+        run: bash tools/macos-open-check.sh release/Terramentor-*-darwin-*.zip "$RUNNER_TEMP/macos-shots"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && runner.os == 'macOS'
+        with:
+          name: macos-open-check
+          path: ${{ runner.temp }}/macos-shots
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.os }}
