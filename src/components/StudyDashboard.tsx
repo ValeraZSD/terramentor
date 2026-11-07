@@ -26,6 +26,7 @@ import { todayStr } from '../utils/tree';
 import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
 import { headStartConsequence } from './feed/HeadStartBanner';
+import ContinueCreationCard from './creation/ContinueCreationOffer';
 
 export default function StudyDashboard() {
     const { t: tr } = useTranslation();
@@ -360,6 +361,11 @@ export default function StudyDashboard() {
                     to be read first. Once the course is under way it is a tool
                     (`underWay`), and "Not now" moves it there too. It renders
                     nothing when there is nothing to offer (server/placement.js). */}
+                {/* A creation that stopped before it finished this course (the
+                    app closed mid-run, a failure) is carried on from here. It
+                    renders nothing for a course with nothing missing. */}
+                {currentProjectId && <ContinueCreationCard projectId={currentProjectId} />}
+
                 {currentProjectId && (
                     <PlacementCard
                         projectId={currentProjectId}

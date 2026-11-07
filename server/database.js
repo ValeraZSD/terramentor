@@ -1433,8 +1433,13 @@ try {
   console.error('[Cleanup] Orphan cleanup failed (non-fatal):', e.message);
 }
 
-// Clear stale ai_generating flags on restart
+// Clear stale ai_generating flags on restart. A flag still set means the last
+// process ended in the middle of that course's creation (closed, killed, a
+// laptop lid), which no catch ever reported: routes/createProject.js writes
+// those courses their "AI generation failed" notice from this list.
+export let interruptedCreations = [];
 try {
+  interruptedCreations = db.prepare('SELECT id FROM projects WHERE ai_generating = 1').all().map(r => r.id);
   db.exec(`UPDATE projects SET ai_generating = 0 WHERE ai_generating = 1`);
 } catch (e) {
   console.error('Failed to clear stale ai_generating flags:', e.message);
@@ -2036,6 +2041,12 @@ addColumnIfMissing('ai_connections', 'test_setup', 'TEXT');
 // continuation searches exactly those, never a topic that searched and found
 // nothing. Bookkeeping of one run: no export carries it.
 addColumnIfMissing('projects', 'creation_pending_links', 'TEXT DEFAULT NULL');
+// Whether an AI creation of this project ran to the end (routes/createProject.js):
+// 0 from the moment a run starts, 1 once a run completes. NULL = no run since
+// this column came (a hand-made project, or a course created before it), read
+// from the outline instead. A learner deleting parts of a finished course
+// does not make it unfinished. Bookkeeping: no export carries it.
+addColumnIfMissing('projects', 'creation_finished', 'INTEGER DEFAULT NULL');
 
 // Which saved connections and models a job runs on, in the order they are
 // tried (server/aiJobs.js). No rows for a job: it uses the connection in use

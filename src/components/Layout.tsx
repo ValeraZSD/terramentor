@@ -1,7 +1,7 @@
 import { ReactNode, CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { ArrowLeft, ChevronDown, Inbox, MessageSquare, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Inbox, Loader2, MessageSquare, Settings } from 'lucide-react';
 import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
@@ -459,8 +459,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
-                            className="motion-safe:animate-pulse"
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
