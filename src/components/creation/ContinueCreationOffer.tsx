@@ -30,24 +30,35 @@ function useContinueOffer(projectId: number) {
         .filter(r => r.projectId === projectId).map(r => `${r.key}:${r.status}:${r.attempt}`).join());
     const live = useCreationRuns(s => Object.values(s.runs).some(r => r.projectId === projectId && isRunLive(r)));
     const [offer, setOffer] = useState<{ projectId: number; can: boolean } | null>(null);
-    const wasLive = useRef(live);
+    const seen = useRef({ projectId, live });
     useEffect(() => {
         // A run of this course just ended: the outline and the page show what it wrote.
-        if (wasLive.current && !live && !refreshedAfter.has(runSig)) {
-            refreshedAfter.add(runSig);
+        const was = seen.current;
+        const ended = `${projectId}|${runSig}`;
+        if (was.projectId === projectId && was.live && !live && !refreshedAfter.has(ended)) {
+            refreshedAfter.add(ended);
             const store = useStore.getState();
             if (store.currentProjectId === projectId) {
                 void store.loadProjectData(projectId);
                 void store.loadDashboard(projectId);
             }
         }
-        wasLive.current = live;
-        if (live) return;
+        seen.current = { projectId, live };
+        // The answer from before the run is stale: never show it again after.
+        if (live) { setOffer(null); return; }
         let current = true;
-        api.getContinueCreation(projectId)
-            .then(r => { if (current) setOffer({ projectId, can: r.canContinue }); })
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const ask = () => api.getContinueCreation(projectId)
+            .then(r => {
+                if (!current) return;
+                setOffer({ projectId, can: r.canContinue });
+                // A run still winding down (a Stop just pressed), or one this
+                // page did not start: ask again once it is over.
+                if (r.running) timer = setTimeout(ask, 3000);
+            })
             .catch(() => { if (current) setOffer({ projectId, can: false }); });
-        return () => { current = false; };
+        void ask();
+        return () => { current = false; clearTimeout(timer); };
     }, [projectId, runSig, live]);
     const can = !live && offer?.projectId === projectId && offer.can;
     const press = () => {
