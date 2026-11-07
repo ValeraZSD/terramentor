@@ -39,7 +39,8 @@ port=3950
 fail=0
 say() { printf '%s\n' "$*"; }
 bad() { say "FAIL $*"; fail=1; }
-app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -v grep | head -1; }
+# This run's window only: its URL and its own profile folder.
+app_window() { ps -axww -o command= | grep -- "--app=http://127.0.0.1:$port" | grep -F -- "user-data-dir=$work/" | grep -v grep | head -1; }
 # What the launcher logs once its window has opened, or has not.
 window_said='Opened app window with|Opened default browser|Could not start|Could not open a browser|was stopped'
 status() { curl -s -m 5 "http://127.0.0.1:$port/api/desktop/status"; }
@@ -58,8 +59,14 @@ limit() {
         kill -0 "$pid" 2>/dev/null || break
         sleep 0.25
     done
+    kill -0 "$pid" 2>/dev/null || { wait "$pid"; return; }
+    # Still running: asked to stop, then made to after two seconds, so the
+    # limit holds for a command that ignores SIGTERM too.
     kill "$pid" 2>/dev/null
-    wait "$pid"
+    for ((i = 0; i < 8; i++)); do kill -0 "$pid" 2>/dev/null || break; sleep 0.25; done
+    kill -9 "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    return 143
 }
 
 # Stop what this run started: the app, and the browser it opened (both carry
@@ -147,6 +154,8 @@ open_run() {
             if [ -n "$ps_line" ]; then window=1; say "  ok: the browser runs as an --app window: ${ps_line:0:300}"
             else bad "run '$name': the log says an app window opened, but no browser runs with --app"; fi
             shot "$name"
+        elif [ "$must" = must ] && [ -d "$chrome" ]; then
+            bad "run '$name': a browser is installed but no app window opened: $(grep -oE "$window_said.*" "$log" | head -1 || true)"
         else
             say "  no app window: $(grep -oE "$window_said.*" "$log" | head -1 || true)"
         fi
@@ -233,13 +242,23 @@ if [ -d "$chrome" ]; then
     pkill -f -- "user-data-dir=$work/warm-profile" 2>/dev/null
     sleep 2
 fi
-xattr -w -r com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
+# mark FLAGS: set the download mark with these flags on the bundle, or stop the
+# check: a run without the mark it names would test an ordinary launch.
+mark() {
+    xattr -w -r com.apple.quarantine "$1;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy" \
+        || { bad "could not mark the bundle as downloaded ($1)"; exit 1; }
+    case "$(xattr -p com.apple.quarantine "$copy" 2>/dev/null)" in
+        "$1;"*) ;;
+        *) bad "the bundle's download mark is not $1"; exit 1 ;;
+    esac
+}
+mark 0081
 say "▸ quarantined: $(xattr -p com.apple.quarantine "$copy")"
 say "▸ Gatekeeper's verdict on it: $(limit 60 spctl --assess --type execute -vv "$copy" 2>&1 | tr '\n' ' ')"
 open_run quarantined may
 
 # 0x40 in the flags marks the download as approved by the person.
-xattr -w -r com.apple.quarantine "00c1;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$copy"
+mark 00c1
 say ""
 say "▸ marked approved: $(xattr -p com.apple.quarantine "$copy")"
 open_run approved may
