@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
-import { MENU_PANEL, placePopover, type Placement } from '../ui/Popover';
+import { MENU_PANEL, followVisualViewport, placePopover, popoverBounds, type Placement } from '../ui/Popover';
 import { cx } from '../ui/vocabulary';
 import { canHover } from '../../utils/platform';
 
@@ -74,7 +74,7 @@ function HoverCard({ open, id, anchorRef, onClose, children }: {
         const btn = anchorRef.current, card = ref.current;
         if (!btn || !card) return;
         setPlace(placePopover(btn.getBoundingClientRect(), { width: card.offsetWidth, height: card.offsetHeight },
-            { width: window.innerWidth, height: window.innerHeight }, { align: 'end', gap: 6 }));
+            popoverBounds(), { align: 'end', gap: 6 }));
     }, [open, anchorRef, children]);
 
     useEffect(() => {
@@ -95,10 +95,13 @@ function HoverCard({ open, id, anchorRef, onClose, children }: {
         document.addEventListener('keydown', onKey, true);
         window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', onResize);
+        // A pinch zoom moves only the visual viewport: closed as for a resize.
+        const unfollow = followVisualViewport(onResize);
         return () => {
             document.removeEventListener('keydown', onKey, true);
             window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', onResize);
+            unfollow();
         };
     }, [open, anchorRef]);
 

@@ -73,13 +73,13 @@ const esb = read('src/components/ExternalSearchButton.tsx');
 check('"Look it up" is a MenuPopover, not a box hung from the button’s right edge',
     /<MenuPopover\b/.test(esb) && !/className="[^"]*\babsolute right-0/.test(esb));
 const dropdown = read('src/components/DropdownMenu.tsx');
-check('the tree row’s ⋮ menu closes on Escape and hands focus back',
-    /e\.key !== 'Escape'/.test(dropdown) && /triggerRef\.current\?\.querySelector<HTMLElement>\('button, \[tabindex\]'\)\?\.focus\(\)/.test(dropdown));
-check('the tree row’s ⋮ menu is placed from its MEASURED box, not an assumed 144px',
-    !/menuWidth = 144/.test(dropdown) && /placePopover\(/.test(dropdown));
+// Both ⋮ menus are a `MenuPopover` on their own button now: its Escape (held
+// below in jsdom), its focus return and its measured placement, not their own.
+check('the tree row’s ⋮ menu is a MenuPopover anchored to its button (Escape, focus back, measured box)',
+    /<MenuPopover\b[^<]*?anchorRef=\{buttonRef\}/.test(dropdown) && !/menuWidth = 144/.test(dropdown) && !/createPortal/.test(dropdown));
 const card = read('src/components/ProjectCard.tsx');
-check('the project card’s ⋮ menu closes on Escape and hands focus back',
-    /e\.key !== 'Escape'/.test(card) && /menuBtnRef\.current\?\.focus\(\)/.test(card));
+check('the project card’s ⋮ menu is a MenuPopover anchored to its ⋮',
+    /<MenuPopover\b[^<]*?anchorRef=\{menuBtnRef\}/.test(card) && !/createPortal\(/.test(card));
 
 section('a modal dialog owns Tab and Escape once, through one hook');
 {
@@ -230,7 +230,9 @@ for (const k of ['HTMLElement', 'Element', 'Node', 'MutationObserver', 'Keyboard
 }
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
+// A mouse: the menu below is the floating one (a finger gets the phone's sheet,
+// held in popover-gates.mjs).
+window.matchMedia = (q) => ({ matches: /hover:\s*hover/.test(q), media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
 
 const scratch = mkdtempSync(join(root, 'node_modules', '.cache', 'keyboard-gates-'));
 const out = join(scratch, 'bundle.cjs');
@@ -391,8 +393,10 @@ check('another key: nothing', searchFieldEscape({ key: 'Enter', query: '', sheet
 // ---------------------------------------------------------------------------
 section('a menu is placed on its button’s edge, inside the screen');
 
-const phone = { width: 390, height: 844 };
-const desk = { width: 1440, height: 900 };
+// The room a menu may use, as `popoverBounds()` gives it: a plain screen here
+// (no insets, no keyboard); popover-gates.mjs holds the phone's covered edges.
+const phone = { left: 0, top: 0, right: 390, bottom: 844 };
+const desk = { left: 0, top: 0, right: 1440, bottom: 900 };
 const menu = { width: 208, height: 96 };
 // The answer help's "Look it up", measured: at the left of a feed card on a phone.
 const leftBtn = { left: 132, top: 500, right: 262, bottom: 544 };
