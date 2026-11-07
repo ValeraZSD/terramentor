@@ -365,14 +365,14 @@ process.on('exit', () => {
 });
 
 function openDefault(url) {
-    const { cmd, args } = defaultBrowserCommand(url);
+    const { cmd, args, byExit = false } = defaultBrowserCommand(url);
     return new Promise((done) => {
         try {
             const child = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: true });
             whenStarted(child, {
                 started: () => { console.log(`Opened default browser at ${url}`); done(); },
                 failed: () => { console.warn(`Could not open a browser. Open this address yourself: ${url}`); done(); },
-            });
+            }, { byExit });
             child.unref();
         } catch {
             console.warn(`Could not open a browser. Open this address yourself: ${url}`);

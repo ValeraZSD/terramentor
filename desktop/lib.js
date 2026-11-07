@@ -227,9 +227,13 @@ export function whichOnPath(name, env = process.env, exists = existsSync) {
 /** The first installed Chromium-family browser, or null. */
 export function findBrowser({ platform = process.platform, env = process.env, exists = existsSync } = {}) {
     for (const candidate of browserCandidates(platform, env)) {
-        const found = platform === 'win32' || platform === 'darwin'
-            ? (exists(candidate) ? candidate : null)
-            : whichOnPath(candidate, env, exists);
+        // A bundle counts only with its program inside: a half-removed browser
+        // leaves the folder, and `open -a` on it fails where the next would not.
+        const found = platform === 'darwin'
+            ? (exists(posix.join(candidate, 'Contents', 'MacOS', posix.basename(candidate, '.app'))) ? candidate : null)
+            : platform === 'win32'
+                ? (exists(candidate) ? candidate : null)
+                : whichOnPath(candidate, env, exists);
         if (found) return found;
     }
     return null;
@@ -287,7 +291,9 @@ export function browserCommand(browser, url, profileDir, windowMode = DEFAULT_WI
 /** The command that opens a URL in whatever the default browser is. */
 export function defaultBrowserCommand(url, platform = process.platform) {
     if (platform === 'win32') return { cmd: 'cmd.exe', args: ['/c', 'start', '', url] };
-    if (platform === 'darwin') return { cmd: 'open', args: [url] };
+    // `open` exits once LaunchServices has the browser running, non-zero when it
+    // could not: its exit is the answer, not its start.
+    if (platform === 'darwin') return { cmd: 'open', args: [url], byExit: true };
     return { cmd: 'xdg-open', args: [url] };
 }
 

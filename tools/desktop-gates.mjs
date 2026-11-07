@@ -226,6 +226,15 @@ console.log('\n--- which browser opens the window ---');
     const onlyChrome = (p) => p.replace(/\\/g, '/') === 'C:/PF/Google/Chrome/Application/chrome.exe';
     ok('finds the one that exists', /chrome\.exe$/.test(findBrowser({ platform: 'win32', env: winEnv, exists: onlyChrome }) || ''));
     check('none installed → null', findBrowser({ platform: 'win32', env: winEnv, exists: () => false }), null);
+    // macOS: a bundle counts only with its program inside; a half-removed Chrome
+    // leaves the folder, and the search goes on to the next browser.
+    const macHas = (...paths) => (p) => paths.includes(p);
+    check('macOS: a bundle without its program is passed over',
+        findBrowser({ platform: 'darwin', env: {}, exists: macHas('/Applications/Google Chrome.app', '/Applications/Microsoft Edge.app', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge') }),
+        '/Applications/Microsoft Edge.app');
+    check('macOS: a whole bundle is found',
+        findBrowser({ platform: 'darwin', env: {}, exists: macHas('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') }),
+        '/Applications/Google Chrome.app');
     check('Linux: PATH lookup', (whichOnPath('chromium', { PATH: ['/nope', '/usr/bin'].join(delimiter) }, (p) => p.replace(/\\/g, '/') === '/usr/bin/chromium') || '').replace(/\\/g, '/'), '/usr/bin/chromium');
 
     const args = browserArgs('http://127.0.0.1:3001', '/data/browser-profile');
@@ -234,7 +243,8 @@ console.log('\n--- which browser opens the window ---');
     ok('no first-run prompts', args.includes('--no-first-run') && args.includes('--no-default-browser-check'));
 
     check('default browser, Windows', defaultBrowserCommand('http://x', 'win32'), { cmd: 'cmd.exe', args: ['/c', 'start', '', 'http://x'] });
-    check('default browser, macOS', defaultBrowserCommand('http://x', 'darwin'), { cmd: 'open', args: ['http://x'] });
+    // `open` answers by its exit: a browser LaunchServices could not start is a failure, not a start.
+    check('default browser, macOS', defaultBrowserCommand('http://x', 'darwin'), { cmd: 'open', args: ['http://x'], byExit: true });
     check('default browser, Linux', defaultBrowserCommand('http://x', 'linux'), { cmd: 'xdg-open', args: ['http://x'] });
     check('open folder, Windows', openFolderCommand('C:\\d', 'win32').cmd, 'explorer.exe');
     check('open folder, macOS', openFolderCommand('/d', 'darwin').cmd, 'open');
