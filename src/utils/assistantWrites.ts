@@ -472,11 +472,13 @@ function parseShort(text: string): ShortCourseProposal | null {
     const f = fieldsOf(text, { name: 'name', title: 'name', from: 'from', source: 'from', icon: 'icon', topics: 'topics' });
     const name = projectName(f.name ?? '') ?? '';
     const from = (f.from ?? '').trim();
-    const topics = (f.topics ?? '').split('\n')
-        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim())
-        .filter(Boolean)
+    // 3 to 8 distinct titles, as server/shortCourses.js proposedTopics keeps
+    // them: a card of two would be made as a course of two.
+    const topics = [...new Set((f.topics ?? '').split('\n')
+        .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean))]
         .slice(0, 8);
-    if (!name || !from || topics.length < 2) return null;
+    if (!name || !from || topics.length < 3) return null;
     return { name, from, icon: projectIconName(f.icon ?? ''), topics };
 }
 

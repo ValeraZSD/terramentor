@@ -760,6 +760,12 @@ ok('another card with another name is another course', c.status === 200 && !c.js
 const look = (id) => db.prepare('SELECT icon, color FROM projects WHERE id = ?').get(id);
 ok('a course given no icon or colour gets the book and the default colour', look(linkCourse).icon === 'book' && look(linkCourse).color === '#3B82F6', look(linkCourse));
 ok('an icon as a model types it is the name it means; a word that is no colour is not kept', look(c.json.projectId).icon === 'testtube' && look(c.json.projectId).color === '#3B82F6', look(c.json.projectId));
+// Two topics sent are not a proposal: the model plans the course itself, 3 to 8.
+bodies.length = 0;
+c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, in two', topics: ['Only', 'Two'], once: true });
+const twoBuilt = c.status === 200 && await waitBuilt(c.json.projectId);
+const twoNodes = twoBuilt ? db.prepare('SELECT title FROM nodes WHERE project_id = ? AND is_note = 0').all(c.json.projectId).map(n => n.title) : [];
+ok('two topics sent are not kept: the course is planned with 3 to 8', twoBuilt && twoNodes.length >= 3 && !twoNodes.includes('Only') && !/PROPOSED TOPICS:/.test(bodies[0]?.user || ''), { c: c.json, twoNodes });
 const n0 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'https://www.youtube.com/watch?v=vidNoCapts1', topics: ['A', 'B', 'C'] });
 ok('an unreadable link from the assistant makes nothing and says why', c.status === 422 && c.json?.reason === 'no_captions' && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n0, c);
@@ -1016,13 +1022,16 @@ ok('a block gives its name, source and topics, and leaves the prose', w.shorts.l
 ok('one topic is not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n```').shorts.length === 0);
 ok('ten topics are cut to eight', splitWriteBlocks(`\`\`\`short\nname: X\nsource: https://a.example\ntopics:\n${Array.from({ length: 10 }, (_, i) => `${i + 1}. T${i}`).join('\n')}\n\`\`\``).shorts[0]?.topics.length === 8);
 ok('no source, no course', splitWriteBlocks('```short\nname: X\ntopics:\n- A\n- B\n```').shorts.length === 0);
+// A short course has 3 to 8 topics: a card of two would be made as a course of two.
+ok('two topics are not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n```').shorts.length === 0);
+ok('three lines where two are the same title are two topics, not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n- One\n```').shorts.length === 0);
 // The block the assistant is SHOWN (server/ai.js, A SHORT COURSE FROM ONE
 // SOURCE) is one this parser reads: a prompt whose example the client drops
 // would teach the model to write cards nobody sees.
 const aiSource = readFileSync(join(ROOT, 'server/ai.js'), 'utf8').replace(/\r\n/g, '\n');
 const shown = aiSource.match(/A SHORT COURSE FROM ONE SOURCE[^\n]*\n(\\`\\`\\`short\n[\s\S]*?\n\\`\\`\\`)/)?.[1]?.replace(/\\`/g, '`') ?? '';
 const shownBlock = shown ? splitWriteBlocks(shown) : null;
-ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 2 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
+ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 3 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
 
 // ---- 11. the strip's words ----------------------------------------------------------------
 section('11. the strip says what the learner can do, in one word for a topic');
@@ -1046,6 +1055,16 @@ ok('chapters picked that come to too few words say so, and Create waits for more
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
+// A page is fetched with no redirect allowlist, so a link that redirects
+// reaches the host it names, and each hop is a request: the steps for
+// checking the traffic must say so, or allowed traffic reads as a bug.
+{
+    const readerSource = readFileSync(join(ROOT, 'server/linkReader.js'), 'utf8').replace(/\r\n/g, '\n');
+    const pageFetch = readerSource.match(/async function readPage[\s\S]*?fetchImpl\(link\.url, \{([\s\S]*?)\n {8}\}\);/)?.[1] ?? '';
+    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a short course's link[\s\S]*?\n\n/)?.[0] ?? '';
+    ok('the traffic check names where a short course\'s redirects go and that each hop is a request',
+        pageFetch !== '' && (/allowRedirect/.test(pageFetch) || (/redirect/i.test(capture) && /hop/i.test(capture))), capture);
+}
 
 await new Promise(res => server.close(res));
 await new Promise(res => stub.close(res));

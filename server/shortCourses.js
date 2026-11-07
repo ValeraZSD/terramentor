@@ -312,7 +312,8 @@ export async function readSource({ url, transcript, title, buffer, filename } = 
 
 const cleanLine = (s, max) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-/** The topics the assistant showed the learner, kept as shown: 2–8 titles. */
+/** The topics the assistant showed the learner, kept as shown: 3–8 distinct
+ *  titles. Fewer are no proposal, and the model plans the course itself. */
 function proposedTopics(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
@@ -320,7 +321,7 @@ function proposedTopics(raw) {
         const title = cleanLine(typeof t === 'string' ? t : t?.title, 200);
         if (title && !out.includes(title)) out.push(title);
     }
-    return out.length >= 2 ? out.slice(0, SHORT.maxTopics) : [];
+    return out.length >= SHORT.minTopics ? out.slice(0, SHORT.maxTopics) : [];
 }
 
 /** What `made_from` keeps of a staged source's origin: where it came from, never its text. */

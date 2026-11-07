@@ -3758,6 +3758,7 @@ from: the exact link they gave, or file ATTACHMENT_ID for a file of this convers
 icon: an icon name from the list above (optional)
 topics:
 - the first topic
+- the second topic
 - the next one, one per line, 3 to 8 in all, in the order they are best learned
 \`\`\`
 Only from a link the learner gave or a file of this conversation, never an address you found or rebuilt. For a whole subject with no single source, prepare A NEW COURSE instead. If the link cannot be read, the app says why and offers its own way on.
