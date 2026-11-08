@@ -130,9 +130,11 @@ const barFill = () => {
     return fill ? Number(/width:\s*([\d.]+)%/.exec(fill.getAttribute('style'))[1]) : null;
 };
 const classOf = (el) => el?.getAttribute('class') ?? '';
-/** Hidden from sight and from a screen reader, while keeping its box (so it
- *  can be measured again when the dialog widens). */
-const unseen = (el) => /(^|\s)invisible(\s|$)/.test(classOf(el)) && el.getAttribute('aria-hidden') === 'true';
+/** Hidden from sight while keeping its box (so it can be measured again when
+ *  the dialog widens). */
+const unseen = (el) => /(^|\s)invisible(\s|$)/.test(classOf(el));
+/** Text only a screen reader gets. */
+const srOnly = (text) => [...doc.querySelectorAll('[role="dialog"] .sr-only')].some(e => e.textContent.trim() === text);
 
 const SHORT_PHASE = 'Phase 1';
 const LONG_PHASE = 'Phase 1: Building Polynomial Approximations from Derivatives';
@@ -208,6 +210,12 @@ if (PlacementModal) {
         await settle();
         ok('skipped: "Question 3 of 3", the bar full', counter() === 'Question 3 of 3' && Math.abs(barFill() - 100) < 0.1,
             `counter: ${JSON.stringify(counter())}, fill ${barFill()}%`);
+        // The last answer: nothing is left, and neither the counter nor the
+        // bar runs past the end or falls back.
+        await act(() => [...doc.querySelectorAll('[data-answer-option]')].find(b => b.textContent.trim() === 'No')?.click());
+        await settle();
+        ok('last question answered: still "Question 3 of 3", the bar full', counter() === 'Question 3 of 3' && Math.abs(barFill() - 100) < 0.1,
+            `counter: ${JSON.stringify(counter())}, fill ${barFill()}%`);
         await unmount();
     }
     {
@@ -223,12 +231,14 @@ if (PlacementModal) {
         const unmount = await mount([q(0, LONG_PHASE), q(1, SHORT_PHASE)]);
         const phase = leafWith(LONG_PHASE);
         ok('a phase name too long for its room is not shown cut off', !!phase && unseen(phase),
-            phase ? `class="${classOf(phase)}" aria-hidden=${phase.getAttribute('aria-hidden')}` : 'no phase line at all');
+            phase ? `class="${classOf(phase)}"` : 'no phase line at all');
+        ok('…while a screen reader still gets the whole name', srOnly(LONG_PHASE), 'no .sr-only copy of the phase name');
         await act(() => button("I don't know — skip")?.click());
         await settle();
         const short = leafWith(SHORT_PHASE);
         ok('…and the next phase, which fits, is shown in full', !!short && !unseen(short) && !/(^|\s)truncate(\s|$)/.test(classOf(short)),
             short ? `class="${classOf(short)}"` : 'no phase line');
+        ok('…once, so a screen reader does not hear it twice', !srOnly(SHORT_PHASE));
         await unmount();
     }
 
@@ -252,12 +262,19 @@ if (PlacementModal) {
         const css = readFileSync(join(root, 'src', 'index.css'), 'utf8');
         // Every declaration of the rule inside its media query, in order.
         const ruleIn = (media, selector) => {
-            const at = css.search(new RegExp(`@media\\s*\\(${media}\\)\\s*\\{[^@]*?\\.${selector}\\s*\\{`));
+            const at = css.search(new RegExp(`@media[^{]*${media}[^{]*\\{[^@]*?\\.${selector}\\s*\\{`));
             if (at < 0) return null;
             const open = css.indexOf(`.${selector}`, at);
             return css.slice(css.indexOf('{', open) + 1, css.indexOf('}', open));
         };
-        const top = ruleIn('min-width:\\s*640px', 'dialog-top');
+        const declsOf = (body, prop) => body ? [...body.matchAll(new RegExp(`(?:^|[;\\s])${prop}:\\s*([^;]+);`, 'g'))].map(m => m[1].trim()) : [];
+        const top = ruleIn('\\(min-width:\\s*640px\\)', 'dialog-top');
+        const topMedia = /@media([^{]*)\{[^@]*?\.dialog-top\s*\{/.exec(css)?.[1] ?? '';
+        ok('…but not on a window too short to spare the margin (a phone on its side)', /min-height:\s*\d+px/.test(topMedia), `@media${topMedia}`);
+        // Same specificity as .modal-shell, so its cap wins only by coming later.
+        ok('…its cap comes after .modal-shell\'s in the file, so it wins', css.indexOf('.dialog-top') > css.indexOf('.modal-shell {'),
+            `.modal-shell at ${css.indexOf('.modal-shell {')}, .dialog-top at ${css.indexOf('.dialog-top')}`);
+        ok('…and its margin follows the visible window too (dvh)', declsOf(top, 'margin-top').some(v => /dvh$/.test(v)), JSON.stringify(declsOf(top, 'margin-top')));
         // The top margin plus the tallest the frame may get, plus the overlay's
         // 1rem a side, must fit the window, or the footer leaves the screen.
         const margin = top && /margin-top:\s*(\d+(?:\.\d+)?)d?vh;/.exec(top);
@@ -269,10 +286,15 @@ if (PlacementModal) {
         ok('…and its margin plus its tallest frame fit the window, in vh then dvh',
             !!margin && caps.length >= 2 && /\dvh/.test(caps[0]) && /dvh/.test(caps.at(-1)) && caps.every(capFits),
             top ? `margin ${margin?.[1]}vh, caps ${JSON.stringify(caps)}` : 'no .dialog-top rule under @media (min-width: 640px)');
-        const sheet = ruleIn('max-width:\\s*639\\.98px', 'sheet-stable');
+        const sheet = ruleIn('\\(max-width:\\s*639\\.98px\\)', 'sheet-stable');
         ok('…the phone sheet\'s height is set, vh then dvh, clear of the status bar and home indicator',
             !!sheet && /height:\s*min\([^;]*\d+vh/.test(sheet) && /height:\s*min\([^;]*var\(--safe-top\)[^;]*var\(--safe-bottom\)/.test(sheet),
             sheet ?? 'no .sheet-stable rule under @media (max-width: 639.98px)');
+        const stableAt = css.indexOf('.modal-frame-stable {');
+        const stable = stableAt < 0 ? null : css.slice(css.indexOf('{', stableAt) + 1, css.indexOf('}', stableAt));
+        ok('…the same height as the mastery check\'s frame (.modal-frame-stable)',
+            !!stable && declsOf(sheet, 'height').at(-1) === declsOf(stable, 'height').at(-1),
+            `sheet ${JSON.stringify(declsOf(sheet, 'height').at(-1))}, check ${JSON.stringify(declsOf(stable, 'height').at(-1))}`);
         await unmount();
     }
     {

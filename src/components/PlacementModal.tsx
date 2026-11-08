@@ -92,7 +92,10 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
         const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
         ro?.observe(el);
         window.addEventListener('resize', measure);
-        return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+        // A web font arriving widens the text without resizing its box.
+        let live = true;
+        document.fonts?.ready.then(() => { if (live) measure(); });
+        return () => { live = false; ro?.disconnect(); window.removeEventListener('resize', measure); };
     }, [asking, question?.phaseTitle]);
 
     // ---- start / resume ------------------------------------------------------
@@ -287,18 +290,20 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     <div className="shrink-0 px-5 pb-4 space-y-2 border-b border-slate-200 dark:border-slate-700">
                         <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                             {/* Where the learner is, never "correct so far": a probe
-                                has no score. "0 of 12 answered" on the first
-                                question read as nothing happening. */}
+                                has no score. */}
                             <span className="shrink-0">{t("Question {{n}} of {{total}}", { n: index + 1, total })}</span>
                             {question.phaseTitle && (
                                 <span
                                     ref={phaseRef}
-                                    aria-hidden={phaseFits ? undefined : true}
                                     className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-right ${phaseFits ? '' : 'invisible'}`}
                                 >{question.phaseTitle}</span>
                             )}
+                            {/* Hidden from sight, never from a screen reader. */}
+                            {question.phaseTitle && !phaseFits && (
+                                <span className="sr-only">{question.phaseTitle}</span>
+                            )}
                         </div>
-                        <ProgressBar value={position}max={Math.max(1, total)} size="sm" decorative />
+                        <ProgressBar value={position} max={Math.max(1, total)} size="sm" decorative />
                     </div>
                 )}
 
@@ -348,10 +353,9 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     // One question on screen: its flag and the line under a
                     // missed answer open the same dialog.
                     <ReportScope>
-                        {/* More air under the header's rule (28px, was 20) and
-                            less between the topic and its question (8px, was
-                            16): the topic reads as the question's label, apart
-                            from the counter, and the dialog keeps its height. */}
+                        {/* More air under the header's rule than between the
+                            topic and its question: the topic reads as the
+                            question's label, apart from the counter. */}
                         <div className="p-5 pt-7 space-y-4">
                             <div className="flex items-start gap-2">
                                 <div className="min-w-0 flex-1 space-y-2">

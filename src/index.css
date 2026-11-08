@@ -750,10 +750,13 @@ body.assistant-overlay-open {
  * question moved up under the pointer. From `sm` up it hangs from a fixed top
  * instead (its overlay is `sm:items-start`), so it grows downward only. The cap
  * gives up the margin, so margin + frame + the overlay's 1rem a side still fit.
+ * Under 600px of height (a phone on its side) there is no margin to spare: the
+ * frame hangs from the overlay's own padding, still top-anchored.
  */
-@media (min-width: 640px) {
+@media (min-width: 640px) and (min-height: 600px) {
   .dialog-top {
     margin-top: 10vh;
+    margin-top: 10dvh;
     max-height: calc(90vh - 2rem);
     max-height: calc(90dvh - var(--safe-top) - var(--safe-bottom) - 2rem);
   }
