@@ -191,26 +191,29 @@ if (PlacementModal) {
         const unmount = await mount([q(0, SHORT_PHASE), q(1, SHORT_PHASE), q(2, SHORT_PHASE)]);
         ok('first question: the counter reads "Question 1 of 3"', counter() === 'Question 1 of 3', `counter: ${JSON.stringify(counter())}`);
         ok('…and nothing in the dialog says "0 of 3"', !/(?<!\d)0 of 3(?!\d)/.test(doc.querySelector('[role="dialog"]')?.textContent ?? ''));
-        ok('…the bar is empty before the first answer', barFill() === 0, `fill ${barFill()}%`);
+        // The bar says what the counter says: an empty bar under "Question 1"
+        // that filled while the counter stood still read as two counts.
+        ok('…the bar shows question 1 of 3, not an empty bar', Math.abs(barFill() - 100 / 3) < 0.1, `fill ${barFill()}%`);
         await act(() => [...doc.querySelectorAll('[data-answer-option]')].find(b => b.textContent.trim() === 'No')?.click());
         await settle();
         ok('answered: the counter still names the question on screen', counter() === 'Question 1 of 3', `counter: ${JSON.stringify(counter())}`);
-        ok('…and the bar moves by one question', Math.abs(barFill() - 100 / 3) < 0.1, `fill ${barFill()}%`);
+        ok('…and the bar stands still with it', Math.abs(barFill() - 100 / 3) < 0.1, `fill ${barFill()}%`);
         await act(() => button('Next')?.click());
         await settle();
-        ok('Next: "Question 2 of 3"', counter() === 'Question 2 of 3', `counter: ${JSON.stringify(counter())}`);
-        // A skipped question is passed, not answered: the counter follows the
-        // learner's place, the bar what is behind them.
+        ok('Next: "Question 2 of 3", the bar at two thirds', counter() === 'Question 2 of 3' && Math.abs(barFill() - 200 / 3) < 0.1,
+            `counter: ${JSON.stringify(counter())}, fill ${barFill()}%`);
+        // A skipped question is passed, not answered: the counter and the bar
+        // follow the learner's place.
         await act(() => button("I don't know — skip")?.click());
         await settle();
-        ok('skipped: "Question 3 of 3", the bar at two questions behind', counter() === 'Question 3 of 3' && Math.abs(barFill() - 200 / 3) < 0.1,
+        ok('skipped: "Question 3 of 3", the bar full', counter() === 'Question 3 of 3' && Math.abs(barFill() - 100) < 0.1,
             `counter: ${JSON.stringify(counter())}, fill ${barFill()}%`);
         await unmount();
     }
     {
         // A probe left after its first answer opens at the second question.
         const unmount = await mount([q(0, SHORT_PHASE, true), q(1, SHORT_PHASE), q(2, SHORT_PHASE)]);
-        ok('resumed after one answer: "Question 2 of 3", the bar at one question', counter() === 'Question 2 of 3' && Math.abs(barFill() - 100 / 3) < 0.1,
+        ok('resumed after one answer: "Question 2 of 3", the bar at two thirds', counter() === 'Question 2 of 3' && Math.abs(barFill() - 200 / 3) < 0.1,
             `counter: ${JSON.stringify(counter())}, fill ${barFill()}%`);
         await unmount();
     }

@@ -73,10 +73,10 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const questionReport = useReportOn(questionReportRef);
     const locked = !!verdict || busy || !!questionReport;
     const seeded = summary?.topicsSeeded ?? 0;
-    // The bar shows the questions behind the learner: those before this one
-    // (answered or skipped alike, since skipping is a legitimate answer), and
-    // this one once it has its verdict.
-    const passed = index + (verdict || questionReport ? 1 : 0);
+    // The bar says what the counter says: the question on screen, of how many.
+    // A bar that counted answers sat empty under "Question 1 of 12" and then
+    // filled while the counter stood still, and read as two different counts.
+    const position = Math.min(index + 1, total);
 
     // The phase name is shown whole or not at all: cut to "Phase 1: Building
     // Polynomial Approx…" on a phone it said nothing and crowded the counter.
@@ -298,7 +298,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 >{question.phaseTitle}</span>
                             )}
                         </div>
-                        <ProgressBar value={passed} max={Math.max(1, total)} size="sm" decorative />
+                        <ProgressBar value={position}max={Math.max(1, total)} size="sm" decorative />
                     </div>
                 )}
 
