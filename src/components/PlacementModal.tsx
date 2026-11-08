@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
@@ -37,7 +37,7 @@ interface Props {
  *  2. **Getting one wrong costs nothing.** There is no score, no pass mark and
  *     no streak — a wrong answer simply means the topic gets taught, which is
  *     the ordinary case and must not read as a failure. So the running counter
- *     says "5 of 12 answered", never "3 correct".
+ *     says where the learner is ("Question 5 of 12"), never "3 correct".
  *  3. **It is undoable in full.** `Discard` reverses every head start and every
  *     evidence row. Without it, taking the probe carries a risk that skipping it
  *     does not, and the learner is quietly punished for engaging.
@@ -65,7 +65,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const currentProjectId = useStore(s => s.currentProjectId);
 
     const question: PlacementQuestion | undefined = probe?.questions[index];
-    const answeredCount = probe?.questions.filter(q => q.answered).length ?? 0;
+    const total = probe?.total ?? 0;
     const asking = phase === 'asking' && !!question;
     // A question reported as wrong seeds nothing (server/itemReports.js): it
     // is not answered, and the way on is Next.
@@ -73,6 +73,27 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const questionReport = useReportOn(questionReportRef);
     const locked = !!verdict || busy || !!questionReport;
     const seeded = summary?.topicsSeeded ?? 0;
+    // The bar shows the questions behind the learner: those before this one
+    // (answered or skipped alike, since skipping is a legitimate answer), and
+    // this one once it has its verdict.
+    const passed = index + (verdict || questionReport ? 1 : 0);
+
+    // The phase name is shown whole or not at all: cut to "Phase 1: Building
+    // Polynomial Approx…" on a phone it said nothing and crowded the counter.
+    // Measured on its own box, which keeps its room while hidden, so widening
+    // the dialog brings it back.
+    const phaseRef = useRef<HTMLSpanElement>(null);
+    const [phaseFits, setPhaseFits] = useState(true);
+    useLayoutEffect(() => {
+        const el = phaseRef.current;
+        if (!el) return;
+        const measure = () => setPhaseFits(el.scrollWidth <= el.clientWidth + 1);
+        measure();
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        ro?.observe(el);
+        window.addEventListener('resize', measure);
+        return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
+    }, [asking, question?.phaseTitle]);
 
     // ---- start / resume ------------------------------------------------------
     const begin = useCallback(async () => {
@@ -221,7 +242,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     if (!isOpen) return null;
 
     return (
-        <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
+        <div className={`fixed inset-0 z-50 flex items-end sm:items-start justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
             onClick={close}>
             {/* The dialog never scrolls as a whole: the header and every
                 phase's footer stay put and only the body between them
@@ -233,11 +254,16 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 height first, down to 6rem so the question stays readable,
                 and only then does the dialog scroll, so the footer can
                 still be reached rather than clipped. The frame, body and
-                footer are ui/Dialog's. */}
+                footer are ui/Dialog's.
+                Answering adds a verdict box, and the question must not move
+                under the pointer as it appears: from `sm` up the dialog hangs
+                from a fixed top (`dialog-top`) and grows downward; on a phone
+                the sheet keeps one height while it asks (`sheet-stable`),
+                where it used to grow upward. */}
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} ${SHEET_PANEL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} dialog-top ${asking ? 'sheet-stable' : ''} ${SHEET_PANEL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
@@ -260,11 +286,19 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                 {asking && question && (
                     <div className="shrink-0 px-5 pb-4 space-y-2 border-b border-slate-200 dark:border-slate-700">
                         <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
-                            {/* Answered, never "correct so far" — a probe has no score. */}
-                            <span className="shrink-0">{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
-                            <span className="truncate min-w-0 text-right">{question.phaseTitle}</span>
+                            {/* Where the learner is, never "correct so far": a probe
+                                has no score. "0 of 12 answered" on the first
+                                question read as nothing happening. */}
+                            <span className="shrink-0">{t("Question {{n}} of {{total}}", { n: index + 1, total })}</span>
+                            {question.phaseTitle && (
+                                <span
+                                    ref={phaseRef}
+                                    aria-hidden={phaseFits ? undefined : true}
+                                    className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-right ${phaseFits ? '' : 'invisible'}`}
+                                >{question.phaseTitle}</span>
+                            )}
                         </div>
-                        <ProgressBar value={answeredCount} max={Math.max(1, probe?.total ?? 1)} size="sm" decorative />
+                        <ProgressBar value={passed} max={Math.max(1, total)} size="sm" decorative />
                     </div>
                 )}
 
@@ -314,11 +348,17 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     // One question on screen: its flag and the line under a
                     // missed answer open the same dialog.
                     <ReportScope>
-                        <div className="p-5 space-y-4">
+                        {/* More air under the header's rule (28px, was 20) and
+                            less between the topic and its question (8px, was
+                            16): the topic reads as the question's label, apart
+                            from the counter, and the dialog keeps its height. */}
+                        <div className="p-5 pt-7 space-y-4">
                             <div className="flex items-start gap-2">
-                                <div className="min-w-0 flex-1 space-y-4">
-                                    <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
-                                    {/* A block, so `space-y-4` reaches it: the stem is a
+                                <div className="min-w-0 flex-1 space-y-2">
+                                    {/* Muted, not the accent: in the accent it read as a
+                                        link, and it is only a label. */}
+                                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{question.nodeTitle}</p>
+                                    {/* A block, so `space-y-2` reaches it: the stem is a
                                         span, and an inline box takes no top margin. */}
                                     <div>
                                         <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />

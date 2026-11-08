@@ -745,6 +745,34 @@ body.assistant-overlay-open {
 }
 
 /*
+ * A dialog whose content grows while it is open (the placement probe: a verdict
+ * box appears under the answer). Centred, it recentred as it grew and the
+ * question moved up under the pointer. From `sm` up it hangs from a fixed top
+ * instead (its overlay is `sm:items-start`), so it grows downward only. The cap
+ * gives up the margin, so margin + frame + the overlay's 1rem a side still fit.
+ */
+@media (min-width: 640px) {
+  .dialog-top {
+    margin-top: 10vh;
+    max-height: calc(90vh - 2rem);
+    max-height: calc(90dvh - var(--safe-top) - var(--safe-bottom) - 2rem);
+  }
+}
+
+/*
+ * The same dialog as a phone's bottom sheet grew UPWARD, taking the question
+ * with it. While it asks, the sheet keeps one height (.modal-frame-stable's,
+ * which the mastery check uses at every width), and a verdict too long for the
+ * room scrolls inside the body.
+ */
+@media (max-width: 639.98px) {
+  .sheet-stable {
+    height: min(90vh, 42rem);
+    height: min(90dvh, 42rem, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 2rem));
+  }
+}
+
+/*
  * A bottom sheet (ui/Sheet.tsx): up to 40rem, and on a short screen (a phone
  * on its side) as tall as the room under the status bar allows, less a strip
  * of dimmed page that shows it is a sheet. A fixed share of the height (80%)

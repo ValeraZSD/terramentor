@@ -69,7 +69,6 @@
   "{{accuracyPct}}% correct today — see which": "{{accuracyPct}}% 正确 — 查看详情",
   "{{actual}}% done; the plan expects {{expected}}%": "已完成 {{actual}}%;计划预期为 {{expected}}%",
   "{{anki}} of them came from Anki": "其中 {{anki}} 条来自 Anki",
-  "{{answeredCount}} of {{total}} answered": "已回答 {{answeredCount}} / {{total}}",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} 已回答",
   "{{attempts}} attempts available to fit on._other": "剩余 {{attempts}} 次尝试以适配。",
   "{{attempts}} on {{topics}} topics": "{{attempts}} 次尝试，共 {{topics}} 个主题",

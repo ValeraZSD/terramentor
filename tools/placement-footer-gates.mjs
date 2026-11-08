@@ -181,12 +181,13 @@ if (PlacementModal) {
                 scroller ? `inside <${scroller.tagName.toLowerCase()} class="${scroller.getAttribute('class')}">` : '');
         }
         // The scroll that brings the verdict into view must not carry the
-        // learner's place away with it: the "N of M answered" line scrolled
-        // out of view along with the question it counts.
-        const count = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && /^\d+ of \d+ answered$/.test(e.textContent.trim()));
+        // learner's place away with it: the counter ("N of M answered" then,
+        // "Question N of M" since placement-header-gates.mjs) scrolled out of
+        // view along with the question it counts.
+        const count = [...dialog.querySelectorAll('*')].find(e => e.children.length === 0 && /^Question \d+ of \d+$/.test(e.textContent.trim()));
         const countScroller = count && chain(count, dialog).filter(n => n !== dialog).find(scrolls);
-        ok('"1 of 2 answered" is on the page and not inside anything that scrolls', !!count && !countScroller,
-            !count ? 'no "answered" line' : countScroller ? `inside <${countScroller.tagName.toLowerCase()} class="${countScroller.getAttribute('class')}">` : '');
+        ok('"Question 1 of 2" is on the page and not inside anything that scrolls', !!count && !countScroller,
+            !count ? 'no counter line' : countScroller ? `inside <${countScroller.tagName.toLowerCase()} class="${countScroller.getAttribute('class')}">` : '');
         const cls = dialog.getAttribute('class') ?? '';
         // CodeRabbit on #188: with the dialog clipping, a window shorter than
         // header + footer (a phone on its side, a zoomed page) cut Next off
