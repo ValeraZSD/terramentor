@@ -271,7 +271,7 @@ message API scoped by its capabilities:
 - **`practice`** is a practice format the feed and the topic page can offer, the way ```drill is
   offered today: receives a topic through `read:node`, runs its own loop, and reports `{correct,
   total}` through `write:evidence`; the host writes the evidence with the add-on's id on it, and
-  weighs it as a **drill** (never clears the gate's raw-assessment clause), because a sandbox's
+  weighs it as a **drill** (practice: it tunes the estimate and the gate never counts it), because a sandbox's
   word about what the learner knows is a claim, not proof. Use: a typing tutor, a dictation, a
   map quiz, a listening exercise over the card's own audio.
 - **`panel`** is a tab in the workspace rail or a card on the project dashboard. Receives what its

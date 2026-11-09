@@ -226,17 +226,35 @@ completion gate does not depend on it alone.
 `checkMasteryEligibility(nodeId, threshold, checkPass)` passes when there is
 evidence **and** either:
 
-- **(a)** BKT posterior ≥ `mastery_threshold`, **or**
+- **(a)** the gate's estimate (`gate_score`) ≥ `mastery_threshold`, **or**
 - **(b)** an assessment of type `quiz` / `mastery_check` / `paper`, with at least
   `MIN_GATE_QUESTIONS` items, passed at ≥ `mastery_check_pass` raw accuracy.
 
-`flashcard`, `drill` and `placement` evidence sharpen the estimate and refresh the
-decay timer but never satisfy clause (b). Placement is excluded for a structural
-reason, not a policy one: a probe asks one question per topic, so it can never be
-an assessment of `MIN_GATE_QUESTIONS` items.
+Only those three types are **proving** evidence (`PROVING_EVIDENCE_TYPES`).
+`flashcard` and `drill` are practice: a card is graded by the learner's own press
+and a drill replays the same items. They move the BKT estimate (`mastery_score`)
+and refresh the decay timer, but `gate_score` is the node's proving evidence
+replayed from its seed, capped at `mastery_score`: practice can lower what the gate
+reads and never raise it. A node with no practice evidence reads `mastery_score`
+unchanged. When practice alone put the estimate over the line, the read says so
+(`practice_lifted`) and the checkpoint card explains it. `placement` evidence is the
+seed it wrote, so it proves nothing either.
 
 **Clause (a) is suspended on any SEEDED node** (transferred §7.3 or placed
-§4.4) until it has `MIN_GATE_QUESTIONS` answers of its own.
+§4.4) until it has `MIN_GATE_QUESTIONS` proving answers of its own (`own_answers`;
+card ratings, drills and the placement answer do not count).
+
+A card-only topic (a deck section, a course topic with cards and no bank) is
+therefore never completed by its ratings under `enforced`: it is skipped, or
+proven by a check (`advisory` also offers "Mark done without the check", `off`
+does not ask). Nothing is lost by that: a card topic's progress is cards met
+(`server/progress.js`), so a deck reaches 100% and its finished screen with every
+section still open.
+
+Two other readers ask whether a topic is proven, and both ask `estimateProven`
+(the same `gate_score` test): the finished-project screen's "proven" count
+(`server/completion.js`) and mastery transfer's choice of twin (§7.3), so a topic
+held over the line only by its cards neither counts as proven nor lends a prior.
 
 Modes (`mastery_gate_mode`): `off` never gates; `advisory` lets the
 learner mark done anyway; `enforced` (default for a new library) blocks `completed` without proof. **Skip is
@@ -833,7 +851,8 @@ unrelated), topic placement, and the label table.
 ### 7.3 Mastery transfer (`server/masteryTransfer.js`)
 
 Seeds a topic's BKT **prior** from a semantically identical topic proven in
-another project. The boundary *is* the design:
+another project (proven as the gate reads it, `estimateProven`: card reviews and
+drills never make a twin). The boundary *is* the design:
 
 - **It never closes a gate**, enforced twice: `TRANSFER_CEILING` caps a seeded
   prior strictly below any sane threshold, *and* the gate's BKT clause is
