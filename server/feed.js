@@ -613,8 +613,10 @@ export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
  *   whether the writer is on that topic's first lesson (`writing`) or failed
  *   at it (`failed` + `reason`). Returned as applied: null when it is not this
  *   page's topic.
+ * now: the instant the recall round reads (which topics are fading, how many
+ *   days ago); gates pin it, everyone else gets the real one.
  */
-export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null, lessonWrite = null } = {}) {
+export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null, lessonWrite = null, now = new Date() } = {}) {
     // The learner's day as the instants it spans: every "today" counter below
     // counts what was stamped inside it (server/studyDay.js).
     const day = studyDay();
@@ -1020,26 +1022,31 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // first across every course in scope, at most `recallPerBatch` of them,
     // each the topic's first pick by difficulty (`recallOrder`). The cards
     // carry `review` so the stream can say what the run is. One round per
-    // visit: a client already holding a recall card is paging on, and gets
-    // none (the topics it skipped come back on its next visit, still fading).
-    // A topic's own page has no `projectInfos`, so it never carries one.
+    // visit, on the OPENING page only (the client holds nothing yet): a later
+    // page is paging on below what the learner already has, and a topic that
+    // faded since then waits for the next visit rather than open a round in
+    // the middle of the stream. The topics a learner skipped come back then
+    // too, still fading. Never longer than the page. A topic's own page has
+    // no `projectInfos`, so it never carries one.
+    const openingPage = excludeKeys.size === 0;
     const roundHeld = [...excludeKeys].some(k => String(k).startsWith('recall-'));
     const review = [];
-    if (!roundHeld && fs.recallPerBatch > 0) {
+    const roundSize = Math.min(fs.recallPerBatch, limit);
+    if (openingPage && roundSize > 0) {
         const fading = [];
         for (const info of projectInfos) {
             let ghosts = [];
-            try { ghosts = getGhostQuestions(info.project.id, fs.recallPerBatch, gate.decayDays, new Date(), { perTopic: 1 }); } catch { ghosts = []; }
+            try { ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 }); } catch { ghosts = []; }
             for (const ghost of ghosts) fading.push({ ghost, info });
         }
         // Byte order, as the SQL that listed each course's topics sorted them.
         const stamp = (g) => String(g.lastUpdated ?? '');
         fading.sort((a, b) => (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
-        for (const { ghost, info } of fading.slice(0, fs.recallPerBatch)) {
+        for (const { ghost, info } of fading.slice(0, roundSize)) {
             const pick = ghost.picks[0];
             let daysSince = null;
             const ts = ghost.lastUpdated ? Date.parse(`${String(ghost.lastUpdated).replace(' ', 'T')}Z`) : NaN;
-            if (Number.isFinite(ts)) daysSince = Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+            if (Number.isFinite(ts)) daysSince = Math.max(0, Math.floor((now.getTime() - ts) / 86400000));
             review.push({
                 // The question's position in its own row: what an answer is
                 // recorded against (`bankRefOfFeedKey`).

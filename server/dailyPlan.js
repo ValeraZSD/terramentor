@@ -180,11 +180,14 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
  * @returns Array of { nodeId, title, lastUpdated, quizId, questions, picks }:
  *   `picks` is `{ quizId, index, question }` per question, where it lives;
  *   `questions` the same questions as `{ ...question, quizIndex }`, the shape a
- *   practice quiz embeds; `quizId` the first pick's row.
+ *   practice quiz embeds; `quizId` the first pick's row (the picks may come
+ *   from different rows: a question's own row is in `picks`).
  */
 export function getGhostQuestions(projectId, maxTopics = 2, decayDays = 14, now = new Date(), { perTopic = 2 } = {}) {
     const out = [];
-    for (const node of getDecayingNodes(projectId, decayDays, now)) {
+    // Every fading topic, oldest first, not the first ten: when the oldest
+    // ones have nothing a draw may hand out, a younger one still gets asked.
+    for (const node of getDecayingNodes(projectId, decayDays, now, { limit: null })) {
         if (out.length >= maxTopics) break;
         const picks = recallOrder(node.node_id).slice(0, Math.max(1, perTopic));
         if (!picks.length) continue;

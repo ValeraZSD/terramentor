@@ -205,8 +205,10 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  *      and a lucky true/false says little;
  *   3. then the questions only ever missed: never got right, they say nothing
  *      about forgetting.
- * Within a tier, the least recently asked first, then storage order, so the
- * pick is the same on every read (no lottery). The question the topic's
+ * Within a tier and the same share of misses, the format a guess cannot pass
+ * first in EVERY tier (a correct calculation known twice says more than a
+ * correct true/false known twice), then the least recently asked, then
+ * storage order, so the pick is the same on every read (no lottery). The question the topic's
  * previous recall asked goes last, so two reviews in a row never repeat one.
  *
  * Only what a draw could hand out: the topic's own questions with a usable key
@@ -218,11 +220,16 @@ export function recallOrder(nodeId) {
     if (!bank.length) return [];
     const quizIds = [...new Set(bank.map(b => b.quizId))];
     const marks = quizIds.map(() => '?').join(',');
+    // A copy of one of these questions answered inside another topic's
+    // practice quiz is logged under THAT quiz, by the uuid the copy keeps:
+    // the same question answered, so it counts here too.
+    const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
+    const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
     const record = new Map(db.prepare(`
         SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last
-        FROM question_log WHERE quiz_id IN (${marks})
+        FROM question_log WHERE quiz_id IN (${marks})${byUuid}
         GROUP BY k
-    `).all(...quizIds).map(r => [r.k, r]));
+    `).all(...quizIds, ...uuids).map(r => [r.k, r]));
     const previous = db.prepare(`
         SELECT ${LOG_KEY} AS k FROM question_log
         WHERE quiz_id IN (${marks}) AND surface = 'recall'

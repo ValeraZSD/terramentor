@@ -269,14 +269,16 @@ Which question is asked is picked by difficulty, the same on every read
 (`recallOrder` in `server/questionLog.js`), from the question log every surface
 writes: the questions the learner has got right before, the largest share of
 misses first; then those with no graded answer, the format with the lowest guess
-floor first; then those only ever missed; within a tier the least recently asked.
-The question the topic's previous recall asked goes last. Only usable keys a
-verifier has confirmed are candidates, and a recall answer is logged as `recall`.
+floor first; then those only ever missed; ties within a tier go to the lower
+guess floor, then the least recently asked. An answer to a copy of the question
+inside another topic's practice quiz counts (matched by its uuid). The question
+the topic's previous recall asked goes last. Only usable keys a verifier has
+confirmed are candidates, and a recall answer is logged as `recall`.
 In the feed they arrive as a review round that OPENS the home stream and a
 course's stream: one question from each fading topic, oldest first, at most
-`feed_recall_per_batch`, once per visit (a client holding a recall card gets no
-second round), drawn under one header (`review: true` on the card). A topic's own
-page carries none.
+`feed_recall_per_batch` and never more than the page, on the opening page of a
+visit only (a later page never starts one), drawn under one header
+(`review: true` on the card). A topic's own page carries none.
 
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with

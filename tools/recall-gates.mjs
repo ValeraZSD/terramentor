@@ -100,6 +100,9 @@ const E = topic(broken, 'Unusable');
 mastered(E, LONG_AGO(3));
 bank(E, [{ ...mc('E unusable key'), correct_answer: 'maybe' }, markPending(mc('E unverified'), { now: NOW.getTime() })]);
 
+// Every page is composed at the pinned instant: which topics fade, and how
+// long ago, never depend on the day the gate runs.
+const feed = (opts) => composeFeed({ now: NOW, ...opts });
 const stems = (ghost) => ghost?.questions.map(q => q.question) ?? null;
 const ghostOf = (pid, nodeId) =>
     getGhostQuestions(pid, 10, 14, NOW).find(g => g.nodeId === nodeId) ?? null;
@@ -122,7 +125,7 @@ check('each pick says where it lives, so its answer is recorded against it',
 
 console.log('\n--- the review round in the stream ---');
 const recallCards = (feed) => feed.items.filter(i => i.kind === 'recall');
-const home = composeFeed({ limit: 15, excludeKeys: new Set() });
+const home = feed({ limit: 15, excludeKeys: new Set() });
 const firstOwn = home.items.findIndex(i => i.kind !== 'notice');
 const homeRecall = recallCards(home);
 check('the round opens the stream: the first cards after any notice are the recall questions',
@@ -138,18 +141,22 @@ check('the topic being taught comes after the round',
 
 db.prepare(`INSERT INTO settings (key, value) VALUES ('feed_recall_per_batch', '2')`).run();
 check('its size is the existing "Recall questions per batch" setting',
-    recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
+    recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
 db.prepare(`UPDATE settings SET value = '0' WHERE key = 'feed_recall_per_batch'`).run();
-check('...and 0 turns it off', recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).length, 0);
+check('...and 0 turns it off', recallCards(feed({ limit: 15, excludeKeys: new Set() })).length, 0);
 db.prepare(`DELETE FROM settings WHERE key = 'feed_recall_per_batch'`).run();
 
 const held = new Set(home.items.map(i => i.key));
 check('one round per visit: the next page of the same stream carries no recall',
-    recallCards(composeFeed({ limit: 15, excludeKeys: held })).length, 0);
+    recallCards(feed({ limit: 15, excludeKeys: held })).length, 0);
+check('only the opening page starts one: a later page holding no recall card (topics faded since) has none either',
+    recallCards(feed({ limit: 15, excludeKeys: new Set(home.items.filter(i => i.kind !== 'recall').map(i => i.key)) })).length, 0);
+check('never longer than the page asked for',
+    recallCards(feed({ limit: 2, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
 check('a course’s stream reviews that course’s topics only',
-    recallCards(composeFeed({ limit: 15, excludeKeys: new Set(), projectId: dutch })).map(c => c.nodeId), [C]);
+    recallCards(feed({ limit: 15, excludeKeys: new Set(), projectId: dutch })).map(c => c.nodeId), [C]);
 check('a topic’s own page carries no review round',
-    recallCards(composeFeed({ limit: 15, excludeKeys: new Set(), nodeId: T })).length, 0);
+    recallCards(feed({ limit: 15, excludeKeys: new Set(), nodeId: T })).length, 0);
 
 console.log('\n--- an answer is recorded, and moves the next pick on ---');
 const card = homeRecall[0];
@@ -159,13 +166,13 @@ check('a recall answer is recorded in the question log, as a recall',
 check('...and still writes its evidence',
     db.prepare(`SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND metadata LIKE '%"ghost":true%'`).get(A).n, 1);
 check('the answered topic is no longer fading, so the next visit’s round leaves it out',
-    recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C, Bn]);
+    recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C, Bn]);
 db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(1), A);
 check('when it fades again, the question its last recall asked is not asked next',
     stems(ghostOf(physics, A))?.[0], 'A easy, always right');
 
 db.prepare('UPDATE node_mastery SET last_updated = ?').run(FAR_AHEAD);
-check('nothing fading: no round at all', recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).length, 0);
+check('nothing fading: no round at all', recallCards(feed({ limit: 15, excludeKeys: new Set() })).length, 0);
 
 console.log('\n--- ties, and an answer nobody judged ---');
 // G is not fading (its own course, a stamp in 2099): only its order is read.
@@ -184,14 +191,35 @@ consumeFeedItem({ key: `recall-${G}-${gRow}-2`, kind: 'recall', nodeId: G, resul
 check('an answer the grader never judged is logged as asked, never as a miss',
     db.prepare('SELECT surface, correct FROM question_log WHERE quiz_id = ? AND question_index = 2').all(gRow), [{ surface: 'recall', correct: null }]);
 
+// K's second question answered right as a copy inside G's practice quiz: the
+// log row is G's quiz, matched back to K by the uuid the copy keeps.
+const K = topic(project('Copies'), 'Copied');
+mastered(K, FAR_AHEAD);
+const kRow = bank(K, [mc('K one'), mc('K two, answered as a copy elsewhere')]);
+const kTwo = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(kRow).questions)[1];
+const hostRow = bank(G, [{ ...kTwo, isGhost: true, ghostNodeId: K }]);
+logAsked([{ quizId: hostRow, uuid: kTwo.uuid, correct: true }], 'quiz');
+check('an answer to a copy in another topic’s practice quiz counts in the question’s record',
+    recallOrder(K).map(b => b.question.question), ['K two, answered as a copy elsewhere', 'K one']);
+
 console.log('\n--- a finished library with one topic fading ---');
 db.prepare(`UPDATE nodes SET status = 'completed'`).run();
 db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(10), C);
-const done1 = composeFeed({ limit: 15, excludeKeys: new Set() });
+const done1 = feed({ limit: 15, excludeKeys: new Set() });
 check('the round is the whole stream, with no "all caught up" under it',
     done1.items.map(i => i.key), [`recall-${C}-${db.prepare('SELECT id FROM quizzes WHERE node_id = ?').get(C).id}-0`]);
 check('...and the next page does not claim "no reviews due" below the round either',
-    composeFeed({ limit: 15, excludeKeys: new Set(done1.items.map(i => i.key)) }).items.map(i => i.key), []);
+    feed({ limit: 15, excludeKeys: new Set(done1.items.map(i => i.key)) }).items.map(i => i.key), []);
+
+console.log('\n--- past the oldest ten ---');
+// Eleven fading topics: the ten oldest have nothing to ask, the youngest does.
+const crowded = project('Crowded');
+for (let d = 1; d <= 10; d++) mastered(topic(crowded, `Nothing to ask ${d}`), LONG_AGO(d));
+const asks = topic(crowded, 'Has a question');
+mastered(asks, LONG_AGO(20));
+bank(asks, [mc('the eleventh topic’s question')]);
+check('a fading topic behind ten with nothing to ask still gets its recall',
+    getGhostQuestions(crowded, 4, 14, NOW).map(g => g.nodeId), [asks]);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 db.close();
