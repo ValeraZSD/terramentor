@@ -538,7 +538,9 @@ console.log('\n--- one name, one file, across the whole export ---');
     };
     const cats = [await shown(a, h1), await shown(b, h2)];
     check('two different pictures named cat.jpg go out as two names, each card showing its own',
-        cats[0].src !== cats[1].src && cats.every(x => x.ok), JSON.stringify(cats));
+        // A plain name stays as it was; only the later claimant is numbered.
+        JSON.stringify(cats.map(x => x.src).sort()) === JSON.stringify(['cat-2.jpg', 'cat.jpg'])
+            && cats.every(x => x.ok), JSON.stringify(cats));
     const scans = [await shown(d, h1), await shown(e, h2), await shown(f, h1), await shown(g, h2)];
     check('colliding .jpeg2000 names keep the extension after the suffix, each card showing its own',
         // Which of a pair is numbered depends on export order, so compare as sets.
