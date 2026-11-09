@@ -160,11 +160,18 @@ check('a topic’s own page carries no review round',
 
 console.log('\n--- an answer is recorded, and moves the next pick on ---');
 const card = homeRecall[0];
+const stampOf = (nodeId) => db.prepare('SELECT last_updated FROM node_mastery WHERE node_id = ?').get(nodeId).last_updated;
+const stampBefore = stampOf(A);
 consumeFeedItem({ key: card.key, kind: 'recall', nodeId: card.nodeId, result: { correct: true }, attemptId: 'recall-gate-1', uuid: card.question.uuid ?? null });
 check('a recall answer is recorded in the question log, as a recall',
     db.prepare(`SELECT surface, correct FROM question_log WHERE node_id = ? AND surface = 'recall'`).all(A), [{ surface: 'recall', correct: 1 }]);
 check('...and still writes its evidence',
     db.prepare(`SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND metadata LIKE '%"ghost":true%'`).get(A).n, 1);
+check('...and restarts the topic’s decay timer',
+    stampOf(A) > stampBefore, true);
+// The answer stamps the wall clock; pin it to NOW so the round below reads no clock.
+db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?')
+    .run(NOW.toISOString().replace('T', ' ').slice(0, 19), A);
 check('the answered topic is no longer fading, so the next visit’s round leaves it out',
     recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C, Bn]);
 db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(1), A);
