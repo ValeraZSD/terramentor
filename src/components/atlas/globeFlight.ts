@@ -1,20 +1,17 @@
 import { Vec3, angleBetween, dot3, unit3 } from './globeProjection';
-import { MAX_HANDLE, ARC_STEPS } from './coursePaths';
 
 /**
- * The route a replay flies across Terra — the sphere's answer to the curve in
- * `coursePaths.ts`.
+ * The route a replay flies — across Terra, and across the Map, which is the
+ * same sphere unrolled.
  *
- * WHEN the arrow is between two topics is settled once for both surfaces
- * (`advanceFlight`); WHERE it is, is not, and cannot be. A journey on the plane
- * is a cubic Bézier through the topics' own places. On a sphere there is no
+ * WHEN the arrow is between two topics is settled in `coursePaths.ts`
+ * (`advanceFlight`); WHERE it is, is settled here. On a sphere there is no
  * such thing as a straight line between two places, and a curve built out of
- * the plane's arithmetic does not merely look wrong — it leaves the surface.
+ * a plane's arithmetic does not merely look wrong — it leaves the surface.
  * Interpolating two directions componentwise and normalising afterwards gives a
  * path that IS on the sphere but crosses it at the wrong speed (fastest at the
- * ends, slowest in the middle, by up to the chord's own foreshortening), which
- * is the same fault `legParam` exists to kill on the plane, arriving through a
- * different door.
+ * ends, slowest in the middle, by up to the chord's own foreshortening): an
+ * arrow that crawls out of a topic and then bolts.
  *
  * So every operation here is the spherical one. Interpolation is `slerp`.
  * Distance is the great-circle angle. The handles that bend a leg are built in
@@ -38,10 +35,22 @@ export interface SphereLeg {
     p3: Vec3;
 }
 
-// `MAX_HANDLE` (how long a handle may be, as a share of the leg's own chord) and
-// `ARC_STEPS` (the pieces a leg is measured in) come from `coursePaths.ts`. Both
-// are dimensionless and both mean the same thing on either surface — a cubic
-// whose handles outrun its chord loops wherever it is drawn.
+/**
+ * How long a control handle may be, as a share of the leg's own chord.
+ *
+ * Catmull-Rom sets a handle from the NEIGHBOURS' spacing, so a short hop
+ * between two far-apart neighbours gets a handle far longer than the hop — and
+ * a cubic whose handles outrun its chord loops. Half the chord is the usual
+ * ceiling for a curve that has to stay recognisably "from here to there".
+ */
+export const MAX_HANDLE = 0.5;
+
+/**
+ * How many pieces a leg is chopped into to measure its length. Sixteen is
+ * plenty for a curve whose handles cannot outrun its chord, and it is a per-leg
+ * cost paid once a frame.
+ */
+export const ARC_STEPS = 16;
 
 const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const scale3 = (a: Vec3, k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k];
@@ -149,10 +158,10 @@ export function sphereLegAt(leg: SphereLeg, t: number): Vec3 {
     return slerp(d, e, t);
 }
 
-// There is deliberately no `legUpTo` here, and the plane has one.
+// There is deliberately no "the first `t` of a leg, as its own leg" here.
 //
 // On a plane, de Casteljau's subdivision is exact: the first `t` of a leg IS a
-// cubic Bézier, so the flat map builds one and strokes it. On a sphere that
+// cubic Bézier, and a flat map can build one and stroke it. On a sphere that
 // identity quietly fails — a slerp-built Bézier is not a polynomial, and the
 // sub-curve it hands back is a DIFFERENT curve through the same two ends
 // (measured on this map's own shapes: up to 2.0e-3 radians away from the
@@ -178,7 +187,7 @@ export function sphereLegSpan(leg: SphereLeg): number {
 /**
  * The curve parameter at which this leg is `u` of its LENGTH along.
  *
- * `legParam`'s job, in radians: a cubic is not traversed at constant speed by
+ * Measured in radians: a cubic is not traversed at constant speed by
  * its own parameter, so equal milliseconds of `t` buy wildly unequal arcs — the
  * arrow crawls out of a topic and then bolts. Chop the curve up, add the pieces,
  * invert the table linearly, and equal milliseconds buy equal degrees of the

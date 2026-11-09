@@ -255,135 +255,6 @@ export function journeyTimeline(trace: CourseTrace): JourneyTimeline | null {
     return { startMs, firstMs, lastMs, hasRunUp, at, marks, grid: MARK_GRID };
 }
 
-// ---- the flight path --------------------------------------------------------
-//
-// The journey is a list of places and the order they were reached in; what a
-// reader watches is something MOVING between them. Those are not the same
-// picture, and a straight polyline cannot give the second one: an arrow walking
-// a polyline swings its heading through a corner in a single frame, which reads
-// as a series of jumps however smoothly its position is interpolated.
-//
-// So the drawn route is a curve through the same points — centripetal
-// Catmull-Rom, converted to cubic Béziers because that is what a canvas can
-// stroke. Centripetal (alpha = 0.5) rather than the uniform kind for one
-// specific reason: this map hands it coincident and near-coincident points all
-// the time (two topics of one course can sit a thousandth of the map apart),
-// and uniform Catmull-Rom answers those with a cusp or a loop — an arrow that
-// flies backwards through a knot it invented.
-//
-// The curve still passes exactly through every topic. It is the route between
-// them that bends, never the places themselves.
-
-export interface Pt { x: number; y: number }
-
-/** One leg of the flight: a cubic Bézier from (x0,y0) to (x3,y3). */
-export interface Leg {
-    x0: number; y0: number;
-    /** First control handle. */
-    x1: number; y1: number;
-    /** Second control handle. */
-    x2: number; y2: number;
-    x3: number; y3: number;
-}
-
-/**
- * How long a control handle may be, as a share of the leg's own chord.
- *
- * Catmull-Rom sets a handle from the NEIGHBOURS' spacing, so a short hop
- * between two far-apart neighbours gets a handle far longer than the hop — and
- * a cubic whose handles outrun its chord loops. Half the chord is the usual
- * ceiling for a curve that has to stay recognisably "from here to there".
- */
-export const MAX_HANDLE = 0.5;
-
-const dist = (a: Pt, b: Pt) => Math.hypot(b.x - a.x, b.y - a.y);
-
-/** Pull a handle back toward its anchor until it is no longer than the chord allows. */
-function capHandle(anchor: Pt, handle: Pt, chord: number): Pt {
-    const dx = handle.x - anchor.x, dy = handle.y - anchor.y;
-    const len = Math.hypot(dx, dy);
-    const max = chord * MAX_HANDLE;
-    if (!(len > max) || len === 0) return handle;
-    const k = max / len;
-    return { x: anchor.x + dx * k, y: anchor.y + dy * k };
-}
-
-/**
- * The legs of the flight through these points, one per gap.
- *
- * Returns [] for fewer than two points — a journey of one finished topic is a
- * place, not a route, and the renderer draws it as a marker.
- */
-export function flightPath(points: Pt[]): Leg[] {
-    const n = points.length;
-    if (n < 2) return [];
-    const legs: Leg[] = [];
-    for (let i = 0; i < n - 1; i++) {
-        const p0 = points[i === 0 ? 0 : i - 1];
-        const p1 = points[i];
-        const p2 = points[i + 1];
-        const p3 = points[i + 2 <= n - 1 ? i + 2 : n - 1];
-        const chord = dist(p1, p2);
-        // Centripetal parameterisation: the knot spacing is the square root of
-        // the distance, which is what keeps a coincident pair from dividing by
-        // zero in spirit as well as in arithmetic.
-        const d1 = Math.sqrt(dist(p0, p1));
-        const d2 = Math.sqrt(chord);
-        const d3 = Math.sqrt(dist(p2, p3));
-        // Barry–Goldman, with the degenerate cases answered by the straight
-        // line rather than by a NaN: two points in the same place have no
-        // direction to contribute, so the neighbour that does gets the say.
-        let c1: Pt;
-        if (d1 > 0 && d1 + d2 > 0) {
-            const denom = 3 * d1 * (d1 + d2);
-            c1 = {
-                x: (d1 * d1 * p2.x - d2 * d2 * p0.x + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1.x) / denom,
-                y: (d1 * d1 * p2.y - d2 * d2 * p0.y + (2 * d1 * d1 + 3 * d1 * d2 + d2 * d2) * p1.y) / denom,
-            };
-        } else {
-            c1 = { x: p1.x + (p2.x - p1.x) / 3, y: p1.y + (p2.y - p1.y) / 3 };
-        }
-        let c2: Pt;
-        if (d3 > 0 && d3 + d2 > 0) {
-            const denom = 3 * d3 * (d3 + d2);
-            c2 = {
-                x: (d3 * d3 * p1.x - d2 * d2 * p3.x + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2.x) / denom,
-                y: (d3 * d3 * p1.y - d2 * d2 * p3.y + (2 * d3 * d3 + 3 * d3 * d2 + d2 * d2) * p2.y) / denom,
-            };
-        } else {
-            c2 = { x: p2.x + (p1.x - p2.x) / 3, y: p2.y + (p1.y - p2.y) / 3 };
-        }
-        const h1 = capHandle(p1, c1, chord);
-        const h2 = capHandle(p2, c2, chord);
-        legs.push({
-            x0: p1.x, y0: p1.y, x1: h1.x, y1: h1.y,
-            x2: h2.x, y2: h2.y, x3: p2.x, y3: p2.y,
-        });
-    }
-    return legs;
-}
-
-/**
- * Where the flight is at `t` along one leg, and which way it is pointing.
- *
- * The heading is the curve's own derivative, which is the whole reason for the
- * curve: it turns continuously, so an arrow drawn along it banks into a corner
- * instead of snapping round it. Where the derivative vanishes (both handles
- * sitting on their anchors, which is what two coincident topics produce) the
- * chord answers instead, and a leg with no length at all reports 0 rather than
- * NaN.
- */
-export function legAt(leg: Leg, t: number): { x: number; y: number; angle: number } {
-    const u = 1 - t;
-    const x = u * u * u * leg.x0 + 3 * u * u * t * leg.x1 + 3 * u * t * t * leg.x2 + t * t * t * leg.x3;
-    const y = u * u * u * leg.y0 + 3 * u * u * t * leg.y1 + 3 * u * t * t * leg.y2 + t * t * t * leg.y3;
-    let dx = 3 * u * u * (leg.x1 - leg.x0) + 6 * u * t * (leg.x2 - leg.x1) + 3 * t * t * (leg.x3 - leg.x2);
-    let dy = 3 * u * u * (leg.y1 - leg.y0) + 6 * u * t * (leg.y2 - leg.y1) + 3 * t * t * (leg.y3 - leg.y2);
-    if (Math.abs(dx) + Math.abs(dy) < 1e-9) { dx = leg.x3 - leg.x0; dy = leg.y3 - leg.y0; }
-    const angle = Math.abs(dx) + Math.abs(dy) < 1e-9 ? 0 : Math.atan2(dy, dx);
-    return { x, y, angle };
-}
-
 // ---- how long a step takes --------------------------------------------------
 //
 // One fixed beat for every step says every hop is the same journey, and on a
@@ -537,90 +408,20 @@ export function flightShare(
     return flightMs(trace, step, pace) / stepDurationMs(trace, step, pace);
 }
 
-/**
- * How many pieces a leg is chopped into to measure its length. Sixteen is
- * plenty for a curve whose handles cannot outrun its chord, and it is a per-leg
- * cost paid once a frame.
- */
-export const ARC_STEPS = 16;
-
-/**
- * The curve parameter at which this leg is `u` of its LENGTH along — the whole
- * difference between an arrow that flies and one that lurches.
- *
- * A cubic is not traversed at a constant speed by its own parameter: at a fixed
- * `t` per millisecond, a leg of this map's real journeys moves between 1.8 and
- * **6.9 times** faster in the middle than at its ends (measured over the shapes
- * a real course produces — a tight cluster, a long hop, a corner, a coincident
- * pair). What that looks like is an arrow that sits still for the first part of
- * its beat and then bolts, which is exactly the "it starts moving already
- * halfway" a reader reports — the fault is not in the timing, it is that
- * distance and time were never the same axis.
- *
- * So the flight is parameterised by ARC LENGTH: chop the curve up, add the
- * pieces, and invert the table linearly. Equal milliseconds then buy equal
- * millimetres.
- */
-export function legParam(leg: Leg, u: number): number {
-    if (!(u > 0)) return 0;
-    if (u >= 1) return 1;
-    const lens: number[] = [0];
-    let total = 0;
-    let prev = legAt(leg, 0);
-    for (let i = 1; i <= ARC_STEPS; i++) {
-        const p = legAt(leg, i / ARC_STEPS);
-        total += Math.hypot(p.x - prev.x, p.y - prev.y);
-        lens.push(total);
-        prev = p;
-    }
-    // A leg with no length at all — two topics in one bubble, zoomed out — has
-    // no distance to divide by, and its parameter is as good an answer as any.
-    if (!(total > 0)) return u;
-    const want = u * total;
-    for (let i = 1; i <= ARC_STEPS; i++) {
-        if (lens[i] < want) continue;
-        const span = lens[i] - lens[i - 1];
-        const within = span > 0 ? (want - lens[i - 1]) / span : 0;
-        return (i - 1 + within) / ARC_STEPS;
-    }
-    return 1;
-}
-
-/**
- * The first `t` of a leg, as its own leg — de Casteljau, so the part already
- * flown is the SAME curve the whole leg would have drawn rather than a
- * straight-line approximation catching up to it.
- */
-export function legUpTo(leg: Leg, t: number): Leg {
-    const mid = (a: number, b: number) => a + (b - a) * t;
-    const ax = mid(leg.x0, leg.x1), ay = mid(leg.y0, leg.y1);
-    const bx = mid(leg.x1, leg.x2), by = mid(leg.y1, leg.y2);
-    const cx = mid(leg.x2, leg.x3), cy = mid(leg.y2, leg.y3);
-    const dx = mid(ax, bx), dy = mid(ay, by);
-    const ex = mid(bx, cx), ey = mid(by, cy);
-    return {
-        x0: leg.x0, y0: leg.y0, x1: ax, y1: ay,
-        x2: dx, y2: dy, x3: mid(dx, ex), y3: mid(dy, ey),
-    };
-}
-
 // ---- the flight, integrated --------------------------------------------------
 //
 // Where the arrow IS, as a float, given where the data says it should be and
 // how long the last frame took.
 //
-// This lives here rather than in a renderer because there are two renderers.
-// The atlas has two surfaces — the sheet and the planet — and a replay has to
-// mean the same thing on both: the same beat, the same share of it spent
-// flying, the same rule for what counts as travel and what counts as a cut. Two
-// copies of that arithmetic would be two clocks, and the first bug would be a
-// course that replays at a different speed depending on which way you happen to
-// be looking at the library.
+// This lives here rather than in the renderer because the page reads it too:
+// the panel's clock and the canvas's arrow have to agree about the same beat,
+// the same share of it spent flying, the same rule for what counts as travel
+// and what counts as a cut, on the Map and on Terra alike.
 //
 // It is also the half of a replay that has no picture in it. What is drawn
-// between two topics is entirely the surface's business — a Bézier on the plane,
-// a great circle on the sphere — but WHEN the arrow is between them is a number,
-// and a number can be asserted (`tools/atlas-gates.mjs`).
+// between two topics is the renderer's business (`globeFlight.ts`), but WHEN
+// the arrow is between them is a number, and a number can be asserted
+// (`tools/atlas-gates.mjs`).
 
 /** The mutable state one replay carries between frames. */
 export interface Flight {
