@@ -173,14 +173,14 @@ export function deckPath(segments) {
  * follows. Filenames are the stored name, not the content hash — a learner
  * opening the media folder in Anki should see the names their deck used.
  */
-export function mediaTags(entries) {
+export function mediaTags(entries, nameFor = ankiMediaName) {
     const list = Array.isArray(entries) ? entries : [];
     const sounds = list.filter((m) => m?.kind === 'audio' && m?.name);
     const images = list.filter((m) => m?.kind !== 'audio' && m?.name);
     return [
-        ...sounds.map((m) => `[sound:${ankiMediaName(m)}]`),
+        ...sounds.map((m) => `[sound:${nameFor(m)}]`),
         // `&` first: a name like `a&quot-1.png` must not decode into `a"-1.png`.
-        ...images.map((m) => `<img src="${ankiMediaName(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">`),
+        ...images.map((m) => `<img src="${nameFor(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">`),
     ].join('');
 }
 
@@ -190,6 +190,18 @@ export function mediaTags(entries) {
 // control bytes.
 const MEDIA_NAME_UNSAFE = /[\\/:*?"<>|[\]`$;\u0000-\u001f\u007f]/g;
 const MEDIA_EXT = /\.[a-z0-9]{1,5}$/i;
+// Anki shortens a media name past 120 UTF-8 bytes on import, which leaves the
+// field naming a file that is no longer there; a file system's limit is 255.
+const MEDIA_NAME_MAX_BYTES = 120;
+
+const utf8Bytes = (s) => Buffer.byteLength(s, 'utf8');
+
+/** `stem + suffix + ext`, the stem cut by code point until the whole fits. */
+function fitMediaName(stem, suffix, ext) {
+    const chars = Array.from(stem);
+    while (chars.length && utf8Bytes(`${chars.join('')}${suffix}${ext}`) > MEDIA_NAME_MAX_BYTES) chars.pop();
+    return `${chars.join('').trim() || 'media'}${suffix}${ext}`;
+}
 
 /**
  * The file name a stored media entry is exported under.
@@ -201,19 +213,46 @@ const MEDIA_EXT = /\.[a-z0-9]{1,5}$/i;
  * a path. A plain name passes through unchanged. A name that needed cleaning
  * gets the first characters of its hash, so two names that clean to the same
  * string stay two files. A lone surrogate becomes U+FFFD (the media map is
- * JSON, and a strict reader refuses one), and a name that is only an extension
- * keeps it, since Anki picks a player by extension.
+ * JSON, and a strict reader refuses one), a name that is only an extension
+ * keeps it, since Anki picks a player by extension, and a name past
+ * `MEDIA_NAME_MAX_BYTES` is shortened the same way, between code points.
  */
 export function ankiMediaName(entry) {
     const raw = String(entry?.name ?? '');
     const last = (raw.split(/[\\/]/).pop() ?? '').toWellFormed().replace(MEDIA_NAME_UNSAFE, '').replace(/[.\s]+$/, '');
     const ext = MEDIA_EXT.exec(last)?.[0] ?? '';
     const bare = last.slice(0, last.length - ext.length).replace(/^[.\s]+|[.\s]+$/g, '');
-    if (bare && `${bare}${ext}` === raw) return raw;
-    // Cut by code point, never inside a surrogate pair.
-    const stem = Array.from(bare).slice(0, 100).join('').trim() || 'media';
+    if (bare && `${bare}${ext}` === raw && utf8Bytes(raw) <= MEDIA_NAME_MAX_BYTES) return raw;
     const tag = /^[a-f0-9]{8,}$/i.test(String(entry?.hash ?? '')) ? `-${String(entry.hash).slice(0, 8)}` : '';
-    return `${stem}${tag}${ext}`;
+    return fitMediaName(bare, tag, ext);
+}
+
+/**
+ * One export's media names, each file under exactly one name.
+ *
+ * `ankiMediaName` looks at one entry, so two different blobs can still land on
+ * one name: two decks' `cat.jpg`, or a cleaned `a?.png` → `a-12345678.png`
+ * beside a deck that really named a file `a-12345678.png`. The archive keeps one
+ * of them and the other card shows the wrong picture. This hands out names in
+ * order, compares them case-blind (Windows and macOS file systems are), and
+ * numbers a later claimant. The fields and the archive must use the SAME namer.
+ */
+export function exportMediaNamer() {
+    const named = new Map();   // entry key → name
+    const taken = new Set();   // lower-cased names handed out
+    return (entry) => {
+        const key = `${entry?.hash ?? ''}\u0000${entry?.name ?? ''}`;
+        if (named.has(key)) return named.get(key);
+        const base = ankiMediaName(entry);
+        const ext = MEDIA_EXT.exec(base)?.[0] ?? '';
+        let name = base;
+        for (let n = 2; taken.has(name.toLowerCase()); n += 1) {
+            name = fitMediaName(base.slice(0, base.length - ext.length), `-${n}`, ext);
+        }
+        taken.add(name.toLowerCase());
+        named.set(key, name);
+        return name;
+    };
 }
 
 /** The card's media JSON column, parsed defensively (it is user/import data). */
@@ -243,11 +282,11 @@ export function parseCardMedia(raw) {
  */
 export const FIELD_NAMES = ['Front', 'Back', 'Notes'];
 
-export function noteFieldsForCard(card) {
+export function noteFieldsForCard(card, { mediaName = ankiMediaName } = {}) {
     const media = parseCardMedia(card?.media);
     return {
-        Front: textToAnkiHtml(card?.front) + mediaTags(media.front),
-        Back: textToAnkiHtml(card?.back) + mediaTags(media.back),
+        Front: textToAnkiHtml(card?.front) + mediaTags(media.front, mediaName),
+        Back: textToAnkiHtml(card?.back) + mediaTags(media.back, mediaName),
         Notes: textToAnkiHtml(card?.extra),
     };
 }
@@ -513,12 +552,12 @@ export function buildApkgZip({ collection, mediaFiles = [] }) {
  * Since our ids are per-database integers with no global meaning, deriving a
  * guid from one would be manufacturing exactly that collision.
  */
-export function buildNoteRows(cards, { deckIdFor, crtSec, baseId = Date.now() }) {
+export function buildNoteRows(cards, { deckIdFor, crtSec, baseId = Date.now(), mediaName }) {
     const rows = [];
     let seq = 0;
     let newPos = 1;
     for (const card of cards) {
-        const fields = noteFieldsForCard(card);
+        const fields = noteFieldsForCard(card, { mediaName });
         if (!fields.Front.trim()) continue; // `req` would generate no card anyway
         const sched = schedulingForCard(card, { crtSec, newPos });
         if (sched.type === CARD_NEW) newPos += 1;
@@ -626,19 +665,24 @@ export async function buildProjectApkg(deps, projectId) {
     for (const card of cards) ensureDeck(paths.get(card.node_id) || project.name);
 
     const crtSec = collectionCreationSec();
+    const mediaName = exportMediaNamer();
     const rows = buildNoteRows(cards, {
         crtSec,
         deckIdFor: (c) => deckIds.get(paths.get(c.node_id) || project.name) || 1,
+        mediaName,
     });
 
     // Media, deduped by the name it is exported under (the one the fields name).
     const seen = new Map();
     const missing = [];
+    const reportMissing = (name) => { if (!missing.includes(name)) missing.push(name); };
     for (const card of cards) {
         const m = parseCardMedia(card.media);
         for (const entry of [...m.front, ...m.back]) {
-            if (!entry?.name || !entry?.hash) continue;
-            const name = ankiMediaName(entry);
+            if (!entry?.name) continue;
+            // A named entry with no blob still put a tag in its field.
+            if (!entry.hash) { reportMissing(entry.name); continue; }
+            const name = mediaName(entry);
             if (seen.has(name)) continue;
             // Record the PATH, not the bytes. `pathFor` throws on a blob the
             // registry knows about but the disk no longer holds, which is the
@@ -647,7 +691,7 @@ export async function buildProjectApkg(deps, projectId) {
             try {
                 seen.set(name, { name, path: mediaStorage.pathFor(entry.hash) });
             } catch {
-                missing.push(entry.name);
+                reportMissing(entry.name);
             }
         }
     }

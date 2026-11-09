@@ -81,6 +81,7 @@ const PAYLOADS = [
     ['markdown a javascript: link', '[click](javascript:alert(1)) md link'],
     ['markdown a remote picture', `![pixel](${EVIL}/pixel.png) md image`],
     ['a tag split by an empty bold', '<scr<b></b>ipt>alert(1)</scr<b></b>ipt> split tag'],
+    ['a local picture with a remote srcset', `<img src="/x.png" srcset="${EVIL}/a.png 2x">srcset field`],
 ];
 
 // Media file names with path separators, shell characters and the delimiters of
@@ -204,7 +205,7 @@ const project = db.prepare('SELECT name, description FROM projects WHERE id = ?'
 const nodes = db.prepare('SELECT id, title, description FROM nodes WHERE project_id = ?').all(projectId);
 const nodeIds = nodes.map(n => n.id);
 const inNodes = `(${nodeIds.join(',') || 'NULL'})`;
-const cards = db.prepare(`SELECT front, back, extra, extra_front, media FROM flashcards WHERE node_id IN ${inNodes}`).all();
+const cards = db.prepare(`SELECT id, front, back, extra, extra_front, media FROM flashcards WHERE node_id IN ${inNodes}`).all();
 const resources = db.prepare(`SELECT title, url FROM resources WHERE node_id IN ${inNodes}`).all();
 const mediaRows = db.prepare('SELECT hash, filename, mime FROM media_files WHERE project_id = ?').all(projectId);
 check('the cards were written', cards.length >= PAYLOADS.length + 2, String(cards.length));
@@ -291,6 +292,11 @@ function holes(html) {
             }
         }
         if (tag === 'img' && !inertPicture(el.getAttribute('src') || '')) found.push(`<img src="${(el.getAttribute('src') || '').slice(0, 40)}">`);
+        // A browser may load any srcset candidate instead of the src.
+        for (const cand of (el.getAttribute('srcset') || '').split(',')) {
+            const url = cand.trim().split(/\s+/)[0];
+            if (url && !inertPicture(url)) found.push(`<${tag} srcset="${url.slice(0, 40)}">`);
+        }
         // A link goes to the web or nowhere: an emptied href (react-markdown's
         // answer to `javascript:`) is inert; anything else is a hole.
         const href = el.getAttribute('href');
@@ -298,6 +304,13 @@ function holes(html) {
     }
     return found;
 }
+
+console.log('\n--- the judge itself ---');
+check('the judge flags a remote srcset candidate beside a local src',
+    holes(`<img src="/x.png" srcset="/y.png 1x, ${EVIL}/a.png 2x">`).length === 1,
+    JSON.stringify(holes(`<img src="/x.png" srcset="/y.png 1x, ${EVIL}/a.png 2x">`)));
+check('the judge passes a srcset of the app\'s own pictures',
+    holes(`<img src="/api/media/${'a'.repeat(64)}" srcset="/api/media/${'b'.repeat(64)} 2x, /x.png 480w">`).length === 0);
 
 // ---- cards ------------------------------------------------------------------
 
@@ -426,7 +439,28 @@ console.log('\n--- the export carries no markup and no path ---');
     check('every <img> in a field names a file in the archive',
         imgNames.length >= 3 && imgNames.every(n => names.includes(n)), JSON.stringify(imgNames));
 
-    const { ankiMediaName } = await import(B + 'ankiExport.js');
+    const { ankiMediaName, exportMediaNamer } = await import(B + 'ankiExport.js');
+    // What each imported reference should come out as, and the bytes behind it.
+    const refsOut = cards.flatMap(c => { const m = JSON.parse(c.media || '{}'); return [...(m.front || []), ...(m.back || [])]; });
+    const expectBytes = new Map(refsOut.map(r => {
+        const i = BAD_NAMES.indexOf(r.name);
+        return [ankiMediaName(r), Buffer.concat([/\.mp3/.test(r.name) ? MP3 : PNG, Buffer.from([i])])];
+    }));
+    const wrongBytes = [];
+    for (const [key, name] of Object.entries(index)) {
+        const file = out.file(key);
+        const bytes = file ? await file.async('nodebuffer') : null;
+        if (!bytes || !expectBytes.get(name)?.equals(bytes)) wrongBytes.push(`${key} → ${name}: ${bytes ? `${bytes.length} bytes` : 'no entry'}`);
+    }
+    check('every media map key has its file, holding that deck file\'s bytes', wrongBytes.length === 0, wrongBytes.join(' | '));
+    const expectImg = refsOut.filter(r => r.kind !== 'audio').map(ankiMediaName).sort();
+    const expectSound = refsOut.filter(r => r.kind === 'audio').map(ankiMediaName).sort();
+    check('every imported picture is named in an exported field',
+        expectImg.length === 4 && JSON.stringify([...imgNames].sort()) === JSON.stringify(expectImg),
+        JSON.stringify({ expectImg, imgNames }));
+    check('every imported clip is named in an exported field',
+        expectSound.length === 2 && JSON.stringify([...soundNames].sort()) === JSON.stringify(expectSound),
+        JSON.stringify({ expectSound, soundNames }));
     const H1 = 'a'.repeat(64), H2 = 'b'.repeat(64);
     for (const plain of ['cat.jpg', 'cat (1).jpg', 'a b.mp3', '猫の写真.png', 'naïve-café_01.webp', "it's.ogg"]) {
         check(`an ordinary name stays as it was: ${plain}`, ankiMediaName({ name: plain, hash: H1 }) === plain, ankiMediaName({ name: plain, hash: H1 }));
@@ -440,11 +474,61 @@ console.log('\n--- the export carries no markup and no path ---');
         /^media-aaaaaaaa$/.test(ankiMediaName({ name: '../[]', hash: H1 })), ankiMediaName({ name: '../[]', hash: H1 }));
     check('a name that is only an extension keeps it (Anki picks a player by it)',
         ankiMediaName({ name: '.mp3', hash: H1 }) === 'media-aaaaaaaa.mp3', ankiMediaName({ name: '.mp3', hash: H1 }));
-    const long = ankiMediaName({ name: `${'a'.repeat(99)}😀tail]x.png`, hash: H1 });
+    const long = ankiMediaName({ name: `${'a'.repeat(105)}😀tail]x.png`, hash: H1 });
     check('a long name is cut between characters, never inside one',
-        long.isWellFormed() && long.endsWith('-aaaaaaaa.png'), JSON.stringify(long.slice(95)));
+        long.isWellFormed() && long.endsWith('-aaaaaaaa.png') && Buffer.byteLength(long) <= 120, JSON.stringify(long.slice(95)));
     check('a lone surrogate never reaches the media map',
         ankiMediaName({ name: 'a\ud83d.png', hash: H1 }).isWellFormed());
+    // Anki shortens a name past 120 UTF-8 bytes on import, orphaning the field's reference.
+    const fits = `${'a'.repeat(116)}.png`;
+    check('a plain name of exactly 120 bytes stays as it was', ankiMediaName({ name: fits, hash: H1 }) === fits);
+    const wide = ankiMediaName({ name: `${'猫'.repeat(60)}.png`, hash: H1 });
+    check('a plain name past 120 bytes is shortened, by bytes, keeping hash and extension',
+        Buffer.byteLength(wide) <= 120 && wide.isWellFormed() && /^猫+-aaaaaaaa\.png$/.test(wide), `${Buffer.byteLength(wide)} ${wide}`);
+
+    // One export hands each file one name, across every card.
+    const nameFor = exportMediaNamer();
+    const H3 = '1234567800' + 'c'.repeat(54);
+    const n1 = nameFor({ name: 'cat.jpg', hash: H1 });
+    const n2 = nameFor({ name: 'cat.jpg', hash: H2 });
+    const n3 = nameFor({ name: 'Cat.jpg', hash: H3 });
+    check('two decks\' different cat.jpg go out as two files, case-blind',
+        n1 === 'cat.jpg' && n2 === 'cat-2.jpg' && n3 === 'Cat-3.jpg', JSON.stringify([n1, n2, n3]));
+    check('the same file asked for twice keeps one name', nameFor({ name: 'cat.jpg', hash: H2 }) === 'cat-2.jpg');
+    const cleaned = nameFor({ name: 'a?.png', hash: H3 });
+    const real = nameFor({ name: 'a-12345678.png', hash: H1 });
+    check('a cleaned name never takes a name a deck really used for another file',
+        cleaned === 'a-12345678.png' && real === 'a-12345678-2.png', JSON.stringify([cleaned, real]));
+}
+
+console.log('\n--- one name, one file, across the whole export ---');
+{
+    const { exportProjectApkg } = await import(B + 'ankiExport.js');
+    const { mediaStorage } = await import(B + 'vaultStorage.js');
+    // Two cards whose different pictures share a name (two decks' cat.jpg), and
+    // one whose picture has a name but no file.
+    const [a, b, c] = cards.filter(x => !x.media || x.media === '{}' || x.media === 'null');
+    const [h1, h2] = mediaRows.filter(m => /^image\//.test(m.mime)).map(m => m.hash);
+    const set = db.prepare('UPDATE flashcards SET media = ? WHERE id = ?');
+    set.run(JSON.stringify({ front: [{ name: 'cat.jpg', hash: h1, kind: 'image' }], back: [] }), a.id);
+    set.run(JSON.stringify({ front: [{ name: 'cat.jpg', hash: h2, kind: 'image' }], back: [] }), b.id);
+    set.run(JSON.stringify({ front: [{ name: 'gone.png', kind: 'image' }], back: [] }), c.id);
+    const { buffer, stats } = await exportProjectApkg({ db, mediaStorage }, projectId);
+    const out = await JSZip.loadAsync(buffer);
+    const index = JSON.parse(await out.file('media').async('string'));
+    const keyOf = Object.fromEntries(Object.entries(index).map(([k, n]) => [n, k]));
+    const colFile = join(scratch, 'exported-2.anki2');
+    (await import('node:fs')).writeFileSync(colFile, await out.file('collection.anki2').async('nodebuffer'));
+    const col = new Database(colFile, { readonly: true });
+    const cats = col.prepare('SELECT flds FROM notes').all()
+        .flatMap(r => [...r.flds.matchAll(/<img src="(cat[^"]*)">/g)].map(m => m[1]));
+    col.close();
+    const bytes = await Promise.all(cats.map(n => keyOf[n] ? out.file(keyOf[n]).async('nodebuffer') : null));
+    check('two different pictures named cat.jpg go out as two names and two files',
+        cats.length === 2 && cats[0] !== cats[1] && bytes.every(Boolean) && !bytes[0].equals(bytes[1]),
+        JSON.stringify(cats));
+    check('a media entry with a name and no blob is listed as missing',
+        stats.missingMedia.includes('gone.png'), JSON.stringify(stats.missingMedia));
 }
 
 db.close();
