@@ -225,7 +225,7 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                         keep a topic fresh, and the gate does not count them. */}
                     {card.practiceLifted && gateMode !== 'off' && (
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {t("Card reviews and drills raised this, but only answered questions prove a topic.")}
+                            {t("Flashcards and practice drills raised this number. They don't finish a topic; a quiz or the mastery check does.")}
                         </p>
                     )}
                 </div>
