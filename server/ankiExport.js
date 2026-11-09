@@ -189,7 +189,8 @@ export function mediaTags(entries, nameFor = ankiMediaName) {
 // brackets that delimit `[sound:…]`, the shell's quoting characters, and
 // control bytes.
 const MEDIA_NAME_UNSAFE = /[\\/:*?"<>|[\]`$;\u0000-\u001f\u007f]/g;
-const MEDIA_EXT = /\.[a-z0-9]{1,5}$/i;
+// Long enough for `.jpeg2000`; the extension is what Anki picks a player by.
+const MEDIA_EXT = /\.[a-z0-9]{1,10}$/i;
 // Anki shortens a media name past 120 UTF-8 bytes on import, which leaves the
 // field naming a file that is no longer there; a file system's limit is 255.
 const MEDIA_NAME_MAX_BYTES = 120;

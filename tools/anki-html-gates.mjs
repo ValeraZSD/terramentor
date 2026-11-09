@@ -507,7 +507,8 @@ console.log('\n--- one name, one file, across the whole export ---');
     const { mediaStorage } = await import(B + 'vaultStorage.js');
     // Two cards whose different pictures share a name (two decks' cat.jpg), and
     // one whose picture has a name but no file.
-    const [a, b, c] = cards.filter(x => !x.media || x.media === '{}' || x.media === 'null');
+    // Filler cards: their plain fronts go out unescaped, so each note is found by its text.
+    const [a, b, c] = cards.filter(x => /^front \d+$/.test(x.front) && (!x.media || x.media === '{}' || x.media === 'null'));
     const [h1, h2] = mediaRows.filter(m => /^image\//.test(m.mime)).map(m => m.hash);
     const set = db.prepare('UPDATE flashcards SET media = ? WHERE id = ?');
     set.run(JSON.stringify({ front: [{ name: 'cat.jpg', hash: h1, kind: 'image' }], back: [] }), a.id);
@@ -520,13 +521,19 @@ console.log('\n--- one name, one file, across the whole export ---');
     const colFile = join(scratch, 'exported-2.anki2');
     (await import('node:fs')).writeFileSync(colFile, await out.file('collection.anki2').async('nodebuffer'));
     const col = new Database(colFile, { readonly: true });
-    const cats = col.prepare('SELECT flds FROM notes').all()
-        .flatMap(r => [...r.flds.matchAll(/<img src="(cat[^"]*)">/g)].map(m => m[1]));
+    const fronts = col.prepare('SELECT flds FROM notes').all().map(r => r.flds.split(SEP)[0]);
     col.close();
-    const bytes = await Promise.all(cats.map(n => keyOf[n] ? out.file(keyOf[n]).async('nodebuffer') : null));
-    check('two different pictures named cat.jpg go out as two names and two files',
-        cats.length === 2 && cats[0] !== cats[1] && bytes.every(Boolean) && !bytes[0].equals(bytes[1]),
-        JSON.stringify(cats));
+    // Each card's own note, and the bytes behind the picture it names.
+    const cats = [];
+    for (const [card, hash] of [[a, h1], [b, h2]]) {
+        const src = fronts.map(f => f.startsWith(`${card.front}<img src="`) && /<img src="([^"]*)">$/.exec(f)?.[1]).find(Boolean);
+        const file = src && keyOf[src] ? await out.file(keyOf[src]).async('nodebuffer') : null;
+        cats.push({ src, ok: !!file && file.equals(readFileSync(mediaStorage.pathFor(hash))) });
+    }
+    check('two different pictures named cat.jpg go out as two names, each card showing its own',
+        cats[0].src !== cats[1].src && cats.every(x => x.ok), JSON.stringify(cats));
+    check('a cleaned name keeps a long extension like .jpeg2000',
+        (await import(B + 'ankiExport.js')).ankiMediaName({ name: 'x?.jpeg2000', hash: 'a'.repeat(64) }) === 'x-aaaaaaaa.jpeg2000');
     check('a media entry with a name and no blob is listed as missing',
         stats.missingMedia.includes('gone.png'), JSON.stringify(stats.missingMedia));
 }
