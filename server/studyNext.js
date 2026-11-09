@@ -17,6 +17,10 @@
 import { cleanRegionLabel } from './curriculumLabel.js';
 
 const DAY_MS = 86400000;
+// Multiply-adds between event-loop yields: a few milliseconds of work, so a
+// large library's comparison never holds up another request for long.
+const WORK_PER_YIELD = 1 << 21;
+const nextTick = () => new Promise(resolve => setImmediate(resolve));
 
 /**
  * @param {{ members: { id: number, status: string, project_id: number,
@@ -24,14 +28,22 @@ const DAY_MS = 86400000;
  *   title: string }[] }[]} regions the atlas's regions, in build order; a
  *   suggestion's `regionId` is the index into this list, which is the id the
  *   build gives each region.
- * @returns {{ topicId: number, regionId: number, nearId: number,
- *   nearTitle: string, similarity: number }[]}
+ * @param {object} [opts]
+ * @param {{ project_id: number, completed_iso: string|null }[]} [opts.finishes]
+ *   each course's latest finish over the whole library, with or without a
+ *   vector; without it the finishes are read off the regions' members.
+ * @returns {Promise<{ topicId: number, regionId: number, nearId: number,
+ *   nearTitle: string, similarity: number }[]>}
  */
-export function studyNext(regions, { limit = 3, windowDays = 21 } = {}) {
+export async function studyNext(regions, { limit = 3, windowDays = 21, finishes = null } = {}) {
+    if (!(limit > 0)) return [];
     // The courses under way: each one's latest finish, against the newest.
+    // A finished topic with no vector yet is not on the map but still says
+    // which course the learner is in, so the build passes every finish.
     const lastBy = new Map();
-    for (const r of regions) for (const m of r.members) {
-        if (m.status !== 'completed' || !m.completed_iso) continue;
+    const finished = finishes || regions.flatMap(r => r.members.filter(m => m.status === 'completed'));
+    for (const m of finished) {
+        if (!m.completed_iso) continue;
         const at = Date.parse(m.completed_iso);
         if (!Number.isFinite(at)) continue;
         if (!(lastBy.get(m.project_id) >= at)) lastBy.set(m.project_id, at);
@@ -41,9 +53,11 @@ export function studyNext(regions, { limit = 3, windowDays = 21 } = {}) {
     const current = new Set([...lastBy].filter(([, at]) => newest - at <= windowDays * DAY_MS).map(([p]) => p));
 
     const candidates = [];
-    regions.forEach((r, regionId) => {
+    let work = 0;
+    for (let regionId = 0; regionId < regions.length; regionId++) {
+        const r = regions[regionId];
         const done = r.members.filter(m => m.status === 'completed' && m.vec?.length);
-        if (!done.length) return;
+        if (!done.length) continue;
         for (const m of r.members) {
             // A heading is not something to study; its topics are.
             if (m.status !== 'not_started' || !m.is_leaf || !current.has(m.project_id) || !m.vec?.length) continue;
@@ -56,25 +70,22 @@ export function studyNext(regions, { limit = 3, windowDays = 21 } = {}) {
                 const n = Math.min(m.vec.length, d.vec.length);
                 for (let k = 0; k < n; k++) s += m.vec[k] * d.vec[k];
                 if (s > best || (near && s === best && d.id < near.id)) { best = s; near = d; }
+                work += n;
             }
+            if (work >= WORK_PER_YIELD) { work = 0; await nextTick(); }
             // A vector that is not numbers (NaN) is near nothing.
             if (!near) continue;
-            candidates.push({
-                topicId: m.id,
-                regionId,
-                nearId: near.id,
-                nearTitle: cleanRegionLabel(near.title),
-                similarity: Number(best.toFixed(4)),
-            });
+            candidates.push({ topicId: m.id, regionId, nearId: near.id, nearTitle: cleanRegionLabel(near.title), score: best });
         }
-    });
-    candidates.sort((a, b) => b.similarity - a.similarity || a.topicId - b.topicId);
+    }
+    // Ranked on the full score: two topics a rounding apart are not a tie.
+    candidates.sort((a, b) => b.score - a.score || a.topicId - b.topicId);
     const out = [], seen = new Set();
-    for (const c of candidates) {
+    for (const { score, ...c } of candidates) {
+        if (out.length >= limit) break;
         if (seen.has(c.regionId)) continue;
         seen.add(c.regionId);
-        out.push(c);
-        if (out.length >= limit) break;
+        out.push({ ...c, similarity: Number(score.toFixed(4)) });
     }
     return out;
 }

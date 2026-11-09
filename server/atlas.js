@@ -1516,8 +1516,18 @@ async function buildAtlasNow({
     };
 
     // What to study next: arithmetic over the vectors and statuses already
-    // here, no model (`server/studyNext.js`).
-    const next = studyNext(regions);
+    // here, no model (`server/studyNext.js`). Which courses are under way is
+    // read off every finished topic, embedded or not: the newest finish can be
+    // one whose vector has not been written yet.
+    const finishes = db.prepare(`
+        SELECT n.project_id, MAX(strftime('%Y-%m-%dT%H:%M:%SZ', n.completed_at)) AS completed_iso
+        FROM nodes n JOIN projects p ON p.id = n.project_id
+        WHERE n.is_note = 0 AND n.status = 'completed'
+          ${includeArchived ? '' : `AND COALESCE(p.status, 'active') != 'archived'`}
+          AND ${TOPIC_NODE}
+        GROUP BY n.project_id
+    `).all();
+    const next = await studyNext(regions, { finishes });
 
     const value = { available: true, reason: null, stats, regions: summaries, bridges, next, builtAt: new Date().toISOString() };
     // The build yields, so a rating written meanwhile can leave this result

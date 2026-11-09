@@ -325,6 +325,14 @@ if (C && T && P && libraries.length) {
 // A stub Worker the suite answers by hand: the build's every ending, in order.
 console.log('\n--- building the cities');
 const CB = await load('src/components/atlas/cityBuild.ts', ['citiesFor', 'citiesReady']);
+if (CB && CB.cityKey) {
+    // Cities are cached by the places they were cut from: a coast redrawn
+    // with the same number of points and the same two ends is another coast.
+    const coast = (mid) => [{ id: 1, loops: [{ pts: new Float64Array([1, 0, 0, 0, mid, 0.6, 0, 0, 1]) }] }];
+    const regionsAt = [{ id: 1, u: [0, 0, 1], topics: [{ id: 7, u: [0, 0, 1] }] }];
+    check('cities are cached by every point of the coast, not its length and ends',
+        CB.cityKey(coast(0.8), regionsAt) !== CB.cityKey(coast(0.7), regionsAt));
+}
 if (CB) {
     const hadWorker = globalThis.Worker;
     const workers = [];
@@ -505,6 +513,48 @@ if (LD && P && T && libraries.length) {
     }
     check('…and a point left out is never more than a pixel from the line drawn (≤ 1 px)', measured > 0 && worst <= 1,
         `worst ${worst.toFixed(3)} px over ${measured} points left out`);
+
+    // Past 72° from the camera's equator the sheet stretches without bound.
+    // Land gets there on screen only when the sheet is tipped, which a zoom
+    // allows only once it is close (`sheetPitch` in GlobeMap.tsx): every
+    // camera the map permits, then, with what a 1280×800 frame shows of that
+    // band, the seam's stroke break excepted.
+    const sheetPitch = (k) => 1.5 * Math.max(0, Math.min(1, (k - 1) / 3));
+    let poleWorst = 0, poleMeasured = 0;
+    for (const k of [1, 1.15, 1.3, 1.6, 2, 3, 4, 8]) {
+        const R = homeR * k, tol = LD.sheetTolerance(R);
+        for (const yaw of [0, 1.3, -2.2]) for (const sign of [1, -1]) {
+            const pitch = sign * sheetPitch(k);
+            const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
+            for (const l of lines) {
+                const pts = l.pts, imp = LD.importanceOf(pts), n = imp.length;
+                const sheet = [];
+                for (let j = 0; j < n; j++) {
+                    const x1 = pts[j * 3] * cY - pts[j * 3 + 1] * sY, y1 = pts[j * 3] * sY + pts[j * 3 + 1] * cY;
+                    const vy = pts[j * 3 + 2] * cP - y1 * sP, vz = pts[j * 3 + 2] * sP + y1 * cP;
+                    const lon = Math.atan2(x1, vz), lat = Math.asin(Math.max(-1, Math.min(1, vy)));
+                    const [x, y] = P.flatXY(lon, lat);
+                    sheet.push([x * R, y * R, lon, lat]);
+                }
+                let prev = 0;
+                for (let j = 1; j < n; j++) {
+                    if (!(imp[j] > tol)) continue;
+                    if (Math.abs(sheet[prev][2] - sheet[j][2]) < Math.PI) {
+                        for (let m = prev + 1; m < j; m++) {
+                            const [x, y, lon, lat] = sheet[m];
+                            if (Math.abs(lat) <= 72 * Math.PI / 180 || Math.PI - Math.abs(lon) < 0.15) continue;
+                            if (Math.abs(x) > 640 || Math.abs(y) > 400) continue;
+                            poleMeasured++;
+                            poleWorst = Math.max(poleWorst, segDist(x, y, sheet[prev][0], sheet[prev][1], sheet[j][0], sheet[j][1]));
+                        }
+                    }
+                    prev = j;
+                }
+            }
+        }
+    }
+    check('…and past 72°, where a tipped sheet can show land, within a pixel and a half (1.15 px measured)',
+        poleMeasured > 0 && poleWorst <= 1.5, `worst ${poleWorst.toFixed(3)} px over ${poleMeasured} points left out`);
 }
 const globeDraws = read('src/components/atlas/GlobeMap.tsx') || '';
 check('the sheet draws each outline at its zoom\'s detail (GlobeMap reads importanceOf + sheetTolerance)',
@@ -526,6 +576,16 @@ if (LB) {
     frame();
     check('the next frame places the same name without measuring it again', first > 0 && measures === first,
         `${first} measures on the first frame, ${measures - first} on the second`);
+    // The place a replay has reached: the head stands on its dot and claims
+    // 12px round it; the name stands on a line 22.5px above. A two-line name
+    // grows upward from there and still gets its place.
+    const landed = LB.createLabeller(ctx, { width: 400, height: 300, ink: '#000', halo: '#fff' });
+    landed.reserve(200 - 12, 150 - 12, 200 + 12, 150 + 12);
+    check('a two-line name over the replay\'s head grows up and clear of it',
+        landed.wrapLabel('Fourier series and their convergence', 200, 150 - 22.5, { size: 13, weight: 700, alpha: 1 }, 160, 2, 'bottom') === true);
+    const globeLabels = read('src/components/atlas/GlobeMap.tsx') || '';
+    check('…and the map names the place reached that way',
+        /wrapLabel\(label\.topic\.title,[^;]*'bottom'\)/.test(globeLabels));
 }
 
 // ---- what to study next -------------------------------------------------------
@@ -562,7 +622,7 @@ if (S) {
         ] },
     ];
     let got = [];
-    try { got = S.studyNext(regions); } catch (err) { check('a broken or missing vector does not stop the build', false, err.message); }
+    try { got = await S.studyNext(regions); } catch (err) { check('a broken or missing vector does not stop the build', false, err.message); }
     check('the not-started topic nearest a finished one, one per region, best first',
         JSON.stringify(got.map(g => g.topicId)) === '[2,12,9]', JSON.stringify(got));
     check('…saying which finished topic it is near, by its clean name',
@@ -574,11 +634,40 @@ if (S) {
     // the answered topic, the one with cards met and the two without a vector.
     const rest = [{ members: regions[0].members.map(x => [2, 3].includes(x.id) ? { ...x, status: 'in_progress' } : x) }];
     let restGot = null;
-    try { restGot = S.studyNext(rest); } catch (err) { restGot = err.message; }
+    try { restGot = await S.studyNext(rest); } catch (err) { restGot = err.message; }
     check('…nor a topic answered or with cards met while its status still says not started, nor one with no usable vector',
         Array.isArray(restGot) && restGot.length === 0, JSON.stringify(restGot));
-    check('at most the limit', S.studyNext(regions, { limit: 1 }).length === 1);
-    check('a library with nothing finished suggests nothing', S.studyNext([{ members: [m(1, 1, 'not_started', [1])] }]).length === 0);
+    check('at most the limit', (await S.studyNext(regions, { limit: 1 })).length === 1);
+    check('a limit of none suggests none', (await S.studyNext(regions, { limit: 0 })).length === 0);
+    // A fourth region with its own suggestion: the default is three, not all.
+    const four = [...regions, { members: [done(20, 30, [0, 1, 0], '2026-09-21T10:00:00Z'), m(21, 30, 'not_started', [0, 0.5, 0.866])] }];
+    check('three by default, however many regions have one', (await S.studyNext(four)).length === 3);
+    check('a library with nothing finished suggests nothing', (await S.studyNext([{ members: [m(1, 1, 'not_started', [1])] }])).length === 0);
+    // Two topics in one region whose scores round alike: the nearer one is
+    // the suggestion, not the lower id.
+    const close = await S.studyNext([{ members: [
+        done(30, 40, [1, 0], '2026-10-01T10:00:00Z'),
+        m(31, 40, 'not_started', [0.99990, 0.01414]),
+        m(32, 40, 'not_started', [0.99994, 0.01095]),
+    ] }]);
+    check('ranked on the full score, rounded only on the way out', close[0]?.topicId === 32, JSON.stringify(close));
+    // The newest finish has no vector yet: it is not on the map, but it still
+    // says the learner moved on, and the older course is no longer current.
+    const moved = [{ members: [done(40, 50, [1, 0], '2026-06-01T10:00:00Z'), m(41, 50, 'not_started', [0.9, 0.1])] }];
+    const finishes = [{ project_id: 50, completed_iso: '2026-06-01T10:00:00Z' }, { project_id: 60, completed_iso: '2026-10-01T10:00:00Z' }];
+    check('which course is under way counts finishes not on the map yet',
+        (await S.studyNext(moved)).length === 1 && (await S.studyNext(moved, { finishes })).length === 0);
+    // A large region is compared in slices, with the event loop let in
+    // between: another request is not held up for the whole build.
+    const wide = (seed) => { const r = rng(seed); return Array.from({ length: 768 }, () => r() - 0.5); };
+    const big = [{ members: [
+        ...Array.from({ length: 60 }, (_, i) => done(1000 + i, 70, wide(i), '2026-10-01T10:00:00Z')),
+        ...Array.from({ length: 60 }, (_, i) => m(2000 + i, 70, 'not_started', wide(100 + i))),
+    ] }];
+    const order = [];
+    setImmediate(() => order.push('tick'));
+    await Promise.resolve(S.studyNext(big)).then(() => order.push('done'));
+    check('a large region lets other work in while it is compared', order[0] === 'tick', order.join());
     const src = read('server/studyNext.js') || '';
     check('it reads no clock: "now" is the library\'s own latest finish', !/Date\.now|new Date\(\s*\)/.test(src));
     const atlasSrc = read('server/atlas.js') || '';
@@ -613,6 +702,68 @@ const leftovers = ['src/components/AtlasView.tsx', 'src/components/atlas/GlobeMa
 check('no prototype switch or dev hook is left in', leftovers.length === 0, leftovers.join(', '));
 const stage = read('src/components/atlas/AtlasRenderStage.tsx') || '';
 check('the video stage draws with the same renderer', /GlobeMap/.test(stage) && !/AtlasMap\b/.test(stage));
+
+// ---- what to study next, drawn -----------------------------------------------
+// Last, because it puts a DOM on the globals: the real StudyNext and TopicRow in
+// jsdom, with only the store and the translation stubbed.
+console.log('\n--- study next, drawn');
+if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    globalThis.window = dom.window;
+    globalThis.document = dom.window.document;
+    Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
+    for (const name of ['HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent']) globalThis[name] = dom.window[name];
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const stubs = {
+        'react-i18next': `export const useTranslation = () => ({ i18n: { language: 'en' },
+            t: (key, o) => o ? Object.keys(o).reduce((s, n) => s.split('{{' + n + '}}').join(String(o[n])), key) : key });`,
+        i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s;`,
+        store: `export const useStore = (sel) => sel({ openProjectNode: (p, n) => globalThis.__opened.push([p, n]) });`,
+    };
+    const stubPlugin = {
+        name: 'stubs',
+        setup(b) {
+            b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+            b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub' }));
+            b.onResolve({ filter: /^(\.\.\/)+i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
+            b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js', resolveDir: ROOT }));
+        },
+    };
+    const outfile = join(out, 'study-next.cjs');
+    await esbuild.build({
+        stdin: { contents: `export { default as StudyNext } from './src/components/atlas/StudyNext.tsx';`, resolveDir: ROOT, loader: 'tsx' },
+        bundle: true, format: 'cjs', platform: 'node', outfile, jsx: 'automatic', packages: 'external',
+        plugins: [stubPlugin], logLevel: 'silent',
+    });
+    const React = require('react');
+    const { createRoot } = require('react-dom/client');
+    const { StudyNext } = require(outfile);
+    globalThis.__opened = [];
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const root = createRoot(el);
+    const topic = (id, title, extra = {}) => ({ id, title, status: 'not_started', projectId: 10, projectName: 'Calculus',
+        projectColor: null, mastery: 0, attempts: 0, transferred: false, parentId: null, ...extra });
+    const regions = [{ id: 0, topics: [topic(5, 'Derivatives'), topic(6, 'Limits', { status: 'completed' })] }];
+    // The second suggestion names a topic the page's regions do not hold (a
+    // build newer than the list): it is left out, not drawn as a blank row.
+    const next = [
+        { topicId: 5, regionId: 0, nearId: 6, nearTitle: 'Limits', similarity: 0.9 },
+        { topicId: 99, regionId: 3, nearId: 1, nearTitle: 'Gone', similarity: 0.5 },
+    ];
+    await React.act(async () => root.render(React.createElement(StudyNext, { next, regions })));
+    const rows = [...el.querySelectorAll('button[data-row]')];
+    check('a suggestion is drawn as a row: the topic, then what it is near and its course',
+        rows.length === 1 && rows[0].textContent.includes('Derivatives') && rows[0].textContent.includes('Near Limits · Calculus'),
+        rows.map(r => r.textContent).join(' | '));
+    await React.act(async () => { rows[0]?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
+    check('…and pressing it opens that topic in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
+        JSON.stringify(globalThis.__opened));
+    await React.act(async () => root.render(React.createElement(StudyNext, { next: [], regions })));
+    check('with nothing to suggest it draws nothing', el.innerHTML === '', el.innerHTML.slice(0, 120));
+    await React.act(async () => root.unmount());
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
