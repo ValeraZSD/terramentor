@@ -207,7 +207,8 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
         const named = byText(/Share it on Tailscale/);
         check('the row\'s button says what it does: Share it on Tailscale', !!named && tsRow()?.contains(named));
         // Under any name, the row's one button is the press the rest is about.
-        const rowButton = () => named ? byText(/Share it on Tailscale/)
+        // After a failed press the same button reads "Try again".
+        const rowButton = () => named ? [...(tsRow()?.querySelectorAll('button') ?? [])].find((b) => /Share it on Tailscale|Try again/.test(b.textContent))
             : [...(tsRow()?.querySelectorAll('button') ?? [])].find((b) => b.getAttribute('role') !== 'switch');
         const share = rowButton();
         if (!share) { check('the row has a button to press', false); return; }
@@ -220,10 +221,11 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
         // one code at a time: a code drawn now would be retired by the answer.
         check('…nor can it be pressed until the share has answered', !!showCode?.disabled, showCode?.outerHTML.slice(0, 120));
 
-        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: null }); });
+        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: null, problem: null }); });
         await flush();
         check('no answer from Tailscale is said in the Tailscale row', /didn't answer/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
         check('…and "Show code" can be pressed again', showCode?.isConnected && !showCode.disabled);
+        check('…and the row\'s button now says Try again', /Try again/.test(rowButton()?.textContent ?? '') && !byText(/Share it on Tailscale/), rowButton()?.textContent);
 
         const press = async () => {
             const b = rowButton();
@@ -231,11 +233,22 @@ section('the Tailscale row: the switch lets your devices in, the button shares t
             await act(async () => { b.click(); });
             return true;
         };
+        // Serve not turned on for the account: Tailscale's own page, as a link button beside Try again.
         if (!await press()) { check('after no answer, the press can be tried again', false); return; }
-        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: 'tailscale serve --bg --https=8443 http://127.0.0.1:3282' }); });
+        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: 'tailscale serve --bg --https=443 http://127.0.0.1:3282', problem: { kind: 'enable', link: 'https://login.tailscale.com/f/serve?node=nX7' } }); });
+        await flush();
+        const enableLink = [...(tsRow()?.querySelectorAll('a') ?? [])].find((a) => /Turn on Serve/.test(a.textContent));
+        check('Serve not turned on: a Turn on Serve link to Tailscale\'s own page, in the row',
+            enableLink?.getAttribute('href') === 'https://login.tailscale.com/f/serve?node=nX7' && enableLink.getAttribute('target') === '_blank', tsRow()?.textContent.slice(0, 240));
+        check('…saying to allow it there, then press Try again, with no command to run',
+            /allow it on the page that opens, then press Try again/.test(tsRow()?.textContent ?? '') && !/tailscale serve --bg/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        if (!await press()) { check('after Serve was turned on, the press can be tried again', false); return; }
+        await act(async () => { answerServe({ url: null, tailscale: true, failed: true, command: 'tailscale serve --bg --https=8443 http://127.0.0.1:3282', problem: { kind: 'denied', reason: 'Access denied: serve config denied' } }); });
         await flush();
         check('a refusal shows the command to run IN the Tailscale row', /tailscale serve --bg/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
-        check('…says to press Share again once it has run', /press Share again/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        check('…says to press Try again once it has run', /press Try again/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        check('…with what Tailscale itself said', /Tailscale said: Access denied: serve config denied/.test(tsRow()?.textContent ?? ''), tsRow()?.textContent.slice(0, 240));
+        check('…and the enable link from the press before is gone', ![...(tsRow()?.querySelectorAll('a') ?? [])].some((a) => /Turn on Serve/.test(a.textContent)));
         check('…and opens nothing in "Connect a phone"', !/tailscale serve --bg|Not now/.test(phoneRow()?.textContent ?? '') && /Show code/.test(phoneRow()?.textContent ?? ''),
             phoneRow()?.textContent.slice(0, 240));
 
