@@ -32,6 +32,8 @@ process.env.DB_PATH = join(scratch, 'test.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const SPACE = [
+    // Closer to each other than to the standing-wave twin (cosine 0.995 to it).
+    [/pipe resonance/i, [1, 0.1, 0, 0]],
     [/standing wave|staande golv|golfpatroon|antinode/i, [1, 0, 0, 0]],
     [/fourier|sinusoid/i, [0, 1, 0, 0]],
     [/knead|dough/i, [0, 0, 1, 0]],
@@ -133,12 +135,34 @@ check('a topic with no proven twin transfers nothing',
 // A twin over the line on card reviews alone was not proved anywhere: the
 // head start would say "a topic you proved elsewhere" about a deck's ratings.
 {
-    const cardsOnly = db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 4, 4)").run(nTwin).lastInsertRowid;
+    const row = (type, score, total) => db.prepare('INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, ?, ?, ?)').run(nTwin, type, score, total).lastInsertRowid;
+    const quiz = row('quiz', 10, 10);
+    const cards = row('flashcard', 4, 4);
+    check('a twin proven by a quiz and also reviewed in cards still transfers',
+        (await computeTransfer(nNew, { threshold: THRESHOLD })).prior > 0);
+    db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(quiz);
     check('a twin held only in card reviews transfers nothing',
         (await computeTransfer(nNew, { threshold: THRESHOLD })).prior === 0);
-    db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cardsOnly);
+    db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cards);
     check('…and the same twin with its card row gone transfers again',
         (await computeTransfer(nNew, { threshold: THRESHOLD })).prior > 0);
+}
+// The proven filter runs before the neighbour limit: card-held near-duplicates
+// that outrank the one proven twin must not crowd it out.
+{
+    const query = mkNode(english, 'Pipe resonance', 'Pipe resonance in a closed tube.');
+    const crowd = [];
+    for (let i = 0; i < 9; i++) crowd.push(mkNode(cooking, `Pipe resonance ${i}`, 'Pipe resonance in a closed tube.'));
+    await syncNodeEmbeddings();
+    for (const id of crowd) {
+        proveNode(id, 0.99);
+        db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 4, 4)").run(id);
+    }
+    const r = await computeTransfer(query, { threshold: THRESHOLD });
+    check('nine card-held nearer neighbours do not crowd out the proven twin',
+        r.prior > 0 && r.sources.some(s => s.node_id === nTwin) && !r.sources.some(s => crowd.includes(s.node_id)), JSON.stringify(r.sources?.map(s => s.node_id)));
+    for (const id of [query, ...crowd]) db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
+    await syncNodeEmbeddings();
 }
 
 // Two curricula describing the same material are the same knowledge twice, not

@@ -231,12 +231,16 @@ evidence **and** either:
   `MIN_GATE_QUESTIONS` items, passed at ≥ `mastery_check_pass` raw accuracy.
 
 Only those three types are **proving** evidence (`PROVING_EVIDENCE_TYPES`).
-`flashcard` and `drill` are practice: a card is graded by the learner's own press
-and a drill replays the same items. They move the BKT estimate (`mastery_score`)
-and refresh the decay timer, but `gate_score` is the node's proving evidence
-replayed from its seed, capped at `mastery_score`: practice can lower what the gate
-reads and never raise it. A node with no practice evidence reads `mastery_score`
-unchanged. When practice alone put the estimate over the line, the read says so
+Every other type that runs BKT is practice, by exclusion (`flashcard` and `drill`
+today; a new type is practice until it is listed as proving): a card is graded by
+the learner's own press and a drill replays the same items. They move the BKT
+estimate (`mastery_score`) and refresh the decay timer, but `gate_score` is the
+node's proving evidence replayed from its seed, with each wrong agent claim's
+lowering stepped in where it was made, capped at `mastery_score`. Practice rows
+never enter it, and the cap lets them pull it lower. The replay uses the learner's
+current fitted rates, as `rescoreNode` does, so after a refit it can differ from
+what those answers gave at the time. A node with no practice evidence reads
+`mastery_score` unchanged. When practice alone put the estimate over the line, the read says so
 (`practice_lifted`) and the checkpoint card explains it. `placement` evidence is the
 seed it wrote, so it proves nothing either.
 
@@ -251,10 +255,13 @@ does not ask). Nothing is lost by that: a card topic's progress is cards met
 (`server/progress.js`), so a deck reaches 100% and its finished screen with every
 section still open.
 
-Two other readers ask whether a topic is proven, and both ask `estimateProven`
-(the same `gate_score` test): the finished-project screen's "proven" count
-(`server/completion.js`) and mastery transfer's choice of twin (§7.3), so a topic
-held over the line only by its cards neither counts as proven nor lends a prior.
+Three other readers call a topic proven by its estimate, and all ask
+`estimateProven` (clause (a)'s estimate test on `gate_score`; not the
+borrowed-seed rule, not clause (b)): the finished-project screen's "proven" count
+(`server/completion.js`), mastery transfer's choice of twin (§7.3, applied inside
+the neighbour search before its limit), and the Atlas bridge flag. A topic held
+over the line only by its cards neither counts as proven, lends a prior, nor marks
+a bridge as a head start waiting.
 
 Modes (`mastery_gate_mode`): `off` never gates; `advisory` lets the
 learner mark done anyway; `enforced` (default for a new library) blocks `completed` without proof. **Skip is

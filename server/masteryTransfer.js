@@ -40,7 +40,7 @@
 // estimate starts at zero exactly as before.
 
 import db from './database.js';
-import { decayedMastery, applySeededPrior, estimateProven } from './mastery.js';
+import { decayedMastery, applySeededPrior } from './mastery.js';
 import { similarNodes, topicSpaceReady, hasNodeVector } from './nodeEmbeddings.js';
 import { publicMessage } from './clientError.js';
 
@@ -99,9 +99,9 @@ export async function computeTransfer(nodeId, { threshold = 0.85, decayDays = 14
         masteredOnly: true,
         threshold,
         allowEmbed,
-    // A twin is proven by answers, not by card reviews or drills alone (the
-    // gate's own estimate, server/mastery.js): "a topic you proved elsewhere".
-    })).filter(t => estimateProven(t.id, threshold));
+    // masteredOnly asks estimateProven (server/mastery.js) before the limit:
+    // a twin proven by answers, not by card reviews or drills alone.
+    }));
 
     const sources = twins
         .map(t => {

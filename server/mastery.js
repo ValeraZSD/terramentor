@@ -181,13 +181,13 @@ export function getNodeMastery(nodeId) {
 // Validated on this function because it is the single write path — feed.js,
 // the quiz and mastery routes (server/routes/) and paper.js all funnel through it.
 //
-// Not all evidence is equal. Only PROVING_EVIDENCE — 'quiz' | 'mastery_check'
-// | 'paper', answers the app graded — counts toward the completion gate, in
-// both of checkMasteryEligibility's clauses. 'drill' and 'flashcard' are
-// PRACTICE: a card is graded by the learner's own press and a drill replays
-// the same few items, so they sharpen the retention estimate and refresh the
-// decay timer, and the gate reads the estimate with them taken out (it may
-// read LOWER because of them, never higher). Paper counts because
+// Not all evidence is equal. Only PROVING_EVIDENCE_TYPES — 'quiz' |
+// 'mastery_check' | 'paper', answers the app graded — count toward the
+// completion gate, in both of checkMasteryEligibility's clauses. 'drill' and
+// 'flashcard' are PRACTICE: a card is graded by the learner's own press and a
+// drill replays the same few items, so they sharpen the retention estimate and
+// refresh the decay timer, and the gate reads the estimate with them taken out
+// (capped at the stored estimate, so it may read lower because of them). Paper counts because
 // worked-by-hand solutions are the strongest proof this engine can collect.
 // 'placement' is a probe answer taken BEFORE the topic was studied (see
 // server/placement.js). It is real evidence — the learner genuinely answered —
@@ -196,6 +196,10 @@ export function getNodeMastery(nodeId) {
 export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement'];
 export const PROVING_EVIDENCE_TYPES = ['quiz', 'mastery_check', 'paper'];
 const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
+// Practice is everything else that runs BKT: defined by exclusion, so a new
+// evidence type is practice (fails closed) until it is listed as proving.
+// Placement rows never ran BKT; their seed is their contribution.
+const PRACTICE_EVIDENCE_SQL = `evidence_type NOT IN (${[...PROVING_EVIDENCE_TYPES, 'placement'].map(t => `'${t}'`).join(', ')})`;
 
 /** Upper bound on questions in ONE attempt — no assessment here is remotely this long. */
 export const MAX_ATTEMPT_QUESTIONS = 500;
@@ -349,7 +353,8 @@ export const MIN_GATE_QUESTIONS = 4;
  *
  * **Practice never proves.** Card ratings and drill rounds move `mastery_score`
  * (the retention estimate every other reader uses), but clause (a) reads
- * `gate_score`: the node's PROVING_EVIDENCE replayed from its seed, and never
+ * `gate_score`: the node's PROVING_EVIDENCE_TYPES replayed from its seed (with
+ * any lowering a wrong agent claim made), and never
  * more than `mastery_score`. So four Easy ratings on a fresh topic (0.99) leave
  * the gate at 0, Easy cards cannot lift a failed check or a weak quiz over the
  * line, and missed cards still lower what the gate sees. A node with no practice
@@ -369,7 +374,8 @@ export const MIN_GATE_QUESTIONS = 4;
  * @param {number} nodeId
  * @param {number} threshold - Minimum BKT posterior (default 0.85)
  * @param {number} checkPass  - Minimum raw accuracy for assessment evidence (default 0.8)
- * @returns {{ eligible, mastery_score, evidence_count }}
+ * @returns {{ eligible, mastery_score, gate_score, practice_lifted, evidence_count,
+ *   threshold, has_evidence, passed_assessment, borrowed_estimate, own_answers }}
  */
 export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.8) {
     const record = getNodeMastery(nodeId);
@@ -383,7 +389,7 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     // would un-borrow a seed), nor a placement answer (it IS the seed).
     const counts = stmt(`
         SELECT COALESCE(SUM(CASE WHEN ${PROVING_EVIDENCE_SQL} THEN total END), 0) AS own,
-               COUNT(CASE WHEN evidence_type IN ('flashcard', 'drill') THEN 1 END) AS practice
+               COUNT(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN 1 END) AS practice
         FROM mastery_evidence WHERE node_id = ?
     `).get(nodeId);
     const ownAnswers = counts.own;
@@ -409,8 +415,9 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     const passedAssessment = !!strongEvidence;
     // The estimate the gate reads: the stored one, with practice taken out by
     // replaying only proving evidence from the seed (the replay `rescoreNode`
-    // runs). The MIN keeps whatever lowered the stored score (missed cards, an
-    // agent's wrong claim, rates fitted since) — practice can only cost here.
+    // runs, plus the lowering of each wrong agent claim, which a later card
+    // would otherwise wash out). The MIN keeps whatever else lowered the stored
+    // score (missed cards); practice rows never enter the replay.
     const gateScore = gateScoreOf(record, counts.practice > 0);
     const bktClause = gateScore >= threshold && !borrowed;
     const eligible = hasEvidence && (bktClause || passedAssessment);
@@ -500,13 +507,13 @@ const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placem
 
 /**
  * The estimate the gate reads for a `node_mastery` row (see
- * checkMasteryEligibility): `mastery_score` with card and drill evidence taken
- * out, never above it. `practice` = whether the node has any such evidence,
+ * checkMasteryEligibility): `mastery_score` with practice evidence taken out,
+ * never above it. `practice` = whether the node has any such evidence,
  * when the caller already counted it.
  */
 function gateScoreOf(record, practice) {
     const hasPractice = practice ?? !!stmt(
-        "SELECT 1 FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('flashcard', 'drill') LIMIT 1"
+        `SELECT 1 FROM mastery_evidence WHERE node_id = ? AND ${PRACTICE_EVIDENCE_SQL} LIMIT 1`
     ).get(record.node_id);
     return hasPractice
         ? Math.min(record.mastery_score, replayOwnEvidence(record.node_id, seedOf(record), { provingOnly: true }))
@@ -514,9 +521,9 @@ function gateScoreOf(record, practice) {
 }
 
 /**
- * Is this topic's estimate PROVEN at `threshold`, by answers measured here?
- * The reader for anything that calls a topic proven without asking the whole
- * gate: the finished-project screen's count and mastery transfer's choice of a
+ * Is this topic's estimate over `threshold` on proving evidence? Clause (a)'s
+ * estimate test alone (not the borrowed-seed rule, not clause (b)), for
+ * anything that calls a topic proven by its estimate: the finished-project screen's count and mastery transfer's choice of a
  * twin to borrow from. Answers on this node (`total_attempts > 0`, so a seed
  * alone is not), and the gate's estimate, so cards and drills alone are not.
  * Reads only: a node with no row is not proven.
@@ -529,19 +536,48 @@ export function estimateProven(nodeId, threshold) {
 
 /**
  * The estimate a node's own evidence earns, replayed in order from `start` with
- * the same arithmetic `updateMasteryFromAttempt` applies row by row. Placement
- * rows are skipped: a probe answer never ran BKT (its seed was its
- * contribution). `provingOnly` also skips practice: the estimate the gate reads.
+ * the arithmetic `updateMasteryFromAttempt` applies row by row (its cold start
+ * judged on the replayed rows alone). Placement rows are skipped: a probe
+ * answer never ran BKT (its seed was its contribution).
+ *
+ * `provingOnly` is the estimate the gate reads: practice is skipped, and each
+ * wrong agent claim that lowered the estimate (server/claims.js, at most one per
+ * evidence mark) is stepped in again after the rows it followed, so a later
+ * card cannot wash a claim's lowering out of the gate. A rebuild of
+ * `mastery_score` itself (the plain replay) drops it, as claims.js intends.
  */
 function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
     const rows = stmt(`
-        SELECT score, total, metadata FROM mastery_evidence
+        SELECT id, score, total, metadata FROM mastery_evidence
         WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
         ORDER BY id
     `).all(nodeId);
+    const claims = [];
+    if (provingOnly) {
+        const seen = new Set();
+        for (const c of stmt(`
+            SELECT evidence_mark, question_type FROM mastery_claims
+            WHERE node_id = ? AND correct = 0 AND mastery_after < mastery_before
+            ORDER BY id
+        `).all(nodeId)) {
+            const mark = c.evidence_mark ?? 0;
+            if (!seen.has(mark)) { seen.add(mark); claims.push({ mark, p_G: GUESS_BY_FORMAT[c.question_type] }); }
+        }
+        claims.sort((a, b) => a.mark - b.mark);
+    }
     let p = start;
     let attempts = 0;
+    // The claim's own step (claims.js): one wrong answer, floored at a seed
+    // the estimate still stands on.
+    const lowerUpTo = (id) => {
+        while (claims.length && claims[0].mark < id) {
+            const { p_G } = claims.shift();
+            const floor = start > 0 && p >= start ? start : 0;
+            p = Math.max(floor, Math.min(p, bktUpdate(p, false, { p_G }).p_K_posterior));
+        }
+    };
     for (const r of rows) {
+        lowerUpTo(r.id);
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
         const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
@@ -553,6 +589,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
         }
         attempts += r.total;
     }
+    lowerUpTo(Infinity);
     return p;
 }
 
@@ -595,7 +632,7 @@ export function forgetSeed(nodeId, kind) {
     ).run(nodeId).changes > 0;
     if (!cleared) return false;
     const left = db.prepare('SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
-    const start = Math.max(left.transferred_prior ?? 0, left.placement_prior ?? 0);
+    const start = seedOf(left);
     db.prepare('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(replayOwnEvidence(nodeId, start), nodeId);
     return true;
 }

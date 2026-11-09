@@ -40,6 +40,7 @@ import { TRANSFER_MIN_SIMILARITY } from './masteryTransfer.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE, projectTeaches } from './nodeRole.js';
 import { countsInCards } from './progress.js';
+import { estimateProven } from './mastery.js';
 import { cachedNamesFor, scheduleRegionNaming, regionSignature, nameModelFor, USER_MODEL } from './regionNaming.js';
 import {
     dot, normalizeInto, powerIteration, deflate, nearestNeighbours,
@@ -1249,7 +1250,9 @@ async function findBridges(regions, minSimilarity) {
                 const [a, b] = percent(m[i].mastery) >= percent(m[j].mastery) ? [m[i], m[j]] : [m[j], m[i]];
                 bridges.push({
                     similarity: Number(sim.toFixed(4)),
-                    proven: a.status === 'completed' || a.mastery >= 0.85,
+                    // Proven as transfer reads it: an estimate held up by card
+                    // reviews alone is no head start waiting.
+                    proven: a.status === 'completed' || (a.mastery >= 0.85 && estimateProven(a.id, 0.85)),
                     a: { id: a.id, title: a.title, projectId: a.project_id, projectName: a.project_name, projectColor: a.project_color, status: a.status, mastery: a.mastery },
                     b: { id: b.id, title: b.title, projectId: b.project_id, projectName: b.project_name, projectColor: b.project_color, status: b.status, mastery: b.mastery },
                 });

@@ -13,10 +13,11 @@
  * topic could be completed under `enforced` with no question ever answered.
  *
  * The rule pinned here: the gate's BKT clause reads the estimate with cards
- * and drills taken out (`gate_score`, a replay of the app-graded evidence),
- * and never more than the stored estimate, so practice can lower what the
- * gate sees and never raise it. Only app-graded answers (quiz, mastery check,
- * paper) count toward un-borrowing a seeded prior.
+ * and drills taken out (`gate_score`, a replay of the app-graded evidence with
+ * any wrong agent claim's lowering kept), and never more than the stored
+ * estimate, so practice never enters what the gate sees and can pull it lower.
+ * Only app-graded answers (quiz, mastery check, paper) count toward
+ * un-borrowing a seeded prior.
  *
  * Every case of the table in the PR is a block below, each with its expected
  * answer. --root runs the same cases against another checkout's server; on
@@ -59,6 +60,7 @@ const { canProve } = await import(S + 'readyToProve.js');
 const { agentMastery } = await import(S + 'agentReads.js');
 const { projectProgress } = await import(S + 'progress.js');
 const { projectCompletion } = await import(S + 'completion.js');
+const { recordClaim } = await import(S + 'claims.js');
 const { createApp } = await import(S + 'app.js');
 
 const T = 0.85, PASS = 0.8;
@@ -171,7 +173,9 @@ try {
     check('…and those answers on the seed can prove it, as before', el(seededAnswered).eligible === (score(seededAnswered) >= T) && score(seededAnswered) >= T, show(seededAnswered));
     const placed = addNode(course, 'Amplitude');
     applySeededPrior(placed, 'placement', 0.6);
-    updateMasteryFromAttempt(placed, 1, 1, 'placement', {});
+    // The row recordPlacementEvidence writes: evidence with no BKT update.
+    db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total, metadata) VALUES (?, 'placement', 1, 1, ?)`)
+        .run(placed, JSON.stringify({ questionType: 'multiple_choice', source: 'placement', probeId: 1, questionIndex: 0 }));
     for (let i = 0; i < 3; i++) feedAnswer(placed, true);
     check('the placement probe\'s own answer is part of the seed, not one of the four', el(placed).borrowed_estimate === true && el(placed).own_answers === 3, show(placed));
     feedAnswer(placed, true);
@@ -205,7 +209,7 @@ try {
     const agent = agentMastery(noBank);
     check('an agent reading it is told it has not passed, and why', agent?.mastery?.passed === false && /card reviews and drills/i.test(agent?.text || ''), agent?.text);
 
-    console.log('\n--- 8. a passed check, then fading ---');
+    console.log('\n--- 8. a passed check, then missed cards ---');
     const proven = addNode(course, 'Harmonics');
     updateMasteryFromAttempt(proven, 5, 5, 'mastery_check', { type: 'mastery_check' });
     check('a passed check makes the topic eligible', el(proven).eligible === true && el(proven).passed_assessment === true, show(proven));
@@ -228,6 +232,27 @@ try {
     check('Easy cards after a proof leave it proven', el(proofThenCards).eligible === true, show(proofThenCards));
     updateMasteryFromAttempt(proofThenCards, 0, 20, 'flashcard', { source: 'review' });
     check('missed cards can take a BKT proof back below the line (practice may lower)', el(proofThenCards).eligible === false && el(proofThenCards).gate_score <= score(proofThenCards) && el(proofThenCards).practice_lifted === false, show(proofThenCards));
+
+    console.log('\n--- 9b. an agent\'s wrong claim, then cards ---');
+    const claimed = addNode(course, 'Resonant frequency');
+    for (let i = 0; i < 20 && score(claimed) < 0.9; i++) feedAnswer(claimed, true);
+    const claim = recordClaim({ nodeId: claimed, correct: false, questionType: 'short_answer' });
+    const lowered = score(claimed);
+    check('a wrong claim lowers a proven estimate under the line', claim.lowered === true && lowered < T && el(claimed).eligible === false, `${JSON.stringify(claim)} ${show(claimed)}`);
+    addCards(claimed, 4).forEach(c => rate(c, 4));
+    check('…Easy cards after it raise the estimate again', score(claimed) >= T, String(score(claimed)));
+    check('…but the gate keeps the claim\'s lowering (cards do not wash it out)', el(claimed).eligible === false && Math.abs(el(claimed).gate_score - lowered) < 1e-12, show(claimed));
+    feedAnswer(claimed, true);
+    check('…while an answered question after it counts, as it would have', el(claimed).gate_score > lowered, show(claimed));
+
+    console.log('\n--- 9c. an evidence type the gate has not heard of ---');
+    const unknown = addNode(course, 'Timbre');
+    updateMasteryFromAttempt(unknown, 0, 1, 'quiz', { questionType: 'multiple_choice' });
+    db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'future_kind', 8, 8)").run(unknown);
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.99 WHERE node_id = ?').run(unknown);
+    check('it counts as practice until listed as proving (the gate fails closed)', el(unknown).eligible === false && el(unknown).gate_score < T && el(unknown).practice_lifted === true, show(unknown));
+    check('every known type is proving, practice or the seed, exactly one',
+        mastery.VALID_EVIDENCE_TYPES.every(t => (mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t) + ['flashcard', 'drill'].includes(t) + (t === 'placement') === 1));
 
     console.log('\n--- 10. what else reads "proven" ---');
     // The finished-project screen counts proven topics; transfer borrows only

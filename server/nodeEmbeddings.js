@@ -58,6 +58,7 @@ import {
     getEmbeddingConfig,
 } from './embeddings.js';
 import * as tasks from './tasks.js';
+import { estimateProven } from './mastery.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE } from './nodeRole.js';
 import { publicMessage } from './clientError.js';
@@ -440,6 +441,10 @@ function knn(queryBlob, { limit, minSimilarity, excludeNodeId, projectId, exclud
     return rows
         .map(r => ({ ...r, similarity: distanceToSimilarity(distById.get(r.id) ?? Infinity) }))
         .filter(r => r.similarity >= minSimilarity)
+        // Proven by answers, not held over the line by card reviews or drills
+        // (the gate's own estimate, server/mastery.js). Before the slice, so
+        // card-held near-duplicates cannot crowd a proven twin out of `limit`.
+        .filter(r => !masteredOnly || estimateProven(r.id, threshold))
         .sort((a, b) => b.similarity - a.similarity)
         .slice(0, limit);
 }

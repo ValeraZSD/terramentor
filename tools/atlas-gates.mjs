@@ -339,8 +339,14 @@ check('the cross-language pair is found',
 check('a bridge never joins two topics in the SAME project',
     bridged.every(b => b.a.projectId !== b.b.projectId));
 check('bridges carry a similarity', bridged.every(b => b.similarity > 0 && b.similarity <= 1));
-db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
 db.prepare(`INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.95, 8)`).run(nDutch);
+// Over the line on card reviews alone is not proven: transfer would lend
+// nothing from it, so the bridge must not promise a head start.
+const cardRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 8, 8)`).run(nDutch).lastInsertRowid;
+const cardHeld = (await buildAtlas({ refresh: true })).bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
+check('a side held over the line by card reviews alone is not flagged actionable', cardHeld && cardHeld.proven === false, JSON.stringify(cardHeld));
+db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cardRow);
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
 const withProven = await buildAtlas({ refresh: true });
 const pair = withProven.bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
 check('a proven side is put FIRST (it reads "you know this → this is waiting")',
