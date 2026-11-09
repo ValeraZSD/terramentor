@@ -47,6 +47,7 @@ import {
     LAYOUT_MIN_ITERATIONS, LAYOUT_MAX_ITERATIONS,
 } from './vectors.js';
 import { globeLayout } from './globe.js';
+import { studyNext } from './studyNext.js';
 
 export { cleanRegionLabel };
 
@@ -1514,7 +1515,11 @@ async function buildAtlasNow({
         largestRegion: summaries[0]?.size || 0,
     };
 
-    const value = { available: true, reason: null, stats, regions: summaries, bridges, builtAt: new Date().toISOString() };
+    // What to study next: arithmetic over the vectors and statuses already
+    // here, no model (`server/studyNext.js`).
+    const next = studyNext(regions);
+
+    const value = { available: true, reason: null, stats, regions: summaries, bridges, next, builtAt: new Date().toISOString() };
     // The build yields, so a rating written meanwhile can leave this result
     // half before and half after it. Answer this request with it, but cache it
     // only if the library is still the one the key describes.
