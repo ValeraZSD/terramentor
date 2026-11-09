@@ -96,6 +96,9 @@ export interface Project {
     /** …and how many of those are closed. `completed_count` counts every leaf,
      *  stages included, and is what tools/leaf-invariant.mjs pins. */
     completed_topic_count?: number;
+    /** When a topic was last closed (ISO), null before the first: the Finished
+     *  list's date and order. */
+    last_done_at?: string | null;
     /** How much of the project is DONE, 0–1: a closed topic counts 1, a topic
      *  whose content is cards counts the share of them met, every topic weighs
      *  the same (`server/progress.js`). This is the ONLY number drawn as a
