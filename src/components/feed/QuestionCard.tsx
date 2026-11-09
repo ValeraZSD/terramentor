@@ -140,7 +140,9 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
             subtitle={isRecall
                 ? (card.daysSince != null ? t("You proved this {{count}} days ago — still got it?", { count: card.daysSince }) : t("You proved this a while ago — still got it?"))
                 : t("Check your understanding")}
-            badge={isRecall ? (
+            // Said once per run: a recall in the round that opens the stream sits
+            // under the round's own header, which already names it.
+            badge={isRecall && !card.review ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
                     <History className="w-3 h-3" />
                     {t("Recall")}

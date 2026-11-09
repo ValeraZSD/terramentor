@@ -766,9 +766,11 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * @param {number} projectId
  * @param {number} decayDays - Days without review to start decaying
  * @param {Date} [now] - The instant the window ends at (gates pin it)
+ * @param {{limit?: number|null}} [opts] - How many, oldest first (null = all):
+ *   the recall pick reads past topics with nothing it may ask
  * @returns Array of nodes with decaying mastery
  */
-export function getDecayingNodes(projectId, decayDays = 14, now = new Date()) {
+export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { limit = 10 } = {}) {
     return db.prepare(`
         SELECT
             nm.node_id,
@@ -781,8 +783,8 @@ export function getDecayingNodes(projectId, decayDays = 14, now = new Date()) {
         WHERE n.project_id = ?
           AND ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
-        LIMIT 10
-    `).all(projectId, fadingCutoff(decayDays, now));
+        LIMIT ?
+    `).all(projectId, fadingCutoff(decayDays, now), limit ?? -1);
 }
 
 /**

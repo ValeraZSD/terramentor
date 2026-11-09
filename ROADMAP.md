@@ -36,10 +36,6 @@ Everything below is depth on top of a working product, not missing foundations.
   package with no database import. Most server modules import `database.js`
   directly, so this is dependency injection before it is a file move. The point is that the
   honesty claims become auditable in isolation.
-- **Better recall questions.** A recall question (the code calls it a *ghost question*) is
-  drawn at random from a fading topic's saved quizzes. It should be picked by difficulty, and
-  a "cumulative review" you can start on purpose would make the mechanic visible instead of
-  incidental.
 - **A signed desktop build.** The desktop app ships unsigned, so Windows and macOS warn on
   first launch; signing removes that for people who will not touch Docker.
 
