@@ -257,7 +257,8 @@ try {
     mastery.rescoreNode(rebuilt);
     check('a rebuild lifts the stored score back over the line (the claim is dropped there)', score(rebuilt) >= T && score(rebuilt) > claimLow, `${claimLow} -> ${score(rebuilt)}`);
     check('…and the gate still reads the claim\'s lowering', el(rebuilt).eligible === false && Math.abs(el(rebuilt).gate_score - claimLow) < 1e-12, show(rebuilt));
-    check('…so the topic is not proven to its other readers either', mastery.estimateProven?.(rebuilt, T) === false);
+    check('…so estimateProven (the completion count, transfer, the Atlas) says not proven either', mastery.estimateProven?.(rebuilt, T) === false);
+    check('…and nothing blames cards or drills it never had (practice_lifted false)', el(rebuilt).practice_lifted === false, show(rebuilt));
 
     console.log('\n--- 9e. a claim row with no evidence mark ---');
     // None is written without one (claims.js reads MAX(id) or 0); a row from
@@ -268,6 +269,16 @@ try {
     db.prepare(`INSERT INTO mastery_claims (node_id, source, correct, question_type, mastery_before, mastery_after, evidence_mark, created_at)
                 VALUES (?, 'mcp', 0, 'short_answer', ?, ?, NULL, '2026-11-09T00:00:00.000Z')`).run(unmarked, high, high - 0.1);
     check('it lowers what the gate reads (an unknown place fails closed)', el(unmarked).gate_score < high, show(unmarked));
+    // Beside a marked claim: both step, the marked one at its place and the
+    // unmarked one last (one Infinity at most after the dedupe, so the sort is safe).
+    const both = addNode(course, 'Fundamental frequency');
+    for (let i = 0; i < 20 && score(both) < 0.9; i++) feedAnswer(both, true);
+    recordClaim({ nodeId: both, correct: false, questionType: 'short_answer' });
+    const afterMarked = el(both).gate_score;
+    db.prepare(`INSERT INTO mastery_claims (node_id, source, correct, question_type, mastery_before, mastery_after, evidence_mark, created_at)
+                VALUES (?, 'mcp', 0, 'short_answer', 0.9, 0.8, NULL, '2026-11-09T00:00:00.000Z')`).run(both);
+    const g = el(both).gate_score;
+    check('beside a marked claim, both lower it (a number, below the marked claim alone)', Number.isFinite(g) && g < afterMarked, `${afterMarked} -> ${g}`);
 
     console.log('\n--- 9f. a seed under a low bar, plus one card ---');
     // At a bar at or under the 0.6 seed cap, the seed alone clears it: what a
@@ -284,7 +295,9 @@ try {
     db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'future_kind', 8, 8)").run(unknown);
     db.prepare('UPDATE node_mastery SET mastery_score = 0.99 WHERE node_id = ?').run(unknown);
     check('it counts as practice until listed as proving (the gate fails closed)', el(unknown).eligible === false && el(unknown).gate_score < T && el(unknown).practice_lifted === true, show(unknown));
-    check('every known type is proving, practice or the seed, exactly one',
+    // Practice is everything else by definition, so "exactly one of three" is
+    // the two named sets not overlapping, and cards and drills not proving.
+    check('no type is both proving and the seed, and cards and drills are known and not proving',
         mastery.VALID_EVIDENCE_TYPES.every(t => (mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t) + (t === 'placement') <= 1)
         && ['flashcard', 'drill'].every(t => mastery.VALID_EVIDENCE_TYPES.includes(t) && !(mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t)));
 

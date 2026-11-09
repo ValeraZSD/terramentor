@@ -1337,8 +1337,7 @@ function drawnStatements() {
                     || ',' || quote(ROUND(COALESCE(nm.mastery_score, 0) * 100)) || ',' || quote(COALESCE(nm.mastery_score, 0) >= 0.85)
                     || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
                     || ',' || quote(nm.placement_prior IS NOT NULL)
-                    || ',' || quote((SELECT COUNT(*) FROM mastery_claims c
-                                     WHERE c.node_id = n.id AND c.correct = 0 AND c.mastery_after < c.mastery_before))
+                    || ',' || quote(COALESCE(mc.lowered, 0))
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
              FROM nodes n
@@ -1347,6 +1346,9 @@ function drawnStatements() {
              LEFT JOIN (SELECT node_id, COUNT(*) AS cards,
                                SUM(review_count > 0 AND last_reviewed IS NOT NULL) AS seen
                         FROM flashcards GROUP BY node_id) fc ON fc.node_id = n.id
+             LEFT JOIN (SELECT node_id, COUNT(*) AS lowered FROM mastery_claims
+                        WHERE correct = 0 AND mastery_after < mastery_before
+                        GROUP BY node_id) mc ON mc.node_id = n.id
              WHERE n.is_note = 0 AND (? OR COALESCE(p.status, 'active') != 'archived')`).pluck(),
         db.prepare(
             `SELECT group_concat(

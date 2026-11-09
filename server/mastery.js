@@ -424,7 +424,10 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
         gate_score: gateScore,
         // The estimate is over the line and only practice put it there: the
         // reader says so, or "99%" beside "not proven yet" reads as a bug.
-        practice_lifted: !eligible && !borrowed && record.mastery_score >= threshold && gateScore < threshold,
+        // Only with practice on the node: an agent claim alone also opens the
+        // gap (a rebuild drops it from the stored score), and "your cards
+        // raised this" would then be false.
+        practice_lifted: counts.practice > 0 && !eligible && !borrowed && record.mastery_score >= threshold && gateScore < threshold,
         evidence_count: evidenceCount.count,
         threshold,
         has_evidence: hasEvidence,
@@ -572,8 +575,7 @@ export function estimateProven(nodeId, threshold) {
  * `mastery_score` itself (the plain replay) drops it, as claims.js intends.
  * The claim is stepped from the replayed estimate at its place, which may
  * differ from the stored score it was first taken from (cards lifted that
- * one), so its step here can be larger than the stored step; the gate takes
- * the lower. A claim row with no mark (none is written without one) is
+ * one), so the two steps may differ; the gate takes the lower. A claim row with no mark (none is written without one) is
  * stepped last: an unknown place fails closed.
  */
 function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {

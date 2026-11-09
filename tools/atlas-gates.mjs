@@ -271,6 +271,15 @@ const rebuilds = async (change) => {
         db.prepare('UPDATE node_mastery SET total_attempts = 3 WHERE node_id = ?').run(nStanding)));
     check('a prior transferred onto a topic rebuilds (its row is marked)', await rebuilds(() =>
         db.prepare('UPDATE node_mastery SET transferred_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    // Both move whether a bridge side is proven (estimateProven) with nothing
+    // else on the row changing.
+    check('a placement prior on a topic rebuilds (a seed holds the bridge flag back)', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET placement_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    check('an agent claim that lowered a topic rebuilds (the gate keeps its lowering)', await rebuilds(() =>
+        db.prepare(`INSERT INTO mastery_claims (node_id, source, correct, mastery_before, mastery_after, evidence_mark, created_at)
+                    VALUES (?, 'mcp', 0, 0.9, 0.8, 0, '2026-11-09T00:00:00.000Z')`).run(nStanding)));
+    db.prepare('DELETE FROM mastery_claims WHERE node_id = ?').run(nStanding);
+    db.prepare('UPDATE node_mastery SET placement_prior = NULL WHERE node_id = ?').run(nStanding);
     // Same length on purpose: a key that summed title lengths missed this.
     check('a same-length rename rebuilds', await rebuilds(() =>
         db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run('Standing Wavez', nStanding)));
