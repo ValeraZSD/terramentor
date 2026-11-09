@@ -35,7 +35,9 @@ export const DETAIL_PX = 0.5;
  * 72° from the camera's equator (Winkel tripel; 1.76 at 60°, 1.96 at 72°,
  * re-measured by `tools/atlas-world-gates.mjs`). Nearer the pole the east-west
  * scale grows without bound, since the pole is a line, but the planet is
- * turned so that no land lies there.
+ * turned so that little land lies there; a tipped sheet can still bring some
+ * on screen, and the same gate holds the worst point left out there under a
+ * pixel and a half.
  */
 export const SHEET_SCALE = 2;
 

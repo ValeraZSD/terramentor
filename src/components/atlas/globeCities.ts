@@ -46,6 +46,8 @@ export interface CountryCities {
 
 /** Lattice samples per city. Fewer and the borders go blocky; more is time. */
 const SAMPLES_PER_CITY = 45;
+/** The most lattice points a country may take, per sample it needs. */
+const LATTICE_SLACK = 40;
 /** Rounds of the share-out, plus more for a bigger country (see below). */
 const ROUNDS = 24;
 /** The last rounds only grow and shrink cells, no moving: they settle the sizes. */
@@ -146,6 +148,10 @@ export function buildCountryCities(
     const cols = Math.ceil((maxX - minX + 2 * pad) / h) + 2;
     const rows = Math.ceil((maxY - minY + 2 * pad) / dy) + 2;
     const V = rows * cols;
+    // The lattice covers the outline's box, so a thin or scattered country
+    // would cost far more than its samples (3.7x them at most, measured on the
+    // atlas gates' libraries). Past this it is drawn whole instead.
+    if (V > N * SAMPLES_PER_CITY * LATTICE_SLACK) return null;
     const px = new Float64Array(V), py = new Float64Array(V);
     const qx = new Float64Array(V), qy = new Float64Array(V);
     const inside = new Uint8Array(V);
@@ -199,11 +205,15 @@ export function buildCountryCities(
         [sx[i], sy[i]] = warp(x, y);
     });
     // A bucket grid over the seeds, so "nearest" looks at nine cells and not
-    // at every seed in the country.
+    // at every seed in the country. A seed outside those nine is at least `G`
+    // away, so with the weights it can win only where the best of the nine is
+    // over `G² - wMax`; there, and only there, every seed is asked.
     const G = 3 * r0;
-    let gx0 = 0, gy0 = 0, gc = 1, grid = new Map<number, number[]>();
+    let gx0 = 0, gy0 = 0, gc = 1, grid = new Map<number, number[]>(), wMax = 0;
     const bucket = () => {
         gx0 = Infinity; gy0 = Infinity; let gx1 = -Infinity;
+        wMax = -Infinity;
+        for (let i = 0; i < N; i++) wMax = Math.max(wMax, w[i]);
         for (let i = 0; i < N; i++) { gx0 = Math.min(gx0, sx[i]); gy0 = Math.min(gy0, sy[i]); gx1 = Math.max(gx1, sx[i]); }
         gx0 -= G; gy0 -= G; gc = Math.ceil((gx1 - gx0 + 2 * G) / G) + 1;
         grid = new Map();
@@ -225,7 +235,7 @@ export function buildCountryCities(
                 if (d < bd) { bd = d; best = s; }
             }
         }
-        if (best >= 0) return best;
+        if (best >= 0 && bd <= G * G - wMax) return best;
         for (let s = 0; s < N; s++) {
             const d = (x - sx[s]) ** 2 + (y - sy[s]) ** 2 - w[s];
             if (d < bd) { bd = d; best = s; }

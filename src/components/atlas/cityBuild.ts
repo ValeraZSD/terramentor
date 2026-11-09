@@ -34,7 +34,10 @@ export function cityKey(territories: Territory[], regions: CityRegion[]): string
     };
     for (const t of territories) {
         mix(t.id);
-        for (const l of t.loops) { mix(l.pts.length); mix(l.pts[0] ?? 0); mix(l.pts[l.pts.length - 1] ?? 0); }
+        // Every coordinate: a coast redrawn with the same number of points
+        // and the same ends is still another coast (some 100,000 numbers, a
+        // millisecond, once per atlas).
+        for (const l of t.loops) { mix(l.pts.length); for (let i = 0; i < l.pts.length; i++) mix(l.pts[i]); }
     }
     for (const r of regions) {
         mix(r.id); mix(r.u[0]); mix(r.u[1]); mix(r.u[2]);
