@@ -297,6 +297,10 @@ console.log('\n--- pre-compressed static ---------------------------------------
     r = await drive('/../secret.js', 'br');
     ok('a path climbing out of dist is refused', r.next, 'never served, never stat-ed');
 
+    let threw = null;
+    try { r = await drive('/assets/%.js', 'br'); } catch (e) { threw = e; }
+    ok('a path that is not valid percent-encoding falls through', !threw && r.next, threw?.message);
+
     r = await drive('/api/projects', 'br');
     ok('an API path is not this handler\'s business', r.next);
 }
