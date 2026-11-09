@@ -42,7 +42,7 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
             const nodeId = spec.nodeId;
             // Once written, the topic's end card (if one is mounted) re-reads
             // its numbers: the drill moved the estimate it shows.
-            api.recordDrillResult(nodeId, result.correct, result.total, spec.key, result.items)
+            api.recordDrillResult(spec.nodeId, result.correct, result.total, spec.key, result.items)
                 .then(() => noteAnswerSaved(nodeId))
                 .catch(() => { });
         }
