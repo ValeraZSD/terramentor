@@ -76,9 +76,11 @@ export function placeCheckpoints(held: FeedCard[], fresh: FeedCard[], slotTopic:
         if (c.kind === 'checkpoint') {
             let at = -1;
             if (!pulledTopics.has(c.nodeId)) {
+                // After the topic's own chapter, never after a recall card of
+                // the same topic: that one sits in the review round at the
+                // top, and a checkpoint there would cut the round in two.
                 for (let i = out.length - 1; i >= 0; i--) {
-                    const o = out[i];
-                    if (o.kind !== 'flashcard' && 'nodeId' in o && o.nodeId === c.nodeId) { at = i; break; }
+                    if (chapterTopicOf(out[i]) === c.nodeId) { at = i; break; }
                 }
             }
             if (at < 0) out.push(c);
