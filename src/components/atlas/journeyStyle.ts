@@ -23,10 +23,12 @@ export const CLICK_SLOP = 5;
 
 // ---- the walked line --------------------------------------------------------
 
-/** The oldest step of the journey, and the newest. Age is drawn as presence. */
+/** The oldest step of the journey, and the newest. Age is drawn as presence.
+ *  Thin: the route is drawn OVER the cities, and at 4 px it hid the very
+ *  places it was walking through. */
 export const JOURNEY_MIN_ALPHA = 0.42;
-export const JOURNEY_MIN_WIDTH = 2;
-export const JOURNEY_MAX_WIDTH = 4.2;
+export const JOURNEY_MIN_WIDTH = 1.1;
+export const JOURNEY_MAX_WIDTH = 2.2;
 /**
  * The walked path is stroked twice: once in the surface colour, wider, then the
  * ink over it. The same halo every label on this map wears, and for the same
@@ -34,11 +36,11 @@ export const JOURNEY_MAX_WIDTH = 4.2;
  * both disappear into what they cross, and this path runs over every bubble in
  * the library by design.
  */
-export const JOURNEY_HALO_WIDTH = 3.2;
+export const JOURNEY_HALO_WIDTH = 2.4;
 export const JOURNEY_HALO_ALPHA = 0.7;
 /** A segment shorter than this on screen has no room for a direction mark. */
 export const ARROW_MIN_LENGTH = 26;
-export const ARROW_SIZE = 5.5;
+export const ARROW_SIZE = 4.5;
 /** The head, while it is flying: a filled arrow, on a soft accent glow. */
 export const HEAD_ARROW_LENGTH = 21;
 export const HEAD_ARROW_WIDTH = 15;

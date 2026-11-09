@@ -106,6 +106,89 @@ export function topicOffset(
     return [(topic.x - region.x) / region.radius, (topic.y - region.y) / region.radius];
 }
 
+// ---- the Map: the same planet, unrolled flat ---------------------------------
+//
+// The Map surface is this planet drawn on a sheet rather than as a ball: one
+// library, one set of places, two projections. The sheet is unrolled AROUND THE
+// CAMERA — what the reader faces is the sheet's middle, (0, 0), where nothing is
+// squashed — so a country zoomed into keeps its true shape wherever it lies on
+// the planet, and only the far edges of a zoomed-out sheet are bent.
+
+/** Half the flat sheet's width in `flatXY` units. */
+export const FLAT_HALF_W = 1 + Math.PI / 2;
+/** Half its height: the poles sit at ±π/2. */
+export const FLAT_HALF_H = Math.PI / 2;
+/**
+ * How many sheet units one radian of longitude is across the sheet's middle
+ * (`∂x/∂λ` at the centre, `(2/π + 1) / 2`). A drag of so many pixels turns the
+ * planet by pixels / (R · this), so the ground under the hand moves with it.
+ */
+export const FLAT_DX_DLON = (2 / Math.PI + 1) / 2;
+
+/**
+ * Winkel tripel: the mean of an equirectangular and an Aitoff map. Equal Earth
+ * kept areas true and squashed every shape near the top and bottom to about
+ * half its height (h/k 0.59 at 60°, against 1.35 at the middle); this keeps
+ * shapes far closer (1.22 at the middle, 0.81 at 60°) at the price of land
+ * there drawn ~1.4x larger. Longitude in [-π, π], latitude in [-π/2, π/2].
+ */
+export function flatXY(lon: number, lat: number): [number, number] {
+    const c = Math.cos(lat);
+    const a = Math.acos(Math.max(-1, Math.min(1, c * Math.cos(lon / 2))));
+    const sinc = a > 1e-9 ? Math.sin(a) / a : 1;
+    return [
+        0.5 * (lon * (2 / Math.PI) + (2 * c * Math.sin(lon / 2)) / sinc),
+        0.5 * (lat + Math.sin(lat) / sinc),
+    ];
+}
+
+/**
+ * The inverse: which longitude and latitude a point on the sheet shows, or null
+ * when it is off the sheet. Winkel tripel has no closed-form inverse, so this
+ * is Newton's method on the forward map, started from the equirectangular
+ * guess and damped so a step can never leave the sheet. A point is only
+ * accepted when the forward map takes the answer back onto it — which is also
+ * what says "beside the sheet": there is nothing there to converge to.
+ */
+export function flatLonLat(x: number, y: number): [number, number] | null {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    if (Math.abs(x) > FLAT_HALF_W + 1e-9 || Math.abs(y) > FLAT_HALF_H + 1e-9) return null;
+    const PI2 = Math.PI / 2;
+    let lon = clamp(x / FLAT_DX_DLON, -Math.PI, Math.PI);
+    let lat = clamp(y, -PI2, PI2);
+    const h = 1e-7;
+    for (let i = 0; i < 60; i++) {
+        const [fx, fy] = flatXY(lon, lat);
+        const ex = fx - x, ey = fy - y;
+        if (Math.abs(ex) < 1e-11 && Math.abs(ey) < 1e-11) break;
+        // The Jacobian by central differences, nudged inward at the sheet's
+        // edges so the difference never reads past a pole or the seam.
+        const lo = clamp(lon, -Math.PI + h, Math.PI - h), la = clamp(lat, -PI2 + h, PI2 - h);
+        const [ax, ay] = flatXY(lo + h, la), [bx, by] = flatXY(lo - h, la);
+        const [cx2, cy2] = flatXY(lo, la + h), [dx2, dy2] = flatXY(lo, la - h);
+        const j11 = (ax - bx) / (2 * h), j21 = (ay - by) / (2 * h);
+        const j12 = (cx2 - dx2) / (2 * h), j22 = (cy2 - dy2) / (2 * h);
+        const det = j11 * j22 - j12 * j21;
+        if (Math.abs(det) < 1e-14) break;
+        let sLon = (ex * j22 - ey * j12) / det, sLat = (ey * j11 - ex * j21) / det;
+        // Damped: a step longer than a quarter turn is the iteration lost,
+        // not the iteration converging.
+        const len = Math.hypot(sLon, sLat);
+        if (len > 0.5) { sLon *= 0.5 / len; sLat *= 0.5 / len; }
+        lon = clamp(lon - sLon, -Math.PI, Math.PI);
+        lat = clamp(lat - sLat, -PI2, PI2);
+    }
+    const [fx, fy] = flatXY(lon, lat);
+    return Math.hypot(fx - x, fy - y) < 1e-6 ? [lon, lat] : null;
+}
+
+/** The view-space direction a longitude and latitude on the sheet stand for —
+ *  `rotate`'s flat branch, undone (lon = atan2(x, z), lat = asin(y)). */
+export function viewOfLonLat(lon: number, lat: number): Vec3 {
+    const c = Math.cos(lat);
+    return [c * Math.sin(lon), Math.sin(lat), c * Math.cos(lon)];
+}
+
 /**
  * Turn the planet: yaw about the world's z axis, then pitch toward the reader.
  *
@@ -114,8 +197,15 @@ export function topicOffset(
  * — you lose the "up" that lets a reader remember they came from above the blue
  * region. Yaw and a clamped pitch keep the axis upright, which is how every
  * globe anyone has ever used behaves.
+ *
+ * `flat` asks for the Map's answer instead: the same turn, then unrolled onto
+ * the sheet (`flatXY`). The result is then a point on the sheet, `[x, y, 1]` —
+ * a sheet has no far side, so its third component is always "facing".
+ * A parameter rather than a mode anywhere: both surfaces can be mounted at once
+ * (the page's map and a video frame being recorded), and a switch shared
+ * between them draws one with the other's projection.
  */
-export function rotate(v: Vec3, yaw: number, pitch: number): Vec3 {
+export function rotate(v: Vec3, yaw: number, pitch: number, flat = false): Vec3 {
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
     // Yaw spins the planet under a fixed axis…
     const x1 = v[0] * cy - v[1] * sy;
@@ -123,7 +213,12 @@ export function rotate(v: Vec3, yaw: number, pitch: number): Vec3 {
     // …and pitch tips that axis toward the reader. At pitch 0 the world's z is
     // straight up the screen, which is what makes north stay north.
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
-    return [x1, v[2] * cp - y1 * sp, v[2] * sp + y1 * cp];
+    const vy = v[2] * cp - y1 * sp, vz = v[2] * sp + y1 * cp;
+    if (flat) {
+        const [x, y] = flatXY(Math.atan2(x1, vz), Math.asin(clamp(vy, -1, 1)));
+        return [x, y, 1];
+    }
+    return [x1, vy, vz];
 }
 
 /** The inverse of `rotate` — view space back to the library's own frame. */

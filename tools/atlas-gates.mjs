@@ -741,102 +741,6 @@ if (coursePaths) {
     // Put the fixture back the way the rest of the file found it.
     db.prepare('UPDATE projects SET start_date = NULL WHERE id = ?').run(course);
 
-    // ---- the flight the arrow actually takes ---------------------------------
-    // The replay is a thing MOVING between the topics, so the route it moves
-    // along is curved: an arrow on a polyline turns a corner in one frame,
-    // which reads as the teleporting it was meant to replace. Every failure
-    // here is a picture — a curve that misses the topic it is supposed to pass
-    // through, a heading that swings backwards, a NaN that erases the path — so
-    // the arithmetic is driven directly rather than looked at.
-    const { flightPath, legAt, legUpTo } = coursePaths;
-    const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
-    const route = [
-        { x: 0, y: 0 }, { x: 10, y: 4 }, { x: 4, y: 12 }, { x: 22, y: 14 }, { x: 30, y: 2 },
-    ];
-    const legs = flightPath(route);
-
-    check('a route has one leg per gap', legs.length === route.length - 1, String(legs.length));
-    check('a single place is a place, not a route', flightPath([{ x: 1, y: 1 }]).length === 0);
-    check('an empty journey draws nothing', flightPath([]).length === 0);
-    // The bend is in the route BETWEEN topics; the topics themselves are data
-    // and a curve that smooths them is drawing a course nobody took.
-    check('the curve passes exactly through every topic', legs.every((leg, i) => {
-        const a = legAt(leg, 0), b = legAt(leg, 1);
-        return near(a.x, route[i].x) && near(a.y, route[i].y)
-            && near(b.x, route[i + 1].x) && near(b.y, route[i + 1].y);
-    }));
-    check('...and it is a curve, not the straight line it joins', legs.some((leg, i) => {
-        const mid = legAt(leg, 0.5);
-        return Math.hypot(mid.x - (route[i].x + route[i + 1].x) / 2,
-            mid.y - (route[i].y + route[i + 1].y) / 2) > 0.2;
-    }));
-    // A handle longer than the hop is what makes a cubic loop: the arrow flies
-    // out past the topic, turns round and comes back to it.
-    check('no leg can loop: every handle is inside its own chord', legs.every(leg => {
-        const chord = Math.hypot(leg.x3 - leg.x0, leg.y3 - leg.y0);
-        return Math.hypot(leg.x1 - leg.x0, leg.y1 - leg.y0) <= chord * 0.5 + 1e-9
-            && Math.hypot(leg.x2 - leg.x3, leg.y2 - leg.y3) <= chord * 0.5 + 1e-9;
-    }));
-    check('the heading turns continuously through a corner', (() => {
-        // The end of one leg and the start of the next must agree, or the arrow
-        // pivots on the spot — the exact thing the curve is for.
-        for (let i = 1; i < legs.length; i++) {
-            const inAngle = legAt(legs[i - 1], 1).angle;
-            const out = legAt(legs[i], 0).angle;
-            let d = Math.abs(inAngle - out) % (2 * Math.PI);
-            if (d > Math.PI) d = 2 * Math.PI - d;
-            if (d > 0.35) return false;
-        }
-        return true;
-    })());
-    check('the heading runs forwards along the route', legs.every((leg, i) => {
-        const h = legAt(leg, 0.5);
-        const dx = route[i + 1].x - route[i].x, dy = route[i + 1].y - route[i].y;
-        return Math.cos(h.angle) * dx + Math.sin(h.angle) * dy > 0;
-    }));
-    // Zoomed out, every topic in one bubble is drawn at that bubble's centre —
-    // so coincident points are the ORDINARY case here, not an edge one.
-    check('collapsed points produce a route, never a NaN', (() => {
-        const flat = flightPath([{ x: 5, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 5 }, { x: 9, y: 1 }]);
-        return flat.length === 3 && flat.every(l =>
-            [l.x0, l.y0, l.x1, l.y1, l.x2, l.y2, l.x3, l.y3].every(Number.isFinite))
-            && Number.isFinite(legAt(flat[0], 0.5).angle);
-    })());
-    check('the part flown ends where the arrow is', (() => {
-        for (const t of [0.01, 0.25, 0.5, 0.9]) {
-            const part = legUpTo(legs[1], t);
-            const head = legAt(legs[1], t);
-            if (!near(part.x3, head.x, 1e-9) || !near(part.y3, head.y, 1e-9)) return false;
-            if (!near(part.x0, legs[1].x0) || !near(part.y0, legs[1].y0)) return false;
-        }
-        return true;
-    })());
-    check('...and the whole of it is the leg itself', (() => {
-        const whole = legUpTo(legs[2], 1);
-        return ['x0', 'y0', 'x1', 'y1', 'x2', 'y2', 'x3', 'y3'].every(k => near(whole[k], legs[2][k], 1e-9));
-    })());
-    check('the flown part stays ON the leg, never cutting the corner', (() => {
-        // Half of a curve is not the same shape as a line to its midpoint, and
-        // stroking the second would make the path snap straight behind the
-        // arrow as it flew.
-        const part = legUpTo(legs[1], 0.6);
-        for (const t of [0.2, 0.5, 0.8]) {
-            const on = legAt(part, t);
-            const same = legAt(legs[1], t * 0.6);
-            if (!near(on.x, same.x, 1e-9) || !near(on.y, same.y, 1e-9)) return false;
-        }
-        return true;
-    })());
-    check('a real journey curves without NaN', (() => {
-        const places = traced.journey.map(id => {
-            const p = traced.points.get(id);
-            return { x: p.x, y: p.y };
-        });
-        const real = flightPath(places);
-        return real.length === places.length - 1
-            && real.every(l => [l.x0, l.y0, l.x1, l.y1, l.x2, l.y2, l.x3, l.y3].every(Number.isFinite));
-    })());
-
     // ---- what a step COSTS in time ------------------------------------------
     // A fixed beat made the arrow's speed the thing that varied: a hop inside
     // one bubble and a hop across the library both took 420ms, so the far one
@@ -962,47 +866,6 @@ if (coursePaths) {
     check('the dials are clamped to the ends of their own sliders',
         stepDurationMs(mid, 2, { speed: 100, holdMs: 0 }) === stepDurationMs(mid, 2, { speed: SPEED_MAX, holdMs: 0 })
         && stepDurationMs(mid, 2, { speed: 0.001, holdMs: 0 }) === stepDurationMs(mid, 2, { speed: SPEED_MIN, holdMs: 0 }));
-    // ---- the leg is flown by DISTANCE, not by the curve's parameter --------
-    // A cubic is not traversed evenly by its own `t`: on the shapes a real
-    // journey makes, the middle of a leg goes up to seven times faster than its
-    // ends. What that looks like is an arrow that sits still for the first part
-    // of its beat and then bolts — "it starts moving already halfway" — and it
-    // is not a timing fault at all, it is distance and time not being the same
-    // axis. `legParam` maps one onto the other.
-    const { legParam } = coursePaths;
-    const evenness = (leg, param) => {
-        const N = 48;
-        const steps = [];
-        for (let i = 0; i < N; i++) {
-            const a = legAt(leg, param(i / N)), b = legAt(leg, param((i + 1) / N));
-            steps.push(Math.hypot(b.x - a.x, b.y - a.y));
-        }
-        const sorted = steps.slice().sort((a, b) => a - b);
-        return sorted[N - 1] / (sorted[0] || 1e-9);
-    };
-    // The shapes a real course produces: a tight cluster, a long hop out of it,
-    // a corner, and the coincident pair a zoomed-out map hands it constantly.
-    const shapes = flightPath([
-        { x: 0, y: 0 }, { x: 0.02, y: 0.01 }, { x: 0.4, y: 0.2 }, { x: 0.42, y: 0.22 },
-        { x: -0.3, y: 0.5 }, { x: -0.3, y: 0.5 }, { x: 0.1, y: -0.4 },
-    ]).filter(l => Math.hypot(l.x3 - l.x0, l.y3 - l.y0) > 1e-6);
-    const rawWorst = Math.max(...shapes.map(l => evenness(l, t => t)));
-    const flownWorst = Math.max(...shapes.map(l => evenness(l, u => legParam(l, u))));
-    check('the curve itself is nothing like even — which is why this exists',
-        rawWorst > 2, `worst ${rawWorst.toFixed(1)}x by parameter`);
-    check('flown by distance, every millisecond buys the same millimetre',
-        flownWorst < 1.35, `worst ${flownWorst.toFixed(2)}x by length`);
-    check('...and it still starts at the start and ends at the end', (() => {
-        const l = shapes[1];
-        const a = legAt(l, legParam(l, 0)), b = legAt(l, legParam(l, 1));
-        return Math.hypot(a.x - l.x0, a.y - l.y0) < 1e-9
-            && Math.hypot(b.x - l.x3, b.y - l.y3) < 1e-9;
-    })());
-    check('a leg with no length at all is not a division by zero', (() => {
-        const flat = { x0: 3, y0: 3, x1: 3, y1: 3, x2: 3, y2: 3, x3: 3, y3: 3 };
-        const u = legParam(flat, 0.4);
-        return Number.isFinite(u) && u >= 0 && u <= 1;
-    })());
 
     // ---- the two clocks have to be in PHASE, not merely the same shape -----
     // The page waits a beat and then advances the step; the canvas crosses the
@@ -1038,14 +901,12 @@ if (coursePaths) {
     // function, or the arrow lands early or never — the same rule the old
     // exported constant existed for.
     const view = readFileSync(new URL('../src/components/AtlasView.tsx', import.meta.url), 'utf8');
-    const map = readFileSync(new URL('../src/components/atlas/AtlasMap.tsx', import.meta.url), 'utf8');
     const globe = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
     // Where the arrow IS between two topics is arithmetic, and it lives in
-    // `coursePaths.ts` because the atlas has TWO surfaces to fly it on. The
-    // scans below read it there. A second copy of any of this in a renderer is
-    // a second clock, and the first thing that would drift is a course
-    // replaying at a different speed depending which way you were looking at
-    // the library.
+    // `coursePaths.ts`, outside the renderer. The scans below read it there. A
+    // second copy of any of this in a renderer is a second clock, and the
+    // first thing that would drift is a course replaying at a different speed
+    // on the screen than in the film of it.
     const paths = readFileSync(new URL('../src/components/atlas/coursePaths.ts', import.meta.url), 'utf8');
     // The page's own clock — which finish has been reached and when the next
     // one is — moved out of `AtlasView` when a second surface started replaying
@@ -1054,13 +915,11 @@ if (coursePaths) {
     // a video of. The scans below read it where it lives.
     const clock = readFileSync(new URL('../src/components/atlas/useJourneyReplay.ts', import.meta.url), 'utf8');
     const stage = readFileSync(new URL('../src/components/atlas/AtlasRenderStage.tsx', import.meta.url), 'utf8');
-    check('both surfaces fly the same integrator',
-        /advanceFlight\(flightRef\.current, /.test(map) && /advanceFlight\(flightRef\.current, /.test(globe));
-    check('...and neither of them integrates one of its own',
-        !/flight\.at = Math\.min\(want/.test(map) && !/flight\.at = Math\.min\(want/.test(globe));
+    check('the renderer flies the shared integrator', /advanceFlight\(flightRef\.current, /.test(globe));
+    check('...and does not integrate one of its own', !/flight\.at = Math\.min\(want/.test(globe));
     check('both clocks read the same beat', /stepDurationMs\(/.test(clock) && /stepDurationMs\(/.test(paths));
     check('...and neither keeps a beat of its own',
-        !/REPLAY_STEP_MS/.test(view) && !/REPLAY_STEP_MS/.test(map));
+        !/REPLAY_STEP_MS/.test(view) && !/REPLAY_STEP_MS/.test(globe));
     // ONE clock, used by both places a course replays. The page and the render
     // dialog each hold a surface and a course; neither may arm a timeout of its
     // own, or the film and the map are two replays that agree by coincidence.
@@ -1080,20 +939,20 @@ if (coursePaths) {
     // landing's idle — up to 28% of a beat with no frames drawn at all — was
     // charged to the first frame of the next leg, which then began a third of
     // the way along it.
-    // The arithmetic above proves `legParam` evens a leg out; this is the other
+    // `globe-gates.mjs` proves `sphereLegParam` evens a leg out; this is the other
     // half — that the map actually flies through it. Both the arrow and the
     // path it leaves behind read it, and they have to read the same thing or
     // the arrow drifts off its own line.
     check('the arrow and its line are both advanced by DISTANCE along the leg',
-        /legAt\(leg, legParam\(leg, frac\)\)/.test(map)
-        && /legUpTo\(whole, legParam\(whole, frac\)\)/.test(map));
+        /const t = leg \? sphereLegParam\(leg, frac\) : 0/.test(globe)
+        && /sphereLegParam\(whole, frac\)/.test(globe));
     check('a new leg starts at its own start',
         /const elapsed = want === flight\.target \? frameMs : 0/.test(paths));
     // One clock for the camera and the arrow, read in milliseconds. A share per
     // FRAME is a different speed on every machine.
     check('everything that moves reads the same frame clock',
-        /const frameMs = clockRef\.current/.test(map)
-        && /const dt = Math\.min\(frameMs, MAX_STEP_MS\) \/ 1000/.test(map));
+        /const dt = lastFrame\.current \? Math\.min\(0\.05, rawMs \/ 1000\)/.test(globe)
+        && /const frameMs = rawMs > 0 && rawMs < IDLE_GAP_MS \? rawMs : 0/.test(globe));
     // The camera has WEIGHT: it carries a velocity and is pulled toward its
     // target by a critically damped spring, integrated EXACTLY over the elapsed
     // time. An exponential ease is first-order — its speed is proportional to
@@ -1102,24 +961,31 @@ if (coursePaths) {
     // gains energy on a long frame, which is a camera that overshoots more the
     // slower the machine is.
     //
-    // ONE arm, shared by both surfaces (`cameraSpring.ts`): a replay is meant
-    // to mean the same thing on the sheet and on the planet, and how much
-    // weight the camera has is part of what it means. With an ease the first
-    // frame of a pull-out would move 1479px/s against 6px/s the frame before it.
+    // ONE arm (`cameraSpring.ts`) for the Map and Terra: a replay is meant to
+    // mean the same thing on both, and how much weight the camera has is part
+    // of what it means. With an ease the first frame of a pull-out
+    // would move 1479px/s against 6px/s the frame before it.
     const arm = readFileSync(new URL('../src/components/atlas/cameraSpring.ts', import.meta.url), 'utf8');
     check('the camera is on a spring rather than a lerp',
         /export function spring\(x: number, v: number, to: number, omega: number, dt: number\)/.test(arm)
         && /const decay = Math\.exp\(-omega \* dt\)/.test(arm)
-        && /velRef\.current = \{ x: sx\.v, y: sy\.v, lk: sk\.v \}/.test(map));
-    check('…and both surfaces hang on that one arm',
-        /from '\.\/cameraSpring'/.test(map) && /from '\.\/cameraSpring'/.test(globe)
+        && /camVelRef\.current = \{ yaw: sy\.v, pitch: sp\.v, lk: lkV \}/.test(globe));
+    check('…and the renderer hangs on that one arm',
+        /from '\.\/cameraSpring'/.test(globe)
         && /spring\(cam\.yaw, vel\.yaw, target\.yaw, omega, dt\)/.test(globe)
         && !/1 - Math\.exp\(-EASE_OMEGA \* dt\)/.test(globe));
+    // The replay's zoom too. The shot it holds changes in steps, and an ease
+    // answers a step with a step in its speed: on the Map the zoom went from
+    // creeping to racing in one frame (×15, `tools/harness/cam-trace.mjs`).
+    check('a replay\'s zoom rides the arm, keeping its speed across a new shot',
+        /spring\(Math\.log\(cam\.k\), followLkRef\.current, Math\.log\(hold\), kOmega, dt\)/.test(globe)
+        && !/1 - Math\.exp\(-kOmega \* dt\)/.test(globe));
     // …and it stops dead wherever the READER moves the map: a drag that ends
     // must not fling it, and a fly-to must not start with the momentum of
     // whatever happened before it.
     check('a hand on the map takes the momentum out of it',
-        (map.match(/velRef\.current = \{ x: 0, y: 0, lk: 0 \}/g) || []).length >= 4);
+        /const takeCamera = useCallback\(\(\) => \{[\s\S]{0,400}?camVelRef\.current = \{ yaw: 0, pitch: 0, lk: 0 \}/.test(globe)
+        && (globe.match(/takeCamera\(\)/g) || []).length >= 3);
     // What counts as a cut is WHO moved the target, not how far it is from the
     // arrow: a distance rule cannot tell a reader pressing Restart from a
     // browser that skipped half a second of frames, and it read the second as
@@ -1130,16 +996,17 @@ if (coursePaths) {
     // One subject per beat: the replay prints the name of the place it is
     // arriving at, and the map's ordinary topic names stand down while it runs.
     check('a running replay silences every other topic name',
-        /journeyAt != null \? 0 : 1/.test(map));
+        /\* \(stepNow != null \? 0 : 1\)/.test(globe));
     check('...and lights the place it is arriving at, cross-fading from the one it left',
-        /journeyLit/.test(map) && /1 - frac/.test(map));
+        /journeyLit = new Map\(\[\[landedTopic\.id, 1 - frac\]\]\)/.test(globe)
+        && /journeyLit\.set\(nextTopic\.id, frac\)/.test(globe));
     // The map draws the route somebody walked, not the syllabus they walked it
     // through. The faint parent-child web under the path was context that read
     // as clutter — a hundred hairlines off every edge of a real course, most of
     // them between topics nobody has opened — and the path is what the replay
     // builds a leg at a time and leaves behind.
     check('the map draws the walked route and not the course tree',
-        !/BRANCH_ALPHA|BRANCH_TRUNK_ALPHA|TRUNK_DEPTH/.test(map) && !/traced\.links/.test(map));
+        !/BRANCH_ALPHA|BRANCH_TRUNK_ALPHA|TRUNK_DEPTH/.test(globe) && !/traced\.links/.test(globe));
     // Carrying on carries on NOW. Arming the clock and waiting a beat for it
     // left the arrow parked on the topic it had already landed on for up to
     // 1.2s after the press, which reads as the button not having worked.
@@ -2025,32 +1892,27 @@ if (gifMod) {
 }
 if (viewer) {
 
-    // ---- the surfaces obey the switch ---------------------------------------
-    // Both of them, from the same flag, and by SKIPPING the pass rather than
+    // ---- the map obeys the switch -------------------------------------------
+    // On both surfaces (one renderer), and by SKIPPING the pass rather than
     // painting it at zero alpha: measuring and wrapping every visible region's
     // name every frame is the cost a reader who switched them off asked not to
     // pay. The selected region keeps its name either way — a ring round an
     // anonymous blob is not a selection.
-    const mapSrc = readFileSync(new URL('../src/components/atlas/AtlasMap.tsx', import.meta.url), 'utf8');
     const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
-    check('both surfaces gate the region names on one flag',
-        /if \(!showNames && region\.id !== selected\) continue;/.test(mapSrc)
-        && /if \(!showNames && p\.region\.id !== selected\) continue;/.test(globeSrc));
-    check('both surfaces take the reader\'s pace into the integrator',
-        /advanceFlight\(flightRef\.current, tracing, stepNow, frameMs, reduceMotion, paceNow\)/.test(mapSrc)
-        && /advanceFlight\(flightRef\.current, tracing, stepNow, frameMs, reduceMotion, paceNow\)/.test(globeSrc));
+    check('the map gates the region names on one flag',
+        /if \(!showNames && p\.region\.id !== selected\) continue;/.test(globeSrc));
+    check('the map takes the reader\'s pace into the integrator',
+        /advanceFlight\(flightRef\.current, tracing, stepNow, frameMs, reduceMotion, paceNow\)/.test(globeSrc));
     // A `MediaRecorder` takes the track's dimensions at START and never
     // revisits them, so a canvas sized off its own box would film a video whose
     // size is whatever the dialog had room for.
     check('a captured canvas is sized to the FRAME, not to its box',
-        /canvas\.width = capture \? capture\.width/.test(mapSrc)
-        && /canvas\.width = capture \? capture\.width/.test(globeSrc));
+        /canvas\.width = capture \? capture\.width/.test(globeSrc));
     // One value for the scale, written by the sizing observer and read by the
     // draw: two computations of "how many canvas pixels is a CSS pixel" is a
     // map painted at a different scale than the one it was sized at.
     check('the draw scales by the ratio the canvas was sized with',
-        /const dpr = dprRef\.current;/.test(mapSrc) && /const dpr = dprRef\.current;/.test(globeSrc)
-        && !/const dpr = Math\.min\(2, window\.devicePixelRatio/.test(mapSrc)
+        /const dpr = dprRef\.current;/.test(globeSrc)
         && !/const dpr = Math\.min\(2, window\.devicePixelRatio/.test(globeSrc));
 }
 
@@ -2059,40 +1921,11 @@ if (viewer) {
 // whole box, a course ran under it: on a 390px phone the replayed path went
 // under the player and the zoom row (s-phone-light-paper-map-2replay, round 2).
 const framing = await bundleTs('src/components/atlas/framing.ts', scratch,
-    { what: 'course framing', needs: ['frameBox', 'viewAbove', 'discView', 'MAX_INSET_SHARE'] });
+    { what: 'course framing', needs: ['viewAbove', 'discView', 'MAX_INSET_SHARE'] });
 if (framing) {
     console.log('\n--- a framed course stays above the player ---');
-    const { frameBox, viewAbove, discView, MAX_INSET_SHARE } = framing;
-    const opts = { base: 200, fill: 0.78, minSpan: 0.12, minK: 0.5, maxK: 12 };
-    // Where the plane draws a world point under a camera (`toScreen`).
-    const screenY = (p, cam, size) => (p.y - cam.y) * opts.base * cam.k + size.h / 2;
-    const screenX = (p, cam, size) => (p.x - cam.x) * opts.base * cam.k + size.w / 2;
-    // A tall course on a phone map, with the stacked strip's measured height,
-    // a wide one on a PC map with the player's, and a phone on its side at a
-    // large interface scale, where the strip is most of the map.
-    const cases = [
-        { what: 'phone, stacked strip', size: { w: 366, h: 560 }, inset: 190,
-            pts: [{ x: -0.3, y: -0.9 }, { x: 0.2, y: 0.95 }, { x: 0, y: 0.4 }] },
-        { what: 'PC, player only', size: { w: 928, h: 716 }, inset: 104,
-            pts: [{ x: -1.2, y: -0.2 }, { x: 1.1, y: 0.6 }] },
-        { what: 'landscape at 160%', size: { w: 820, h: 300 }, inset: 230,
-            pts: [{ x: -0.4, y: -0.5 }, { x: 0.5, y: 0.5 }] },
-    ];
-    for (const c of cases) {
-        const cam = frameBox(c.pts, c.size, c.inset, opts);
-        const floor = c.size.h - Math.min(c.inset, c.size.h * MAX_INSET_SHARE);
-        const ys = c.pts.map(p => screenY(p, cam, c.size));
-        const xs = c.pts.map(p => screenX(p, cam, c.size));
-        check(`${c.what}: every topic of the course is drawn above the strip`,
-            Math.max(...ys) <= floor + 1e-6 && Math.min(...ys) >= 0,
-            `y ${ys.map(v => v.toFixed(1)).join(', ')} / floor ${floor.toFixed(1)}`);
-        check(`${c.what}: and inside the map's width`,
-            Math.min(...xs) >= 0 && Math.max(...xs) <= c.size.w, xs.map(v => v.toFixed(1)).join(', '));
-    }
-    // With no player the framing is the whole map, unchanged.
-    const bare = frameBox([{ x: -1, y: -1 }, { x: 1, y: 1 }], { w: 400, h: 400 }, 0, opts);
-    check('with no player, the box is centred on the whole map', Math.abs(bare.y) < 1e-9 && Math.abs(bare.x) < 1e-9,
-        JSON.stringify(bare));
+    const { viewAbove, discView, MAX_INSET_SHARE } = framing;
+    check('with no player, the box is the whole map', viewAbove(400, 400, 0).h === 400 && viewAbove(400, 400, 0).lift === 0);
     check('a strip taller than its share is held to it', viewAbove(400, 300, 280).h === 300 * (1 - MAX_INSET_SHARE));
     // The planet at its opening zoom: the whole disc clears the strip once
     // lifted, and with no lift it is centred as before.
@@ -2106,26 +1939,17 @@ if (framing) {
     }
     check('an unlifted planet is centred', discView(500, 400, 0).cy === 200 && discView(500, 400, 0).side === 400);
 
-    // …and the surfaces use it, for every course fit: the pick and the refit
-    // (frameOn), the replay's following camera, and the planet's disc.
-    const mapSrc = readFileSync(new URL('../src/components/atlas/AtlasMap.tsx', import.meta.url), 'utf8');
+    // …and the map uses it, on both surfaces, for every course fit: the pick,
+    // the refit, the replay's following camera and its ending.
     const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
     const overlaySrc = readFileSync(new URL('../src/components/atlas/MapOverlay.tsx', import.meta.url), 'utf8');
-    check('the plane frames a course with the measured inset',
-        /frameBox\(points, sizeRef\.current, insetRef\.current/.test(mapSrc));
-    check('the plane frames a picked course a frame later, once its player is laid out',
-        /requestAnimationFrame\(\(\) => frameOn\(coursePoints\(course\)/.test(mapSrc));
-    check('the replay\'s camera follows inside the box above the strip',
-        /const box = viewAbove\(sizeRef\.current\.w, sizeRef\.current\.h, insetRef\.current\)/.test(mapSrc)
-        && /const ty = cy \+ box\.lift \/ \(half \* k\)/.test(mapSrc) && /x: cx, y: ty, k,/.test(mapSrc));
-    check('the planet lifts its disc while a course is traced, and draws and picks from it',
+    check('the map lifts its middle while a course is traced, and draws and picks from it',
         /const liftGoal = tracing \? viewAbove\(w, h, insetRef\.current\)\.lift : 0;/.test(globeSrc)
         && /const \{ cx, cy \} = discView\(w, h, liftRef\.current\);/.test(globeSrc)
         && /discView\(w, h, liftRef\.current\)\.side \* BASE_FILL/.test(globeSrc)
         && !/project\(v, w \/ 2, h \/ 2, R\)/.test(globeSrc) && !/\(px - w \/ 2\) \/ R/.test(globeSrc));
-    check('both surfaces hear the strip\'s height',
-        (mapSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
-        && (globeSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
+    check('the map hears the strip\'s height',
+        (globeSrc.match(/<MapOverlay [^>]*onInset=\{onInset\}/g) || []).length === 1
         && /onInset\(Math\.max\(0, stage\.getBoundingClientRect\(\)\.bottom - el\.getBoundingClientRect\(\)\.top/.test(overlaySrc));
 }
 

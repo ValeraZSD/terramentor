@@ -58,7 +58,7 @@ check('the traced course is a layer, and clearing it stops the replay first',
     /layer === 'trace'\)\s*\{[^}]*?s\.stop\(\);\s*setTraceId\(null\)/.test(escapeBlock));
 check('the page root the rule measures focus against is the page itself',
     /<div ref=\{rootRef\}/.test(atlasView));
-for (const f of ['src/components/atlas/AtlasMap.tsx', 'src/components/atlas/GlobeMap.tsx']) {
+for (const f of ['src/components/atlas/GlobeMap.tsx']) {
     const src = read(f);
     const acts = /const acts: Record<string, \(\) => void> = \{([\s\S]*?)\n {8}\};/.exec(src)?.[1] ?? '';
     const name = f.split('/').pop();

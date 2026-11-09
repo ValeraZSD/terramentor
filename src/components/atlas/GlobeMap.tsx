@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { AtlasRegion, AtlasTopic } from '../../types';
 import { topicDotStatus } from './topicStatus';
@@ -12,7 +12,7 @@ import {
 } from './globeFlight';
 import { spring } from './cameraSpring';
 import {
-    createLabeller, VISIBLE_ALPHA, labelPx, refreshRootFontScale,
+    createLabeller, VISIBLE_ALPHA, labelPx, refreshRootFontScale, labelOrder,
     MIN_LABEL_PX, MAX_NAME_PX, TOPIC_NAME_PX, MIN_NAMED_RADIUS, NAME_FADE_START, NAME_EASE,
 } from './mapLabels';
 import {
@@ -26,36 +26,41 @@ import MapOverlay from './MapOverlay';
 import { discView, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
 import {
-    CAP_FILL, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
-    tangentBasis, topicOffset, unit3, unrotate,
+    CAP_FILL, CapEllipse, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
+    tangentBasis, topicOffset, unit3, unrotate, flatXY, flatLonLat, viewOfLonLat,
+    FLAT_HALF_W, FLAT_HALF_H, FLAT_DX_DLON,
 } from './globeProjection';
+import { CityMap, CityRegion, citiesFor, citiesReady, cityKey } from './cityBuild';
+import { cityLines } from './cityLines';
+import { landView, flatHomeYaw } from './homeView';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
-import { Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
+import { Locate, Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /**
- * Terra — the library as a planet.
+ * The atlas: the library as a planet, drawn as a globe (Terra) or unrolled
+ * onto a sheet (the Map).
  *
- * The flat atlas answers "what do I know?" by laying the whole library on a
- * sheet, and a sheet has an edge. Whatever the projection pushes to the margin
- * reads as peripheral, the corners are dead ground, and a region can only ever
- * have neighbours in the directions the paper allows. None of that is a fact
- * about the material — it is a fact about paper.
+ * A sheet has an edge. Whatever the projection pushes to the margin reads as
+ * peripheral, the corners are dead ground, and a region can only ever have
+ * neighbours in the directions the paper allows. None of that is a fact about
+ * the material — it is a fact about paper. A sphere has no edge and no corner:
+ * every region sits in the middle of its own view, and a subject bordering
+ * four others is drawn bordering four others.
  *
- * A sphere has no edge and no corner. Every region sits in the middle of its
- * own view, "what is next to this?" has the same answer from every side, and a
- * subject bordering four others is drawn bordering four others. That is worth a
- * second surface rather than a replacement: the flat map is still the one you
- * can take in at a glance, and it is the one the course replay runs on.
+ * So both surfaces are the SAME planet. Terra is it seen from space; the Map is
+ * it unrolled around the camera (Winkel tripel, `flat`), which keeps what the
+ * reader faces unsquashed and still takes the whole library in at a glance.
+ * The land, the cities inside each country, the course trace and the replay
+ * are one set of things drawn through two projections; nothing is laid out
+ * twice.
  *
- * **This is not the flat map wrapped around a ball.** The regions are projected
- * onto the sphere from the embedding space directly — three components rather
- * than two, refined against the real distances between centroids
- * (`server/globe.js`), and measured against the plane in `tools/globe-gates.mjs`
- * rather than asserted here. Inside a region nothing changes: a cap is locally
- * flat, so the topics keep the arrangement the flat map gives them, walked onto
- * the cap's tangent plane. One library, two projections, one set of numbers on
- * the wire.
+ * The regions are projected onto the sphere from the embedding space directly
+ * — three components rather than two, refined against the real distances
+ * between centroids (`server/globe.js`), and measured against the plane in
+ * `tools/globe-gates.mjs` rather than asserted here. Inside a region the
+ * topics keep the arrangement the server gives them, walked onto the cap's
+ * tangent plane, until the cities take them (`globeCities.ts`).
  *
  * The ground is TERRITORIES, not discs (`globeTerritories.ts`): each region
  * owns the land nearest it, up to its neighbours' borders, and where no subject
@@ -77,9 +82,9 @@ export interface GlobeMapHandle {
     reset: () => void;
     /**
      * Turn to a whole course and pull back until all of it is in front of the
-     * reader — the planet's answer to the plane's `frameOn`.
+     * reader.
      *
-     * Not the same instruction: a plane frames a box, and a sphere cannot, since
+     * Not a box being framed: a sphere cannot frame a box, since
      * a course spread over more than a hemisphere has no view that contains it.
      * What this does is put the middle of the course under the middle of the
      * disc and come out far enough that as much of it as the horizon allows is
@@ -116,17 +121,25 @@ interface Props {
     /** Topic ids matching the current search, or null when nothing is typed. */
     matches: Set<number> | null;
     dark: boolean;
-    /** The theme TINT — a dependency, not an input: the surfaces are read off
-     *  the document's own ramp inside a memo, so this is what says the answer
-     *  has changed. See the same prop on `AtlasMap`. */
+    /**
+     * The theme TINT, not merely the light/dark axis — and it is a dependency
+     * rather than an input.
+     *
+     * The surfaces this canvas paints are read off the document's own ramp
+     * (`utils/themeSurfaces.ts`), which is resolved INSIDE a memo: without
+     * something that changes when the ramp does, it is resolved once and never
+     * again, and the map goes on painting the old page colour inside the new
+     * one. The theme's NAME cannot be that something — it says only light or
+     * dark, and two tints share a mode.
+     */
     themeTint: string;
     accent: string;
     colorMode: AtlasColorMode;
-    /** Course hues, shared with the flat map so one index reads both. */
+    /** Course hues, assigned once by `AtlasView` and shared with the index. */
     hues: Map<number, CourseHue>;
     /**
      * The course being traced, or null. Everything outside it is dimmed, never
-     * removed — the same rule search follows here and on the plane.
+     * removed — the same rule search follows.
      */
     trace: CourseTrace | null;
     /**
@@ -136,7 +149,7 @@ interface Props {
      * cannot be allowed to disagree.
      */
     journeyStep: number | null;
-    /** The reader's replay dials — the same object the flat map takes. */
+    /** The reader's replay dials (`atlasSettings.ts`). */
     pace?: ReplayPace;
     /** Whether the regions print their names over the planet while a course
      *  is traced; with none traced they always do. */
@@ -148,30 +161,46 @@ interface Props {
     /** False while the phone's index sheet is open: the planet is then a
      *  strip a third of the screen tall, and pinch still zooms it. */
     controls?: boolean;
-    /** The switch (top-right) and the player (bottom, centred): `AtlasMap`'s. */
+    /** The switch (top-right) and the player (bottom, centred). */
     children?: ReactNode;
     player?: ReactNode;
+    /**
+     * The Map surface: the same planet unrolled onto a sheet (Winkel tripel,
+     * `globeProjection.ts`) around the camera, so what the reader faces is
+     * never squashed. Everything else — the land, the cities, the trace, the
+     * replay — is the planet's, drawn through the other projection.
+     */
+    flat?: boolean;
 }
 
 /** How much of the shorter side the planet spans at rest. */
 const BASE_FILL = 0.44;
-const MIN_K = 0.85;
+/** How much of the frame's width (or height) the whole sheet spans at rest. */
+const SHEET_FILL = 0.94;
+
 /**
- * The furthest in the reader may come.
+ * The camera's range and the zoom the topics arrive at, per surface.
  *
- * Lower than the flat map's 30, and the reason is the camera rather than the
- * picture: a plane is panned, so at any zoom you can go and find the thing you
- * want, while a planet is only turned — the middle of the disc is the only
- * place you can look at. Past about this the region under the middle has
- * outgrown the screen and everything else is over the horizon, so the view is
- * an empty body with a few dots at one edge. At 4.5 the biggest cap fills most
- * of the frame and its topics are separate, named places, which is what coming
- * in is for.
+ * `maxK` is the furthest in the reader may come. On the planet it is 4.5, and
+ * the reason is the camera rather than the picture: a planet is only turned —
+ * the middle of the disc is the only place you can look at — so past about
+ * this the region under the middle has outgrown the screen and everything else
+ * is over the horizon. At 4.5 the biggest cap fills most of the frame and its
+ * topics are separate, named places, which is what coming in is for. The sheet
+ * starts with the whole world across the frame, a country a few per cent of
+ * it, so it comes much further in.
+ *
+ * `followK` is how close the camera rides while it follows a replay: past
+ * `fadeFull`, so the topics being visited are separate places with names, and
+ * well short of `maxK`, where the next hop would be off the frame before it
+ * started. `legMinK` is the furthest out a leg may pull it: the whole disc, or
+ * the whole sheet.
  */
-const MAX_K = 4.5;
-/** Topics fade in between these zoom levels — a cap is small until you come in. */
-const TOPIC_FADE_START = 1.15;
-const TOPIC_FADE_FULL = 2.1;
+interface Surface {
+    minK: number; maxK: number; fadeStart: number; fadeFull: number; followK: number; legMinK: number;
+}
+const GLOBE: Surface = { minK: 0.85, maxK: 4.5, fadeStart: 1.15, fadeFull: 2.1, followK: 3.4, legMinK: 1 };
+const SHEET: Surface = { minK: 0.9, maxK: 16, fadeStart: 3, fadeFull: 6.5, followK: 7.5, legMinK: 1 };
 /**
  * …and how far into it the topics become the layer being pointed at: past here
  * a click picks a topic before its cap, and a hover picks a topic or nothing
@@ -184,13 +213,19 @@ const TOPIC_PICK_DETAIL = 0.25;
 /** Below this dot size a name beside it belongs to nothing in particular. */
 const NAME_DOT_MIN = 4;
 
-/**
- * How the planet looks opening: a little above the equator, which is how every
- * globe anyone has handled sits on its stand. Dead-on reads as a circle.
- */
-const DEFAULT_PITCH = 0.3;
+/** How the planet opens when it has no land to face (`homeView.ts`): a little
+ *  above the equator, which is how every globe sits on its stand. */
+const EMPTY_PITCH = 0.3;
 /** Pitch stops just short of the pole, where yaw degenerates into roll. */
 const MAX_PITCH = 1.5;
+/**
+ * …and on the sheet, how far it may tip at a zoom. The whole world is drawn
+ * with north up, the way every map is; tipped, its outline bends into a shape
+ * no reader has seen. Coming in, the sheet is a country and its neighbours,
+ * and tipping it is what keeps a country far north at the undistorted middle,
+ * so the allowance opens with the zoom and is whole by `k` 4.
+ */
+const sheetPitch = (k: number) => MAX_PITCH * clamp((k - 1) / 3, 0, 1);
 
 /**
  * Idle drift, in radians a second. A full turn in about eighty seconds: enough
@@ -235,6 +270,10 @@ const FLICK_MIN_PX = 900;
 const FLICK_STILL_MS = 80;
 /** Below this the flick has stopped; anything less is a loop running for nothing. */
 const SPIN_FLOOR = 0.012;
+/** Cities fade in over the first part of the topics' own ramp. */
+const CITY_DETAIL = 0.45;
+/** Half the box the replay's head keeps clear of names, px: its marker and glow. */
+const HEAD_CLEAR = 12;
 /** How hard the camera pulls toward a fly-to target, in radians a second. */
 const EASE_OMEGA = 7;
 /**
@@ -246,7 +285,7 @@ const LIMB_FADE = 0.16;
 
 // ---- the traced course, on a planet -----------------------------------------
 //
-// Same layer and the same encoding as the flat map's: ONE line, the route the
+// ONE line, the route the
 // learner walked, drawn in the map's INK rather than in the accent (the accent
 // is the mastery ramp, and a coloured path would compete with the one encoding
 // the map has), fading back as it recedes into the past, stroked twice so it
@@ -265,24 +304,11 @@ const LIMB_FADE = 0.16;
  */
 const LEG_SAMPLES = 24;
 
-/**
- * How close the camera rides while it follows the arrow.
- *
- * Past `TOPIC_FADE_FULL`, so the topics being visited are separate places with
- * names, and well short of `MAX_K`, where the cap under the middle has outgrown
- * the screen and the next hop would be over the horizon before it started.
- */
-const FOLLOW_K = 3.4;
-/**
- * Nothing pulls the camera further out than this while following.
- *
- * The planet at rest (`k` 1), so the widest shot a journey asks for shows the
- * WHOLE disc. The disc spans `2·BASE_FILL·k` of the frame's short side and
- * stops fitting past `0.5 / BASE_FILL` ≈ 1.14; the old 1.15 was just past it,
- * so the most zoomed-out moment of every replay cropped the planet's edge — on
- * a square render frame, all four sides of it.
- */
-const LEG_MIN_K = 1;
+// How close the camera rides while following, and how far out a leg may pull
+// it, are each surface's `followK` and `legMinK` (above). The planet's floor is
+// the planet at rest (`k` 1), the WHOLE disc: it spans `2·BASE_FILL·k` of the
+// frame's short side and stops fitting past `0.5 / BASE_FILL` ≈ 1.14, so a
+// floor of 1.15 cropped the planet's edge at every replay's widest moment.
 /** How hard the camera turns toward the journey — softer than a fly-to, which
  *  is a move with an end to it; this one is chasing something that moves. */
 const FOLLOW_OMEGA = 3.2;
@@ -290,8 +316,7 @@ const FOLLOW_OMEGA = 3.2;
  *  settles back when the course is put away. */
 const LIFT_OMEGA = 6;
 // The window it holds, its dead bands and the zoom's and the ending's arms are
-// `journeyStyle.ts`: the numbers are the plane's measured ones, and the planet
-// now reads them from the same place rather than repeating them. The ending is
+// `journeyStyle.ts`, measured once and read from there by both surfaces. The ending is
 // still the softest arm here, and its zoom still the stiffer half, so the planet
 // widens slightly ahead of the turn.
 /**
@@ -311,6 +336,17 @@ const ramped = (v: number, edge0: number, edge1: number) => {
     return t * t * (3 - 2 * t);
 };
 
+/**
+ * A region's core as drawn: on the planet the exact foreshortened ellipse
+ * (`capEllipse`); on the sheet, whose middle keeps shapes, an ellipse as wide
+ * as the sheet's scale across (`FLAT_DX_DLON`) and as tall as the cap,
+ * always facing.
+ */
+function capOnScreen(v: Vec3, cap: number, cx: number, cy: number, R: number, flat: boolean): CapEllipse {
+    if (!flat) return capEllipse(v, cap, cx, cy, R);
+    return { x: cx + v[0] * R, y: cy - v[1] * R, rx: cap * R * FLAT_DX_DLON, ry: cap * R, rotation: 0, facing: 1 };
+}
+
 /** A region, everything about it that the sphere needs, worked out once. */
 interface Placed {
     region: AtlasRegion;
@@ -328,17 +364,23 @@ type Hit =
 const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
     colorMode, hues, trace, journeyStep, fullscreen, onToggleFullscreen, controls = true, children, player,
-    pace = DEFAULT_PACE, regionNames = true, capture = null,
+    pace = DEFAULT_PACE, regionNames = true, capture = null, flat = false,
 }, ref) {
     const { t: tr } = useTranslation();
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const wrapRef = useRef<HTMLDivElement>(null);
     const sizeRef = useRef({ w: 0, h: 0 });
+    /** Which projection, read by callbacks that are built once. */
+    const flatRef = useRef(flat);
+    flatRef.current = flat;
+    const S = flat ? SHEET : GLOBE;
+    const surfaceRef = useRef(S);
+    surfaceRef.current = S;
 
     // The camera. Kept in a ref and never in state: it changes every frame
     // while the planet turns, and a React render per frame is a render loop,
-    // not an animation.
-    const camRef = useRef({ yaw: 0, pitch: DEFAULT_PITCH, k: 1 });
+    // not an animation. It opens on the land (`homeView.ts`, set below).
+    const camRef = useRef({ yaw: 0, pitch: flat ? 0 : EMPTY_PITCH, k: 1 });
     /**
      * Where a move is taking the camera — and the ZOOM is part of it.
      *
@@ -365,6 +407,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * is that it does not start from nothing.
      */
     const camVelRef = useRef({ yaw: 0, pitch: 0, lk: 0 });
+    /** The following camera's zoom speed, in log-zoom a second: its arm's own. */
+    const followLkRef = useRef(0);
     const spinRef = useRef(0);
     /** The last frame drawn asked for no other: nothing moving, fading or flying. */
     const stillRef = useRef(false);
@@ -374,8 +418,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * itself held down while `spinning` is true, so a reader with reduced motion
      * was shown a Pause button over a planet that was never turning.
      */
+    // A sheet does not drift: a map that moves by itself is a map you cannot read.
     const [spinning, setSpinning] = useState(
-        () => !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
+        () => !flat && !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
     );
     // The first planet of the session spends the drift, whether it finished
     // or a hand stopped it: the next visit opens on a still planet.
@@ -419,9 +464,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     // ---- the sphere's own geometry ------------------------------------------
     // Every topic's direction, worked out once per atlas rather than per frame.
     // The offsets come straight out of the flat coordinates the payload already
-    // carries, which is what keeps a bubble's arrangement the same in both
-    // views and the globe free on the wire.
-    const placed = useMemo<Placed[]>(() => regions.map(region => {
+    // carries, which is what keeps a region's arrangement the same on both
+    // surfaces and the globe free on the wire. The planet arrives already turned
+    // so its poles are sea (`faceTheReader`, server/globe.js).
+    const placed0 = useMemo<Placed[]>(() => regions.map(region => {
         const u = unit3(region.u as Vec3);
         const cap = region.cap;
         const [e1, e2] = tangentBasis(u);
@@ -442,8 +488,66 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     /** The land: every region's territory, the borders between them and the
      *  coastline — built once per atlas (~0.1 s on a 126-region library). */
     const terrain = useMemo<Terrain>(
-        () => buildTerrain(placed.map(p => ({ id: p.region.id, u: p.u, cap: p.cap }))),
-        [placed]);
+        () => buildTerrain(placed0.map(p => ({ id: p.region.id, u: p.u, cap: p.cap }))),
+        [placed0]);
+
+    /**
+     * Every country cut into cities of about one size, one per topic
+     * (`globeCities.ts`), built off the page's thread and shared by every map
+     * of this atlas (`cityBuild.ts`). Null until it arrives: the countries are
+     * drawn whole until then, and nothing waits for it.
+     */
+    const cityInput = useMemo(() => {
+        const input: CityRegion[] = placed0.map(p => ({
+            id: p.region.id, u: p.u, topics: p.topics.map(t => ({ id: t.topic.id, u: t.u })),
+        }));
+        return { input, key: cityKey(terrain.territories, input) };
+    }, [placed0, terrain]);
+    const [cityMap, setCityMap] = useState<CityMap | null>(() => citiesReady(cityInput.key));
+    useEffect(() => {
+        let alive = true;
+        const ready = citiesReady(cityInput.key);
+        setCityMap(ready);
+        if (!ready) {
+            citiesFor(terrain.territories, cityInput.input, cityInput.key)
+                .then(m => { if (alive) setCityMap(m); }, () => { /* the countries stay whole */ });
+        }
+        return () => { alive = false; };
+    }, [cityInput, terrain]);
+    /** Topic by id, for the cities' fill. */
+    const topicById = useMemo(() => {
+        const m = new Map<number, AtlasTopic>();
+        for (const r of regions) for (const t of r.topics) m.set(t.id, t);
+        return m;
+    }, [regions]);
+    /** With its country's cities built, a topic's dot sits in the middle of its
+     *  city — where the route runs to and the pointer finds it. */
+    const placed = useMemo<Placed[]>(() => !cityMap ? placed0 : placed0.map(p => {
+        const country = cityMap.get(p.region.id);
+        return country
+            ? { ...p, topics: p.topics.map(t => ({ ...t, u: country.centres.get(t.topic.id) ?? t.u })) }
+            : p;
+    }), [placed0, cityMap]);
+
+    /**
+     * Where each surface opens (`homeView.ts`): the planet facing the most
+     * land, and the sheet with its seam on the least. Asked of the regions
+     * alone, so the same library opens the same way.
+     */
+    const home = useMemo(() => {
+        const land = placed0.map(p => ({ u: p.u, cap: p.cap }));
+        if (flat) return { yaw: flatHomeYaw(land), pitch: 0 };
+        return landView(land) ?? { yaw: 0, pitch: EMPTY_PITCH };
+    }, [placed0, flat]);
+    const homeRef = useRef(home);
+    homeRef.current = home;
+    /** The camera has been put somewhere: by the reader, or by a move. Until
+     *  then it follows the library's own opening view. */
+    const placedCamRef = useRef(false);
+    useLayoutEffect(() => {
+        if (placedCamRef.current) return;
+        camRef.current = { yaw: home.yaw, pitch: clamp(home.pitch, -MAX_PITCH, MAX_PITCH), k: camRef.current.k };
+    }, [home]);
 
     // Props the draw loop reads. A ref rather than a closure, so the loop is
     // built once and always sees the current values.
@@ -481,11 +585,11 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
     const live = useRef({
         placed, terrain, selectedId, matches, colorMode, hues, onSelect, onOpenTopic,
-        trace, journeyStep, tracePlaces, tracedRegions, pace, regionNames,
+        trace, journeyStep, tracePlaces, tracedRegions, pace, regionNames, cityMap, topicById,
     });
     live.current = {
         placed, terrain, selectedId, matches, colorMode, hues, onSelect, onOpenTopic,
-        trace, journeyStep, tracePlaces, tracedRegions, pace, regionNames,
+        trace, journeyStep, tracePlaces, tracedRegions, pace, regionNames, cityMap, topicById,
     };
     /** Canvas pixels per CSS pixel — set by the sizing observer, read by the
      *  draw, so the two can never scale by different numbers. */
@@ -494,9 +598,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     // ---- palette -------------------------------------------------------------
     // Resolved once per theme, never per frame: `getComputedStyle` forces style
     // resolution, and doing that inside a draw call turns a turn into thrash.
-    // Shared with the flat map (`utils/themeSurfaces.ts`) — the two are
-    // projections of one library and a reader switches between them, so they
-    // cannot disagree about what the page is made of. Including the PLANET's own
+    // Read from `utils/themeSurfaces.ts`, the page's own ramp, so the map
+    // cannot disagree with the page about what it is made of. Including the PLANET's own
     // two tones, which are derived from the page rather than named: on a dark
     // theme the lit side IS the page and the sphere is read from its darkening
     // limb, unless the page is so dark there is nothing below it.
@@ -564,9 +667,38 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         };
     }, [dark, themeTint, accent]);
 
+    /** Screen pixels per unit: the planet's radius, or on the sheet the size of
+     *  one `flatXY` unit (the whole sheet fits the frame at `k` 1). */
     const radius = useCallback(() => {
         const { w, h } = sizeRef.current;
-        return discView(w, h, liftRef.current).side * BASE_FILL * camRef.current.k || 1;
+        const k = camRef.current.k;
+        if (flatRef.current) {
+            const tall = Math.max(1, h - 2 * liftRef.current);
+            return Math.min((w * SHEET_FILL) / (2 * FLAT_HALF_W), (tall * SHEET_FILL) / (2 * FLAT_HALF_H)) * k || 1;
+        }
+        return discView(w, h, liftRef.current).side * BASE_FILL * k || 1;
+    }, []);
+
+    /**
+     * The zoom at which a place `reach` radians from the middle sits
+     * `FOLLOW_FILL` of the way to the frame's nearer edge — how a course or a
+     * replay's window is framed. On the planet such a place is drawn
+     * `R · sin(reach)` from the middle (and past a right angle it is round the
+     * back however far out you go); on the sheet's undistorted middle a radian
+     * is about one unit.
+     */
+    const reachK = useCallback((reach: number) => {
+        if (!flatRef.current) return (FOLLOW_FILL * 0.5) / (BASE_FILL * Math.sin(Math.min(reach, Math.PI / 2)));
+        const { w, h } = sizeRef.current;
+        const side = Math.max(1, Math.min(w, h - 2 * liftRef.current));
+        const k1 = radius() / camRef.current.k;
+        return (FOLLOW_FILL * 0.5 * side) / (k1 * Math.max(reach, 1e-6));
+    }, [radius]);
+
+    /** A pitch the surface allows at zoom `k`. */
+    const pitchAt = useCallback((pitch: number, k: number) => {
+        const lim = flatRef.current ? sheetPitch(k) : MAX_PITCH;
+        return clamp(pitch, -lim, lim);
     }, []);
 
     const requestDraw = useCallback(() => {
@@ -617,9 +749,15 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         const R = radius();
         const { cx, cy } = discView(w, h, liftRef.current);
         const nx = (px - cx) / R, ny = -(py - cy) / R;
+        const cam = camRef.current;
+        if (flatRef.current) {
+            // The sheet has no closed-form inverse: Newton's method finds the
+            // longitude and latitude, and null means beside the sheet.
+            const at = flatLonLat(nx, ny);
+            return at ? unrotate(viewOfLonLat(at[0], at[1]), cam.yaw, cam.pitch) : null;
+        }
         const r2 = nx * nx + ny * ny;
         if (r2 > 1) return null;
-        const cam = camRef.current;
         return unrotate([nx, ny, Math.sqrt(1 - r2)], cam.yaw, cam.pitch);
     }, [radius]);
 
@@ -670,17 +808,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         const R = radius();
         const { cx, cy } = discView(w, h, liftRef.current);
         const cam = camRef.current;
+        const flat = flatRef.current;
         const p = live.current.placed.find(x => x.region.id === hit.region.id);
         if (!p) return null;
         if (hit.kind === 'topic') {
             const t = p.topics.find(x => x.topic.id === hit.topic.id);
             if (!t) return null;
-            const v = rotate(t.u, cam.yaw, cam.pitch);
+            const v = rotate(t.u, cam.yaw, cam.pitch, flat);
             const s = project(v, cx, cy, R);
             return { x: s.x, y: s.y, r: Math.max(4, p.dotAngle * R) };
         }
-        const v = rotate(p.u, cam.yaw, cam.pitch);
-        const e = capEllipse(v, p.cap, cx, cy, R);
+        const v = rotate(p.u, cam.yaw, cam.pitch, flat);
+        const e = capOnScreen(v, p.cap, cx, cy, R, flat);
         return { x: e.x, y: e.y, r: e.ry };
     }, [radius]);
 
@@ -725,8 +864,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
         // ---- and then the camera FOLLOWS it --------------------------------
         //
-        // The same two decisions the plane makes, on a camera that can only
-        // turn. WHERE it points is the spherical mean of a WINDOW of the
+        // Two decisions, on a camera that can only turn. WHERE it points is the spherical mean of a WINDOW of the
         // journey - the place the eye is at now and the next few it is going
         // to, each fading in and out by weight - so the target moves
         // continuously and a turn runs across several legs instead of
@@ -800,16 +938,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 // final leg and still asks to close in on it. The sheet's rule,
                 // for the sheet's measured reason.
                 const ended = reach <= 1e-4 || flown.landed >= tracing.journey.length;
-                const fit = ended
-                    ? cam.k
-                    : (FOLLOW_FILL * 0.5) / (BASE_FILL * Math.sin(Math.min(reach, Math.PI / 2)));
+                const fit = ended ? cam.k : reachK(reach);
                 // …and the end of the journey goes straight through the dead
                 // band, which is there to stop the camera correcting itself
                 // over a difference too small to be worth a move. There is
                 // nothing left to correct toward.
-                // …nor to `LEG_MIN_K`/`FOLLOW_K`, which are what a LEG may ask
+                // …nor to `legMinK`/`followK`, which are what a LEG may ask
                 // for and there is no leg left to ask.
-                const need = ended ? fit : clamp(fit, LEG_MIN_K, FOLLOW_K);
+                const need = ended ? fit : clamp(fit, S.legMinK, S.followK);
                 const held = followKRef.current;
                 const hold = ended || held == null
                     || need < held / ZOOM_DEAD_OUT || need > held * ZOOM_DEAD_IN
@@ -824,12 +960,25 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 const wrapped = want.yaw + Math.round((cam.yaw - want.yaw) / (Math.PI * 2)) * Math.PI * 2;
                 const ease = reduceMotion ? 1 : 1 - Math.exp(-FOLLOW_OMEGA * dt);
                 cam.yaw += (wrapped - cam.yaw) * ease;
-                cam.pitch += (clamp(want.pitch, -MAX_PITCH, MAX_PITCH) - cam.pitch) * ease;
+                cam.pitch += (pitchAt(want.pitch, cam.k) - cam.pitch) * ease;
                 // The zoom swings in LOG space, because zoom is a ratio:
-                // halfway between 3.4 and 1.2 is 2.0, not 2.3.
-                const kOmega = hold < cam.k ? ZOOM_OUT_OMEGA : ZOOM_IN_OMEGA;
-                const kEase = reduceMotion ? 1 : 1 - Math.exp(-kOmega * dt);
-                cam.k = clamp(Math.exp(Math.log(cam.k) + (Math.log(hold) - Math.log(cam.k)) * kEase), MIN_K, MAX_K);
+                // halfway between 3.4 and 1.2 is 2.0, not 2.3. And on the arm,
+                // never an ease: the held shot is a step function of the
+                // journey, and an ease answers a step with a step in its SPEED.
+                // On the sheet, whose zoom range is four times the planet's,
+                // that was the zoom going from creeping to racing in one frame
+                // (×15, `tools/harness/cam-trace.mjs`).
+                // A journey that has ended takes the zoom's momentum with it:
+                // coasting on is a picture creeping toward a leg nobody is
+                // going to fly.
+                if (ended || reduceMotion) followLkRef.current = 0;
+                if (reduceMotion) cam.k = clamp(hold, S.minK, S.maxK);
+                else {
+                    const kOmega = hold < cam.k ? ZOOM_OUT_OMEGA : ZOOM_IN_OMEGA;
+                    const sk = spring(Math.log(cam.k), followLkRef.current, Math.log(hold), kOmega, dt);
+                    cam.k = clamp(Math.exp(sk.x), S.minK, S.maxK);
+                    followLkRef.current = sk.v;
+                }
                 targetRef.current = null;
                 spinRef.current = 0;
                 moving = true;
@@ -853,7 +1002,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             let zoomed = true;
             if (reduceMotion) {
                 cam.yaw = target.yaw; cam.pitch = target.pitch;
-                if (target.k != null) cam.k = clamp(target.k, MIN_K, MAX_K);
+                if (target.k != null) cam.k = clamp(target.k, surfaceRef.current.minK, surfaceRef.current.maxK);
                 camVelRef.current = { yaw: 0, pitch: 0, lk: 0 };
             } else {
                 const sy = spring(cam.yaw, vel.yaw, target.yaw, omega, dt);
@@ -869,7 +1018,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 if (target.k != null) {
                     const sk = spring(Math.log(cam.k), vel.lk, Math.log(target.k),
                         target.kOmega ?? omega, dt);
-                    cam.k = clamp(Math.exp(sk.x), MIN_K, MAX_K);
+                    cam.k = clamp(Math.exp(sk.x), surfaceRef.current.minK, surfaceRef.current.maxK);
                     lkV = sk.v;
                     zoomed = Math.abs(Math.log(target.k / cam.k)) < 1e-3 && Math.abs(sk.v) < 1e-3;
                 }
@@ -879,7 +1028,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             sprung = true;
             if (zoomed && Math.abs(target.yaw - cam.yaw) < 1e-4 && Math.abs(target.pitch - cam.pitch) < 1e-4) {
                 cam.yaw = target.yaw; cam.pitch = target.pitch;
-                if (target.k != null) cam.k = clamp(target.k, MIN_K, MAX_K);
+                if (target.k != null) cam.k = clamp(target.k, surfaceRef.current.minK, surfaceRef.current.maxK);
                 camVelRef.current = { yaw: 0, pitch: 0, lk: 0 };
                 targetRef.current = null;
             } else moving = true;
@@ -914,6 +1063,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 lk: Math.log(cam.k / wasAt.k) / dt,
             };
         }
+        // Zooming the sheet out straightens it: the tip a close view allowed is
+        // taken back as the zoom falls (`sheetPitch`).
+        if (flatRef.current) cam.pitch = pitchAt(cam.pitch, cam.k);
 
         // While a course is traced the disc rises into the box above the
         // player's strip (`framing.ts`), eased so the planet slides up as the
@@ -931,7 +1083,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // The canvas is not laid out by the document, so `ui_scale` only reaches
         // the labels if the map asks for it. Same cadence as the pixel ratio.
         refreshRootFontScale();
-        const detail = ramped(cam.k, TOPIC_FADE_START, TOPIC_FADE_FULL);
+        const detail = ramped(cam.k, S.fadeStart, S.fadeFull);
         const nameFade = clamp((detail - NAME_FADE_START) / (1 - NAME_FADE_START), 0, 1);
         const {
             placed: all, terrain, selectedId: selected, matches: matched,
@@ -954,9 +1106,24 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             cx - R * 0.35, cy - R * 0.38, R * 0.05, cx, cy, R * 1.12);
         body.addColorStop(0, palette.seaLit);
         body.addColorStop(1, palette.seaShade);
+        // The sheet's outline: its two edges are the back of the planet, cut
+        // open pole to pole to unroll it.
+        const flat = flatRef.current;
+        const sheetOutline = () => {
+            const N = 60;
+            for (let i = 0; i <= N; i++) {
+                const [x, y] = flatXY(Math.PI, -Math.PI / 2 + (Math.PI * i) / N);
+                if (i === 0) ctx.moveTo(cx + x * R, cy - y * R); else ctx.lineTo(cx + x * R, cy - y * R);
+            }
+            for (let i = N; i >= 0; i--) {
+                const [x, y] = flatXY(-Math.PI, -Math.PI / 2 + (Math.PI * i) / N);
+                ctx.lineTo(cx + x * R, cy - y * R);
+            }
+            ctx.closePath();
+        };
         ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.fillStyle = body;
+        if (flat) sheetOutline(); else ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.fillStyle = flat ? palette.seaLit : body;
         ctx.fill();
 
         // Everything from here on is on the ball, so nothing can spill past the
@@ -972,11 +1139,15 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         ctx.lineWidth = 1;
         const arc = (pt: (t: number) => Vec3, steps2 = 72) => {
             ctx.beginPath();
-            let down = false;
+            let down = false, lastX = 0;
             for (let i = 0; i <= steps2; i++) {
-                const v = rotate(pt(i / steps2), cam.yaw, cam.pitch);
+                const v = rotate(pt(i / steps2), cam.yaw, cam.pitch, flat);
                 if (v[2] <= 0) { down = false; continue; }
                 const s = project(v, cx, cy, R);
+                // On the sheet a line crossing the seam leaves one edge and
+                // comes back at the other: lifted, not drawn across.
+                if (flat && down && Math.abs(s.x - lastX) > R * 1.5) down = false;
+                lastX = s.x;
                 if (down) ctx.lineTo(s.x, s.y); else { ctx.moveTo(s.x, s.y); down = true; }
             }
             ctx.stroke();
@@ -998,7 +1169,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // sea wherever no subject is near. Territories never overlap, so there
         // is no back-to-front order to keep — only the horizon to respect.
         const regionMatches = (r: AtlasRegion) => !matched || r.topics.some(t => matched.has(t.id));
-        const facing = all.map(p => ({ p, v: rotate(p.u, cam.yaw, cam.pitch) }));
+        const facing = all.map(p => ({ p, v: rotate(p.u, cam.yaw, cam.pitch, flat) }));
         const visible = facing
             .filter(f => f.v[2] > -Math.sin(f.p.cap))
             .sort((a, b) => a.v[2] - b.v[2]);
@@ -1007,9 +1178,89 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // thousands of points, and `rotate` recomputes four trig calls a call.
         const cY = Math.cos(cam.yaw), sY = Math.sin(cam.yaw);
         const cP = Math.cos(cam.pitch), sP = Math.sin(cam.pitch);
-        /** A line with any of it on the near side. */
+        // On the sheet a point is a longitude and a latitude around the camera.
+        // The longitude is unwrapped along a loop, so a territory across the
+        // seam is drawn whole and again one world to the side, the sheet's
+        // outline (the clip) keeping what shows.
+        const lonLat = (pts: Float64Array, i: number): [number, number] => {
+            const x1 = pts[i] * cY - pts[i + 1] * sY;
+            const y1 = pts[i] * sY + pts[i + 1] * cY;
+            const vy = pts[i + 2] * cP - y1 * sP, vz = pts[i + 2] * sP + y1 * cP;
+            return [Math.atan2(x1, vz), Math.asin(Math.max(-1, Math.min(1, vy)))];
+        };
+        const flatLoop = (line: SphereLine) => {
+            const pts = line.pts;
+            const lons: number[] = [], lats: number[] = [];
+            let prev = 0, shift = 0, lo = Infinity, hi = -Infinity;
+            for (let i = 0; i < pts.length; i += 3) {
+                const [lon, lat] = lonLat(pts, i);
+                if (i > 0) {
+                    if (lon + shift - prev > Math.PI) shift -= 2 * Math.PI;
+                    else if (lon + shift - prev < -Math.PI) shift += 2 * Math.PI;
+                }
+                const L = lon + shift;
+                prev = L; lons.push(L); lats.push(lat);
+                lo = Math.min(lo, L); hi = Math.max(hi, L);
+            }
+            // A loop that comes back a whole turn round went round the camera's
+            // pole (the sheet's top or bottom edge, once tipped): it is closed
+            // along that edge, or it would fill the strip under itself instead
+            // of the ground up to the pole.
+            const round = lons.length > 1 && Math.abs(lons[lons.length - 1] - lons[0]) > Math.PI;
+            const pole = round ? Math.sign(lats.reduce((s, l) => s + l, 0) || 1) * (Math.PI / 2) : 0;
+            const offsets = [0];
+            if (lo < -Math.PI) offsets.push(2 * Math.PI);
+            if (hi > Math.PI) offsets.push(-2 * Math.PI);
+            const to = (lon: number, lat: number, first: boolean) => {
+                const [x, y] = flatXY(lon, lat);
+                if (first) ctx.moveTo(cx + x * R, cy - y * R); else ctx.lineTo(cx + x * R, cy - y * R);
+            };
+            for (const off of offsets) {
+                for (let j = 0; j < lons.length; j++) to(lons[j] + off, lats[j], j === 0);
+                if (round) {
+                    to(lons[lons.length - 1] + off, pole, false);
+                    to(lons[0] + off, pole, false);
+                }
+                ctx.closePath();
+            }
+            return true;
+        };
+        const flatStroke = (line: SphereLine) => {
+            const pts = line.pts;
+            ctx.beginPath();
+            let prev = 0;
+            for (let i = 0; i < pts.length; i += 3) {
+                const [lon, lat] = lonLat(pts, i);
+                const [x, y] = flatXY(lon, lat);
+                const px = cx + x * R, py = cy - y * R;
+                if (i === 0 || Math.abs(lon - prev) > Math.PI) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                prev = lon;
+            }
+            if (line.closed && pts.length >= 3) {
+                const [lon, lat] = lonLat(pts, 0);
+                if (Math.abs(lon - prev) <= Math.PI) {
+                    const [x, y] = flatXY(lon, lat);
+                    ctx.lineTo(cx + x * R, cy - y * R);
+                }
+            }
+            ctx.stroke();
+        };
+        /** A line with any of it on screen: on the planet, on the near side;
+         *  on the sheet, near the frame (a line by the seam always, since it is
+         *  drawn at both edges). Most of a zoomed-in sheet is off the frame,
+         *  and stroking every city of the world on every frame is the cost. */
         const facesUs = (line: SphereLine) => {
             const c = line.centre;
+            if (flat) {
+                const x1 = c[0] * cY - c[1] * sY;
+                const y1 = c[0] * sY + c[1] * cY;
+                const vy = c[2] * cP - y1 * sP, vz = c[2] * sP + y1 * cP;
+                const lon = Math.atan2(x1, vz);
+                if (Math.PI - Math.abs(lon) < line.reach + 0.05) return true;
+                const [x, y] = flatXY(lon, Math.asin(clamp(vy, -1, 1)));
+                const px = cx + x * R, py = cy - y * R, m = 2 * line.reach * R + 4;
+                return px > -m && px < w + m && py > -m && py < h + m;
+            }
             const y1 = c[0] * sY + c[1] * cY;
             const z = c[2] * sP + y1 * cP;
             return z > -Math.sin(Math.min(line.reach, Math.PI / 2));
@@ -1023,6 +1274,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
          * can never wrap the whole rim.)
          */
         const traceLoop = (line: SphereLine) => {
+            if (flat) return flatLoop(line);
             const pts = line.pts;
             let front = false;
             for (let i = 0; i < pts.length; i += 3) {
@@ -1043,6 +1295,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         };
         /** Stroke a line, broken at the horizon rather than run along it. */
         const strokeLine = (line: SphereLine) => {
+            if (flat) { flatStroke(line); return; }
             const pts = line.pts;
             const n = pts.length / 3;
             ctx.beginPath();
@@ -1085,13 +1338,20 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         }
         // …and the waterlines rippling out from every shore, fainter each
         // ring. Before the land, so where two shores are close the land
-        // covers whatever ripple crossed the strait.
+        // covers whatever ripple crossed the strait. They go as the cities
+        // come (`cityLines.ts`): up close, a ripple crossing a narrow strait
+        // is a grey scribble between two coasts.
+        const { cityMap, topicById } = live.current;
+        const cityA = cityMap ? clamp(detail / CITY_DETAIL, 0, 1) : 0;
+        const lines = cityLines(cityA);
         ctx.strokeStyle = palette.waterline;
         ctx.lineWidth = 1;
-        for (const wl of terrain.waterlines) {
-            if (!facesUs(wl.line)) continue;
-            ctx.globalAlpha = (presence.get(wl.b) ?? 1) * (wl.ring === 1 ? 1 : 0.5);
-            strokeLine(wl.line);
+        if (lines.ripple > 0.01) {
+            for (const wl of terrain.waterlines) {
+                if (!facesUs(wl.line)) continue;
+                ctx.globalAlpha = (presence.get(wl.b) ?? 1) * (wl.ring === 1 ? 1 : 0.5) * lines.ripple;
+                strokeLine(wl.line);
+            }
         }
 
         for (const land of terrain.territories) {
@@ -1117,6 +1377,48 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             ctx.fill('evenodd');
         }
 
+        // ---- the cities, arriving with the topics. Zoomed in, a country is
+        // the topics it holds, each a place of about one size with a border of
+        // its own (`globeCities.ts`). A city the learner has started is filled
+        // in its progress colour; every city gets its border.
+        if (cityMap && cityA > 0.01) {
+            // Each country's cities run a little past its coast; the country's
+            // own outline clips them, so a city's outer edge is the border.
+            for (const land of terrain.territories) {
+                const country = cityMap.get(land.id);
+                if (!country || !land.loops.some(facesUs)) continue;
+                ctx.save();
+                ctx.beginPath();
+                let front = false;
+                for (const loop of land.loops) if (facesUs(loop)) front = traceLoop(loop) || front;
+                if (!front) { ctx.restore(); continue; }
+                ctx.clip('evenodd');
+                const here = presence.get(land.id) ?? 1;
+                for (const c of country.cities) {
+                    const topic = topicById.get(c.id);
+                    if (!topic || !c.loops.some(facesUs)) continue;
+                    const dot = topicDotStatus(topic);
+                    if (dot !== 'completed' && dot !== 'in_progress') continue;
+                    const step = dot === 'completed' ? 4 : 2;
+                    ctx.beginPath();
+                    let any = false;
+                    for (const loop of c.loops) if (facesUs(loop)) any = traceLoop(loop) || any;
+                    if (!any) continue;
+                    ctx.globalAlpha = cityA * here * (traceAt && !traceAt.has(c.id) ? TRACE_TOPIC_DIM : 1);
+                    ctx.fillStyle = paint === 'course'
+                        ? courseFill(courseHue.get(topic.projectId), step, dark, 'globe')
+                        : steps[step];
+                    ctx.fill('evenodd');
+                }
+                ctx.strokeStyle = palette.surface;
+                ctx.lineWidth = lines.cityBorderWidth;
+                ctx.globalAlpha = lines.cityBorderAlpha * here;
+                for (const line of country.borders) if (facesUs(line)) strokeLine(line);
+                ctx.restore();
+            }
+            ctx.globalAlpha = 1;
+        }
+
         // The planet's curve, laid OVER the land: a flat colour has no roundness
         // of its own, and a territory that stays as bright at the limb as in the
         // middle reads as a sticker on a ball rather than ground on a planet.
@@ -1127,18 +1429,23 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         shadeOver.addColorStop(1, palette.shadeDeep);
         ctx.globalAlpha = 1;
         ctx.fillStyle = shadeOver;
-        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+        if (!flat) ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
 
         // Borders between territories, then the coastline over them: a border
         // is a line across ground, a coast is where the ground ends, and the
-        // second is the one that says "continent".
-        ctx.strokeStyle = palette.border;
-        ctx.lineWidth = 1;
-        for (const b of terrain.borders) {
-            if (!facesUs(b.line)) continue;
-            const dim = Math.max(presence.get(b.a) ?? 1, presence.get(b.b) ?? 1);
-            ctx.globalAlpha = dim;
-            strokeLine(b.line);
+        // second is the one that says "continent". As the cities come in the
+        // border turns the surface colour and grows wider than any city
+        // border, the outline of the whole round the outlines of its parts —
+        // a grey one read as one more city border.
+        ctx.lineWidth = lines.borderWidth;
+        for (const [colour, share] of [[palette.border, 1 - lines.surface], [palette.surface, lines.surface]] as const) {
+            if (share < 0.01) continue;
+            ctx.strokeStyle = colour;
+            for (const b of terrain.borders) {
+                if (!facesUs(b.line)) continue;
+                ctx.globalAlpha = share * Math.max(presence.get(b.a) ?? 1, presence.get(b.b) ?? 1);
+                strokeLine(b.line);
+            }
         }
         ctx.strokeStyle = palette.coast;
         ctx.lineWidth = 1.25;
@@ -1166,15 +1473,17 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // so the line sits UNDER the things it runs between — a path over its
         // own endpoints hides what it is about.
         //
-        // A topic is drawn where it is, at every zoom, exactly as on the plane.
+        // A topic is drawn where it is, at every zoom.
         // Running the drawn place from the region's centre out to the topic on
         // the same `detail` ramp the dots fade in on makes the route a function
         // of the camera — one course, a different shape at every distance, legs
         // growing out of a point as you zoom — and a map you can zoom has to
         // hold still. The traced course's own topics are drawn at every zoom to
         // match (see the dot layer below).
-        /** The replay's arrow, held back until every label has been painted. */
+        /** The replay's arrow, held back until every label has been painted… */
         let drawHead: (() => void) | null = null;
+        /** …and where it is, so no name is placed across it. */
+        let headAt: { x: number; y: number } | null = null;
         /** The place a running replay is about, and how brightly it is lit. */
         let journeyLit: Map<number, number> | null = null;
         /** What the reader is being asked to look at: the topic being arrived
@@ -1192,7 +1501,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             const drawable = dirs.every(d => d !== null);
             const legs: SphereLeg[] = drawable ? spherePath(dirs as Vec3[]) : [];
 
-            const view = (u: Vec3) => rotate(u, cam.yaw, cam.pitch);
+            const view = (u: Vec3) => rotate(u, cam.yaw, cam.pitch, flat);
             const screen = (u: Vec3) => project(view(u), cx, cy, R);
 
             /**
@@ -1203,14 +1512,19 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
              * across the face of the globe as a chord. Sampling and dropping
              * everything with `z <= 0` cuts it exactly at the silhouette, which
              * is also where the reader's eye expects a line to disappear.
+             * On the sheet the back is the seam: a leg crossing it leaves at
+             * one edge and comes in at the other, lifted rather than drawn
+             * across the whole map.
              */
             const strokeLeg = (leg: SphereLeg, upTo = 1) => {
                 ctx.beginPath();
-                let down = false;
+                let down = false, lastX = 0;
                 for (let i = 0; i <= LEG_SAMPLES; i++) {
                     const v = view(sphereLegAt(leg, (i / LEG_SAMPLES) * upTo));
                     if (v[2] <= 0) { down = false; continue; }
                     const pt = project(v, cx, cy, R);
+                    if (flat && down && Math.abs(pt.x - lastX) > R * 1.5) down = false;
+                    lastX = pt.x;
                     if (down) ctx.lineTo(pt.x, pt.y);
                     else { ctx.moveTo(pt.x, pt.y); down = true; }
                 }
@@ -1301,6 +1615,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 const ahead = project(aheadV, cx, cy, R);
                 const endA = screen(whole.p0), endB = screen(whole.p3);
                 if (Math.hypot(endB.x - endA.x, endB.y - endA.y) < ARROW_MIN_LENGTH) continue;
+                // Astride the seam the two samples are a world apart.
+                if (Math.hypot(ahead.x - mid.x, ahead.y - mid.y) > R) continue;
                 // The heading is taken from the PROJECTED curve rather than
                 // from the tangent on the sphere: the mark is drawn in screen
                 // space, and the projection foreshortens, so a direction that
@@ -1375,6 +1691,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     // theirs that way.
                     const nose = leg ? project(view(sphereLegAt(leg, Math.min(1, t + 0.04))), cx, cy, R) : null;
                     const angle = nose && Math.hypot(nose.x - head.x, nose.y - head.y) > 1e-3
+                        && Math.hypot(nose.x - head.x, nose.y - head.y) < R
                         ? Math.atan2(nose.y - head.y, nose.x - head.x) : 0;
                     // Drawn LAST, after every label — the path belongs under
                     // the names it runs between, but the head is the one thing
@@ -1386,6 +1703,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     const arrow = leg ? headMorph(frac, flightMs(tracing, landed + 1, paceNow)) : 0;
                     const cutIn = cut ? cut.p : 1;
                     const ghost = ghostHead;
+                    headAt = { x: head.x, y: head.y };
                     drawHead = () => {
                         const look = { ink: palette.ink, outline: palette.lit, acc };
                         if (ghost) paintHead(ctx, ghost, look, 0, 1 - ghost.p, 1 - 0.4 * ghost.p);
@@ -1402,12 +1720,16 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         }
 
         // ---- the topics, once the reader is close enough for them to mean
-        // anything. Same encoding as the flat map, one step down the same
-        // ladder, so a dot means the same thing on both surfaces.
+        // anything. One step down the region's ladder, so a dot means the
+        // same thing as the land it stands on.
         let fading = false;
         const labeller = createLabeller(ctx, {
             width: w, height: h, ink: palette.ink, halo: palette.lit, defer: true,
         });
+        // The head is painted over every name, so the ground it stands on is
+        // claimed first: a name placed there is a name the arrow covers, or
+        // one printed across the thing the reader is following.
+        if (headAt) labeller.reserve(headAt.x - HEAD_CLEAR, headAt.y - HEAD_CLEAR, headAt.x + HEAD_CLEAR, headAt.y + HEAD_CLEAR);
 
         // The step a replay has reached is named BEFORE anything else, because
         // it is the one label the reader is waiting for — and in this labeller,
@@ -1430,12 +1752,17 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             for (const { p, v: cv } of visible) {
                 if (cv[2] < -0.02) continue;
                 const dim = regionMatches(p.region) ? 1 : 0.16;
-                const rr = Math.max(p.dotAngle * R, 1.4);
+                const rr = Math.max(p.dotAngle * R * (1 - 0.7 * cityA), 1.4);
+                // With the cities in, a topic's name is its CITY's name, and
+                // the room it has is the city's, not the shrinking dot's.
+                const country = cityA > 0.01 ? cityMap?.get(p.region.id) : undefined;
+                const nameRoom = country ? Math.max(rr, country.cityAngle * R * cityA) : rr;
                 let slot = 0;
                 for (const { topic, u } of p.topics) {
-                    const v = rotate(u, cam.yaw, cam.pitch);
+                    const v = rotate(u, cam.yaw, cam.pitch, flat);
                     if (v[2] <= 0) continue;
                     const s = project(v, cx, cy, R);
+                    if (flat && (s.x < -rr || s.x > w + rr || s.y < -rr || s.y > h + rr)) continue;
                     const edge = ramped(v[2], 0, LIMB_FADE);
                     const isMatch = matched ? matched.has(topic.id) : false;
                     const isFocused = focus?.topic?.id === topic.id || carded?.topic?.id === topic.id;
@@ -1463,7 +1790,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     // centre as the ground turns away. Drawn as a screen circle
                     // it kept its full width at the limb while the spacing
                     // between dots shrank, and they piled up into each other.
-                    const shape = capEllipse(v, rr / R, cx, cy, R);
+                    // The sheet keeps shapes where it is read: a circle.
+                    const shape = flat ? { rx: rr, ry: rr, rotation: 0 } : capEllipse(v, rr / R, cx, cy, R);
                     ctx.beginPath();
                     ctx.ellipse(s.x, s.y, shape.rx, shape.ry, shape.rotation, 0, Math.PI * 2);
                     const dot = topicDotStatus(topic);
@@ -1498,21 +1826,25 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                         ctx.lineWidth = 1;
                         ctx.stroke();
                     }
-                    if (rr > NAME_DOT_MIN && nameFade > 0 && edge > 0.5) {
+                    if (nameRoom > NAME_DOT_MIN && nameFade > 0 && edge > 0.5) {
                         wanted.push({ topic, x: s.x, y: s.y, slot: slot++, dot: edge });
                     }
                 }
             }
             ctx.globalAlpha = 1;
 
-            // One name per bubble before any bubble gets a second — the same
-            // round-robin the flat map deals its names out with, and for the
-            // same reason: walking region by region spends the whole budget on
-            // whichever ones the array listed first.
-            wanted.sort((a, b) => {
-                const rank = (t: AtlasTopic) => (focus?.topic?.id === t.id ? 2 : matched?.has(t.id) ? 1 : 0);
-                return rank(b.topic) - rank(a.topic) || a.slot - b.slot;
+            // The collision rule (`labelOrder`): the topic the reader picked,
+            // then the one under the pointer, then what a search or a traced
+            // course left standing. Within those, one name per country before
+            // any country gets a second — walking country by country spends
+            // the whole budget on whichever ones the array listed first.
+            const claimOf = (n: { topic: AtlasTopic; slot: number }) => ({
+                selected: pinnedRef.current?.topic?.id === n.topic.id,
+                focus: hoverRef.current?.topic?.id === n.topic.id,
+                undimmed: (!matched || matched.has(n.topic.id)) && (!traceAt || traceAt.has(n.topic.id)),
+                size: -n.slot,
             });
+            wanted.sort((a, b) => labelOrder(claimOf(a), claimOf(b)));
             const fades = nameAlphaRef.current;
             const onScreen = new Set<number>();
             for (const { topic, x, y, dot } of wanted) {
@@ -1522,8 +1854,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     // Two reasons, and either would do on its own. Text sliding
                     // across a globe is not readable, so what it costs the
                     // reader is a screenful of moving words in the way of the
-                    // shapes they are actually watching — the same call the
-                    // flat map makes during a replay. And it is what the drift
+                    // shapes they are actually watching. And it is what the drift
                     // costs: placing every visible topic name on every frame of
                     // a turn takes several times the CPU of placing only the
                     // region names. Zeroing the target rather than
@@ -1533,8 +1864,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                     * (moving ? 0 : 1)
                     // One subject per beat. While a replay is running the only
                     // topic name on the planet is the place it is arriving at,
-                    // which was placed before any of these — the same call the
-                    // flat map makes, for the same reason: a replay is a
+                    // which was placed before any of these: a replay is a
                     // sentence being read out, and every other name on screen
                     // is something else asking to be read instead.
                     * (stepNow != null ? 0 : 1);
@@ -1557,16 +1887,20 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // already run, so these are placed against it: the order below is the
         // one that matters, and it is why the region names are collected here
         // and painted with everything else on `flush()`.
-        const named = [...visible].sort((a, b) => {
-            const rank = (p: Placed) => (p.region.id === selected ? 2 : p.region.id === focus?.region.id ? 1 : 0);
-            return rank(b.p) - rank(a.p) || b.p.region.size - a.p.region.size;
+        const regionClaim = (p: Placed) => ({
+            selected: p.region.id === selected,
+            focus: p.region.id === focus?.region.id,
+            undimmed: regionMatches(p.region) && (!tracedIn || tracedIn.has(p.region.id)),
+            size: p.region.size,
         });
+        const named = [...visible].sort((a, b) => labelOrder(regionClaim(a.p), regionClaim(b.p)));
         // Off means the measure-and-wrap pass does not happen, not that it
         // happens and paints nothing. The selected cap keeps its name: it is
         // the one place the reader pointed at.
         for (const { p, v } of named) {
             if (!showNames && p.region.id !== selected) continue;
-            const e = capEllipse(v, p.cap, cx, cy, R);
+            const e = capOnScreen(v, p.cap, cx, cy, R, flat);
+            if (flat && (e.x < -e.ry || e.x > w + e.ry || e.y < -e.ry || e.y > h + e.ry)) continue;
             if (e.facing <= 0) continue;
             // How big the cap is AS DRAWN — the geometric mean of the two
             // axes, which is the radius of a circle with the same area. Taking
@@ -1595,8 +1929,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             }, { maxLines: on > 26 ? 3 : 2 });
         }
         // The clip comes off BEFORE the names are painted. A name is chrome
-        // FOR a place, not paint on it — the flat map lets one overflow its
-        // own bubble for exactly this reason — and clipping the text to the
+        // FOR a place, not paint on it, and clipping the text to the
         // silhouette cut every name near the limb in half: "ombinator Deal",
         // "tup Longevity", a whole rim of words with their first letters
         // behind the edge of the world.
@@ -1607,7 +1940,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // a clean edge rather than a half-pixel of whatever ended up under it.
         ctx.globalAlpha = 1;
         ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        if (flat) sheetOutline(); else ctx.arc(cx, cy, R, 0, Math.PI * 2);
         ctx.strokeStyle = palette.rim;
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -1664,12 +1997,37 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         return () => ro.disconnect();
     }, [requestDraw, capture]);
 
-    // `trace` and `journeyStep` too, as on the flat map: the loop stops once
+    // `trace` and `journeyStep` too: the loop stops once
     // nothing moves, and a replay's first step can reach `live` AFTER the frame
     // `followJourney` asked for — that frame sees no step, stops, and without a
     // draw on the step change the planet stood still for a whole GIF render.
     useEffect(() => { requestDraw(); },
         [placed, selectedId, matches, colorMode, hues, palette, spinning, trace, journeyStep, requestDraw]);
+
+    /**
+     * Move the ground under the hand by (dx, dy) screen pixels: a turn of the
+     * distance over the radius — which is what makes a slow drag near the limb
+     * turn the planet further than the same drag across the middle, exactly as
+     * a real one would. On the sheet a radian of longitude across the middle is
+     * `FLAT_DX_DLON` units, so the ground there moves with the hand.
+     *
+     * Deliberately an EVEN turn per pixel, and not the solve that puts the
+     * grabbed point exactly under the cursor: that solve is right and it FEELS
+     * wrong. Its gain is `1/cos θ` of the grabbed point's angle, so the same
+     * hand movement turns the planet gently in the middle of the disc and
+     * violently near the rim, and where it cannot oblige at all — a near-polar
+     * point, a cursor past the silhouette, the pitch clamp — it has to hand
+     * back to this formula and take a fresh hold, so a drag crossing that line
+     * changes gain mid-gesture. It was built, measured (the grabbed point
+     * tracked the cursor to 2px) and taken out again: it reads as jagged.
+     */
+    const pan = useCallback((dx: number, dy: number) => {
+        const R = Math.max(radius(), 1);
+        const cam = camRef.current;
+        const across = flatRef.current ? FLAT_DX_DLON : 1;
+        cam.yaw -= dx / (R * across) / Math.max(0.35, Math.cos(cam.pitch));
+        cam.pitch = pitchAt(cam.pitch + dy / R, cam.k);
+    }, [radius, pitchAt]);
 
     // ---- pointer -------------------------------------------------------------
     useEffect(() => {
@@ -1696,6 +2054,12 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         let flickAt = 0;
         const pinches = new Map<number, { x: number; y: number }>();
         let pinchBase = 0;
+        /** Where the two fingers' middle was on the last move: what they carry. */
+        let pinchMid = { x: 0, y: 0 };
+        /** A second finger came down during this gesture, so nothing that ends
+         *  it is a tap: lifting one finger of a pinch selected whatever was
+         *  under that finger. */
+        let pinched = false;
 
         const local = (e: PointerEvent) => {
             const r = canvas.getBoundingClientRect();
@@ -1708,8 +2072,11 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             if (pinches.size === 2) {
                 const [a, b] = [...pinches.values()];
                 pinchBase = Math.hypot(a.x - b.x, a.y - b.y);
+                pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                pinched = true;
                 return;
             }
+            pinched = false;
             dragging = true;
             moved = 0;
             const p = local(e);
@@ -1727,40 +2094,33 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             if (pinches.size === 2) {
                 const [a, b] = [...pinches.values()];
                 const d = Math.hypot(a.x - b.x, a.y - b.y);
+                const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
                 if (pinchBase > 0) {
-                    camRef.current.k = clamp(camRef.current.k * (d / pinchBase), MIN_K, MAX_K);
+                    const k0 = camRef.current.k;
+                    camRef.current.k = clamp(k0 * (d / pinchBase), surfaceRef.current.minK, surfaceRef.current.maxK);
+                    // On the sheet the ground between the fingers stays between
+                    // them, as under the wheel's pointer; the planet zooms
+                    // about its middle, as it does for the wheel.
+                    if (flatRef.current && camRef.current.k !== k0) {
+                        const { w, h } = sizeRef.current;
+                        const { cx, cy } = discView(w, h, liftRef.current);
+                        const grow = 1 - camRef.current.k / k0;
+                        pan((mid.x - cx) * grow, (mid.y - cy) * grow);
+                    }
+                    // Two fingers sliding together carry the map with them.
+                    pan(mid.x - pinchMid.x, mid.y - pinchMid.y);
                     requestDraw();
                 }
                 pinchBase = d;
+                pinchMid = mid;
                 return;
             }
             if (dragging) {
                 const dx = p.x - last.x, dy = p.y - last.y;
                 moved += Math.hypot(dx, dy);
-                const R = radius();
                 const cam = camRef.current;
                 const wasYaw = cam.yaw;
-                // A drag moves the point under the finger, so the angle it
-                // turns through is the distance divided by the radius — which
-                // is what makes a slow drag near the limb turn the planet
-                // further than the same drag across the middle, exactly as a
-                // real one would.
-                //
-                // Deliberately an EVEN turn per pixel, and not the solve that
-                // puts the grabbed point exactly under the cursor: that solve
-                // is right and it FEELS wrong. Its gain is `1/cos θ` of the
-                // grabbed point's angle, so the same hand movement turns the
-                // planet gently in the middle of the disc and violently near
-                // the rim, and where it cannot oblige at all — a near-polar
-                // point, a cursor past the silhouette, the pitch clamp — it has
-                // to hand back to this formula and take a fresh hold, so a drag
-                // crossing that line changes gain mid-gesture. It was built,
-                // measured (the grabbed point tracked the cursor to 2px) and
-                // taken out again: it reads as jagged, and differently so
-                // depending on where the drag started.
-                const turn = dx / Math.max(R, 1);
-                cam.yaw -= turn / Math.max(0.35, Math.cos(cam.pitch));
-                cam.pitch = clamp(cam.pitch + dy / Math.max(R, 1), -MAX_PITCH, MAX_PITCH);
+                pan(dx, dy);
                 const t = performance.now();
                 // Nothing here touches `spinRef`: while the hand is on the
                 // planet the hand is the only thing moving it.
@@ -1794,6 +2154,24 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             pinches.delete(e.pointerId);
             if (pinches.size < 2) pinchBase = 0;
             if (!dragging) return;
+            if (pinched) {
+                // One finger of a pinch came up: the one still down carries on
+                // as a drag from where IT is. Left holding the first finger's
+                // starting point, its next move applied that whole gap as a pan.
+                if (pinches.size === 1) {
+                    const [rest] = [...pinches.values()];
+                    last = { ...rest, t: performance.now() };
+                    flick = 0; handPx = 0; flickAt = 0;
+                    return;
+                }
+                if (pinches.size > 1) return;
+                dragging = false;
+                pinched = false;
+                canvas.style.cursor = 'grab';
+                spinRef.current = 0;
+                requestDraw();
+                return;
+            }
             dragging = false;
             canvas.style.cursor = 'grab';
             if (moved > CLICK_SLOP) {
@@ -1840,7 +2218,21 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             // under a pointer that was only asking for a closer look, and a
             // reader who scrolls twice ends up somewhere they never chose.
             // Turning is what a drag is for.
-            camRef.current.k = clamp(camRef.current.k * Math.exp(-e.deltaY * 0.0015), MIN_K, MAX_K);
+            //
+            // The sheet IS a plane, and there the anchor is what every map
+            // does: the ground under the pointer stays under it. Moving it by
+            // the pixels the zoom carried it is exact at the sheet's middle and
+            // close everywhere a zoomed-in reader points.
+            const cam = camRef.current;
+            const k0 = cam.k;
+            cam.k = clamp(k0 * Math.exp(-e.deltaY * 0.0015), surfaceRef.current.minK, surfaceRef.current.maxK);
+            if (flatRef.current && cam.k !== k0) {
+                const { w, h } = sizeRef.current;
+                const { cx, cy } = discView(w, h, liftRef.current);
+                const p = local(e as unknown as PointerEvent);
+                const grow = 1 - cam.k / k0;
+                pan((p.x - cx) * grow, (p.y - cy) * grow);
+            }
             requestDraw();
         };
 
@@ -1858,7 +2250,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             canvas.removeEventListener('pointerleave', onLeave);
             canvas.removeEventListener('wheel', onWheel);
         };
-    }, [anchorFor, dismissCard, pick, radius, requestDraw, takeCamera, worldAt]);
+    }, [anchorFor, dismissCard, pan, pick, requestDraw, takeCamera]);
 
     // ---- the handle ----------------------------------------------------------
     /** Turn to face `u`, taking the short way round, and hold the camera there. */
@@ -1866,13 +2258,15 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         u: Vec3, k?: number, ease?: { omega: number; kOmega: number }, instant = false,
     ) => {
         const { yaw, pitch } = faceOn(u);
+        placedCamRef.current = true;
         // A yaw target two turns away is the same place and three seconds of
         // spinning to reach it.
         const cur = camRef.current.yaw;
+        const kGoal = k == null ? undefined : clamp(k, surfaceRef.current.minK, surfaceRef.current.maxK);
         const goal = {
             yaw: yaw + Math.round((cur - yaw) / (Math.PI * 2)) * Math.PI * 2,
-            pitch: clamp(pitch, -MAX_PITCH, MAX_PITCH),
-            k: k == null ? undefined : clamp(k, MIN_K, MAX_K),
+            pitch: pitchAt(pitch, kGoal ?? camRef.current.k),
+            k: kGoal,
             omega: ease?.omega, kOmega: ease?.kOmega,
         };
         if (instant) {
@@ -1886,22 +2280,29 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         spinRef.current = 0;
         setSpinning(false);
         requestDraw();
-    }, [requestDraw]);
+    }, [requestDraw, pitchAt]);
 
     const flyTo = useCallback((regionId: number) => {
         const p = live.current.placed.find(x => x.region.id === regionId);
         if (!p) return;
+        placedCamRef.current = true;
         followRef.current = false;
         const { yaw, pitch } = faceOn(p.u);
         // Take the short way round: a yaw target two turns away is the same
         // place and three seconds of spinning to reach it.
         const cur = camRef.current.yaw;
         const wrapped = yaw + Math.round((cur - yaw) / (Math.PI * 2)) * Math.PI * 2;
-        targetRef.current = { yaw: wrapped, pitch: clamp(pitch, -MAX_PITCH, MAX_PITCH) };
+        // The whole sheet shows every country a few per cent of the frame wide,
+        // so on the sheet a fly-to also comes close enough to see the country —
+        // never further in than its topics, and never back out.
+        const k = flatRef.current
+            ? Math.max(camRef.current.k, Math.min(reachK(p.cap * 1.6), SHEET.fadeStart))
+            : undefined;
+        targetRef.current = { yaw: wrapped, pitch: pitchAt(pitch, k ?? camRef.current.k), k };
         spinRef.current = 0;
         setSpinning(false);
         requestDraw();
-    }, [requestDraw]);
+    }, [requestDraw, pitchAt, reachK]);
 
     const reset = useCallback(() => {
         // The opening view is a place on the planet, not a number of turns
@@ -1917,8 +2318,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // The zoom travels with the turn rather than being assigned under it:
         // going back to the opening view is one move, and half of it arriving a
         // frame after the button was pressed is what made it read as two.
+        const home = homeRef.current;
         targetRef.current = {
-            yaw: Math.round(cur / (Math.PI * 2)) * Math.PI * 2, pitch: DEFAULT_PITCH, k: 1,
+            yaw: home.yaw + Math.round((cur - home.yaw) / (Math.PI * 2)) * Math.PI * 2,
+            pitch: clamp(home.pitch, -MAX_PITCH, MAX_PITCH), k: 1,
         };
         spinRef.current = 0;
         // Back to where it opened, still: the drift was the planet introducing
@@ -1935,10 +2338,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * over more than a hemisphere has no view containing it. So this is the two
      * things that ARE available: turn the middle of the course to face the
      * reader, and pick the zoom at which its furthest topic from that middle is
-     * still comfortably on the disc. A point `reach` radians off the middle is
-     * drawn `R · sin(reach)` from the centre, which is what decides the zoom —
-     * and past a right angle it is behind the horizon however far out you go,
-     * so the zoom bottoms out rather than pretending otherwise.
+     * still comfortably on the disc (`reachK`). On the sheet the same: its
+     * middle is where nothing is bent, so the course goes there.
      */
     const takeInCourse = useCallback((
         course: CourseTrace, ease?: { omega: number; kOmega: number }, instant = false,
@@ -1954,13 +2355,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         if (!middle) return;
         let reach = 0;
         for (const p of seen) reach = Math.max(reach, angleBetween(middle, p.u));
-        const fit = reach > 1e-4
-            ? (FOLLOW_FILL * 0.5) / (BASE_FILL * Math.sin(Math.min(reach, Math.PI / 2)))
-            : FOLLOW_K;
+        const S = surfaceRef.current;
+        const fit = reach > 1e-4 ? reachK(reach) : S.followK;
+        // The replay lets go of the camera: while it follows, a target is
+        // ignored, and the ending (`endJourney`) stood still on the last step.
         followRef.current = false;
         followKRef.current = null;
-        turnTo(middle, clamp(fit, MIN_K, FOLLOW_K), ease, instant);
-    }, [turnTo]);
+        turnTo(middle, clamp(fit, S.minK, S.followK), ease, instant);
+    }, [turnTo, reachK]);
 
     const frameOnCourse = useCallback((course: CourseTrace, opts?: { instant?: boolean }) => {
         takeInCourse(course, undefined, !!opts?.instant);
@@ -1986,10 +2388,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // the connection between the planet the reader was looking at and the
         // one they are now in.
         followRef.current = true;
+        placedCamRef.current = true;
         // The held shot starts from what the journey asks for, so resuming
         // rides in from wherever the reader left the planet rather than from a
         // zoom the last replay happened to settle on.
         followKRef.current = null;
+        // …and the zoom keeps whatever speed the camera had: handed over
+        // mid-move, the arm carries that move on rather than starting still.
+        followLkRef.current = camVelRef.current.lk;
         setSpinning(false);
         requestDraw();
     }, [requestDraw]);
@@ -2009,18 +2415,20 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
     const zoomBy = useCallback((f: number) => {
         takeCamera();
-        camRef.current.k = clamp(camRef.current.k * f, MIN_K, MAX_K);
+        camRef.current.k = clamp(camRef.current.k * f, surfaceRef.current.minK, surfaceRef.current.maxK);
         requestDraw();
     }, [requestDraw, takeCamera]);
 
     // ---- keyboard ------------------------------------------------------------
     const onKeyDown = (e: ReactKeyboardEvent) => {
-        const turn = 0.12;
+        // One key press moves the land as far as a short drag would, on either
+        // surface: `pan` already knows how far a pixel turns each.
+        const step = Math.max(radius(), 1) * 0.12;
         const acts: Record<string, () => void> = {
-            ArrowLeft: () => { takeCamera(); camRef.current.yaw -= turn; },
-            ArrowRight: () => { takeCamera(); camRef.current.yaw += turn; },
-            ArrowUp: () => { takeCamera(); camRef.current.pitch = clamp(camRef.current.pitch + turn, -MAX_PITCH, MAX_PITCH); },
-            ArrowDown: () => { takeCamera(); camRef.current.pitch = clamp(camRef.current.pitch - turn, -MAX_PITCH, MAX_PITCH); },
+            ArrowLeft: () => { takeCamera(); pan(step, 0); },
+            ArrowRight: () => { takeCamera(); pan(-step, 0); },
+            ArrowUp: () => { takeCamera(); pan(0, step); },
+            ArrowDown: () => { takeCamera(); pan(0, -step); },
             '+': () => zoomBy(1.3),
             '=': () => zoomBy(1.3),
             '-': () => zoomBy(1 / 1.3),
@@ -2029,7 +2437,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             f: () => onToggleFullscreen(),
             // No Escape here: the page owns it (`AtlasView`), one layer at a
             // time — the card, the selection, the traced course, full screen —
-            // whatever holds focus. The flat map says why.
+            // whatever holds focus. A second handler on the canvas is how one
+            // press once closed the card AND left full screen.
         };
         const act = acts[e.key];
         if (!act) return;
@@ -2041,8 +2450,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const card = pinned || hover;
     const isPinnedTopic = !!(pinned?.topic && card?.topic?.id === pinned.topic.id);
 
-    // A frame being recorded carries no chrome, no card and no pointer — the
-    // same branch the flat map takes, for the same reason.
+    // A frame being recorded is not a map being read: no controls to press, no
+    // hint to read, no card to open, and nothing the pointer can move. A single
+    // branch rather than five props, because they are one decision.
     if (capture) {
         return (
             <div ref={wrapRef} className="relative w-full h-full overflow-hidden">
@@ -2064,7 +2474,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 ref={canvasRef}
                 tabIndex={0}
                 role="application"
-                aria-label={tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The atlas index carries the same information as text.")}
+                aria-label={flat
+                    ? tr("Topic map. Drag to move, scroll or pinch to zoom, arrow keys to pan, plus and minus to zoom, 0 to fit, f for full screen. The atlas index carries the same information as text.")
+                    : tr("The library as a planet. Drag to turn it, scroll or pinch to zoom, arrow keys to turn, plus and minus to zoom, 0 to reset, f for full screen. The atlas index carries the same information as text.")}
                 onKeyDown={onKeyDown}
                 className="block w-full h-full touch-none outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-inset"
                 style={{ cursor: 'grab' }}
@@ -2073,7 +2485,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             <MapOverlay top={children} player={player} onInset={onInset} controls={controls ? [
                 { icon: Plus, name: tr("Zoom in"), act: () => zoomBy(1.4) },
                 { icon: Minus, name: tr("Zoom out"), act: () => zoomBy(1 / 1.4) },
-                { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
+                flat
+                    ? { icon: Locate, name: tr("Fit the whole map"), act: reset }
+                    : { icon: RotateCcw, name: tr("Back to the opening view"), act: reset },
                 {
                     icon: fullscreen ? Minimize2 : Maximize2,
                     name: fullscreen ? tr("Leave full screen") : tr("Full screen"),

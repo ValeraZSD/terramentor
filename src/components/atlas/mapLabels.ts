@@ -1,8 +1,8 @@
 /**
  * Label placement for the atlas canvas.
  *
- * Split out of `AtlasMap` because this is the part of the map that can be
- * *wrong on purpose*: a name that lands on the wrong bubble, or gets cut to
+ * Split out of the map component because this is the part of the map that can be
+ * *wrong on purpose*: a name that lands on the wrong place, or gets cut to
  * "Ne…", is a rendering decision with no exception to catch it, and the browser
  * tools are not always available to look at one. Nothing here touches React or
  * the camera — it takes a 2D context and screen coordinates — so a script can
@@ -60,6 +60,10 @@ export interface Labeller {
         text: string, cx: number, cy: number, radius: number, style: LabelStyle,
         opts?: { maxLines?: number; minSize?: number },
     ) => boolean;
+    /** Keep a box clear of every name placed after it, painting nothing: the
+     *  replay's head, which is drawn over everything and must not be printed
+     *  across. */
+    reserve: (x0: number, y0: number, x1: number, y1: number) => void;
     /**
      * Paint everything placed so far, in the order it was placed.
      *
@@ -142,6 +146,31 @@ export function refreshRootFontScale(): number {
 }
 /** The reader's own px for a size expressed at 100%. */
 export const labelPx = (px: number) => Math.round(px * rootScale);
+
+/** What a name has going for it when two names want the same ground. */
+export interface LabelClaim {
+    /** The place the reader picked. */
+    selected: boolean;
+    /** The place under the pointer, or the replay's head. */
+    focus: boolean;
+    /** Left at full strength by a search or a traced course (everything is,
+     *  when neither is on). */
+    undimmed: boolean;
+    /** How big the place is; the last word. */
+    size: number;
+}
+
+/**
+ * The order names are offered to the labeller, which keeps the FIRST box
+ * placed — so this order is the collision rule: the place the reader picked,
+ * then the one under the pointer, then what a search or a traced course left
+ * standing, and only then the bigger place. Size alone let a big region's name
+ * push the one the reader had just searched for off the map.
+ */
+export function labelOrder(a: LabelClaim, b: LabelClaim): number {
+    const rank = (c: LabelClaim) => (c.selected ? 4 : 0) + (c.focus ? 2 : 0) + (c.undimmed ? 1 : 0);
+    return rank(b) - rank(a) || b.size - a.size;
+}
 
 
 export function createLabeller(
@@ -332,5 +361,9 @@ export function createLabeller(
         queued.length = 0;
     };
 
-    return { label, wrapLabel, placeRegion, flush };
+    const reserve = (x0: number, y0: number, x1: number, y1: number) => {
+        boxes.push({ x0, y0, x1, y1 });
+    };
+
+    return { label, wrapLabel, placeRegion, reserve, flush };
 }
