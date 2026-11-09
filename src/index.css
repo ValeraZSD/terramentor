@@ -766,9 +766,10 @@ body.assistant-overlay-open {
  * The same dialog as a phone's bottom sheet grew UPWARD, taking the question
  * with it. While it asks, the sheet keeps one height (.modal-frame-stable's,
  * which the mastery check uses at every width), and a verdict too long for the
- * room scrolls inside the body.
+ * room scrolls inside the body. Every width below `sm`, with no gap at a
+ * fractional (zoomed) width: the exact complement of `(min-width: 640px)`.
  */
-@media (max-width: 639.98px) {
+@media not all and (min-width: 640px) {
   .sheet-stable {
     height: min(90vh, 42rem);
     height: min(90dvh, 42rem, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 2rem));

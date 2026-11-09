@@ -286,10 +286,12 @@ if (PlacementModal) {
         ok('…and its margin plus its tallest frame fit the window, in vh then dvh',
             !!margin && caps.length >= 2 && /\dvh/.test(caps[0]) && /dvh/.test(caps.at(-1)) && caps.every(capFits),
             top ? `margin ${margin?.[1]}vh, caps ${JSON.stringify(caps)}` : 'no .dialog-top rule under @media (min-width: 640px)');
-        const sheet = ruleIn('\\(max-width:\\s*639\\.98px\\)', 'sheet-stable');
+        // The complement of `sm`, so no fractional (zoomed) width falls between
+        // the two rules: `max-width: 639.98px` left 639.98–640px uncovered.
+        const sheet = ruleIn('not all and \\(min-width:\\s*640px\\)', 'sheet-stable');
         ok('…the phone sheet\'s height is set, vh then dvh, clear of the status bar and home indicator',
             !!sheet && /height:\s*min\([^;]*\d+vh/.test(sheet) && /height:\s*min\([^;]*var\(--safe-top\)[^;]*var\(--safe-bottom\)/.test(sheet),
-            sheet ?? 'no .sheet-stable rule under @media (max-width: 639.98px)');
+            sheet ?? 'no .sheet-stable rule under @media not all and (min-width: 640px)');
         const stableAt = css.indexOf('.modal-frame-stable {');
         const stable = stableAt < 0 ? null : css.slice(css.indexOf('{', stableAt) + 1, css.indexOf('}', stableAt));
         ok('…the same height as the mastery check\'s frame (.modal-frame-stable)',
