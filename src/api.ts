@@ -5,6 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
+import type { LessonWrite } from './types';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
@@ -2344,6 +2345,11 @@ export const api = {
     continueCreation: (projectId: number, signal?: AbortSignal): AsyncGenerator<AIProjectProgress> =>
         streamCreationSse('/ai/continue-creation', { projectId }, signal),
 
+    /** Did a creation stop before it finished this project, so the course page
+     *  offers to carry it on? Read from what the run wrote; no model is asked. */
+    getContinueCreation: (projectId: number) =>
+        request<{ canContinue: boolean; running: boolean }>(`/ai/continue-creation/${projectId}`),
+
     /** Cancel ONE run — by its run id when known (the only handle before the
      *  project row exists), else by project. Never sends an empty body: that
      *  cancels every run on the server, and several may be live at once. */
@@ -2443,10 +2449,14 @@ export const api = {
     getReadLessonParts: (nodeId: number, before: number) =>
         request<{ parts: FeedReadPart[] }>(`/feed/nodes/${nodeId}/read-parts?before=${before}`),
 
+    // Try again on a topic whose first lesson could not be written.
+    retryLessonWrite: (nodeId: number) =>
+        request<{ lessonWrite: LessonWrite | null }>(`/feed/nodes/${nodeId}/lesson/retry`, { method: 'POST' }),
+
     // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
     // the learner answers the topic above it).
     getCheckpointFacts: (nodeId: number) =>
-        request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom'>>(`/feed/nodes/${nodeId}/checkpoint`),
+        request<Pick<FeedCheckpointCard, 'feedCorrect' | 'feedTotal' | 'masteryScore' | 'eligible' | 'borrowedEstimate' | 'borrowedFrom' | 'nodeStatus' | 'gateMode'>>(`/feed/nodes/${nodeId}/checkpoint`),
 
     // Persist an in-session visual repair into the cached card it was read in,
     // so the next load renders the fixed spec instead of repairing again (see

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
 import { api } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -9,7 +9,7 @@ import { buildTree, getNodePath } from './utils/tree';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
-import { placeCheckpoints, pullGate } from './utils/feedPlacement';
+import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate, replacedKeys } from './utils/feedPlacement';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -22,6 +22,7 @@ import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
+import { loadedRunner } from './runner/load';
 import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
@@ -42,6 +43,9 @@ type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atla
  * that every `isDarkTheme(theme)` call site would have had to be taught.
  */
 export type Theme = 'light' | 'dark';
+
+/** How the mastery check modal closed its topic, for the surface that opened it. */
+export type MasteryGateResolved = (how: { outcome: 'completed' | 'skipped'; proven: boolean }) => void;
 export const THEME_IDS: readonly Theme[] = ['light', 'dark'];
 
 /** What the four old names become. Warm's tint is SOLVED, not guessed: it is
@@ -340,6 +344,8 @@ const dashboardStillLoading = (projectId: number) => [...dashboardPending.values
  *  alone cannot say so — after A → B → A the first A's late answer names the
  *  right scope and is still the older stream. */
 let feedSeq = 0;
+// Moves on each Try again on a failed lesson (`pulledLessonWrite`).
+let lessonRetrySeq = 0;
 /** The project list request on its way, if any. The Dashboard badge's fallback
  *  (a course opened before the list arrived) waits for it instead of asking
  *  again, so a cold open sends one list request. loadProjects never reuses it:
@@ -523,6 +529,10 @@ interface AppState {
      *  double, triple, or no clock). Chosen on a drill's intro screen and kept,
      *  so a slow typist does not have to ask again every round. */
     drillTimeScale: DrillTimeScale;
+    /** Code answers in Python and JavaScript are run on this device and
+     *  checked against the question's tests (src/runner/); off, the model
+     *  judges them as before. On unless switched off. */
+    codeRunner: boolean;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -562,6 +572,12 @@ interface AppState {
     feedTransfers: Record<number, TransferInfo>;
     /** Placement head starts, kept the same way and for the same reason. */
     feedPlacements: Record<number, PlacementHeadStart>;
+    /** On a topic's own page, its first lesson while it is written (or failed
+     *  to be): the newest page's word on it, never merged. */
+    feedLessonWrite: LessonWrite | null;
+    /** Keys of held cards a landed lesson replaced (the Overview standing in
+     *  for it), still sent as held on every later page (`heldKeys`). */
+    feedReplacedKeys: string[];
     /** Card keys consumed this session (cards collapse in place, never unmount). */
     feedDone: Record<string, boolean>;
     /** Per topic: how many feed answers have been SAVED this session. A
@@ -598,6 +614,8 @@ interface AppState {
      */
     /** `force` skips the throttle: the caller knows a new card exists. */
     pullFeedUpdates: (opts?: { force?: boolean }) => Promise<void>;
+    /** Try again on the topic whose first lesson could not be written. */
+    retryLessonWrite: () => Promise<void>;
     /**
      * A visual block inside a feed card was repaired: splice the fixed spec into
      * that card — lesson, question or practice alike — and persist it, so the
@@ -613,7 +631,7 @@ interface AppState {
         kind: 'lesson' | 'question' | 'recall';
         feedItemId?: number | null;
         nodeId?: number;
-        result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback'; read?: boolean };
+        result?: { correct?: boolean; answer?: string; gradedBy?: 'local' | 'ai' | 'fallback' | 'run'; read?: boolean };
         attemptId?: string;
         uuid?: string;
     }) => Promise<boolean>;
@@ -689,18 +707,22 @@ interface AppState {
         nodeTitle: string;
         advisory: boolean;
         projectId: number | null;
-        onResolved: (() => void) | null;
+        onResolved: MasteryGateResolved | null;
     };
     openMasteryGate: (
         nodeId: number,
         nodeTitle: string,
         advisory?: boolean,
         projectId?: number | null,
-        onResolved?: (() => void) | null,
+        onResolved?: MasteryGateResolved | null,
     ) => void;
     closeMasteryGate: () => void;
-    /** Close the gate by completing (override) or skipping the node it holds. */
-    resolveMasteryGate: (outcome: 'completed' | 'skipped') => Promise<void>;
+    /** Close the gate by completing (override) or skipping the node it holds;
+     *  `proven` = completed by passing the check, not marked done without it. */
+    /** `written`: the server already completed the topic with the pass it
+     *  recorded, so this only refreshes and notifies. A second completion write
+     *  would overwrite a status set since (a skip from another tab). */
+    resolveMasteryGate: (outcome: 'completed' | 'skipped', proven?: boolean, written?: boolean) => Promise<void>;
 
     /** The finished-project summary, when one is on screen. */
     completion: ProjectCompletion | null;
@@ -740,6 +762,7 @@ interface AppState {
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
     setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
+    setCodeRunner: (on: boolean) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -915,6 +938,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
     drillTimeScale: '1',
+    codeRunner: true,
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -946,6 +970,8 @@ export const useStore = create<AppState>((set, get) => ({
     feedHeader: null,
     feedTransfers: {},
     feedPlacements: {},
+    feedLessonWrite: null,
+    feedReplacedKeys: [],
     feedLoading: false,
     feedExhausted: false,
     feedDone: {},
@@ -989,7 +1015,7 @@ export const useStore = create<AppState>((set, get) => ({
     closeMasteryGate: () =>
         set({ masteryGate: { isOpen: false, nodeId: null, nodeTitle: '', advisory: true, projectId: null, onResolved: null } }),
 
-    resolveMasteryGate: async (outcome) => {
+    resolveMasteryGate: async (outcome, proven = false, written = false) => {
         const gate = get().masteryGate;
         const nodeId = gate.nodeId;
         if (!nodeId) return;
@@ -998,7 +1024,25 @@ export const useStore = create<AppState>((set, get) => ({
         get().closeMasteryGate();
 
         let ok = false;
-        if (inLoadedProject) {
+        if (written && outcome === 'completed') {
+            // Nothing to write: refresh what a completion write would have.
+            ok = true;
+            if (inLoadedProject) {
+                // The topic is completed whatever this reload does, so a failed
+                // reload must not stop the caller hearing it below.
+                try {
+                    await get().refreshNodes();
+                } catch {
+                    // The tree still shows the old status: say what the server holds.
+                    get().addToast('success', i18n.t('"{{title}}" completed', { title: gate.nodeTitle }));
+                }
+                const project = get().projects.find(p => p.id === gate.projectId);
+                if (project?.start_date && project?.deadline) get().loadPaceData(gate.projectId!);
+                get().loadDashboard(gate.projectId!);
+            } else {
+                get().addToast('success', i18n.t('"{{title}}" completed', { title: gate.nodeTitle }));
+            }
+        } else if (inLoadedProject) {
             // A workspace is open: go through the normal actions so the tree,
             // pace and dashboard all refresh from one place.
             ok = outcome === 'skipped'
@@ -1022,7 +1066,7 @@ export const useStore = create<AppState>((set, get) => ({
                 get().addToast('error', i18n.t('Failed to update topic'), e.message);
             }
         }
-        if (ok) onResolved?.();
+        if (ok) onResolved?.({ outcome, proven });
         if (ok && gate.projectId) get().checkProjectCompletion(gate.projectId);
     },
 
@@ -1268,6 +1312,14 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'drill_time_scale', scale, before, scale, value => set({ drillTimeScale: value }));
     },
 
+    setCodeRunner: async (on) => {
+        const before = get().codeRunner;
+        set({ codeRunner: on });
+        // A Python frame kept ready has no further use.
+        if (!on) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
+        await saveSetting(get, 'code_runner', on ? 'on' : 'off', before, on, value => set({ codeRunner: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1365,11 +1417,15 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js, so this is the same single comparison the
             // server makes and it fails closed on anything else.
             const aiWebSearch = settings.ai_web_search === 'on';
+            const codeRunner = settings.code_runner !== 'off';
             // Written by the welcome screen, or by the migration in
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, welcome });
+            // As in setCodeRunner: a library loaded with the runner off keeps
+            // no Python frame ready from before (an unlock, another library).
+            if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
             // The non-component call sites read a module variable rather than
             // the store, so it has to be written here too.
             setNumberPreference(numberFormat);
@@ -1595,7 +1651,14 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadFeed: async (scope = null) => {
         const seq = ++feedSeq;
-        set({ feedLoading: true, feedScope: scope });
+        const retrySeq = lessonRetrySeq;
+        // Another topic's lesson state is not this one's: kept until the load
+        // lands, the new topic's header sat over it and its Try again asked
+        // for the topic the learner had left.
+        const sameScope = scopeKey(get().feedScope) === scopeKey(scope);
+        set(sameScope
+            ? { feedLoading: true, feedScope: scope }
+            : { feedLoading: true, feedScope: scope, feedLessonWrite: null, feedReplacedKeys: [] });
         try {
             const res = await api.getFeed(undefined, 15, scope);
             // A slower load — for another scope, or an older load of this one —
@@ -1606,6 +1669,10 @@ export const useStore = create<AppState>((set, get) => ({
                 feedHeader: res.header,
                 feedTransfers: res.transfers || {},
                 feedPlacements: res.placements || {},
+                feedLessonWrite: sameScope
+                    ? pulledLessonWrite(res.lessonWrite, get().feedLessonWrite, retrySeq !== lessonRetrySeq)
+                    : res.lessonWrite ?? null,
+                feedReplacedKeys: [],
                 feedExhausted: res.exhausted,
                 feedDone: {},
                 feedFocusItemId: null,
@@ -1627,8 +1694,9 @@ export const useStore = create<AppState>((set, get) => ({
         if (get().feedLoading || get().feedExhausted) return;
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             // A page for the stream the learner has left is not a page of this
             // one; the load that replaced it owns the spinner now.
@@ -1645,6 +1713,7 @@ export const useStore = create<AppState>((set, get) => ({
                 // blank the banner on chapters still on screen.
                 feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
                 feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
                 feedExhausted: res.exhausted,
                 feedLoading: false,
             }));
@@ -1671,29 +1740,59 @@ export const useStore = create<AppState>((set, get) => ({
 
         set({ feedLoading: true });
         const seq = feedSeq;
+        const retrySeq = lessonRetrySeq;
         try {
-            const exclude = get().feedCards.map(c => c.key);
+            const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
             const res = await api.getFeed(exclude, 15, get().feedScope);
             if (seq !== feedSeq) return;
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
-            set(state => ({
+            set(state => {
                 // Never reordered, same contract as extendFeed — cards already
                 // on screen must not move under the reader. Two exceptions keep
                 // a chapter's end its END: a topic's CHECKPOINT goes straight
                 // after that topic's last card (appended, it sat below the next
                 // topics the learner had moved on to), and on a topic's own page
                 // a lesson written after its checkpoint arrived goes in before
-                // that checkpoint (`placeCheckpoints`).
-                feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
-                feedHeader: res.header,
-                feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
-                feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
-                feedExhausted: res.exhausted,
-                feedLoading: false,
-            }));
+                // that checkpoint (`placeCheckpoints`). A lesson the page was
+                // waiting on goes where its slot was drawn, and replaces the
+                // Overview that stood in for it while the page showed only
+                // "Writing the lesson" (nobody read that stand-in). Its key is
+                // still sent as held (`heldKeys`).
+                const placed = fresh.length
+                    ? placeCheckpoints(state.feedCards, fresh, state.feedLessonWrite?.nodeId ?? null,
+                        lessonPending(state.feedCards, state.feedLessonWrite))
+                    : state.feedCards;
+                return {
+                    feedCards: placed,
+                    feedReplacedKeys: [...state.feedReplacedKeys, ...replacedKeys(state.feedCards, placed)],
+                    feedHeader: res.header,
+                    feedTransfers: { ...state.feedTransfers, ...(res.transfers || {}) },
+                    feedPlacements: { ...state.feedPlacements, ...(res.placements || {}) },
+                    feedLessonWrite: pulledLessonWrite(res.lessonWrite, state.feedLessonWrite, retrySeq !== lessonRetrySeq),
+                    feedExhausted: res.exhausted,
+                    feedLoading: false,
+                };
+            });
         } catch {
             if (seq === feedSeq) set({ feedLoading: false });
+        }
+    },
+
+    retryLessonWrite: async () => {
+        const write = get().feedLessonWrite;
+        if (write?.state !== 'failed') return;
+        lessonRetrySeq++;
+        try {
+            const res = await api.retryLessonWrite(write.nodeId);
+            // The page shows "Writing the lesson" at once; the burst's task
+            // signal pulls the lesson when it lands. Ignored when the page has
+            // moved to another topic meanwhile.
+            if (get().feedLessonWrite?.nodeId !== write.nodeId) return;
+            set({ feedLessonWrite: res.lessonWrite });
+            if (!res.lessonWrite) void get().pullFeedUpdates({ force: true });
+        } catch (e) {
+            get().addToast('error', i18n.t("Couldn't start the lesson again."), messageOf(e));
         }
     },
 

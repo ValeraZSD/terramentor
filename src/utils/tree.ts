@@ -793,6 +793,44 @@ export function assignTasksToDays(days: CalendarDay[], tasks: CalendarTaskInput[
 }
 
 /**
+ * WORK PAST ITS LAST DAY IS OWED TODAY, not on the day it was planned for.
+ *
+ * Drawn on its planned days, late work was a wall of red on whichever past days
+ * the period showed (a library 20 topics behind painted Monday with eleven red
+ * chips, each saying "Overdue"), and invisible everywhere else: a topic that
+ * ended the week before touched no day on screen, so a course 37 days behind
+ * showed one late chip, and the Day view of today showed none. So a calendar
+ * takes late work off its days and shows it ONCE, as a group on today, in every
+ * view (the to-do convention: Todoist's and Things' "Overdue" sits in Today).
+ *
+ * Late = the last day is before `today` and the topic is still open. One that
+ * would pass its check now (`isReadyToProve`) is late too, but not "overdue":
+ * it is its own group, never painted red. Each list is in the order it fell
+ * behind, oldest first.
+ */
+export interface LateSplit {
+    /** Everything else, placed on its days by `assignTasksToDays`. */
+    onDays: CalendarTaskInput[];
+    overdue: CalendarTaskInput[];
+    ready: CalendarTaskInput[];
+}
+
+export function splitLateTasks(tasks: CalendarTaskInput[], today: string): LateSplit {
+    const onDays: CalendarTaskInput[] = [];
+    const overdue: CalendarTaskInput[] = [];
+    const ready: CalendarTaskInput[] = [];
+    for (const t of tasks) {
+        const open = t.status !== 'completed' && t.status !== 'skipped';
+        if (!open || !(t.scheduled_end < today)) onDays.push(t);
+        else if (isReadyToProve({ status: t.status, scheduled_end: t.scheduled_end, provable: t.provable }, today)) ready.push(t);
+        else overdue.push(t);
+    }
+    const byEnd = (a: CalendarTaskInput, b: CalendarTaskInput) =>
+        a.scheduled_end.localeCompare(b.scheduled_end) || a.scheduled_start.localeCompare(b.scheduled_start);
+    return { onDays, overdue: overdue.sort(byEnd), ready: ready.sort(byEnd) };
+}
+
+/**
  * The scheduled leaves of one project's in-memory tree, in the same shape the
  * global calendar's fetched rows arrive in — so both scopes of `CalendarView`
  * feed the identical `assignTasksToDays`. Reading the tree rather than the API

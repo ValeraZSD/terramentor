@@ -32,13 +32,15 @@ app.get('/api/version', (req, res) => {
 app.get('/api/updates', (req, res) => {
     // A device in without the password reads the panel but may press nothing
     // on it (server/app.js), so the page does not ask it anything.
-    res.json({ ...withInstall(readUpdateState()), controls: !req.remoteAccess || hasPasswordCredential(req) });
+    res.json(withInstall(req, readUpdateState()));
 });
 
 /** Every update answer carries what installing looks like on this copy (see
- *  server/appUpdate.js): whether it can, and what it is doing. */
-function withInstall(state) {
-    return { ...state, install: installState({ latest: state.latest }) };
+ *  server/appUpdate.js): whether it can, and what it is doing. And whether the
+ *  device asking may press anything on the panel (server/app.js): on every
+ *  answer, because the page replaces its whole status with whichever came last. */
+function withInstall(req, state) {
+    return { ...state, install: installState({ latest: state.latest }), controls: !req.remoteAccess || hasPasswordCredential(req) };
 }
 
 /**
@@ -50,10 +52,10 @@ let lastManualCheck = 0;
 app.post('/api/updates/check', wrap(async (req, res) => {
     const now = Date.now();
     if (now - lastManualCheck < 60_000) {
-        return res.json({ ...withInstall(readUpdateState()), throttled: true });
+        return res.json({ ...withInstall(req, readUpdateState()), throttled: true });
     }
     lastManualCheck = now;
-    res.json(withInstall(await runUpdateCheck()));
+    res.json(withInstall(req, await runUpdateCheck()));
 }));
 
 /** Turn the daily poll on or off. Its own endpoint rather than a generic setting
@@ -67,12 +69,12 @@ app.put('/api/updates/auto', wrap(async (req, res) => {
     setSettingValue('update_check_asked', '1');
     if (!enabled) {
         stopUpdatePoll();
-        return res.json(withInstall(readUpdateState()));
+        return res.json(withInstall(req, readUpdateState()));
     }
     // The poll's own first tick IS this answer: one request, as SECURITY.md
     // promises, and a failed one (switched on while offline) gets the same
     // ten-minute retry a failed startup check does.
-    res.json(withInstall(await startUpdatePoll({ checkNow: true })));
+    res.json(withInstall(req, await startUpdatePoll({ checkNow: true })));
 }));
 
 /** Choose which releases this install is offered: `stable` or `nightly`. With
@@ -101,7 +103,7 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     // new channel does not take stops now, not after GitHub has answered.
     const switched = setUpdateChannel(channel, { checkNow });
     channelChanged();
-    const state = withInstall(await switched);
+    const state = withInstall(req, await switched);
     res.json(enabled && !checkNow ? { ...state, throttled: true } : state);
 }));
 
@@ -116,7 +118,7 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     if (!installState().supported) return res.status(409).json({ error: 'This copy of Terramentor cannot download updates itself.' });
     // A second press, another tab or a retry while one runs starts nothing,
     // and asks nothing.
-    if (installState().phase === 'downloading') return res.json(withInstall(readUpdateState()));
+    if (installState().phase === 'downloading') return res.json(withInstall(req, readUpdateState()));
     const state = await freshUpdateState();
     // What this server heard from GitHub, never the stored row by itself.
     const latest = heardLatest();
@@ -124,15 +126,15 @@ app.post('/api/updates/download', wrap(async (req, res) => {
     if (!state.available || !latest) return res.status(409).json({ error: 'No newer version has been found. Check for updates first.' });
     // Staged already, and still the newest: staging again would turn "Restart
     // to update" back into a download of what is already checked.
-    if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(state));
+    if (install.phase === 'downloading' || install.phase === 'ready') return res.json(withInstall(req, state));
     startDownload({ latest });
-    res.json(withInstall(readUpdateState()));
+    res.json(withInstall(req, readUpdateState()));
 }));
 
 /** "Stop download": what arrived is kept, so the next press continues. */
 app.post('/api/updates/cancel', wrap(async (req, res) => {
     cancelDownload();
-    res.json(withInstall(readUpdateState()));
+    res.json(withInstall(req, readUpdateState()));
 }));
 
 /** "Restart to update": the launcher takes over, the server stops, the updater
@@ -160,7 +162,7 @@ app.post('/api/updates/restart', wrap(async (req, res) => {
 /** The note about the last update (installed, or put back) has been read. */
 app.post('/api/updates/result/dismiss', wrap(async (req, res) => {
     dismissResult();
-    res.json(withInstall(readUpdateState()));
+    res.json(withInstall(req, readUpdateState()));
 }));
 
 // Health check (no DB dependency)

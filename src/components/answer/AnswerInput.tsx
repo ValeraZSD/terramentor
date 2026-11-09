@@ -1,6 +1,7 @@
 import { ComponentType } from 'react';
 import type { QuizQuestion } from '../../types';
 import type { AnswerFormat } from './formats';
+import type { RunResult } from '../../runner/protocol';
 import ChoiceInput from './ChoiceInput';
 import TextAnswerInput from './TextAnswerInput';
 import FillInInput from './FillInInput';
@@ -32,8 +33,9 @@ export interface AnswerInputProps {
     /** A closed format answered by choosing calls this with the choice — the feed grades on it. */
     onCommit?: (value: string) => void;
     disabled?: boolean;
-    /** The recorded verdict: paints the key and the learner's pick, locks the input. */
-    result?: { correct: boolean; answer: string } | null;
+    /** The recorded verdict: paints the key and the learner's pick, locks the input.
+     *  `run` is a code answer's run against its tests (`gradeAnswer`). */
+    result?: { correct: boolean; answer: string; run?: RunResult } | null;
     /** Put the caret in the input on mount (an open format the learner is about to write in). */
     autoFocus?: boolean;
 }

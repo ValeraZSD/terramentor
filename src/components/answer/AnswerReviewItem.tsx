@@ -9,6 +9,7 @@ import AnswerInput from './AnswerInput';
 import AnswerKey from './AnswerKey';
 import { formatOf, answerAsText } from './formats';
 import { ReportLink, ReportScope } from '../ui/ReportItem';
+import type { RunResult } from '../../runner/protocol';
 
 /**
  * One answered question, read back: the verdict, the question, what the
@@ -19,13 +20,15 @@ import { ReportLink, ReportScope } from '../ui/ReportItem';
  * few classes apart; the day's ledger now opens a finished sitting and needs the
  * same row a third time, so it is drawn here once.
  */
-export default function AnswerReviewItem({ question, answer, correct, explanation, nodeId, nodeTitle, projectName, projectId, surface, badge, report }: {
+export default function AnswerReviewItem({ question, answer, correct, explanation, run, nodeId, nodeTitle, projectName, projectId, surface, badge, report }: {
     question: QuizQuestion;
     /** What the learner answered — for an unanswered ordering, the order served. */
     answer: string;
     correct: boolean;
     /** The grader's explanation; the question's own is the fallback. */
     explanation?: string;
+    /** A code answer graded by running it: the test rows behind the verdict. */
+    run?: RunResult;
     nodeId: number;
     /** With a title, a wrong answer offers `AnswerHelp`. */
     nodeTitle?: string;
@@ -69,7 +72,7 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                             // and painted with the verdict.
                             <div className="mt-2">
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-1">{t("Your answer:")}</p>
-                                <AnswerInput question={question} value={answer} onChange={() => {}} result={{ correct, answer }} />
+                                <AnswerInput question={question} value={answer} onChange={() => {}} result={{ correct, answer, run }} />
                             </div>
                         ) : (
                             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">

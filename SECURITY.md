@@ -50,7 +50,8 @@ your data at all." Those are different claims and we only make the second one.
   press Read in the Short courses box on Projects, or Create on a short course the assistant
   prepared from a link (`server/linkReader.js`): a web page or a PDF is one ordinary request to
   the address you gave, through the same URL vetting (`server/netSafety.js`: an address on your
-  own machine or network is refused before any connection, a redirect is vetted again), with a
+  own machine or network is refused before any connection unless the server was started with
+  `ALLOW_PRIVATE_FETCH=1`, a redirect is vetted again), with a
   generic browser `User-Agent` and an `Accept-Language` naming the app's language; a page is
   read up to 3 MB, a PDF or other file up to 25 MB (a page served under another type is
   downloaded under that 25 MB limit, and only its first 3 MB decoded and parsed). A YouTube video is read from its captions: up to three
@@ -388,6 +389,29 @@ your data at all." Those are different claims and we only make the second one.
   listener: a navigation stopped in Edge, Firefox and WebKit; a WebRTC packet, sent directly,
   from a frame the code wrote, or from a document the frame navigated to, stopped in Edge
   (Firefox headless sent no packet even outside a sandbox, and the WebKit tested has no WebRTC).
+- **Code answers run on your device, sandboxed, and are given no way to send anything out.** A Python or
+  JavaScript answer is run in the browser (`src/runner/`), never on the server: Pyodide for
+  Python, QuickJS-ng (compiled to WebAssembly) for JavaScript, both part of the app's own build
+  and served by it, never fetched from elsewhere. The page opens `/runner.html`
+  (`server/runnerFrame.js`) in `<iframe sandbox="allow-scripts">`, so its origin is opaque: no
+  cookie, storage or address in common with the app, and the API refuses its requests. Its
+  policy is `default-src 'none'; connect-src 'none'`, with script only from its one bootstrap
+  (by hash) and `blob:`; it needs `'unsafe-eval'` and `'wasm-unsafe-eval'` to start the two
+  runtimes, and those apply to that frame alone, never to the page. The code runs inside one
+  worker that the frame starts from bytes the page hands it, and a worker inherits the frame's
+  policy. WebRTC, which no policy covers, cannot be started from a worker (the standard offers
+  its peer connection to pages only), and its names are removed inside the worker as well. Each
+  run gets a fresh frame, so one question's code never runs beside another's. Time is enforced from outside the code: the worker is terminated 5 seconds into a
+  phase, and the page removes the whole frame 2 seconds later if the frame stops answering,
+  because the interpreters' own interrupt hooks do not reliably stop a busy loop. Memory is the
+  runtime's own ceiling (256 MB for Python, 64 MB for JavaScript), output stops at 65,536 characters (up to 192 KB as UTF-8), and
+  the result is read as untrusted data and shown as text. A test's expected value is never taken
+  from the question: the reference solution is run on the same inputs, so a model's `expect`
+  that disagrees with its own reference grades nothing. Turning it off (Settings → Learning →
+  "Run code answers") sends code answers back to the model grader. Pinned by
+  `tools/code-runner-gates.mjs` in headless Edge, which goes red when the sandbox is weakened
+  (a network route reaches a local listener, the origin is not opaque, a loop outlives the
+  limit, a 600 MB allocation succeeds); measured running in Firefox and WebKit too.
 - **An upload is bounded in the aggregate, not only per file** (`server/uploadGuard.js`). A
   multipart body is judged on its `Content-Length` before any of it is read: over the route's
   cap it is refused, and a body that declares no length at all (a chunked upload) is refused
@@ -471,6 +495,25 @@ your data at all." Those are different claims and we only make the second one.
   deliberately readable so you can judge them for yourself, but a mastery estimate is built from
   model-generated assessment and inherits its errors. Both chat surfaces say so under their
   input, and every AI-written row records which model wrote it (`generated_by`).
+- **The code runner's limits.** Its walls are the browser's: a hole in the browser's sandbox or
+  WebAssembly engine is outside what an app can defend, the same exposure as opening any page.
+  A Python answer runs in the same interpreter as the question's reference solution, so either
+  can reach the code that compares them: an answer written to cheat (one that reads the expected
+  values, or rewrites the comparison) passes, and a course's reference solution can mark every
+  answer to that question right or wrong, the same trust a course already has over its answer
+  keys. JavaScript runs each side in a context of its own and compares the values outside both.
+  A value the runner cannot compare (a function, a promise, a generator, an object with no
+  equality of its own) makes the run decline, and the model grades that answer. A course can also ship tests too easy to catch much: a run-graded answer is as honest as
+  the person at the keyboard and the course's author (already true before: the reference travels
+  to the client for grading). A wrong reference solution agrees with itself; the verifier model
+  and "This is wrong" are the checks, neither airtight. Python code can reach the worker's own
+  JavaScript through Pyodide's bridge (`import js`): every network route from there is refused,
+  but memory allocated on that side is not under the 256 MB ceiling, and a single enormous
+  result is copied to the page before it is cut down, so such code can exhaust the tab's memory
+  and close it, losing an answer not yet sent; your library is on the server and is not touched.
+  A run also keeps one processor core busy until it is stopped. The same goes for a
+  phone with little memory under a large program. Timing side channels between the frame and
+  the page are left to the browser's own mitigations.
 
 ## The update check
 
@@ -668,12 +711,14 @@ and is described here in the same detail as the update check.
 ## The MCP server (an agent in another app)
 
 `mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
-such as Claude Code, Claude Desktop, VS Code or Cursor, read your library and propose two things
-to it. It is a separate program that you or your harness start. The app never starts it, and
+such as Claude Code, Claude Desktop, VS Code or Cursor, read your library, propose two things
+to it, and open the app's own mastery check or card review for you to take in its window. It is
+a separate program that you or your harness start. The app never starts it, and
 while nobody runs it nothing here changes.
 
 - **It opens no database and keeps no data.** It is a client of the running app's own HTTP API
-  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`), behind the same password
+  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`, plus the app's own
+  `PUT /api/nodes/:id` to complete a topic after a passed check), behind the same password
   check as every page. `tools/mcp-gates.mjs` fails if anything under `mcp/` imports the server.
   It connects to `TERRAMENTOR_URL` and nowhere else.
 - **What an agent can read:**
@@ -690,7 +735,7 @@ while nobody runs it nothing here changes.
 
   What it reads goes to the model of the harness you use, under that provider's terms, like
   anything you paste into it.
-- **What it can write is two things, and neither is a proof.**
+- **What the agent's model can write is two things, and neither is a proof.**
   - **A note into the Inbox**, through the capture route. A note without a link whose text is
     already there is not saved again; this tool takes only an `http(s)` link. If a model is
     connected, the note is tidied as every capture is.
@@ -704,12 +749,13 @@ while nobody runs it nothing here changes.
     - a wrong claim never lowers the estimate below a head start while that head start stands;
     - an `attempt_id` sent again for a different answer is refused.
 
-  Proving a topic stays the app's own mastery check.
+  Proving a topic stays the app's own mastery check, which you take in the app or in the
+  view below; no tool the model calls submits one.
 - **With a password set, it needs the API key.** On stdio the harness passes
   `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
-  agents: a program holding it can call any `/api` route the key opens, not only the seven
-  tools. Treat a harness config file that holds it like the password. Settings → Devices &
-  security → API key → Regenerate or Delete ends it. Without a password the app answers only
+  agents: a program holding it can call any `/api` route the key opens, not only the MCP
+  server's tools. Treat a harness config file that holds it like the password. Settings → Devices &
+  security → API key → Regenerate key or Delete key ends it. Without a password the app answers only
   this computer, and the server needs no key.
 - **The key goes only to this computer or over https.** A `TERRAMENTOR_URL` with plain
   `http://` to another machine is refused, because the key would cross the network unencrypted.
@@ -727,6 +773,58 @@ while nobody runs it nothing here changes.
   - **It holds no key.** It forwards each caller's own `Authorization` header and ignores
     `TERRAMENTOR_API_KEY`, so another process on this computer cannot use it to get around the
     password.
+- **It is shipped, never started.** The desktop app and the Docker image carry `mcp/`, but
+  the app does not run it and nothing listens for it. A harness starts it.
+
+### The mastery check and the card review in the agent's window
+
+Two tools, `mastery_check` and `review_cards`, open a view that a host which draws MCP Apps
+(Claude, for one) shows in its own window (`mcp/views/`). The learner takes the check or rates
+the cards there. The host's model only asks for it, and is told when it opened, and how it
+ended if the host passes a view's updates on to it.
+
+- **The model never sees a question, an answer or a key.** The check is drawn by the app
+  (`server/agentSittings.js`, the app's own draw), graded by the app, and written through the
+  same function as the app's own gate dialog (`server/masteryCheck.js`), once per sitting. A
+  card is rated by the app's own scheduler and written by the same function as the review
+  screen (`server/cardWrite.js`). Keys and explanations leave the app only after the whole
+  check is submitted, and only to the view.
+- **The sitting is a random token** (24 random bytes), held in the app's memory for at most
+  two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
+  in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to
+  the model, and the view sends it back as an argument of each of its own tool calls, which
+  pass through the host. Seven tools that only the view calls (`check_questions`,
+  `check_submit`, `check_complete`, `review_next`, `review_reveal`, `review_rate`,
+  `review_undo`; not `review_cards`, which the model calls to open a review) carry
+  `visibility: ["app"]`; they are listed only to a host whose `initialize` says it draws
+  views, and each refuses a host that does not. A host that does not draw views gets a link
+  that opens the topic in Terramentor instead.
+- **Residual risk: a host that breaks those two rules.** A host that shows its model the
+  token (in a tool result's `_meta`, or in the arguments of the view's own calls), and also
+  lets the model call the view's own tools, would let that model read the questions of an
+  open check (never their keys before submission) and submit it for the learner. The answers
+  would still be graded and recorded by the app, and a check passed that way counts like any
+  other: the app cannot tell who pressed the buttons in the host's window.
+- **"The model never sees a question" is about the MCP server.** A program on this computer
+  that can reach the app (any program while no password is set, or one holding the API key)
+  can call `/api/agent/check/*` itself and read an open check's questions. That is no new
+  reach: such a program can already call the app's own check and quiz routes.
+- **A view can reach nothing but its host.** Each view is one HTML document with its script
+  and style inline. Its own Content-Security-Policy allows exactly that script and that style
+  by their SHA-256 hashes, and `default-src`, `connect-src`, `frame-src`, `form-action` and
+  `base-uri` are `'none'`: it loads no file, makes no request and talks only to the window
+  that framed it, by `postMessage`, ignoring messages from any other window. The page text
+  it shows is built from text nodes; no string from the library is parsed as markup or run as
+  code. `tools/mcp-gates.mjs` reads both documents back and checks each of these.
+- **The host's own policy can replace the view's.** A host that writes its own
+  Content-Security-Policy into the frame ahead of the document makes the browser ignore the
+  view's. MCP Inspector 2.13 does this, and its own policy also forbids every connection. So
+  "no network" does not rest on the view's policy alone: the view's script contains no
+  `fetch`, socket, beacon, image, worker or navigation, and `tools/mcp-gates.mjs` fails if one
+  appears.
+- **No new outbound connection.** The views make none; the MCP server still talks to
+  `TERRAMENTOR_URL` only. A free-text answer in the check is graded by the model connected in
+  Settings, exactly as in the app's own check.
 
 ## Verifying the no-telemetry claim
 
@@ -747,7 +845,11 @@ about ten minutes:
    search engine you saved a key for) for the duration of that creation, and nothing after it.
    Pressing **Find resources** on one topic reaches the same hosts, for that topic only.
    Reading a short course's link reaches that link's host (and `www.youtube.com` for a video,
-   up to six requests), once per press of Read, or of Create on the assistant's card.
+   up to six requests), once per press of Read, or of Create on the assistant's card. Any of
+   these requests that is redirected follows at most three redirect hops, each one more request,
+   each vetted like the first address (never your own machine or network, unless the server
+   was started with `ALLOW_PRIVATE_FETCH=1`; cloud metadata addresses stay refused): a page link's
+   redirect may reach another host, a caption request's only one on `youtube.com`.
 6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
    again and the connection should not recur.

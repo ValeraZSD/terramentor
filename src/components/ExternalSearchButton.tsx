@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
 import {
-    Youtube, Search, Globe, BookOpen, FileText, GraduationCap, Library,
+    SquarePlay, Search, Globe, BookOpen, FileText, GraduationCap, Library,
     Microscope, Code, MessageCircle, Video, Link2, Sigma, ChevronDown,
 } from 'lucide-react';
 import { useStore } from '../store';
@@ -29,7 +29,7 @@ import { Button, ButtonLink, IconButton, IconLink } from './ui/Button';
  */
 
 const ICONS: Record<string, typeof Search> = {
-    youtube: Youtube,
+    youtube: SquarePlay,
     search: Search,
     globe: Globe,
     book: BookOpen,

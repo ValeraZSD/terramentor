@@ -1,4 +1,4 @@
-import type { AITaskFailure } from '../types';
+import type { AITaskFailure, LessonWrite } from '../types';
 import { k } from '../i18n';
 
 /** What a failure record must carry for a cause to be named: the message, and
@@ -37,8 +37,10 @@ export function retryMayHelp(f: FailureFacts | null): boolean {
  *  untranslated false branch.
  *
  *  Read by the failure dialog of a background task (TaskFailureModal) and by
- *  the screen of a course creation that stopped (CreationProgress). */
-export function plainCause(f: FailureFacts): { messageKey: string; params?: Record<string, unknown> } | null {
+ *  the screen of a course creation that stopped (CreationProgress), and by a
+ *  topic's page whose lesson could not be written, which shows no raw reply
+ *  (`rawShown: false`). */
+export function plainCause(f: FailureFacts, { rawShown = true }: { rawShown?: boolean } = {}): { messageKey: string; params?: Record<string, unknown> } | null {
     const msg = (f.message || '').toLowerCase();
     if (f.looped) {
         return { messageKey: k('The model went round in circles in its reasoning — the same few lines over and over — and was stopped. Local models do this most on long lists of instructions; a shorter question, or a different model in Settings → AI & Models, usually avoids it.') };
@@ -95,7 +97,26 @@ export function plainCause(f: FailureFacts): { messageKey: string; params?: Reco
         return { messageKey: k('No model is configured. Pick one in Settings → AI & Models.') };
     }
     if (/json|parse|unexpected token/i.test(msg)) {
+        if (!rawShown) {
+            return { messageKey: k('The model replied, but not in the shape this step needs. Smaller models do this more often.') };
+        }
         return { messageKey: k('The model replied, but not in the shape this step needs. Smaller models do this more often; the raw reply is below.') };
     }
     return null;
+}
+
+/** A topic's failed lesson write (`LessonWrite`, from feedGen's record of the
+ *  burst that failed) as the facts `plainCause` and `retryMayHelp` read. */
+export function lessonFailureFacts(write: LessonWrite): FailureFacts {
+    return {
+        message: write.reason || '',
+        httpStatus: write.httpStatus ?? null,
+        model: write.model ?? null,
+        attempts: write.attempts ?? null,
+        looped: write.looped ?? null,
+        emptyReply: write.emptyReply ?? null,
+        reasoningTokens: write.reasoningTokens ?? null,
+        // Only an empty reply says what it spent; nothing else is claimed.
+        ...(write.thinkingChars != null ? { produced: { thinkingChars: write.thinkingChars, contentChars: 0, percent: null } } : {}),
+    };
 }

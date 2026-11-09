@@ -7,9 +7,18 @@ this computer: a single SQLite file plus a folder of the files you upload.
 STARTING IT
   Windows  double-click Terramentor.exe  (Terramentor.cmd does the same with a
            console window, useful when something goes wrong)
-  macOS    double-click Terramentor.app  (or Terramentor.command)
-           The first time, macOS may say the app is from an unidentified
-           developer: right-click → Open, once.
+  macOS    drag Terramentor.app into your Applications folder, then open it
+           from there.
+           The first time, macOS 15 and later may say it cannot check the app.
+           Press Done, open System Settings -> Privacy & Security, scroll down
+           to "Terramentor was blocked to protect your Mac", press Open Anyway
+           and confirm. (macOS 14 and earlier: right-click the app -> Open,
+           once.) If there is no Open Anyway button, run this once in Terminal
+           and open the app again:
+             xattr -dr com.apple.quarantine /Applications/Terramentor.app
+           Opened where it was unzipped, macOS runs a temporary copy of the
+           app that cannot update itself or start when you sign in; the app
+           says so, and moving it into Applications ends it.
   Linux    ./terramentor.sh   — and ./install-desktop-entry.sh once to get it
            into your application menu
 
@@ -46,14 +55,17 @@ library on a full system drive is the reason this exists. Delete the file to
 go back. If the path is not there when the app starts (an unplugged drive,
 say), it tells you rather than quietly opening an empty library.
 
-Portable use: make an empty folder called `data` next to this file before the
-first start, and the library lives there instead — on a USB stick, say.
+Portable use (Windows and Linux): make an empty folder called `data` next to
+this file before the first start, and the library lives there instead — on a
+USB stick, say. On macOS the library is never inside Terramentor.app (an
+update replaces the app folder inside it), so there is no portable folder: to
+keep it on a USB stick, name the stick's folder in library-location.txt.
 
 USING IT FROM YOUR PHONE
   Install Tailscale on this computer and on your phone, sign both in to the
   same account, and run:  tailscale serve --bg 3001
   Then open the https://...ts.net address it prints, on the phone, and add it
-  to your home screen. Set a password first: Settings -> Data -> Security.
+  to your home screen. Set a password first: Settings -> Devices & security.
   Full instructions: docs/REMOTE_ACCESS.md in the source repository.
 
 UPDATING
@@ -63,8 +75,12 @@ UPDATING
   By hand: download the next version, unpack it anywhere, delete this folder.
   Your library is not in this folder, unless you made a "data" folder here
   (a portable copy): then move "data" into the new folder first, check your
-  library is there, and only then delete this one. The app backs the database
-  up automatically before any release that changes it.
+  library is there, and only then delete this one. On macOS, drag the new
+  Terramentor.app into Applications over the old one. An older Mac copy may
+  keep its library in a "data" folder beside Terramentor.app; this version
+  does not look there, so write that folder's full path into
+  library-location.txt (see above) and it opens that library. The
+  app backs the database up automatically before any release that changes it.
 
 AI
   Lessons, questions and the tutor are written by a model you connect. The
@@ -75,6 +91,19 @@ AI
   app still opens your courses, their saved lessons and questions, and your
   flashcards, but writes nothing new.
 
+USING IT FROM AN AI AGENT (MCP)
+  Claude Code, Claude Desktop, VS Code, Cursor and other MCP clients can read
+  your library, and open Terramentor's mastery check or card review in their
+  own window. The server they start is in the app's folder; give your client
+  the full path to that folder in front of each part:
+    Windows   this folder, then  runtime\node.exe  mcp\index.js
+    Linux     this folder, then  runtime/node  mcp/index.js
+    macOS     /Applications/Terramentor.app/Contents/Resources/app, then
+              runtime/node  mcp/index.js
+  If your library has a password, also give it the API key from Settings ->
+  Devices & security -> API key, as TERRAMENTOR_API_KEY. The app never starts
+  this server itself. Full instructions: docs/MCP.md in the source repository.
+
 PROBLEMS
   The log is in the data folder, under logs/app.log. Settings -> General ->
   About -> "Report a problem" fills in GitHub's issue form for you to check and
@@ -82,4 +111,5 @@ PROBLEMS
   https://github.com/ValeraZSD/terramentor
 
 Licence: GNU AGPL v3 or later (see LICENSE). The bundled Node.js runtime is
-MIT-licensed (runtime/NOTICE.txt).
+MIT-licensed (runtime/NOTICE.txt). On macOS both are inside the app, in
+Terramentor.app/Contents/Resources/app.

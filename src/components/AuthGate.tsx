@@ -146,7 +146,7 @@ function RemoteSetup() {
 
     if (pairing.busy) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4">
+            <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-0">
                 <div className={`${CARD} flex flex-col items-center text-center`} role="status">
                     <Loader2 className="w-7 h-7 animate-spin text-accent-fg" aria-hidden="true" />
                     <p className="mt-3 text-slate-700 dark:text-slate-200">{t("Connecting this device…")}</p>
@@ -156,7 +156,7 @@ function RemoteSetup() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4 py-8">
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-8">
             {scan.elements}
             {/* While the camera is open the card goes: the scanner is the
                 screen, and a card peeking out round it looks like a glitch. */}
@@ -363,7 +363,7 @@ function Login() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 px-4">
+        <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-900 safe-px-4 safe-py-0">
             <form
                 onSubmit={submit}
                 className={CARD}

@@ -154,6 +154,9 @@ export const SETTINGS = {
     ai_setup_dismissed: client('ui', bool),
     // The library folder the notice was dismissed for, or '' to show it again.
     library_notice_dismissed: client('ui', text(4096)),
+    // Which "move Terramentor into Applications" notice was dismissed (macOS:
+    // server/appPlacement.js), or '' to show it again.
+    app_placement_notice_dismissed: client('ui', oneOf('', 'translocated')),
     activity_log_enabled: client('ui', bool),
 
     // ---- What is taught, scheduled and measured -----------------------------------
@@ -174,6 +177,9 @@ export const SETTINGS = {
     // A practice drill's time per item: as written, double, triple or no clock
     // (src/components/drills/parseDrill.ts, DRILL_TIME_SCALES).
     drill_time_scale: client('learning', oneOf('1', '2', '3', 'off')),
+    // Code answers in Python and JavaScript are run on the learner's device
+    // (src/runner/) rather than judged by the model; 'off' hands them back to it.
+    code_runner: client('learning', oneOf('on', 'off')),
     visual_kinds_off: client('learning', (value) => {
         const s = text(1000)(value);
         return /^[a-z0-9_,-]*$/.test(s) ? s : refuse('A comma-separated list of visual kinds');

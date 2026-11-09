@@ -1,20 +1,51 @@
 import { api } from '../api';
 import { QuizQuestion } from '../types';
+import { useStore } from '../store';
 import {
     formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers,
     readPieces, arrangementsOf, foldPiece,
 } from '../components/answer/formats';
+import { testsToGradeBy, runnableLanguage } from '../runner/languages';
+import { runVerdict } from '../runner/verdict';
+import { loadRunner } from '../runner/load';
+import type { RunResult } from '../runner/protocol';
 
 /** Result of grading one question — reported up exactly once. */
 export interface GradedAnswer {
     correct: boolean;
     answer: string;
     /** `fallback` = the AI grader was unreachable and the server compared
-     *  strings; a wrong verdict from it is not written as mastery evidence. */
-    gradedBy: 'local' | 'ai' | 'fallback';
+     *  strings; a wrong verdict from it is not written as mastery evidence.
+     *  `run` = the code was run against the question's tests on this device. */
+    gradedBy: 'local' | 'ai' | 'fallback' | 'run';
     explanation: string;
     /** The checker declined to judge: not marked either way (assessments read it as wrong). */
     unsure?: boolean;
+    /** The run behind a `run` verdict: one row per test, or why the code was stopped. */
+    run?: RunResult;
+}
+
+/**
+ * A code answer in a language the runner knows, on a question that carries
+ * tests: run the reference and the answer on them, here, and let the rows
+ * decide. Null when the run cannot speak for the answer (see `runVerdict`),
+ * and the model judges it instead.
+ */
+async function gradeByRunning(question: QuizQuestion, answer: string): Promise<GradedAnswer | null> {
+    if (!useStore.getState().codeRunner) return null;
+    const language = runnableLanguage(question.language);
+    const tests = testsToGradeBy(question.tests);
+    if (!language || tests.length === 0) return null;
+    let run: RunResult;
+    try {
+        const { checkCode } = await loadRunner();
+        run = await checkCode(language, question.correct_answer, answer, tests);
+    } catch {
+        return null;
+    }
+    const correct = runVerdict(run);
+    if (correct === null) return null;
+    return { correct, answer, gradedBy: 'run', explanation: question.explanation, run };
 }
 
 const norm = (s: string) => s.toLowerCase().trim();
@@ -72,6 +103,10 @@ export async function gradeAnswer(question: QuizQuestion, answer: string): Promi
     const local = gradeLocally(question, answer);
     if (local !== null) {
         return { correct: local, answer, gradedBy: 'local', explanation: question.explanation };
+    }
+    if (question.type === 'code') {
+        const ran = await gradeByRunning(question, answer);
+        if (ran) return ran;
     }
     try {
         const res = await api.checkAnswer(question.question, question.correct_answer, answer, {

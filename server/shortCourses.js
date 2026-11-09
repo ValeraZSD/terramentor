@@ -189,8 +189,10 @@ function finishStaging(stagedId, origin) {
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
             staged: stagedSummary(loadStagedRow(stagedId)),
-            // The chapters picked must come to this many words, as any source must.
+            // The chapters picked must come to this many words, and no more
+            // than this, as any source must.
             minWords: SHORT.minWords,
+            maxWords: SHORT.maxWords,
         } : {}),
     };
 }
@@ -310,7 +312,8 @@ export async function readSource({ url, transcript, title, buffer, filename } = 
 
 const cleanLine = (s, max) => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 
-/** The topics the assistant showed the learner, kept as shown: 2–8 titles. */
+/** The topics the assistant showed the learner, kept as shown: 3–8 distinct
+ *  titles. Fewer are no proposal, and the model plans the course itself. */
 function proposedTopics(raw) {
     if (!Array.isArray(raw)) return [];
     const out = [];
@@ -318,7 +321,7 @@ function proposedTopics(raw) {
         const title = cleanLine(typeof t === 'string' ? t : t?.title, 200);
         if (title && !out.includes(title)) out.push(title);
     }
-    return out.length >= 2 ? out.slice(0, SHORT.maxTopics) : [];
+    return out.length >= SHORT.minTopics ? out.slice(0, SHORT.maxTopics) : [];
 }
 
 /** What `made_from` keeps of a staged source's origin: where it came from, never its text. */
@@ -439,14 +442,17 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     if (fromAttachment) madeFrom.attachment = fromAttachment;
 
     // A book is a few of its chapters or a full course, whichever door it came
-    // in by: the strip asks before Create, the assistant's card does not.
-    if (staged && !picked && sizeOf(words) === 'too-big') {
-        refuse(413, 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+    // in by: the strip asks before Create, the assistant's card does not. Every
+    // chapter of a book picked is still the whole book.
+    if (staged && sizeOf(words) === 'too-big') {
+        refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
+            : 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
     }
-    // Chapters picked are held to the same floor as any source: a preface of a
-    // hundred words is a note, not three topics.
-    if (picked && sizeOf(words) === 'too-small') {
-        refuse(400, 'Too little for a course: pick a longer chapter, or more of them.', { reason: 'too_small' });
+    // A source under the floor is a note, not three topics, whichever door it
+    // came in by: the strip offers no Create for it, the card can still send it.
+    // Chapters picked are measured as what was picked.
+    if (staged && sizeOf(words) === 'too-small') {
+        refuse(400, picked ? 'Too little for a course: pick a longer chapter, or more of them.' : 'Too little for a course.', { reason: 'too_small' });
     }
 
     // A second press of the same card that came in while the first was still
@@ -511,7 +517,7 @@ function existingShortCourse({ name, url, attachmentId }) {
 
 /**
  * Which source a link is, for "was a course made from it": a YouTube video by
- * its id, anything else by host, path and query, `www.`/`m.` and a trailing
+ * its id, anything else by host, port, path and query, `www.`/`m.` and a trailing
  * slash aside. The client's twin is `sourcePlace` in src/utils/assistantWrites.ts
  * (the card's "Already one of your short courses"); the two must agree, and
  * tools/short-course-gates.mjs holds them to it.
@@ -527,7 +533,8 @@ export function sourcePlace(u) {
         if (/^[\w-]{11}$/.test(video)) return `youtube:${video}`;
         // Each name and value encoded again: decoded, `?a=1%26b%3D2` and `?a=1&b=2` read the same.
         const query = [...x.searchParams].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
-        return `${host}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
+        // An explicit port is another service on the host (URL leaves the scheme's own port empty).
+        return `${host}${x.port ? `:${x.port}` : ''}${x.pathname.replace(/\/+$/, '')}${query ? `?${query}` : ''}`;
     } catch { return null; }
 }
 
@@ -568,6 +575,11 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 db.prepare('UPDATE projects SET ai_generating = 0 WHERE id = ?').run(projectId);
             }
         },
+    });
+    // A build cancelled while still queued never runs, so neither does its
+    // `finally`: the course would stay "building" and Retry would refuse it.
+    tasks.subscribe(task.id, (evt) => {
+        if (evt?.cancelled) db.prepare('UPDATE projects SET ai_generating = 0 WHERE id = ?').run(projectId);
     });
     return task.id;
 }

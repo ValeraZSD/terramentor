@@ -15,10 +15,11 @@ import { getProjectLanguage, languageDirective, languageDirectiveForResponse, le
 // the prompt or the answer.
 import { logActivity, failureFacts } from './activityLog.js';
 import { formatAuthoring } from './answerFormats.js';
-import { parseJsonWithRepair } from './jsonRepair.js';
+import { parseJsonWithRepair, readReplyObject } from './jsonRepair.js';
 import { LEAF_STATUS } from './today.js';
 import { stripSendStamp } from './chatContext.js';
 import { PROJECT_ICON_NAMES, PROJECT_PALETTE } from './projectFields.js';
+import { COURSE_SIZES, DEFAULT_COURSE_SIZE, rangeText } from './courseSize.js';
 import { LEAVING_FRAME } from './leavingFrame.js';
 import { API_FORMATS, LAB_RULES, wireOf, wireFetch, pickEffort, routesProviders, openRouterEffortsFor, warmOpenRouterCatalogue } from './aiWire.js';
 import { ACTIVE_KEY, ACTIVE_KEY_ORIGIN, deleteSecrets, getSecret, setSecrets } from './secrets.js';
@@ -3572,7 +3573,7 @@ const NOTATION_RULE = `NOTATION FOLLOWS THE CURRICULUM, NEVER YOUR OWN INVENTION
  * Maths in the descriptions the creation run writes.
  *
  * Nothing asked for TeX, so a model wrote "f^(n)(a)/n!" and "e^x, sin x": a
- * Taylor-series course came back with maths in most of its 908 Overviews and
+ * calculus course came back with maths in most of its 908 Overviews and
  * no `$` in any, and the topic panel (Markdown with KaTeX) showed raw notation.
  * The examples are written as they appear INSIDE the JSON string, backslashes
  * doubled, because an example is copied harder than a rule;
@@ -3593,6 +3594,32 @@ const DESCRIPTION_MATH_RULE = `MATHS (only where the subject has formulas; a sub
 function curriculumLanguageRule(lang) {
     if (!lang) return '';
     return `\nLANGUAGE: write every "title" and "description" in ${lang.name} (${lang.endonym}), regardless of the language of these instructions or of the project name. Established technical terms and proper nouns keep their standard form in the field; everything else is ${lang.name}.${learnedWordsRule(lang)}`;
+}
+
+// ---- how big a created course is (server/courseSize.js) ----------------------------
+// The phase plan judges the size; every later call is told its own range and
+// the code keeps at most the top of it (creationStages.js).
+const sizeOf = (size) => COURSE_SIZES[size] || COURSE_SIZES[DEFAULT_COURSE_SIZE];
+
+const COURSE_SIZE_RULE = `SIZE: first judge how much the learner asked for, from the name, the description and the notes above, and size the course to that, never larger. Put your judgement in "size":
+- "short": one chapter or one topic of a subject, one unit of an exam, a single method or skill: ${rangeText(COURSE_SIZES.short.phases)} phases;
+- "standard": several connected topics, about a term's worth of study: ${rangeText(COURSE_SIZES.standard.phases)} phases;
+- "full": a whole subject, a complete syllabus or a long book: ${rangeText(COURSE_SIZES.full.phases)} phases.
+Teach what was asked for and leave out what was not. Background the learner needs first is a short review inside the first phase, never a phase of its own, unless the description says they lack it. No two phases teach the same thing: a later phase USES what an earlier one taught and moves on.
+`;
+
+/** The whole phase plan, this phase marked, so a phase does not take another's part. */
+function coursePlanBlock(plan, current) {
+    if (!Array.isArray(plan) || plan.length < 2) return '';
+    const lines = plan.map((p, i) => `  ${i + 1}. ${p.title}${p.title === current ? '  <- THIS PHASE' : ''}`);
+    return `\n\nCOURSE PLAN (every phase, in order):\n${lines.join('\n')}`;
+}
+
+/** The sections the earlier phases already have, by phase. */
+function earlierSectionsBlock(earlier) {
+    const rows = (earlier || []).filter(p => p?.sections?.length);
+    if (!rows.length) return '';
+    return `\n\nSECTIONS EARLIER PHASES ALREADY TEACH (never write one of these again, however you would word it):\n${rows.map(p => `  ${p.phase}: ${p.sections.join('; ')}`).join('\n')}`;
 }
 
 /**
@@ -3731,6 +3758,7 @@ from: the exact link they gave, or file ATTACHMENT_ID for a file of this convers
 icon: an icon name from the list above (optional)
 topics:
 - the first topic
+- the second topic
 - the next one, one per line, 3 to 8 in all, in the order they are best learned
 \`\`\`
 Only from a link the learner gave or a file of this conversation, never an address you found or rebuilt. For a whole subject with no single source, prepare A NEW COURSE instead. If the link cannot be read, the app says why and offers its own way on.
@@ -4343,16 +4371,25 @@ ${priorFault}` : ''}`
         // against the task's own example, and against the edge cases the task
         // states. A key that does not solve its own task grades every correct
         // learner wrong.
+        // Its TESTS are part of the key: the app runs the reference and the
+        // learner's code on each input and compares the two, so an input the
+        // task rules out, or one a different correct program answers
+        // differently, grades a correct learner wrong. They are read here
+        // with the solution, never served unread.
         if (question.type === 'code') {
+            const tests = Array.isArray(question.tests) && question.tests.length
+                ? `\n\nTEST INPUTS (the reference and the learner's code are both run on each; what they produce must match):\n${question.tests.map((t, i) => `${i + 1}. ${typeof t.call === 'string' ? `call: ${t.call}` : `standard input: ${JSON.stringify(t.stdin)}`}${typeof t.expect === 'string' ? `  (author expects: ${t.expect})` : ''}`).join('\n')}`
+                : '';
             return {
                 system: `You audit the REFERENCE SOLUTION to a programming task before it is used to grade a learner. You are checking the solution, not writing one.
 CRITICAL: Output ONLY a JSON object:
 {"verdict": "ok" | "broken", "answer": "", "reason": "..."}
 Rules:
 1. verdict "broken" if ANY of these hold: the solution does not produce the result the task requires on the example the task gives (trace it line by line); it would not run in the stated language (syntax error, undefined name, wrong call); it mishandles an input the task explicitly allows; the task is ambiguous enough that two different correct programs would give different results; or the task cannot be solved as stated.
-2. verdict "ok" if the solution is a correct program for the task as written. Style, naming and efficiency are NOT your business.
-3. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
-                user: `Subject/topic: ${nodeTitle}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
+2. If TEST INPUTS are listed, verdict "broken" also when a test calls something the task does not ask for, passes an input the task rules out or leaves undefined, depends on randomness, the clock or the order of a set, or would be answered differently by another correct program (for example an output format the task never fixes); or when an "author expects" value is not what the reference produces.
+3. verdict "ok" if the solution is a correct program for the task as written. Style, naming and efficiency are NOT your business.
+4. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
+                user: `Subject/topic: ${nodeTitle}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}${tests}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
             };
         }
         // An ordering is solved cold like a closed question: the verifier gets
@@ -4662,12 +4699,15 @@ Rules:
     // or '' for both — so a creation without files sends the prompts with no
     // files block at all.
     generate_categories: (projectName, projectDescription, thinkingContext, projectSummary, { lang = null, sources = null } = {}) => ({
-        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\nFormat:\n{\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        system: `Create the top-level categories (phases) for a learning project.\nCRITICAL: Output ONLY a JSON object with a "size" and a "categories" array.\nGenerate chronological learning phases that align with the strategic planning notes above.\n${COURSE_SIZE_RULE}Format:\n{\n  "size": "<short, standard or full>",\n  "categories": [\n    { "title": "Phase 1: Foundations", "description": "What this covers" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `PROJECT CONTEXT:\n  Project Name: ${projectName}\n  Description: ${projectDescription}\n  Your previous thoughts: ${thinkingContext}\n  Summary: ${projectSummary}${sources?.user || ''}`
     }),
-    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${sources?.user || ''}`
+    // `size` is the plan's (server/courseSize.js); `plan` every phase in
+    // order and `earlier` the sections the phases before this one already
+    // have, so a phase does not write again what another teaches.
+    generate_elements: (projectName, projectSummary, categoryTitle, categoryDescription, { lang = null, sources = null, size = null, plan = null, earlier = null } = {}) => ({
+        system: `Create sub-topics (elements) for ONE category.\nCRITICAL: Output ONLY a JSON object with an "elements" array.\nGenerate major sub-topics SPECIFIC to the context above.\nWrite ${rangeText(sizeOf(size).sections)} elements: what this phase needs, not every idea near it. Each teaches something no other phase in the course plan is for: never an element an earlier phase already has (listed below), however you would word it, and never what a later phase is for.\nFormat:\n{\n  "elements": [\n    { "title": "Core Concept", "description": "What will learn, why useful" }\n  ]\n}\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}${coursePlanBlock(plan, categoryTitle)}${earlierSectionsBlock(earlier)}${sources?.user || ''}`
     }),
     // A short course (server/shortCourses.js): the whole outline in ONE call,
     // one level of `topics` sized by the source, from the source in `sources`
@@ -4688,9 +4728,9 @@ Rules:
 ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `${fromTopic ? 'SUBJECT' : 'SOURCE TITLE'}: ${String(title || '').replace(/\s+/g, ' ').trim().slice(0, 300)}${proposed.length ? `\n\nPROPOSED TOPICS:\n${proposed.map((t, i) => `${i + 1}. ${String(t).replace(/\s+/g, ' ').trim().slice(0, 200)}`).join('\n')}\n\n` : ''}${sources?.user || ''}`,
     }),
-    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null } = {}) => ({
-        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
-        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
+    generate_sub_elements: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, allElements, elementTitle, elementDescription, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
+        system: `Create detailed sub-elements (leaf nodes) for ONE specific topic.\n\n  CRITICAL RULES:\n  1. ONLY generate sub-elements SPECIFIC to the current topic\n  2. Do NOT repeat generic topics that fit other elements listed above, nor what an earlier phase already teaches\n  3. Each sub-element must be a concrete, actionable skill or concept\n  4. Think: "What would someone studying this specifically need to master?"\n  5. Make titles specific and unique — avoid generic terms like "Fundamentals" or "Theory"\n  6. Write ${rangeText(sizeOf(size).topics)} sub-elements, never more\n\n  Format:\n  {\n    "subElements": [\n      { "title": "Specific Skill or Concept", "description": "What to learn, why it matters" }\n    ]\n  }\n${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
+        user: `FULL PROJECT CONTEXT:\n  Project: ${projectName} — ${projectSummary}\n  Description: ${projectDescription}\n  Learning Phase: ${categoryTitle} — ${categoryDescription}\n  ALL Topics in this phase: ${allElements}${earlierSectionsBlock(earlier)}\n\n  CURRENT TOPIC to expand: ${elementTitle}\n  Description: ${elementDescription}${sources?.user || ''}`
     }),
     // Batched form of generate_sub_elements: expand EVERY topic in one phase in
     // a single call instead of one call per topic. Creation is dominated by
@@ -4702,21 +4742,21 @@ ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`
     // routes/createProject.js falls back to the per-element prompt for any topic this call
     // comes back empty for, so a model that fumbles the wider schema degrades to
     // the old behaviour instead of leaving a topic childless.
-    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null, sources = null } = {}) => ({
+    generate_sub_elements_batch: (projectName, projectSummary, projectDescription, categoryTitle, categoryDescription, elements, { lang = null, sources = null, size = null, earlier = null } = {}) => ({
         system: `Create detailed sub-elements (leaf topics) for EVERY topic in one learning phase.
 
 CRITICAL RULES:
 1. Output ONLY a JSON object: {"topics": [{"element": "<exact topic title from the list>", "subElements": [{"title": "...", "description": "..."}]}]}
 2. Include EVERY topic from the list, once, with its title copied EXACTLY as given.
-3. Each sub-element is a concrete, actionable skill or concept — 3 to 6 per topic.
-4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else.
+3. Each sub-element is a concrete, actionable skill or concept — ${rangeText(sizeOf(size).topics)} per topic, never more.
+4. Sub-elements must not overlap ACROSS topics: you can see every topic in this phase, so put each idea under the one topic it belongs to and nowhere else. Nor do they teach again what an earlier phase already has.
 5. Make titles specific and unique — avoid generic terms like "Fundamentals", "Overview" or "Theory".
 6. "description" is one or two sentences: what to learn and why it matters.
 7. ${DESCRIPTION_MATH_RULE}${curriculumLanguageRule(lang)}${sources?.system || ''}`,
         user: `FULL PROJECT CONTEXT:
   Project: ${projectName} — ${projectSummary}
   Description: ${projectDescription}
-  Learning Phase: ${categoryTitle} — ${categoryDescription}
+  Learning Phase: ${categoryTitle} — ${categoryDescription}${earlierSectionsBlock(earlier)}
 
 TOPICS TO EXPAND (copy each title exactly):
 ${elements.map((e, i) => `${i + 1}. ${e.title}${e.description ? ` — ${e.description}` : ''}`).join('\n')}${sources?.user || ''}`
@@ -4764,8 +4804,8 @@ ${projectDescription ? `The user described it as: "${projectDescription}"` : ''}
 
 Write about 300 words of planning notes — no more. Only the next step reads this, and it reads at most 2000 characters, so anything past that is generated and thrown away.
 Cover, briefly:
-1. The core subject and who the likely learner is.
-2. The biggest knowledge domains, and the order they should come in.
+1. The core subject and who the likely learner is, and how much they asked for: one chapter, topic or skill is a short course; a whole subject is a long one.
+2. The knowledge domains that scope needs, and the order they should come in.
 3. The tricky parts — ambiguous scope, prerequisites, common misconceptions.
 4. Your strategy for splitting this into phases.
 
@@ -4797,16 +4837,13 @@ const QUICK_ACCEPT_STOPWORDS = new Set([
  * suite can drive it without a model.
  */
 export function parseAnswerVerdict(text) {
-    const m = String(text || '').match(/\{[\s\S]*\}/);
-    if (!m) return null;
     let r;
     // Strict first; then the same repair the question parsers use (a trailing
     // comma, an unescaped quote inside the explanation, a comment). A verdict
     // the model DID give must not turn into "the grader could not be reached"
     // over punctuation — that sentence tells the learner to trust themselves.
-    try { r = JSON.parse(m[0]); } catch {
-        try { r = parseJsonWithRepair(m[0]); } catch { return null; }
-    }
+    // Nor over working written before it: `readReplyObject` skips TeX braces.
+    try { r = readReplyObject(text, undefined, (o) => 'correct' in o); } catch { return null; }
     if (!r || typeof r !== 'object') return null;
     const c = r?.correct;
     const verdict = c === true ? 'correct'

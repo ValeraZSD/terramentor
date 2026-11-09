@@ -3,7 +3,7 @@
 // links) are server/creationStages.js; this file is the run around them: the
 // stream, the cancel handle, the task-dock mirror and how a run ends.
 import { randomUUID } from 'node:crypto';
-import db, { NOW_ISO } from '../database.js';
+import db, { NOW_ISO, interruptedCreations } from '../database.js';
 import {
     AI_PROMPTS, aiConcurrency, aiProvenance, checkOllamaHealth, generateResponse, getAISettings,
     readPlanningNotes, streamProjectThinking,
@@ -13,8 +13,9 @@ import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } f
 import { createSlotGate } from '../creationSlots.js';
 import {
     WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, outlineGapsError, planPhases, projectSources,
-    sendBatchDone, writePhases, writeSections, writeTopics,
+    rememberWritten, sendBatchDone, writePhases, writeSections, writeTopics,
 } from '../creationStages.js';
+import { sizeForPhaseCount } from '../courseSize.js';
 import { readAverageMs, recordAverageMs } from '../durationAverages.js';
 import { getLanguage, getProjectLanguage, getUiLanguage, isSupportedLanguage, withLearning } from '../language.js';
 import { findLearningLanguage } from '../learningLanguage.js';
@@ -66,6 +67,22 @@ function setGeneratingFlag(projectId, value) {
 // that completes (`continue-creation` below) removes it.
 const NOTICE_TITLE = 'AI generation failed';
 const savePendingStmt = db.prepare('UPDATE projects SET creation_pending_links = ? WHERE id = ?');
+const projectExistsStmt = db.prepare('SELECT id FROM projects WHERE id = ?');
+const refreshNoticeStmt = db.prepare(`
+    UPDATE nodes
+    SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND COALESCE(notes, '') = COALESCE(description, '')
+`);
+const nextTopPositionStmt = db.prepare(`
+    SELECT COALESCE(MAX(position), -1) + 1 as pos
+    FROM nodes
+    WHERE project_id = ? AND parent_id IS NULL
+`);
+const insertNoticeStmt = db.prepare(`
+    INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
+    VALUES (?, NULL, ?, ?, ?, 'not_started', 1, ?)
+`);
+const markCreationFinished = db.prepare('UPDATE projects SET creation_finished = 1 WHERE id = ?');
 const clearGeneratingStmt = db.prepare(`UPDATE projects SET ai_generating = 0, updated_at = ${NOW_ISO} WHERE id = ? AND ai_generating = 1`);
 const findNotice = db.prepare(`
     SELECT id FROM nodes
@@ -75,7 +92,7 @@ const findNotice = db.prepare(`
 
 function upsertUnfinishedNotice(projectId, reason) {
     if (!projectId) return;
-    const projectExists = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+    const projectExists = projectExistsStmt.get(projectId);
     if (!projectExists) {
         console.log('[upsertUnfinishedNotice] Project not found, skipping notice insertion');
         return;
@@ -86,22 +103,11 @@ function upsertUnfinishedNotice(projectId, reason) {
     if (existing) {
         // A notice the learner wrote in is theirs: a later failure does not
         // overwrite it (the same test removeUnfinishedNotice keeps it by).
-        db.prepare(`
-            UPDATE nodes
-            SET description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND COALESCE(notes, '') = COALESCE(description, '')
-        `).run(body, body, existing.id);
+        refreshNoticeStmt.run(body, body, existing.id);
         return;
     }
-    const maxPos = db.prepare(`
-        SELECT COALESCE(MAX(position), -1) + 1 as pos
-        FROM nodes
-        WHERE project_id = ? AND parent_id IS NULL
-    `).get(projectId);
-    db.prepare(`
-        INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
-        VALUES (?, NULL, ?, ?, ?, 'not_started', 1, ?)
-    `).run(projectId, title, body, body, maxPos.pos);
+    const maxPos = nextTopPositionStmt.get(projectId);
+    insertNoticeStmt.run(projectId, title, body, body, maxPos.pos);
 }
 
 function markProjectAsUnfinished(projectId, reason) {
@@ -119,6 +125,16 @@ function removeUnfinishedNotice(projectId) {
           AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = nodes.id)
           AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
     `).run(projectId, NOTICE_TITLE);
+}
+
+// The runs the last process was in the middle of when it ended: no catch
+// wrote their notice, so it is written now, once, as the app starts.
+for (const id of interruptedCreations) {
+    try {
+        upsertUnfinishedNotice(id, 'The app was closed while this course was being created.');
+    } catch (e) {
+        console.error('[AI Creation] Could not mark an interrupted creation:', e.message);
+    }
 }
 
 // A settled run stays readable for a few minutes, so a reloaded page (or a
@@ -698,7 +714,7 @@ app.post('/api/ai/create-project', (req, res) => {
         await checkModel(send);
 
         const projectResult = db.prepare(
-            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
+            'INSERT INTO projects (name, description, color, icon, position, content_language, learning_language, ai_generating, creation_finished, generated_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?)'
         ).run(
             name.substring(0, 500),
             (description || name).substring(0, 5000),
@@ -864,6 +880,7 @@ app.post('/api/ai/create-project', (req, res) => {
         // What was written is mapped and named like any finished course;
         // a part left empty still makes this run a failure, not `complete`.
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
+        markCreationFinished.run(projectId);
 
         return run.finish({
             phase: 'complete',
@@ -913,7 +930,7 @@ function storedPendingLinks(projectId) {
  */
 function readOutline(projectId) {
     const rows = db.prepare(`
-        SELECT n.id, n.parent_id, n.title, n.description,
+        SELECT n.id, n.parent_id, n.title, n.description, n.generated_by,
                (SELECT COUNT(*) FROM resources r WHERE r.node_id = n.id) AS links
         FROM nodes n
         WHERE n.project_id = ? AND n.is_note = 0
@@ -937,6 +954,50 @@ function outlineHasWork({ kids, phases, topics }, pending) {
         || phases.some(p => !kids(p.id).length || kids(p.id).some(s => !kids(s.id).length))
         || topics.some(t => pending.has(t.id));
 }
+
+/**
+ * Did a creation stop before it finished this project? Read when the course is
+ * opened, which may be days after the run: a run the app was closed in the
+ * middle of reached no catch, so neither the notice (unless the next start
+ * wrote it) nor a run record can be relied on. `creation_finished` can: 1 is
+ * no, 0 is yes while anything is missing. A course with no value (created
+ * before the column) is read from what its run WROTE:
+ *
+ *  - a topic it recorded as still waiting for its link pass;
+ *  - a phase it wrote with no sections, or a section it wrote (in a phase it
+ *    wrote) with no topics. A run that finishes leaves neither: a level no
+ *    answer filled fails it (`outlineGapsError`). Levels the learner made carry
+ *    no `generated_by` and are theirs to leave empty, and model-written nodes
+ *    under a node of the learner's (an Inbox capture's) are not an outline;
+ *  - the stopped run's own notice, with anything at all missing.
+ *
+ * No model is asked; the same gaps are what POST below fills.
+ */
+function creationUnfinished(projectId, finished) {
+    // A run since `creation_finished` came says it outright: a course it
+    // completed stays finished whatever the learner deletes from it later.
+    if (finished === 1) return false;
+    const outline = readOutline(projectId);
+    const { kids, phases, topics } = outline;
+    const pending = storedPendingLinks(projectId);
+    if (finished === 0) return outlineHasWork(outline, pending);
+    if (topics.some(t => pending.has(t.id))) return true;
+    const byModel = (n) => n.generated_by != null;
+    const emptyByModel = phases.some(p => byModel(p)
+        && (!kids(p.id).length || kids(p.id).some(s => byModel(s) && !kids(s.id).length)));
+    if (emptyByModel) return true;
+    return !!findNotice.get(projectId, NOTICE_TITLE) && outlineHasWork(outline, pending);
+}
+
+/** Whether the course page offers "Continue creating" (`running`: a run is writing it now). */
+app.get('/api/ai/continue-creation/:projectId', (req, res) => {
+    const projectId = requestedId(req.params.projectId);
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+    const project = db.prepare('SELECT id, kind, creation_finished FROM projects WHERE id = ?').get(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const running = activeGenerations.has(projectId);
+    res.json({ canContinue: !running && project.kind !== 'deck' && creationUnfinished(projectId, project.creation_finished), running });
+});
 
 /**
  * Carry on a creation that stopped (failed or cancelled) half-way: fill only
@@ -1016,6 +1077,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             resuming();
             if (stored.size) db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
             removeUnfinishedNotice(projectId);
+            markCreationFinished.run(projectId);
             return run.finish({ phase: 'complete', projectId, message: 'Nothing left to create', stats: { categories: 0, elements: 0, subElements: 0, resources: 0 } });
         }
 
@@ -1044,6 +1106,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
 
         resuming();
         setGeneratingFlag(projectId, true);
+        db.prepare('UPDATE projects SET creation_finished = 0 WHERE id = ?').run(projectId);
 
         // The work the bar is sized from: what exists counts as done, what is
         // missing as a fresh run would estimate it.
@@ -1076,6 +1139,13 @@ app.post('/api/ai/continue-creation', async (req, res) => {
             await writePhases(ctx, phases);
         }
         ctx.counts.categories = phases.length;
+        // The size the plan judged, read back from the phases it produced
+        // when they were written by an earlier run, and what already exists:
+        // the phases still to be written are shown the sections before them
+        // and must not repeat any section or topic the course has.
+        ctx.size ??= sizeForPhaseCount(phases.length);
+        ctx.plan ??= phases.map(p => ({ title: p.title }));
+        phases.forEach((p, ci) => rememberWritten(ctx, ci, p, kids(p.id), s => kids(s.id)));
 
         // The run's ETA, told the shape that already exists: sections and
         // topics written count as planned, and a topic that needs no link
@@ -1143,6 +1213,7 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         if (ctx.gaps.length) throw outlineGapsError(ctx.gaps);
         db.prepare('UPDATE projects SET creation_pending_links = NULL WHERE id = ?').run(projectId);
         removeUnfinishedNotice(projectId);
+        markCreationFinished.run(projectId);
 
         return run.finish({
             phase: 'complete',

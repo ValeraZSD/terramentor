@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Sparkles, X } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput, TextArea, Select } from '../ui/Field';
+import ProgressBar from '../ui/ProgressBar';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter } from '../ui/Dialog';
 import Radio from '../ui/Radio';
 import { api } from '../../api';
 import type { VisualPalette } from './registry';
@@ -169,17 +171,17 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     };
 
     return createPortal(
-        <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
+        <div ref={dialogRef} tabIndex={-1} className="fixed inset-0 z-[70] flex items-center justify-center safe-p-4 outline-none" role="dialog" aria-modal="true" aria-labelledby="export-visual-title">
             <div className="absolute inset-0 bg-black/50" onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose(); }} aria-hidden="true" />
-            <div className="relative w-full max-w-lg max-h-[90vh] overflow-auto rounded-2xl bg-white dark:bg-slate-800 shadow-xl">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">
+            <div className={`relative w-full max-w-lg ${DIALOG_SHELL} rounded-2xl bg-white dark:bg-slate-800 shadow-xl`}>
+                <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">
                     <h2 id="export-visual-title" className="text-base font-semibold text-slate-900 dark:text-white">
                         {animated ? tr("Save as GIF") : tr("Save as image")}
                     </h2>
                     <IconButton size="sm" onClick={cancel} label={tr("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
                 </div>
 
-                <div className="px-5 py-4 space-y-4">
+                <div className={`${DIALOG_BODY} px-5 py-4 space-y-4`}>
                     {!target && (
                         <p className="text-sm text-slate-600 dark:text-slate-300">{tr("Nothing here can be saved as a picture yet — wait for the drawing to finish rendering.")}</p>
                     )}
@@ -252,23 +254,21 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
 
                     {progress && (
                         <div className="space-y-1" aria-live="polite">
-                            <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                                <div className="h-full bg-accent transition-[width]" style={{ width: `${Math.round((100 * progress[0]) / Math.max(1, progress[1]))}%` }} />
-                            </div>
+                            <ProgressBar value={Math.round((100 * progress[0]) / Math.max(1, progress[1]))} size="sm" decorative />
                             <p className="text-sm text-slate-500 dark:text-slate-400">{tr("Encoding frame {{value}} of {{value2}}…", { value: progress[0], value2: progress[1] })}</p>
                         </div>
                     )}
                     {note && <p className="text-sm text-slate-700 dark:text-slate-300" aria-live="polite">{note}</p>}
                 </div>
 
-                <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200 dark:border-slate-700">
+                <DialogFooter>
                     <Button variant="quiet" onClick={cancel}>
                         {busy ? tr("Stop") : tr("Close")}
                     </Button>
                     <Button variant="primary" onClick={save} disabled={!target} busy={busy}>
                         {animated ? tr("Save GIF") : tr("Save PNG")}
                     </Button>
-                </div>
+                </DialogFooter>
             </div>
         </div>,
         document.body,

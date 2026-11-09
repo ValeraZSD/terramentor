@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { Check, Copy, Download, ExternalLink, Loader2 } from 'lucide-react';
 import Modal from '../Modal';
 import { Button, ButtonLink } from '../ui/Button';
+import ProgressBar from '../ui/ProgressBar';
 import { useStore } from '../../store';
+import { useDesktop } from '../../hooks/useDesktop';
 import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
 import { canReloadNow, reloadOntoNewBuild } from '../../utils/freshness';
@@ -127,16 +129,7 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
                 {overtaken?.to === view.version && (
                     <p role="status">{t("A newer version came out after {{version}} was downloaded, so Terramentor is getting that one instead. Nothing was installed yet.", { version: unbroken(overtaken.from) })}</p>
                 )}
-                <div
-                    role="progressbar"
-                    aria-label={t("Download progress")}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={view.percent ?? undefined}
-                    className="h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden"
-                >
-                    <div className="h-full bg-accent transition-[width] duration-500" style={{ width: `${view.percent ?? 2}%` }} />
-                </div>
+                <ProgressBar value={view.percent ?? 2} unknown={view.percent == null} label={t("Download progress")} />
                 <p className="text-slate-600 dark:text-slate-300">
                     {install.total <= 0 || view.checking
                         ? t("Checking what you already have, so that only the changes are downloaded.")
@@ -195,14 +188,13 @@ export default function UpdateDialog({ isOpen, onClose }: { isOpen: boolean; onC
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-lg">
-            <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">{body}</div>
+        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-lg" footer={<>
             {/* The buttons are one group pushed right, so on a phone they wrap
                 together under "What's new" instead of one by one. */}
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-                {left}
-                <div className="ml-auto flex flex-wrap justify-end gap-2">{buttons}</div>
-            </div>
+            {left}
+            <div className="ml-auto flex flex-wrap justify-end gap-2">{buttons}</div>
+        </>}>
+            <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">{body}</div>
         </Modal>
     );
 }
@@ -231,6 +223,8 @@ function HowToUpdate() {
     const status = useStore(s => s.updateStatus)!;
     const [copied, setCopied] = useState(false);
     const reason = status.install?.reason;
+    // A macOS copy is one app, Terramentor.app, not a folder to move.
+    const mac = useDesktop().status?.platform === 'darwin';
     const command = status.updateCommand;
     if (command) {
         return (
@@ -254,7 +248,11 @@ function HowToUpdate() {
     }
     return (
         <>
-            <p>{reason === 'read-only'
+            <p>{reason === 'translocated'
+                ? t("macOS is running Terramentor from a temporary copy, so it cannot update itself. Quit it, drag Terramentor into your Applications folder and open it from there, and it will update with one click from then on.")
+                : reason === 'read-only' && mac
+                ? t("This account is not allowed to change Terramentor where it is, so it cannot update itself. Download the new version and drag it over this one; your library stays where it is.")
+                : reason === 'read-only'
                 ? t("Terramentor is in a folder it is not allowed to change, so it cannot update itself there. Move the Terramentor folder somewhere of your own, such as Documents, and it will update with one click from then on.")
                 : t("This copy cannot replace itself. Download the new version and unpack it over this one; your library stays where it is.")}</p>
             <ButtonLink href={status.latest?.url || `${status.repoUrl}/releases`} target="_blank" rel="noopener noreferrer" variant="neutral" size="sm" icon={<Download className="w-4 h-4" aria-hidden="true" />}>

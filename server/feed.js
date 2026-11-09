@@ -530,7 +530,13 @@ export function checkpointFacts(nodeId, gate) {
             borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
         }
     } catch { /* mastery tables always exist; belt and braces */ }
-    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom };
+    // A topic's own page serves its closed leaves too (last), so a completed
+    // topic's card must not offer to complete it, and a skipped one must not
+    // offer to skip it again.
+    const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
+    // The mode as it is NOW: a card composed before the setting changed would
+    // otherwise keep offering the old mode's ways out.
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus, gateMode: gate.mode };
 }
 
 /** Common card fields carried by every node-bound card. */
@@ -603,8 +609,12 @@ export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
  * Compose the next batch of feed cards.
  * excludeKeys: keys the client already holds — never re-served.
  * gate: getGateConfig() from settingsStore.js ({mode, threshold, checkPass, decayDays}).
+ * lessonWrite: on a topic's own page, `feedGen.lessonWriteState(nodeId)` —
+ *   whether the writer is on that topic's first lesson (`writing`) or failed
+ *   at it (`failed` + `reason`). Returned as applied: null when it is not this
+ *   page's topic.
  */
-export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null } = {}) {
+export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null, lessonWrite = null } = {}) {
     // The learner's day as the instants it spans: every "today" counter below
     // counts what was stamped inside it (server/studyDay.js).
     const day = studyDay();
@@ -621,6 +631,14 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const { focus, projectInfos } = scoped
         ? getFocusForNode(nodeId)
         : getFocusNodes(projectScope ? { projectId: projectScope } : {});
+    // The topic's first lesson, while the writer is on it, or after it failed.
+    // Only on that topic's own page: there the page draws the lesson's slot
+    // under the Overview (`lessonSlot`, feedPlacement.ts), and while it is
+    // being written nothing closes the chapter: a checkpoint served then is
+    // pushed down by the lesson a few seconds later, one of several layouts
+    // the page would pass through before the learner has read a line.
+    const write = scoped && lessonWrite?.nodeId === nodeId
+        && focus.some(f => f.nodeId === nodeId && f.teachable) ? lessonWrite : null;
 
     const readyStmt = db.prepare(`
         SELECT * FROM feed_items
@@ -737,8 +755,11 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         // A node whose generation started (plan row) but stalled with AI now
         // off would otherwise serve nothing forever — treat it as degraded.
         const stalledSequence = plan && ready.length === 0 && !planDone && !aiEnabled;
+        // The writer stored the outline and not yet the lesson: the Overview
+        // still stands in, or a reload mid-write opened on an empty topic.
+        const outlineOnly = write?.nodeId === f.nodeId && plan && ready.length === 0 && consumedLessons === 0;
 
-        if ((plan || ready.length) && !stalledSequence) {
+        if ((plan || ready.length) && !stalledSequence && !outlineOnly) {
             // AI path: serve cached generated cards in sequence order, with the
             // topic's own bank asked after each part — but after part i only
             // what parts 1..i taught (the plan's `bankParts` map), and the
@@ -851,6 +872,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             // With AI off this IS the whole topic, so its checkpoint follows it;
             // with AI on, lessons are still coming and the topic is not over.
             taughtOut = (cards.length === 0 || !aiEnabled) && (!!readingMd || !!quiz);
+            // The lesson is on its way, or failed and is offered again (Try
+            // again on the page): either way the topic is not over.
+            if (write && write.nodeId === f.nodeId) taughtOut = false;
         }
 
         // Paper practice goes LAST in the node's queue — work it by hand once the
@@ -897,7 +921,6 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         return {
             key, kind: 'checkpoint', ...cardBase(f),
             ...checkpointFacts(f.nodeId, gate),
-            gateMode: gate.mode,
             scheduledEnd: f.scheduledEnd,
             isOverdue: f.isOverdue,
             deadline: daysLeft != null ? { daysLeft, paceStatus: f.pace?.paceStatus || null } : null,
@@ -1083,7 +1106,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // are being prepared" promised something that could not arrive. The home
     // feed draws its own setup card saying what is missing; a topic's or a
     // course's feed draws none, so it gets the one line that says it.
-    if (anyDegradedServed && !excluded('notice-ai') && aiEnabled && !aiModelChosen) {
+    if (write) {
+        // The topic's page says the lesson is being written, or why it was
+        // not; "being prepared" said it twice.
+    } else if (anyDegradedServed && !excluded('notice-ai') && aiEnabled && !aiModelChosen) {
         if (scoped || projectScope) items.unshift({ key: 'notice-ai', kind: 'notice', message: 'Choose a model in Settings → AI & Models.' });
     } else if (anyDegradedServed && !excluded('notice-ai')) {
         items.unshift({
@@ -1177,7 +1203,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         for (const id of Object.keys(map)) map[id].review = reviews.has(Number(id));
     }
 
-    return { items, exhausted, transfers, placements };
+    return { items, exhausted, transfers, placements, lessonWrite: write };
 }
 
 /** Slim header for the feed shell: today's activity, catch-up state, deadline chip. */

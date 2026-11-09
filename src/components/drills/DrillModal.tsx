@@ -6,6 +6,7 @@ import type { DrillRoundResult, DrillSpec } from '../../types';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from '../ui/Button';
+import { FILL_OVERLAY, FILL_PANEL } from '../ui/Dialog';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface Props {
@@ -51,14 +52,14 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
         <div
             ref={dialogRef}
             tabIndex={-1}
-            className="fixed inset-0 z-[60] flex items-stretch sm:items-start justify-center bg-black/60 dark:bg-black/80 sm:p-4 sm:pt-[12vh] outline-none"
+            className={`fixed inset-0 z-[60] flex items-stretch sm:items-start justify-center bg-black/60 dark:bg-black/80 ${FILL_OVERLAY} sm:safe-pt-[12vh] outline-none`}
             role="dialog"
             aria-modal="true"
             aria-label={spec.title || t("Practice drill")}
             onClick={onClose}
         >
             <div
-                className="relative flex w-full flex-col bg-white dark:bg-slate-800 shadow-xl sm:max-w-lg sm:rounded-2xl sm:max-h-[84vh]"
+                className={`relative flex w-full flex-col bg-white dark:bg-slate-800 shadow-xl sm:max-w-lg sm:rounded-2xl sm:max-h-[84dvh] ${FILL_PANEL}`}
                 onClick={e => e.stopPropagation()}
             >
                 {/* The close button is a ROW, not an overlay.

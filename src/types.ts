@@ -734,6 +734,12 @@ export interface QuizQuestion {
     language?: string;
     /** `code`: optional scaffolding the editor opens with — a signature, a stub. Never the solution. */
     starter?: string;
+    /**
+     * `code`: inputs the answer is run on (a call, or a standard input). What
+     * each should produce is what `correct_answer`, the reference, produces;
+     * an `expect` is the author's cross-check. Read through `codeTestsOf`.
+     */
+    tests?: { call?: string; stdin?: string; expect?: string }[];
     /** `sequence`: the items in the SERVED (shuffled) order; the key is `correct_answer`. */
     items?: string[];
     /**
@@ -889,6 +895,8 @@ export interface FeedCheckpointCard extends FeedCardCommon {
     borrowedEstimate?: boolean;
     /** Which seed set the borrowed part, so the card names the right one. */
     borrowedFrom?: 'transfer' | 'placement' | null;
+    /** The topic's stored status: its own page serves it after it closed, too. */
+    nodeStatus?: Node['status'];
     gateMode: 'off' | 'advisory' | 'enforced';
     scheduledEnd: string | null;
     isOverdue: boolean;
@@ -1509,13 +1517,31 @@ export interface FeedResponse {
     transfers?: Record<number, TransferInfo>;
     /** Placement head starts for the topics in `items`, keyed by node id. */
     placements?: Record<number, PlacementHeadStart>;
+    /** On a topic's own page: its first lesson is being written, or failed to be. */
+    lessonWrite?: LessonWrite | null;
+}
+
+/** The background writer on a topic's first lesson (`lessonWriteState`, server/feedGen.js). */
+export interface LessonWrite {
+    nodeId: number;
+    state: 'writing' | 'failed';
+    /** Why the write stopped, as the model or the writer said it. */
+    reason?: string;
+    /** What `plainCause` and `retryMayHelp` read to say it in plain words. */
+    httpStatus?: number | null;
+    model?: string | null;
+    attempts?: number | null;
+    looped?: boolean | null;
+    emptyReply?: boolean | null;
+    reasoningTokens?: number | null;
+    thinkingChars?: number | null;
 }
 
 /** Payload recorded when a lesson/question/recall card is consumed. */
 export interface FeedConsumeResult {
     correct?: boolean;
     answer?: string;
-    gradedBy?: 'local' | 'ai' | 'fallback';
+    gradedBy?: 'local' | 'ai' | 'fallback' | 'run';
     read?: boolean;
 }
 
@@ -1539,7 +1565,8 @@ export interface GlobalCalendarTask {
 }
 
 export interface GlobalCalendarData {
-    projects: { id: number; name: string; color: string }[];
+    /** `scheduled`: the course has dates, so the course filter lists it. */
+    projects: { id: number; name: string; color: string; scheduled?: boolean }[];
     tasks: GlobalCalendarTask[];
 }
 
@@ -2288,7 +2315,8 @@ export interface UpdateInstall {
     /** This copy can download and install an update itself. */
     supported: boolean;
     /** Why not: `docker` | `git` | `source` | `checkout` | `no-file-list` |
-     *  `no-launcher` | `read-only`. */
+     *  `no-launcher` | `read-only` | `translocated` (macOS runs a temporary
+     *  copy of an app opened where it was unzipped). */
     reason: string | null;
     phase: 'idle' | 'downloading' | 'ready' | 'failed';
     /** The version downloading, or staged and ready. */

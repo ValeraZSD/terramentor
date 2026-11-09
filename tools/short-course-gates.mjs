@@ -583,6 +583,31 @@ ok('a course deleted while it was written ends its task quietly, with nothing wr
     delStatus === 200 && endState === 'done' && db.prepare('SELECT COUNT(*) c FROM nodes WHERE project_id = ?').get(held.json.projectId).c === 0,
     [delStatus, endState]);
 
+// A build cancelled while it waits its turn never runs: the course must not
+// stay "building", where Retry refuses it.
+{
+    const concurrencyBefore = process.env.AI_CONCURRENCY;
+    process.env.AI_CONCURRENCY = '1';
+    try {
+        hold = new Promise(res => { release = res; });
+        bodies.length = 0;
+        const first = await api('POST', '/api/short-courses', { stagedId: (await api('POST', '/api/short-courses/read', { url: 'https://money.example/index-funds' })).json.stagedId, name: 'Running first' });
+        await callOut(1);
+        const waiting = await api('POST', '/api/short-courses', { stagedId: (await api('POST', '/api/short-courses/read', { url: 'https://money.example/plain' })).json.stagedId, name: 'Waiting its turn' });
+        const wasQueued = tasksMod.listTasks().find(x => x.id === waiting.json?.taskId)?.status === 'queued';
+        const cancel = await api('POST', `/api/tasks/${waiting.json?.taskId}/cancel`);
+        const flag = db.prepare('SELECT ai_generating FROM projects WHERE id = ?').get(waiting.json?.projectId)?.ai_generating;
+        const listed = (await api('GET', '/api/short-courses')).json?.courses?.find(x => x.id === waiting.json?.projectId)?.state;
+        release();
+        hold = null;
+        await waitBuilt(first.json?.projectId);
+        ok('a build cancelled while it waited is not left "building": the course can be retried',
+            wasQueued && cancel.status === 200 && flag === 0 && listed === 'failed', [wasQueued, cancel.status, flag, listed]);
+    } finally {
+        if (concurrencyBefore === undefined) delete process.env.AI_CONCURRENCY; else process.env.AI_CONCURRENCY = concurrencyBefore;
+    }
+}
+
 // The assistant's card pressed twice, the second press coming in while the
 // first is still reading the page: one course, not two.
 let releasePage;
@@ -735,6 +760,12 @@ ok('another card with another name is another course', c.status === 200 && !c.js
 const look = (id) => db.prepare('SELECT icon, color FROM projects WHERE id = ?').get(id);
 ok('a course given no icon or colour gets the book and the default colour', look(linkCourse).icon === 'book' && look(linkCourse).color === '#3B82F6', look(linkCourse));
 ok('an icon as a model types it is the name it means; a word that is no colour is not kept', look(c.json.projectId).icon === 'testtube' && look(c.json.projectId).color === '#3B82F6', look(c.json.projectId));
+// Two topics sent are not a proposal: the model plans the course itself, 3 to 8.
+bodies.length = 0;
+c = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', name: 'Index funds, in two', topics: ['Only', 'Two'], once: true });
+const twoBuilt = c.status === 200 && await waitBuilt(c.json.projectId);
+const twoNodes = twoBuilt ? db.prepare('SELECT title FROM nodes WHERE project_id = ? AND is_note = 0').all(c.json.projectId).map(n => n.title) : [];
+ok('two topics sent are not kept: the course is planned with 3 to 8', twoBuilt && twoNodes.length >= 3 && !twoNodes.includes('Only') && !/PROPOSED TOPICS:/.test(bodies[0]?.user || ''), { c: c.json, twoNodes });
 const n0 = db.prepare('SELECT COUNT(*) c FROM projects').get().c;
 c = await api('POST', '/api/short-courses', { url: 'https://www.youtube.com/watch?v=vidNoCapts1', topics: ['A', 'B', 'C'] });
 ok('an unreadable link from the assistant makes nothing and says why', c.status === 422 && c.json?.reason === 'no_captions' && db.prepare('SELECT COUNT(*) c FROM projects').get().c === n0, c);
@@ -847,6 +878,39 @@ ok('…with the topics the assistant showed', JSON.stringify(db.prepare('SELECT 
     const noParts = await api('POST', '/api/short-courses', { url: 'https://money.example/index-funds', parts: [] });
     ok('a link read for a request that is then refused is not left staged', noParts.status === 400
         && db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c === stagedBefore, [noParts.status, stagedBefore, db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c]);
+    // The strip offers no Create for a note-sized source; the assistant's card
+    // can still send one, by link or by what was staged, and is held to the
+    // same floor: no course, no model call, and a link it read is not kept.
+    const counts = () => [db.prepare('SELECT COUNT(*) c FROM projects').get().c, db.prepare('SELECT COUNT(*) c FROM staged_documents').get().c];
+    const [projectsBefore, stagedBeforeTiny] = counts();
+    bodies.length = 0;
+    const tinyLink = await api('POST', '/api/short-courses', { url: 'https://money.example/tiny', name: 'A tiny page', once: true });
+    const tinyStaged = await api('POST', '/api/short-courses', { stagedId: small.json?.stagedId, name: 'A tiny page' });
+    const [projectsAfter, stagedAfterTiny] = counts();
+    ok('a source too little for a course is refused whichever door it comes in by, and makes nothing',
+        [tinyLink, tinyStaged].every(r => r.status === 400 && r.json?.reason === 'too_small' && !/chapter/i.test(r.json?.error || ''))
+        && projectsAfter === projectsBefore && stagedAfterTiny === stagedBeforeTiny && bodies.length === 0,
+    [tinyLink.status, tinyLink.json, tinyStaged.status, tinyStaged.json, projectsAfter - projectsBefore, stagedAfterTiny - stagedBeforeTiny, bodies.length]);
+    // Every chapter of a big book picked is the whole book again: each
+    // chapter fits, their sum does not.
+    const big = ['One', 'Two', 'Three', 'Four'].map((w, i) => `# Part ${w}\n\n${chapter(`PART_${w.toUpperCase()}_MARK`, 1300 + i)}`).join('\n\n');
+    const bigForm = new FormData();
+    bigForm.append('file', new Blob([big], { type: 'text/markdown' }), 'big-book.md');
+    const bigRead = await (await fetch(`${base}/api/short-courses/read-file`, { method: 'POST', body: bigForm })).json();
+    const bigParts = (bigRead.chapters || []).map(ch => ch.part);
+    const bigSum = (bigRead.chapters || []).reduce((n, ch) => n + ch.words, 0);
+    const [bigProjects] = counts();
+    bodies.length = 0;
+    const allPicked = await api('POST', '/api/short-courses', { stagedId: bigRead.stagedId, parts: bigParts, name: 'Every part' });
+    ok('every chapter of a big book picked is refused as the book itself, and makes nothing',
+        bigRead.size === 'too-big' && bigRead.maxWords === short.SHORT.maxWords && bigParts.length === 4 && bigSum > short.SHORT.maxWords
+        && allPicked.status === 413 && allPicked.json?.reason === 'too_big' && /fewer chapters/.test(allPicked.json?.error || '')
+        && counts()[0] === bigProjects && bodies.length === 0,
+    [bigRead.size, bigRead.maxWords, bigParts.length, bigSum, allPicked.status, allPicked.json, bodies.length]);
+    const stripSource = readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8');
+    ok('…and the picker says so and holds Create back before the server has to',
+        /const tooMany = words > \(read\.maxWords \?\? Infinity\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew \|\| tooMany\}/.test(stripSource)
+        && /tooMany && ` · \$\{t\("Too much for one short course\."\)\}`/.test(stripSource));
 }
 {
     // So many parts that the later ones are left out of the model's call: a
@@ -879,19 +943,35 @@ section('10. the assistant\'s ```short block');
 const esbuild = require('esbuild');
 const outWrites = join(scratch, 'assistantWrites.mjs');
 await esbuild.build({ entryPoints: [join(ROOT, 'src/utils/assistantWrites.ts')], bundle: true, format: 'esm', platform: 'node', outfile: outWrites, logLevel: 'silent' });
-const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace, liveOutcome } = await import(pathToFileURL(outWrites).href);
+const { splitWriteBlocks, shortCourseMade, shownAddress, sourcePlace: cardPlace, liveOutcome, linkOf } = await import(pathToFileURL(outWrites).href);
+// A link typed without https is one the server reads (`parseLink` adds it), so
+// the card offers Create for it too, and sends what the server would open.
+{
+    const typed = ['money.example/index-funds', 'www.money.example/a?b=1', '//money.example/x', 'money.example:8080/x', 'https://money.example/x',
+        'HTTP://Money.Example/y', 'youtu.be/AAAAAAAAAAA', 'file 12', '12', 'localhost:3000', 'javascript:alert(1)', 'mailto:a@money.example',
+        'file:///C:/x.pdf', 'data:text/html,hi', 'money', 'money.example/a b', ''];
+    const differ = typeof linkOf === 'function'
+        ? typed.filter(x => { const p = reader.parseLink(x); const l = linkOf(x); return p.ok !== (l !== null) || (l !== null && reader.parseLink(l).url !== p.url); })
+        : typed;
+    ok('the card takes a link typed without https exactly when the server does, as the same address', typeof linkOf === 'function' && differ.length === 0, differ);
+}
 // The card's "Already one of your short courses" and the server's `once` are one rule.
 {
     const addresses = ['https://money.example/index-funds', 'https://www.money.example/index-funds/', 'http://M.Money.Example/a/b//?z=1&a=2',
         'https://money.example/?id=7', 'https://youtu.be/AAAAAAAAAAA?si=x', 'https://m.youtube.com/watch?v=AAAAAAAAAAA&t=40s',
         'https://www.youtube.com/shorts/BBBBBBBBBBB', 'https://www.youtube.com/watch?v=short', 'file 7', 'javascript:alert(1)', ''];
-    addresses.push('https://money.example/p?a=1&b=2', 'https://money.example/p?a=1%26b%3D2');
+    addresses.push('https://money.example/p?a=1&b=2', 'https://money.example/p?a=1%26b%3D2', 'http://wiki.example:8080/a', 'https://wiki.example:443/a');
     const differ = typeof short.sourcePlace === 'function' ? addresses.filter(u => cardPlace(u) !== short.sourcePlace(u)) : addresses;
     ok('the card and the server tell two links apart the same way', typeof short.sourcePlace === 'function' && differ.length === 0, differ);
     // Decoded and joined as they were, an `&` inside one value read as two.
     ok('a value holding an escaped & or = is not two values', short.sourcePlace('https://money.example/p?a=1&b=2') !== short.sourcePlace('https://money.example/p?a=1%26b%3D2')
         && cardPlace('https://money.example/p?a=1&b=2') !== cardPlace('https://money.example/p?a=1%26b%3D2'),
     [short.sourcePlace('https://money.example/p?a=1&b=2'), short.sourcePlace('https://money.example/p?a=1%26b%3D2')]);
+    // Two services on one host are told apart by an explicit port; the
+    // scheme's own port written out is the same address.
+    const ports = ['http://wiki.example:8080/a', 'http://wiki.example:9090/a', 'https://wiki.example:443/a', 'https://wiki.example/a'].map(u => [short.sourcePlace(u), cardPlace(u)]);
+    ok('another port on one host is another source, a written default port is not', ports.every(([s, c]) => s === c)
+        && ports[0][0] !== ports[1][0] && ports[0][0] !== ports[3][0] && ports[2][0] === ports[3][0], ports);
 }
 ok('a card pressed here says Created until its course is deleted, then offers Create again', typeof liveOutcome === 'function' && (() => {
     const o = { state: 'saved', projectId: 5 };
@@ -926,11 +1006,12 @@ ok('the card\'s address is all of it: site, path and query, no scheme',
     && shownAddress('https://money.example/') === 'money.example' && shownAddress('file 12') === null && shownAddress('javascript:alert(1)') === null);
 {
     const cardSource = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8').replace(/\r\n/g, '\n');
-    ok('…and the card prints it whole, wrapped, never cut to the site', /shownAddress\(s\.from\)/.test(cardSource)
+    ok('…and the card prints it whole, wrapped, never cut to the site', /const link = att \? null : linkOf\(s\.from\)/.test(cardSource) && /shownAddress\(link\)/.test(cardSource)
+        && /\{ url: link \}/.test(cardSource) && !/url: s\.from/.test(cardSource)
         && /name: address \|\| s\.from/.test(cardSource) && /att \? 'truncate' : 'break-all'/.test(cardSource) && !/new URL\(s\.from\)\.hostname/.test(cardSource));
     ok('…and reads its own outcome through liveOutcome, its file by id and name, a whole book by its reason',
         /liveOutcome\(outcomes\.get\(key\), projects\)/.test(cardSource) && /shortCourseMade\(projects, s, att \? \{ id: att\.id, name: att\.name \} : null\)/.test(cardSource)
-        && /reason === 'too_big'/.test(cardSource));
+        && /reason === 'too_big'/.test(cardSource) && /reason === 'too_small' \? t\("Too little for a course\."\)/.test(cardSource));
     // Open closes a floating drawer before the refresh lands, and a closed
     // drawer draws no card: the refresh itself marks the course seen, so
     // deleting it later is noticed when the drawer opens again.
@@ -939,20 +1020,26 @@ ok('the card\'s address is all of it: site, path and query, no scheme',
     // Too big is about length: a long page or a long video is no book.
     ok('a source too long for one short course is not called a book on the card, the strip or the server',
         !/t\("[^"]*whole book/i.test(cardSource) && !/t\("[^"]*whole book/i.test(readFileSync(join(ROOT, 'src/components/shortCourses/ShortCourses.tsx'), 'utf8'))
-        && !/ShortCourseError\(\d+, '[^']*whole book/i.test(readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8')));
+        && !/(?:ShortCourseError|refuse)\(\d+,[^)]*whole book/i.test(readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8')));
 }
 const w = splitWriteBlocks('Yes.\n\n```short\nname: Leash walking\nfrom: file 12\nicon: heart\ntopics:\n- Why puppies pull\n- Reward the spot\n- Stop and go\n```\n');
 ok('a block gives its name, source and topics, and leaves the prose', w.shorts.length === 1 && w.shorts[0].name === 'Leash walking' && w.shorts[0].from === 'file 12' && w.shorts[0].topics.length === 3 && w.body.trim() === 'Yes.', w);
 ok('one topic is not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n```').shorts.length === 0);
 ok('ten topics are cut to eight', splitWriteBlocks(`\`\`\`short\nname: X\nsource: https://a.example\ntopics:\n${Array.from({ length: 10 }, (_, i) => `${i + 1}. T${i}`).join('\n')}\n\`\`\``).shorts[0]?.topics.length === 8);
 ok('no source, no course', splitWriteBlocks('```short\nname: X\ntopics:\n- A\n- B\n```').shorts.length === 0);
+// A short course has 3 to 8 topics: a card of two would be made as a course of two.
+ok('two topics are not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n```').shorts.length === 0);
+ok('three lines where two are the same title are two topics, not a course', splitWriteBlocks('```short\nname: X\nfrom: https://a.example\ntopics:\n- One\n- Two\n- One\n```').shorts.length === 0);
+// The server keeps a title's first 200 characters, then drops repeats.
+ok('two titles that differ only after 200 characters are one topic, as the server keeps them',
+    splitWriteBlocks(`\`\`\`short\nname: X\nfrom: https://a.example\ntopics:\n- ${'L'.repeat(200)} one\n- ${'L'.repeat(200)} two\n- Three\n\`\`\``).shorts.length === 0);
 // The block the assistant is SHOWN (server/ai.js, A SHORT COURSE FROM ONE
 // SOURCE) is one this parser reads: a prompt whose example the client drops
 // would teach the model to write cards nobody sees.
 const aiSource = readFileSync(join(ROOT, 'server/ai.js'), 'utf8').replace(/\r\n/g, '\n');
 const shown = aiSource.match(/A SHORT COURSE FROM ONE SOURCE[^\n]*\n(\\`\\`\\`short\n[\s\S]*?\n\\`\\`\\`)/)?.[1]?.replace(/\\`/g, '`') ?? '';
 const shownBlock = shown ? splitWriteBlocks(shown) : null;
-ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 2 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
+ok('the assistant is told how to prepare one, and the client reads its example', shownBlock?.shorts.length === 1 && shownBlock.shorts[0].topics.length >= 3 && /file ATTACHMENT_ID|link/.test(shownBlock.shorts[0].from), shown);
 
 // ---- 11. the strip's words ----------------------------------------------------------------
 section('11. the strip says what the learner can do, in one word for a topic');
@@ -972,10 +1059,20 @@ ok('a row counts its topics as topics, the word the read used', stripSource.incl
 ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(stripSource));
 ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(stripSource) && !/<textarea\b/.test(stripSource));
 ok('chapters picked that come to too few words say so, and Create waits for more',
-    /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\}/.test(stripSource)
+    /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
+// A page is fetched with no redirect allowlist, so a link that redirects
+// reaches the host it names, and each hop is a request: the steps for
+// checking the traffic must say so, or allowed traffic reads as a bug.
+{
+    const readerSource = readFileSync(join(ROOT, 'server/linkReader.js'), 'utf8').replace(/\r\n/g, '\n');
+    const pageFetch = readerSource.match(/async function readPage[\s\S]*?fetchImpl\(link\.url, \{([\s\S]*?)\n {8}\}\);/)?.[1] ?? '';
+    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a short course's link[\s\S]*?\n\n/)?.[0] ?? '';
+    ok('the traffic check names where a short course\'s redirects go and that each hop is a request',
+        pageFetch !== '' && (/allowRedirect/.test(pageFetch) || (/redirect/i.test(capture) && /hop/i.test(capture))), capture);
+}
 
 await new Promise(res => server.close(res));
 await new Promise(res => stub.close(res));

@@ -1,14 +1,18 @@
 // The tools an agent harness sees, each a thin call to the running app
 // (mcp/app.js → server/routes/agent.js). Five READ the library; two PROPOSE:
-// a capture into the Inbox, and a claim that the learner answered something.
-// Nothing here can prove a topic: the mastery gate is cleared only by the
-// app's own mastery check, quizzes and paper exercises (server/claims.js says
-// what a claim may and may not move). tools/mcp-gates.mjs pins the list, the
-// annotations and that boundary.
+// a capture into the Inbox, and a claim that the learner answered something;
+// two OPEN a view the host draws (mcp/views.js): the app's own mastery check
+// and card review, which the learner takes in the host's window. Nothing the
+// model sends can prove a topic: the mastery gate is cleared only by the app's
+// own mastery check, quizzes and paper exercises (server/claims.js says what a
+// claim may and may not move), and a check in a view is the app's check, with
+// the learner's answers. tools/mcp-gates.mjs pins the list, the annotations
+// and that boundary.
 
 import * as z from 'zod';
 import { McpServer } from '@modelcontextprotocol/server';
-import { AppError } from './app.js';
+import { AppError, AppTimeout } from './app.js';
+import { VIEWS, VIEW_MIME, viewHtml } from './views.js';
 
 export const SERVER_NAME = 'terramentor';
 
@@ -20,7 +24,24 @@ const INSTRUCTIONS = [
     'When the learner answers a question you asked them on a topic, send record_claim. A claim is a note, not proof: it never',
     'raises a topic\'s mastery, and only Terramentor\'s own mastery check proves a topic, so send the learner there to prove it.',
     'add_capture saves something to study later into their Inbox.',
+    'To prove a topic, open mastery_check: where this host draws views the learner takes Terramentor\'s own check right here,',
+    'and you see only that it is open and then the score; never answer it or quiz them on it in its place. review_cards opens',
+    'their due cards the same way.',
 ].join(' ');
+
+/** The MCP Apps extension (spec 2026-01-26): a host that draws views says so in its capabilities. */
+const UI_EXTENSION = 'io.modelcontextprotocol/ui';
+/** Where the view finds its sitting and language in a tool result: `_meta`, which a host keeps from its model. */
+const SITTING = 'terramentor/sitting';
+const LANGUAGE = 'terramentor/language';
+const NOTHING = 'terramentor/nothing';
+/**
+ * How long check_submit waits on the grading before it answers "still grading". Open answers
+ * go to the answer checker one at a time, so it can take longer; it stays under the 60 s that
+ * the MCP SDK's client, and so many hosts, allow a tool call, or the host's own timeout would
+ * reach the view first. The grading carries on, and the next Submit waits on the same grading.
+ */
+const SUBMIT_TIMEOUT_MS = 50_000;
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const PROPOSE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
@@ -185,5 +206,195 @@ export function buildServer({ version, appFor }) {
         return reply(`${said} A claim is not evidence the app measured: to prove the topic, the learner takes its mastery check in Terramentor.`, r);
     }));
 
+    registerViews(server, appFor);
     return server;
+}
+
+/**
+ * The mastery check and the card review, drawn by the host (MCP Apps). Two
+ * tools the model may call open them; seven more are the views' own, listed
+ * with visibility ["app"] and only to a host that draws views. The sitting's
+ * token rides in the result's `_meta`, which reaches the view and not the
+ * model; the questions, keys and cards travel only in the app-only tools'
+ * answers, and keys only after the check is submitted (server/agentSittings.js).
+ */
+function registerViews(server, appFor) {
+    const drawsViews = () => {
+        const ext = server.server.getClientCapabilities()?.extensions?.[UI_EXTENSION];
+        return Array.isArray(ext?.mimeTypes) && ext.mimeTypes.includes(VIEW_MIME);
+    };
+    const languageMeta = (r) => (typeof r.language === 'string' && r.language ? { [LANGUAGE]: r.language } : {});
+
+    for (const [kind, view] of Object.entries(VIEWS)) {
+        server.registerResource(view.name, view.uri, {
+            title: view.title,
+            description: view.description,
+            mimeType: VIEW_MIME,
+            _meta: { ui: { prefersBorder: true } },
+        }, async () => ({
+            contents: [{ uri: view.uri, mimeType: VIEW_MIME, text: viewHtml(kind), _meta: { ui: { prefersBorder: true } } }],
+        }));
+    }
+    const opensView = (uri) => ({ ui: { resourceUri: uri }, 'ui/resourceUri': uri });
+    const OPEN = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+
+    server.registerTool('mastery_check', {
+        title: 'Take a mastery check',
+        description: 'Open a topic\'s mastery check for the learner: questions drawn from the topic\'s checked bank, graded and '
+            + 'recorded by Terramentor. It is the only way an agent can have a topic proved. Where this host draws app views the learner takes it '
+            + 'right here; you never see its questions or answers. This answer says only that it is open: the view passes the '
+            + 'score on once the learner submits, if this host gives a view\'s updates to you, and get_mastery shows the recorded '
+            + 'result either way. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
+        inputSchema: z.object({
+            topic: topicRef.describe('The topic\'s nodeId (from project_state or find_in_library), or its title.'),
+        }),
+        annotations: OPEN,
+        _meta: opensView(VIEWS.check.uri),
+    }, ({ topic }) => guarded(async () => {
+        const app = appFor();
+        if (!drawsViews()) {
+            const r = await app.get('/api/agent/check/where', { topic });
+            const link = `${app.origin}/project/${r.projectId}/tree/${r.nodeId}`;
+            return reply(`This host does not draw Terramentor's views, so the mastery check on "${r.title}" is taken in Terramentor: `
+                + `${link} opens the topic, and its mastery check is there. Only that check proves the topic; do not quiz the learner on it in its place.`,
+            { nodeId: r.nodeId, projectId: r.projectId, link });
+        }
+        const r = await app.post('/api/agent/check/start', { topic });
+        return {
+            content: [{ type: 'text', text: r.text }],
+            structuredContent: { nodeId: r.nodeId, projectId: r.projectId, title: r.title, questions: r.count ?? 0, open: !!r.token },
+            _meta: { ...(r.token ? { [SITTING]: r.token } : {}), ...languageMeta(r) },
+        };
+    }));
+
+    server.registerTool('review_cards', {
+        title: 'Review due cards',
+        description: 'Open a review of the learner\'s due cards, in one project or across every active project. Where this host '
+            + 'draws app views the learner reviews them right here, rating each card, and Terramentor schedules it; you never see '
+            + 'the cards. This answer says only that it is open: the view passes on how the session ended, if this host gives a '
+            + 'view\'s updates to you. Elsewhere the answer says how many are due and links to them in Terramentor.',
+        inputSchema: z.object({
+            project: z.string().max(200).optional().describe('A projectId or (part of) a project\'s name. Leave out for every active project.'),
+        }),
+        annotations: OPEN,
+        _meta: opensView(VIEWS.review.uri),
+    }, ({ project }) => guarded(async () => {
+        const app = appFor();
+        if (!drawsViews()) {
+            const r = await app.get('/api/agent/review/where', { project });
+            const where = r.projectName ? `"${r.projectName}"` : 'the learner\'s active projects';
+            const link = r.projectId ? `${app.origin}/project/${r.projectId}/study` : `${app.origin}/`;
+            return reply(r.count
+                ? `${r.count} card${r.count === 1 ? ' is' : 's are'} due in ${where}. This host does not draw Terramentor's views, so they are reviewed in Terramentor: ${link}`
+                : `No cards are due in ${where} right now.`, { count: r.count, projectId: r.projectId, link });
+        }
+        const r = await app.post('/api/agent/review/start', { project });
+        return {
+            content: [{ type: 'text', text: r.text }],
+            structuredContent: { projectId: r.projectId, cards: r.total ?? 0, open: !!r.token },
+            _meta: { ...(r.token ? { [SITTING]: r.token } : { [NOTHING]: 'no_cards' }), ...languageMeta(r) },
+        };
+    }));
+
+    // The views' own tools. Registered off, and switched on once the host's
+    // initialize says it draws views; each also refuses a host that does not,
+    // in case one calls a tool it was never listed.
+    const appOnly = [];
+    const sitting = z.string().regex(/^[A-Za-z0-9_-]{16,64}$/).describe('The sitting the view was handed in the tool result\'s _meta.');
+    const presentationId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).describe('The card on screen, as review_next named it.');
+    const viewTool = (name, { title, description, shape = {}, reads = false }, run) => {
+        const tool = server.registerTool(name, {
+            title,
+            description,
+            inputSchema: z.object({ sitting, ...shape }),
+            annotations: reads ? READ : PROPOSE,
+            _meta: { ui: { visibility: ['app'] } },
+        }, (args) => guarded(async () => {
+            if (!drawsViews()) return failure('This tool belongs to Terramentor\'s own view, which this host does not draw.');
+            return run(appFor(), args);
+        }));
+        tool.disable();
+        appOnly.push(tool);
+    };
+    const forView = (text, data) => reply(text, data);
+
+    viewTool('check_questions', {
+        title: 'The check\'s questions', reads: true,
+        description: 'The questions of an open mastery check, as the view shows them (no keys).',
+    }, async (app, { sitting: token }) => forView('The check\'s questions, for the view.', await app.post('/api/agent/check/questions', { token })));
+
+    viewTool('check_submit', {
+        title: 'Submit the check',
+        description: 'Grade and record the whole check. One answer per question, in order; null for none.',
+        shape: { answers: z.array(z.union([z.string().max(20000), z.null()])).max(100) },
+    }, async (app, { sitting: token, answers }) => {
+        let r;
+        try {
+            r = await app.post('/api/agent/check/submit', { token, answers }, { timeoutMs: SUBMIT_TIMEOUT_MS });
+        } catch (err) {
+            // The app grades open answers one at a time and goes on after this
+            // request gives up. A submit sent again waits for that grading and
+            // gets its result (server/agentSittings.js, submitCheck): nothing
+            // is graded or recorded twice.
+            if (err instanceof AppTimeout) {
+                return failure('Terramentor is still grading the answers. Press Submit again in a moment for the result: '
+                    + 'the answers are graded and recorded once.');
+            }
+            throw err;
+        }
+        return forView('The check is graded and recorded.', r);
+    });
+
+    viewTool('check_complete', {
+        title: 'Mark the proven topic completed',
+        description: 'After a passed check, mark its topic completed through the app\'s own completion gate.',
+    }, async (app, { sitting: token }) => {
+        const { nodeId, completed, status } = await app.post('/api/agent/check/completion', { token });
+        if (completed && !status) {
+            // The pass completed it, and the topic was deleted since.
+            return forView('The pass is recorded, but the topic has since been deleted.',
+                await app.post('/api/agent/check/completed', { token }));
+        }
+        if (completed && status !== 'completed') {
+            // The pass completed it, and the topic was set otherwise since: left as it is.
+            return forView(`The pass is recorded, but the topic has since been set to ${status.replace('_', ' ')}; it was left that way.`,
+                await app.post('/api/agent/check/completed', { token }));
+        }
+        // A pass that completed its topic when it was recorded needs no write.
+        // Otherwise the app's own completion, without override: its gate reads
+        // the evidence the check wrote.
+        if (!completed) await app.put(`/api/nodes/${encodeURIComponent(nodeId)}`, { status: 'completed' });
+        return forView('The topic is marked completed.', await app.post('/api/agent/check/completed', { token }));
+    });
+
+    viewTool('review_next', {
+        title: 'The card on screen', reads: true,
+        description: 'The card to show (its front only), or the end of the session.',
+        shape: { anyway: z.boolean().optional().describe('Serve a card still being learned before its time.') },
+    }, async (app, { sitting: token, anyway }) => forView('The next card, for the view.', await app.post('/api/agent/review/next', { token, anyway: anyway === true })));
+
+    viewTool('review_reveal', {
+        title: 'Reveal the answer',
+        description: 'The answer side of the card on screen, and what each rating would schedule.',
+        shape: { presentationId },
+    }, async (app, { sitting: token, presentationId: id }) => forView('The answer side, for the view.', await app.post('/api/agent/review/reveal', { token, presentationId: id })));
+
+    viewTool('review_rate', {
+        title: 'Rate the card',
+        description: 'Rate the card on screen once its answer is shown; the app schedules it.',
+        shape: { presentationId, rating: z.enum(['again', 'hard', 'good', 'easy']) },
+    }, async (app, { sitting: token, presentationId: id, rating }) => forView('The rating is saved.', await app.post('/api/agent/review/rate', { token, presentationId: id, rating })));
+
+    viewTool('review_undo', {
+        title: 'Take back the last rating',
+        description: 'Restore the last rated card as it was and show it again. Name the rating (the session\'s undoable): '
+            + 'the same name again gets the same answer and takes back nothing more.',
+        shape: { presentationId },
+    }, async (app, { sitting: token, presentationId: id }) => forView('The last rating is taken back.', await app.post('/api/agent/review/undo', { token, presentationId: id })));
+
+    const prior = server.server.oninitialized;
+    server.server.oninitialized = () => {
+        prior?.();
+        if (drawsViews()) for (const tool of appOnly) tool.enable();
+    };
 }

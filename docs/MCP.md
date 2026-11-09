@@ -9,13 +9,15 @@ The other app can be Claude Code, Claude Desktop, VS Code or Cursor. It can see:
 - a topic's lesson text;
 - how well you know a topic.
 
-It can write two things back:
+The agent itself can write two things back:
 
 - a note into your Inbox;
 - a **claim** that you answered one of its questions right or wrong.
 
 A claim is never proof. A right claim does not raise a topic's mastery and cannot pass the
-mastery gate; only Terramentor's own mastery check does that.
+mastery gate; only Terramentor's own mastery check does that. In an app that can show it, the
+agent can open that check, or a review of your due cards, right in its own window; see
+[The check and the review in the agent's window](#the-check-and-the-review-in-the-agents-window).
 
 The server is a separate program that talks to the running app over its HTTP API. It never
 opens the database. Security details: [SECURITY.md](../SECURITY.md#the-mcp-server-an-agent-in-another-app).
@@ -27,11 +29,11 @@ and keys are not readable through it.
 
 ## What you need
 
-- **A source checkout.** The desktop app and the Docker image do not include `mcp/` yet. Clone
-  the repository, then run `npm install` in it ([Install and update](INSTALL.md), "from
-  source"). The app can still run however you like; the checkout is only where the MCP server
-  lives.
-- **Node 24 or newer**, the same as the app.
+- **The MCP server itself.** It comes with Terramentor: the desktop app's folder and the Docker
+  image both carry `mcp/`, and the desktop app's folder carries the Node that runs it. A source
+  checkout works too, with Node 24 or newer and `npm install` run in it
+  ([Install and update](INSTALL.md), "from source"). The app never starts the MCP server; the
+  other app does, each time it needs it.
 - **Terramentor running.** It runs on `http://127.0.0.1:3001` by default. If the desktop app
   found 3001 taken and chose another port, use the address your browser shows.
 - **The API key, if your library has a password.** Find it in Settings → Devices & security →
@@ -39,9 +41,38 @@ and keys are not readable through it.
   answers only this computer, and you can leave the key out. An app on another computer
   answers only once it has a password, so set one there first.
 
-Every example below uses `/path/to/Terramentor`. Replace it with the full path to your checkout.
-On Windows, write the drive letter and forward slashes; in JSON, doubled backslashes work
-too.
+### Which command starts it
+
+Every example below starts it with `node /path/to/Terramentor/mcp/index.js`. Use the line for
+how you run Terramentor, with the full path to the folder you unpacked or cloned:
+
+| you run | command | arguments |
+|---|---|---|
+| the desktop app, Windows | `C:/Apps/Terramentor/runtime/node.exe` | `C:/Apps/Terramentor/mcp/index.js` |
+| the desktop app, macOS | `/Applications/Terramentor.app/Contents/Resources/app/runtime/node` | `/Applications/Terramentor.app/Contents/Resources/app/mcp/index.js` |
+| the desktop app, Linux | `/path/to/Terramentor/runtime/node` | `/path/to/Terramentor/mcp/index.js` |
+| Docker (the `terramentor` container of `docker-compose.yml`) | `docker` | `exec -i -e TERRAMENTOR_API_KEY terramentor node mcp/index.js` |
+| a source checkout | `node` | `/path/to/Terramentor/mcp/index.js` |
+
+On Windows, write the drive letter and forward slashes; in JSON, doubled backslashes work too.
+The desktop app updates itself in place, so the path stays right after an update.
+
+**Docker:** the server runs inside the container and reaches the app there. A library in Docker
+has a password once you have set it up in the browser, so it needs the key. `-e
+TERRAMENTOR_API_KEY` with no value hands the container the key from the other app's own `env`,
+so the key stays out of the arguments. In Claude Desktop, for example:
+
+```json
+{
+  "mcpServers": {
+    "terramentor": {
+      "command": "docker",
+      "args": ["exec", "-i", "-e", "TERRAMENTOR_API_KEY", "terramentor", "node", "mcp/index.js"],
+      "env": { "TERRAMENTOR_API_KEY": "<key>" }
+    }
+  }
+}
+```
 
 ## The tools
 
@@ -54,6 +85,8 @@ too.
 | `get_mastery` | A topic's estimated mastery, whether it passed the gate, the measured evidence and the claims | no |
 | `add_capture` | Save a note or a link into your Inbox. A note without a link that is already there is not saved again; one with a link is saved each time | adds a note |
 | `record_claim` | Record that you answered the agent's question on a topic right or wrong | adds a claim |
+| `mastery_check` | Open a topic's mastery check: in the agent's window where it can show it, otherwise a link to the topic in Terramentor | your answers, once you submit |
+| `review_cards` | Open a review of the cards due in one project, or in every active one: in the window, or a link | each rating you give |
 
 What a claim does:
 
@@ -73,6 +106,46 @@ What a claim does:
   The same `attempt_id` for a different answer is refused.
 
 `get_mastery` shows claims apart from the evidence the app measured.
+
+## The check and the review in the agent's window
+
+Ask the agent to check whether you know a topic, or to go through your due cards, and it opens
+Terramentor's own screen inside its window:
+
+- **The mastery check** draws its questions from the topic's checked question bank, the same
+  draw as the check in the app, passing over any question with a picture or a sound, which only
+  Terramentor shows. You answer, move between questions and submit; Terramentor grades it and
+  records it exactly as its own check. A pass completes the topic in the same step, so closing
+  the window on the result loses nothing.
+- **The card review** shows each card's front, then the answer and Again / Hard / Good / Easy
+  with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
+  Terramentor's scheduler handles each card exactly as the review screen in the app does.
+
+The agent never sees a question, an answer or a card. It is told that the check opened. The
+screen then passes on your score, or how many cards you reviewed, to an app that hands a
+screen's updates to its model; MCP lets an app refuse them. Either way the check's result is
+recorded, and `get_mastery` shows it.
+
+**Which apps show it.** The screen is an MCP App, an extension of MCP that a client may or may
+not draw. One that does not get a link that opens the topic, or your due cards, in Terramentor.
+Every client connected over HTTP gets the link too: the HTTP listener keeps no session, so it
+cannot know that a client draws views. The views were tested in the
+[MCP Inspector](#try-it-without-a-model) 2.13. Claude Desktop on Windows does not yet show
+these views for servers on your own computer
+([anthropics/claude-ai-mcp#1069](https://github.com/anthropics/claude-ai-mcp/issues/1069)).
+
+**How it looks.** It takes the other app's colours and fonts, in light and dark, and fits a
+window as narrow as a phone. It speaks the language you chose in Terramentor, or the other
+app's language if you chose none. One note is in English in every language: that a card has a
+picture or sound only Terramentor plays. Messages from the server, such as errors and what the
+agent is told, are in English too.
+
+**Why the script sits inside the page.** A view is one HTML file, delivered as text, with no
+address of its own to load a script file from. Its Content-Security-Policy allows exactly the
+script and style inside it, by their SHA-256 hashes, and forbids every connection. The other
+app may put its own policy in front of the view's (the MCP Inspector does), and the view's
+code opens no connection either way. [SECURITY.md](../SECURITY.md#the-mastery-check-and-the-card-review-in-the-agents-window)
+has the details.
 
 ## Claude Code
 
@@ -226,16 +299,19 @@ npx @modelcontextprotocol/inspector@2.13.0 --cli -e TERRAMENTOR_API_KEY=<key> no
   --method tools/call --tool-name get_due
 ```
 
+To see the views, start its web page instead and open the **Apps** tab:
+
+```sh
+npx @modelcontextprotocol/inspector@2.13.0 -e TERRAMENTOR_API_KEY=<key> node mcp/index.js
+```
+
 `tools/mcp-gates.mjs` is the test. It starts a scratch library and drives the real server over
 stdio and HTTP. It checks that a claim cannot clear the gate, that no key appears in any answer,
-that your private notes are neither read nor searched, and that the HTTP listener refuses
-another computer and a web page from any other address.
+that your private notes are neither read nor searched, that the HTTP listener refuses another
+computer and a web page from any other address, and that a check taken in a view is graded and
+recorded by the app, with no key reaching the agent before you submit.
 
 ## Not yet
 
-- **The mastery check and the review session drawn inside the agent's window** (MCP Apps), so a
-  topic could be proved without switching to Terramentor. On Windows, Claude Desktop does not yet
-  show these views for local servers.
-- **Shipping `mcp/` with the desktop app and the Docker image.**
 - **ChatGPT, and other clients that only connect to remote HTTPS servers.** They would need
   Terramentor reachable from the internet, which this app does not do.

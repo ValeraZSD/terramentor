@@ -28,17 +28,14 @@ Everything below is depth on top of a working product, not missing foundations.
   in every language. What is already translated shows the way: a failed task's
   plain-language cause and the feed's notices come from a closed set the client translates,
   and project creation's progress lines travel as a message key plus parameters
-  (`messageKey`). The errors need the same contract, not string replacement.
+  (`messageKey`). The errors need the same contract, not string replacement. The MCP views
+  ([docs/MCP.md](docs/MCP.md)) have two such texts of their own: the notes that a question's
+  picture, or a card's picture or sound, stays in Terramentor.
 - **Engine extraction.** Pull the parts that are pure decision-making (scheduling, the
   learner model, the SRS scheduler, the language rules, the feed quality gates) into a
   package with no database import. Most server modules import `database.js`
   directly, so this is dependency injection before it is a file move. The point is that the
   honesty claims become auditable in isolation.
-- **The MCP server's second half.** The first half ([docs/MCP.md](docs/MCP.md)) reads the
-  library and takes Inbox notes and answer claims. Next comes the mastery check and the review
-  session drawn inside the agent's own window (MCP Apps views), so a topic can be proved without
-  switching apps. Then shipping `mcp/` with the desktop app and the Docker image, not only in a
-  source checkout.
 - **Better recall questions.** A recall question (the code calls it a *ghost question*) is
   drawn at random from a fading topic's saved quizzes. It should be picked by difficulty, and
   a "cumulative review" you can start on purpose would make the mechanic visible instead of

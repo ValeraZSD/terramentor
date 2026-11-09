@@ -5,7 +5,7 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, BookOpen, CheckCircle2, ExternalLink, File, FileText, Globe, MoreVertical,
-    RotateCcw, Sparkles, Trash2, Trophy, Youtube,
+    RotateCcw, Sparkles, SquarePlay, Trash2, Trophy,
 } from 'lucide-react';
 import { useStore } from '../../store';
 import type { Project } from '../../types';
@@ -15,7 +15,7 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { dayLabel } from '../../utils/locale';
 import { CompactCard } from './CompactCard';
 
-const KIND_ICON = { video: Youtube, page: Globe, pdf: FileText, file: File, topic: Sparkles } as const;
+const KIND_ICON = { video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: Sparkles } as const;
 
 interface MadeFrom { kind?: keyof typeof KIND_ICON; host?: string; file?: string; url?: string }
 

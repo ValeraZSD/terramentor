@@ -190,7 +190,9 @@ click(boxes()[0]);
 console.log('\n--- the commit is pinned, and says what it will do ---');
 const commit = byText('button', CARDS);
 check('the button carries the number', !!commit, true);
-check('it is in a sticky footer', commit.closest('div.sticky') !== null, true);
+// ui/Dialog: the footer row is a sibling of the scrolling body, never inside it.
+check('it is in the pinned footer, outside the scroll',
+    commit.closest('div.shrink-0.border-t') !== null && commit.closest('.overscroll-contain') === null, true);
 check('the undo promise is made before the click',
     text().includes('You can undo it in one click'), true);
 click(commit);

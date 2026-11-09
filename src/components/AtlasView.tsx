@@ -1002,8 +1002,10 @@ export default function AtlasView() {
             // learner is looking at.
             // On a phone the map keeps a floor of its own: the sheet gives
             // way first, so at 160% scale held sideways there is still a map.
-            className={fullscreen ? 'fixed inset-0 z-30' : `relative flex-1 min-w-0 ${narrow ? 'min-h-[9rem]' : 'min-h-0'}`}
-            style={fullscreen ? { paddingBottom: 'var(--task-dock-h, 0px)' } : undefined}
+            // Full screen on a phone it pads clear of the status bar and the
+            // home indicator, on the map's own colour.
+            className={fullscreen ? 'fixed inset-0 z-30 safe-pt-0 safe-px-0 bg-slate-50 dark:bg-slate-900' : `relative flex-1 min-w-0 ${narrow ? 'min-h-[9rem]' : 'min-h-0'}`}
+            style={fullscreen ? { paddingBottom: 'calc(var(--task-dock-h, 0px) + var(--safe-bottom))' } : undefined}
         >
             {surface === 'globe' ? (
                 <GlobeMap

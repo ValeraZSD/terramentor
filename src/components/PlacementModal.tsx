@@ -1,14 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { X, Compass, Check, ChevronRight, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button, IconButton } from './ui/Button';
 import { TextArea } from './ui/Field';
+import ProgressBar from './ui/ProgressBar';
+import { DIALOG_BODY, DIALOG_SHELL, DialogFooter, SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 import { PlacementProbe, PlacementQuestion, PlacementSummary } from '../types';
 import MathText from './MathText';
 import QuestionStem from './QuestionStem';
+import ChoiceInput from './answer/ChoiceInput';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { useStudyClock } from '../hooks/useStudyClock';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
 import { probeRef } from '../utils/itemReports';
@@ -33,7 +37,7 @@ interface Props {
  *  2. **Getting one wrong costs nothing.** There is no score, no pass mark and
  *     no streak — a wrong answer simply means the topic gets taught, which is
  *     the ordinary case and must not read as a failure. So the running counter
- *     says "5 of 12 answered", never "3 correct".
+ *     says where the learner is ("Question 5 of 12"), never "3 correct".
  *  3. **It is undoable in full.** `Discard` reverses every head start and every
  *     evidence row. Without it, taking the probe carries a risk that skipping it
  *     does not, and the learner is quietly punished for engaging.
@@ -48,6 +52,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const [summary, setSummary] = useState<PlacementSummary | null>(null);
     const [index, setIndex] = useState(0);
     const [draft, setDraft] = useState('');
+    // The option pressed, so the verdict can paint it beside the key.
+    const [picked, setPicked] = useState('');
     const [phase, setPhase] = useState<'idle' | 'authoring' | 'asking' | 'done'>('idle');
     const [progress, setProgress] = useState({ written: 0, total: 0 });
     const [verdict, setVerdict] = useState<{ correct: boolean; explanation: string; correctAnswer: string } | null>(null);
@@ -59,13 +65,38 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const currentProjectId = useStore(s => s.currentProjectId);
 
     const question: PlacementQuestion | undefined = probe?.questions[index];
-    const answeredCount = probe?.questions.filter(q => q.answered).length ?? 0;
+    const total = probe?.total ?? 0;
+    const asking = phase === 'asking' && !!question;
     // A question reported as wrong seeds nothing (server/itemReports.js): it
     // is not answered, and the way on is Next.
     const questionReportRef = probe && question ? probeRef(probe.id, question.index) : null;
     const questionReport = useReportOn(questionReportRef);
     const locked = !!verdict || busy || !!questionReport;
     const seeded = summary?.topicsSeeded ?? 0;
+    // The bar says what the counter says: the question on screen, of how many.
+    // A bar that counted answers sat empty under "Question 1 of 12" and then
+    // filled while the counter stood still, and read as two different counts.
+    const position = Math.min(index + 1, total);
+
+    // The phase name is shown whole or not at all: cut to "Phase 1: Building
+    // Polynomial Approx…" on a phone it said nothing and crowded the counter.
+    // Measured on its own box, which keeps its room while hidden, so widening
+    // the dialog brings it back.
+    const phaseRef = useRef<HTMLSpanElement>(null);
+    const [phaseFits, setPhaseFits] = useState(true);
+    useLayoutEffect(() => {
+        const el = phaseRef.current;
+        if (!el) return;
+        const measure = () => setPhaseFits(el.scrollWidth <= el.clientWidth + 1);
+        measure();
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        ro?.observe(el);
+        window.addEventListener('resize', measure);
+        // A web font arriving widens the text without resizing its box.
+        let live = true;
+        document.fonts?.ready.then(() => { if (live) measure(); });
+        return () => { live = false; ro?.disconnect(); window.removeEventListener('resize', measure); };
+    }, [asking, question?.phaseTitle]);
 
     // ---- start / resume ------------------------------------------------------
     const begin = useCallback(async () => {
@@ -134,6 +165,16 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(isOpen, dialogRef, { onEscape: () => close() });
 
+    // Next sits in a footer that never scrolls away, so the verdict a learner
+    // just earned is brought into the body's view rather than left below it.
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const verdictRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = verdictRef.current, body = bodyRef.current;
+        if (!verdict || !el || !body) return;
+        scrollIntoViewWithin(el, { boundary: body, block: el.offsetHeight > body.clientHeight ? 'start' : 'nearest', padding: 12 });
+    }, [verdict]);
+
     // Each probe question is time on the topic it probes; writing the probe
     // and its summary are on screen but study nothing.
     useStudyClock(
@@ -150,6 +191,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setVerdict({ correct: res.correct, explanation: res.explanation, correctAnswer: res.correctAnswer });
             setProbe(res.probe);
         } catch (err: any) {
+            setPicked('');
             setError(err.message || 'That answer could not be recorded.');
         } finally {
             setBusy(false);
@@ -162,6 +204,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     function advance() {
         setVerdict(null);
         setDraft('');
+        setPicked('');
         if (!probe) return;
         const next = probe.questions.findIndex((q, i) => i > index && !q.answered);
         if (next === -1) finish();
@@ -202,18 +245,34 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm p-0 sm:p-4"
+        <div className={`fixed inset-0 z-50 flex items-end sm:items-start justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
             onClick={close}>
+            {/* The dialog never scrolls as a whole: the header and every
+                phase's footer stay put and only the body between them
+                scrolls, so a long explanation cannot push "Next" below the
+                window (at 1280x800 it was cut off). dvh, so a phone's
+                address bar does not hide the footer either. The dialog's own
+                scroll is the fallback for a window too short for even that
+                (a phone on its side, a zoomed page): the body gives up its
+                height first, down to 6rem so the question stays readable,
+                and only then does the dialog scroll, so the footer can
+                still be reached rather than clipped. The frame, body and
+                footer are ui/Dialog's.
+                Answering adds a verdict box, and the question must not move
+                under the pointer as it appears: from `sm` up the dialog hangs
+                from a fixed top (`dialog-top`) and grows downward; on a phone
+                the sheet keeps one height while it asks (`sheet-stable`),
+                where it used to grow upward. */}
             <div
                 ref={dialogRef}
                 tabIndex={-1}
-                className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl flex flex-col outline-none"
+                className={`w-full sm:max-w-2xl ${DIALOG_SHELL} dialog-top ${asking ? 'sheet-stable' : ''} ${SHEET_PANEL} rounded-t-2xl sm:rounded-2xl bg-white dark:bg-slate-800 shadow-xl outline-none`}
                 onClick={e => e.stopPropagation()}
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("Placement for {{projectName}}", { projectName })}
             >
-                <header className="flex items-start gap-3 p-5 border-b border-slate-200 dark:border-slate-700">
+                <header className={`shrink-0 flex items-start gap-3 p-5 ${asking ? 'pb-3' : 'border-b border-slate-200 dark:border-slate-700'}`}>
                     <span className="mt-0.5 shrink-0 w-9 h-9 rounded-lg bg-accent/10 text-accent-fg flex items-center justify-center">
                         <Compass size={20} />
                     </span>
@@ -224,6 +283,31 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
+                {/* Where the learner is stays put above the scrolling body, as the
+                    header's last row: the scroll that brings a verdict into view
+                    must not carry it away. */}
+                {asking && question && (
+                    <div className="shrink-0 px-5 pb-4 space-y-2 border-b border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
+                            {/* Where the learner is, never "correct so far": a probe
+                                has no score. */}
+                            <span className="shrink-0">{t("Question {{n}} of {{total}}", { n: index + 1, total })}</span>
+                            {question.phaseTitle && (
+                                <span
+                                    ref={phaseRef}
+                                    className={`min-w-0 flex-1 overflow-hidden whitespace-nowrap text-right ${phaseFits ? '' : 'invisible'}`}
+                                >{question.phaseTitle}</span>
+                            )}
+                            {/* Hidden from sight, never from a screen reader. */}
+                            {question.phaseTitle && !phaseFits && (
+                                <span className="sr-only">{question.phaseTitle}</span>
+                            )}
+                        </div>
+                        <ProgressBar value={position} max={Math.max(1, total)} size="sm" decorative />
+                    </div>
+                )}
+
+                <div ref={bodyRef} className={DIALOG_BODY}>
                 {error && (
                     <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-900 dark:text-amber-200">
                         <AlertTriangle size={16} className="mt-0.5 shrink-0" />
@@ -246,11 +330,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             <li>{t("· A head start is never a pass: it can't prove a topic for you.")}</li>
                             <li>{t("· You can undo the whole thing afterwards.")}</li>
                         </ul>
-                        <div className="flex justify-end">
-                            <Button variant="primary" onClick={begin}>
-                                {t("Start")}
-                            </Button>
-                        </div>
                     </div>
                 )}
 
@@ -266,9 +345,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                         <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
                             {t("Each question is written and then solved again independently; if the two answers disagree, the question is thrown out. There's no hard timeout — it's fine to keep waiting.")}
                         </p>
-                        <Button wrap onClick={close}>
-                            {t("Close — it keeps going in the background")}
-                        </Button>
                     </div>
                 )}
 
@@ -277,21 +353,16 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     // One question on screen: its flag and the line under a
                     // missed answer open the same dialog.
                     <ReportScope>
-                        <div className="p-5 space-y-4">
-                            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                {/* Answered, never "correct so far" — a probe has no score. */}
-                                <span>{t("{{answeredCount}} of {{total}} answered", { answeredCount, total: probe?.total ?? 0 })}</span>
-                                <span className="truncate max-w-[55%] text-right">{question.phaseTitle}</span>
-                            </div>
-                            <div className="h-1 rounded-full bg-slate-100 dark:bg-slate-700 overflow-hidden">
-                                <div className="h-full bg-accent transition-all"
-                                    style={{ width: `${((answeredCount) / Math.max(1, probe?.total ?? 1)) * 100}%` }} />
-                            </div>
-
+                        {/* More air under the header's rule than between the
+                            topic and its question: the topic reads as the
+                            question's label, apart from the counter. */}
+                        <div className="p-5 pt-7 space-y-4">
                             <div className="flex items-start gap-2">
-                                <div className="min-w-0 flex-1 space-y-4">
-                                    <p className="text-xs font-medium text-accent-fg">{question.nodeTitle}</p>
-                                    {/* A block, so `space-y-4` reaches it: the stem is a
+                                <div className="min-w-0 flex-1 space-y-2">
+                                    {/* Muted, not the accent: in the accent it read as a
+                                        link, and it is only a label. */}
+                                    <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{question.nodeTitle}</p>
+                                    {/* A block, so `space-y-2` reaches it: the stem is a
                                         span, and an inline box takes no top margin. */}
                                     <div>
                                         <QuestionStem content={question.question} nodeId={question.nodeId} surface="placement" className="text-slate-900 dark:text-slate-100" />
@@ -310,25 +381,24 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             )}
 
                             {question.type === 'multiple_choice' ? (
-                                <div className="space-y-2">
-                                    {question.options?.map(opt => {
-                                        const isKey = verdict && opt === verdict.correctAnswer;
-                                        return (
-                                            <button data-answer-option
-                                                key={opt}
-                                                disabled={locked}
-                                                onClick={() => submit(opt)}
-                                                className={`w-full text-left rounded-lg border px-3 py-2.5 text-sm transition
-                                                    ${isKey
-                                                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                                                        : 'border-slate-200 dark:border-slate-700 hover:border-accent can-hover:hover:bg-accent/5'}
-                                                    disabled:cursor-default`}
-                                            >
-                                                <MathText content={opt} />
-                                            </button>
-                                        );
-                                    })}
-                                </div>
+                                // The quiz's own tiles: the same size, layout and
+                                // verdict paint as the feed and the mastery check.
+                                <ChoiceInput
+                                    question={{
+                                        type: 'multiple_choice',
+                                        question: question.question,
+                                        options: question.options,
+                                        correct_answer: verdict?.correctAnswer ?? '',
+                                        explanation: '',
+                                    }}
+                                    value={picked}
+                                    onChange={setPicked}
+                                    onCommit={opt => void submit(opt)}
+                                    disabled={locked}
+                                    // Only the key is marked: a miss here is "we'll cover
+                                    // this", never a red verdict on the learner's pick.
+                                    result={verdict ? { correct: verdict.correct, answer: '' } : null}
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     <TextArea
@@ -350,7 +420,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                             )}
 
                             {verdict && (
-                                <div className={`rounded-lg p-3 text-sm ${verdict.correct
+                                <div ref={verdictRef} className={`rounded-lg p-3 text-sm ${verdict.correct
                                     ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200'
                                     : 'bg-slate-50 dark:bg-slate-900/40 text-slate-700 dark:text-slate-300'}`}>
                                     <p className="font-medium mb-1">
@@ -363,23 +433,6 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                     {!verdict.correct && <ReportLink className="mt-2" />}
                                 </div>
                             )}
-
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                                <Button variant="quiet" onClick={finish} disabled={busy}>
-                                    {t("Finish now")}
-                                </Button>
-                                <div className="ml-auto">
-                                    {verdict || questionReport ? (
-                                        <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
-                                            {t("Next")}
-                                        </Button>
-                                    ) : (
-                                        <Button onClick={advance} disabled={busy}>
-                                            {t("I don't know — skip")}
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
                         </div>
                     </ReportScope>
                 )}
@@ -424,15 +477,49 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                                 {t("Your schedule now gives them less time, inside the same dates.")}
                             </p>
                         )}
-                        <div className="flex flex-wrap justify-end gap-2">
-                            <Button onClick={discard} disabled={busy}>
-                                {t("Discard")}
-                            </Button>
-                            <Button variant="primary" onClick={close}>
-                                {t("Done")}
-                            </Button>
-                        </div>
                     </div>
+                )}
+                </div>
+
+                {phase === 'idle' && (
+                    <DialogFooter>
+                        <Button variant="primary" onClick={begin}>
+                            {t("Start")}
+                        </Button>
+                    </DialogFooter>
+                )}
+                {phase === 'authoring' && (
+                    <DialogFooter>
+                        <Button wrap onClick={close}>
+                            {t("Close — it keeps going in the background")}
+                        </Button>
+                    </DialogFooter>
+                )}
+                {phase === 'asking' && question && (
+                    <DialogFooter>
+                        <Button variant="quiet" className="mr-auto" onClick={finish} disabled={busy}>
+                            {t("Finish now")}
+                        </Button>
+                        {verdict || questionReport ? (
+                            <Button variant="primary" onClick={advance} disabled={busy} trailing={<ChevronRight size={16} aria-hidden="true" />}>
+                                {t("Next")}
+                            </Button>
+                        ) : (
+                            <Button onClick={advance} disabled={busy}>
+                                {t("I don't know — skip")}
+                            </Button>
+                        )}
+                    </DialogFooter>
+                )}
+                {phase === 'done' && (
+                    <DialogFooter>
+                        <Button onClick={discard} disabled={busy}>
+                            {t("Discard")}
+                        </Button>
+                        <Button variant="primary" onClick={close}>
+                            {t("Done")}
+                        </Button>
+                    </DialogFooter>
                 )}
             </div>
         </div>

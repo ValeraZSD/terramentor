@@ -481,7 +481,7 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
                 <div className="fixed inset-0 z-[9999]">
                     <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
-                    <div className="absolute inset-0 flex items-start justify-center pt-[10vh] pointer-events-none">
+                    <div className="absolute inset-0 flex items-start justify-center safe-pt-[10vh] safe-px-0 safe-pb-0 pointer-events-none">
                         <div
                             ref={panelRef}
                             role="dialog"
