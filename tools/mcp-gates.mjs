@@ -482,7 +482,9 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
         db.prepare('UPDATE node_mastery SET mastery_score = ?, last_updated = ? WHERE node_id = ?').run(score, LONG_AGO, id);
     }
     db.prepare("INSERT INTO quizzes (node_id, title, questions) VALUES (?, 'Resonance', ?)").run(proven, JSON.stringify([
-        { type: 'true_false', question: 'A driven system answers most strongly at its natural frequency.', options: ['True', 'False'], correctAnswer: 'True' },
+        // `correct_answer`, the stored key's name: a recall never serves a
+        // question whose key the grader cannot read (recallOrder → bankOf).
+        { type: 'true_false', question: 'A driven system answers most strongly at its natural frequency.', options: ['True', 'False'], correct_answer: 'True' },
     ]));
 
     const disagreed = [];

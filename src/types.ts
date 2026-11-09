@@ -875,6 +875,8 @@ export interface FeedFlashcardCard {
 
 export interface FeedRecallCard extends FeedCardCommon {
     kind: 'recall';
+    /** One of the review round that opens the stream (server/feed.js), drawn under one header. */
+    review?: boolean;
     daysSince: number | null;
     quizId: number;
     question: QuizQuestion;

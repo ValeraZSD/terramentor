@@ -298,6 +298,21 @@ as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or a
 to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
 is never part of a mastery check.
 
+Which question is asked is picked by difficulty, the same on every read
+(`recallOrder` in `server/questionLog.js`), from the question log every surface
+writes: the questions the learner has got right before, the largest share of
+misses first; then those with no graded answer, the format with the lowest guess
+floor first; then those only ever missed; ties within a tier go to the lower
+guess floor, then the least recently asked. An answer to a copy of the question
+inside another topic's practice quiz counts (matched by its uuid). The question
+the topic's previous recall asked goes last. Only usable keys a verifier has
+confirmed are candidates, and a recall answer is logged as `recall`.
+In the feed they arrive as a review round that OPENS the home stream and a
+course's stream: one question from each fading topic, oldest first, at most
+`feed_recall_per_batch` and never more than the page, on the opening page of a
+visit only (a later page never starts one), drawn under one header
+(`review: true` on the card). A topic's own page carries none.
+
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
 `fadingCutoff(decayDays)` giving the cutoff in `last_updated`'s own shape. Its bar
@@ -448,8 +463,8 @@ pages by exclude key. With no scope it is the whole library by urgency (`/`); wi
 `projectId` it is one course by the same urgency; with `nodeId` it is one topic or
 section with the schedule ignored (`getFocusForNode`), because the learner chose
 it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
-`practice`, `notice`. Interleave is roughly lesson → question → … with a
-flashcard every 3–4 items and a recall about every 8.
+`practice`, `notice`. The recall round opens the stream (above); after it the
+interleave is roughly lesson → question → … with a flashcard every 3–4 items.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
@@ -1108,6 +1123,8 @@ The modules the sections above do not cover, one line each.
   index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
-- Ghost-question selection is random per decaying node, not difficulty-targeted.
+- Recall difficulty comes from the question log alone, which began in September 2026:
+  a library answered before then has no per-question record, so its recalls start
+  from the format prior until new answers arrive.
 - A lazy route chunk is not precached: the first visit to a route needs the
   network, and the stamped service worker caches the chunk for the next time.
