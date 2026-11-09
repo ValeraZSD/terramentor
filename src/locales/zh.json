@@ -970,6 +970,7 @@
   "Enable them in Settings → AI & Models.": "在“设置”→“AI 与模型”中启用它们。",
   "Encoding frame {{value}} of {{value2}}…": "正在编码第 {{value}} 帧，共 {{value2}} 帧…",
   "End of chapter": "章节结束",
+  "End of recall": "回忆到此结束",
   "End session": "结束会话",
   "End this review session": "结束本次复习会话",
   "Endpoint": "端点",

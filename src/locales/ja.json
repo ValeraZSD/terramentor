@@ -970,6 +970,7 @@
   "Enable them in Settings → AI & Models.": "設定 → AIとモデル で有効にしてください。",
   "Encoding frame {{value}} of {{value2}}…": "エンコーディング フレーム {{value}} / {{value2}}…",
   "End of chapter": "章の終わり",
+  "End of recall": "想起はここまで",
   "End session": "セッション終了",
   "End this review session": "この復習セッションを終了する",
   "Endpoint": "エンドポイント",

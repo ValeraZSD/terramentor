@@ -542,10 +542,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     </ChapterGroup>
                 ) : group.type === 'review' ? (
                     // The round says how long it is at its head and where it ends at its
-                    // foot (a rule under the last card): the cards in it carry no badge
-                    // of their own, so without the rule the lesson after it reads as
-                    // one more of them.
-                    <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-6 border-b border-slate-300 dark:border-slate-700">
+                    // foot (a labelled rule under the last card): the cards in it carry
+                    // no badge of their own, so without the foot the lesson after it
+                    // reads as one more of them.
+                    <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-2">
                         <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
                             <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                             <span>
@@ -568,6 +568,11 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                                 </div>
                             ))}
                         </div>
+                        <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
+                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                            {tr('End of recall')}
+                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                        </p>
                     </section>
                 ) : (
                     <div
