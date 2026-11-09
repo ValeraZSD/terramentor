@@ -508,12 +508,19 @@ console.log('\n--- one name, one file, across the whole export ---');
     // Two cards whose different pictures share a name (two decks' cat.jpg), and
     // one whose picture has a name but no file.
     // Filler cards: their plain fronts go out unescaped, so each note is found by its text.
-    const [a, b, c] = cards.filter(x => /^front \d+$/.test(x.front) && (!x.media || x.media === '{}' || x.media === 'null'));
+    const [a, b, c, d, e, f, g] = cards.filter(x => /^front \d+$/.test(x.front) && (!x.media || x.media === '{}' || x.media === 'null'));
     const [h1, h2] = mediaRows.filter(m => /^image\//.test(m.mime)).map(m => m.hash);
     const set = db.prepare('UPDATE flashcards SET media = ? WHERE id = ?');
-    set.run(JSON.stringify({ front: [{ name: 'cat.jpg', hash: h1, kind: 'image' }], back: [] }), a.id);
-    set.run(JSON.stringify({ front: [{ name: 'cat.jpg', hash: h2, kind: 'image' }], back: [] }), b.id);
+    const pic = (card, name, hash) => set.run(JSON.stringify({ front: [{ name, hash, kind: 'image' }], back: [] }), card.id);
+    pic(a, 'cat.jpg', h1);
+    pic(b, 'cat.jpg', h2);
     set.run(JSON.stringify({ front: [{ name: 'gone.png', kind: 'image' }], back: [] }), c.id);
+    // The same with a long extension, and a cleaned name meeting a name a deck really used.
+    const cleanedAs = `x-${h1.slice(0, 8)}.jpeg2000`;
+    pic(d, 'scan.jpeg2000', h1);
+    pic(e, 'scan.jpeg2000', h2);
+    pic(f, 'x?.jpeg2000', h1);
+    pic(g, cleanedAs, h2);
     const { buffer, stats } = await exportProjectApkg({ db, mediaStorage }, projectId);
     const out = await JSZip.loadAsync(buffer);
     const index = JSON.parse(await out.file('media').async('string'));
@@ -524,16 +531,24 @@ console.log('\n--- one name, one file, across the whole export ---');
     const fronts = col.prepare('SELECT flds FROM notes').all().map(r => r.flds.split(SEP)[0]);
     col.close();
     // Each card's own note, and the bytes behind the picture it names.
-    const cats = [];
-    for (const [card, hash] of [[a, h1], [b, h2]]) {
-        const src = fronts.map(f => f.startsWith(`${card.front}<img src="`) && /<img src="([^"]*)">$/.exec(f)?.[1]).find(Boolean);
+    const shown = async (card, hash) => {
+        const src = fronts.map(x => x.startsWith(`${card.front}<img src="`) && /<img src="([^"]*)">$/.exec(x)?.[1]).find(Boolean);
         const file = src && keyOf[src] ? await out.file(keyOf[src]).async('nodebuffer') : null;
-        cats.push({ src, ok: !!file && file.equals(readFileSync(mediaStorage.pathFor(hash))) });
-    }
+        return { src, ok: !!file && file.equals(readFileSync(mediaStorage.pathFor(hash))) };
+    };
+    const cats = [await shown(a, h1), await shown(b, h2)];
     check('two different pictures named cat.jpg go out as two names, each card showing its own',
         cats[0].src !== cats[1].src && cats.every(x => x.ok), JSON.stringify(cats));
-    check('a cleaned name keeps a long extension like .jpeg2000',
-        (await import(B + 'ankiExport.js')).ankiMediaName({ name: 'x?.jpeg2000', hash: 'a'.repeat(64) }) === 'x-aaaaaaaa.jpeg2000');
+    const scans = [await shown(d, h1), await shown(e, h2), await shown(f, h1), await shown(g, h2)];
+    check('colliding .jpeg2000 names keep the extension after the suffix, each card showing its own',
+        // Which of a pair is numbered depends on export order, so compare as sets.
+        scans.every(x => x.ok) && JSON.stringify(scans.map(x => x.src).sort())
+            === JSON.stringify(['scan-2.jpeg2000', 'scan.jpeg2000', `x-${h1.slice(0, 8)}-2.jpeg2000`, cleanedAs].sort()),
+        JSON.stringify(scans));
+    const { ankiMediaName } = await import(B + 'ankiExport.js');
+    check('a name that is only a long extension keeps it',
+        ankiMediaName({ name: '.verylongext', hash: '0123456789'.repeat(7) }) === 'media-01234567.verylongext',
+        ankiMediaName({ name: '.verylongext', hash: '0123456789'.repeat(7) }));
     check('a media entry with a name and no blob is listed as missing',
         stats.missingMedia.includes('gone.png'), JSON.stringify(stats.missingMedia));
 }
