@@ -66,11 +66,17 @@ Date.now = () => clockAt;
 // `tailscale serve` for this test server's port). `serveStatus` is what
 // `serve status --json` answers (null = unreadable); every `serve --bg` is
 // recorded and served.
-const cli = { serveStatus: null, served: [], whois: {}, whoisRuns: 0 };
-devices.setTailscaleRunnerForTest(async (args) => {
+// `serveAnswer`, when set, is what `serve --bg` answers instead of serving:
+// the CLI's own output in a failure (`{ failed, stdout, stderr, timedOut }`)
+// or a success's stdout that served nothing.
+const cli = { serveStatus: null, served: [], whois: {}, whoisRuns: 0, serveAnswer: undefined };
+devices.setTailscaleRunnerForTest(async (args, _timeout, options) => {
     if (args[0] === 'serve' && args[1] === 'status') return cli.serveStatus ? JSON.stringify(cli.serveStatus) : null;
     if (args[0] === 'serve' && args[1] === '--bg') {
         cli.served.push(args);
+        cli.serveOptions = options;
+        if (cli.statusGoesAfterServe) cli.serveStatus = null;
+        if (cli.serveAnswer !== undefined) return cli.serveAnswer;
         if (!cli.serveStatus) return null;
         const httpsPort = args[2].split('=')[1];
         cli.serveStatus.TCP[httpsPort] = { HTTPS: true };
@@ -80,6 +86,7 @@ devices.setTailscaleRunnerForTest(async (args) => {
     if (args[0] === 'whois') {
         cli.whoisRuns++;
         await new Promise(r => setTimeout(r, 30)); // a real CLI takes a moment
+        if (cli.whois[args[2]]?.failed) return cli.whois[args[2]]; // the CLI ran and failed: what it printed
         return cli.whois[args[2]] ? JSON.stringify(cli.whois[args[2]]) : null;
     }
     return null; // status: injected through setTailscaleOwnerForTest
@@ -198,6 +205,14 @@ console.log('\n--- Tailscale: the computer\'s own account, through serve, and no
     ok('a page load of 12 requests is let in through whois…', burst.every(r => r.status === 200), burst.map(r => r.status).join(','));
     ok('…on ONE whois run, not twelve', cli.whoisRuns === 1, cli.whoisRuns);
     ok('a tagged device whois gives the owner\'s profile is refused', (await call('/api/projects', { serve: true, login: OWNER, from: '100.88.1.2' })).status === 401);
+    // A run that failed now carries what the CLI said: it must still read as
+    // "no answer" (refused, and asked again), never be cached as somebody.
+    cli.whois['100.88.1.4'] = { failed: true, stdout: '', stderr: 'failed to connect to local Tailscale service; is Tailscale running?\n' };
+    const runsBefore = cli.whoisRuns;
+    const failedOnce = await call('/api/projects', { serve: true, login: OWNER, from: '100.88.1.4' });
+    const failedTwice = await call('/api/projects', { serve: true, login: OWNER, from: '100.88.1.4' });
+    ok('a whois that failed is refused, and is not remembered: the next request asks again',
+        failedOnce.status === 401 && failedTwice.status === 401 && cli.whoisRuns - runsBefore === 2, `${failedOnce.status} ${failedTwice.status} runs ${cli.whoisRuns - runsBefore}`);
     devices.setTailscalePeersForTest({ [TAILNET_PHONE]: OWNER, '100.70.1.2': OWNER, '100.80.0.9': 'stranger@example.com' });
 
     // The switch.
@@ -415,6 +430,104 @@ console.log('\n--- "Turn it on" passes the app on to the tailnet, and never take
     ok('…after which the list says it is served', (await call('/api/devices')).body?.tailscale?.served === true);
     const again = await call('/api/devices/tailscale/serve', { method: 'POST' });
     ok('pressed again it changes nothing', cli.served.length === 1 && (again.body?.url || '').startsWith('https://desk.tail1234.ts.net:8443/'));
+    cli.serveStatus = null;
+    devices.setTailscaleOwnerForTest(null);
+}
+
+// ── when Tailscale says no ──────────────────────────────────────────────────
+// What the real CLI prints (tailscale/tailscale cmd/tailscale/cli): with Serve
+// not yet turned on for the tailnet it prints a login.tailscale.com/f/serve
+// link to STDOUT and then WAITS for it to be turned on (the app's timeout
+// kills it), or, on some tailnets, exits 0 having served nothing. Every
+// failure used to read "didn't let the app do it" with the reason thrown away.
+console.log('\n--- when Tailscale says no, the learner reads why, and the log says which kind ---');
+{
+    devices.setTailscaleOwnerForTest(OWNER, PC);
+    const fresh = () => ({ TCP: {}, Web: {} });
+    const LINK = 'https://login.tailscale.com/f/serve?node=nX7kQ2CNTRL';
+    const ENABLE_OUT = `\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         ${LINK}\n\n`;
+    const logged = () => db.prepare(`SELECT level, area, event, detail FROM activity_log WHERE area = 'devices' ORDER BY id DESC LIMIT 1`).get();
+    const press = async (answer) => {
+        cli.serveStatus = fresh();
+        cli.serveAnswer = answer;
+        try { return (await call('/api/devices/tailscale/serve', { method: 'POST' })).body; } finally { cli.serveAnswer = undefined; }
+    };
+
+    const waiting = await press({ failed: true, timedOut: true, stdout: ENABLE_OUT, stderr: '' });
+    ok('Serve not turned on (the CLI printed its link and waited): the problem is "enable", with that link',
+        waiting?.url === null && waiting?.problem?.kind === 'enable' && waiting.problem.link === LINK, JSON.stringify(waiting));
+    const logRow = logged();
+    ok('…and the log has the attempt and its kind, never the CLI\'s text or the link',
+        logRow?.event === 'tailscale.serve_failed' && logRow.level === 'warn' && /\benable\b/.test(logRow.detail || '') && !/login\.tailscale|visit|node=/i.test(logRow.detail || ''), JSON.stringify(logRow));
+
+    const exited = await press(ENABLE_OUT); // exit 0, nothing served
+    ok('…and the press asks the run to stop at the link rather than wait out its timeout', cli.serveOptions?.stopOn === devices.ENABLE_LINK);
+    ok('…the same when the CLI printed the link and exited without serving', exited?.problem?.kind === 'enable' && exited.problem.link === LINK, JSON.stringify(exited));
+
+    const forged = await press({ failed: true, timedOut: true, stdout: 'To enable, visit:\n  https://evil.example.com/f/serve?x=1\n', stderr: '' });
+    ok('a link to anywhere but login.tailscale.com is never offered as a button', !forged?.problem?.link && forged?.problem?.kind !== 'enable', JSON.stringify(forged));
+
+    const denied = await press({ failed: true, stdout: '', stderr: "Access denied: serve config denied\n\nUse 'sudo tailscale serve --bg --https=443 http://127.0.0.1:3001'.\nTo not require root, use 'sudo tailscale set --operator=$USER' once.\n" });
+    ok('permission refused: the problem is "denied", with the CLI\'s own first line and the command to run by hand',
+        denied?.problem?.kind === 'denied' && denied.problem.reason === 'Access denied: serve config denied' && /^tailscale serve --bg /.test(denied.command || ''), JSON.stringify(denied));
+    ok('…logged as "denied"', /\bdenied\b/.test(logged()?.detail || ''));
+
+    const slow = await press({ failed: true, timedOut: true, stdout: '', stderr: '' });
+    ok('no answer in time: the problem is "timeout"', slow?.problem?.kind === 'timeout', JSON.stringify(slow));
+
+    const out = await press({ failed: true, stdout: '', stderr: 'error enabling https feature: no self node\n' });
+    ok('this computer signed out of Tailscale: the problem is "signed-out"', out?.problem?.kind === 'signed-out', JSON.stringify(out));
+
+    const stopped = await press({ failed: true, stdout: '', stderr: 'failed to connect to local Tailscale service; is Tailscale running?\n' });
+    ok('Tailscale not running: the problem is "not-running"', stopped?.problem?.kind === 'not-running', JSON.stringify(stopped));
+
+    const odd = await press({ failed: true, stdout: '', stderr: 'Another client is changing the serve config; please try again.\n\x1b[31m\n' });
+    ok('anything else: the CLI\'s own first line, plain', odd?.problem?.kind === 'other' && odd.problem.reason === 'Another client is changing the serve config; please try again.', JSON.stringify(odd));
+    const long = await press({ failed: true, stdout: '', stderr: 'x'.repeat(5000) });
+    ok('…cut to one short line', (long?.problem?.reason || '').length <= 200, String(long?.problem?.reason?.length));
+
+    // Exit 0 with its usual success text, then nothing of ours in the status.
+    const SUCCESS_OUT = 'Available within your tailnet:\n\nhttps://desk.tail1234.ts.net/\n|-- proxy http://127.0.0.1:3001\n';
+    const quiet = await press(SUCCESS_OUT);
+    ok('an exit 0 that served nothing never quotes its success text as the reason',
+        quiet?.problem?.kind === 'other' && !quiet.problem.reason, JSON.stringify(quiet));
+    cli.statusGoesAfterServe = true;
+    const unknown = await press(SUCCESS_OUT);
+    cli.statusGoesAfterServe = false;
+    ok('…and when the status cannot be read after it, that is "no answer", not a failure',
+        unknown?.url === null && unknown.problem === null && unknown.command === null && /\bunreadable\b/.test(logged()?.detail || ''), JSON.stringify(unknown));
+
+    cli.serveStatus = fresh();
+    const good = await call('/api/devices/tailscale/serve', { method: 'POST' });
+    ok('a share that took is logged too', !!good.body?.url && logged()?.event === 'tailscale.served', JSON.stringify(logged()));
+
+    ok('the pure reader: a failure object with no text at all is "other" with no reason',
+        JSON.stringify(devices.serveProblemOf({ failed: true, stdout: '', stderr: '' })) === JSON.stringify({ kind: 'other' }));
+
+    // The real spawn path, driven by THIS node binary standing in for the CLI
+    // (never Tailscale): what it printed survives a failure, and a run that
+    // prints the enable link and then waits is ended at the link, not at the
+    // timeout. Real time here, not the pinned clock: the run is a process.
+    const node = process.execPath;
+    const realNow = () => performance.now();
+    const t0 = realNow();
+    const waiter = await devices.runCli(node, ['-e', `process.stdout.write(${JSON.stringify(ENABLE_OUT)}); setTimeout(() => {}, 20000)`], 15000, { stopOn: devices.ENABLE_LINK });
+    const tookMs = realNow() - t0;
+    ok('a CLI that prints the enable link and waits is stopped at the link (not the 15 s timeout), its output kept',
+        waiter?.failed === true && waiter.timedOut === false && waiter.stdout.includes(LINK) && tookMs < 10000, `${Math.round(tookMs)} ms ${JSON.stringify(waiter)}`);
+    ok('…and read as "enable"', devices.serveProblemOf(waiter).kind === 'enable');
+    // The link split across two writes, as a pipe may deliver it: never stopped mid-link.
+    const cut = LINK.length - 8;
+    const split = await devices.runCli(node, ['-e',
+        `process.stdout.write(${JSON.stringify(`To enable, visit:\n\n         ${LINK.slice(0, cut)}`)}); setTimeout(() => process.stdout.write(${JSON.stringify(`${LINK.slice(cut)}\n\n`)}), 300); setTimeout(() => {}, 20000)`],
+    15000, { stopOn: devices.ENABLE_LINK });
+    ok('a link that arrives in two pieces is read whole before the run is stopped',
+        split?.failed === true && devices.serveProblemOf(split).link === LINK, JSON.stringify(split));
+    const refused = await devices.runCli(node, ['-e','process.stderr.write("Access denied: serve config denied\\n"); process.exit(1)'], 5000);
+    ok('a CLI that exits non-zero keeps its stderr', refused?.failed === true && refused.stderr.startsWith('Access denied') && refused.timedOut === false, JSON.stringify(refused));
+    const hung = await devices.runCli(node, ['-e', 'setTimeout(() => {}, 20000)'], 300);
+    ok('a CLI that says nothing past the timeout is a timeout', hung?.failed === true && hung.timedOut === true, JSON.stringify(hung));
+    ok('a CLI that is not there at all is null', await devices.runCli(join(scratch, 'no-such-tailscale'), [], 1000) === null);
     cli.serveStatus = null;
     devices.setTailscaleOwnerForTest(null);
 }

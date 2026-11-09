@@ -3,7 +3,7 @@ import { Smartphone, QrCode as QrIcon, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useStore } from '../store';
-import type { ConnectedDevice, PairingOffer } from '../types';
+import type { ConnectedDevice, PairingOffer, ServeProblem } from '../types';
 import { uiLocale } from '../utils/locale';
 import { Button, ButtonLink } from './ui/Button';
 import Switch from './ui/Switch';
@@ -36,7 +36,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
     // drawn in that row, not in "Connect a phone" above it (off-screen on a
     // phone, and a code nobody asked for).
     const [sharing, setSharing] = useState(false);
-    const [shared, setShared] = useState<{ address: string } | { command: string | null } | null>(null);
+    // `attempt` counts the failed presses: the note is keyed on it, so a
+    // second identical failure is a new alert a screen reader announces.
+    const [shared, setShared] = useState<{ address: string } | { command: string | null; problem?: ServeProblem | null; attempt: number } | null>(null);
     const sharedAt = shared && 'address' in shared ? shared.address : null;
     const shareFailed = shared && 'command' in shared ? shared : null;
     const authEnabled = useStore(s => s.authEnabled);
@@ -116,8 +118,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
     // The row shows the address alone: a Tailscale device that is let in
     // needs no code.
     const shareFromRow = async () => {
+        // A failure stays on screen while Try again runs, so the row does not
+        // jump back to its first state and out again.
         setSharing(true);
-        setShared(null);
         try {
             const o = await api.serveOnTailnet();
             if (o.url) {
@@ -125,7 +128,7 @@ export default function OtherDevices({ active }: { active: boolean }) {
                 setTailscale(prev => prev && { ...prev, served: true });
                 load().catch(() => { });
             }
-            else setShared({ command: o.command ?? null });
+            else setShared(prev => ({ command: o.command ?? null, problem: o.problem, attempt: (prev && 'attempt' in prev ? prev.attempt : 0) + 1 }));
         } catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
         finally { setSharing(false); }
     };
@@ -151,7 +154,9 @@ export default function OtherDevices({ active }: { active: boolean }) {
     };
 
     const toggleTailscale = async (on: boolean) => {
-        try { const r = await api.setTailscaleTrust(on); setTailscale(prev => prev && { ...prev, on: r.on }); }
+        // A failure from an earlier share belongs to that press, not to the
+        // row the switch brings back.
+        try { const r = await api.setTailscaleTrust(on); setTailscale(prev => prev && { ...prev, on: r.on }); setShared(s => (s && 'command' in s ? null : s)); }
         catch (e: any) { addToast('error', e?.message || t("Could not change the setting.")); }
     };
 
@@ -228,20 +233,13 @@ export default function OtherDevices({ active }: { active: boolean }) {
                             <p className="text-sm text-slate-600 dark:text-slate-300">
                                 {t("Tailscale is on this computer, but Terramentor isn't shared on it yet, so your phone can't open it. Share it and your phone can, at home or away. Only your own Tailscale devices can reach it, never the open internet.")}
                             </p>
-                            {offer.failed && offer.command && (
-                                <p className="text-sm text-slate-600 dark:text-slate-300">
-                                    {t("Tailscale didn't let the app do it. Run this once on this computer, then press Show code again:")}{' '}
-                                    <code className="px-1 rounded bg-slate-100 dark:bg-slate-700 break-all">{offer.command}</code>
-                                </p>
-                            )}
-                            {offer.failed && !offer.command && (
-                                <p role="alert" className="text-sm text-amber-700 dark:text-amber-300">
-                                    {t("Tailscale didn't answer. Check that it is running on this computer, then try again.")}
-                                </p>
-                            )}
+                            {offer.failed && <ShareProblemNote problem={offer.problem} command={offer.command ?? null} />}
                             <div className="flex flex-wrap gap-2">
                                 {passwordField}
-                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>{t("Share it on Tailscale")}</Button>
+                                {offer.failed && <EnableServeLink problem={offer.problem} />}
+                                <Button variant="primary" busy={busy} disabled={authEnabled && !password} onClick={turnOnServe}>
+                                    {offer.failed ? t("Try again") : t("Share it on Tailscale")}
+                                </Button>
                                 <Button variant="quiet" onClick={() => setOffer(null)}>{t("Not now")}</Button>
                             </div>
                         </div>
@@ -279,21 +277,21 @@ export default function OtherDevices({ active }: { active: boolean }) {
                                 <code className="mt-1 block w-fit max-w-full break-all select-all text-slate-700 dark:text-slate-200">{sharedAt}</code>
                             </span>
                         ) : tailscale.on && !tailscale.served && !offer ? (
+                            // After a failed press the reason comes before the
+                            // buttons, so they read in the order they are used.
                             <span className="mt-1 block space-y-2">
                                 <span className="flex flex-wrap items-center gap-x-3 gap-y-2">
                                     <span className="text-amber-700 dark:text-amber-300">{t("Your Tailscale devices are let in, but can't open the app until it is shared on Tailscale.")}</span>
-                                    <Button size="sm" busy={sharing} disabled={busy} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>
+                                    {!shareFailed && <Button size="sm" busy={sharing} disabled={busy} onClick={shareFromRow}>{t("Share it on Tailscale")}</Button>}
                                 </span>
-                                {shareFailed?.command && (
-                                    <span role="alert" className="block">
-                                        {t("Tailscale didn't let the app do it. Run this once on this computer, then press Share again:")}
-                                        <code className="mt-1 block w-fit max-w-full px-1 rounded bg-slate-100 dark:bg-slate-700 break-all select-all">{shareFailed.command}</code>
-                                    </span>
-                                )}
-                                {shareFailed && !shareFailed.command && (
-                                    <span role="alert" className="block text-amber-700 dark:text-amber-300">
-                                        {t("Tailscale didn't answer. Check that it is running on this computer, then try again.")}
-                                    </span>
+                                {shareFailed && (
+                                    <>
+                                        <ShareProblemNote key={shareFailed.attempt} problem={shareFailed.problem} command={shareFailed.command} />
+                                        <span className="flex flex-wrap items-center gap-2">
+                                            <EnableServeLink problem={shareFailed.problem} size="sm" />
+                                            <Button size="sm" busy={sharing} disabled={busy} onClick={shareFromRow}>{t("Try again")}</Button>
+                                        </span>
+                                    </>
                                 )}
                             </span>
                         ) : undefined}
@@ -329,6 +327,45 @@ export default function OtherDevices({ active }: { active: boolean }) {
             </div>
         </section>
     );
+}
+
+/**
+ * Why sharing on Tailscale did not take, in one plain line per kind
+ * (server/devices.js `serveProblemOf`), with the CLI's own words where they
+ * are the only reason there is, and the command to run by hand where that
+ * helps. `problem` null: the app could not read Tailscale's status at all.
+ */
+function ShareProblemNote({ problem, command }: { problem?: ServeProblem | null; command: string | null }) {
+    const { t } = useTranslation();
+    const kind = problem === null ? 'unreadable' : problem?.kind ?? 'other';
+    const line = {
+        enable: t("Tailscale needs Serve turned on for your account first. Press Turn on Serve, allow it on the page that opens, then press Try again."),
+        denied: t("Tailscale didn't let the app do it. Run this once on this computer, then press Try again:"),
+        'signed-out': t("Tailscale on this computer is signed out. Sign in to Tailscale, then press Try again."),
+        'not-running': t("Tailscale isn't running on this computer. Start it, then press Try again."),
+        timeout: t("Tailscale didn't answer in time. Check that it is running on this computer, then press Try again."),
+        other: command ? t("Tailscale didn't share the app. Run this once on this computer, then press Try again:") : t("Tailscale didn't share the app."),
+        unreadable: t("Tailscale didn't answer. Check that it is running on this computer, then try again."),
+    }[kind];
+    const showCommand = !!command && (kind === 'denied' || kind === 'other');
+    return (
+        <span role="alert" className="block space-y-1 text-sm text-slate-700 dark:text-slate-200">
+            {problem?.reason && (
+                <span className="block text-slate-500 dark:text-slate-400 break-words">{t("Tailscale said: {{reason}}", { reason: problem.reason })}</span>
+            )}
+            <span className="block">{line}</span>
+            {showCommand && (
+                <code className="block w-fit max-w-full px-1 rounded bg-slate-100 dark:bg-slate-700 break-words select-all">{command}</code>
+            )}
+        </span>
+    );
+}
+
+/** The page on Tailscale's own site that turns Serve on, when that is what is missing; nothing otherwise. */
+function EnableServeLink({ problem, size }: { problem?: ServeProblem | null; size?: 'sm' }) {
+    const { t } = useTranslation();
+    if (problem?.kind !== 'enable' || !problem.link?.startsWith('https://login.tailscale.com/')) return null;
+    return <ButtonLink size={size} href={problem.link} target="_blank" rel="noopener noreferrer">{t("Turn on Serve")}</ButtonLink>;
 }
 
 /** "Works once · expires in 9:41", ticking, amber in the last minute; "Expired" once it has run out. */
