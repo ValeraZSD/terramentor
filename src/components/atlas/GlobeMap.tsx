@@ -110,6 +110,9 @@ export interface GlobeMapHandle {
     canvas: () => HTMLCanvasElement | null;
     /** Nothing is moving, fading or flying, and no frame is waiting to be drawn. */
     settled: () => boolean;
+    /** The cities' build has landed or failed, and the dots stand where it put
+     *  them: a shot framed before then is not the one a film ends on. */
+    citiesSettled: () => boolean;
     /** Close the floating card if one is open; true when there was one. */
     dismissCard: () => boolean;
 }
@@ -275,6 +278,9 @@ const SPIN_FLOOR = 0.012;
 const CITY_DETAIL = 0.45;
 /** Half the box the replay's head keeps clear of names, px: its marker and glow. */
 const HEAD_CLEAR = 12;
+/** How far above its dot the place a replay reaches has its name's bottom
+ *  edge, px: where a one-line name centred 30px up always ended. */
+const LANDED_NAME_LIFT = 22.5;
 /** How hard the camera pulls toward a fly-to target, in radians a second. */
 const EASE_OMEGA = 7;
 /**
@@ -500,7 +506,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      * Every country cut into cities of about one size, one per topic
      * (`globeCities.ts`), built off the page's thread and shared by every map
      * of this atlas (`cityBuild.ts`). Null until it arrives: the countries are
-     * drawn whole until then, and nothing waits for it.
+     * drawn whole until then, and only a film waits for it (`settled`).
      */
     const cityInput = useMemo(() => {
         const input: CityRegion[] = placed0.map(p => ({
@@ -508,17 +514,28 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         }));
         return { input, key: cityKey(terrain.territories, input) };
     }, [placed0, terrain]);
-    const [cityMap, setCityMap] = useState<CityMap | null>(() => citiesReady(cityInput.key));
+    const [builtCities, setBuiltCities] = useState<CityMap | null>(() => citiesReady(cityInput.key));
+    /** Where the build stands, for `citiesSettled`: a film frames its opening
+     *  shot after the cities, or it opens on whole countries and ends on cities. */
+    const citiesRef = useRef<{ pending: boolean; built: CityMap | null }>({ pending: false, built: builtCities });
     useEffect(() => {
         let alive = true;
         const ready = citiesReady(cityInput.key);
-        setCityMap(ready);
+        setBuiltCities(ready);
+        citiesRef.current = { pending: !ready, built: ready };
         if (!ready) {
-            citiesFor(terrain.territories, cityInput.input, cityInput.key)
-                .then(m => { if (alive) setCityMap(m); }, () => { /* the countries stay whole */ });
+            citiesFor(terrain.territories, cityInput.input, cityInput.key).then(
+                m => { if (alive) { citiesRef.current = { pending: false, built: m }; setBuiltCities(m); } },
+                // The countries stay whole.
+                () => { if (alive) citiesRef.current = { pending: false, built: null }; });
         }
         return () => { alive = false; };
     }, [cityInput, terrain]);
+    // Cities that land while a replay runs wait for it to end: they move every
+    // dot to its city's middle, and the route legs with them, under the flight.
+    const heldCitiesRef = useRef(builtCities);
+    if (journeyStep == null) heldCitiesRef.current = builtCities;
+    const cityMap = heldCitiesRef.current;
     /** Topic by id, for the cities' fill. */
     const topicById = useMemo(() => {
         const m = new Map<number, AtlasTopic>();
@@ -1780,8 +1797,10 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             if (label.alpha <= VISIBLE_ALPHA) continue;
             // Clear of the mark under it: the place being arrived at carries a
             // 19px glow, and a name set just above the dot is printed across it.
-            labeller.wrapLabel(label.topic.title, label.x, label.y - 30,
-                { size: 13, weight: 700, alpha: label.alpha }, Math.min(w * 0.6, 260), 2);
+            // Standing on that line, so a second line goes up: centred, a
+            // two-line name reached down into the head's ground and was dropped.
+            labeller.wrapLabel(label.topic.title, label.x, label.y - LANDED_NAME_LIFT,
+                { size: 13, weight: 700, alpha: label.alpha }, Math.min(w * 0.6, 260), 2, 'bottom');
         }
 
         // The topic dots, once the reader is close enough for them to mean
@@ -2110,10 +2129,16 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         const onDown = (e: PointerEvent) => {
             canvas.setPointerCapture(e.pointerId);
             pinches.set(e.pointerId, local(e));
-            if (pinches.size === 2) {
-                const [a, b] = [...pinches.values()];
-                pinchBase = Math.hypot(a.x - b.x, a.y - b.y);
-                pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+            if (pinches.size >= 2) {
+                // A third finger holds the gesture where it is (no move reads
+                // it) and leaves it a pinch: it was a fresh tap before, and
+                // lifting it selected whatever was under it.
+                pinchBase = 0;
+                if (pinches.size === 2) {
+                    const [a, b] = [...pinches.values()];
+                    pinchBase = Math.hypot(a.x - b.x, a.y - b.y);
+                    pinchMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                }
                 pinched = true;
                 return;
             }
@@ -2156,6 +2181,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
                 pinchMid = mid;
                 return;
             }
+            if (pinches.size > 2) return;
             if (dragging) {
                 const dx = p.x - last.x, dy = p.y - last.y;
                 moved += Math.hypot(dx, dy);
@@ -2193,7 +2219,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
 
         const onUp = (e: PointerEvent) => {
             pinches.delete(e.pointerId);
-            if (pinches.size < 2) pinchBase = 0;
+            // The next move of whichever two are left takes their spread as
+            // its start: after a third finger they may not be the first pair.
+            pinchBase = 0;
             if (!dragging) return;
             if (pinched) {
                 // One finger of a pinch came up: the one still down carries on
@@ -2447,6 +2475,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         camera: () => ({ ...camRef.current }),
         canvas: () => canvasRef.current,
         settled: () => stillRef.current && frameRef.current === 0 && targetRef.current == null,
+        citiesSettled: () => !citiesRef.current.pending && live.current.cityMap === citiesRef.current.built,
         dismissCard: () => {
             if (!hoverRef.current && !pinnedRef.current) return false;
             dismissCard();

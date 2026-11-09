@@ -19,6 +19,9 @@ export interface AtlasStage {
     canvas: () => HTMLCanvasElement | null;
     /** Nothing is moving, fading or flying — what a film waits for at each end. */
     settled: () => boolean;
+    /** The cities have landed (or failed) and the dots stand where they put
+     *  them: what a film waits for before it frames its opening shot. */
+    citiesSettled: () => boolean;
     /**
      * Close the floating card if one is open (pinned or hovered); true when
      * there was one. The first step of the page's Escape (`AtlasView`), which

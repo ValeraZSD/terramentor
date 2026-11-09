@@ -16,6 +16,8 @@ import { atlasSurfaces } from '../../src/utils/themeSurfaces';
 const act: any = (React as any).act || domAct;
 
 (globalThis as any).__act = (fn: () => void) => act(fn);
+// For a prop that is an element (the course player along the bottom).
+(globalThis as any).__h = React.createElement;
 // The real course-paths module, so the harness traces what the page traces
 // rather than a second implementation of the same arithmetic.
 (globalThis as any).__coursePaths = {

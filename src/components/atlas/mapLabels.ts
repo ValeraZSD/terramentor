@@ -50,10 +50,11 @@ export interface Labeller {
         text: string, cx: number, cy: number, style: LabelStyle, maxWidth: number,
         align?: 'baseline' | 'middle',
     ) => boolean;
-    /** Wrapped into up to `maxLines`, centred on the point. Returns false if it was dropped. */
+    /** Wrapped into up to `maxLines`, centred on the point, or with
+     *  `anchor: 'bottom'` standing on it. Returns false if it was dropped. */
     wrapLabel: (
         text: string, cx: number, cy: number, style: LabelStyle, maxWidth: number,
-        maxLines?: number,
+        maxLines?: number, anchor?: 'middle' | 'bottom',
     ) => boolean;
     /** A region name, centred on its bubble — overflowing it if it must. */
     placeRegion: (
@@ -336,11 +337,14 @@ export function createLabeller(
         return paint([ellipsize(text, maxWidth)], cx, cy, style, align);
     };
 
-    const wrapLabel: Labeller['wrapLabel'] = (text, cx, cy, style, maxWidth, maxLines = 2) => {
+    const wrapLabel: Labeller['wrapLabel'] = (text, cx, cy, style, maxWidth, maxLines = 2, anchor = 'middle') => {
         setFont(style.size, style.weight);
         const lines = wrap(text, maxWidth, maxLines);
         if (!lines.length) return false;
-        return paint(lines, cx, cy, style, 'middle');
+        // Held by its bottom edge, a second line grows the name upward, away
+        // from what it is above, instead of half a line down onto it.
+        const mid = anchor === 'bottom' ? cy - (style.size * 1.16 * lines.length) / 2 : cy;
+        return paint(lines, cx, mid, style, 'middle');
     };
 
     const placeRegion: Labeller['placeRegion'] = (

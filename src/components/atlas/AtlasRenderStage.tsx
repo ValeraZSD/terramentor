@@ -128,6 +128,7 @@ export default function AtlasRenderStage({
         let openingTimer = 0;
         let tailTimer = 0;
         let settleRaf = 0;
+        const armedAt = performance.now();
 
         /** Call `then` on the first frame the surface reports nothing moving. */
         const whenSettled = (then: () => void) => {
@@ -152,6 +153,13 @@ export default function AtlasRenderStage({
                     live.current.onFailed(tr("The frame never reached its size, so nothing was recorded."));
                     return;
                 }
+                raf = requestAnimationFrame(begin);
+                return;
+            }
+            // The cities first: landing, they move every dot to its city's
+            // middle, so a shot framed before them is not the one the film
+            // ends on. Waited for no longer than the camera is.
+            if (!stageRef.current?.citiesSettled() && performance.now() - armedAt < SETTLE_LIMIT_MS) {
                 raf = requestAnimationFrame(begin);
                 return;
             }

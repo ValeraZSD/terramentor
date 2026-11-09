@@ -1293,6 +1293,38 @@ check('switching back restores exactly the ramp', (() => {
     return [...paints(back)].every(f => paints(byMastery).has(f));
 })());
 
+console.log('\n--- a course framed above the player ---');
+// The player along the bottom covers what is under it, so a framed course is
+// fitted into the box above its top (`framing.ts`). jsdom lays nothing out:
+// every box is the whole 600px stage, so the strip measures taller than the
+// map and is held to its share, the bottom half.
+{
+    const proto = window.HTMLElement.prototype;
+    const was = Object.getOwnPropertyDescriptor(proto, 'offsetParent');
+    Object.defineProperty(proto, 'offsetParent', { configurable: true, get() { return this.parentElement; } });
+    const pointsOf = (snap) => inkOf(snap).flatMap(s => s.pts).filter(p => !p.move);
+    /** The route's top and bottom on screen. */
+    const span = (snap) => {
+        const ys = pointsOf(snap).map(p => p.y);
+        return ys.length ? { top: Math.min(...ys), bottom: Math.max(...ys) } : null;
+    };
+    renderWith({ trace, journeyStep: null });
+    const without = span(frameCourse());
+    renderWith({ trace, journeyStep: null, player: globalThis.__h('div', null, 'player') });
+    const withPlayer = span(frameCourse());
+    // Centred on the whole map the route's middle is the map's (y 300); in the
+    // box above the strip it is that box's (y 150), and nothing is below 300.
+    const mid = (s) => (s.top + s.bottom) / 2;
+    check('with the player along the bottom, the framed course stays above it',
+        !!without && !!withPlayer && withPlayer.bottom <= 301 && mid(withPlayer) < mid(without) - 75,
+        without && withPlayer
+            ? `route y ${without.top.toFixed(0)}..${without.bottom.toFixed(0)} without the player, ${withPlayer.top.toFixed(0)}..${withPlayer.bottom.toFixed(0)} with it`
+            : 'no route drawn');
+    if (was) Object.defineProperty(proto, 'offsetParent', was);
+    else delete proto.offsetParent;
+    renderWith({ trace: null, journeyStep: null });
+}
+
 console.log('\n--- two fingers ---');
 // The pinch. Every fault here is a FEEL rather than an error: the map lurches,
 // or slides out from under the fingers holding it, and nothing throws. Two that
@@ -1345,6 +1377,24 @@ pointer('pointerup', 586, 340, { pointerId: 12 });
 flush(3);
 check('a pinch never counts as a tap', selections.length === tapsBefore,
     JSON.stringify(selections.slice(tapsBefore)));
+
+// …nor a third finger landing on a country during it: that finger began a
+// gesture of its own, and lifting it unmoved selected the country.
+{
+    const name = regionLabel(home());
+    const before = selections.length;
+    if (name) {
+        pointer('pointerdown', name.x - 120, name.y, { pointerId: 21 });
+        pointer('pointerdown', name.x + 120, name.y, { pointerId: 22 });
+        pointer('pointerdown', name.x, name.y, { pointerId: 23 });
+        pointer('pointerup', name.x, name.y, { pointerId: 23 });
+        pointer('pointerup', name.x - 120, name.y, { pointerId: 21 });
+        pointer('pointerup', name.x + 120, name.y, { pointerId: 22 });
+        flush(3);
+    }
+    check('a third finger on a country during a pinch is no tap', !!name && selections.length === before,
+        name ? JSON.stringify(selections.slice(before)) : 'no region name drawn');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await library.cleanup();   // a fixture run leaves a scratch database and a stub server behind
