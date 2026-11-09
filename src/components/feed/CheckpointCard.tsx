@@ -221,6 +221,13 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                                 : t("Part of this was carried over from a topic you proved elsewhere — answer a few here to make it count.")}
                         </p>
                     )}
+                    {/* Over the line on card reviews and drills alone: they
+                        keep a topic fresh, and the gate does not count them. */}
+                    {card.practiceLifted && gateMode !== 'off' && (
+                        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                            {t("Card reviews and drills raised this, but only answered questions prove a topic.")}
+                        </p>
+                    )}
                 </div>
             </div>
 

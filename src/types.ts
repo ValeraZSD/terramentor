@@ -892,6 +892,12 @@ export interface FeedCheckpointCard extends FeedCardCommon {
     borrowedEstimate?: boolean;
     /** Which seed set the borrowed part, so the card names the right one. */
     borrowedFrom?: 'transfer' | 'placement' | null;
+    /**
+     * `masteryScore` is over the threshold only because of card reviews and
+     * drills, which the gate does not count: the card says so, for the same
+     * reason as `borrowedEstimate`.
+     */
+    practiceLifted?: boolean;
     /** The topic's stored status: its own page serves it after it closed, too. */
     nodeStatus?: Node['status'];
     gateMode: 'off' | 'advisory' | 'enforced';
