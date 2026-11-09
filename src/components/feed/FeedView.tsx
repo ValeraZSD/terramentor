@@ -541,10 +541,19 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         ))}
                     </ChapterGroup>
                 ) : group.type === 'review' ? (
-                    <section key={`review-${group.cards[0].key}`} className="space-y-2">
-                        <h2 className="flex items-center gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
-                            <History className="w-4 h-4 shrink-0" aria-hidden="true" />
-                            {tr("Recall: what you haven't practiced in a while")}
+                    // The round says how long it is at its head and where it ends at its
+                    // foot (a rule under the last card): the cards in it carry no badge
+                    // of their own, so without the rule the lesson after it reads as
+                    // one more of them.
+                    <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-6 border-b border-slate-300 dark:border-slate-700">
+                        <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+                            <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                            <span>
+                                {tr("Recall: what you haven't practiced in a while")}
+                                <span className="block font-normal text-slate-600 dark:text-slate-400">
+                                    {tr("{{count}} questions", { count: group.cards.length })}
+                                </span>
+                            </span>
                         </h2>
                         <div className="space-y-5">
                             {group.cards.map(card => (
