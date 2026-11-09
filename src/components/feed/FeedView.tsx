@@ -93,18 +93,6 @@ function groupCards(cards: FeedCard[]): FeedGroup[] {
 }
 
 /**
- * What kind of thing the review round's foot says comes next: study material
- * (a topic's lesson, whose own header already names it), the learner's cards,
- * or (nothing of either follows) just that the round is over.
- */
-type RoundFoot = 'material' | 'cards' | 'end';
-function roundFoot(next: FeedGroup | undefined): RoundFoot {
-    if (next?.type === 'chapter') return 'material';
-    if (next?.type === 'single' && next.card.kind === 'flashcard') return 'cards';
-    return 'end';
-}
-
-/**
  * ONE STREAM, THREE SCOPES — the same component draws all of them, because
  * they are the same stream with a different WHERE clause (`composeFeed`,
  * server/feed.js). No argument is the home feed over the whole library;
@@ -523,7 +511,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     or once the learner chooses to go without. */}
                 {!scoped && <AiSetupCard />}
                 {!scoped && <OnboardingCard />}
-                {groups.map((group, gi) => group.type === 'chapter' ? (
+                {groups.map(group => group.type === 'chapter' ? (
                     <ChapterGroup
                         key={group.head.key}
                         projectColor={group.head.projectColor}
@@ -582,14 +570,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         </div>
                         <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
                             <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
-                            <span className="min-w-0 max-w-[80%] text-center">
-                                {(() => {
-                                    const foot = roundFoot(groups[gi + 1]);
-                                    return foot === 'material' ? tr('Study material follows')
-                                        : foot === 'cards' ? tr('Your cards follow')
-                                        : tr('End of recall');
-                                })()}
-                            </span>
+                            {tr('End of recall')}
                             <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
                         </p>
                     </section>
