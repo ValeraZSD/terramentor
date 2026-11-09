@@ -20,9 +20,10 @@
  * the drawing clips the cities to the country's own outline, so a city's outer
  * edge IS the border.
  *
- * Built one country at a time (`buildCountryCities`), because a whole library
- * at once is seconds of work (2.2 s on 2,491 topics in 129 countries) and only
- * the countries the reader has come close to ever need it.
+ * A country is cut by `buildCountryCities`; the map asks for the whole library
+ * at once (`buildCities`, in a worker: `cityBuild.ts`), because that is about a
+ * second of work (1.0 s for 2,490 topics in 129 countries on a desktop CPU)
+ * that must never stop the page.
  */
 import { Vec3, unit3, tangentBasis } from './globeProjection';
 import { SphereLine, Territory, lineOf } from './globeTerritories';
@@ -410,8 +411,8 @@ export function buildCountryCities(
     return { cities, borders, centres, cityAngle: r0, spread: lo > 0 && Number.isFinite(lo) ? hi / lo : 1 };
 }
 
-/** Every country at once — for measuring, and for a gate; the map itself builds
- *  them one country at a time, as the reader comes near. */
+/** Every country at once: what the worker (`citiesWorker.ts`) runs for the map,
+ *  and what a page with no worker runs after its first frame. */
 export function buildCities(
     territories: Territory[],
     regions: { id: number; u: Vec3; topics: { id: number; u: Vec3 }[] }[],

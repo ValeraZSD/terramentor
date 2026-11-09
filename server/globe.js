@@ -552,7 +552,7 @@ const POLE_MARGIN = 0.06;
  * So the pole goes where the land is thinnest (the least `poleLoad` of
  * `POLE_CANDIDATES` directions), and the planet is then spun about that pole
  * until the weight of its land faces the camera's opening yaw. How far up or
- * down to look is the client's (`landPitch` in globeProjection.ts): the flat
+ * down to look is the client's (`landView` in homeView.ts): the flat
  * map opens level, the globe at the land's own latitude. A rotation
  * changes no distance, so every neighbourhood and cap is exactly what it was.
  * The weights are cap AREA, so it is the land a reader sees and not a crowd of
