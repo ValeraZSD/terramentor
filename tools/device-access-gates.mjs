@@ -438,8 +438,8 @@ console.log('\n--- "Turn it on" passes the app on to the tailnet, and never take
 // What the real CLI prints (tailscale/tailscale cmd/tailscale/cli): with Serve
 // not yet turned on for the tailnet it prints a login.tailscale.com/f/serve
 // link to STDOUT and then WAITS for it to be turned on (the app's timeout
-// kills it), or, on some tailnets, exits 0 having served nothing. Every
-// failure used to read "didn't let the app do it" with the reason thrown away.
+// kills it), or, on some tailnets, exits 0 having served nothing. Each kind
+// of no must reach the learner as its own line, and the log as its kind.
 console.log('\n--- when Tailscale says no, the learner reads why, and the log says which kind ---');
 {
     devices.setTailscaleOwnerForTest(OWNER, PC);
