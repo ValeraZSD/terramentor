@@ -1,7 +1,8 @@
 // tools/projects-library-gates.mjs — a big library on the Projects page.
 //
 // Run:  node tools/projects-library-gates.mjs                (the working tree)
-//       node tools/projects-library-gates.mjs --base <rev>   (ProjectsGrid and ShortCourses as
+//       node tools/projects-library-gates.mjs --base <rev>   (ProjectsGrid, ShortCourses and the
+//                                                           two card files as
 //                                                           they are at <rev>, e.g. 4a70df5,
 //                                                           the page before these views, to
 //                                                           watch the cases fail)
@@ -45,9 +46,12 @@ const baseFiles = {
     name: 'base-files',
     setup(build) {
         if (!BASE) return;
-        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](ProjectsGrid|shortCourses[\\/]ShortCourses)\.tsx$/ }, (args) => {
+        build.onLoad({ filter: /[\\/]src[\\/]components[\\/](ProjectsGrid|shortCourses[\\/]ShortCourses|projects[\\/](RecordCard|CompactCard))\.tsx$/ }, (args) => {
             const rel = args.path.slice(root.length + 1).replace(/\\/g, '/');
-            return { contents: execFileSync('git', ['show', `${BASE}:${rel}`], { cwd: root, encoding: 'utf8' }), loader: 'tsx' };
+            // A card file the base does not have yet is the page's own concern: the working copy.
+            try {
+                return { contents: execFileSync('git', ['show', `${BASE}:${rel}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }), loader: 'tsx' };
+            } catch { return undefined; }
         });
     },
 };
@@ -266,6 +270,23 @@ section('the page stays usable when the library changes under it');
     check('…moved back to Active, the page shows Active, not an empty Finished with no way out',
         pg.radios().length === 0 && ACTIVE_FULL.every(n => pg.text().includes(n)) && !/Nothing finished yet/.test(pg.text()),
         pg.text().slice(0, 200));
+    check('…and the address says Active too', pg.where() === '/projects', pg.where());
+    // Later another course is archived: a record again, so the switch returns.
+    // The page must stay where the learner is, not jump to the old ?show= view.
+    await pg.setLib(one.map(p => (p.id === 4 ? { ...p, status: 'active' } : p.id === 2 ? { ...p, status: 'archived' } : p)));
+    check('…a course archived later: the switch is back and Active is still the view',
+        pg.radio('Active')?.getAttribute('aria-checked') === 'true' && ACTIVE_FULL.filter(n => n !== 'Linear algebra').every(n => pg.text().includes(n)),
+        `${pg.where()} ${pg.text().slice(0, 160)}`);
+    pg.close();
+}
+{
+    // An imported card deck has cards and no topics: measured in cards, as its
+    // Active card measures it, never "0 / 0 topics".
+    const deck = [...LIB, P(30, 'Kanji deck', { status: 'archived', topic_count: 0, completed_topic_count: 0, card_count: 400, seen_card_count: 120, teaches: false, updated_at: '2026-10-31T09:00:00.000Z' })];
+    const pg = await page('/projects?show=archived', deck);
+    check('an archived card deck says the cards met, not a topic count',
+        pg.text().includes('Kanji deck') && pg.text().includes('120 / 400 cards met') && !pg.text().includes('0 / 0 topics'),
+        pg.text().slice(0, 200));
     pg.close();
 }
 {
@@ -277,5 +298,5 @@ section('the page stays usable when the library changes under it');
     pg.close();
 }
 
-console.log(`\n${pass} passed, ${fail} failed${BASE ? ` (ProjectsGrid + ShortCourses at ${BASE})` : ''}`);
+console.log(`\n${pass} passed, ${fail} failed${BASE ? ` (the page and its cards at ${BASE})` : ''}`);
 process.exit(fail ? 1 : 0);

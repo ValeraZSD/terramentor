@@ -5,8 +5,9 @@ import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, BookOpen, CheckCircle2, ExternalLink, File, FileText, Globe, MoreVertical,
-    RotateCcw, Sparkles, SquarePlay, Trash2, Trophy,
+    Layers, RotateCcw, Sparkles, SquarePlay, Trash2, Trophy,
 } from 'lucide-react';
+import { countsInCards } from '../../utils/projectShape';
 import { useStore } from '../../store';
 import type { Project } from '../../types';
 import { IconButton } from '../ui/Button';
@@ -39,7 +40,11 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
     const archived = project.status === 'archived';
     const done = project.completed_topic_count ?? 0;
     const total = project.topic_count ?? 0;
-    const allDone = total > 0 && done >= total;
+    // A deck is measured in cards, as on its Active card (`countsInCards`): a
+    // collection with no topics would otherwise read "0 / 0 topics".
+    const cards = project.card_count ?? 0;
+    const isDeck = countsInCards({ teaches: project.teaches, topics: total, cards });
+    const allDone = !isDeck && total > 0 && done >= total;
 
     const setStatus = async (status: 'active' | 'completed' | 'archived') => {
         setMenuOpen(false);
@@ -61,16 +66,18 @@ export function RecordCard({ project, onChanged }: { project: Project; onChanged
     // What it was, then how it ended, a line each: a record needs no ring and
     // no button (every ring in Finished would read 100%), so the card stays
     // short. One shared line cut most sites to "howtomechatr…" beside the date.
-    const KindIcon = from?.kind ? KIND_ICON[from.kind] ?? File : BookOpen;
+    const KindIcon = from?.kind ? KIND_ICON[from.kind] ?? File : isDeck ? Layers : BookOpen;
     const what = from
         ? (from.kind === 'topic' ? t("Written from its title") : from.host || from.file || t("Short course"))
-        : t("Course");
+        : isDeck ? t("Deck") : t("Course");
     // Finished: when, if every topic was done; how far, if it was filed early
     // or put away.
     const day = project.last_done_at ? dayLabel(project.last_done_at) : '';
     const when = !archived && allDone && day
         ? t("Finished {{date}}", { date: day })
-        : t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) });
+        : isDeck
+            ? t("{{value}} / {{value2}} cards met", { count: cards, value: num(project.seen_card_count ?? 0), value2: num(cards) })
+            : t("{{done}} / {{total}} topics", { count: total, done: num(done), total: num(total) });
     const meta = (
         <span className="flex flex-col min-w-0">
             <span className="flex items-center gap-1.5 min-w-0">
