@@ -32,7 +32,7 @@ import { createHmac } from 'node:crypto';
 import db from './database.js';
 import {
     DEFAULT_OLLAMA_URL, DEFAULT_OPENAI_BASE_URL, NO_BALANCE_RE, activeKey, apiKeyOriginOf, getAISettings,
-    listModelsFor, normalizeOpenAIBaseUrl, saveActiveKey, tinyReplyFor, visionAvailability,
+    listModelsFor, normalizeOpenAIBaseUrl, saveActiveKey, tinyReplyFor, visionAvailability, withoutKey,
 } from './ai.js';
 import { assertCredentialsWritable, connectionSecret, deleteSecrets, getSecret, newSecretRef, setSecret, setSecrets } from './secrets.js';
 import { LAB_RULES, hostWire, warmOpenRouterCatalogue, openRouterEffortsFor, wireOf } from './aiWire.js';
@@ -500,7 +500,7 @@ async function checkOpenRouterKey(settings) {
     if (res.ok) { await res.body?.cancel().catch(() => { }); return; }
     // Read for its reason, bounded, and reduced to the error fields before it
     // can reach the test's verdict (httpBody.js).
-    const body = errorSummary(await readCappedText(res, ERROR_BODY_BYTES).catch(() => ''));
+    const body = withoutKey(errorSummary(await readCappedText(res, ERROR_BODY_BYTES).catch(() => '')), settings);
     throw Object.assign(new Error(`Key check failed (${res.status})`), { httpStatus: res.status, responseBody: body });
 }
 

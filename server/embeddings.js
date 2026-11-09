@@ -25,7 +25,7 @@
 // dependency.
 
 import db, { vecAvailable } from './database.js';
-import { getAISettings, normalizeOpenAIBaseUrl, openAIBody } from './ai.js';
+import { getAISettings, normalizeOpenAIBaseUrl, openAIBody, withoutKey } from './ai.js';
 import { wireFetch, wireOf } from './aiWire.js';
 import * as tasks from './tasks.js';
 
@@ -182,7 +182,7 @@ export async function embedBatch(texts) {
             signal: AbortSignal.timeout(60000),
         });
         if (!res.ok) {
-            const body = await res.text().catch(() => '');
+            const body = withoutKey(await res.text().catch(() => ''), ai);
             throw new Error(`embeddings ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
         }
         const json = await res.json();

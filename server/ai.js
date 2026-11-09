@@ -450,7 +450,7 @@ export function normalizeOpenAIBaseUrl(raw) {
 
 /** A provider may echo the key it refused. What it said is shown to the learner
  *  and kept on the failed task, so the key is cut out where the body is read. */
-function withoutKey(text, settings) {
+export function withoutKey(text, settings) {
     const key = settings?.apiKey;
     return key && key.length >= 8 ? String(text).split(key).join('[key]') : text;
 }
