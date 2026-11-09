@@ -220,9 +220,10 @@ const samples = frames.slice(0, rideFrames);
 // scale.
 const TRACE_DIR = resolve(dirname(here), '../temp/camtrace');
 const { FLAT_DX_DLON, FLAT_HALF_W, FLAT_HALF_H } = globalThis.__proj;
-/** Pixels per radian at zoom 1. */
+/** Pixels per radian at zoom 1: on the planet its drawn radius, the short
+ *  side times `BASE_FILL` (0.44), as GlobeMap's `radius()` sizes it. */
 const UNIT = onGlobe
-    ? Math.min(VIEW.w, VIEW.h) * 0.44 / 2
+    ? Math.min(VIEW.w, VIEW.h) * 0.44
     : Math.min(VIEW.w / (2 * FLAT_HALF_W), VIEW.h / (2 * FLAT_HALF_H));
 const ACROSS = onGlobe ? 1 : FLAT_DX_DLON;
 /** One frame's movement of the picture: a step in pixels, and the zoom's share. */

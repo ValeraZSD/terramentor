@@ -982,10 +982,15 @@ if (coursePaths) {
         && !/1 - Math\.exp\(-kOmega \* dt\)/.test(globe));
     // …and it stops dead wherever the READER moves the map: a drag that ends
     // must not fling it, and a fly-to must not start with the momentum of
-    // whatever happened before it.
-    check('a hand on the map takes the momentum out of it',
+    // whatever happened before it. Each door by name: a count of calls still
+    // passed with the press that starts a drag left out. (The rule held on the
+    // planet before the Map was drawn by it, so this passes on both.)
+    const handler = (head) => { const at = globe.indexOf(head); return at < 0 ? '' : globe.slice(at, at + 4000); };
+    check('a hand on the map takes the momentum out of it (press, wheel, arrow keys)',
         /const takeCamera = useCallback\(\(\) => \{[\s\S]{0,400}?camVelRef\.current = \{ yaw: 0, pitch: 0, lk: 0 \}/.test(globe)
-        && (globe.match(/takeCamera\(\)/g) || []).length >= 3);
+        && /^[\s\S]*?\n\s{8}\};/.exec(handler('const onDown = (e: PointerEvent) => {'))?.[0].includes('takeCamera()')
+        && /^[\s\S]*?\n\s{8}\};/.exec(handler('const onWheel = (e: WheelEvent) => {'))?.[0].includes('takeCamera()')
+        && /ArrowLeft: \(\) => \{ takeCamera\(\);/.test(globe));
     // What counts as a cut is WHO moved the target, not how far it is from the
     // arrow: a distance rule cannot tell a reader pressing Restart from a
     // browser that skipped half a second of frames, and it read the second as
