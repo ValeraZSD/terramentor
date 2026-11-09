@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import MathText from '../MathText';
 import { api } from '../../api';
+import { useStore } from '../../store';
 import DrillPlayer from './DrillPlayer';
 import type { DrillRoundResult, DrillSpec } from '../../types';
 import { X } from 'lucide-react';
@@ -27,6 +28,7 @@ interface Props {
  */
 export default function DrillModal({ spec, onClose, onRound }: Props) {
     const { t } = useTranslation();
+    const noteAnswerSaved = useStore(s => s.noteAnswerSaved);
     // `Modal`'s contract: the counted scroll lock it already had, plus focus in
     // and back, Tab kept inside, and Escape only while this is the topmost
     // dialog.
@@ -37,10 +39,15 @@ export default function DrillModal({ spec, onClose, onRound }: Props) {
         // Only full rounds are honest evidence; a "missed-only" retry is a biased
         // subset. Silent, best-effort — a drill is practice, not a graded task.
         if (result.full && spec.nodeId && result.total > 0) {
-            api.recordDrillResult(spec.nodeId, result.correct, result.total, spec.key, result.items).catch(() => { });
+            const nodeId = spec.nodeId;
+            // Once written, the topic's end card (if one is mounted) re-reads
+            // its numbers: the drill moved the estimate it shows.
+            api.recordDrillResult(spec.nodeId, result.correct, result.total, spec.key, result.items)
+                .then(() => noteAnswerSaved(nodeId))
+                .catch(() => { });
         }
         onRound?.(result);
-    }, [spec.nodeId, spec.key, onRound]);
+    }, [spec.nodeId, spec.key, onRound, noteAnswerSaved]);
 
     // Hung from the TOP on a wide screen, never centred. The panel changes height
     // while it is played — the feedback strip arrives under the options on every

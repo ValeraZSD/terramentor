@@ -25,7 +25,7 @@
  * No second threshold: "ready" is exactly "pressing Complete would not be
  * stopped by the gate". So a seeded prior alone is never readiness (the gate
  * suspends the BKT clause on a borrowed estimate), and neither are card
- * ratings alone (they cannot clear the raw-score clause).
+ * ratings or drills alone (the gate reads the estimate without them).
  *
  * And only of what the check can be TAKEN on: a `WORK_LEAF`, the rule the
  * draw refuses by (`masteryCheckTarget`), so a section past its dates (an
