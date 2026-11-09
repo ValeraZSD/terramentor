@@ -488,40 +488,20 @@ export async function globeLayout(regions) {
     return { dirs: faceTheReader(dirs, caps), caps };
 }
 
-/** The camera's opening tilt: `DEFAULT_PITCH` in GlobeMap.tsx, which the gate holds equal. */
-export const OPENING_PITCH = 0.3;
+/** Candidate poles tried by `seaAtThePoles`: about 4.5° apart. */
+const POLE_CANDIDATES = 2000;
 
-/**
- * Turn the whole planet, rigidly, so the weight of its land faces the opening
- * view.
- *
- * Nothing in the layout says which way round the planet should be held — the
- * principal axes have no sign — so where the land ended up relative to the
- * opening view was luck, and once the land is spread over the whole sphere the
- * luck can be an ocean filling the first picture a learner sees. A rotation
- * changes no distance, so every neighbourhood and cap is exactly what it was.
- * The mean is weighted by cap AREA, so it is the land a reader sees and not a
- * crowd of small regions.
- */
-function faceTheReader(dirs, caps) {
-    const m = [0, 0, 0];
-    dirs.forEach((d, i) => {
-        const w = 1 - Math.cos(caps[i]);
-        m[0] += d[0] * w; m[1] += d[1] * w; m[2] += d[2] * w;
-    });
-    const a = unit3(m);
-    if (!a) return dirs;
-    // Rodrigues: the rotation that takes `a` onto the direction facing the
-    // reader in the opening view, about the axis a × t. +z is north and the
-    // camera opens at yaw 0, pitch `OPENING_PITCH` (`rotate` in
-    // globeProjection.ts), which faces (0, cos p, sin p).
-    const t = [0, Math.cos(OPENING_PITCH), Math.sin(OPENING_PITCH)];
+/** The rotation taking unit `a` onto unit `t` (Rodrigues, about a × t). */
+function turnOnto(dirs, a, t) {
     const axis = [a[1] * t[2] - a[2] * t[1], a[2] * t[0] - a[0] * t[2], a[0] * t[1] - a[1] * t[0]];
     const s = Math.hypot(axis[0], axis[1], axis[2]);
     const c = dot3(a, t);
-    // Already facing, or facing exactly away: a half turn about x, which is
-    // square to t.
-    if (s < 1e-9) return c > 0 ? dirs : dirs.map(([x, y, z]) => [x, -y, -z]);
+    if (s < 1e-9) {
+        if (c > 0) return dirs;
+        // Exactly away: a half turn about any axis square to `t`.
+        const q = unit3(Math.abs(t[0]) < 0.9 ? [0, -t[2], t[1]] : [-t[1], t[0], 0]);
+        return dirs.map(v => { const d = 2 * dot3(q, v); return unit3([d * q[0] - v[0], d * q[1] - v[1], d * q[2] - v[2]]) || v; });
+    }
     const k = [axis[0] / s, axis[1] / s, axis[2] / s];
     return dirs.map(v => {
         const kv = dot3(k, v);
@@ -532,6 +512,73 @@ function faceTheReader(dirs, caps) {
             v[2] * c + kxv[2] * s + k[2] * kv * (1 - c),
         ]) || v;
     });
+}
+
+/**
+ * How much land a pole at `p` would sit under: each cap counted at its point
+ * nearest the pole, by the fourth power of how high that point climbs, and by
+ * its area. The fourth power is what makes the poles themselves count and the
+ * middle latitudes hardly at all — the flat map squeezes the top and bottom of
+ * the sheet, not its middle.
+ */
+export function poleLoad(dirs, caps, p) {
+    let load = 0;
+    for (let i = 0; i < dirs.length; i++) {
+        const lat = Math.asin(clamp(Math.abs(dot3(dirs[i], p)), 0, 1));
+        const s = Math.sin(Math.min(Math.PI / 2, lat + caps[i]));
+        load += (1 - Math.cos(caps[i])) * s ** 4;
+        // Ground ON a pole costs far more than any amount of ground near one.
+        // The land reaches past its cap (`reachOf` in globeTerritories.ts:
+        // 0.26 of the cap and 0.03 more), so the clearance asked for is that
+        // reach and a little over.
+        const short = POLE_MARGIN_SHARE * caps[i] + POLE_MARGIN - (Math.PI / 2 - lat - caps[i]);
+        if (short > 0) load += 10 * short;
+    }
+    return load;
+}
+/** How far past a cap's rim a pole must stay: a share of the cap, plus a constant. */
+const POLE_MARGIN_SHARE = 0.3;
+const POLE_MARGIN = 0.06;
+
+/**
+ * Turn the whole planet, rigidly, so its poles fall on sea and its land faces
+ * the opening view.
+ *
+ * Nothing in the layout says which way round the planet should be held — the
+ * principal axes have no sign — so where the land ended up was luck. Two kinds
+ * of luck were bad. An ocean could fill the first picture a learner sees. And
+ * the flat map, which unrolls the planet with north at the top, squeezes the
+ * land near either pole into a smear along the sheet's top and bottom edges.
+ * So the pole goes where the land is thinnest (the least `poleLoad` of
+ * `POLE_CANDIDATES` directions), and the planet is then spun about that pole
+ * until the weight of its land faces the camera's opening yaw. How far up or
+ * down to look is the client's (`landPitch` in globeProjection.ts): the flat
+ * map opens level, the globe at the land's own latitude. A rotation
+ * changes no distance, so every neighbourhood and cap is exactly what it was.
+ * The weights are cap AREA, so it is the land a reader sees and not a crowd of
+ * small regions.
+ */
+function faceTheReader(dirs, caps) {
+    if (!dirs.length) return dirs;
+    let best = [0, 0, 1], least = poleLoad(dirs, caps, best);
+    for (const p of fibonacciSphere(POLE_CANDIDATES)) {
+        // A pole and its antipode carry the same load; one hemisphere is enough.
+        if (p[2] < 0) continue;
+        const load = poleLoad(dirs, caps, p);
+        if (load < least - 1e-12) { least = load; best = p; }
+    }
+    const polar = turnOnto(dirs, best, [0, 0, 1]);
+    // Then spin about the pole: the camera opens at yaw 0 (`rotate` in
+    // globeProjection.ts), looking along +y.
+    const m = [0, 0, 0];
+    polar.forEach((d, i) => {
+        const w = 1 - Math.cos(caps[i]);
+        m[0] += d[0] * w; m[1] += d[1] * w;
+    });
+    if (Math.hypot(m[0], m[1]) < 1e-9) return polar;
+    const spin = Math.atan2(m[0], m[1]);
+    const c = Math.cos(spin), s = Math.sin(spin);
+    return polar.map(([x, y, z]) => [x * c - y * s, x * s + y * c, z]);
 }
 
 /**
