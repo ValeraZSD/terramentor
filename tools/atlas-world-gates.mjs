@@ -355,8 +355,8 @@ if (CB) {
     // after freezing it for seconds: that failure is the answer.
     const failedJob = CB.citiesFor([], [], 'gate-error');
     workers.at(-1).reply({ type: 'error', message: 'stub' });
-    const failed = await settle(failedJob);
-    check('a build that failed in the worker fails, not run again on the page', failed.ok === false, JSON.stringify(failed));
+    const errored = await settle(failedJob);
+    check('a build that failed in the worker fails, not run again on the page', errored.ok === false, JSON.stringify(errored));
     const made = workers.length;
     const again = CB.citiesFor([], [], 'gate-error');
     check('…and the next map of that atlas asks again', workers.length === made + 1);
