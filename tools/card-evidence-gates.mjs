@@ -177,6 +177,10 @@ const strong = db.prepare(`
     WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check', 'paper') LIMIT 1
 `).get(practised);
 check('…but a card is never assessment evidence', !strong);
+// The assertion the two above stood in for: twelve Easy ratings, an estimate
+// over the threshold, and the gate still shut (every case in
+// tools/practice-proof-gates.mjs).
+eq('…and the topic does not pass the gate', gate.eligible, false);
 
 // A topic whose cards are going badly must not be dragged over the line by the
 // evidence merely EXISTING — the pre-fix behaviour of the raw-score clause.

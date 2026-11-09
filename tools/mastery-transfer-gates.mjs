@@ -130,6 +130,16 @@ check('an unrelated subject transfers nothing',
     (await computeTransfer(nBread, { threshold: THRESHOLD })).prior === 0);
 check('a topic with no proven twin transfers nothing',
     (await computeTransfer(nFourier, { threshold: THRESHOLD })).prior === 0);
+// A twin over the line on card reviews alone was not proved anywhere: the
+// head start would say "a topic you proved elsewhere" about a deck's ratings.
+{
+    const cardsOnly = db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 4, 4)").run(nTwin).lastInsertRowid;
+    check('a twin held only in card reviews transfers nothing',
+        (await computeTransfer(nNew, { threshold: THRESHOLD })).prior === 0);
+    db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cardsOnly);
+    check('…and the same twin with its card row gone transfers again',
+        (await computeTransfer(nNew, { threshold: THRESHOLD })).prior > 0);
+}
 
 // Two curricula describing the same material are the same knowledge twice, not
 // twice the evidence — so a second twin must not stack.

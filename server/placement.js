@@ -11,7 +11,8 @@
 //
 //   • A seeded prior is capped below any sane `mastery_threshold` (`PLACEMENT_CEILING`).
 //   • `checkMasteryEligibility` suspends the BKT clause on a seeded node until it has
-//     `MIN_GATE_QUESTIONS` answers of its OWN.
+//     `MIN_GATE_QUESTIONS` answered questions of its OWN (not the probe answer, not
+//     card ratings or drills).
 //   • Seeds combine with MAX, never a sum (`applySeededPrior`).
 //   • A node with real measurement is never re-seeded.
 //

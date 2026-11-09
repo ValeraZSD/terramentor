@@ -20,8 +20,8 @@
 //          `mastery_threshold`, so a borrowed estimate cannot reach the bar
 //          however similar and however well-proven the twin is; and
 //       2. `checkMasteryEligibility` refuses the BKT clause entirely on a
-//          transferred node until it has MIN_GATE_QUESTIONS answers of its
-//          OWN — otherwise two lucky true/falses on top of a high prior would
+//          transferred node until it has MIN_GATE_QUESTIONS answered questions
+//          of its OWN (card ratings and drills do not count) — otherwise two lucky true/falses on top of a high prior would
 //          clear a topic the learner never touched.
 //     Proof still has to happen here. What transfers is the estimate, not the
 //     evidence.
@@ -40,7 +40,7 @@
 // estimate starts at zero exactly as before.
 
 import db from './database.js';
-import { decayedMastery, applySeededPrior } from './mastery.js';
+import { decayedMastery, applySeededPrior, estimateProven } from './mastery.js';
 import { similarNodes, topicSpaceReady, hasNodeVector } from './nodeEmbeddings.js';
 import { publicMessage } from './clientError.js';
 
@@ -90,7 +90,7 @@ export async function computeTransfer(nodeId, { threshold = 0.85, decayDays = 14
         return { prior: 0, sources: [], available: false };
     }
 
-    const twins = await similarNodes(nodeId, {
+    const twins = (await similarNodes(nodeId, {
         limit: 8,
         minSimilarity: TRANSFER_MIN_SIMILARITY,
         centred: true,
@@ -99,7 +99,9 @@ export async function computeTransfer(nodeId, { threshold = 0.85, decayDays = 14
         masteredOnly: true,
         threshold,
         allowEmbed,
-    });
+    // A twin is proven by answers, not by card reviews or drills alone (the
+    // gate's own estimate, server/mastery.js): "a topic you proved elsewhere".
+    })).filter(t => estimateProven(t.id, threshold));
 
     const sources = twins
         .map(t => {

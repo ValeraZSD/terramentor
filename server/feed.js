@@ -514,6 +514,7 @@ export function checkpointFacts(nodeId, gate) {
     let eligible = false;
     let borrowedEstimate = false;
     let borrowedFrom = null;
+    let practiceLifted = false;
     try {
         const detail = getNodeMasteryDetail(nodeId);
         masteryScore = detail?.mastery_score || 0;
@@ -526,6 +527,10 @@ export function checkpointFacts(nodeId, gate) {
         // (they combine by MAX), since "a topic you proved elsewhere" is a
         // false sentence about a placement answer.
         borrowedEstimate = !!el.borrowed_estimate;
+        // Over the line on card reviews and drills alone, which the gate
+        // does not count (server/mastery.js): the card says why, for the
+        // same reason as a borrowed estimate.
+        practiceLifted = !!el.practice_lifted;
         if (borrowedEstimate) {
             borrowedFrom = (detail?.placement_prior ?? 0) > (detail?.transferred_prior ?? 0) ? 'placement' : 'transfer';
         }
@@ -536,7 +541,7 @@ export function checkpointFacts(nodeId, gate) {
     const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
     // The mode as it is NOW: a card composed before the setting changed would
     // otherwise keep offering the old mode's ways out.
-    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, nodeStatus, gateMode: gate.mode };
+    return { feedCorrect, feedTotal, masteryScore, eligible, borrowedEstimate, borrowedFrom, practiceLifted, nodeStatus, gateMode: gate.mode };
 }
 
 /** Common card fields carried by every node-bound card. */

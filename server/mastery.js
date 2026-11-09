@@ -181,20 +181,21 @@ export function getNodeMastery(nodeId) {
 // Validated on this function because it is the single write path — feed.js,
 // the quiz and mastery routes (server/routes/) and paper.js all funnel through it.
 //
-// Not all evidence is equal: checkMasteryEligibility's raw-score clause honours
-// only 'quiz' | 'mastery_check' | 'paper'. 'drill' and 'flashcard' sharpen the
-// retention estimate and refresh the decay timer but can never clear the
-// completion gate on their own — practice tunes the estimate, proving needs an
-// assessment. Paper counts because worked-by-hand solutions are the strongest
-// proof this engine can collect.
+// Not all evidence is equal. Only PROVING_EVIDENCE — 'quiz' | 'mastery_check'
+// | 'paper', answers the app graded — counts toward the completion gate, in
+// both of checkMasteryEligibility's clauses. 'drill' and 'flashcard' are
+// PRACTICE: a card is graded by the learner's own press and a drill replays
+// the same few items, so they sharpen the retention estimate and refresh the
+// decay timer, and the gate reads the estimate with them taken out (it may
+// read LOWER because of them, never higher). Paper counts because
+// worked-by-hand solutions are the strongest proof this engine can collect.
 // 'placement' is a probe answer taken BEFORE the topic was studied (see
 // server/placement.js). It is real evidence — the learner genuinely answered —
-// so it is recorded rather than hidden, but it is deliberately absent from
-// clause (b) below for the same reason 'drill' is: a probe asks ONE question
-// per topic, so it can never be an assessment of >= MIN_GATE_QUESTIONS, and a
-// kind of evidence that cannot reach the bar must not be allowed to look as if
-// it might.
+// so it is recorded rather than hidden, but its contribution is the seed it
+// wrote, so it neither proves a topic nor un-borrows that seed.
 export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement'];
+export const PROVING_EVIDENCE_TYPES = ['quiz', 'mastery_check', 'paper'];
+const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
 
 /** Upper bound on questions in ONE attempt — no assessment here is remotely this long. */
 export const MAX_ATTEMPT_QUESTIONS = 500;
@@ -345,7 +346,15 @@ export const MIN_GATE_QUESTIONS = 4;
  * well below the threshold even after a clearly-passing assessment (e.g. 8/10 →
  * ~0.67). Gating purely on BKT made "passing" a mastery check fail to complete the
  * node — so we also honor the transparent raw-score the learner actually saw.
- * Flashcard self-ratings are excluded from clause (b) to keep the gate honest.
+ *
+ * **Practice never proves.** Card ratings and drill rounds move `mastery_score`
+ * (the retention estimate every other reader uses), but clause (a) reads
+ * `gate_score`: the node's PROVING_EVIDENCE replayed from its seed, and never
+ * more than `mastery_score`. So four Easy ratings on a fresh topic (0.99) leave
+ * the gate at 0, Easy cards cannot lift a failed check or a weak quiz over the
+ * line, and missed cards still lower what the gate sees. A node with no practice
+ * evidence reads `mastery_score` exactly, so nothing else moves. Practice is
+ * also not the node's "own answers": only proving answers un-borrow a seed.
  *
  * **Transferred priors suspend clause (a).** When a node's estimate was seeded
  * from a semantically identical topic in another project (see
@@ -369,11 +378,15 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
         'SELECT COUNT(*) as count FROM mastery_evidence WHERE node_id = ?'
     ).get(nodeId);
 
-    // Questions answered ON THIS NODE, regardless of kind — what distinguishes
-    // a borrowed estimate from a measured one.
-    const ownAnswers = stmt(
-        'SELECT COALESCE(SUM(total), 0) AS n FROM mastery_evidence WHERE node_id = ?'
-    ).get(nodeId).n;
+    // Questions the app graded ON THIS NODE — what distinguishes a borrowed
+    // estimate from a measured one. Practice is not counted (four ratings
+    // would un-borrow a seed), nor a placement answer (it IS the seed).
+    const counts = stmt(`
+        SELECT COALESCE(SUM(CASE WHEN ${PROVING_EVIDENCE_SQL} THEN total END), 0) AS own,
+               COUNT(CASE WHEN evidence_type IN ('flashcard', 'drill') THEN 1 END) AS practice
+        FROM mastery_evidence WHERE node_id = ?
+    `).get(nodeId);
+    const ownAnswers = counts.own;
     // A prior seeded by EITHER route is borrowed. The two sources answer
     // different questions and are stored separately so the UI can say the right
     // one, but the gate must not care which: both put part of the posterior
@@ -386,7 +399,7 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     const strongEvidence = stmt(`
         SELECT 1 FROM mastery_evidence
         WHERE node_id = ?
-          AND evidence_type IN ('quiz', 'mastery_check', 'paper')
+          AND ${PROVING_EVIDENCE_SQL}
           AND total >= ?
           AND (score * 1.0 / total) >= ?
         LIMIT 1
@@ -394,11 +407,21 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
 
     const hasEvidence = evidenceCount.count > 0;
     const passedAssessment = !!strongEvidence;
-    const bktClause = record.mastery_score >= threshold && !borrowed;
+    // The estimate the gate reads: the stored one, with practice taken out by
+    // replaying only proving evidence from the seed (the replay `rescoreNode`
+    // runs). The MIN keeps whatever lowered the stored score (missed cards, an
+    // agent's wrong claim, rates fitted since) — practice can only cost here.
+    const gateScore = gateScoreOf(record, counts.practice > 0);
+    const bktClause = gateScore >= threshold && !borrowed;
+    const eligible = hasEvidence && (bktClause || passedAssessment);
 
     return {
-        eligible: hasEvidence && (bktClause || passedAssessment),
+        eligible,
         mastery_score: record.mastery_score,
+        gate_score: gateScore,
+        // The estimate is over the line and only practice put it there: the
+        // reader says so, or "99%" beside "not proven yet" reads as a bug.
+        practice_lifted: !eligible && !borrowed && record.mastery_score >= threshold && gateScore < threshold,
         evidence_count: evidenceCount.count,
         threshold,
         has_evidence: hasEvidence,
@@ -472,16 +495,48 @@ export function applySeededPrior(nodeId, kind, prior, sources = []) {
     return { written: true, score };
 }
 
+/** Where a replay starts: the seed a node holds (they combine by MAX), else 0. */
+const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
+
+/**
+ * The estimate the gate reads for a `node_mastery` row (see
+ * checkMasteryEligibility): `mastery_score` with card and drill evidence taken
+ * out, never above it. `practice` = whether the node has any such evidence,
+ * when the caller already counted it.
+ */
+function gateScoreOf(record, practice) {
+    const hasPractice = practice ?? !!stmt(
+        "SELECT 1 FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('flashcard', 'drill') LIMIT 1"
+    ).get(record.node_id);
+    return hasPractice
+        ? Math.min(record.mastery_score, replayOwnEvidence(record.node_id, seedOf(record), { provingOnly: true }))
+        : record.mastery_score;
+}
+
+/**
+ * Is this topic's estimate PROVEN at `threshold`, by answers measured here?
+ * The reader for anything that calls a topic proven without asking the whole
+ * gate: the finished-project screen's count and mastery transfer's choice of a
+ * twin to borrow from. Answers on this node (`total_attempts > 0`, so a seed
+ * alone is not), and the gate's estimate, so cards and drills alone are not.
+ * Reads only: a node with no row is not proven.
+ */
+export function estimateProven(nodeId, threshold) {
+    const record = stmt('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
+    if (!record || !(record.total_attempts > 0) || record.mastery_score < threshold) return false;
+    return gateScoreOf(record) >= threshold;
+}
+
 /**
  * The estimate a node's own evidence earns, replayed in order from `start` with
  * the same arithmetic `updateMasteryFromAttempt` applies row by row. Placement
  * rows are skipped: a probe answer never ran BKT (its seed was its
- * contribution).
+ * contribution). `provingOnly` also skips practice: the estimate the gate reads.
  */
-function replayOwnEvidence(nodeId, start) {
-    const rows = db.prepare(`
+function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
+    const rows = stmt(`
         SELECT score, total, metadata FROM mastery_evidence
-        WHERE node_id = ? AND evidence_type != 'placement'
+        WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
         ORDER BY id
     `).all(nodeId);
     let p = start;
@@ -509,8 +564,7 @@ function replayOwnEvidence(nodeId, start) {
  */
 export function rescoreNode(nodeId, { score = 0, total = 0 } = {}) {
     const record = getNodeMastery(nodeId);
-    const start = Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
-    const p = replayOwnEvidence(nodeId, start);
+    const p = replayOwnEvidence(nodeId, seedOf(record));
     stmt(`
         UPDATE node_mastery
         SET mastery_score = ?, total_attempts = MAX(0, total_attempts + ?), correct_attempts = MAX(0, correct_attempts + ?)
