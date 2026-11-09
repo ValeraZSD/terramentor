@@ -326,6 +326,27 @@ if (L) {
     check('names claim their ground: picked > hovered > left standing by a search > size',
         order === 'picked > hovered > searched big > searched > big', order);
 }
+// Loaded on its own so it also runs (and fails) on a checkout without
+// `labelOrder`: two names one above the other must not touch, or they read as
+// one name. Text is measured by a stub (7px a character), one line at 12px.
+const LB = await load('src/components/atlas/mapLabels.ts', ['createLabeller']);
+if (LB) {
+    const stub = () => ({
+        drawn: [], font: '', globalAlpha: 1, textAlign: '', lineJoin: '', lineWidth: 0, strokeStyle: '', fillStyle: '',
+        measureText: (t) => ({ width: t.length * 7 }),
+        strokeText() { }, fillText(t) { this.drawn.push(t); },
+    });
+    const style = { size: 12, weight: 600, alpha: 1 };
+    const lh = 12 * 1.16;
+    const below = (dy) => {
+        const ctx = stub();
+        const lab = LB.createLabeller(ctx, { width: 400, height: 300, ink: '#000', halo: '#fff' });
+        lab.wrapLabel('Matrix Methods', 200, 150, style, 300);
+        return lab.wrapLabel('Logic and Proofs', 200, 150 + lh + dy, style, 300);
+    };
+    check('a name 1px under another is dropped: stacked edge to edge they read as one name', !below(1));
+    check('…and one a clear gap under it is kept', below(8));
+}
 const J = await load('src/components/atlas/journeyStyle.ts', ['JOURNEY_MAX_WIDTH', 'JOURNEY_HALO_WIDTH']);
 if (J) {
     check('the route is a thin line over the cities (≤ 2.4 px at its widest, halo ≤ 2.4)',
@@ -391,8 +412,9 @@ if (S) {
     const hintSrc = read('src/components/atlas/StudyNext.tsx') || '';
     check('the region list opens with it, except while searching',
         /\{!query\.trim\(\) && <StudyNext next=\{data\.next\} regions=\{data\.regions\} \/>\}\s*<RegionList/.test(pageSrc));
-    check('…each row a topic row that opens its topic and says what it is near',
-        /<TopicRow[\s\S]{0,300}?near \{\{topic\}\}[\s\S]{0,200}?openProjectNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
+    // The reason leads the line: after a long course name it was cut off.
+    check('…each row a topic row that opens its topic and says first what it is near',
+        /<TopicRow[\s\S]{0,400}?tr\("Near \{\{topic\}\} · \{\{course\}\}"[\s\S]{0,200}?openProjectNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
         && /<TopicRow\b/.test(read('src/components/atlas/RegionList.tsx') || ''));
 }
 

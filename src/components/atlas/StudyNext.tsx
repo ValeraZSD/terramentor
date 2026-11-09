@@ -43,7 +43,10 @@ export default function StudyNext({ next, regions }: {
                     <li key={topic.id}>
                         <TopicRow
                             topic={topic}
-                            detail={tr("{{course}} · near {{topic}}", { course: topic.projectName, topic: near })}
+                            // The reason first: a long course name cut
+                            // "near …" off every row, the one part that says
+                            // why this topic and not another.
+                            detail={tr("Near {{topic}} · {{course}}", { topic: near, course: topic.projectName })}
                             onOpen={() => openProjectNode(topic.projectId, topic.id)}
                         />
                     </li>

@@ -147,6 +147,9 @@ export function refreshRootFontScale(): number {
 /** The reader's own px for a size expressed at 100%. */
 export const labelPx = (px: number) => Math.round(px * rootScale);
 
+/** The clear space kept between two names one above the other, at 100%. */
+export const LABEL_GAP_Y = 5;
+
 /** What a name has going for it when two names want the same ground. */
 export interface LabelClaim {
     /** The place the reader picked. */
@@ -237,8 +240,12 @@ export function createLabeller(
 
     const free = (box: Box) => {
         if (box.x1 < 0 || box.x0 > width || box.y1 < 0 || box.y0 > height) return false;
+        // Two names stacked edge to edge read as ONE name ("Matrix Methods"
+        // straight over "Logic, Proofs, and"), so a box also keeps a gap
+        // above and below it; sideways the 3px each box carries already does.
+        const gap = labelPx(LABEL_GAP_Y);
         for (const b of boxes) {
-            if (box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0) return false;
+            if (box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 + gap && box.y1 + gap > b.y0) return false;
         }
         return true;
     };
