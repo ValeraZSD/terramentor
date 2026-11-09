@@ -272,6 +272,17 @@ try {
     check('…and the gate still reads the claim\'s lowering', el(rebuilt).eligible === false && Math.abs(el(rebuilt).gate_score - claimLow) < 1e-12, show(rebuilt));
     check('…so estimateProven (the completion count, transfer, the Atlas) says not proven either', mastery.estimateProven?.(rebuilt, T) === false);
     check('…and nothing blames cards or drills it never had (practice_lifted false)', el(rebuilt).practice_lifted === false, show(rebuilt));
+    // The same, with cards on an estimate the rebuild had already put over
+    // the line: the gap is still the claim's, so the read must
+    // not say cards put it over the line.
+    const claimThenCards = addNode(course, 'Standing wave nodes');
+    for (let i = 0; i < 30 && score(claimThenCards) < 0.97; i++) feedAnswer(claimThenCards, true);
+    recordClaim({ nodeId: claimThenCards, correct: false, questionType: 'short_answer' });
+    mastery.rescoreNode(claimThenCards);
+    const rebuiltHigh = score(claimThenCards);
+    updateMasteryFromAttempt(claimThenCards, 3, 4, 'flashcard', { source: 'review' });
+    check('a claim, a rebuild (over the line before any card), then cards: gate still under it', rebuiltHigh >= T && score(claimThenCards) >= T && el(claimThenCards).gate_score < T, `${rebuiltHigh} ${show(claimThenCards)}`);
+    check('…and the read does not blame the cards (practice_lifted false: the claim made the gap)', el(claimThenCards).practice_lifted === false, show(claimThenCards));
 
     console.log('\n--- 9e. a claim row with no evidence mark ---');
     // None is written without one (claims.js reads MAX(id) or 0); a row from

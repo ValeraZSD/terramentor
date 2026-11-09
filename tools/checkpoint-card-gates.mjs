@@ -55,14 +55,28 @@ const out = join(scratch, 'bundle.cjs');
 const stubs = {
     'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });
         export const initReactI18next = { type: '3rdParty', init() { } };`,
+    // noteAnswerSaved as the real store has it: bump the topic's count, tell
+    // every subscriber (the card re-reads on the bump).
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: { feedSavedByNode: {}, masteryGate: { isOpen: false, nodeId: null }, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };
+        g.__st = { state: { feedSavedByNode: {}, masteryGate: { isOpen: false, nodeId: null }, addToast() { }, openMasteryGate() { }, skipNode: async () => true,
+            noteAnswerSaved(id) {
+                g.__st.state = { ...g.__st.state, feedSavedByNode: { ...g.__st.state.feedSavedByNode, [id]: (g.__st.state.feedSavedByNode[id] ?? 0) + 1 } };
+                g.__st.subs.forEach(cb => cb());
+            } }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
             () => sel(g.__st.state));
         useStore.getState = () => g.__st.state;`,
     'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });`,
+    // The player plays one full round as soon as it mounts.
+    'player': `import { useEffect } from 'react';
+        export default function DrillPlayer({ onRoundComplete }) {
+            useEffect(() => { onRoundComplete({ full: true, correct: 4, total: 4, items: [] }); }, []);
+            return null;
+        }`,
+    // The drill title's renderer (KaTeX and its stylesheet are not what is tested).
+    'mathtext': `export default function MathText({ text }) { return text ?? null; }`,
 };
 const stubPlugin = {
     name: 'stubs',
@@ -70,20 +84,24 @@ const stubPlugin = {
         b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
         b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\/DrillPlayer$/ }, () => ({ path: 'player', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub' }));
         b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js', resolveDir: root }));
     },
 };
 
 let CheckpointCard = null;
+let DrillModal = null;
 try {
     await esbuild.build({
-        stdin: { contents: `export { default as CheckpointCard } from './src/components/feed/CheckpointCard';`, resolveDir: root, loader: 'tsx' },
+        stdin: { contents: `export { default as CheckpointCard } from './src/components/feed/CheckpointCard';
+            export { default as DrillModal } from './src/components/drills/DrillModal';`, resolveDir: root, loader: 'tsx' },
         bundle: true, format: 'cjs', platform: 'node', outfile: out,
         jsx: 'automatic', loader: { '.css': 'empty', '.svg': 'dataurl' }, packages: 'external',
         define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' },
         plugins: [stubPlugin], logLevel: 'silent',
     });
-    ({ CheckpointCard } = require(out));
+    ({ CheckpointCard, DrillModal } = require(out));
 } catch (e) {
     console.log(`  (could not bundle the card: ${String(e.message).split('\n').slice(0, 3).join(' | ')})`);
 }
@@ -130,6 +148,36 @@ if (CheckpointCard) {
     host.remove();
     globalThis.__api = undefined;
 } else ok('the card bundles and mounts', false);
+
+// 3. A drill round played in a lesson above the card moves the estimate the
+//    card shows: once its write resolved (not before), the card asks again.
+if (CheckpointCard && DrillModal) {
+    const asked = [];
+    let saveDrill = null;
+    const afterDrill = { feedCorrect: 0, feedTotal: 0, masteryScore: 0.99, gateScore: 0, shownScore: 0.6, practiceCeiling: 0.6,
+        practiceRight: 4, practiceTotal: 4, practiceLifted: true, eligible: false, borrowedEstimate: false, borrowedFrom: null, gateMode: 'enforced' };
+    globalThis.__api = {
+        getCheckpointFacts: (id) => { asked.push(id); return Promise.resolve(afterDrill); },
+        recordDrillResult: () => new Promise(r => { saveDrill = r; }),
+    };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const r = createRoot(host);
+    const card = { ...composed, key: 'checkpoint-64', nodeId: 64, feedCorrect: 0, feedTotal: 0 };
+    await act(() => r.render(h(CheckpointCard, { card, done: false, onDone() { } })));
+    await settle();
+    const spec = { nodeId: 64, key: 'drill-1', modes: ['choice'], items: [] };
+    await act(() => r.render(h('div', null, h(CheckpointCard, { card, done: false, onDone() { } }), h(DrillModal, { spec, onClose() { } }))));
+    await settle();
+    ok('a drill round is written, and the card does not ask before the write resolved', typeof saveDrill === 'function' && asked.length === 0, `${asked.length} request(s)`);
+    await act(async () => { saveDrill?.({ mastery_score: 0.99 }); });
+    await settle();
+    ok('…once written, the card asks for its numbers again', asked.includes(64), `${asked.length} request(s)`);
+    ok('…and shows the drill: 60% and "4 of 4 right"', masteryShown(host) === '60' && host.textContent.includes('4 of 4 right'), host.textContent.slice(0, 200));
+    await act(() => r.unmount());
+    host.remove();
+    globalThis.__api = undefined;
+} else ok('the drill dialog bundles and mounts', false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }

@@ -40,7 +40,7 @@ import { TRANSFER_MIN_SIMILARITY } from './masteryTransfer.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE, projectTeaches } from './nodeRole.js';
 import { countsInCards } from './progress.js';
-import { estimateProven } from './mastery.js';
+import { estimateProven, PROVING_EVIDENCE_SQL, PRACTICE_EVIDENCE_SQL } from './mastery.js';
 import { cachedNamesFor, scheduleRegionNaming, regionSignature, nameModelFor, USER_MODEL } from './regionNaming.js';
 import {
     dot, normalizeInto, powerIteration, deflate, nearestNeighbours,
@@ -1232,12 +1232,15 @@ const percent = (mastery) => Math.round(mastery * 100);
 
 async function findBridges(regions, minSimilarity) {
     const bridges = [];
-    // A bridge's proven side: finished, or over 0.85 on proving evidence (card
-    // reviews alone are no head start waiting; transfer's own default bar).
+    // A bridge's proven side: over 0.85 on proving evidence, the test transfer
+    // applies to a source (its own default bar), so "a head start is waiting"
+    // is only said where transfer would lend one. Not "completed" alone: a
+    // topic marked done without the check, or finished on its cards, lends
+    // nothing.
     const provenMemo = new Map();
     const isProven = (t) => {
         if (!provenMemo.has(t.id)) {
-            provenMemo.set(t.id, t.status === 'completed' || (t.mastery >= 0.85 && estimateProven(t.id, 0.85)));
+            provenMemo.set(t.id, t.mastery >= 0.85 && estimateProven(t.id, 0.85));
         }
         return provenMemo.get(t.id);
     };
@@ -1305,8 +1308,13 @@ function signature(includeArchived = false) {
  * calls proven; its answer count (printed beside the percent); whether it has
  * a transferred prior (the topic row marks it, the value is never shown) or a
  * placement one, and how many agent claims lowered it (with the answer count,
- * what `estimateProven` reads for a bridge's flag besides the estimate); how
- * many cards it holds and how many have been met.
+ * what `estimateProven` reads for a bridge's flag besides the estimate) and,
+ * only on a topic over 0.85 with card or drill evidence, how many proving
+ * answers it has (there the gate's replay, not the printed estimate, decides
+ * the flag; the first practice row turns the term on, so it rebuilds too; under
+ * 0.85 or without practice an answer costs no rebuild); how many
+ * cards it holds and how many have been met. Beside the teaching switches, the
+ * learner's fitted BKT rates (`bkt_params`), which the replay runs on.
  * Per course on the map: name, colour, status, kind, both dates, and the switch that says
  * whether it teaches topics or is counted in cards.
  *
@@ -1338,6 +1346,7 @@ function drawnStatements() {
                     || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
                     || ',' || quote(nm.placement_prior IS NOT NULL)
                     || ',' || quote(COALESCE(mc.lowered, 0))
+                    || ',' || quote(CASE WHEN ev.practice AND COALESCE(nm.mastery_score, 0) >= 0.85 THEN ev.proving END)
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
              FROM nodes n
@@ -1349,6 +1358,9 @@ function drawnStatements() {
              LEFT JOIN (SELECT node_id, COUNT(*) AS lowered FROM mastery_claims
                         WHERE correct = 0 AND mastery_after < mastery_before
                         GROUP BY node_id) mc ON mc.node_id = n.id
+             LEFT JOIN (SELECT node_id, SUM(${PROVING_EVIDENCE_SQL}) AS proving,
+                               MAX(${PRACTICE_EVIDENCE_SQL}) AS practice
+                        FROM mastery_evidence GROUP BY node_id) ev ON ev.node_id = n.id
              WHERE n.is_note = 0 AND (? OR COALESCE(p.status, 'active') != 'archived')`).pluck(),
         db.prepare(
             `SELECT group_concat(
@@ -1358,7 +1370,7 @@ function drawnStatements() {
              FROM projects WHERE ? OR COALESCE(status, 'active') != 'archived'`).pluck(),
         db.prepare(
             `SELECT group_concat(quote(key) || ',' || quote(value), char(10) ORDER BY key)
-             FROM settings WHERE key GLOB 'teach_topics_*'`).pluck(),
+             FROM settings WHERE key GLOB 'teach_topics_*' OR key = 'bkt_params'`).pluck(),
     ];
     return drawnSql;
 }

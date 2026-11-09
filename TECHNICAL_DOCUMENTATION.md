@@ -242,8 +242,8 @@ current fitted rates, as `rescoreNode` does, so after a refit it can differ from
 what those answers gave at the time. A node with neither practice evidence nor a
 lowering claim reads `mastery_score` unchanged. A rebuild of `mastery_score`
 (`rescoreNode`) drops a claim's lowering from the stored score, but the gate's replay
-keeps it (at the current fitted rates too, so a refit can lower such a topic's
-`gate_score`, never raise it), so whether a topic passes does not depend on whether it was rebuilt or
+keeps it (at the current fitted rates too, so a refit can raise or lower such a
+topic's `gate_score`, never above `mastery_score`), so whether a topic passes does not depend on whether it was rebuilt or
 ever met a card. When practice alone put the estimate over the line, the read says so
 (`practice_lifted`) and the checkpoint card explains it. What a learner SEES is
 `shown_score`: `gate_score` raised by practice up to `PRACTICE_CEILING` (0.6, the

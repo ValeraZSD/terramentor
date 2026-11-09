@@ -196,11 +196,11 @@ export function getNodeMastery(nodeId) {
 // wrote, so it neither proves a topic nor un-borrows that seed.
 export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement'];
 export const PROVING_EVIDENCE_TYPES = ['quiz', 'mastery_check', 'paper'];
-const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
+export const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
 // Practice is everything else that runs BKT: defined by exclusion, so a new
 // evidence type is practice (fails closed) until it is listed as proving.
 // Placement rows never ran BKT; their seed is their contribution.
-const PRACTICE_EVIDENCE_SQL = `evidence_type NOT IN (${[...PROVING_EVIDENCE_TYPES, 'placement'].map(t => `'${t}'`).join(', ')})`;
+export const PRACTICE_EVIDENCE_SQL = `evidence_type NOT IN (${[...PROVING_EVIDENCE_TYPES, 'placement'].map(t => `'${t}'`).join(', ')})`;
 
 /** Upper bound on questions in ONE attempt — no assessment here is remotely this long. */
 export const MAX_ATTEMPT_QUESTIONS = 500;
@@ -447,10 +447,12 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
         practice_ceiling: practiceCeiling(threshold),
         // The estimate is over the line and only practice put it there: the
         // reader says so, or "99%" beside "not proven yet" reads as a bug.
-        // Only with practice on the node: an agent claim alone also opens the
-        // gap (a rebuild drops it from the stored score), and "your cards
-        // raised this" would then be false.
-        practice_lifted: counts.practice > 0 && !eligible && !borrowed && record.mastery_score >= threshold && gateScore < threshold,
+        // Only with practice on the node, and only when the proving answers
+        // fall short WITHOUT any claim too: an agent claim also opens the gap
+        // (a rebuild drops it from the stored score), and "your cards raised
+        // this" would then be false even with (missed) cards on the node.
+        practice_lifted: counts.practice > 0 && !eligible && !borrowed && record.mastery_score >= threshold && gateScore < threshold
+            && replayOwnEvidence(nodeId, seedOf(record), { provingOnly: true, claims: false }) < threshold,
         evidence_count: evidenceCount.count,
         threshold,
         has_evidence: hasEvidence,
@@ -606,16 +608,18 @@ export function estimateProven(nodeId, threshold) {
  * The claim is stepped from the replayed estimate at its place, which may
  * differ from the stored score it was first taken from (cards lifted that
  * one), so the two steps may differ; the gate takes the lower. A claim row with no mark (none is written without one) is
- * stepped last: an unknown place fails closed.
+ * stepped last: an unknown place fails closed. `claims: false` replays the
+ * proving rows alone (what `practice_lifted` asks: would they reach the line
+ * with no claim at all?).
  */
-function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
+function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly } = {}) {
     const rows = stmt(`
         SELECT id, score, total, metadata FROM mastery_evidence
         WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
         ORDER BY id
     `).all(nodeId);
     const claims = [];
-    if (provingOnly) {
+    if (withClaims) {
         const seen = new Set();
         for (const c of stmt(`
             SELECT evidence_mark, question_type FROM mastery_claims
