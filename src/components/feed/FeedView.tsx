@@ -93,6 +93,18 @@ function groupCards(cards: FeedCard[]): FeedGroup[] {
 }
 
 /**
+ * What the review round's foot says comes next, as a book's chapter end names
+ * the next chapter: the topic taught below it, the learner's cards, or (nothing
+ * of either follows) just that the round is over.
+ */
+type RoundFoot = { kind: 'topic'; title: string } | { kind: 'cards' } | { kind: 'end' };
+function roundFoot(next: FeedGroup | undefined): RoundFoot {
+    if (next?.type === 'chapter') return { kind: 'topic', title: next.head.nodeTitle };
+    if (next?.type === 'single' && next.card.kind === 'flashcard') return { kind: 'cards' };
+    return { kind: 'end' };
+}
+
+/**
  * ONE STREAM, THREE SCOPES — the same component draws all of them, because
  * they are the same stream with a different WHERE clause (`composeFeed`,
  * server/feed.js). No argument is the home feed over the whole library;
@@ -511,7 +523,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     or once the learner chooses to go without. */}
                 {!scoped && <AiSetupCard />}
                 {!scoped && <OnboardingCard />}
-                {groups.map(group => group.type === 'chapter' ? (
+                {groups.map((group, gi) => group.type === 'chapter' ? (
                     <ChapterGroup
                         key={group.head.key}
                         projectColor={group.head.projectColor}
@@ -570,7 +582,14 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         </div>
                         <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
                             <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
-                            {tr('End of recall')}
+                            <span className="min-w-0 max-w-[80%] text-center">
+                                {(() => {
+                                    const foot = roundFoot(groups[gi + 1]);
+                                    return foot.kind === 'topic' ? tr('Next: {{topic}}', { topic: foot.title })
+                                        : foot.kind === 'cards' ? tr('Next: your cards')
+                                        : tr('End of recall');
+                                })()}
+                            </span>
                             <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
                         </p>
                     </section>

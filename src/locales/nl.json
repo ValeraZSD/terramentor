@@ -1710,6 +1710,8 @@
   "Next, create your first project or import a course.": "Maak nu je eerste project aan of importeer een cursus.",
   "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.": "Maak nu je eerste project: beschrijf wat je wilt leren, en het model zet de cursus voor je op, zodat je hem kunt aanpassen.",
   "Next:": "Volgende:",
+  "Next: {{topic}}": "Hierna: {{topic}}",
+  "Next: your cards": "Hierna: je kaarten",
   "Nightly": "Nightly",
   "No active projects yet": "Nog geen actieve projecten",
   "No AI model": "Geen AI-model",

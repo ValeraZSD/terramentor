@@ -1768,6 +1768,8 @@
   "Next, create your first project or import a course.": "Next, create your first project or import a course.",
   "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.": "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.",
   "Next:": "Next:",
+  "Next: {{topic}}": "Next: {{topic}}",
+  "Next: your cards": "Next: your cards",
   "Nightly": "Nightly",
   "No active projects yet": "No active projects yet",
   "No AI model": "No AI model",

@@ -2016,6 +2016,8 @@
   "Next, create your first project or import a course.": "Далі створіть перший проєкт або імпортуйте курс.",
   "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.": "Далі створіть перший проєкт: опишіть, що хочете вивчити, і модель складе чернетку курсу, яку ви зможете редагувати.",
   "Next:": "Далі:",
+  "Next: {{topic}}": "Далі: {{topic}}",
+  "Next: your cards": "Далі: ваші картки",
   "Nightly": "Нічний",
   "No active projects yet": "Ще немає активних проєктів",
   "No AI model": "Немає моделі ШІ",

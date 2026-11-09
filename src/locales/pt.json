@@ -1863,6 +1863,8 @@
   "Next, create your first project or import a course.": "A seguir, crie o seu primeiro projeto ou importe um curso.",
   "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.": "A seguir, crie o seu primeiro projeto: descreva o que quer aprender e o modelo prepara o curso para o editar.",
   "Next:": "Seguinte:",
+  "Next: {{topic}}": "A seguir: {{topic}}",
+  "Next: your cards": "A seguir: os teus cartões",
   "Nightly": "Nightly",
   "No active projects yet": "Ainda não há projetos ativos",
   "No AI model": "Nenhum modelo de IA",

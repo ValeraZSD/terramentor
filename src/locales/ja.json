@@ -1557,6 +1557,8 @@
   "Next, create your first project or import a course.": "次に、最初のプロジェクトを作成するか、コースをインポートしましょう。",
   "Next, create your first project: describe what you want to learn, and the model drafts the course for you to edit.": "次に最初のプロジェクトを作成しましょう。学びたいことを説明すると、モデルがコースの下書きを作成し、あなたが編集できます。",
   "Next:": "次:",
+  "Next: {{topic}}": "次は：{{topic}}",
+  "Next: your cards": "次は：カード",
   "Nightly": "ナイトリー",
   "No active projects yet": "アクティブなプロジェクトはありません",
   "No AI model": "AIモデルなし",
