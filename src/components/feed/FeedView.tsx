@@ -93,15 +93,15 @@ function groupCards(cards: FeedCard[]): FeedGroup[] {
 }
 
 /**
- * What the review round's foot says comes next, as a book's chapter end names
- * the next chapter: the topic taught below it, the learner's cards, or (nothing
- * of either follows) just that the round is over.
+ * What kind of thing the review round's foot says comes next: study material
+ * (a topic's lesson, whose own header already names it), the learner's cards,
+ * or (nothing of either follows) just that the round is over.
  */
-type RoundFoot = { kind: 'topic'; title: string } | { kind: 'cards' } | { kind: 'end' };
+type RoundFoot = 'material' | 'cards' | 'end';
 function roundFoot(next: FeedGroup | undefined): RoundFoot {
-    if (next?.type === 'chapter') return { kind: 'topic', title: next.head.nodeTitle };
-    if (next?.type === 'single' && next.card.kind === 'flashcard') return { kind: 'cards' };
-    return { kind: 'end' };
+    if (next?.type === 'chapter') return 'material';
+    if (next?.type === 'single' && next.card.kind === 'flashcard') return 'cards';
+    return 'end';
 }
 
 /**
@@ -585,8 +585,8 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                             <span className="min-w-0 max-w-[80%] text-center">
                                 {(() => {
                                     const foot = roundFoot(groups[gi + 1]);
-                                    return foot.kind === 'topic' ? tr('Next: {{topic}}', { topic: foot.title })
-                                        : foot.kind === 'cards' ? tr('Next: your cards')
+                                    return foot === 'material' ? tr('Study material follows')
+                                        : foot === 'cards' ? tr('Your cards follow')
                                         : tr('End of recall');
                                 })()}
                             </span>
