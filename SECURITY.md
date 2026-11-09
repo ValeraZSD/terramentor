@@ -876,7 +876,9 @@ Submit on GitHub.
 
 Settings → Library & about → **Activity log** keeps a local record of what the app did: model calls (which
 provider, which model id, which operation, how long, how much came back), background jobs and
-their failures, projects created, imported and deleted, and each server start. It is written to
+their failures, projects created, imported and deleted, each server start, and each press of
+"Share it on Tailscale" with whether it took and, if not, which kind of refusal (a word from a
+fixed list, never what Tailscale printed, which names your computer on your tailnet). It is written to
 your own database, it is capped at 20,000 events and the app never sends it anywhere: the
 Download button hands the file to your browser, and what happens to it after that is your decision.
 
