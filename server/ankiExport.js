@@ -178,9 +178,38 @@ export function mediaTags(entries) {
     const sounds = list.filter((m) => m?.kind === 'audio' && m?.name);
     const images = list.filter((m) => m?.kind !== 'audio' && m?.name);
     return [
-        ...sounds.map((m) => `[sound:${m.name}]`),
-        ...images.map((m) => `<img src="${String(m.name).replace(/"/g, '&quot;')}">`),
+        ...sounds.map((m) => `[sound:${ankiMediaName(m)}]`),
+        ...images.map((m) => `<img src="${ankiMediaName(m).replace(/"/g, '&quot;')}">`),
     ].join('');
+}
+
+// What a media name may not contain on the way out: a path separator, a
+// character Anki itself strips from media names (`\ / : * ? " < > |`), the
+// brackets that delimit `[sound:…]`, the shell's quoting characters, and
+// control bytes.
+const MEDIA_NAME_UNSAFE = /[\\/:*?"<>|[\]`$;\u0000-\u001f\u007f]/g;
+const MEDIA_EXT = /\.[a-z0-9]{1,5}$/i;
+
+/**
+ * The file name a stored media entry is exported under.
+ *
+ * The stored name is the one the IMPORTED deck declared, so it is somebody
+ * else's text: it goes into `[sound:…]` and `<img src="…">` in a field Anki
+ * renders as HTML, and into the archive's media map. A `]` in it closes the
+ * sound tag and turns the rest of the name into live markup; a separator names
+ * a path. A plain name passes through unchanged. A name that needed cleaning
+ * gets the first characters of its hash, so two names that clean to the same
+ * string stay two files.
+ */
+export function ankiMediaName(entry) {
+    const raw = String(entry?.name ?? '');
+    const last = raw.split(/[\\/]/).pop() ?? '';
+    const clean = last.replace(MEDIA_NAME_UNSAFE, '').replace(/^[.\s]+|[.\s]+$/g, '');
+    if (clean === raw) return raw;
+    const ext = MEDIA_EXT.exec(clean)?.[0] ?? '';
+    const stem = clean.slice(0, clean.length - ext.length).slice(0, 100).trim() || 'media';
+    const tag = /^[a-f0-9]{8,}$/i.test(String(entry?.hash ?? '')) ? `-${String(entry.hash).slice(0, 8)}` : '';
+    return `${stem}${tag}${ext}`;
 }
 
 /** The card's media JSON column, parsed defensively (it is user/import data). */
@@ -598,19 +627,21 @@ export async function buildProjectApkg(deps, projectId) {
         deckIdFor: (c) => deckIds.get(paths.get(c.node_id) || project.name) || 1,
     });
 
-    // Media, deduped by stored filename.
+    // Media, deduped by the name it is exported under (the one the fields name).
     const seen = new Map();
     const missing = [];
     for (const card of cards) {
         const m = parseCardMedia(card.media);
         for (const entry of [...m.front, ...m.back]) {
-            if (!entry?.name || !entry?.hash || seen.has(entry.name)) continue;
+            if (!entry?.name || !entry?.hash) continue;
+            const name = ankiMediaName(entry);
+            if (seen.has(name)) continue;
             // Record the PATH, not the bytes. `pathFor` throws on a blob the
             // registry knows about but the disk no longer holds, which is the
             // one case `missingMedia` exists to report — so the existence check
             // still happens here, up front, and the stats stay honest.
             try {
-                seen.set(entry.name, { name: entry.name, path: mediaStorage.pathFor(entry.hash) });
+                seen.set(name, { name, path: mediaStorage.pathFor(entry.hash) });
             } catch {
                 missing.push(entry.name);
             }
