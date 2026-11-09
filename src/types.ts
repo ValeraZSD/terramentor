@@ -2505,4 +2505,17 @@ export interface PairingOffer {
     /** Sharing it on Tailscale was tried and did not take. */
     failed?: boolean;
     command?: string | null;
+    /** Why it did not take, read from what the Tailscale CLI said; null when its status could not be read. */
+    problem?: ServeProblem | null;
+}
+
+/**
+ * Why `tailscale serve` did not share the app (server/devices.js
+ * `serveProblemOf`). `link` (enable only) turns Serve on for the tailnet, on
+ * login.tailscale.com; `reason` is the CLI's own first line (denied, other).
+ */
+export interface ServeProblem {
+    kind: 'enable' | 'denied' | 'signed-out' | 'not-running' | 'timeout' | 'other';
+    link?: string;
+    reason?: string;
 }

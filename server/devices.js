@@ -32,6 +32,7 @@ import net from 'net';
 import os from 'os';
 import { execFile } from 'child_process';
 import db from './database.js';
+import { logActivity } from './activityLog.js';
 
 export const DEVICE_COOKIE = 'sp_dev';
 /** Browsers cap a cookie's life at 400 days; a connected phone should not have to reconnect sooner. */
@@ -175,29 +176,68 @@ function tailscaleCandidates() {
     return ['tailscale'];
 }
 
-/** Run the Tailscale CLI: its stdout, or null when it is absent, refused or slow. */
-async function runTailscaleCli(args, timeout = 5000) {
+/**
+ * The link `tailscale serve` prints when Serve is not yet turned on for the
+ * tailnet (cmd/tailscale/cli `enableFeatureInteractive`, to stdout), after
+ * which it WAITS for someone to turn it on. Only Tailscale's own host: the
+ * page makes this a button, so nothing else the CLI printed may become one.
+ * It counts only once whitespace follows it (the CLI ends the line): output
+ * read as it arrives may stop mid-link, and a cut link opens the wrong page.
+ */
+const ENABLE_LINK = /https:\/\/login\.tailscale\.com\/f\/[A-Za-z0-9._~\-/?=&%]+(?=\s)/;
+
+/**
+ * Run the Tailscale CLI. Its stdout when it succeeds; when it ran and failed,
+ * what it said: `{ failed: true, stdout, stderr, timedOut }`; null when no
+ * copy of it is there at all. `stopOn`: end the run as soon as stdout matches
+ * (the enable link: the CLI would otherwise wait for a person, and the
+ * timeout would end it with nothing to show for the wait).
+ */
+async function runTailscaleCli(args, timeout = 5000, options = {}) {
     for (const bin of tailscaleCandidates()) {
-        const { out, missing } = await new Promise((resolve) => {
-            execFile(bin, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-                resolve({ out: err ? null : stdout, missing: err?.code === 'ENOENT' });
-            });
-        });
-        if (out != null) return out;
+        const result = await runCli(bin, args, timeout, options);
         // Only a binary that is not THERE sends us on to the next name. A real
         // failure (a refusal, a timeout) is the answer: running a second copy
         // would retry `serve --bg`, and a bare name may resolve to whatever
         // sits in the working directory.
-        if (!missing) return null;
+        if (result !== null) return result;
     }
     return null;
 }
+/**
+ * One run of one binary, as runTailscaleCli describes (null = not there).
+ * Exported for the gates, which drive it with a stand-in program, never
+ * with Tailscale.
+ */
+export function runCli(bin, args, timeout, { stopOn = null } = {}) {
+    return new Promise((resolve) => {
+        let stopped = false;
+        const child = execFile(bin, args, { timeout, windowsHide: true, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
+            if (!err) return resolve(String(stdout));
+            if (err.code === 'ENOENT') return resolve(null);
+            resolve({ failed: true, stdout: String(stdout || ''), stderr: String(stderr || ''), timedOut: !stopped && !!err.killed });
+        });
+        if (stopOn && child.stdout) {
+            let seen = '';
+            child.stdout.on('data', (chunk) => {
+                if (stopped) return;
+                seen += chunk;
+                if (stopOn.test(seen)) { stopped = true; child.kill(); }
+            });
+        }
+    });
+}
+export { ENABLE_LINK };
 let runTailscale = runTailscaleCli;
 
+/** A run's stdout when it succeeded, else null (absent, refused, slow). */
+const stdoutOf = (result) => (typeof result === 'string' ? result : null);
+
 /**
- * For the gates: stand in for the CLI (`fn(args)` → stdout or null). A gate
- * must never reach the machine's real Tailscale: with a guard mutated away,
- * "Turn it on" really ran `tailscale serve` for a test server's port.
+ * For the gates: stand in for the CLI (`fn(args)` → stdout, null, or a
+ * failure as runTailscaleCli gives one). A gate must never reach the
+ * machine's real Tailscale: with a guard mutated away, "Turn it on" really
+ * ran `tailscale serve` for a test server's port.
  */
 export function setTailscaleRunnerForTest(fn) {
     runTailscale = fn || runTailscaleCli;
@@ -205,9 +245,42 @@ export function setTailscaleRunnerForTest(fn) {
 
 /** Run the Tailscale CLI with JSON output; null when it is absent, stopped or slow. */
 async function tailscaleJson(args) {
-    const out = await runTailscale(args);
+    const out = stdoutOf(await runTailscale(args));
     if (out == null) return null;
     try { return JSON.parse(out); } catch { return null; }
+}
+
+/** The CLI's first line of words: no colour codes or control bytes, at most 200 characters. */
+function firstLineOf(text) {
+    const line = String(text || '')
+        .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+        .split(/\r?\n/)
+        .map(l => l.replace(/[\x00-\x1f\x7f]/g, '').trim())
+        .find(Boolean) || '';
+    return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+}
+
+/**
+ * Why `tailscale serve --bg` did not share the app, from what the CLI said
+ * (a failure from runTailscaleCli, or the stdout of a run that served
+ * nothing): `{ kind, link?, reason? }`. `kind` is a closed vocabulary, the one
+ * thing the activity log keeps: `enable` (Serve is not turned on for this
+ * tailnet: `link` turns it on), `denied` (the CLI was not allowed: `reason` is
+ * its own first line), `signed-out`, `not-running`, `timeout`, `other`
+ * (`reason`, when it said anything). Texts measured in tailscale/tailscale
+ * cmd/tailscale/cli (serve_v2.go, cli.go, diag.go) and client/local.
+ */
+export function serveProblemOf(result) {
+    const r = typeof result === 'string' ? { stdout: result, stderr: '' } : (result || {});
+    const said = `${r.stdout || ''}\n${r.stderr || ''}`;
+    const link = ENABLE_LINK.exec(said)?.[0];
+    if (link) return { kind: 'enable', link };
+    const reason = firstLineOf(r.stderr) || firstLineOf(r.stdout);
+    if (/access denied|permission denied|requires root|--operator/i.test(said)) return { kind: 'denied', reason };
+    if (/no self node|no netmap|needs ?login|not logged in|logged out/i.test(said)) return { kind: 'signed-out' };
+    if (/failed to connect to local|is tailscale running|doesn't appear to be running/i.test(said)) return { kind: 'not-running' };
+    if (r.timedOut) return { kind: 'timeout' };
+    return reason ? { kind: 'other', reason } : { kind: 'other' };
 }
 
 /**
@@ -235,6 +308,7 @@ async function tailscaleSelf() {
     if (Date.now() - ownerCache.at < OWNER_FRESH_MS) return ownerCache.self;
     if (!ownerCache.pending) {
         ownerCache.pending = runTailscale(['status', '--json'])
+            .then(stdoutOf)
             .then((out) => {
                 let status = null;
                 try { status = out == null ? null : JSON.parse(out); } catch { /* not JSON */ }
@@ -327,6 +401,7 @@ async function loginOfPeer(ip) {
     let pending = peerPending.get(ip);
     if (!pending) {
         pending = runTailscale(['whois', '--json', ip])
+            .then(stdoutOf)
             .then((out) => {
                 if (out == null) return null; // no answer: not remembered as "nobody"
                 let who = null;
@@ -460,12 +535,6 @@ export function serveArgs(httpsPort, appPort, appIsHttps) {
 }
 
 /**
- * Make this app reachable from the owner's other Tailscale devices, on the
- * press of a button in Settings. Answers `{ url }` once it is, or
- * `{ url: null, command }` with the line to run by hand when the CLI refused
- * (on Linux `tailscale serve` wants root or an operator) or is not there.
- */
-/**
  * What to do, given `tailscale serve status --json` as it stands (null when
  * it could not be read): `{ url }` already served, `{ args }` to run, or
  * `{ refuse: true }`. An unreadable status REFUSES rather than guessing: read
@@ -490,18 +559,50 @@ export async function servedHere(req) {
     return url;
 }
 
+/**
+ * One row in the activity log per press: whether the share took, and if not
+ * which KIND of no (serveProblemOf's closed vocabulary). Never the CLI's text,
+ * which carries this computer's tailnet name and a link with its node id.
+ */
+function logServe(outcome, startedAt) {
+    const ms = Date.now() - startedAt;
+    if (outcome === 'served' || outcome === 'already') logActivity({ area: 'devices', event: 'tailscale.served', detail: outcome, ms });
+    else logActivity({ area: 'devices', event: 'tailscale.serve_failed', level: 'warn', detail: outcome, ms });
+}
+
+/**
+ * Share this app on the owner's tailnet. `{ url }` once it is; otherwise
+ * `{ url: null, command, problem }`: the line to run by hand (null when the
+ * status could not be read, so no port is safe to name) and why it did not
+ * take (serveProblemOf; null for an unreadable status).
+ */
 export async function serveOnTailnet(req) {
+    const startedAt = Date.now();
     const appPort = Number(req.socket?.localPort) || Number(process.env.PORT) || 3001;
     const appIsHttps = !!req.socket?.encrypted;
     const plan = planServe(await tailscaleJson(['serve', 'status', '--json']), appPort, appIsHttps);
-    if (plan.url) return { url: plan.url };
+    if (plan.url) { logServe('already', startedAt); return { url: plan.url }; }
     // No command here: the status could not be read, so any port suggested
     // could be the one another site holds.
-    if (plan.refuse) return { url: null, command: null };
+    if (plan.refuse) { logServe('unreadable', startedAt); return { url: null, command: null, problem: null }; }
     const { args } = plan;
     const command = `tailscale ${args.join(' ')}`;
-    if (await runTailscale(args, 15000) == null) return { url: null, command };
+    const ran = await runTailscale(args, 15000, { stopOn: ENABLE_LINK });
+    const failed = (problem) => { logServe(problem.kind, startedAt); return { url: null, command, problem }; };
+    if (ran == null) return failed({ kind: 'not-running' }); // its status answered a moment ago: gone since
+    if (typeof ran !== 'string') return failed(serveProblemOf(ran));
     servedCache.at = 0; // what was "not served" a moment ago may be served now
-    const url = servedAddress(await tailscaleJson(['serve', 'status', '--json']), appPort);
-    return url ? { url } : { url: null, command };
+    const after = await tailscaleJson(['serve', 'status', '--json']);
+    // It exited 0, but whether it served cannot be read: said as no answer,
+    // never as a failure quoting what may be the CLI's success text.
+    if (!after) { logServe('unreadable', startedAt); return { url: null, command: null, problem: null }; }
+    const url = servedAddress(after, appPort);
+    if (!url) {
+        // It exited 0 and served nothing: the enable link it printed says why;
+        // any other line it printed is its success text, not a reason.
+        const problem = serveProblemOf(ran);
+        return failed(problem.kind === 'other' ? { kind: 'other' } : problem);
+    }
+    logServe('served', startedAt);
+    return { url };
 }
