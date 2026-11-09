@@ -130,14 +130,31 @@ const firstOwn = home.items.findIndex(i => i.kind !== 'notice');
 const homeRecall = recallCards(home);
 check('the round opens the stream: the first cards after any notice are the recall questions',
     home.items.slice(firstOwn, firstOwn + homeRecall.length).every(i => i.kind === 'recall') && homeRecall.length > 0, true);
-check('one question from each fading topic that has one, oldest first, across courses',
-    homeRecall.map(c => c.nodeId), [A, C, Bn]);
+check('Physics is taught below, so the round reviews Physics: one question from each fading topic that has one, oldest first',
+    homeRecall.map(c => c.nodeId), [A, Bn]);
 check('...each the topic’s first pick by difficulty',
-    homeRecall.map(c => c.question.question), ['A hard, right once', 'C de or het', 'B typed']);
+    homeRecall.map(c => c.question.question), ['A hard, right once', 'B typed']);
 check('every card in it is marked as the round, so the stream can say what it is',
-    homeRecall.map(c => c.review), [true, true, true]);
+    homeRecall.map(c => c.review), [true, true]);
 check('the topic being taught comes after the round',
     home.items.findIndex(i => i.nodeId === T) > home.items.indexOf(homeRecall.at(-1)), true);
+
+const setStatus = db.prepare('UPDATE nodes SET status = ? WHERE id = ?');
+const setStamp = db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?');
+setStamp.run(FAR_AHEAD, A);
+setStamp.run(FAR_AHEAD, Bn);
+check('the course below has nothing fading: the round reviews every course instead',
+    recallCards(feed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C]);
+setStamp.run(LONG_AGO(1), A);
+setStamp.run(LONG_AGO(20), Bn);
+
+// From here on nothing new is taught below the round.
+setStatus.run('completed', T);
+const all = recallCards(feed({ limit: 15, excludeKeys: new Set() }));
+check('nothing new below: one question from each fading topic, oldest first, across courses',
+    all.map(c => c.nodeId), [A, C, Bn]);
+check('...each the topic’s first pick by difficulty',
+    all.map(c => c.question.question), ['A hard, right once', 'C de or het', 'B typed']);
 
 db.prepare(`INSERT INTO settings (key, value) VALUES ('feed_recall_per_batch', '2')`).run();
 check('its size is the existing "Recall questions per batch" setting',

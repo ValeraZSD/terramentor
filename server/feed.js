@@ -1019,7 +1019,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // --- Review round (the Remember loop) -----------------------------------
     // A fading topic comes back on its own, with no button to press: the
     // stream OPENS with one recall question from each fading topic, oldest
-    // first across every course in scope, at most `recallPerBatch` of them,
+    // first, from the course studied next (below), at most `recallPerBatch` of them,
     // each the topic's first pick by difficulty (`recallOrder`). The cards
     // carry `review` so the stream can say what the run is. One round per
     // visit, on the OPENING page only (the client holds nothing yet): a later
@@ -1033,18 +1033,29 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const review = [];
     const roundSize = Math.min(fs.recallPerBatch, limit);
     if (openingPage && roundSize > 0) {
-        const fading = [];
-        for (const info of projectInfos) {
-            let ghosts = [];
-            try {
-                ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 });
-            } catch (err) {
-                // The other courses' reviews still go out; this one's failure is said.
-                console.warn(`[feed] recall round left out project ${info.project.id}: ${err?.message ?? err}`);
-                ghosts = [];
+        const fadingIn = (infos) => {
+            const out = [];
+            for (const info of infos) {
+                let ghosts = [];
+                try {
+                    ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 });
+                } catch (err) {
+                    // The other courses' reviews still go out; this one's failure is said.
+                    console.warn(`[feed] recall round left out project ${info.project.id}: ${err?.message ?? err}`);
+                    ghosts = [];
+                }
+                for (const ghost of ghosts) out.push({ ghost, info });
             }
-            for (const ghost of ghosts) fading.push({ ghost, info });
-        }
+            return out;
+        };
+        // The round reviews the course whose new material comes right below
+        // it, so the learner warms up in the subject they are about to study.
+        // Nothing new below, or nothing fading in that course: every course in
+        // scope, oldest first.
+        const nextCourse = nodeQueues.find(q => q.cards.length > 0)?.f.projectId ?? null;
+        const nextInfos = nextCourse == null ? [] : projectInfos.filter(i => i.project.id === nextCourse);
+        let fading = nextInfos.length ? fadingIn(nextInfos) : [];
+        if (!fading.length) fading = fadingIn(projectInfos);
         // Byte order, as the SQL that listed each course's topics sorted them.
         const stamp = (g) => String(g.lastUpdated ?? '');
         fading.sort((a, b) => (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
