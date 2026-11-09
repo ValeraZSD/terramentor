@@ -239,7 +239,7 @@ export function recallOrder(nodeId) {
             missShare: hits + misses > 0 ? misses / (hits + misses) : 0,
             guess: GUESS_BY_FORMAT[b.question.type] ?? GUESS_BY_FORMAT.multiple_choice,
             last: r?.last ?? '',
-            previous: bank.length > 1 && askKey(b) === previous,
+            previous: askKey(b) === previous,
         };
     });
     ranked.sort((x, y) =>
@@ -247,7 +247,7 @@ export function recallOrder(nodeId) {
         || (x.tier - y.tier)
         || (y.missShare - x.missShare)
         || (x.guess - y.guess)
-        || String(x.last).localeCompare(String(y.last))
+        || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0)
         || (x.position - y.position));
     return ranked.map(r => r.b);
 }

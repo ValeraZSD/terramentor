@@ -160,7 +160,9 @@ app.get('/api/projects/:projectId/ghost-questions', (req, res) => {
     const max = parseInt(req.query.max) || 2;
     try {
         const ghosts = getGhostQuestions(req.params.projectId, max, getGateConfig().decayDays);
-        res.json(ghosts);
+        // `picks` repeats `questions` with each one's row; the server's own
+        // callers need it, a client does not.
+        res.json(ghosts.map(({ picks: _picks, ...ghost }) => ghost));
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

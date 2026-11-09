@@ -30,7 +30,7 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
-const { logAsked } = await import(B + 'questionLog.js');
+const { logAsked, recallOrder } = await import(B + 'questionLog.js');
 const { getGhostQuestions } = await import(B + 'dailyPlan.js');
 const { composeFeed, consumeFeedItem } = await import(B + 'feed.js');
 const { markPending } = await import(B + 'questionTrust.js');
@@ -166,6 +166,32 @@ check('when it fades again, the question its last recall asked is not asked next
 
 db.prepare('UPDATE node_mastery SET last_updated = ?').run(FAR_AHEAD);
 check('nothing fading: no round at all', recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).length, 0);
+
+console.log('\n--- ties, and an answer nobody judged ---');
+// G is not fading (its own course, a stamp in 2099): only its order is read.
+const G = topic(project('Ties'), 'Tied');
+mastered(G, FAR_AHEAD);
+const gRow = bank(G, [mc('G asked lately'), mc('G asked long ago'), mc('G never asked, first in the bank'), mc('G never asked, second in the bank')]);
+asked(gRow, 0, 1, 0);
+asked(gRow, 1, 1, 0);
+const askedAt = db.prepare('UPDATE question_log SET asked_at = ? WHERE quiz_id = ? AND question_index = ?');
+askedAt.run('2020-03-01T09:00:00.000Z', gRow, 0);
+askedAt.run('2020-01-01T09:00:00.000Z', gRow, 1);
+check('tied on difficulty and format: the one asked longest ago first, then the bank’s order',
+    recallOrder(G).map(b => b.question.question),
+    ['G asked long ago', 'G asked lately', 'G never asked, first in the bank', 'G never asked, second in the bank']);
+consumeFeedItem({ key: `recall-${G}-${gRow}-2`, kind: 'recall', nodeId: G, result: { correct: false, gradedBy: 'fallback' }, attemptId: 'recall-gate-2' });
+check('an answer the grader never judged is logged as asked, never as a miss',
+    db.prepare('SELECT surface, correct FROM question_log WHERE quiz_id = ? AND question_index = 2').all(gRow), [{ surface: 'recall', correct: null }]);
+
+console.log('\n--- a finished library with one topic fading ---');
+db.prepare(`UPDATE nodes SET status = 'completed'`).run();
+db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(10), C);
+const done1 = composeFeed({ limit: 15, excludeKeys: new Set() });
+check('the round is the whole stream, with no "all caught up" under it',
+    done1.items.map(i => i.key), [`recall-${C}-${db.prepare('SELECT id FROM quizzes WHERE node_id = ?').get(C).id}-0`]);
+check('...and the next page does not claim "no reviews due" below the round either',
+    composeFeed({ limit: 15, excludeKeys: new Set(done1.items.map(i => i.key)) }).items.map(i => i.key), []);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 db.close();

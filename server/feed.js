@@ -40,7 +40,7 @@ import { getGateConfig } from './settingsStore.js';
 
 // The feed's dials. Each is a setting (Settings → Learning → "Your feed") read
 // at compose time: how many topics are taught at once, how many reviews and new cards a
-// day may carry, how much of the tail is recall, and whether paper exercises,
+// day may carry, how long the recall round at the head is, and whether paper exercises,
 // widgets and drills are generated at all. Clamped here so a hand-edited row
 // cannot ask for a thousand new cards.
 //
@@ -1032,7 +1032,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             try { ghosts = getGhostQuestions(info.project.id, fs.recallPerBatch, gate.decayDays, new Date(), { perTopic: 1 }); } catch { ghosts = []; }
             for (const ghost of ghosts) fading.push({ ghost, info });
         }
-        fading.sort((a, b) => String(a.ghost.lastUpdated).localeCompare(String(b.ghost.lastUpdated)) || a.ghost.nodeId - b.ghost.nodeId);
+        // Byte order, as the SQL that listed each course's topics sorted them.
+        const stamp = (g) => String(g.lastUpdated ?? '');
+        fading.sort((a, b) => (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
         for (const { ghost, info } of fading.slice(0, fs.recallPerBatch)) {
             const pick = ghost.picks[0];
             let daysSince = null;
@@ -1344,8 +1346,10 @@ function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     // by this record (`recallOrder`), and never asks the same question again.
     const saved = kind === 'question' ? parseSavedKey(key) : kind === 'recall' ? bankRefOfFeedKey(key) : null;
     const bankUuid = typeof uuid === 'string' && uuid ? uuid : null;
-    const logSaved = () => {
-        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: result ? !!result.correct : null }], kind === 'recall' ? 'recall' : 'feed');
+    // `verdict` null = asked, not judged: `recallOrder` reads a logged 0 as a
+    // miss, so an answer the grader never judged must not leave one.
+    const logSaved = (verdict = result ? !!result.correct : null) => {
+        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: verdict }], kind === 'recall' ? 'recall' : 'feed');
     };
     let row = null;
     if (feedItemId != null) {
@@ -1399,7 +1403,7 @@ function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
         // An open answer the grader never judged (checkAnswerWithAI's fallback
         // says "trust yourself") is not evidence of a wrong answer. A correct
         // fallback verdict is an exact string match and is fine to credit.
-        if (result?.gradedBy === 'fallback' && !correct) { logSaved(); return { ok: true, ungraded: true }; }
+        if (result?.gradedBy === 'fallback' && !correct) { logSaved(null); return { ok: true, ungraded: true }; }
         // A question no verifier confirmed is practice, never proof (server/
         // questionTrust.js): like the grader's "unsure", its answer writes no
         // evidence. Read from the stored row or bank, never from the client.

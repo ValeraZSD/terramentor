@@ -428,8 +428,8 @@ pages by exclude key. With no scope it is the whole library by urgency (`/`); wi
 `projectId` it is one course by the same urgency; with `nodeId` it is one topic or
 section with the schedule ignored (`getFocusForNode`), because the learner chose
 it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
-`practice`, `notice`. Interleave is roughly lesson → question → … with a
-flashcard every 3–4 items and a recall about every 8.
+`practice`, `notice`. The recall round opens the stream (above); after it the
+interleave is roughly lesson → question → … with a flashcard every 3–4 items.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
