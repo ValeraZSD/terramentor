@@ -245,6 +245,39 @@ try {
     feedAnswer(claimed, true);
     check('…while an answered question after it counts, as it would have', el(claimed).gate_score > lowered, show(claimed));
 
+    console.log('\n--- 9d. a wrong claim, then a rebuild of the estimate ---');
+    // A rebuild from the app's own evidence (an item report, a cleared head
+    // start) drops the claim from the stored score, as claims.js intends; the
+    // gate keeps it either way, so its answer does not depend on whether the
+    // topic was rebuilt or ever met a card.
+    const rebuilt = addNode(course, 'Standing wave modes');
+    for (let i = 0; i < 20 && score(rebuilt) < 0.9; i++) feedAnswer(rebuilt, true);
+    recordClaim({ nodeId: rebuilt, correct: false, questionType: 'short_answer' });
+    const claimLow = score(rebuilt);
+    mastery.rescoreNode(rebuilt);
+    check('a rebuild lifts the stored score back over the line (the claim is dropped there)', score(rebuilt) >= T && score(rebuilt) > claimLow, `${claimLow} -> ${score(rebuilt)}`);
+    check('…and the gate still reads the claim\'s lowering', el(rebuilt).eligible === false && Math.abs(el(rebuilt).gate_score - claimLow) < 1e-12, show(rebuilt));
+    check('…so the topic is not proven to its other readers either', mastery.estimateProven?.(rebuilt, T) === false);
+
+    console.log('\n--- 9e. a claim row with no evidence mark ---');
+    // None is written without one (claims.js reads MAX(id) or 0); a row from
+    // elsewhere is stepped after everything, never before the answers it may follow.
+    const unmarked = addNode(course, 'Overtones');
+    for (let i = 0; i < 20 && score(unmarked) < 0.9; i++) feedAnswer(unmarked, true);
+    const high = score(unmarked);
+    db.prepare(`INSERT INTO mastery_claims (node_id, source, correct, question_type, mastery_before, mastery_after, evidence_mark, created_at)
+                VALUES (?, 'mcp', 0, 'short_answer', ?, ?, NULL, '2026-11-09T00:00:00.000Z')`).run(unmarked, high, high - 0.1);
+    check('it lowers what the gate reads (an unknown place fails closed)', el(unmarked).gate_score < high, show(unmarked));
+
+    console.log('\n--- 9f. a seed under a low bar, plus one card ---');
+    // At a bar at or under the 0.6 seed cap, the seed alone clears it: what a
+    // borrowed estimate is held back from. Every reader of "proven" must agree.
+    const lowBar = addNode(course, 'Wave packets');
+    applySeededPrior(lowBar, 'transfer', 0.6);
+    updateMasteryFromAttempt(lowBar, 1, 1, 'flashcard', { source: 'review' });
+    check('the gate holds the borrowed estimate back at a 0.5 bar', checkMasteryEligibility(lowBar, 0.5, PASS).eligible === false && checkMasteryEligibility(lowBar, 0.5, PASS).borrowed_estimate === true, JSON.stringify(checkMasteryEligibility(lowBar, 0.5, PASS)));
+    check('…and estimateProven agrees: a seed plus a card is not proven', mastery.estimateProven?.(lowBar, 0.5) === false);
+
     console.log('\n--- 9c. an evidence type the gate has not heard of ---');
     const unknown = addNode(course, 'Timbre');
     updateMasteryFromAttempt(unknown, 0, 1, 'quiz', { questionType: 'multiple_choice' });
@@ -252,14 +285,15 @@ try {
     db.prepare('UPDATE node_mastery SET mastery_score = 0.99 WHERE node_id = ?').run(unknown);
     check('it counts as practice until listed as proving (the gate fails closed)', el(unknown).eligible === false && el(unknown).gate_score < T && el(unknown).practice_lifted === true, show(unknown));
     check('every known type is proving, practice or the seed, exactly one',
-        mastery.VALID_EVIDENCE_TYPES.every(t => (mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t) + ['flashcard', 'drill'].includes(t) + (t === 'placement') === 1));
+        mastery.VALID_EVIDENCE_TYPES.every(t => (mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t) + (t === 'placement') <= 1)
+        && ['flashcard', 'drill'].every(t => mastery.VALID_EVIDENCE_TYPES.includes(t) && !(mastery.PROVING_EVIDENCE_TYPES ?? []).includes(t)));
 
     console.log('\n--- 10. what else reads "proven" ---');
     // The finished-project screen counts proven topics; transfer borrows only
     // from proven twins (its own gate pins that half).
     const counted = projectCompletion(course)?.mastery?.proven;
     const expected = db.prepare('SELECT id FROM nodes WHERE project_id = ?').all(course)
-        .filter(n => { const m = db.prepare('SELECT mastery_score, total_attempts FROM node_mastery WHERE node_id = ?').get(n.id); return m && m.total_attempts > 0 && m.mastery_score >= T && el(n.id).gate_score >= T; }).length;
+        .filter(n => { const m = db.prepare('SELECT mastery_score, total_attempts FROM node_mastery WHERE node_id = ?').get(n.id); return m && m.total_attempts > 0 && m.mastery_score >= T && el(n.id).gate_score >= T && !el(n.id).borrowed_estimate; }).length;
     const lifted = db.prepare('SELECT id FROM nodes WHERE project_id = ?').all(course).filter(n => el(n.id).practice_lifted).length;
     check(`the finished-project screen counts ${expected} proven, not the ${lifted} lifted by cards or drills`, lifted > 0 && counted === expected, `counted ${counted}, expected ${expected}`);
 

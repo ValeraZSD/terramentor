@@ -345,6 +345,15 @@ db.prepare(`INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VA
 const cardRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 8, 8)`).run(nDutch).lastInsertRowid;
 const cardHeld = (await buildAtlas({ refresh: true })).bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
 check('a side held over the line by card reviews alone is not flagged actionable', cardHeld && cardHeld.proven === false, JSON.stringify(cardHeld));
+// Its partner proven by a quiz at a LOWER estimate: the pair is still a head
+// start waiting, and the proven side leads it, whatever the percents say.
+db.prepare(`INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.9, 5)`).run(nStanding);
+const quizRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'quiz', 5, 5)`).run(nStanding).lastInsertRowid;
+const mixed = (await buildAtlas({ refresh: true })).bridges.find(b => [b.a.id, b.b.id].includes(nDutch) && [b.a.id, b.b.id].includes(nStanding));
+check('a quiz-proven side leads a card-held side with a higher percent, and the bridge is actionable',
+    mixed && mixed.proven === true && mixed.a.id === nStanding, JSON.stringify(mixed && { proven: mixed.proven, a: mixed.a.title, b: mixed.b.title }));
+db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(quizRow);
+db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(nStanding);
 db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cardRow);
 db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
 const withProven = await buildAtlas({ refresh: true });

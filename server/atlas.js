@@ -1232,6 +1232,15 @@ const percent = (mastery) => Math.round(mastery * 100);
 
 async function findBridges(regions, minSimilarity) {
     const bridges = [];
+    // A bridge's proven side: finished, or over 0.85 on proving evidence (card
+    // reviews alone are no head start waiting; transfer's own default bar).
+    const provenMemo = new Map();
+    const isProven = (t) => {
+        if (!provenMemo.has(t.id)) {
+            provenMemo.set(t.id, t.status === 'completed' || (t.mastery >= 0.85 && estimateProven(t.id, 0.85)));
+        }
+        return provenMemo.get(t.id);
+    };
     for (const region of regions) {
         const m = region.members.length <= BRIDGE_SCAN_CAP
             ? region.members
@@ -1245,14 +1254,16 @@ async function findBridges(regions, minSimilarity) {
                 if (sim < minSimilarity) continue;
                 // Order the pair by what the learner can DO with it: a proven
                 // side first makes the row read "you know this → this is the
-                // one waiting for you". Compared in whole percents, the
-                // precision the cache key holds them to (`drawnPrint`).
-                const [a, b] = percent(m[i].mastery) >= percent(m[j].mastery) ? [m[i], m[j]] : [m[j], m[i]];
+                // one waiting for you". Between two proven or two unproven
+                // sides, the higher estimate first, compared in whole
+                // percents, the precision the cache key holds them to
+                // (`drawnPrint`).
+                const pi = isProven(m[i]), pj = isProven(m[j]);
+                const iFirst = pi !== pj ? pi : percent(m[i].mastery) >= percent(m[j].mastery);
+                const [a, b] = iFirst ? [m[i], m[j]] : [m[j], m[i]];
                 bridges.push({
                     similarity: Number(sim.toFixed(4)),
-                    // Proven as transfer reads it: an estimate held up by card
-                    // reviews alone is no head start waiting.
-                    proven: a.status === 'completed' || (a.mastery >= 0.85 && estimateProven(a.id, 0.85)),
+                    proven: isProven(a),
                     a: { id: a.id, title: a.title, projectId: a.project_id, projectName: a.project_name, projectColor: a.project_color, status: a.status, mastery: a.mastery },
                     b: { id: b.id, title: b.title, projectId: b.project_id, projectName: b.project_name, projectColor: b.project_color, status: b.status, mastery: b.mastery },
                 });
@@ -1292,7 +1303,9 @@ function signature(includeArchived = false) {
  * title, status, finish date, parent, role and course; its mastery in whole
  * percents (what the topic card prints) and whether it clears the 0.85 a bridge
  * calls proven; its answer count (printed beside the percent); whether it has
- * a transferred prior (the topic row marks it, the value is never shown); how
+ * a transferred prior (the topic row marks it, the value is never shown) or a
+ * placement one, and how many agent claims lowered it (with the answer count,
+ * what `estimateProven` reads for a bridge's flag besides the estimate); how
  * many cards it holds and how many have been met.
  * Per course on the map: name, colour, status, kind, both dates, and the switch that says
  * whether it teaches topics or is counted in cards.
@@ -1323,6 +1336,9 @@ function drawnStatements() {
                     || ',' || quote(n.parent_id) || ',' || quote(n.role) || ',' || quote(n.project_id)
                     || ',' || quote(ROUND(COALESCE(nm.mastery_score, 0) * 100)) || ',' || quote(COALESCE(nm.mastery_score, 0) >= 0.85)
                     || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
+                    || ',' || quote(nm.placement_prior IS NOT NULL)
+                    || ',' || quote((SELECT COUNT(*) FROM mastery_claims c
+                                     WHERE c.node_id = n.id AND c.correct = 0 AND c.mastery_after < c.mastery_before))
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
              FROM nodes n

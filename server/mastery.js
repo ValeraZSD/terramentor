@@ -187,8 +187,9 @@ export function getNodeMastery(nodeId) {
 // 'flashcard' are PRACTICE: a card is graded by the learner's own press and a
 // drill replays the same few items, so they sharpen the retention estimate and
 // refresh the decay timer, and the gate reads the estimate with them taken out
-// (capped at the stored estimate, so it may read lower because of them). Paper counts because
-// worked-by-hand solutions are the strongest proof this engine can collect.
+// (capped at the stored estimate, so it may read lower because of them).
+// Paper counts because worked-by-hand solutions are the strongest proof this
+// engine can collect.
 // 'placement' is a probe answer taken BEFORE the topic was studied (see
 // server/placement.js). It is real evidence — the learner genuinely answered —
 // so it is recorded rather than hidden, but its contribution is the seed it
@@ -387,11 +388,7 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     // Questions the app graded ON THIS NODE — what distinguishes a borrowed
     // estimate from a measured one. Practice is not counted (four ratings
     // would un-borrow a seed), nor a placement answer (it IS the seed).
-    const counts = stmt(`
-        SELECT COALESCE(SUM(CASE WHEN ${PROVING_EVIDENCE_SQL} THEN total END), 0) AS own,
-               COUNT(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN 1 END) AS practice
-        FROM mastery_evidence WHERE node_id = ?
-    `).get(nodeId);
+    const counts = evidenceCounts(nodeId);
     const ownAnswers = counts.own;
     // A prior seeded by EITHER route is borrowed. The two sources answer
     // different questions and are stored separately so the UI can say the right
@@ -399,8 +396,7 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     // there without the learner proving it here, and a boundary that holds for
     // one route and not the other is a boundary a single new feature walks
     // straight through.
-    const seeded = record.transferred_prior != null || record.placement_prior != null;
-    const borrowed = seeded && ownAnswers < MIN_GATE_QUESTIONS;
+    const borrowed = isBorrowed(record, ownAnswers);
 
     const strongEvidence = stmt(`
         SELECT 1 FROM mastery_evidence
@@ -502,36 +498,65 @@ export function applySeededPrior(nodeId, kind, prior, sources = []) {
     return { written: true, score };
 }
 
+/**
+ * A node's evidence, counted the way the gate reads it: `own` = answers the app
+ * graded on this node (proving rows only: practice would un-borrow a seed in four
+ * ratings, and a placement answer IS the seed); `practice` = practice rows.
+ */
+function evidenceCounts(nodeId) {
+    return stmt(`
+        SELECT COALESCE(SUM(CASE WHEN ${PROVING_EVIDENCE_SQL} THEN total END), 0) AS own,
+               COUNT(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN 1 END) AS practice
+        FROM mastery_evidence WHERE node_id = ?
+    `).get(nodeId);
+}
+
+/** Seeded by either route and not yet answered here enough to stand on its own. */
+function isBorrowed(record, ownAnswers) {
+    const seeded = record.transferred_prior != null || record.placement_prior != null;
+    return seeded && ownAnswers < MIN_GATE_QUESTIONS;
+}
+
 /** Where a replay starts: the seed a node holds (they combine by MAX), else 0. */
 const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
 
 /**
  * The estimate the gate reads for a `node_mastery` row (see
- * checkMasteryEligibility): `mastery_score` with practice evidence taken out,
- * never above it. `practice` = whether the node has any such evidence,
- * when the caller already counted it.
+ * checkMasteryEligibility): `mastery_score` with practice evidence taken out
+ * and every lowering agent claim kept, never above it. Replayed only when one
+ * of the two exists (otherwise the stored score IS that estimate); a rebuild of
+ * the stored score drops claims (claims.js) but this replay keeps them, so the
+ * gate's answer does not depend on whether the topic was ever rebuilt or ever
+ * met a card. `practice` = whether the node has practice evidence, when the
+ * caller already counted it.
  */
 function gateScoreOf(record, practice) {
     const hasPractice = practice ?? !!stmt(
         `SELECT 1 FROM mastery_evidence WHERE node_id = ? AND ${PRACTICE_EVIDENCE_SQL} LIMIT 1`
     ).get(record.node_id);
-    return hasPractice
+    const replay = hasPractice || !!stmt(
+        'SELECT 1 FROM mastery_claims WHERE node_id = ? AND correct = 0 AND mastery_after < mastery_before LIMIT 1'
+    ).get(record.node_id);
+    return replay
         ? Math.min(record.mastery_score, replayOwnEvidence(record.node_id, seedOf(record), { provingOnly: true }))
         : record.mastery_score;
 }
 
 /**
- * Is this topic's estimate over `threshold` on proving evidence? Clause (a)'s
- * estimate test alone (not the borrowed-seed rule, not clause (b)), for
- * anything that calls a topic proven by its estimate: the finished-project screen's count and mastery transfer's choice of a
- * twin to borrow from. Answers on this node (`total_attempts > 0`, so a seed
- * alone is not), and the gate's estimate, so cards and drills alone are not.
- * Reads only: a node with no row is not proven.
+ * Is this topic proven by its estimate? Clause (a) of checkMasteryEligibility
+ * alone (clause (b), a passed sitting, is not asked), for anything that calls a
+ * topic proven that way: the finished-project screen's count, mastery
+ * transfer's choice of a twin to borrow from, the Atlas bridge flag. Answers on
+ * this node (`total_attempts > 0`), not a borrowed seed, and the gate's
+ * estimate, so cards and drills alone are not. Reads only: a node with no row
+ * is not proven.
  */
 export function estimateProven(nodeId, threshold) {
     const record = stmt('SELECT * FROM node_mastery WHERE node_id = ?').get(nodeId);
     if (!record || !(record.total_attempts > 0) || record.mastery_score < threshold) return false;
-    return gateScoreOf(record) >= threshold;
+    const counts = evidenceCounts(nodeId);
+    if (isBorrowed(record, counts.own)) return false;
+    return gateScoreOf(record, counts.practice > 0) >= threshold;
 }
 
 /**
@@ -545,6 +570,11 @@ export function estimateProven(nodeId, threshold) {
  * evidence mark) is stepped in again after the rows it followed, so a later
  * card cannot wash a claim's lowering out of the gate. A rebuild of
  * `mastery_score` itself (the plain replay) drops it, as claims.js intends.
+ * The claim is stepped from the replayed estimate at its place, which may
+ * differ from the stored score it was first taken from (cards lifted that
+ * one), so its step here can be larger than the stored step; the gate takes
+ * the lower. A claim row with no mark (none is written without one) is
+ * stepped last: an unknown place fails closed.
  */
 function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
     const rows = stmt(`
@@ -560,7 +590,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
             WHERE node_id = ? AND correct = 0 AND mastery_after < mastery_before
             ORDER BY id
         `).all(nodeId)) {
-            const mark = c.evidence_mark ?? 0;
+            const mark = c.evidence_mark ?? Infinity;
             if (!seen.has(mark)) { seen.add(mark); claims.push({ mark, p_G: GUESS_BY_FORMAT[c.question_type] }); }
         }
         claims.sort((a, b) => a.mark - b.mark);
@@ -570,7 +600,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false } = {}) {
     // The claim's own step (claims.js): one wrong answer, floored at a seed
     // the estimate still stands on.
     const lowerUpTo = (id) => {
-        while (claims.length && claims[0].mark < id) {
+        while (claims.length && (id === Infinity || claims[0].mark < id)) {
             const { p_G } = claims.shift();
             const floor = start > 0 && p >= start ? start : 0;
             p = Math.max(floor, Math.min(p, bktUpdate(p, false, { p_G }).p_K_posterior));
