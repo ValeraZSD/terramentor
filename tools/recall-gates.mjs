@@ -158,6 +158,21 @@ check('a course’s stream reviews that course’s topics only',
 check('a topic’s own page carries no review round',
     recallCards(feed({ limit: 15, excludeKeys: new Set(), nodeId: T })).length, 0);
 
+{
+    // A course whose record cannot be read: its review is left out, and the server says which course.
+    const warned = [];
+    const warn = console.warn;
+    console.warn = (...a) => warned.push(a.join(' '));
+    db.exec('ALTER TABLE question_log RENAME TO question_log_away');
+    let left;
+    try { left = recallCards(feed({ limit: 15, excludeKeys: new Set() })).length; } finally {
+        db.exec('ALTER TABLE question_log_away RENAME TO question_log');
+        console.warn = warn;
+    }
+    check('a course whose recall read fails is left out of the round, and the log names it',
+        [left, warned.some(w => w.includes(`recall round left out project ${physics}`))], [0, true]);
+}
+
 console.log('\n--- an answer is recorded, and moves the next pick on ---');
 const card = homeRecall[0];
 const stampOf = (nodeId) => db.prepare('SELECT last_updated FROM node_mastery WHERE node_id = ?').get(nodeId).last_updated;

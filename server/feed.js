@@ -1036,7 +1036,13 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         const fading = [];
         for (const info of projectInfos) {
             let ghosts = [];
-            try { ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 }); } catch { ghosts = []; }
+            try {
+                ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 });
+            } catch (err) {
+                // The other courses' reviews still go out; this one's failure is said.
+                console.warn(`[feed] recall round left out project ${info.project.id}: ${err?.message ?? err}`);
+                ghosts = [];
+            }
             for (const ghost of ghosts) fading.push({ ghost, info });
         }
         // Byte order, as the SQL that listed each course's topics sorted them.
