@@ -39,7 +39,11 @@ const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'anki-html-gates-'));
 process.env.DB_PATH = join(scratch, 'app.db');
 // Media blobs go to a scratch root: a gate must never write into the real library.
-process.env.VAULT_ROOT = join(scratch, 'vault');
+// Nested deep, so a name that climbed out of the store (`../../../x`) would
+// still land inside `scratch`, where the walk below can see it.
+process.env.VAULT_ROOT = join(scratch, 'd1', 'd2', 'd3', 'd4', 'd5', 'vault');
+// Removed on every exit, a thrown check included.
+process.on('exit', () => { try { rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
@@ -90,6 +94,8 @@ const BAD_NAMES = [
     '/etc/passwd`id`.mp3',
     'x.mp3]<img src=y onerror=alert(1)>[sound:z.mp3',
     'q.png" onerror="alert(1)',
+    // Entity-shaped once `;` is gone: `x&amp-<hash>.png` in a src decodes to `x&-…`.
+    'x&amp;.png',
 ];
 // How each name is written inside a field.
 const AS_WRITTEN = BAD_NAMES.map(n => n.replace(/&/g, '&amp;').replace(/]/g, '&#93;')
@@ -113,7 +119,7 @@ PAYLOADS.forEach(([, html], i) => {
         flds: [`Q${i} ${html}`, `A${i} ${html}`, `X${i} ${html}`, `F${i} ${html}`].join(SEP) });
 });
 notes.push({ id: nid++, mid: 300, did: 7, tags: TAG_A,
-    flds: [`pics <img src="${AS_WRITTEN[0]}"><img src="${AS_WRITTEN[1]}"><img src="${AS_WRITTEN[4]}">`,
+    flds: [`pics <img src="${AS_WRITTEN[0]}"><img src="${AS_WRITTEN[1]}"><img src="${AS_WRITTEN[4]}"><img src="${AS_WRITTEN[5]}">`,
         `clip [sound:${AS_WRITTEN[2]}] and [sound:${AS_WRITTEN[3]}]`, '', ''].join(SEP) });
 notes.push({ id: nid++, mid: 301, did: 7, tags: TAG_B,
     flds: [`Cloze {{c1::<iframe src="${EVIL}"></iframe>answer}} and &lt;script&gt;x&lt;/script&gt;`, '<script>alert(1)</script>extra'].join(SEP) });
@@ -432,9 +438,15 @@ console.log('\n--- the export carries no markup and no path ---');
         ankiMediaName({ name: 'a]b.png', hash: H1 }) !== ankiMediaName({ name: 'a[b.png', hash: H2 }));
     check('a name that is nothing but unsafe characters still gets one',
         /^media-aaaaaaaa$/.test(ankiMediaName({ name: '../[]', hash: H1 })), ankiMediaName({ name: '../[]', hash: H1 }));
+    check('a name that is only an extension keeps it (Anki picks a player by it)',
+        ankiMediaName({ name: '.mp3', hash: H1 }) === 'media-aaaaaaaa.mp3', ankiMediaName({ name: '.mp3', hash: H1 }));
+    const long = ankiMediaName({ name: `${'a'.repeat(99)}😀tail]x.png`, hash: H1 });
+    check('a long name is cut between characters, never inside one',
+        long.isWellFormed() && long.endsWith('-aaaaaaaa.png'), JSON.stringify(long.slice(95)));
+    check('a lone surrogate never reaches the media map',
+        ankiMediaName({ name: 'a\ud83d.png', hash: H1 }).isWellFormed());
 }
 
 db.close();
-rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

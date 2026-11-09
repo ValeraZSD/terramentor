@@ -179,7 +179,8 @@ export function mediaTags(entries) {
     const images = list.filter((m) => m?.kind !== 'audio' && m?.name);
     return [
         ...sounds.map((m) => `[sound:${ankiMediaName(m)}]`),
-        ...images.map((m) => `<img src="${ankiMediaName(m).replace(/"/g, '&quot;')}">`),
+        // `&` first: a name like `a&quot-1.png` must not decode into `a"-1.png`.
+        ...images.map((m) => `<img src="${ankiMediaName(m).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">`),
     ].join('');
 }
 
@@ -199,15 +200,18 @@ const MEDIA_EXT = /\.[a-z0-9]{1,5}$/i;
  * sound tag and turns the rest of the name into live markup; a separator names
  * a path. A plain name passes through unchanged. A name that needed cleaning
  * gets the first characters of its hash, so two names that clean to the same
- * string stay two files.
+ * string stay two files. A lone surrogate becomes U+FFFD (the media map is
+ * JSON, and a strict reader refuses one), and a name that is only an extension
+ * keeps it, since Anki picks a player by extension.
  */
 export function ankiMediaName(entry) {
     const raw = String(entry?.name ?? '');
-    const last = raw.split(/[\\/]/).pop() ?? '';
-    const clean = last.replace(MEDIA_NAME_UNSAFE, '').replace(/^[.\s]+|[.\s]+$/g, '');
-    if (clean === raw) return raw;
-    const ext = MEDIA_EXT.exec(clean)?.[0] ?? '';
-    const stem = clean.slice(0, clean.length - ext.length).slice(0, 100).trim() || 'media';
+    const last = (raw.split(/[\\/]/).pop() ?? '').toWellFormed().replace(MEDIA_NAME_UNSAFE, '').replace(/[.\s]+$/, '');
+    const ext = MEDIA_EXT.exec(last)?.[0] ?? '';
+    const bare = last.slice(0, last.length - ext.length).replace(/^[.\s]+|[.\s]+$/g, '');
+    if (bare && `${bare}${ext}` === raw) return raw;
+    // Cut by code point, never inside a surrogate pair.
+    const stem = Array.from(bare).slice(0, 100).join('').trim() || 'media';
     const tag = /^[a-f0-9]{8,}$/i.test(String(entry?.hash ?? '')) ? `-${String(entry.hash).slice(0, 8)}` : '';
     return `${stem}${tag}${ext}`;
 }
