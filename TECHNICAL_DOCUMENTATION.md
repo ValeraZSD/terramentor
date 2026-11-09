@@ -76,7 +76,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
-| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
+| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands; the gate keeps each lowering in its own estimate (§4.2) even after a rebuild. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
@@ -226,17 +226,50 @@ completion gate does not depend on it alone.
 `checkMasteryEligibility(nodeId, threshold, checkPass)` passes when there is
 evidence **and** either:
 
-- **(a)** BKT posterior ≥ `mastery_threshold`, **or**
+- **(a)** the gate's estimate (`gate_score`) ≥ `mastery_threshold`, **or**
 - **(b)** an assessment of type `quiz` / `mastery_check` / `paper`, with at least
   `MIN_GATE_QUESTIONS` items, passed at ≥ `mastery_check_pass` raw accuracy.
 
-`flashcard`, `drill` and `placement` evidence sharpen the estimate and refresh the
-decay timer but never satisfy clause (b). Placement is excluded for a structural
-reason, not a policy one: a probe asks one question per topic, so it can never be
-an assessment of `MIN_GATE_QUESTIONS` items.
+Only those three types are **proving** evidence (`PROVING_EVIDENCE_TYPES`).
+Every other type that runs BKT is practice, by exclusion (`flashcard` and `drill`
+today; a new type is practice until it is listed as proving): a card is graded by
+the learner's own press and a drill replays the same items. They move the BKT
+estimate (`mastery_score`) and refresh the decay timer, but `gate_score` is the
+node's proving evidence replayed from its seed, with each wrong agent claim's
+lowering stepped in where it was made, capped at `mastery_score`. Practice rows
+never enter it, and the cap lets them pull it lower. The replay uses the learner's
+current fitted rates, as `rescoreNode` does, so after a refit it can differ from
+what those answers gave at the time. A node with neither practice evidence nor a
+lowering claim reads `mastery_score` unchanged. A rebuild of `mastery_score`
+(`rescoreNode`) drops a claim's lowering from the stored score, but the gate's replay
+keeps it (at the current fitted rates too, so a refit can raise or lower such a
+topic's `gate_score`, never above `mastery_score`), so whether a topic passes does not depend on whether it was rebuilt or
+ever met a card. When practice alone put the estimate over the line, the read says so
+(`practice_lifted`) and the checkpoint card explains it. What a learner SEES is
+`shown_score`: `gate_score` raised by practice up to `PRACTICE_CEILING` (0.6, the
+ceiling a placement or transferred seed gets; just under the threshold when that is
+lower), never above `mastery_score`. Four right cards read as 60%, not 0%, and still
+never as a pass; the completion refusal quotes the same number. `placement` evidence is the
+seed it wrote, so it proves nothing either.
 
 **Clause (a) is suspended on any SEEDED node** (transferred §7.3 or placed
-§4.4) until it has `MIN_GATE_QUESTIONS` answers of its own.
+§4.4) until it has `MIN_GATE_QUESTIONS` proving answers of its own (`own_answers`;
+card ratings, drills and the placement answer do not count).
+
+A card-only topic (a deck section, a course topic with cards and no bank) is
+therefore never completed by its ratings under `enforced`: it is skipped, or
+proven by a check (`advisory` also offers "Mark done without the check", `off`
+does not ask). Nothing is lost by that: a card topic's progress is cards met
+(`server/progress.js`), so a deck reaches 100% and its finished screen with every
+section still open.
+
+Three other readers call a topic proven by its estimate, and all ask
+`estimateProven` (clause (a) whole: `gate_score` over the bar and not borrowed;
+clause (b) is not asked): the finished-project screen's "proven" count
+(`server/completion.js`), mastery transfer's choice of twin (§7.3, applied inside
+the neighbour search before its limit), and the Atlas bridge flag (whose pair puts
+the proven side first). A topic held over the line only by its cards or a seed
+neither counts as proven, lends a prior, nor marks a bridge as a head start waiting.
 
 Modes (`mastery_gate_mode`): `off` never gates; `advisory` lets the
 learner mark done anyway; `enforced` (default for a new library) blocks `completed` without proof. **Skip is
@@ -848,7 +881,8 @@ unrelated), topic placement, and the label table.
 ### 7.3 Mastery transfer (`server/masteryTransfer.js`)
 
 Seeds a topic's BKT **prior** from a semantically identical topic proven in
-another project. The boundary *is* the design:
+another project (proven as the gate reads it, `estimateProven`: card reviews and
+drills never make a twin). The boundary *is* the design:
 
 - **It never closes a gate**, enforced twice: `TRANSFER_CEILING` caps a seeded
   prior strictly below any sane threshold, *and* the gate's BKT clause is

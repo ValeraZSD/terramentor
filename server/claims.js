@@ -29,7 +29,10 @@
 // in mastery.js, e.g. `forgetSeed` when placement is cleared) does not replay
 // claims: they are the weaker record, so a lowering is undone by it, and the
 // claim row's `mastery_after` then describes the past. A lowering counts as
-// spent only while the estimate is still at or under what it left.
+// spent only while the estimate is still at or under what it left. The
+// completion gate's estimate is the exception (`gateScoreOf` in mastery.js):
+// it replays each lowering claim once per evidence mark, so neither a rebuild
+// nor a later card review washes a claim out of whether a topic is proven.
 //
 // Written once per `attemptId` (`recordOnce`, surface 'claim'), like every
 // answer the app records, so a harness that retries a call writes one row.

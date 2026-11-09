@@ -36,6 +36,7 @@
 
 import db from './database.js';
 import { WORK_LEAF } from './today.js';
+import { estimateProven } from './mastery.js';
 import { projectProgress, topicFraction } from './progress.js';
 import { daysBetween } from './scheduling.js';
 import { learnerTimeZone, minuteDates } from './studyDay.js';
@@ -298,11 +299,18 @@ function statements() {
         `),
         mastery: db.prepare(`
             SELECT COUNT(*) AS tracked,
-                   SUM(CASE WHEN m.mastery_score >= ? AND m.total_attempts > 0 THEN 1 ELSE 0 END) AS proven,
                    AVG(m.mastery_score) AS average
             FROM node_mastery m
             JOIN nodes n ON n.id = m.node_id
             WHERE n.project_id = ? AND ${WORK_LEAF}
+        `),
+        // Over the line on the stored estimate; `estimateProven` then takes
+        // card reviews and drills out, which never prove a topic.
+        provenCandidates: db.prepare(`
+            SELECT m.node_id FROM node_mastery m
+            JOIN nodes n ON n.id = m.node_id
+            WHERE n.project_id = ? AND ${WORK_LEAF}
+              AND m.mastery_score >= ? AND m.total_attempts > 0
         `),
     };
     return stmts;
@@ -360,7 +368,8 @@ export function projectCompletion(projectId) {
     const reviews = s.reviews.get(id) || {};
     const answers = s.answers.get(id) || {};
     const threshold = parseFloat(getSetting('mastery_threshold') || '0.85') || 0.85;
-    const mastery = s.mastery.get(threshold, id) || {};
+    const mastery = s.mastery.get(id) || {};
+    const proven = s.provenCandidates.all(id, threshold).filter(r => estimateProven(r.node_id, threshold)).length;
 
     const answered = n(answers.answers);
     const correct = n(answers.correct);
@@ -415,7 +424,7 @@ export function projectCompletion(projectId) {
         },
         mastery: {
             tracked: n(mastery.tracked),
-            proven: n(mastery.proven),
+            proven,
             average: mastery.tracked ? Number(mastery.average) : null,
             threshold,
         },

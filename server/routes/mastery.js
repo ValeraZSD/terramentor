@@ -52,10 +52,10 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
 
 // Practice-drill round. Recorded under its own `drill` evidence type:
 // updateMasteryFromAttempt applies BKT for any type, so a round sharpens the
-// retention estimate and refreshes the decay timer — but checkMasteryEligibility's
-// raw-score clause honours only `quiz`/`mastery_check`, so a drill can never clear
-// the completion gate on its own. Practice tunes the estimate; proving needs an
-// assessment.
+// retention estimate and refreshes the decay timer — but checkMasteryEligibility
+// reads the estimate with drills and cards taken out and its raw-score clause
+// honours only `quiz`/`mastery_check`/`paper`, so a drill can never clear the
+// completion gate. Practice tunes the estimate; proving needs an assessment.
 /**
  * Which drill on a topic a round was played on: `drillKeyOf` in
  * `src/components/drills/parseDrill.ts` (an 8-hex-digit hash of the fence) or

@@ -187,6 +187,7 @@ export function agentMastery(topic) {
         ? 'It has passed the mastery gate.'
         : `It has not passed the mastery gate. Only the app's own mastery check, quizzes or a paper exercise prove a topic; the learner takes the check in Terramentor.`);
     if (e.borrowed_estimate) lines.push('Part of the estimate is a head start borrowed from another course or a placement probe, so it cannot pass the gate on its own.');
+    if (e.practice_lifted) lines.push('The estimate is over the line only because of card reviews and drills, which keep a topic fresh but never prove it.');
     if (recent.length) {
         lines.push('Most recent evidence:');
         for (const r of recent) lines.push(`- ${String(r.created_at).slice(0, 10)} ${EVIDENCE_NAMES[r.type] || r.type}: ${Math.round(r.score)}/${r.total}`);
