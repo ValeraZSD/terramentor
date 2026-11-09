@@ -32,6 +32,7 @@ import {
 } from './globeProjection';
 import { CityMap, CityRegion, citiesFor, citiesReady, cityKey } from './cityBuild';
 import { cityLines } from './cityLines';
+import { importanceOf, sheetTolerance } from './lineDetail';
 import { landView, flatHomeYaw } from './homeView';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
 import { Locate, Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
@@ -1206,13 +1207,18 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             const vy = pts[i + 2] * cP - y1 * sP, vz = pts[i + 2] * sP + y1 * cP;
             return [Math.atan2(x1, vz), Math.asin(Math.max(-1, Math.min(1, vy)))];
         };
+        // Only the points that move the line by a fraction of a pixel at this
+        // zoom are projected (`lineDetail.ts`): zoomed out, under half of them.
+        const tol = flat ? sheetTolerance(R) : 0;
         const flatLoop = (line: SphereLine) => {
             const pts = line.pts;
+            const imp = importanceOf(pts);
             const lons: number[] = [], lats: number[] = [];
             let prev = 0, shift = 0, lo = Infinity, hi = -Infinity;
             for (let i = 0; i < pts.length; i += 3) {
+                if (imp[i / 3] <= tol) continue;
                 const [lon, lat] = lonLat(pts, i);
-                if (i > 0) {
+                if (lons.length) {
                     if (lon + shift - prev > Math.PI) shift -= 2 * Math.PI;
                     else if (lon + shift - prev < -Math.PI) shift += 2 * Math.PI;
                 }
@@ -1245,21 +1251,38 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         };
         const flatStroke = (line: SphereLine) => {
             const pts = line.pts;
+            const imp = importanceOf(pts);
             ctx.beginPath();
-            let prev = 0;
-            for (let i = 0; i < pts.length; i += 3) {
-                const [lon, lat] = lonLat(pts, i);
+            let started = false, prevLon = 0, prevLat = 0;
+            const to = (lon: number, lat: number) => {
                 const [x, y] = flatXY(lon, lat);
                 const px = cx + x * R, py = cy - y * R;
-                if (i === 0 || Math.abs(lon - prev) > Math.PI) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-                prev = lon;
+                if (!started) ctx.moveTo(px, py);
+                else if (Math.abs(lon - prevLon) > Math.PI) {
+                    // Across the seam the segment runs out over one edge and
+                    // back in at the other, the sheet's outline clipping both
+                    // halves, so the line reaches the edge with no gap however
+                    // far apart its kept points are. Near the camera's pole a
+                    // jump is the longitude spinning round, and is lifted.
+                    if (Math.abs(lon) > Math.PI / 2 && Math.abs(prevLon) > Math.PI / 2) {
+                        const turn = lon > prevLon ? 2 * Math.PI : -2 * Math.PI;
+                        const [ox, oy] = flatXY(lon - turn, lat);
+                        ctx.lineTo(cx + ox * R, cy - oy * R);
+                        const [ix, iy] = flatXY(prevLon + turn, prevLat);
+                        ctx.moveTo(cx + ix * R, cy - iy * R);
+                        ctx.lineTo(px, py);
+                    } else ctx.moveTo(px, py);
+                } else ctx.lineTo(px, py);
+                started = true; prevLon = lon; prevLat = lat;
+            };
+            for (let i = 0; i < pts.length; i += 3) {
+                if (imp[i / 3] <= tol) continue;
+                const [lon, lat] = lonLat(pts, i);
+                to(lon, lat);
             }
             if (line.closed && pts.length >= 3) {
                 const [lon, lat] = lonLat(pts, 0);
-                if (Math.abs(lon - prev) <= Math.PI) {
-                    const [x, y] = flatXY(lon, lat);
-                    ctx.lineTo(cx + x * R, cy - y * R);
-                }
+                to(lon, lat);
             }
             ctx.stroke();
         };

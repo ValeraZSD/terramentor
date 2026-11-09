@@ -427,6 +427,107 @@ if (LL) {
     check('…getting there smoothly', mid.ripple > 0 && mid.ripple < 1 && mid.surface > 0 && mid.surface < 1);
 }
 
+// ---- a drag redraws only what shows ------------------------------------------
+// The sheet re-projects the land on every frame of a drag, through a projection
+// with five trig calls a point. Zoomed out, a dozen traced points fall in one
+// pixel; drawing them all made a drag on the Map twice the work of the old
+// bubble map's. Asserted on the real outlines of a 120-region planet, at the
+// home zoom of a 1280×800 window.
+console.log('\n--- a drag redraws only what shows');
+const LD = await load('src/components/atlas/lineDetail.ts', ['lineImportance', 'importanceOf', 'sheetTolerance', 'SHEET_SCALE', 'DETAIL_PX']);
+if (LD && P && T && libraries.length) {
+    // The scale the tolerance divides by is the sheet's largest up to 72°.
+    let most = 0;
+    const d = 1e-6;
+    for (let i = 0; i <= 200; i++) for (let j = 0; j <= 100; j++) {
+        const lon = -Math.PI + 0.001 + (i / 200) * (2 * Math.PI - 0.002);
+        const lat = (-72 + (j / 100) * 144) * Math.PI / 180;
+        const [x0, y0] = P.flatXY(lon, lat), [xa, ya] = P.flatXY(lon, lat + d), [xb, yb] = P.flatXY(lon + d / Math.cos(lat), lat);
+        const a = [(xa - x0) / d, (ya - y0) / d], b = [(xb - x0) / d, (yb - y0) / d];
+        const E = a[0] ** 2 + a[1] ** 2, F = a[0] * b[0] + a[1] * b[1], Gs = b[0] ** 2 + b[1] ** 2;
+        most = Math.max(most, Math.sqrt((E + Gs + Math.sqrt((E - Gs) ** 2 + 4 * F * F)) / 2));
+    }
+    check('the tolerance allows for the sheet\'s largest stretch up to 72°', LD.SHEET_SCALE >= most - 1e-6,
+        `SHEET_SCALE ${LD.SHEET_SCALE}, measured ${most.toFixed(3)}`);
+
+    const { lay } = libraries[2];
+    const terrain = T.buildTerrain(lay.dirs.map((u, i) => ({ id: i, u, cap: lay.caps[i] })));
+    const lines = [...terrain.coasts.map(c => c.line), ...terrain.waterlines.map(w => w.line), ...terrain.territories.flatMap(t => t.loops)];
+    const homeR = Math.min((1280 * 0.94) / (2 * P.FLAT_HALF_W), (800 * 0.94) / (2 * P.FLAT_HALF_H));
+    const share = (R) => {
+        const tol = LD.sheetTolerance(R);
+        let kept = 0, all = 0;
+        for (const l of lines) { const imp = LD.importanceOf(l.pts); all += imp.length; for (const v of imp) if (v > tol) kept++; }
+        return kept / all;
+    };
+    const home = share(homeR), close = share(homeR * 16);
+    check('zoomed out, a frame projects at most 60% of the land\'s points', home <= 0.6, `${(100 * home).toFixed(1)}% at home zoom`);
+    check('…and zoomed all the way in nearly all of them (≥ 90%)', close >= 0.9, `${(100 * close).toFixed(1)}% at 16×`);
+
+    // What is left out stays within a pixel of the line drawn in its place:
+    // every traced point, projected, against the simplified polyline, for a
+    // few cameras and zooms (away from the seam and the camera's poles, where
+    // the sheet breaks the line anyway).
+    const segDist = (px, py, ax, ay, bx, by) => {
+        const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+        const t = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L2)) : 0;
+        return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+    };
+    let worst = 0, measured = 0;
+    for (const R of [homeR, homeR * 4]) {
+        const tol = LD.sheetTolerance(R);
+        for (const [yaw, pitch] of [[0, 0], [1.3, 0], [-2.2, 0], [0.7, 0.4]]) {
+            const cY = Math.cos(yaw), sY = Math.sin(yaw), cP = Math.cos(pitch), sP = Math.sin(pitch);
+            for (const l of lines) {
+                const pts = l.pts, imp = LD.importanceOf(pts), n = imp.length;
+                const sheet = [];
+                for (let j = 0; j < n; j++) {
+                    const x1 = pts[j * 3] * cY - pts[j * 3 + 1] * sY, y1 = pts[j * 3] * sY + pts[j * 3 + 1] * cY;
+                    const vy = pts[j * 3 + 2] * cP - y1 * sP, vz = pts[j * 3 + 2] * sP + y1 * cP;
+                    const lon = Math.atan2(x1, vz), lat = Math.asin(Math.max(-1, Math.min(1, vy)));
+                    const [x, y] = P.flatXY(lon, lat);
+                    sheet.push([x * R, y * R, lon, lat]);
+                }
+                let prev = 0;
+                for (let j = 1; j < n; j++) {
+                    if (!(imp[j] > tol)) continue;
+                    if (Math.abs(sheet[prev][2] - sheet[j][2]) < Math.PI) {
+                        for (let m = prev + 1; m < j; m++) {
+                            if (Math.PI - Math.abs(sheet[m][2]) < 0.15 || Math.abs(sheet[m][3]) > 72 * Math.PI / 180) continue;
+                            measured++;
+                            worst = Math.max(worst, segDist(sheet[m][0], sheet[m][1], sheet[prev][0], sheet[prev][1], sheet[j][0], sheet[j][1]));
+                        }
+                    }
+                    prev = j;
+                }
+            }
+        }
+    }
+    check('…and a point left out is never more than a pixel from the line drawn (≤ 1 px)', measured > 0 && worst <= 1,
+        `worst ${worst.toFixed(3)} px over ${measured} points left out`);
+}
+const globeDraws = read('src/components/atlas/GlobeMap.tsx') || '';
+check('the sheet draws each outline at its zoom\'s detail (GlobeMap reads importanceOf + sheetTolerance)',
+    /importanceOf\(/.test(globeDraws) && /sheetTolerance\(/.test(globeDraws));
+if (LB) {
+    // A name is measured once, not on every frame it is placed again.
+    let measures = 0;
+    const ctx = {
+        font: '', globalAlpha: 1, textAlign: '', lineJoin: '', lineWidth: 0, strokeStyle: '', fillStyle: '',
+        measureText: (t) => { measures++; return { width: t.length * 7 }; },
+        strokeText() { }, fillText() { },
+    };
+    const frame = () => {
+        const lab = LB.createLabeller(ctx, { width: 400, height: 300, ink: '#000', halo: '#fff' });
+        lab.wrapLabel('Fourier series and their convergence', 200, 150, { size: 12, weight: 600, alpha: 1 }, 120);
+    };
+    frame();
+    const first = measures;
+    frame();
+    check('the next frame places the same name without measuring it again', first > 0 && measures === first,
+        `${first} measures on the first frame, ${measures - first} on the second`);
+}
+
 // ---- what to study next -------------------------------------------------------
 console.log('\n--- study this next');
 const S = await serverModule('server/studyNext.js', ['studyNext']);

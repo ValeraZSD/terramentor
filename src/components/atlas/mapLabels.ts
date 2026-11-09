@@ -175,6 +175,40 @@ export function labelOrder(a: LabelClaim, b: LabelClaim): number {
     return rank(b) - rank(a) || b.size - a.size;
 }
 
+/**
+ * Text widths, by font and text. Every frame of a drag measures every name it
+ * tries to place, often several times over while wrapping and shortening it,
+ * and the same names come round at the same sizes on the next frame. Kept per
+ * font, so a change of size or weight is measured afresh. The font is the
+ * string the caller SET, passed in: reading `ctx.font` back has the browser
+ * serialise it on every read, which cost more than the measuring it saved.
+ */
+const widths = new Map<string, Map<string, number>>();
+let widthCount = 0;
+/** Past this many the cache starts over rather than grow without end. */
+const WIDTHS_MAX = 20_000;
+
+/** The width of `text` in `font`, which must be the font `ctx` is set to. */
+export function textWidth(ctx: CanvasRenderingContext2D, font: string, text: string): number {
+    let inFont = widths.get(font);
+    if (!inFont) {
+        inFont = new Map();
+        widths.set(font, inFont);
+    }
+    let w = inFont.get(text);
+    if (w === undefined) {
+        if (widthCount >= WIDTHS_MAX) {
+            widths.clear();
+            widthCount = 0;
+            inFont = new Map();
+            widths.set(font, inFont);
+        }
+        w = ctx.measureText(text).width;
+        inFont.set(text, w);
+        widthCount++;
+    }
+    return w;
+}
 
 export function createLabeller(
     ctx: CanvasRenderingContext2D,
@@ -196,16 +230,21 @@ export function createLabeller(
     const boxes: Box[] = [];
     const queued: { lines: string[]; cx: number; box: Box; style: LabelStyle }[] = [];
 
+    /** The font this labeller last set; every measure below runs after a
+     *  `setFont` in the same call, so it is the font the context holds. */
+    let font = '';
     const setFont = (size: number, weight: number) => {
-        ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+        font = `${weight} ${size}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+        ctx.font = font;
     };
+    const measure = (text: string) => (font ? textWidth(ctx, font, text) : ctx.measureText(text).width);
 
     const ellipsize = (text: string, maxWidth: number) => {
-        if (ctx.measureText(text).width <= maxWidth) return text;
+        if (measure(text) <= maxWidth) return text;
         let lo = 0, hi = text.length;
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
-            if (ctx.measureText(`${text.slice(0, mid)}…`).width <= maxWidth) lo = mid;
+            if (measure(`${text.slice(0, mid)}…`) <= maxWidth) lo = mid;
             else hi = mid - 1;
         }
         return lo > 0 ? `${text.slice(0, lo).trimEnd()}…` : '';
@@ -218,7 +257,7 @@ export function createLabeller(
         let line = '';
         for (let i = 0; i < words.length; i++) {
             const next = line ? `${line} ${words[i]}` : words[i];
-            if (!line || ctx.measureText(next).width <= maxWidth) { line = next; continue; }
+            if (!line || measure(next) <= maxWidth) { line = next; continue; }
             if (lines.length + 1 === maxLines) {
                 line = ellipsize(`${line} ${words.slice(i).join(' ')}`, maxWidth);
                 break;
@@ -233,7 +272,7 @@ export function createLabeller(
     /** Where these lines would land. Assumes the font is already set. */
     const boxOf = (lines: string[], cx: number, cy: number, size: number, align: 'baseline' | 'middle') => {
         const lh = size * 1.16;
-        const w = Math.max(...lines.map(l => ctx.measureText(l).width));
+        const w = Math.max(...lines.map(l => measure(l)));
         const top = align === 'middle' ? cy - (lh * lines.length) / 2 : cy - size * 0.85;
         return { x0: cx - w / 2 - 3, y0: top, x1: cx + w / 2 + 3, y1: top + lh * lines.length };
     };
@@ -333,7 +372,7 @@ export function createLabeller(
             let lines = wrap(name, room, maxLines + step.lines);
             // One line is better than two when the whole name fits on one: a
             // wrapped name is harder to read and takes more of the map.
-            if (lines.length > 1 && ctx.measureText(name).width <= room) lines = [name];
+            if (lines.length > 1 && measure(name) <= room) lines = [name];
             if (!lines.length) continue;
 
             const attempt = { ...style, size };
