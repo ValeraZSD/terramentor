@@ -729,7 +729,7 @@
   "Card updated": "Card updated",
   "cards": "cards",
   "Cards": "Cards",
-  "Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.": "Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Cards keep the intervals they earned, so you carry on instead of starting over.",
   "cards met": "cards met",
   "cards reviewed_one": "card reviewed",

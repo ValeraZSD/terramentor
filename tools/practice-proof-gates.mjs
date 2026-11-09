@@ -119,10 +119,20 @@ try {
     check('…the gate reads the estimate without the cards (gate_score 0)', el(carded).gate_score === 0, show(carded));
     check('…no rating is an answer of its own (own_answers 0)', el(carded).own_answers === 0, show(carded));
     check('…and the read says practice lifted the estimate (practice_lifted)', el(carded).practice_lifted === true, show(carded));
+    check('…4 of 4 right is not 0 to the learner: the shown number rises to the practice ceiling (0.6)', el(carded).shown_score === 0.6 && mastery.PRACTICE_CEILING === 0.6, show(carded));
+    check('…which stays under the line, so the shown number never reads as a pass', el(carded).shown_score < T, show(carded));
+    // Two right cards of four (a batch counts from four ratings): the shown
+    // number is the estimate itself, under the ceiling.
+    const halfCarded = addNode(Number(db.prepare("INSERT INTO projects (name) VALUES ('Beats')").run().lastInsertRowid), 'Beats');
+    addCards(halfCarded, 4).forEach((c, i) => rate(c, i < 2 ? 3 : 1));
+    check('mixed cards: shown is the stored estimate when it is under the ceiling, and over 0', el(halfCarded).shown_score === Math.min(score(halfCarded), 0.6) && el(halfCarded).shown_score > 0, show(halfCarded));
+    // A pass line set below the ceiling: practice still never reaches it.
+    const lowLine = checkMasteryEligibility(carded, 0.5, PASS);
+    check('a pass line at 50%: cards show 49%, not 60% and not eligible', lowLine.eligible === false && Math.abs(lowLine.shown_score - 0.49) < 1e-12, JSON.stringify(lowLine));
     setMode('enforced');
     let r = await call('PUT', `/api/nodes/${carded}`, { status: 'completed' });
     check('enforced: completing it is refused (400, mastery_gate, not advisory)', r.status === 400 && r.body?.mastery_gate === true && r.body?.advisory === false && statusOf(carded) !== 'completed', `${r.status} ${JSON.stringify(r.body)}`);
-    check('…and the refusal asks for a quiz or check, never quoting the cards\' 99%', r.status === 400 && !/\b99%/.test(r.body?.error || '') && r.body?.mastery_score === 0, JSON.stringify(r.body));
+    check('…and the refusal asks for a quiz or check, never quoting the cards\' 99%', r.status === 400 && !/\b99%/.test(r.body?.error || '') && r.body?.mastery_score === mastery.PRACTICE_CEILING, JSON.stringify(r.body));
     r = await call('PUT', `/api/nodes/${carded}`, { status: 'skipped' });
     check('enforced: skipping it is always allowed', r.status === 200 && statusOf(carded) === 'skipped', `${r.status} ${JSON.stringify(r.body)}`);
     reopen(carded);
@@ -205,7 +215,7 @@ try {
     const facts = checkpointFacts(noBank, gate);
     check('its checkpoint card does not offer completion as proven', facts.eligible === false, JSON.stringify(facts));
     check('…and carries why the high estimate does not count (practiceLifted)', facts.practiceLifted === true, JSON.stringify(facts));
-    check('…its number is the one the gate counts (gateScore 0, not the 99%), as its refusal quotes', facts.gateScore === 0 && facts.masteryScore >= T, JSON.stringify(facts));
+    check('…the gate counts 0 (gateScore), the card prints the cards up to the ceiling (shownScore 60%, not 99%, not 0%)', facts.gateScore === 0 && facts.shownScore === 0.6 && facts.practiceCeiling === 0.6 && facts.masteryScore >= T, JSON.stringify(facts));
     check('…and the cards are shown as what they did (4 of 4 right)', facts.practiceRight === 4 && facts.practiceTotal === 4, JSON.stringify(facts));
     check('it is never "ready to prove" when late', canProve(noBank, gate) === false);
     const agent = agentMastery(noBank);
@@ -234,6 +244,7 @@ try {
     check('Easy cards after a proof leave it proven', el(proofThenCards).eligible === true, show(proofThenCards));
     updateMasteryFromAttempt(proofThenCards, 0, 20, 'flashcard', { source: 'review' });
     check('missed cards can take a BKT proof back below the line (practice may lower)', el(proofThenCards).eligible === false && el(proofThenCards).gate_score <= score(proofThenCards) && el(proofThenCards).practice_lifted === false, show(proofThenCards));
+    check('…and the shown number never rises above the stored estimate (missed cards show as missed)', el(proofThenCards).shown_score <= score(proofThenCards) && el(proofThenCards).shown_score >= el(proofThenCards).gate_score, show(proofThenCards));
 
     console.log('\n--- 9b. an agent\'s wrong claim, then cards ---');
     const claimed = addNode(course, 'Resonant frequency');

@@ -516,6 +516,8 @@ export function checkpointFacts(nodeId, gate) {
     let borrowedFrom = null;
     let practiceLifted = false;
     let gateScore = 0;
+    let shownScore = 0;
+    let practiceCeiling = 0;
     let practiceRight = 0;
     let practiceTotal = 0;
     try {
@@ -538,6 +540,10 @@ export function checkpointFacts(nodeId, gate) {
         // quotes the same one), so "99%" never sits beside "not finished";
         // the practice answers are shown as what they are, right of total.
         gateScore = el.gate_score ?? masteryScore;
+        // What the card prints: the gate's number, raised by right practice
+        // answers up to a ceiling under the line (its refusal quotes it too).
+        shownScore = el.shown_score ?? gateScore;
+        practiceCeiling = el.practice_ceiling ?? 0;
         practiceRight = el.practice_right ?? 0;
         practiceTotal = el.practice_total ?? 0;
         if (borrowedEstimate) {
@@ -550,7 +556,7 @@ export function checkpointFacts(nodeId, gate) {
     const nodeStatus = db.prepare('SELECT status FROM nodes WHERE id = ?').get(nodeId)?.status || 'not_started';
     // The mode as it is NOW: a card composed before the setting changed would
     // otherwise keep offering the old mode's ways out.
-    return { feedCorrect, feedTotal, masteryScore, gateScore, practiceRight, practiceTotal, eligible, borrowedEstimate, borrowedFrom, practiceLifted, nodeStatus, gateMode: gate.mode };
+    return { feedCorrect, feedTotal, masteryScore, gateScore, shownScore, practiceCeiling, practiceRight, practiceTotal, eligible, borrowedEstimate, borrowedFrom, practiceLifted, nodeStatus, gateMode: gate.mode };
 }
 
 /** Common card fields carried by every node-bound card. */

@@ -340,6 +340,19 @@ const applyAttempt = db.transaction((nodeId, score, total, evidenceType, metadat
 export const MIN_GATE_QUESTIONS = 4;
 
 /**
+ * How far card ratings and drills alone can carry the number a learner SEES
+ * (`shown_score`): the same ceiling a placement answer or a transferred topic
+ * gets, below any pass line. Four right cards are evidence and read as one;
+ * the gate still counts only proving answers (`gate_score`).
+ */
+export const PRACTICE_CEILING = 0.6;
+
+/** The shown number's ceiling under `threshold`: never at or over the line. */
+export function practiceCeiling(threshold) {
+    return Math.max(0, Math.min(PRACTICE_CEILING, threshold - 0.01));
+}
+
+/**
  * Check if a node meets the mastery threshold for completion.
  *
  * A node is eligible when it has evidence AND either:
@@ -377,7 +390,7 @@ export const MIN_GATE_QUESTIONS = 4;
  * @param {number} checkPass  - Minimum raw accuracy for assessment evidence (default 0.8)
  * @returns {{ eligible, mastery_score, gate_score, practice_lifted, evidence_count,
  *   threshold, has_evidence, passed_assessment, borrowed_estimate, own_answers,
- *   practice_right, practice_total }}
+ *   practice_right, practice_total, shown_score, practice_ceiling }}
  */
 export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.8) {
     const record = getNodeMastery(nodeId);
@@ -418,11 +431,20 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     const gateScore = gateScoreOf(record, counts.practice > 0);
     const bktClause = gateScore >= threshold && !borrowed;
     const eligible = hasEvidence && (bktClause || passedAssessment);
+    // The number a learner sees: what the gate counts, raised by practice up
+    // to the ceiling, never above the stored estimate. Right cards are not
+    // nothing, and they still cannot read as over the line.
+    const shownScore = counts.practice > 0 && !eligible
+        ? Math.max(gateScore, Math.min(record.mastery_score, practiceCeiling(threshold)))
+        : gateScore;
 
     return {
         eligible,
         mastery_score: record.mastery_score,
         gate_score: gateScore,
+        // What a learner-facing reader prints (the end card, the refusal).
+        shown_score: shownScore,
+        practice_ceiling: practiceCeiling(threshold),
         // The estimate is over the line and only practice put it there: the
         // reader says so, or "99%" beside "not proven yet" reads as a bug.
         // Only with practice on the node: an agent claim alone also opens the

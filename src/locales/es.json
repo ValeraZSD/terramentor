@@ -835,7 +835,7 @@
   "Card updated": "Tarjeta actualizada",
   "cards": "tarjetas",
   "Cards": "Tarjetas",
-  "Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.": "Tarjetas y ejercicios: {{right}} de {{total}} correctas. Mantienen el tema fresco, pero no lo terminan.",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Tarjetas y ejercicios: {{right}} de {{total}} correctas, cuentan hasta el {{ceiling}} %.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Las tarjetas conservan los intervalos que obtuvieron, así que continúas en lugar de empezar de cero.",
   "cards met": "tarjetas vistas",
   "cards reviewed_many": "tarjetas repasadas",

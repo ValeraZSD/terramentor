@@ -245,7 +245,11 @@ lowering claim reads `mastery_score` unchanged. A rebuild of `mastery_score`
 keeps it (at the current fitted rates too, so a refit can lower such a topic's
 `gate_score`, never raise it), so whether a topic passes does not depend on whether it was rebuilt or
 ever met a card. When practice alone put the estimate over the line, the read says so
-(`practice_lifted`) and the checkpoint card explains it. `placement` evidence is the
+(`practice_lifted`) and the checkpoint card explains it. What a learner SEES is
+`shown_score`: `gate_score` raised by practice up to `PRACTICE_CEILING` (0.6, the
+ceiling a placement or transferred seed gets; just under the threshold when that is
+lower), never above `mastery_score`. Four right cards read as 60%, not 0%, and still
+never as a pass; the completion refusal quotes the same number. `placement` evidence is the
 seed it wrote, so it proves nothing either.
 
 **Clause (a) is suspended on any SEEDED node** (transferred §7.3 or placed

@@ -113,9 +113,13 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
         );
     };
 
-    // What the gate counts, so the bar agrees with "Not proven yet (N% …)";
-    // the stored estimate only on a payload from before the field existed.
-    const masteryPct = Math.round((card.gateScore ?? card.masteryScore) * 100);
+    // What the gate counts, raised by right cards and drills up to a ceiling
+    // under the line, so the bar agrees with "Not proven yet (N% …)"; the
+    // stored estimate only on a payload from before the fields existed.
+    const shown = card.shownScore ?? card.gateScore ?? card.masteryScore;
+    const masteryPct = Math.round(shown * 100);
+    // Practice moved the number: the line under the bar says how far it can.
+    const practiceCounted = (card.practiceTotal ?? 0) > 0 && shown > (card.gateScore ?? shown);
     const accuracyPct = card.feedTotal > 0 ? Math.round((card.feedCorrect / card.feedTotal) * 100) : null;
 
     const complete = async (override = false) => {
@@ -225,12 +229,12 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                                 : t("Part of this was carried over from a topic you proved elsewhere — answer a few here to make it count.")}
                         </p>
                     )}
-                    {/* Over the line on card reviews and drills alone: the bar
-                        shows what the gate counts, and this line what the cards
-                        did, so the learner sees both and why only one finishes. */}
-                    {card.practiceLifted && gateMode !== 'off' && (card.practiceTotal ?? 0) > 0 && (
+                    {/* Cards and drills raised the bar: right answers count,
+                        but only up to a ceiling under the line, and this line
+                        says so, so the learner sees why the check finishes it. */}
+                    {(practiceCounted || card.practiceLifted) && gateMode !== 'off' && (card.practiceTotal ?? 0) > 0 && (
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {t("Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.", { right: num(card.practiceRight ?? 0), total: num(card.practiceTotal ?? 0) })}
+                            {t("Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.", { right: num(card.practiceRight ?? 0), total: num(card.practiceTotal ?? 0), ceiling: num(Math.round((card.practiceCeiling ?? 0.6) * 100)) })}
                         </p>
                     )}
                 </div>

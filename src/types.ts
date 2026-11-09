@@ -906,6 +906,12 @@ export interface FeedCheckpointCard extends FeedCardCommon {
      * so its number agrees with the gate's refusal. Absent on an old payload.
      */
     gateScore?: number;
+    /**
+     * What the card prints: `gateScore`, raised by right card and drill answers
+     * up to `practiceCeiling` (under the line). Absent on an old payload.
+     */
+    shownScore?: number;
+    practiceCeiling?: number;
     /** Card ratings and drill answers on this topic: right, of total. */
     practiceRight?: number;
     practiceTotal?: number;

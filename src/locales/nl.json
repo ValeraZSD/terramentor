@@ -703,7 +703,7 @@
   "Card updated": "Kaart bijgewerkt",
   "cards": "kaarten",
   "Cards": "Kaarten",
-  "Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.": "Flashcards en oefenopdrachten: {{right}} van {{total}} goed. Ze houden het onderwerp vers, maar ronden het niet af.",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Kaarten en oefeningen: {{right}} van {{total}} goed, tellen mee tot {{ceiling}}%.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Kaarten behouden de interval die ze hebben verdiend, zodat je verdergaat in plaats van opnieuw begint.",
   "cards met": "kaarten gezien",
   "cards reviewed_one": "kaart herhaald",

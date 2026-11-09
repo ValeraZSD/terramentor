@@ -967,7 +967,7 @@
   "Card updated": "Карточка обновлена",
   "cards": "карточки",
   "Cards": "Карточки",
-  "Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.": "Карточки и тренировки: верно {{right}} из {{total}}. Они освежают тему, но не завершают её.",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Карточки и упражнения: {{right}} из {{total}} верно, засчитываются до {{ceiling}}%.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Карточки сохраняют заработанные интервалы, так что вы продолжаете обучение, а не начинаете с нуля.",
   "cards met": "карточек изучено",
   "cards reviewed_few": "карточки пройдены",

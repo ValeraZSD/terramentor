@@ -217,16 +217,18 @@ function completionGateRefusal(nodeId, override) {
     if (childCount.c > 0) return null;
     const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
     if (eligibility.eligible) return null;
-    // Worded on what the gate READ (`gate_score`, proving answers only): a
-    // topic held in cards has none, and "best mastery 99% (need 85%)" would
+    // Worded on `shown_score` (what the gate READ, raised by practice only up
+    // to a ceiling under the line): "best mastery 99% (need 85%)" would
     // be a refusal that contradicts itself.
     return {
         error: eligibility.own_answers > 0
-            ? `Not proven yet — best mastery ${(eligibility.gate_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
+            ? `Not proven yet — best mastery ${(eligibility.shown_score * 100).toFixed(0)}% (need ${(eligibility.threshold * 100).toFixed(0)}%, or pass a mastery check).`
             : `Not proven yet. Take a quiz or mastery check to verify mastery${gate.mode === 'advisory' ? ', or mark it done anyway.' : '.'}`,
         mastery_gate: true,
         advisory: gate.mode === 'advisory',
-        mastery_score: eligibility.gate_score,
+        // The number the end card prints (`shown_score`), so the two never
+        // disagree; practice alone keeps it under the line.
+        mastery_score: eligibility.shown_score,
         threshold: eligibility.threshold,
         evidence_count: eligibility.evidence_count,
     };
