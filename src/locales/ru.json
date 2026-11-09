@@ -102,7 +102,6 @@
   "{{accuracyPct}}% correct today — see which": "{{accuracyPct}}% верно сегодня — посмотрите, какие",
   "{{actual}}% done; the plan expects {{expected}}%": "Выполнено {{actual}}%; план предполагает {{expected}}%",
   "{{anki}} of them came from Anki": "из них {{anki}} из Anki",
-  "{{answeredCount}} of {{total}} answered": "Отвечено {{answeredCount}} из {{total}}",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} отвечено",
   "{{attempts}} attempts available to fit on._few": "{{attempts}} попытки для подгонки параметров.",
   "{{attempts}} attempts available to fit on._many": "{{attempts}} попыток для подгонки параметров.",

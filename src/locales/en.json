@@ -80,7 +80,6 @@
   "{{accuracyPct}}% correct today — see which": "{{accuracyPct}}% correct today — see which",
   "{{actual}}% done; the plan expects {{expected}}%": "{{actual}}% done; the plan expects {{expected}}%",
   "{{anki}} of them came from Anki": "{{anki}} of them came from Anki",
-  "{{answeredCount}} of {{total}} answered": "{{answeredCount}} of {{total}} answered",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} answered",
   "{{attempts}} attempts available to fit on._one": "{{attempts}} attempt available to fit on.",
   "{{attempts}} attempts available to fit on._other": "{{attempts}} attempts available to fit on.",
