@@ -265,6 +265,19 @@ as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or a
 to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
 is never part of a mastery check.
 
+Which question is asked is picked by difficulty, the same on every read
+(`recallOrder` in `server/questionLog.js`), from the question log every surface
+writes: the questions the learner has got right before, the largest share of
+misses first; then those with no graded answer, the format with the lowest guess
+floor first; then those only ever missed; within a tier the least recently asked.
+The question the topic's previous recall asked goes last. Only usable keys a
+verifier has confirmed are candidates, and a recall answer is logged as `recall`.
+In the feed they arrive as a review round that OPENS the home stream and a
+course's stream: one question from each fading topic, oldest first, at most
+`feed_recall_per_batch`, once per visit (a client holding a recall card gets no
+second round), drawn under one header (`review: true` on the card). A topic's own
+page carries none.
+
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
 `fadingCutoff(decayDays)` giving the cutoff in `last_updated`'s own shape. Its bar
@@ -1074,6 +1087,8 @@ The modules the sections above do not cover, one line each.
   index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
-- Ghost-question selection is random per decaying node, not difficulty-targeted.
+- Recall difficulty comes from the question log alone, which began in September 2026:
+  a library answered before then has no per-question record, so its recalls start
+  from the format prior until new answers arrive.
 - A lazy route chunk is not precached: the first visit to a route needs the
   network, and the stamped service worker caches the chunk for the next time.

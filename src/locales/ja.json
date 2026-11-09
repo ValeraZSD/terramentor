@@ -2052,6 +2052,7 @@
   "Recalibration failed": "再調整に失敗しました",
   "Recall": "想起",
   "Recall questions per batch": "バッチあたりの想起質問数",
+  "Recall: what you haven't practiced in a while": "想起：しばらく練習していない内容",
   "recalled · reviews": "想起率 · 回数",
   "Recommended": "推奨",
   "Record {{size}} of {{length}}": "{{length}}中{{size}}を記録",

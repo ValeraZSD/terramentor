@@ -12,7 +12,7 @@ import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
-import { feedAnswerIsProof, feedBankQuestion } from './questionTrust.js';
+import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 
 /**
@@ -29,8 +29,8 @@ import { getGateConfig } from './settingsStore.js';
  * Design constraints:
  * - Deterministic given DB state + excludeKeys (the client sends the keys it
  *   already has; a re-fetch never reorders or re-serves what's on screen).
- *   The only sanctioned randomness is ghost-question sampling inside
- *   getGhostQuestions — recall cards are meant to vary between sessions.
+ *   Recall questions included: they are picked by difficulty from the
+ *   question log (`recallOrder`), and vary because the log moves.
  * - Works with AI OFF (the graceful-degradation rule in docs/ARCHITECTURE.md): teaching cards
  *   fall back to the node's own description/notes and saved quiz questions;
  *   flashcards/recall never needed AI at serve time to begin with.
@@ -1014,45 +1014,52 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         .map(r => ({ key: `fcnew-${r.id}`, kind: 'flashcard', card: r, isNew: true }))
         .filter(c => !excluded(c.key));
 
-    // --- Recall pool (the Remember loop, inline) ---------------------------
-    const recallPool = [];
-    for (const info of projectInfos) {
-        if (recallPool.length >= fs.recallPerBatch) break;
-        let ghosts = [];
-        try { ghosts = getGhostQuestions(info.project.id, 2, gate.decayDays); } catch { ghosts = []; }
-        for (const ghost of ghosts) {
+    // --- Review round (the Remember loop) -----------------------------------
+    // A fading topic comes back on its own, with no button to press: the
+    // stream OPENS with one recall question from each fading topic, oldest
+    // first across every course in scope, at most `recallPerBatch` of them,
+    // each the topic's first pick by difficulty (`recallOrder`). The cards
+    // carry `review` so the stream can say what the run is. One round per
+    // visit: a client already holding a recall card is paging on, and gets
+    // none (the topics it skipped come back on its next visit, still fading).
+    // A topic's own page has no `projectInfos`, so it never carries one.
+    const roundHeld = [...excludeKeys].some(k => String(k).startsWith('recall-'));
+    const review = [];
+    if (!roundHeld && fs.recallPerBatch > 0) {
+        const fading = [];
+        for (const info of projectInfos) {
+            let ghosts = [];
+            try { ghosts = getGhostQuestions(info.project.id, fs.recallPerBatch, gate.decayDays, new Date(), { perTopic: 1 }); } catch { ghosts = []; }
+            for (const ghost of ghosts) fading.push({ ghost, info });
+        }
+        fading.sort((a, b) => String(a.ghost.lastUpdated).localeCompare(String(b.ghost.lastUpdated)) || a.ghost.nodeId - b.ghost.nodeId);
+        for (const { ghost, info } of fading.slice(0, fs.recallPerBatch)) {
+            const pick = ghost.picks[0];
             let daysSince = null;
-            const nm = db.prepare(`SELECT last_updated FROM node_mastery WHERE node_id = ?`).get(ghost.nodeId);
-            if (nm?.last_updated) {
-                const ts = Date.parse(`${nm.last_updated.replace(' ', 'T')}Z`);
-                if (Number.isFinite(ts)) daysSince = Math.max(0, Math.floor((Date.now() - ts) / 86400000));
-            }
-            ghost.questions.forEach((q, idx) => {
-                if (recallPool.length >= fs.recallPerBatch) return;
-                // `quizIndex` is the question's position in the quiz's own
-                // array (stable across loads); the shuffled `idx` is not.
-                const key = `recall-${ghost.nodeId}-${ghost.quizId}-${q.quizIndex ?? idx}`;
-                if (excluded(key)) return;
-                recallPool.push({
-                    key, kind: 'recall',
-                    nodeId: ghost.nodeId,
-                    projectId: info.project.id,
-                    projectName: info.project.name,
-                    projectColor: info.project.color,
-                    nodeTitle: ghost.title,
-                    daysSince,
-                    quizId: ghost.quizId,
-                    question: q,
-                });
+            const ts = ghost.lastUpdated ? Date.parse(`${String(ghost.lastUpdated).replace(' ', 'T')}Z`) : NaN;
+            if (Number.isFinite(ts)) daysSince = Math.max(0, Math.floor((Date.now() - ts) / 86400000));
+            review.push({
+                // The question's position in its own row: what an answer is
+                // recorded against (`bankRefOfFeedKey`).
+                key: `recall-${ghost.nodeId}-${pick.quizId}-${pick.index}`,
+                kind: 'recall',
+                review: true,
+                nodeId: ghost.nodeId,
+                projectId: info.project.id,
+                projectName: info.project.name,
+                projectColor: info.project.color,
+                nodeTitle: ghost.title,
+                daysSince,
+                quizId: pick.quizId,
+                question: { ...pick.question, quizIndex: pick.index },
             });
         }
     }
 
     // --- Interleave ---------------------------------------------------------
-    const items = [];
+    const items = [...review];
     let queueIdx = 0;
     let sinceFlash = 0;
-    let sinceRecall = 0;
     let flashInterval = 3;
     let flashSlot = 0;
 
@@ -1085,20 +1092,12 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         }
         items.push(queue.cards.shift());
         sinceFlash++;
-        sinceRecall++;
         if (sinceFlash >= flashInterval && (due.length || news.length)) pushFlash();
-        if (sinceRecall >= 8 && recallPool.length) {
-            items.push(recallPool.shift());
-            sinceRecall = 0;
-        }
     }
 
-    // Teaching exhausted — fill the remainder with reviews and recall.
-    while (items.length < limit && (due.length || news.length || recallPool.length)) {
-        if (!pushFlash() && recallPool.length === 0) break;
-        if (items.length < limit && recallPool.length) {
-            items.push(recallPool.shift());
-        }
+    // Teaching exhausted — fill the remainder with reviews.
+    while (items.length < limit && (due.length || news.length)) {
+        if (!pushFlash()) break;
     }
 
     // --- Notices ------------------------------------------------------------
@@ -1175,7 +1174,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         : "That's everything for now — come back later or open a project to go deeper.",
                 });
             }
-        } else if (!excluded('notice-clear')) {
+        } else if (!excluded('notice-clear') && !roundHeld) {
+            // Not under a review round the learner still holds: "no review is
+            // due" would sit below the questions it says are not there.
             items.push({
                 key: 'notice-clear', kind: 'notice',
                 message: projectScope
@@ -1186,7 +1187,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     }
 
     const exhausted = nodeQueues.every(q => q.cards.length === 0)
-        && due.length === 0 && news.length === 0 && recallPool.length === 0;
+        && due.length === 0 && news.length === 0;
 
     // Head starts for the topics on screen, keyed by node id rather than copied
     // onto every card: a four-part chapter would otherwise carry the same
@@ -1339,10 +1340,12 @@ function applyConsume({ key, kind, feedItemId, nodeId, result, uuid }) {
     // A saved question served by the feed is remembered as asked, so the
     // stream moves through the bank instead of re-serving its head. By the
     // uuid its card carried when there is one (`feedBankQuestion`).
-    const saved = kind === 'question' ? parseSavedKey(key) : null;
+    // A recall question too, as a `recall`: its topic's next recall is picked
+    // by this record (`recallOrder`), and never asks the same question again.
+    const saved = kind === 'question' ? parseSavedKey(key) : kind === 'recall' ? bankRefOfFeedKey(key) : null;
     const bankUuid = typeof uuid === 'string' && uuid ? uuid : null;
     const logSaved = () => {
-        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: result ? !!result.correct : null }], 'feed');
+        if (saved) logAsked([{ quizId: saved.quizId, ...(bankUuid ? { uuid: bankUuid } : { index: saved.index }), correct: result ? !!result.correct : null }], kind === 'recall' ? 'recall' : 'feed');
     };
     let row = null;
     if (feedItemId != null) {

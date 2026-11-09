@@ -1,0 +1,173 @@
+// tools/recall-gates.mjs — a fading topic is reviewed on its own, by its hardest question.
+//
+// Run:  node tools/recall-gates.mjs
+//
+// A topic answered well here and then left alone past the decay window is
+// FADING (server/fading.js). The stream brings it back by itself, with no
+// button to press: a review round at the TOP of the home stream and of a
+// course's stream, one question from each fading topic, oldest first, at most
+// `feed_recall_per_batch` of them, and only one round per visit. A topic's own
+// page never carries one.
+//
+// Which question: picked by DIFFICULTY from the one record every surface writes
+// (question_log). The hardest the learner has got right before comes first; a
+// topic with no record starts from the format a guess cannot pass; a question
+// only ever missed comes last; the one the topic's previous recall asked is
+// never asked next. Only questions a draw could hand out at all: a usable key,
+// confirmed by a verifier. A recall answer is recorded in the same log.
+//
+// No model calls, no network, no clock: every fading stamp sits in 2020 and
+// every fresh one in 2099, and the pick takes a pinned `now`.
+// Scratch database, never the real library.
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const scratch = mkdtempSync(join(tmpdir(), 'recall-gates-'));
+process.env.DB_PATH = join(scratch, 'test.db');
+process.env.VAULT_ROOT = join(scratch, 'vault');
+
+const B = new URL('../server/', import.meta.url).href;
+const { default: db } = await import(B + 'database.js');
+const { logAsked } = await import(B + 'questionLog.js');
+const { getGhostQuestions } = await import(B + 'dailyPlan.js');
+const { composeFeed, consumeFeedItem } = await import(B + 'feed.js');
+const { markPending } = await import(B + 'questionTrust.js');
+
+const NOW = new Date(process.env.RECALL_GATES_NOW || '2026-06-11T12:00:00.000Z');
+const LONG_AGO = (d) => `2020-01-${String(d).padStart(2, '0')} 09:00:00`;
+const FAR_AHEAD = '2099-01-01 09:00:00';
+
+let pass = 0, fail = 0;
+const check = (name, got, want) => {
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    if (ok) pass++; else fail++;
+    console.log(`${ok ? '  ok  ' : ' FAIL '} ${name}${ok ? '' : `\n        got  ${JSON.stringify(got)}\n        want ${JSON.stringify(want)}`}`);
+};
+
+// ---- fixture ------------------------------------------------------------------
+const project = (name) => db.prepare('INSERT INTO projects (name) VALUES (?)').run(name).lastInsertRowid;
+const topic = (pid, title, status = 'completed', description = '') =>
+    db.prepare('INSERT INTO nodes (project_id, title, status, description) VALUES (?, ?, ?, ?)').run(pid, title, status, description).lastInsertRowid;
+const mastered = (nodeId, lastUpdated) => db.prepare(
+    'INSERT INTO node_mastery (node_id, mastery_score, total_attempts, correct_attempts, last_updated) VALUES (?, 0.9, 6, 5, ?)',
+).run(nodeId, lastUpdated);
+const bank = (nodeId, questions) => db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)')
+    .run(nodeId, 'bank', JSON.stringify(questions)).lastInsertRowid;
+const mc = (s) => ({ question: s, type: 'multiple_choice', options: ['yes', 'no'], correct_answer: 'yes', explanation: 'e' });
+const tf = (s) => ({ question: s, type: 'true_false', correct_answer: 'True', explanation: 'e' });
+const typed = (s) => ({ question: s, type: 'short_answer', correct_answer: 'an answer', explanation: 'e' });
+const asked = (quizId, index, right, wrong) => logAsked([
+    ...Array.from({ length: right }, () => ({ quizId, index, correct: true })),
+    ...Array.from({ length: wrong }, () => ({ quizId, index, correct: false })),
+], 'quiz');
+
+const physics = project('Physics');
+const dutch = project('Dutch');
+const broken = project('Broken bank');
+
+// A: answer history across two rows of its bank.
+const A = topic(physics, 'Optics');
+mastered(A, LONG_AGO(1));
+const aRow1 = bank(A, [tf('A easy, always right'), mc('A hard, right once'), typed('A only ever missed')]);
+const aRow2 = bank(A, [mc('A never asked, multiple choice'), typed('A never asked, typed'),
+    { ...mc('A unusable key'), correct_answer: 'maybe' }, markPending(typed('A unverified'), { now: NOW.getTime() })]);
+asked(aRow1, 0, 3, 0);
+asked(aRow1, 1, 1, 2);
+asked(aRow1, 2, 0, 2);
+
+// B: no record at all, three formats.
+const Bn = topic(physics, 'Waves');
+mastered(Bn, LONG_AGO(20));
+bank(Bn, [tf('B true/false'), mc('B multiple choice'), typed('B typed')]);
+
+// F: fresh, never reviewed. T: an open topic the stream teaches.
+const F = topic(physics, 'Fresh');
+mastered(F, FAR_AHEAD);
+bank(F, [mc('F fresh')]);
+const T = topic(physics, 'Current topic', 'in_progress', 'y'.repeat(1300));
+
+// C: the other course. D: fading with nothing to ask.
+const C = topic(dutch, 'Lidwoorden');
+mastered(C, LONG_AGO(10));
+bank(C, [mc('C de or het')]);
+const D = topic(dutch, 'No bank');
+mastered(D, LONG_AGO(2));
+
+// E: fading, and every question in its bank is one no draw may hand out.
+const E = topic(broken, 'Unusable');
+mastered(E, LONG_AGO(3));
+bank(E, [{ ...mc('E unusable key'), correct_answer: 'maybe' }, markPending(mc('E unverified'), { now: NOW.getTime() })]);
+
+const stems = (ghost) => ghost?.questions.map(q => q.question) ?? null;
+const ghostOf = (pid, nodeId) =>
+    getGhostQuestions(pid, 10, 14, NOW).find(g => g.nodeId === nodeId) ?? null;
+
+console.log('--- which question: by difficulty ---');
+check('the hardest question got right before comes first, then the rest of what was got right',
+    stems(ghostOf(physics, A)), ['A hard, right once', 'A easy, always right']);
+check('the whole order: got right (hardest first), then no record (typed first), then only ever missed',
+    getGhostQuestions(physics, 10, 14, NOW, { perTopic: 10 }).find(g => g.nodeId === A)?.questions.map(q => q.question),
+    ['A hard, right once', 'A easy, always right', 'A never asked, typed', 'A never asked, multiple choice', 'A only ever missed']);
+check('the same pick every time: no lottery',
+    new Set(Array.from({ length: 12 }, () => JSON.stringify(stems(ghostOf(physics, A))))).size, 1);
+check('with no record, the format a guess cannot pass comes first (typed, then multiple choice)',
+    stems(ghostOf(physics, Bn)), ['B typed', 'B multiple choice']);
+check('a question with an unusable key or no verifier’s yes is never picked',
+    getGhostQuestions(broken, 10, 14, NOW).map(g => g.nodeId), []);
+check('a fresh topic is not fading, so nothing is picked from it', ghostOf(physics, F), null);
+check('each pick says where it lives, so its answer is recorded against it',
+    ghostOf(physics, A)?.picks?.map(p => [p.quizId, p.index]), [[aRow1, 1], [aRow1, 0]]);
+
+console.log('\n--- the review round in the stream ---');
+const recallCards = (feed) => feed.items.filter(i => i.kind === 'recall');
+const home = composeFeed({ limit: 15, excludeKeys: new Set() });
+const firstOwn = home.items.findIndex(i => i.kind !== 'notice');
+const homeRecall = recallCards(home);
+check('the round opens the stream: the first cards after any notice are the recall questions',
+    home.items.slice(firstOwn, firstOwn + homeRecall.length).every(i => i.kind === 'recall') && homeRecall.length > 0, true);
+check('one question from each fading topic that has one, oldest first, across courses',
+    homeRecall.map(c => c.nodeId), [A, C, Bn]);
+check('...each the topic’s first pick by difficulty',
+    homeRecall.map(c => c.question.question), ['A hard, right once', 'C de or het', 'B typed']);
+check('every card in it is marked as the round, so the stream can say what it is',
+    homeRecall.map(c => c.review), [true, true, true]);
+check('the topic being taught comes after the round',
+    home.items.findIndex(i => i.nodeId === T) > home.items.indexOf(homeRecall.at(-1)), true);
+
+db.prepare(`INSERT INTO settings (key, value) VALUES ('feed_recall_per_batch', '2')`).run();
+check('its size is the existing "Recall questions per batch" setting',
+    recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [A, C]);
+db.prepare(`UPDATE settings SET value = '0' WHERE key = 'feed_recall_per_batch'`).run();
+check('...and 0 turns it off', recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).length, 0);
+db.prepare(`DELETE FROM settings WHERE key = 'feed_recall_per_batch'`).run();
+
+const held = new Set(home.items.map(i => i.key));
+check('one round per visit: the next page of the same stream carries no recall',
+    recallCards(composeFeed({ limit: 15, excludeKeys: held })).length, 0);
+check('a course’s stream reviews that course’s topics only',
+    recallCards(composeFeed({ limit: 15, excludeKeys: new Set(), projectId: dutch })).map(c => c.nodeId), [C]);
+check('a topic’s own page carries no review round',
+    recallCards(composeFeed({ limit: 15, excludeKeys: new Set(), nodeId: T })).length, 0);
+
+console.log('\n--- an answer is recorded, and moves the next pick on ---');
+const card = homeRecall[0];
+consumeFeedItem({ key: card.key, kind: 'recall', nodeId: card.nodeId, result: { correct: true }, attemptId: 'recall-gate-1', uuid: card.question.uuid ?? null });
+check('a recall answer is recorded in the question log, as a recall',
+    db.prepare(`SELECT surface, correct FROM question_log WHERE node_id = ? AND surface = 'recall'`).all(A), [{ surface: 'recall', correct: 1 }]);
+check('...and still writes its evidence',
+    db.prepare(`SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND metadata LIKE '%"ghost":true%'`).get(A).n, 1);
+check('the answered topic is no longer fading, so the next visit’s round leaves it out',
+    recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).map(c => c.nodeId), [C, Bn]);
+db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run(LONG_AGO(1), A);
+check('when it fades again, the question its last recall asked is not asked next',
+    stems(ghostOf(physics, A))?.[0], 'A easy, always right');
+
+db.prepare('UPDATE node_mastery SET last_updated = ?').run(FAR_AHEAD);
+check('nothing fading: no round at all', recallCards(composeFeed({ limit: 15, excludeKeys: new Set() })).length, 0);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+db.close();
+try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a Windows handle may linger */ }
+process.exit(fail ? 1 : 0);

@@ -17,7 +17,7 @@ import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
 import { LessonBeingWritten, LessonWriteFailed } from './LessonPending';
 import { feedGenSignal, lessonPending } from '../../utils/feedPlacement';
-import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
+import { ArrowLeft, FolderOpen, History, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { findNode, getNodePath } from '../../utils/tree';
@@ -45,6 +45,7 @@ type StandaloneCard = FeedFlashcardCard | FeedRecallCard | FeedNoticeCard;
 
 type FeedGroup =
     | { type: 'chapter'; head: ChapterCard; cards: ChapterCard[]; continued: boolean }
+    | { type: 'review'; cards: FeedRecallCard[] }
     | { type: 'single'; card: StandaloneCard };
 
 const isChapterCard = (card: FeedCard): card is ChapterCard =>
@@ -63,6 +64,14 @@ function groupCards(cards: FeedCard[]): FeedGroup[] {
     const seenNodes = new Set<number>();
 
     for (const card of cards) {
+        // The review round: recall questions from several fading topics,
+        // under one line saying what they are.
+        if (card.kind === 'recall' && card.review) {
+            const last = groups[groups.length - 1];
+            if (last?.type === 'review') last.cards.push(card);
+            else groups.push({ type: 'review', cards: [card] });
+            continue;
+        }
         if (!isChapterCard(card)) {
             groups.push({ type: 'single', card });
             continue;
@@ -531,6 +540,26 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                             </ChapterSection>
                         ))}
                     </ChapterGroup>
+                ) : group.type === 'review' ? (
+                    <section key={`review-${group.cards[0].key}`} className="space-y-2">
+                        <h2 className="flex items-center gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+                            <History className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {tr("Recall: what you haven't practiced in a while")}
+                        </h2>
+                        <div className="space-y-5">
+                            {group.cards.map(card => (
+                                <div
+                                    key={card.key}
+                                    ref={setCardRef(card.key)}
+                                    tabIndex={-1}
+                                    style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
+                                    className="outline-none"
+                                >
+                                    {renderStandalone(card, !!feedDone[card.key], handleDone)}
+                                </div>
+                            ))}
+                        </div>
+                    </section>
                 ) : (
                     <div
                         key={group.card.key}
