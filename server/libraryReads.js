@@ -166,7 +166,7 @@ export function findDocument(ref) {
     const exact = db.prepare(`${DOC_COLS} WHERE (lower(d.title) = lower(?) OR lower(d.original_filename) = lower(?)) ORDER BY d.id LIMIT 1`)
         .get(title, title);
     if (exact) return exact;
-    const like = db.prepare(`${DOC_COLS} WHERE lower(d.title) LIKE '%' || lower(?) || '%' ORDER BY length(d.title), d.id LIMIT 1`)
+    const like = db.prepare(`${DOC_COLS} WHERE instr(lower(d.title), lower(?)) > 0 ORDER BY length(d.title), d.id LIMIT 1`)
         .get(title);
     if (like) return like;
     const words = (s) => new Set(String(s).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
@@ -428,7 +428,7 @@ export function findTopic(ref) {
     const title = String(ref?.title || '').trim();
     if (!title) return null;
     return db.prepare(`${cols} WHERE lower(n.title) = lower(?) ORDER BY n.is_note, n.id LIMIT 1`).get(title)
-        || db.prepare(`${cols} WHERE lower(n.title) LIKE '%' || lower(?) || '%' ORDER BY n.is_note, length(n.title), n.id LIMIT 1`).get(title)
+        || db.prepare(`${cols} WHERE instr(lower(n.title), lower(?)) > 0 ORDER BY n.is_note, length(n.title), n.id LIMIT 1`).get(title)
         || null;
 }
 
