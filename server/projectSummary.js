@@ -36,6 +36,7 @@ export const PROJECT_SUMMARY_SQL = `
         COALESCE(nc.completed_count, 0) as completed_count,
         COALESCE(nc.topic_count, 0) as topic_count,
         COALESCE(nc.completed_topic_count, 0) as completed_topic_count,
+        nc.last_done_at as last_done_at,
         COALESCE(fc.due_flashcard_count, 0) as due_flashcard_count,
         COALESCE(cc.card_count, 0) as card_count,
         COALESCE(cc.seen_card_count, 0) as seen_card_count
@@ -53,7 +54,10 @@ export const PROJECT_SUMMARY_SQL = `
                -- let a hand-ticked "Stage 4" advance a course's progress bar
                -- while never being able to complete it.
                SUM(CASE WHEN ${TOPIC_NODE} AND n.status IN ('completed', 'skipped')
-                        THEN 1 ELSE 0 END) as completed_topic_count
+                        THEN 1 ELSE 0 END) as completed_topic_count,
+               -- When a topic was last closed: the date a finished course
+               -- shows on the Finished list, and that list's order.
+               MAX(CASE WHEN ${TOPIC_NODE} THEN n.completed_at END) as last_done_at
         FROM nodes n
         WHERE ${LEAF_NODE}
         GROUP BY n.project_id
