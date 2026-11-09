@@ -835,6 +835,7 @@
   "Card updated": "Carte mise à jour",
   "cards": "cartes",
   "Cards": "Cartes",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Cartes et exercices : {{right}} sur {{total}} justes, comptés jusqu’à {{ceiling}} %.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Les cartes conservent les intervalles qu'elles ont acquis, vous continuez ainsi au lieu de recommencer.",
   "cards met": "cartes rencontrées",
   "cards reviewed_many": "cartes révisées",

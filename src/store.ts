@@ -583,6 +583,9 @@ interface AppState {
     /** Per topic: how many feed answers have been SAVED this session. A
      *  checkpoint standing at the topic's end re-reads its numbers on each. */
     feedSavedByNode: Record<number, number>;
+    /** Count one answer saved on `nodeId` (call after the write resolved): a feed
+     *  card's, or a drill round's played in a lesson above the checkpoint. */
+    noteAnswerSaved: (nodeId: number) => void;
     /**
      * The feed_items row the reader is actually looking at, tracked by FeedView.
      * The home page has no selected node, so this is the only way the assistant
@@ -976,6 +979,7 @@ export const useStore = create<AppState>((set, get) => ({
     feedExhausted: false,
     feedDone: {},
     feedSavedByNode: {},
+    noteAnswerSaved: (nodeId) => set(state => ({ feedSavedByNode: { ...state.feedSavedByNode, [nodeId]: (state.feedSavedByNode[nodeId] ?? 0) + 1 } })),
     feedFocusItemId: null,
     feedScope: null,
     studyNodeId: null,
@@ -1822,7 +1826,7 @@ export const useStore = create<AppState>((set, get) => ({
             const { feedCards, feedDone } = get();
             const card = feedCards.find(c => c.key === key);
             if (card && 'nodeId' in card) {
-                set(state => ({ feedSavedByNode: { ...state.feedSavedByNode, [card.nodeId]: (state.feedSavedByNode[card.nodeId] ?? 0) + 1 } }));
+                get().noteAnswerSaved(card.nodeId);
             }
             // The topic's LAST teaching card in the stream was just answered
             // and no checkpoint stands after it (a topic whose parts were not

@@ -967,6 +967,7 @@
   "Card updated": "Картку оновлено",
   "cards": "картки",
   "Cards": "Картки",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "Картки та вправи: {{right}} з {{total}} правильно, зараховуються до {{ceiling}}%.",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "Картки зберігають зароблені інтервали, тому ви продовжуєте навчання, а не починаєте знову.",
   "cards met": "карток зустрінуто",
   "cards reviewed_few": "картки пройдено",

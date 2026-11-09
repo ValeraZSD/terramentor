@@ -571,6 +571,7 @@
   "Card updated": "卡片已更新",
   "cards": "卡片",
   "Cards": "卡片",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "抽认卡和练习：{{total}} 题答对 {{right}} 题，最多计入 {{ceiling}}%。",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "卡片保留已获得的间隔，因此你可以继续复习，无需重新开始。",
   "cards met": "已遇到的卡片",
   "cards reviewed_other": "张卡片已复习",

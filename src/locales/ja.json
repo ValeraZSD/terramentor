@@ -571,6 +571,7 @@
   "Card updated": "カードを更新しました",
   "cards": "カード",
   "Cards": "カード",
+  "Cards and drills: {{right}} of {{total}} right, counted up to {{ceiling}}%.": "フラッシュカードと練習ドリル：{{total}}問中{{right}}問正解（{{ceiling}}%まで反映）。",
   "Cards keep the intervals they earned, so you carry on instead of starting over.": "間隔は獲得したものを維持するため、最初からやり直すのではなく継続できます。",
   "cards met": "学習したカード数",
   "cards reviewed_other": "枚のカードを学習",

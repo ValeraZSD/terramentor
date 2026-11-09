@@ -20,8 +20,11 @@
 //   * A rating undone before its flush (its `review_log` row is gone). One inside
 //     a written observation stands; the next batch corrects the estimate.
 //
-// Cards cannot prove a topic: `checkMasteryEligibility`'s raw-score clause honours
-// only `quiz`, `mastery_check` and `paper`.
+// Cards cannot prove a topic: `checkMasteryEligibility` reads the estimate with
+// card and drill evidence taken out (`gate_score`) and counts only `quiz`,
+// `mastery_check` and `paper` in its raw-score clause: ratings never enter what
+// the gate sees, and its cap at the estimate lets them pull it lower
+// (tools/practice-proof-gates.mjs).
 
 import db from './database.js';
 import { updateMasteryFromAttempt, MIN_GATE_QUESTIONS } from './mastery.js';

@@ -15,8 +15,11 @@ The agent itself can write two things back:
 - a **claim** that you answered one of its questions right or wrong.
 
 A claim is never proof. A right claim does not raise a topic's mastery and cannot pass the
-mastery gate; only Terramentor's own mastery check does that. In an app that can show it, the
-agent can open that check, or a review of your due cards, right in its own window; see
+mastery gate; only questions Terramentor graded itself do that (its mastery check, quizzes and
+the questions in your study stream, a paper exercise). Card reviews are not proof either: they
+keep a topic's estimate fresh but never pass the gate, in the agent's window or in the app. In
+an app that can show it, the agent can open that check, or a review of your due cards, right in
+its own window; see
 [The check and the review in the agent's window](#the-check-and-the-review-in-the-agents-window).
 
 The server is a separate program that talks to the running app over its HTTP API. It never

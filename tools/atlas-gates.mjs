@@ -271,6 +271,27 @@ const rebuilds = async (change) => {
         db.prepare('UPDATE node_mastery SET total_attempts = 3 WHERE node_id = ?').run(nStanding)));
     check('a prior transferred onto a topic rebuilds (its row is marked)', await rebuilds(() =>
         db.prepare('UPDATE node_mastery SET transferred_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    // Both move whether a bridge side is proven (estimateProven) with nothing
+    // else on the row changing.
+    check('a placement prior on a topic rebuilds (a seed holds the bridge flag back)', await rebuilds(() =>
+        db.prepare('UPDATE node_mastery SET placement_prior = 0.4 WHERE node_id = ?').run(nStanding)));
+    check('an agent claim that lowered a topic rebuilds (the gate keeps its lowering)', await rebuilds(() =>
+        db.prepare(`INSERT INTO mastery_claims (node_id, source, correct, mastery_before, mastery_after, evidence_mark, created_at)
+                    VALUES (?, 'mcp', 0, 0.9, 0.8, 0, '2026-11-09T00:00:00.000Z')`).run(nStanding)));
+    db.prepare('DELETE FROM mastery_claims WHERE node_id = ?').run(nStanding);
+    db.prepare('UPDATE node_mastery SET placement_prior = NULL WHERE node_id = ?').run(nStanding);
+    // The rest of what estimateProven's replay reads: the fitted rates it runs
+    // on, the first practice row (it switches the gate to the replay) and, on a
+    // topic over the line that has practice, each proving answer.
+    check('new fitted BKT rates rebuild (the gate replays on them)', await rebuilds(() =>
+        db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('bkt_params', '{"p_T":0.2,"p_S":0.1}')`).run()));
+    db.prepare(`DELETE FROM settings WHERE key = 'bkt_params'`).run();
+    const evRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, ?, ?, ?)`);
+    check('a proving answer on a topic with no practice does NOT rebuild by itself', !(await rebuilds(() => evRow.run(nStanding, 'quiz', 1, 1))));
+    check('the first card evidence on a topic rebuilds', await rebuilds(() => evRow.run(nStanding, 'flashcard', 4, 4)));
+    check('a further card batch does NOT rebuild', !(await rebuilds(() => evRow.run(nStanding, 'flashcard', 4, 4))));
+    check('a proving answer on a practice-held topic over the line rebuilds', await rebuilds(() => evRow.run(nStanding, 'quiz', 1, 1)));
+    db.prepare('DELETE FROM mastery_evidence WHERE node_id = ?').run(nStanding);
     // Same length on purpose: a key that summed title lengths missed this.
     check('a same-length rename rebuilds', await rebuilds(() =>
         db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run('Standing Wavez', nStanding)));
@@ -339,8 +360,35 @@ check('the cross-language pair is found',
 check('a bridge never joins two topics in the SAME project',
     bridged.every(b => b.a.projectId !== b.b.projectId));
 check('bridges carry a similarity', bridged.every(b => b.similarity > 0 && b.similarity <= 1));
-db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
 db.prepare(`INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.95, 8)`).run(nDutch);
+// Through the cache, not around it: a normal read after the first card
+// evidence must already show the new flag.
+const beforeCard = await buildAtlas({ refresh: true });
+const bridgeOf = (a) => a.bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
+check('the side is proven before any card (answers alone)', bridgeOf(beforeCard)?.proven === true, JSON.stringify(bridgeOf(beforeCard)));
+check('...and that map is what a normal read returns (cached)', (await buildAtlas()) === beforeCard);
+// Over the line on card reviews alone is not proven: transfer would lend
+// nothing from it, so the bridge must not promise a head start.
+const cardRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'flashcard', 8, 8)`).run(nDutch).lastInsertRowid;
+check('a normal read after the card evidence no longer flags it (the cache key moved)', bridgeOf(await buildAtlas())?.proven === false);
+const cardHeld = (await buildAtlas({ refresh: true })).bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
+check('a side held over the line by card reviews alone is not flagged actionable', cardHeld && cardHeld.proven === false, JSON.stringify(cardHeld));
+// Finished, but on its cards (marked done without the check): still nothing
+// for transfer to lend, so still no head start waiting.
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
+check('a card-held side marked completed is not flagged actionable either', bridgeOf(await buildAtlas())?.proven === false, JSON.stringify(bridgeOf(await buildAtlas())));
+db.prepare(`UPDATE nodes SET status = 'not_started' WHERE id = ?`).run(nDutch);
+// Its partner proven by a quiz at a LOWER estimate: the pair is still a head
+// start waiting, and the proven side leads it, whatever the percents say.
+db.prepare(`INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0.9, 5)`).run(nStanding);
+const quizRow = db.prepare(`INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'quiz', 5, 5)`).run(nStanding).lastInsertRowid;
+const mixed = (await buildAtlas({ refresh: true })).bridges.find(b => [b.a.id, b.b.id].includes(nDutch) && [b.a.id, b.b.id].includes(nStanding));
+check('a quiz-proven side leads a card-held side with a higher percent, and the bridge is actionable',
+    mixed && mixed.proven === true && mixed.a.id === nStanding, JSON.stringify(mixed && { proven: mixed.proven, a: mixed.a.title, b: mixed.b.title }));
+db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(quizRow);
+db.prepare('DELETE FROM node_mastery WHERE node_id = ?').run(nStanding);
+db.prepare('DELETE FROM mastery_evidence WHERE id = ?').run(cardRow);
+db.prepare(`UPDATE nodes SET status = 'completed' WHERE id = ?`).run(nDutch);
 const withProven = await buildAtlas({ refresh: true });
 const pair = withProven.bridges.find(b => [b.a.id, b.b.id].includes(nDutch));
 check('a proven side is put FIRST (it reads "you know this → this is waiting")',
