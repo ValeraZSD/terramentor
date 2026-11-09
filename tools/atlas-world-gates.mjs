@@ -325,13 +325,16 @@ if (C && T && P && libraries.length) {
 // A stub Worker the suite answers by hand: the build's every ending, in order.
 console.log('\n--- building the cities');
 const CB = await load('src/components/atlas/cityBuild.ts', ['citiesFor', 'citiesReady']);
-if (CB && CB.cityKey) {
+if (CB) {
     // Cities are cached by the places they were cut from: a coast redrawn
     // with the same number of points and the same two ends is another coast.
+    // A missing export fails here rather than skipping the check.
     const coast = (mid) => [{ id: 1, loops: [{ pts: new Float64Array([1, 0, 0, 0, mid, 0.6, 0, 0, 1]) }] }];
     const regionsAt = [{ id: 1, u: [0, 0, 1], topics: [{ id: 7, u: [0, 0, 1] }] }];
+    const keyed = typeof CB.cityKey === 'function';
     check('cities are cached by every point of the coast, not its length and ends',
-        CB.cityKey(coast(0.8), regionsAt) !== CB.cityKey(coast(0.7), regionsAt));
+        keyed && CB.cityKey(coast(0.8), regionsAt) !== CB.cityKey(coast(0.7), regionsAt),
+        keyed ? '' : 'cityBuild.ts does not export cityKey');
 }
 if (CB) {
     const hadWorker = globalThis.Worker;
