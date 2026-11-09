@@ -6,7 +6,7 @@
 import db from '../database.js';
 import { aiProvenance } from '../ai.js';
 import { checkMasteryEligibility } from '../mastery.js';
-import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, nodeLabels } from '../today.js';
+import { COMPLETED_AT_ON_COMPLETE, LEAF_NODE, OPEN_WORK_LEAF, WORK_LEAF, nodeLabels } from '../today.js';
 import { canProve } from '../readyToProve.js';
 import { getProjectLanguage } from '../language.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
@@ -204,17 +204,15 @@ const NOTE_HOLDING_TOPICS = 'This has topics under it, so it cannot become a not
 // `override` lets the learner consciously mark a topic done without proving
 // mastery (the "mark done anyway" path). 'skipped' never gates.
 //
-// Only a LEAF is gated. Gate mode 'off' and override bypass it. In 'advisory'
+// Only a TOPIC is gated (a section, or a deck's stage, has no check to take). Gate mode 'off' and override bypass it. In 'advisory'
 // mode we still return the gate response (so the UI can offer a mastery
 // check) but flag it advisory — the learner can override. Returns the 400
 // body, or null when the node may be completed.
 function completionGateRefusal(nodeId, override) {
     const gate = getGateConfig();
     if (override || gate.mode === 'off') return null;
-    const childCount = db.prepare(
-        'SELECT COUNT(*) as c FROM nodes WHERE parent_id = ? AND is_note = 0'
-    ).get(nodeId);
-    if (childCount.c > 0) return null;
+    const node = db.prepare(`SELECT (${WORK_LEAF}) AS work FROM nodes n WHERE n.id = ?`).get(nodeId);
+    if (!node?.work) return null;
     const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
     if (eligibility.eligible) return null;
     // Worded on `shown_score` (what the gate READ, raised by practice only up

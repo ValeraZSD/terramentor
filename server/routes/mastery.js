@@ -4,6 +4,7 @@ import {
     ATTEMPT_ID_ERROR, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
 } from '../mastery.js';
 import { recordMasteryCheck } from '../masteryCheck.js';
+import { masteryCheckTarget } from '../today.js';
 import { generateDailyPlan, getGhostQuestions } from '../dailyPlan.js';
 import { getGateConfig } from '../settingsStore.js';
 import { readAttempt } from './request.js';
@@ -133,6 +134,9 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
     const { score, total } = attempt;
     const attemptId = readAttemptId(req.body.attemptId);
     if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
+    // Recorded only where it could have been drawn: on a topic.
+    const target = masteryCheckTarget(nodeId);
+    if (target.refused) return res.status(target.httpStatus).json({ error: target.refused, code: target.code });
     try {
         // The write itself is server/masteryCheck.js, shared with the check an
         // agent host draws in its own window.
