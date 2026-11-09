@@ -75,8 +75,11 @@ const base = {
     insights: null, pace: null,
     stats: { totalNodes: 0, completedNodes: 0, progressPercent: 0, daysUntilDeadline: null },
 };
-const today = new Date().toISOString().slice(0, 10);
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// The device's date, as the page reads it (`todayStr`): a UTC date is another
+// day for the hours between the two midnights.
+const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return localDate(d); };
+const today = day(0);
 
 async function show(dashboard, extra = {}) {
     const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
