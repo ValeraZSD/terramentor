@@ -381,7 +381,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     let fromAttachment = null;
     let topicTitle = '';
     if (fromTopic && typeof fromTopic === 'object') {
-        topicTitle = cleanLine(fromTopic.title, 300);
+        topicTitle = typeof fromTopic.title === 'string' ? cleanLine(fromTopic.title, 300) : '';
         if (!topicTitle) throw new ShortCourseError(400, 'A topic needs a title.');
     } else if (typeof stagedId === 'string' && stagedId) {
         staged = loadStaged([stagedId])[0] || null;
