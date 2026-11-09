@@ -251,7 +251,7 @@ if (C && T && P && libraries.length) {
         return inside;
     };
     let worstSpread = 0, worstName = '', gaps = 0, overlaps = 0, inside = 0;
-    let countWrong = 0, centreAstray = 0, centreOff = 0, built = 0, ms = 0;
+    let countWrong = 0, centreAstray = 0, centreOff = 0, built = 0, ms = 0, pastCap = 0;
     const r = rng(11);
     for (const c of countries) {
         const territory = land.get(c.id);
@@ -269,6 +269,7 @@ if (C && T && P && libraries.length) {
             const city = byId.get(t.id);
             if (!ctr || !city || !inLoops(patch, city.loops, ctr)) centreAstray++;
             if (!ctr || terrain.ownerAt(ctr) !== c.id) centreOff++;
+            if (ctr && angle(ctr, c.u) > c.cap) pastCap++;
         }
         if (c.topics.length < 2) continue;
         // Monte Carlo over the country: uniform points in a cap that holds it.
@@ -301,6 +302,15 @@ if (C && T && P && libraries.length) {
     check('every topic\'s dot stands inside its own city', centreAstray === 0, `${centreAstray} do not`);
     check('every topic\'s dot stands on its own country', centreOff === 0, `${centreOff} do not`);
     console.log(`        (${built} countries cut in ${ms.toFixed(0)} ms)`);
+    // A city fills its country out to the coast, so the cities carry dots past
+    // the cap (455 of 2,490 on one real library). The pick must look as far as
+    // the dots: a pre-filter at the cap left those topics unpickable.
+    check('cities carry dots past their cap (why the pick must not stop there)', pastCap > 0, `${pastCap} past the cap`);
+    const mapSrc = read('src/components/atlas/GlobeMap.tsx') || '';
+    check('the pick looks as far as the region\'s furthest dot, not its cap',
+        /spread = Math\.max\(spread, angleBetween\(t\.u, p\.u\)\)/.test(mapSrc)
+        && /angleBetween\(world, p\.u\) > p\.spread \+ slack/.test(mapSrc)
+        && !/angleBetween\(world, p\.u\) > p\.cap \+ p\.dotAngle/.test(mapSrc));
     // The same country is cut the same way on every visit: the borders are
     // a function of the country, never of the frame or the order of visits.
     const c = countries.find(x => x.topics.length >= 8);
@@ -309,6 +319,61 @@ if (C && T && P && libraries.length) {
     const same = a1.borders.length === a2.borders.length
         && a1.borders.every((b, i) => b.pts.length === a2.borders[i].pts.length && b.pts.every((x, k) => x === a2.borders[i].pts[k]));
     check('a country is cut the same way every time', same);
+}
+
+// ---- the cities' build always settles -----------------------------------------
+// A stub Worker the suite answers by hand: the build's every ending, in order.
+console.log('\n--- building the cities');
+const CB = await load('src/components/atlas/cityBuild.ts', ['citiesFor', 'citiesReady']);
+if (CB) {
+    const hadWorker = globalThis.Worker;
+    const workers = [];
+    class StubWorker {
+        constructor() { workers.push(this); this.onmessage = null; this.onerror = null; }
+        postMessage(data) { this.sent = data; }
+        terminate() { this.ended = true; }
+        reply(data) { this.onmessage?.({ data: { key: this.sent.key, ...data } }); }
+        fail() { this.onerror?.({ type: 'error' }); }
+    }
+    const settle = (p, ms = 500) => Promise.race([
+        p.then(v => ({ ok: true, v }), e => ({ ok: false, e: String(e?.message ?? e) })),
+        new Promise(r => setTimeout(() => r({ ok: null }), ms)),
+    ]);
+    globalThis.Worker = StubWorker;
+    // A build that failed in the worker would fail the same way on the page,
+    // after freezing it for seconds: that failure is the answer.
+    const failedJob = CB.citiesFor([], [], 'gate-error');
+    workers.at(-1).reply({ type: 'error', message: 'stub' });
+    const failed = await settle(failedJob);
+    check('a build that failed in the worker fails, not run again on the page', failed.ok === false, JSON.stringify(failed));
+    const made = workers.length;
+    const again = CB.citiesFor([], [], 'gate-error');
+    check('…and the next map of that atlas asks again', workers.length === made + 1);
+    workers.at(-1).reply({ type: 'done', cities: new Map() });
+    await settle(again);
+    const noStart = CB.citiesFor([], [], 'gate-nostart');
+    workers.at(-1).fail();
+    const started = await settle(noStart);
+    check('a worker that cannot start hands the build to the page', started.ok === true && started.v instanceof Map, JSON.stringify(started));
+    // Two atlases in quick succession (a region renamed mid-build): the older,
+    // slower build lands last and must not take the newer one's place.
+    const slow = CB.citiesFor([], [], 'gate-old'); const wOld = workers.at(-1);
+    const fresh = CB.citiesFor([], [], 'gate-new'); const wNew = workers.at(-1);
+    wNew.reply({ type: 'done', cities: new Map([[1, 'new']]) });
+    await settle(fresh);
+    wOld.reply({ type: 'done', cities: new Map([[1, 'old']]) });
+    await settle(slow);
+    check('a slower build for a replaced atlas does not displace the current one', CB.citiesReady('gate-new')?.get(1) === 'new');
+    // No worker at all, and the build throws inside its timer: still settles.
+    globalThis.Worker = undefined;
+    let uncaught = null;
+    const keep = (err) => { uncaught = err; };
+    process.on('uncaughtException', keep);
+    const thrown = await settle(CB.citiesFor(null, [], 'gate-throw'));
+    process.off('uncaughtException', keep);
+    check('a build that throws on the page rejects rather than hanging', thrown.ok === false,
+        uncaught ? `uncaught: ${uncaught.message}` : JSON.stringify(thrown));
+    globalThis.Worker = hadWorker;
 }
 
 // ---- names and lines ----------------------------------------------------------
@@ -375,6 +440,10 @@ if (S) {
             m(3, 10, 'not_started', [0, 1, 0]),
             m(4, 10, 'not_started', [1, 0, 0], { is_leaf: 0 }),          // a heading
             m(5, 10, 'in_progress', [1, 0, 0]),                        // already begun
+            m(14, 10, 'not_started', [1, 0, 0], { attempts: 3 }),        // answered, status not moved
+            m(15, 10, 'not_started', [1, 0, 0], { sub: { seen: 2 } }),  // cards met
+            m(16, 10, 'not_started', [NaN, 0, 0]),                     // a broken vector
+            m(17, 10, 'not_started', null),                            // no vector at all
         ] },
         { members: [
             done(6, 20, [0, 0, 1], '2026-08-01T10:00:00Z'),            // a paused course
@@ -391,7 +460,8 @@ if (S) {
             m(13, 30, 'not_started', [0.7, 0.71, 0]),
         ] },
     ];
-    const got = S.studyNext(regions);
+    let got = [];
+    try { got = S.studyNext(regions); } catch (err) { check('a broken or missing vector does not stop the build', false, err.message); }
     check('the not-started topic nearest a finished one, one per region, best first',
         JSON.stringify(got.map(g => g.topicId)) === '[2,12,9]', JSON.stringify(got));
     check('…saying which finished topic it is near, by its clean name',
@@ -399,6 +469,13 @@ if (S) {
     check('…and which region it is in', got.map(g => g.regionId).join() === '0,4,2', got.map(g => g.regionId).join());
     check('a paused course, a heading, or begun work is never suggested',
         !got.some(g => [4, 5, 7].includes(g.topicId)));
+    // Region 0 alone: with topics 2 and 3 started too, what is left there is
+    // the answered topic, the one with cards met and the two without a vector.
+    const rest = [{ members: regions[0].members.map(x => [2, 3].includes(x.id) ? { ...x, status: 'in_progress' } : x) }];
+    let restGot = null;
+    try { restGot = S.studyNext(rest); } catch (err) { restGot = err.message; }
+    check('…nor a topic answered or with cards met while its status still says not started, nor one with no usable vector',
+        Array.isArray(restGot) && restGot.length === 0, JSON.stringify(restGot));
     check('at most the limit', S.studyNext(regions, { limit: 1 }).length === 1);
     check('a library with nothing finished suggests nothing', S.studyNext([{ members: [m(1, 1, 'not_started', [1])] }]).length === 0);
     const src = read('server/studyNext.js') || '';
@@ -426,9 +503,9 @@ check('the Map surface is the globe renderer, unrolled', /<GlobeMap\b[^>]*\bflat
 const globeSrc = read('src/components/atlas/GlobeMap.tsx') || '';
 // The one deliberate module-level `let` is `driftSpent` (the first planet of a
 // session drifts, no later one); a zoom range or a fade is per map.
-const SURFACE_LET = /^let\s+(MIN_K|MAX_K|TOPIC_\w+|FOLLOW_\w+|LEG_MIN_K)\b.*$/m;
-check('no surface constant is shared between two mounted maps (no module-level let)',
-    !SURFACE_LET.test(globeSrc), (globeSrc.match(SURFACE_LET) || [''])[0]);
+const moduleLets = [...globeSrc.matchAll(/^(?:let|var)\s+(\w+)/gm)].map(x => x[1]).filter(n => n !== 'driftSpent');
+check('no state is shared between two mounted maps (no module-level let but driftSpent)',
+    globeSrc.length > 0 && moduleLets.length === 0, moduleLets.join(', '));
 const leftovers = ['src/components/AtlasView.tsx', 'src/components/atlas/GlobeMap.tsx', 'src/components/atlas/globeCities.ts',
     'src/components/atlas/globeProjection.ts', 'server/atlas.js']
     .filter(f => /MOCKUP|atlas_mock|__globe\b|WORLD_MOCK/.test(read(f) || ''));

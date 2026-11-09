@@ -20,6 +20,9 @@ export interface CityRegion { id: number; u: Vec3; topics: { id: number; u: Vec3
 
 let done: { key: string; cities: CityMap } | null = null;
 let running: { key: string; job: Promise<CityMap> } | null = null;
+/** The atlas last asked about. Only its cities are kept: a slower build for
+ *  one already replaced must not overwrite them when it finally lands. */
+let wanted: string | null = null;
 
 /** A short, stable name for one set of places (FNV-1a over the numbers). */
 export function cityKey(territories: Territory[], regions: CityRegion[]): string {
@@ -42,18 +45,23 @@ export function cityKey(territories: Territory[], regions: CityRegion[]): string
 
 /** The cities already built for this key, or null. */
 export function citiesReady(key: string): CityMap | null {
+    wanted = key;
     return done?.key === key ? done.cities : null;
 }
 
 function onThisThread(territories: Territory[], regions: CityRegion[]): Promise<CityMap> {
-    return new Promise(resolve => {
-        setTimeout(() => resolve(buildCities(territories, regions)), 0);
+    return new Promise((resolve, reject) => {
+        // A throw inside the timer would otherwise leave this promise, and every
+        // map waiting on it, unsettled for good.
+        setTimeout(() => {
+            try { resolve(buildCities(territories, regions)); } catch (err) { reject(err); }
+        }, 0);
     });
 }
 
 function inWorker(territories: Territory[], regions: CityRegion[], key: string): Promise<CityMap> {
     if (typeof Worker === 'undefined') return onThisThread(territories, regions);
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
         let worker: Worker;
         try {
             worker = new Worker(new URL('./citiesWorker.ts', import.meta.url), { type: 'module' });
@@ -61,16 +69,19 @@ function inWorker(territories: Territory[], regions: CityRegion[], key: string):
             resolve(onThisThread(territories, regions));
             return;
         }
-        const fallBack = () => {
+        // The worker could not run at all (refused, or failed to load): the
+        // page's thread does the same work instead.
+        worker.onerror = () => {
             worker.terminate();
             resolve(onThisThread(territories, regions));
         };
-        worker.onerror = fallBack;
         worker.onmessage = (e: MessageEvent) => {
             if (e.data?.key !== key) return;
-            if (e.data.type !== 'done') { fallBack(); return; }
             worker.terminate();
-            resolve(e.data.cities as CityMap);
+            // A build that failed in the worker would fail the same way here,
+            // after seconds of a page that does not turn: that is the answer.
+            if (e.data.type === 'done') resolve(e.data.cities as CityMap);
+            else reject(new Error(e.data.message || 'the cities could not be built'));
         };
         worker.postMessage({
             key,
@@ -85,11 +96,18 @@ export function citiesFor(territories: Territory[], regions: CityRegion[], key =
     const ready = citiesReady(key);
     if (ready) return Promise.resolve(ready);
     if (running?.key === key) return running.job;
-    const job = inWorker(territories, regions, key).then(cities => {
-        done = { key, cities };
-        if (running?.key === key) running = null;
-        return cities;
-    });
+    const job = inWorker(territories, regions, key).then(
+        cities => {
+            if (wanted === key) done = { key, cities };
+            if (running?.key === key) running = null;
+            return cities;
+        },
+        err => {
+            // Forgotten, so the next map of this atlas asks again rather than
+            // inheriting a promise that has already failed.
+            if (running?.key === key) running = null;
+            throw err;
+        });
     running = { key, job };
     return job;
 }

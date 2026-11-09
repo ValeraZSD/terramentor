@@ -42,18 +42,23 @@ export function studyNext(regions, { limit = 3, windowDays = 21 } = {}) {
 
     const candidates = [];
     regions.forEach((r, regionId) => {
-        const done = r.members.filter(m => m.status === 'completed');
+        const done = r.members.filter(m => m.status === 'completed' && m.vec?.length);
         if (!done.length) return;
         for (const m of r.members) {
             // A heading is not something to study; its topics are.
-            if (m.status !== 'not_started' || !m.is_leaf || !current.has(m.project_id)) continue;
+            if (m.status !== 'not_started' || !m.is_leaf || !current.has(m.project_id) || !m.vec?.length) continue;
+            // Begun is not next: an answer given or a card met is work under
+            // way, as the region's own counts say, whatever the status reads.
+            if (m.attempts > 0 || m.sub?.seen > 0) continue;
             let best = -Infinity, near = null;
             for (const d of done) {
                 let s = 0;
                 const n = Math.min(m.vec.length, d.vec.length);
                 for (let k = 0; k < n; k++) s += m.vec[k] * d.vec[k];
-                if (s > best || (s === best && d.id < near.id)) { best = s; near = d; }
+                if (s > best || (near && s === best && d.id < near.id)) { best = s; near = d; }
             }
+            // A vector that is not numbers (NaN) is near nothing.
+            if (!near) continue;
             candidates.push({
                 topicId: m.id,
                 regionId,

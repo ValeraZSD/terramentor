@@ -354,6 +354,9 @@ interface Placed {
     cap: number;
     /** Angular radius of one topic dot inside this cap. */
     dotAngle: number;
+    /** How far from `u` the furthest of its dots sits: the cap, until the
+     *  cities move the dots out across the whole country. */
+    spread: number;
     topics: { topic: AtlasTopic; u: Vec3 }[];
 }
 
@@ -478,6 +481,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             dotAngle: region.radius > 1e-9
                 ? Math.max(0.0015, (region.topicRadius / region.radius) * cap * CAP_FILL)
                 : 0.0015,
+            spread: cap,
             topics: region.topics.map(topic => {
                 const [ox, oy] = topicOffset(region, topic);
                 return { topic, u: capPoint(u, e1, e2, ox, oy, cap) };
@@ -524,9 +528,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      *  city — where the route runs to and the pointer finds it. */
     const placed = useMemo<Placed[]>(() => !cityMap ? placed0 : placed0.map(p => {
         const country = cityMap.get(p.region.id);
-        return country
-            ? { ...p, topics: p.topics.map(t => ({ ...t, u: country.centres.get(t.topic.id) ?? t.u })) }
-            : p;
+        if (!country) return p;
+        const topics = p.topics.map(t => ({ ...t, u: country.centres.get(t.topic.id) ?? t.u }));
+        // A city fills the country out to its coast, well past the cap: on a
+        // 2,490-topic library 455 dots moved outside it, where a pick that
+        // looked only as far as the cap could never find them.
+        let spread = p.cap;
+        for (const t of topics) spread = Math.max(spread, angleBetween(t.u, p.u));
+        return { ...p, topics, spread };
     }), [placed0, cityMap]);
 
     /**
@@ -544,8 +553,14 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     /** The camera has been put somewhere: by the reader, or by a move. Until
      *  then it follows the library's own opening view. */
     const placedCamRef = useRef(false);
+    /** The home the camera was last put at, so a new copy of the same atlas
+     *  (same places, new objects) does not set it back mid-drift. */
+    const homedRef = useRef<{ yaw: number; pitch: number } | null>(null);
     useLayoutEffect(() => {
         if (placedCamRef.current) return;
+        const was = homedRef.current;
+        if (was && Math.abs(was.yaw - home.yaw) < 1e-9 && Math.abs(was.pitch - home.pitch) < 1e-9) return;
+        homedRef.current = home;
         camRef.current = { yaw: home.yaw, pitch: clamp(home.pitch, -MAX_PITCH, MAX_PITCH), k: camRef.current.k };
     }, [home]);
 
@@ -728,6 +743,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         followRef.current = false;
         followKRef.current = null;
         setSpinning(false);
+        // The reader has put the camera somewhere: a fresh copy of the atlas
+        // (the cached one replaced, a region renamed) must not take it home.
+        placedCamRef.current = true;
     }, []);
 
     const dismissCard = useCallback(() => {
@@ -781,8 +799,8 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             // itself does.
             let best: { hit: Hit; a: number } | null = null;
             for (const p of all) {
-                if (angleBetween(world, p.u) > p.cap + p.dotAngle) continue;
                 const slack = p.dotAngle + 8 / R;
+                if (angleBetween(world, p.u) > p.spread + slack) continue;
                 for (const t of p.topics) {
                     const a = angleBetween(world, t.u);
                     if (a <= slack && (!best || a < best.a)) {

@@ -470,6 +470,16 @@ console.log('\n--- a hover asks about the layer the reader is in ---');
         pointer('pointermove', dots[0].x, dots[0].y);
         flush(3);
         check('hovering a topic still opens its card', card() === 'topic', `card is ${card()}`);
+        // Every dot, not only the one in the middle: with the cities built a
+        // dot sits in its city, out towards the coast and past the region's
+        // cap, and a pick that looked only as far as the cap missed them.
+        const misses = dots.filter(d => {
+            pointer('pointermove', d.x, d.y);
+            flush(2);
+            return card() !== 'topic';
+        });
+        check('every topic dot in the frame answers a hover with its card', misses.length === 0,
+            `${misses.length} of ${dots.length} dots answer nothing`);
     }
     if (gap) {
         pointer('pointermove', gap.x, gap.y);
@@ -608,6 +618,37 @@ console.log('\n--- search lights up the map ---');
         land.some(f => f.a < 0.3) && land.some(f => f.a > 0.8),
         `alphas ${Math.min(...land.map(f => f.a)).toFixed(2)}..${Math.max(...land.map(f => f.a)).toFixed(2)}`);
     renderWith({ matches: null });
+}
+
+console.log('\n--- a fresh copy of the atlas leaves the camera where the reader put it ---');
+// The page shows the cached atlas, then the fresh one; a rename hands over a new
+// regions array too. Same places, new objects: a camera the reader has dragged
+// must stay put, rather than snap back to the opening view. A fresh mount, so
+// nothing earlier in this file has moved the camera already.
+{
+    const el3 = window.document.createElement('div');
+    el3.style.width = '900px'; el3.style.height = '600px';
+    window.document.body.appendChild(el3);
+    const sheet = globalThis.__mountAtlas(el3, sheetProps);
+    flush(10);
+    const c3 = el3.querySelector('canvas');
+    const press = (type, x, y) => globalThis.__act(() => c3.dispatchEvent(
+        new PointerEventPolyfill(type, { clientX: x, clientY: y, bubbles: true })));
+    press('pointerdown', 450, 300);
+    press('pointermove', 330, 250);
+    press('pointerup', 330, 250);
+    flush(10);
+    const dragged = sheet.ref.current.camera();
+    globalThis.__act(() => sheet.root.render(globalThis.__element({
+        ...sheetProps, ref: sheet.ref, regions: atlas.regions.map(r => ({ ...r })),
+    })));
+    flush(10);
+    const after = sheet.ref.current.camera();
+    check('a new copy of the same atlas does not send a dragged camera home',
+        Math.abs(after.yaw - dragged.yaw) < 1e-6 && Math.abs(after.pitch - dragged.pitch) < 1e-6,
+        `yaw ${dragged.yaw.toFixed(3)} → ${after.yaw.toFixed(3)}, pitch ${dragged.pitch.toFixed(3)} → ${after.pitch.toFixed(3)}`);
+    globalThis.__act(() => sheet.root.unmount());
+    el3.remove();
 }
 
 console.log('\n--- tracing a course across the map ---');
