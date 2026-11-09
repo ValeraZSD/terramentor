@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, Paperclip, Play, RotateCcw, Sparkles, Trash2, X, Youtube,
+    Loader2, MoreVertical, Paperclip, Play, RotateCcw, Sparkles, Trash2, X, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
@@ -41,7 +41,7 @@ import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind 
 const NARROW_PX = 560;
 
 const KIND_ICON: Record<SourceKind, typeof Globe> = {
-    video: Youtube, page: Globe, pdf: FileText, file: File, topic: Sparkles,
+    video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: Sparkles,
 };
 
 /** The label between two rules that every section of the page uses. */
@@ -265,7 +265,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         return (
             <div data-short="source" className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3 space-y-3">
                 <div className="flex items-center gap-3 min-w-0">
-                    <Tile><Youtube className="w-5 h-5" aria-hidden="true" /></Tile>
+                    <Tile><SquarePlay className="w-5 h-5" aria-hidden="true" /></Tile>
                     <div className="min-w-0 flex-1">
                         <p className="text-base font-medium text-slate-900 dark:text-white line-clamp-2">{box.title}</p>
                         <p className="text-sm text-slate-500 dark:text-slate-400">
