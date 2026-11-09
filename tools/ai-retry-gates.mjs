@@ -415,5 +415,15 @@ server.close();
 // that fails a suite.
 try { db.close(); } catch { /* already closed */ }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }
+console.log('\n--- a provider that quotes the key it refused ---');
+{
+    const { withoutKey } = await import('../server/ai.js');
+    const quoted = 'abc"defgh';
+    check('the key is cut out of the error text', withoutKey('Incorrect key sk-test-12345678.', { apiKey: 'sk-test-12345678' }) === 'Incorrect key [key].');
+    check('...also as a serialiser wrote it', !withoutKey(JSON.stringify({ error: { message: `key ${quoted}` } }), { apiKey: quoted }).includes('defgh'));
+    check('a short key withholds the text it appears in', withoutKey('the cat sat', { apiKey: 'cat' }) === '');
+    check('text without the key is left as it is', withoutKey('no such model', { apiKey: 'cat' }) === 'no such model' && withoutKey('plain', undefined) === 'plain');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -452,7 +452,16 @@ export function normalizeOpenAIBaseUrl(raw) {
  *  and kept on the failed task, so the key is cut out where the body is read. */
 export function withoutKey(text, settings) {
     const key = settings?.apiKey;
-    return key && key.length >= 8 ? String(text).split(key).join('[key]') : text;
+    if (!key || typeof key !== 'string') return text;
+    const body = String(text);
+    // The key as written, and as JSON writes it (a quote or backslash in it is
+    // escaped once the body has been through a serialiser).
+    const forms = [...new Set([key, JSON.stringify(key).slice(1, -1)])];
+    if (!forms.some(f => body.includes(f))) return text;
+    // A short key could be a piece of ordinary words: cutting it out would
+    // garble the text and still show where it was, so the body is withheld.
+    if (key.length < 8) return '';
+    return forms.reduce((out, f) => out.split(f).join('[key]'), body);
 }
 
 function openAIHeaders(settings) {
@@ -847,7 +856,7 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
                     const code = Number(json.error?.code);
                     const httpStatus = Number.isInteger(code) && code >= 100 && code <= 599 ? code : undefined;
                     throw tagAIError(
-                        new Error(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream'),
+                        new Error(withoutKey(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream', settings)),
                         { provider: 'openai', model: settings.model, endpoint: base, httpStatus, attempts, streamed: true,
                           retryBeforeOutput: !produced && !thinkingChars && !callFragments.size
                               && AI_RETRY_STATUSES.has(httpStatus) && attempts < AI_RETRY_ATTEMPTS });
