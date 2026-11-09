@@ -69,7 +69,6 @@
   "{{accuracyPct}}% correct today — see which": "今日の正解率 {{accuracyPct}}% — 詳細を見る",
   "{{actual}}% done; the plan expects {{expected}}%": "{{actual}}% 完了。計画では {{expected}}% の予定です",
   "{{anki}} of them came from Anki": "うち {{anki}} 件は Anki から",
-  "{{answeredCount}} of {{total}} answered": "{{total}} 問中 {{answeredCount}} 問回答済み",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} 回答済み",
   "{{attempts}} attempts available to fit on._other": "{{attempts}} 回の試行で収まるように調整可能。",
   "{{attempts}} on {{topics}} topics": "{{topics}} トピックで {{attempts}} 回",

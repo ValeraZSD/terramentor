@@ -80,7 +80,6 @@
   "{{accuracyPct}}% correct today — see which": "{{accuracyPct}}% heute richtig — sieh nach, welche",
   "{{actual}}% done; the plan expects {{expected}}%": "{{actual}} % erledigt; der Plan erwartet {{expected}} %",
   "{{anki}} of them came from Anki": "{{anki}} davon stammen aus Anki",
-  "{{answeredCount}} of {{total}} answered": "{{answeredCount}} von {{total}} beantwortet",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} beantwortet",
   "{{attempts}} attempts available to fit on._one": "{{attempts}} Versuch zum Anpassen verfügbar.",
   "{{attempts}} attempts available to fit on._other": "{{attempts}} Versuche zum Anpassen verfügbar.",
