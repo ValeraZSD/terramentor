@@ -546,10 +546,12 @@ console.log('\n--- an empty body on the older routes ---');
     check('a project reorder with a list still applies', r.status === 200
         && db.prepare('SELECT position FROM projects WHERE id = ?').get(named).position === 0
         && db.prepare('SELECT position FROM projects WHERE id = ?').get(pid).position === 1);
-    for (const bad of [[{}], [[named]], [true], ['1'], [named, 0]]) {
+    // `[pid, 0]` would move `pid` to the front if the valid part were written.
+    for (const bad of [[{}], [[named]], [true], ['1'], [pid, 0]]) {
         r = await api('/api/projects/reorder', json('PUT', { projectIds: bad }));
         check(`a project reorder of ${JSON.stringify(bad)} is a 400, and moves nothing`, r.status === 400
-            && db.prepare('SELECT position FROM projects WHERE id = ?').get(named).position === 0, `${r.status}`);
+            && db.prepare('SELECT position FROM projects WHERE id = ?').get(named).position === 0
+            && db.prepare('SELECT position FROM projects WHERE id = ?').get(pid).position === 1, `${r.status}`);
     }
     r = await api('/api/resources', json('POST', { node_id: topic, title: 'Link', url: 'https://example.com/a' }));
     const link = r.body?.id;
