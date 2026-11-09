@@ -1055,7 +1055,7 @@ ok('the box asks a touch screen for a link only, a mouse for a link or a file',
 ok('a video with no captions offers a course from its title, said to be without the video',
     stripSource.includes('{t("Write it from the title")}') && !stripSource.includes('"Write it from the topic"')
     && /no_captions: k\("[^"]*from its title alone, without the video\."\)/.test(readFileSync(join(ROOT, 'src/components/shortCourses/readReasons.ts'), 'utf8')));
-ok('a row counts its topics as topics, the word the read used', stripSource.includes('t("{{done}} / {{total}} topics done"') && !stripSource.includes('/ {{total}} items"'));
+ok('a row counts its topics as topics, the word the read used', stripSource.includes('t("{{done}} / {{total}} topics"') && !stripSource.includes('/ {{total}} items"'));
 ok('Enter that confirms an input method\'s word does not read the half-typed link', /e\.key === 'Enter' && !e\.nativeEvent\.isComposing && e\.keyCode !== 229/.test(stripSource));
 ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<TextArea\b/.test(stripSource) && !/<textarea\b/.test(stripSource));
 ok('chapters picked that come to too few words say so, and Create waits for more',
