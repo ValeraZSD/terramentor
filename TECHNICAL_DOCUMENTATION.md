@@ -810,8 +810,8 @@ The same regions are also placed on a **sphere** (`server/globe.js`, called
 from `atlas.js`): three principal components, each axis scaled to its own span,
 then the same refinement with angles for distances, and caps separated so none
 overlap; the planet is then turned so the pole sits where the land is thinnest
-and the land faces the opening camera (`faceTheReader`). It costs three numbers
-per region on the wire; each topic's flat offset is walked onto its cap by the
+and the land faces the opening camera (`faceTheReader`). It costs four numbers
+per region on the wire (the direction `u` and the cap's radius `cap`); each topic's flat offset is walked onto its cap by the
 client. ONE renderer draws both surfaces (`src/components/atlas/GlobeMap.tsx`,
 `globeProjection.ts`): *Terra* is the globe, the *Map* is the same planet
 unrolled (`flat`, a Winkel tripel sheet centred on the camera). Regions are
