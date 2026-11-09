@@ -225,11 +225,11 @@ export function useReviewQueue(total: number): ReviewQueue {
     }, [step]);
 
     const skip = useCallback(() => {
-        setFlipped(false);
         // A skip settles nothing: the card keeps whatever ladder position it had
         // and is simply passed over.
         const target = findNext(index, reviewed, pending, Date.now());
         if (target === null || target === index) return false;
+        setFlipped(false);
         setIndex(target);
         // Recorded even though nothing was written: "I skipped that by mistake"
         // is the same wish as "I rated that by mistake".
