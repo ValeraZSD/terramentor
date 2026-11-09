@@ -80,7 +80,6 @@
   "{{accuracyPct}}% correct today — see which": "{{accuracyPct}}% correct vandaag — zie welke",
   "{{actual}}% done; the plan expects {{expected}}%": "{{actual}}% klaar; het plan verwacht {{expected}}%",
   "{{anki}} of them came from Anki": "waarvan {{anki}} uit Anki",
-  "{{answeredCount}} of {{total}} answered": "{{answeredCount}} van {{total}} beantwoord",
   "{{answeredCount}}/{{length}} answered": "{{answeredCount}}/{{length}} beantwoord",
   "{{attempts}} attempts available to fit on._one": "{{attempts}} poging beschikbaar voor het afstemmen.",
   "{{attempts}} attempts available to fit on._other": "{{attempts}} pogingen beschikbaar voor het afstemmen.",
