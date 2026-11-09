@@ -448,6 +448,13 @@ export function normalizeOpenAIBaseUrl(raw) {
     return url;
 }
 
+/** A provider may echo the key it refused. What it said is shown to the learner
+ *  and kept on the failed task, so the key is cut out where the body is read. */
+function withoutKey(text, settings) {
+    const key = settings?.apiKey;
+    return key && key.length >= 8 ? String(text).split(key).join('[key]') : text;
+}
+
 function openAIHeaders(settings) {
     const headers = { 'Content-Type': 'application/json' };
     if (settings.apiKey) headers['Authorization'] = `Bearer ${settings.apiKey}`;
@@ -624,7 +631,7 @@ async function openAIListModels(settings, { timeoutMs = 5000 } = {}) {
         signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(new Error(`GET ${base}/models failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
             { httpStatus: res.status, responseBody: body, endpoint: base });
     }
@@ -726,7 +733,7 @@ async function openAIChat(settings, messages, { temperature, top_p, signal, oper
         signal,
     }, { signal, label: `chat ${settings.model}`, fetchImpl: wireFetch(settings) });
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
             new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
@@ -784,7 +791,7 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
     }, { signal, label: `chat stream ${settings.model}`, fetchImpl: wireFetch(settings) });
     const attempts = priorAttempts + (res.attemptsUsed || 1);
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
             new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
@@ -1167,7 +1174,7 @@ async function transcribeOnce(settings, png, { signal, timeout = 120000, prompt,
                 signal: timeoutController.signal,
             });
             if (!res.ok) {
-                const body = await res.text().catch(() => '');
+                const body = withoutKey(await res.text().catch(() => ''), settings);
                 throw tagAIError(new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
                     { provider: 'openai', model: visionModel, endpoint: baseUrl, httpStatus: res.status });
             }
