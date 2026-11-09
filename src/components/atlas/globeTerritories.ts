@@ -388,7 +388,7 @@ function sweepSpecks(owner: Int32Array, adj: Adjacency, homes: number[]) {
 
 // ---- lines ----------------------------------------------------------------------
 
-function lineOf(points: Vec3[], closed: boolean): SphereLine {
+export function lineOf(points: Vec3[], closed: boolean): SphereLine {
     const pts = new Float64Array(points.length * 3);
     let sx = 0, sy = 0, sz = 0;
     points.forEach((p, i) => {
