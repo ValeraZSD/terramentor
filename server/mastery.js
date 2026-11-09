@@ -376,7 +376,8 @@ export const MIN_GATE_QUESTIONS = 4;
  * @param {number} threshold - Minimum BKT posterior (default 0.85)
  * @param {number} checkPass  - Minimum raw accuracy for assessment evidence (default 0.8)
  * @returns {{ eligible, mastery_score, gate_score, practice_lifted, evidence_count,
- *   threshold, has_evidence, passed_assessment, borrowed_estimate, own_answers }}
+ *   threshold, has_evidence, passed_assessment, borrowed_estimate, own_answers,
+ *   practice_right, practice_total }}
  */
 export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.8) {
     const record = getNodeMastery(nodeId);
@@ -437,6 +438,10 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
         // 85% was borrowed from another project.
         borrowed_estimate: borrowed,
         own_answers: ownAnswers,
+        // Card ratings and drill answers on this node, right of total: what
+        // a reader shows beside `gate_score` when practice is not counted.
+        practice_right: counts.practice_right,
+        practice_total: counts.practice_total,
     };
 }
 
@@ -504,12 +509,15 @@ export function applySeededPrior(nodeId, kind, prior, sources = []) {
 /**
  * A node's evidence, counted the way the gate reads it: `own` = answers the app
  * graded on this node (proving rows only: practice would un-borrow a seed in four
- * ratings, and a placement answer IS the seed); `practice` = practice rows.
+ * ratings, and a placement answer IS the seed); `practice` = practice rows,
+ * `practice_right` / `practice_total` = their answers.
  */
 function evidenceCounts(nodeId) {
     return stmt(`
         SELECT COALESCE(SUM(CASE WHEN ${PROVING_EVIDENCE_SQL} THEN total END), 0) AS own,
-               COUNT(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN 1 END) AS practice
+               COUNT(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN 1 END) AS practice,
+               COALESCE(SUM(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN score END), 0) AS practice_right,
+               COALESCE(SUM(CASE WHEN ${PRACTICE_EVIDENCE_SQL} THEN total END), 0) AS practice_total
         FROM mastery_evidence WHERE node_id = ?
     `).get(nodeId);
 }

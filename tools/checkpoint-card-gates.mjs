@@ -53,7 +53,8 @@ const scratch = mkdtempSync(join(cacheDir, 'checkpoint-card-gates-'));
 const out = join(scratch, 'bundle.cjs');
 
 const stubs = {
-    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });`,
+    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => String(o?.[n] ?? '')), i18n: { language: 'en' } });
+        export const initReactI18next = { type: '3rdParty', init() { } };`,
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
         g.__st = { state: { feedSavedByNode: {}, masteryGate: { isOpen: false, nodeId: null }, addToast() { }, openMasteryGate() { }, skipNode: async () => true }, subs: new Set() };

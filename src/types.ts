@@ -901,6 +901,14 @@ export interface FeedCheckpointCard extends FeedCardCommon {
      * reason as `borrowedEstimate`.
      */
     practiceLifted?: boolean;
+    /**
+     * The estimate the gate counts (practice taken out); what the card shows,
+     * so its number agrees with the gate's refusal. Absent on an old payload.
+     */
+    gateScore?: number;
+    /** Card ratings and drill answers on this topic: right, of total. */
+    practiceRight?: number;
+    practiceTotal?: number;
     /** The topic's stored status: its own page serves it after it closed, too. */
     nodeStatus?: Node['status'];
     gateMode: 'off' | 'advisory' | 'enforced';

@@ -205,6 +205,8 @@ try {
     const facts = checkpointFacts(noBank, gate);
     check('its checkpoint card does not offer completion as proven', facts.eligible === false, JSON.stringify(facts));
     check('…and carries why the high estimate does not count (practiceLifted)', facts.practiceLifted === true, JSON.stringify(facts));
+    check('…its number is the one the gate counts (gateScore 0, not the 99%), as its refusal quotes', facts.gateScore === 0 && facts.masteryScore >= T, JSON.stringify(facts));
+    check('…and the cards are shown as what they did (4 of 4 right)', facts.practiceRight === 4 && facts.practiceTotal === 4, JSON.stringify(facts));
     check('it is never "ready to prove" when late', canProve(noBank, gate) === false);
     const agent = agentMastery(noBank);
     check('an agent reading it is told it has not passed, and why', agent?.mastery?.passed === false && /card reviews and drills/i.test(agent?.text || ''), agent?.text);

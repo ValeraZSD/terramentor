@@ -9,6 +9,7 @@ import ProgressBar from '../ui/ProgressBar';
 import { isReadyToProve } from '../../utils/tree';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /**
  * Under this width (in rem) the two actions stack, each the card's width, the
@@ -43,6 +44,7 @@ interface Props {
  */
 export default function CheckpointCard({ card: composed, done, onDone }: Props) {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     // The card stands at the END of its topic from the moment every part is
     // written, so it is often composed before the parts above it are read and
     // its numbers are the topic's as it was then. Each SAVED answer in the
@@ -111,7 +113,9 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
         );
     };
 
-    const masteryPct = Math.round(card.masteryScore * 100);
+    // What the gate counts, so the bar agrees with "Not proven yet (N% …)";
+    // the stored estimate only on a payload from before the field existed.
+    const masteryPct = Math.round((card.gateScore ?? card.masteryScore) * 100);
     const accuracyPct = card.feedTotal > 0 ? Math.round((card.feedCorrect / card.feedTotal) * 100) : null;
 
     const complete = async (override = false) => {
@@ -221,11 +225,12 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
                                 : t("Part of this was carried over from a topic you proved elsewhere — answer a few here to make it count.")}
                         </p>
                     )}
-                    {/* Over the line on card reviews and drills alone: they
-                        keep a topic fresh, and the gate does not count them. */}
-                    {card.practiceLifted && gateMode !== 'off' && (
+                    {/* Over the line on card reviews and drills alone: the bar
+                        shows what the gate counts, and this line what the cards
+                        did, so the learner sees both and why only one finishes. */}
+                    {card.practiceLifted && gateMode !== 'off' && (card.practiceTotal ?? 0) > 0 && (
                         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {t("Flashcards and practice drills raised this number. They don't finish a topic; a quiz or the mastery check does.")}
+                            {t("Cards and drills: {{right}} of {{total}} right. They keep the topic fresh but don't finish it.", { right: num(card.practiceRight ?? 0), total: num(card.practiceTotal ?? 0) })}
                         </p>
                     )}
                 </div>
