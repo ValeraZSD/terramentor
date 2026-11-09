@@ -241,6 +241,13 @@ export default function ProjectsGrid() {
     const hasRecords = projects.some(p => p.status === 'completed' || p.status === 'archived');
     const show: Show = hasRecords ? showFrom(location.search) : 'active';
     const setShow = (next: Show) => navigate(next === 'active' ? '/projects' : `/projects?show=${next}`, { replace: true });
+    // ...and the address follows, so a record made later (another course
+    // archived) does not bring back the view that emptied and jump the page.
+    // A library still loading has no projects yet: its address is left alone.
+    const staleShow = !hasRecords && projects.length > 0 && showFrom(location.search) !== 'active';
+    useEffect(() => {
+        if (staleShow) navigate('/projects', { replace: true });
+    }, [staleShow, navigate]);
     const byId = new Map(projects.map(p => [p.id, p]));
     const isActive = (p: Project) => (p.status ?? 'active') === 'active';
 
