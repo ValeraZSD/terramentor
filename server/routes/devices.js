@@ -42,7 +42,7 @@ app.post('/api/devices/pair', wrap(async (req, res) => {
 app.post('/api/devices/tailscale/serve', wrap(async (req, res) => {
     if (await passwordRefused(req, res)) return;
     const served = await serveOnTailnet(req);
-    if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command });
+    if (!served.url) return res.json({ url: null, tailscale: true, failed: true, command: served.command, problem: served.problem });
     res.json(offerAt(served.url));
 }));
 
