@@ -508,6 +508,7 @@
         "How the atlas is drawn · top-right",
         "Main · top-left",
         "Map · top-right",
+        "Near {{topic}} · {{course}} · middle-left",
         "None proven · top-left",
         "Projects · top-left",
         "Regions · middle-left",
@@ -515,6 +516,7 @@
         "Search · top-centre",
         "Search… · top-centre",
         "Settings · top-right",
+        "Study next · middle-left",
         "Terra · top-right",
         "The same library as a planet you can turn · top-right",
         "The whole library on one sheet · top-right",
@@ -524,6 +526,7 @@
         "Where the map’s colour comes from · top-left",
         "Zoom in · bottom-right",
         "Zoom out · bottom-right",
+        "{{proven}} of {{count}} topics proven · bottom-left",
         "{{proven}} of {{count}} topics proven · middle-left",
         "{{proven}} proven · {{learning}} in progress · {{untouched}} not started · top-left"
       ]
