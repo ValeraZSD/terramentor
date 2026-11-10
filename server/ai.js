@@ -3,7 +3,7 @@ import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
 import { safeFetch, localEndpointFetch } from './netSafety.js';
-import { readCappedJson, readCappedText } from './httpBody.js';
+import { readCappedJson, readCappedText, withoutSecret } from './httpBody.js';
 import { textTag } from './logText.js';
 // The keyed hosted engines. searchBackends takes nothing from here — its
 // parsers are pure and the merge below does the URL vetting — so this is a
@@ -451,17 +451,7 @@ export function normalizeOpenAIBaseUrl(raw) {
 /** A provider may echo the key it refused. What it said is shown to the learner
  *  and kept on the failed task, so the key is cut out where the body is read. */
 export function withoutKey(text, settings) {
-    const key = settings?.apiKey;
-    if (!key || typeof key !== 'string') return text;
-    const body = String(text);
-    // The key as written, and as JSON writes it (a quote or backslash in it is
-    // escaped once the body has been through a serialiser).
-    const forms = [...new Set([key, JSON.stringify(key).slice(1, -1)])];
-    if (!forms.some(f => body.includes(f))) return text;
-    // A short key could be a piece of ordinary words: cutting it out would
-    // garble the text and still show where it was, so the body is withheld.
-    if (key.length < 8) return '';
-    return forms.reduce((out, f) => out.split(f).join('[key]'), body);
+    return withoutSecret(text, settings?.apiKey);
 }
 
 function openAIHeaders(settings) {

@@ -409,6 +409,15 @@ section('every OpenAI-compatible request is built the same way');
         /body:\s*JSON\.stringify\(/.test(ollama.slice(0, 400)) && !/body:\s*openAIBody\(/.test(ollama.slice(0, 400)));
 }
 
+section('an error event that quotes the key');
+{
+    process.env.AI_API_KEY = 'sk-test-12345678';
+    const r = await runStream([{ stream: [], streamError: { code: 401, message: 'Incorrect API key provided: sk-test-12345678.' } }]);
+    delete process.env.AI_API_KEY;
+    check('the stream ends in an error', r.error !== null);
+    check('…whose message does not carry the key', !!r.error && !r.error.message.includes('sk-test-12345678') && r.error.message.includes('[key]'), r.error?.message);
+}
+
 server.close();
 // Close the handle before deleting: on Windows an open better-sqlite3 file
 // cannot be removed, and a scratch directory left in TEMP must not be the thing
@@ -423,6 +432,32 @@ console.log('\n--- a provider that quotes the key it refused ---');
     check('...also as a serialiser wrote it', !withoutKey(JSON.stringify({ error: { message: `key ${quoted}` } }), { apiKey: quoted }).includes('defgh'));
     check('a short key withholds the text it appears in', withoutKey('the cat sat', { apiKey: 'cat' }) === '');
     check('text without the key is left as it is', withoutKey('no such model', { apiKey: 'cat' }) === 'no such model' && withoutKey('plain', undefined) === 'plain');
+
+    // The wire reduces an error body to its fields and clips each one. A key
+    // that straddles a clip, or sits in the nested upstream answer, must be
+    // gone before that happens.
+    const { modelFetch } = await import('../server/aiWire.js');
+    const key = 'sk-test-ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const ask = async (body, headers) => {
+        const stub = async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status: 401, headers: { 'content-type': 'application/json' } });
+        const quiet = console.warn; console.warn = () => { };
+        try { return await (await modelFetch(stub)('http://127.0.0.1:9/v1/chat/completions', { headers })).text(); }
+        finally { console.warn = quiet; }
+    };
+    const bearer = { Authorization: `Bearer ${key}` };
+    const leaks = (text) => { for (let n = 8; n <= key.length; n++) if (text.includes(key.slice(0, n))) return true; return false; };
+    const atClip = await ask({ error: { message: 'bad key', code: 'x'.repeat(110) + key } }, bearer);
+    check('a key across the clip of the code field leaves no piece behind', !leaks(atClip), atClip);
+    const atMessage = await ask({ error: { message: 'y'.repeat(490) + key } }, bearer);
+    check('…nor across the clip of the message', !leaks(atMessage), atMessage);
+    const nested = await ask({ error: { message: 'Provider returned error', metadata: { raw: { error: { message: `Incorrect key ${key}` } } } } }, bearer);
+    check('a key in the nested upstream answer is cut out', !leaks(nested) && nested.includes('[key]'), nested);
+    const xKey = await ask({ error: { message: `invalid x-api-key ${key}` } }, { 'x-api-key': key });
+    check('a key sent as x-api-key is cut out too', !leaks(xKey), xKey);
+    // A body cut off at the read limit is not JSON any more and is not one
+    // short line, so nothing of it is kept.
+    const cut = await ask(JSON.stringify({ error: { message: 'z'.repeat(70000) } }).slice(0, 65536 - 12) + key, bearer);
+    check('a body cut off at the read limit inside the key keeps nothing', cut === '', cut.slice(0, 80));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

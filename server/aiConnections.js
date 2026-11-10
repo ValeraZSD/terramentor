@@ -500,7 +500,7 @@ async function checkOpenRouterKey(settings) {
     if (res.ok) { await res.body?.cancel().catch(() => { }); return; }
     // Read for its reason, bounded, and reduced to the error fields before it
     // can reach the test's verdict (httpBody.js).
-    const body = withoutKey(errorSummary(await readCappedText(res, ERROR_BODY_BYTES).catch(() => '')), settings);
+    const body = errorSummary(withoutKey(await readCappedText(res, ERROR_BODY_BYTES).catch(() => ''), settings));
     throw Object.assign(new Error(`Key check failed (${res.status})`), { httpStatus: res.status, responseBody: body });
 }
 

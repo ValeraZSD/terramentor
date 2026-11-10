@@ -119,6 +119,36 @@ export function boundedResponse(res, { bodyBytes = MODEL_BODY_BYTES, lineBytes =
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
 }
 
+/** A provider may echo the key it refused. What it said is shown to the learner
+ *  and kept on the failed task, so the key is cut out where the body is read,
+ *  before anything clips it: a key cut in half by a clip is no longer found. */
+export function withoutSecret(text, key) {
+    if (!key || typeof key !== 'string') return text;
+    const body = String(text);
+    // The key as written, and as JSON writes it (a quote or backslash in it is
+    // escaped once the body has been through a serialiser).
+    const forms = [...new Set([key, JSON.stringify(key).slice(1, -1)])];
+    if (!forms.some(f => body.includes(f))) return text;
+    // A short key could be a piece of ordinary words: cutting it out would
+    // garble the text and still show where it was, so the body is withheld.
+    if (key.length < 8) return '';
+    const out = forms.reduce((s, f) => s.split(f).join('[key]'), body);
+    return forms.some(f => out.includes(f)) ? '' : out;
+}
+
+/** The credentials a request carries, read from its headers. */
+export function secretsOf(headers) {
+    const out = [];
+    const entries = typeof headers?.entries === 'function' ? [...headers.entries()] : Object.entries(headers || {});
+    for (const [name, value] of entries) {
+        if (typeof value !== 'string' || !value) continue;
+        const n = name.toLowerCase();
+        if (n === 'authorization') out.push(value.replace(/^\S+\s+/, ''));
+        else if (n === 'x-api-key' || n === 'api-key' || n === 'x-goog-api-key') out.push(value);
+    }
+    return out;
+}
+
 const clip = (v, n = 500) => (typeof v === 'string' ? v.slice(0, n) : typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
 /**
