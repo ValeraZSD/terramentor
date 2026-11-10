@@ -86,6 +86,80 @@ function matchBrace(s: string, openIdx: number): number {
     return -1;
 }
 
+// --- 0. An escaped dollar inside a formula -----------------------------------
+
+/** Index of the `delim` that closes a span whose body starts at `from`, reading
+ *  `\$` as TeX does (part of the body), or -1. Inline math never crosses a
+ *  blank line. */
+function closingDelimiter(input: string, from: number, delim: string): number {
+    for (let j = from; j < input.length; j++) {
+        if (input[j] === '\\') { j += 1; continue; }
+        if (delim === '$' && input.startsWith('\n\n', j)) return -1;
+        if (input.startsWith(delim, j)) return j;
+    }
+    return -1;
+}
+
+/**
+ * Make a price written inside a formula survive the markdown reader.
+ *
+ * A course about money writes its amounts as maths: `$\$20{,}000$`. To TeX that
+ * is one formula holding an escaped dollar. remark-math honours no escape
+ * inside a formula, so it closes the span AT the escaped dollar: the formula's
+ * whole body is a lone backslash and the amount prints raw ("\20{,}000$").
+ * With two amounts in a sentence the words between them become the formula,
+ * in italics with their spaces gone.
+ *
+ * No prompt fixes a reader, so the dollar is rewritten to a spelling with no
+ * dollar character in it, which KaTeX draws as the same glyph.
+ *
+ * Narrow on purpose. Prose such as "$5 and \$10 more, or $20" also has an
+ * escaped dollar between two bare ones and is NOT a formula; an inline span is
+ * taken only when its body touches both delimiters (no space inside either),
+ * which is how a formula is written and how those prices are not. Code spans
+ * are skipped. Idempotent: the rewrite leaves no `\$` behind in a span.
+ */
+export function keepDollarsInMath(input: string): string {
+    if (!input || !input.includes('\\$')) return input;
+    let out = '';
+    let i = 0;
+    while (i < input.length) {
+        const ch = input[i];
+        if (ch === '\\' && i + 1 < input.length) {
+            out += input.slice(i, i + 2);
+            i += 2;
+            continue;
+        }
+        if (ch === '`') {
+            const ticks = /^`+/.exec(input.slice(i))![0];
+            const end = input.indexOf(ticks, i + ticks.length);
+            const stop = end < 0 ? i + ticks.length : end + ticks.length;
+            out += input.slice(i, stop);
+            i = stop;
+            continue;
+        }
+        if (ch !== '$') {
+            out += ch;
+            i += 1;
+            continue;
+        }
+        const delim = input.startsWith('$$', i) ? '$$' : '$';
+        const start = i + delim.length;
+        const close = closingDelimiter(input, start, delim);
+        const body = close < 0 ? '' : input.slice(start, close);
+        const formula = body.includes('\\$') && (delim === '$$' || (!!body.trim() && !/^\s|\s$/.test(body)));
+        if (!formula) {
+            // Not ours: step over the delimiter and let the reader pair it.
+            out += delim;
+            i = start;
+            continue;
+        }
+        out += `${delim}${body.replace(/\\\$/g, '\\text{\\textdollar}')}${delim}`;
+        i = close + delim.length;
+    }
+    return out;
+}
+
 // --- 1. Alternate delimiters -------------------------------------------------
 
 /**
@@ -445,7 +519,7 @@ export function fixMarkdownMathTypography(content: string): string {
         .split(/(```[\s\S]*?```)/)
         .map((segment, i) => {
             if (i % 2 === 1) return segment; // fenced code/visual block — leave as-is
-            const commas = promoteDisplayMath(segment).replace(
+            const commas = promoteDisplayMath(keepDollarsInMath(segment)).replace(
                 /\$\$[\s\S]+?\$\$|\$[^\n$]+?\$/g,
                 mathSpan => mathSpan.replace(/(\d),(\d)/g, '$1{,}$2'),
             );
@@ -464,7 +538,7 @@ export function fixMarkdownMathTypography(content: string): string {
 export function sanitizeMathText(input: string): string {
     if (!input || (!input.includes('\\') && !input.includes('$'))) return input;
 
-    const delimited = normalizeDelimiters(input);
+    const delimited = keepDollarsInMath(normalizeDelimiters(input));
     // Pass 1: delimit bare equations found in the prose spans.
     const wrapped = joinSegments(
         segment(delimited).map(s => (s.math ? s : { ...s, text: wrapBareLatex(s.text) })),
