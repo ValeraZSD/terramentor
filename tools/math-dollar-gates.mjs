@@ -109,8 +109,11 @@ try {
     check('a display equation of amounts still draws',
         display.formulas === 1 && display.errors === 0 && display.text.replace(/\s/g, '') === 'Thetotal:$8,000+$2,000=$10,000Thatisall.', shown(display));
 
-    // Every check below passes without the fix: they bound it, so a wider
-    // rewrite that paired prose prices or reached into code would go red.
+    // The `same` checks and the literal-dollar render pass without the fix:
+    // they bound it, so a wider rewrite that paired prose prices or reached
+    // into code would go red. The two "repairing" checks at the end fail
+    // without it, and so does the tilde fence in a lesson, whose lone formula
+    // line used to be lifted into display maths.
     section('what must stay as it was');
     const same = (label, s, fn = sanitizeMathText) => check(label, fn(s) === s, JSON.stringify(fn(s)));
     same('a literal dollar in prose', 'It costs \\$20,000 in cash.');
@@ -122,6 +125,8 @@ try {
     same('a fenced block reaches its renderer byte for byte', 'Run:\n\n```bash\necho "$\\$HOME$"\n```\n', fixMarkdownMathTypography);
     same('inline code is not maths', 'Type `$\\$5$` exactly.', fixMarkdownMathTypography);
     same('inline code is not maths in a quiz string either', 'Type `$\\$5$` exactly.');
+    same('a tilde fence in a lesson reaches its renderer byte for byte', 'Run:\n\n~~~bash\n$x^2$\n$\\$5$\n~~~\n\nThen stop.', fixMarkdownMathTypography);
+    same('… and in a quiz string', 'Run:\n\n~~~bash\necho "$\\$HOME$"\n~~~\n');
     const once = sanitizeMathText('Assets increase by $\\$8{,}000$ and $\\$2$');
     const DOLLAR = '\\text{\\textdollar}';
     check('repairing once rewrites, twice changes nothing more', once.includes(DOLLAR) && sanitizeMathText(once) === once, once);

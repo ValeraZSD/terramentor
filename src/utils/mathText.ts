@@ -138,6 +138,14 @@ export function keepDollarsInMath(input: string): string {
             i = stop;
             continue;
         }
+        if (ch === '~' && input.startsWith('~~~', i) && (i === 0 || input[i - 1] === '\n')) {
+            // A tilde fence: code up to the fence that closes it, or to the end.
+            const end = input.indexOf('\n~~~', i + 3);
+            const stop = end < 0 ? input.length : end + 4;
+            out += input.slice(i, stop);
+            i = stop;
+            continue;
+        }
         if (ch !== '$') {
             out += ch;
             i += 1;
@@ -516,7 +524,9 @@ export function bindMathPunctuation(input: string): string {
  */
 export function fixMarkdownMathTypography(content: string): string {
     return content
-        .split(/(```[\s\S]*?```)/)
+        // A fence is backticks anywhere or tildes opening a line (`~~` alone
+        // is strikethrough, so the tilde form needs its line start).
+        .split(/(```[\s\S]*?```|^~~~[\s\S]*?^~~~)/m)
         .map((segment, i) => {
             if (i % 2 === 1) return segment; // fenced code/visual block — leave as-is
             const commas = promoteDisplayMath(keepDollarsInMath(segment)).replace(
