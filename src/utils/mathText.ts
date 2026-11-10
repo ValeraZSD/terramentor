@@ -86,6 +86,145 @@ function matchBrace(s: string, openIdx: number): number {
     return -1;
 }
 
+// --- 0. An escaped dollar inside a formula -----------------------------------
+
+/** Index of the `delim` that closes a span whose body starts at `from`, reading
+ *  `\$` as TeX does (part of the body), or -1. Inline math never crosses a
+ *  blank line. */
+function closingDelimiter(input: string, from: number, delim: string): number {
+    for (let j = from; j < input.length; j++) {
+        if (input[j] === '\\') { j += 1; continue; }
+        if (delim === '$' && input.startsWith('\n\n', j)) return -1;
+        if (input.startsWith(delim, j)) return j;
+    }
+    return -1;
+}
+
+/**
+ * A code fence as CommonMark reads one: three or more tildes or backticks
+ * opening a line, indented by at most three spaces, closed by a line of at
+ * least as many of the same character and nothing else. A shorter run inside
+ * it is code, not the close. (`~~` alone is strikethrough, hence the line
+ * start and the three; a backtick opener's line holds no further backtick, or
+ * it is inline code.) Each pair is [the whole fence, its opening line].
+ */
+const FENCE_READERS: Array<[RegExp, RegExp]> = [
+    [/^ {0,3}(~{3,})(?!~)[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t\r]*$/my, /^ {0,3}~{3,}/my],
+    [/^ {0,3}(`{3,})(?!`)[^`\n]*$[\s\S]*?^ {0,3}\1`*[ \t\r]*$/my, /^ {0,3}`{3,}[^`\n]*$/my],
+];
+
+/** Where the fence opening at line start `i` ends: after its closing line, at
+ *  the end of the input when nothing closes it, or `i` when no fence opens
+ *  here. */
+function fenceEnd(input: string, i: number): number {
+    for (const [whole, opener] of FENCE_READERS) {
+        whole.lastIndex = i;
+        if (whole.test(input)) return whole.lastIndex;
+        opener.lastIndex = i;
+        if (opener.test(input)) return input.length;
+    }
+    return i;
+}
+
+/** A markdown document as alternating prose and fenced code, prose first, so
+ *  every odd entry is a fence: one opening a line, or a closed run of three
+ *  backticks inside one. */
+function splitCodeFences(content: string): string[] {
+    const parts: string[] = [];
+    let prose = 0;
+    let i = 0;
+    const fence = (from: number, to: number) => {
+        parts.push(content.slice(prose, from), content.slice(from, to));
+        prose = i = to;
+    };
+    while (i < content.length) {
+        if (i === 0 || content[i - 1] === '\n') {
+            const stop = fenceEnd(content, i);
+            if (stop > i) { fence(i, stop); continue; }
+        }
+        if (content.startsWith('```', i)) {
+            const close = content.indexOf('```', i + 3);
+            if (close >= 0) { fence(i, close + 3); continue; }
+        }
+        i += 1;
+    }
+    parts.push(content.slice(prose));
+    return parts;
+}
+
+/**
+ * Make a price written inside a formula survive the markdown reader.
+ *
+ * A course about money writes its amounts as maths: `$\$20{,}000$`. To TeX that
+ * is one formula holding an escaped dollar. remark-math honours no escape
+ * inside a formula, so it closes the span AT the escaped dollar: the formula's
+ * whole body is a lone backslash and the amount prints raw ("\20{,}000$").
+ * With two amounts in a sentence the words between them become the formula,
+ * in italics with their spaces gone.
+ *
+ * No prompt fixes a reader, so the dollar is rewritten to a spelling with no
+ * dollar character in it, which KaTeX draws as the same glyph.
+ *
+ * Narrow on purpose. Prose such as "$5 and \$10 more, or $20" also has an
+ * escaped dollar between two bare ones and is NOT a formula; an inline span is
+ * taken only when its body touches both delimiters (no space inside either),
+ * which is how a formula is written and how those prices are not. Code spans
+ * are skipped. Idempotent: the rewrite leaves no `\$` behind in a span.
+ */
+export function keepDollarsInMath(input: string): string {
+    if (!input || !input.includes('\\$')) return input;
+    let out = '';
+    let i = 0;
+    while (i < input.length) {
+        const ch = input[i];
+        if (ch === '\\' && i + 1 < input.length) {
+            out += input.slice(i, i + 2);
+            i += 2;
+            continue;
+        }
+        if ((ch === '~' || ch === '`' || ch === ' ') && (i === 0 || input[i - 1] === '\n')) {
+            const stop = fenceEnd(input, i);
+            if (stop > i) {
+                out += input.slice(i, stop);
+                i = stop;
+                continue;
+            }
+        }
+        if (ch === '`') {
+            const ticks = /^`+/.exec(input.slice(i))![0];
+            const end = input.indexOf(ticks, i + ticks.length);
+            const stop = end < 0 ? i + ticks.length : end + ticks.length;
+            out += input.slice(i, stop);
+            i = stop;
+            continue;
+        }
+        if (ch !== '$') {
+            out += ch;
+            i += 1;
+            continue;
+        }
+        const delim = input.startsWith('$$', i) ? '$$' : '$';
+        const start = i + delim.length;
+        const close = closingDelimiter(input, start, delim);
+        const body = close < 0 ? '' : input.slice(start, close);
+        const formula = body.includes('\\$') && (delim === '$$' || (!!body.trim() && !/^\s|\s$/.test(body)));
+        if (!formula) {
+            // Not ours. The reader pairs this delimiter with the next one it
+            // meets, escaped or not, so that stretch is copied whole: a
+            // dollar it spends as a close must not open a span here.
+            const next = input.indexOf(delim, start);
+            const paired = next >= 0 && (delim === '$$' || !input.slice(start, next).includes('\n\n'));
+            const stop = paired ? next + delim.length : start;
+            out += input.slice(i, stop);
+            i = stop;
+            continue;
+        }
+        out += `${delim}${body.replace(/\\\$/g, '\\text{\\textdollar}')}${delim}`;
+        i = close + delim.length;
+    }
+    return out;
+}
+
 // --- 1. Alternate delimiters -------------------------------------------------
 
 /**
@@ -441,11 +580,10 @@ export function bindMathPunctuation(input: string): string {
  * guard tool can exercise it without pulling in React.
  */
 export function fixMarkdownMathTypography(content: string): string {
-    return content
-        .split(/(```[\s\S]*?```)/)
+    return splitCodeFences(content)
         .map((segment, i) => {
             if (i % 2 === 1) return segment; // fenced code/visual block — leave as-is
-            const commas = promoteDisplayMath(segment).replace(
+            const commas = promoteDisplayMath(keepDollarsInMath(segment)).replace(
                 /\$\$[\s\S]+?\$\$|\$[^\n$]+?\$/g,
                 mathSpan => mathSpan.replace(/(\d),(\d)/g, '$1{,}$2'),
             );
@@ -464,7 +602,7 @@ export function fixMarkdownMathTypography(content: string): string {
 export function sanitizeMathText(input: string): string {
     if (!input || (!input.includes('\\') && !input.includes('$'))) return input;
 
-    const delimited = normalizeDelimiters(input);
+    const delimited = keepDollarsInMath(normalizeDelimiters(input));
     // Pass 1: delimit bare equations found in the prose spans.
     const wrapped = joinSegments(
         segment(delimited).map(s => (s.math ? s : { ...s, text: wrapBareLatex(s.text) })),
