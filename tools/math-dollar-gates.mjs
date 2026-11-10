@@ -112,8 +112,8 @@ try {
     // The `same` checks and the literal-dollar render pass without the fix:
     // they bound it, so a wider rewrite that paired prose prices or reached
     // into code would go red. The two "repairing" checks at the end fail
-    // without it, and so does the tilde fence in a lesson, whose lone formula
-    // line used to be lifted into display maths.
+    // without it, and so does the tilde fence in a lesson: read as prose, its
+    // lone formula line is lifted into display maths.
     section('what must stay as it was');
     const same = (label, s, fn = sanitizeMathText) => check(label, fn(s) === s, JSON.stringify(fn(s)));
     same('a literal dollar in prose', 'It costs \\$20,000 in cash.');
