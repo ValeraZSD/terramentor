@@ -354,6 +354,12 @@ let phoneCookie = '';
         ['DELETE', '/api/ai/key', undefined], ['POST', '/api/ai/openrouter/start', {}], ['POST', '/api/ai/openrouter/finish', { code: 'x' }],
         ['POST', '/api/embeddings/settings', { provider: 'openai' }],
         ['PUT', '/api/ai/jobs/conversation', { route: [{ connectionId: 1, model: 'elsewhere' }] }], ['DELETE', '/api/ai/jobs', undefined],
+        // What is installed on the computer's own model server, the hosted
+        // search keys (whose account the search terms go to) and the ChatGPT
+        // sign-in, which opens a listener on the computer.
+        ['POST', '/api/ai/models/pull', { name: 'never-pulled' }], ['DELETE', '/api/ai/models/never-pulled', undefined],
+        ['PUT', '/api/search/keys/brave', { key: 'device-key' }], ['DELETE', '/api/search/keys/brave', undefined],
+        ['POST', '/api/ai/chatgpt/start', {}],
     ]) {
         rerouted.push(`${method} ${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body })).status}`);
     }

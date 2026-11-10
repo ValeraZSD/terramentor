@@ -412,7 +412,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
                     e.preventDefault();
                     if (cursorId) {
                         const n = visibleNodes.find(n => n.id === cursorId);
-                        if (n && n.children.length > 0 && !expanded[n.id]) {
+                        if (n && n.children.length > 0 && expanded[n.id] === false) {
                             setExpanded(n.id, true);
                         }
                     }
@@ -423,7 +423,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
                     if (cursorId) {
                         const n = visibleNodes.find(n => n.id === cursorId);
                         if (n) {
-                            if (expanded[n.id] && n.children.length > 0) {
+                            if (expanded[n.id] !== false && n.children.length > 0) {
                                 setExpanded(n.id, false);
                             } else if (n.parent_id) {
                                 focusRow(n.parent_id);

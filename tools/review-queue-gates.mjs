@@ -217,6 +217,20 @@ console.log('\n--- skip, reset, clearHistory ---');
     h.act(q => q.back());
     check('back from a skip returns to the card', h.q.index === 0 && h.q.reviewedCount === 0);
 
+    // With one card left there is nowhere to skip to. The queue says so, so its
+    // caller records no undo step: one would take back the rating before it.
+    const last = mountQueue(2);
+    last.act(q => q.advance());
+    let moved = null;
+    last.act(q => { moved = q.skip(); });
+    check('a skip with no other card left says it did not move', moved === false && last.q.index === 1);
+    last.act(q => q.back());
+    check('...so the one step back is the rating, once', last.q.index === 0 && last.q.reviewedCount === 0 && last.q.canGoBack === false);
+    let did = null;
+    h.act(q => { did = q.skip(); });
+    check('a skip that moved says so', did === true);
+    h.act(q => q.back());
+
     h.act(q => q.advance(Date.now() + MIN));
     h.act(q => q.clearHistory());
     check('clearHistory removes the way back', h.q.canGoBack === false);

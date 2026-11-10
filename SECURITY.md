@@ -241,7 +241,8 @@ your data at all." Those are different claims and we only make the second one.
     did it. Neither way in may press the desktop's own controls (quit, open the data folder,
     start at login, window mode, restore a library, download or install an update) or
     change where the app sends requests (the model connections and addresses, the models each
-    job runs on, the search address, the embeddings provider): those stay with this computer or a password session. A connected device cannot read or change the API key, which
+    job runs on, the search address, the hosted search keys, the embeddings provider, the
+    ChatGPT sign-in, pulling or deleting a local model): those stay with this computer or a password session. A connected device cannot read or change the API key, which
     needs the password. With no password, whoever is in (a connected device, the owner's
     Tailscale) may also connect or remove devices: no password means the owner trusts
     whoever reaches the app that way. On the plain-HTTP local-network path the key crosses
@@ -292,7 +293,8 @@ your data at all." Those are different claims and we only make the second one.
   model's, SearXNG's) and the provider choice change only from this computer or with the
   password, through this writer and through every other door to them: adding, editing,
   choosing or removing a model connection, choosing which connections a job and its backups
-  run on, saving the provider key, the OpenRouter sign-in and the embeddings provider. A
+  run on, saving the provider key or a hosted search key, the OpenRouter and ChatGPT
+  sign-ins, the embeddings provider, and pulling or deleting a local model. A
   device connected without the password changes everything else, and still reads and tests
   the saved connections and reads each job's models. `settings-registry-gates.mjs`
   fails when the server reads a row that is not in that list.

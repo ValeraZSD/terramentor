@@ -432,6 +432,14 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     app.use('/api/ai/jobs', onTheComputer);
     app.use('/api/ai/key', onTheComputer);
     app.use('/api/ai/openrouter', onTheComputer);
+    // The ChatGPT sign-in opens a listener on the computer; pulling or deleting
+    // a model changes what is installed on it; a hosted search key decides
+    // whose account the search terms go to. A device still lists the models
+    // and tests a saved search key.
+    app.use('/api/ai/chatgpt', onTheComputer);
+    app.use('/api/ai/models', onTheComputer);
+    app.use('/api/search/keys', (req, res, next) =>
+        (/^\/[^/]+\/test$/.test(req.path) ? next() : onTheComputer(req, res, next)));
     app.use('/api/embeddings/settings', onTheComputer);
     if (desktop) app.use(desktop.protectedRouter);
 

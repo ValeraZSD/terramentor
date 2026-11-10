@@ -531,6 +531,13 @@ const madeFrom = JSON.parse(born?.made_from || 'null');
 ok('it is marked as being written, and remembers its source', born?.ai_generating === 1 && madeFrom?.kind === 'page' && madeFrom.url === 'https://money.example/index-funds' && madeFrom.host === 'money.example', born);
 ok('the run finishes', await waitBuilt(pid));
 ok('ONE model call built it', bodies.length === 1, bodies.length);
+{
+    // Its flat topics are the whole course, not phases waiting for sections.
+    const offer = await api('GET', `/api/ai/continue-creation/${pid}`);
+    ok('a finished short course is not offered "Continue creating"', offer.status === 200 && offer.json?.canContinue === false, offer);
+    const pressed = await api('POST', '/api/ai/continue-creation', { projectId: pid });
+    ok('…and the creation route refuses to continue one', pressed.status === 400 && bodies.length === 1, pressed);
+}
 const user0 = bodies[0]?.user || '';
 const open0 = user0.indexOf('<<<SOURCES'), close0 = user0.indexOf('SOURCES>>>');
 ok('the page reaches the model inside the SOURCES boundary, the injection with it', open0 >= 0 && close0 > open0 && user0.indexOf(SENTENCES[3]) > open0 && user0.indexOf(INJECTION) > open0 && user0.indexOf(INJECTION) < close0);

@@ -2089,7 +2089,9 @@ export const useStore = create<AppState>((set, get) => ({
     setFocusedNode: (id) => set({ focusedNodeId: id }),
 
     toggleExpanded: (id) => {
-        const newExpanded = { ...get().expanded, [id]: !get().expanded[id] };
+        // No entry means open (a topic added since the course loaded), as the
+        // tree draws it.
+        const newExpanded = { ...get().expanded, [id]: get().expanded[id] === false };
         set({ expanded: newExpanded });
         saveExpansionState(newExpanded);
     },

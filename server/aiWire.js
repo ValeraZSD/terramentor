@@ -29,7 +29,7 @@
 import { createAnthropicFetch } from './anthropicWire.js';
 import { createChatgptFetch } from './chatgptWire.js';
 import { assertNotMetadata } from './netSafety.js';
-import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText } from './httpBody.js';
+import { ERROR_BODY_BYTES, boundedResponse, errorSummary, readCappedText, secretsOf, withoutSecret } from './httpBody.js';
 
 const HOST_WIRES = {
     'openrouter.ai': 'openrouter',
@@ -270,7 +270,9 @@ export function modelFetch(fetchImpl = fetch) {
             return errorResponse(res.status === 304 ? 502 : res.status, JSON.stringify({ error: { message } }), res);
         }
         if (!res.ok) {
-            const raw = await readCappedText(res, ERROR_BODY_BYTES).catch(() => '');
+            // The key this request carried is cut out of the whole body first:
+            // the summary clips its fields, and a clipped key is not found again.
+            const raw = secretsOf(init.headers).reduce(withoutSecret, await readCappedText(res, ERROR_BODY_BYTES).catch(() => ''));
             const summary = errorSummary(raw);
             if (raw.trim() && raw.trim() !== summary) {
                 // Length only: an endpoint's error body can quote the request

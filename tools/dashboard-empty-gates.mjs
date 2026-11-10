@@ -75,8 +75,21 @@ const base = {
     insights: null, pace: null,
     stats: { totalNodes: 0, completedNodes: 0, progressPercent: 0, daysUntilDeadline: null },
 };
-const today = new Date().toISOString().slice(0, 10);
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// One pinned instant for the fixtures and the page, so no assertion reads the
+// clock: half past midnight on the device, where east of Greenwich the UTC
+// date is still the day before. The page reads the device's date (`todayStr`).
+const PINNED = new Date(2026, 5, 15, 0, 30).getTime();
+const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const day = (n) => { const d = new Date(PINNED); d.setDate(d.getDate() + n); return localDate(d); };
+const today = day(0);
+const PIN_CLOCK = `(() => {
+    const Real = Date;
+    class Pinned extends Real {
+        constructor(...a) { if (a.length) super(...a); else super(${PINNED}); }
+        static now() { return ${PINNED}; }
+    }
+    window.Date = Pinned;
+})()`;
 
 async function show(dashboard, extra = {}) {
     const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
@@ -85,6 +98,7 @@ async function show(dashboard, extra = {}) {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     w.fetch = () => new Promise(() => { });
+    w.eval(PIN_CLOCK);
     w.eval(bundle);
     const { useStore, mount, act } = w.__gate;
     const went = [];

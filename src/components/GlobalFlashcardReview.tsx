@@ -356,9 +356,12 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     const handleSkip = () => {
         // A skip during a save would land its step BEFORE the rating's.
         if (writing.current) return;
-        undoSteps.current.push({ kind: 'skip', index: queue.index });
+        // With nowhere to go (the last card left) nothing was skipped: an undo
+        // step for it would take back the rating before it instead.
+        const from = queue.index;
+        if (!queue.skip()) return;
+        undoSteps.current.push({ kind: 'skip', index: from });
         setSkipped(s => s + 1);
-        queue.skip();
     };
 
     /** On from a reported card, for good: it does not come round again. */

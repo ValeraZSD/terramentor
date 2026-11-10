@@ -3,7 +3,7 @@ import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
 import { safeFetch, localEndpointFetch } from './netSafety.js';
-import { readCappedJson, readCappedText } from './httpBody.js';
+import { readCappedJson, readCappedText, withoutSecret } from './httpBody.js';
 import { textTag } from './logText.js';
 // The keyed hosted engines. searchBackends takes nothing from here — its
 // parsers are pure and the merge below does the URL vetting — so this is a
@@ -448,6 +448,12 @@ export function normalizeOpenAIBaseUrl(raw) {
     return url;
 }
 
+/** A provider may echo the key it refused. What it said is shown to the learner
+ *  and kept on the failed task, so the key is cut out where the body is read. */
+export function withoutKey(text, settings) {
+    return withoutSecret(text, settings?.apiKey);
+}
+
 function openAIHeaders(settings) {
     const headers = { 'Content-Type': 'application/json' };
     if (settings.apiKey) headers['Authorization'] = `Bearer ${settings.apiKey}`;
@@ -624,7 +630,7 @@ async function openAIListModels(settings, { timeoutMs = 5000 } = {}) {
         signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(new Error(`GET ${base}/models failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
             { httpStatus: res.status, responseBody: body, endpoint: base });
     }
@@ -726,7 +732,7 @@ async function openAIChat(settings, messages, { temperature, top_p, signal, oper
         signal,
     }, { signal, label: `chat ${settings.model}`, fetchImpl: wireFetch(settings) });
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
             new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
@@ -784,7 +790,7 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
     }, { signal, label: `chat stream ${settings.model}`, fetchImpl: wireFetch(settings) });
     const attempts = priorAttempts + (res.attemptsUsed || 1);
     if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = withoutKey(await res.text().catch(() => ''), settings);
         throw tagAIError(
             new Error(`Chat request to ${base} failed (${res.status})${body ? `: ${body.slice(0, 300)}` : ''}`),
             { provider: 'openai', model: settings.model, endpoint: base, httpStatus: res.status, responseBody: body,
@@ -840,7 +846,7 @@ async function* openAIChatStreamOnce(settings, messages, { temperature, top_p, s
                     const code = Number(json.error?.code);
                     const httpStatus = Number.isInteger(code) && code >= 100 && code <= 599 ? code : undefined;
                     throw tagAIError(
-                        new Error(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream'),
+                        new Error(withoutKey(typeof json.error === 'string' ? json.error : json.error?.message || 'API error mid-stream', settings)),
                         { provider: 'openai', model: settings.model, endpoint: base, httpStatus, attempts, streamed: true,
                           retryBeforeOutput: !produced && !thinkingChars && !callFragments.size
                               && AI_RETRY_STATUSES.has(httpStatus) && attempts < AI_RETRY_ATTEMPTS });
@@ -1167,7 +1173,7 @@ async function transcribeOnce(settings, png, { signal, timeout = 120000, prompt,
                 signal: timeoutController.signal,
             });
             if (!res.ok) {
-                const body = await res.text().catch(() => '');
+                const body = withoutKey(await res.text().catch(() => ''), settings);
                 throw tagAIError(new Error(`Vision request to ${baseUrl} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`),
                     { provider: 'openai', model: visionModel, endpoint: baseUrl, httpStatus: res.status });
             }

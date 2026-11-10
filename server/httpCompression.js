@@ -112,7 +112,10 @@ export function precompressedStatic(distDir) {
 
         // Resolve inside dist or not at all: `req.path` is attacker-shaped input
         // and `..` in it must not reach a file beside the build.
-        const target = normalize(join(distDir, decodeURIComponent(req.path)));
+        // A path that is not valid percent-encoding names no file.
+        let decoded;
+        try { decoded = decodeURIComponent(req.path); } catch { return next(); }
+        const target = normalize(join(distDir, decoded));
         if (!target.startsWith(root)) return next();
 
         const accepted = acceptedEncodings(req);
