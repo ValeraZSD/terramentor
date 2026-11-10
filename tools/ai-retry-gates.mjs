@@ -454,6 +454,8 @@ console.log('\n--- a provider that quotes the key it refused ---');
     check('a key in the nested upstream answer is cut out', !leaks(nested) && nested.includes('[key]'), nested);
     const xKey = await ask({ error: { message: `invalid x-api-key ${key}` } }, { 'x-api-key': key });
     check('a key sent as x-api-key is cut out too', !leaks(xKey), xKey);
+    const asHeaders = await ask({ error: { message: `Incorrect key ${key}` } }, new Headers(bearer));
+    check('…and one carried in a Headers object', !leaks(asHeaders) && asHeaders.includes('[key]'), asHeaders);
     // A body cut off at the read limit is not JSON any more and is not one
     // short line, so nothing of it is kept.
     const cut = await ask(JSON.stringify({ error: { message: 'z'.repeat(70000) } }).slice(0, 65536 - 12) + key, bearer);
