@@ -106,7 +106,7 @@ function closingDelimiter(input: string, from: number, delim: string): number {
  * tildes and nothing else. A shorter run inside it is code, not the close.
  * (`~~` alone is strikethrough, hence the line start and the three.)
  */
-const TILDE_FENCE = /^ {0,3}(~{3,})[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t]*$/my;
+const TILDE_FENCE = /^ {0,3}(~{3,})(?!~)[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t]*$/my;
 const TILDE_OPENER = /^ {0,3}~{3,}/my;
 
 /** Where the tilde fence opening at line start `i` ends: after its closing

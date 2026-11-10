@@ -131,6 +131,7 @@ try {
         ['a shorter run of tildes inside a longer fence is code, not its close', '~~~~\n~~~\n$\\$5$\n~~~~\n'],
         ['a tilde fence indented by up to three spaces is still a fence', 'Run:\n\n  ~~~\n$x^2$\n$\\$5$\n  ~~~\n\nThen stop.'],
         ['a tilde fence nothing closes is code to the end', 'Run:\n\n~~~\n$x^2$\n$\\$5$\n'],
+        ['a shorter run inside a longer fence nothing closes is still code', '~~~~\n~~~\n$\\$5$\n'],
     ]) {
         same(`${label} (lesson)`, fenced, fixMarkdownMathTypography);
         same(`${label} (quiz string)`, fenced);
