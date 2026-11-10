@@ -806,15 +806,29 @@ topic (no model call, so the map is deterministic), lays regions out in two stag
 (PCA for a starting arrangement, then `refineLayout` against the regions' real
 neighbour distances), and lists cross-project **bridges** separately.
 
-The same regions are also placed on a **sphere** for the *Terra* view
-(`server/globe.js`, called from `atlas.js`): three principal components, each
-axis scaled to its own span, then the same refinement with angles for distances,
-and caps separated so none overlap. It costs three numbers per region on the
-wire; each topic's flat offset is walked onto its cap by the client
-(`src/components/atlas/GlobeMap.tsx`, `globeProjection.ts`), which also draws the
-regions as territories with borders and sea (`globeTerritories.ts`). The
-dot products, the power iteration and the neighbour lists both layouts use live
-in `server/vectors.js`. Guard: `tools/globe-gates.mjs`.
+The same regions are also placed on a **sphere** (`server/globe.js`, called
+from `atlas.js`): three principal components, each axis scaled to its own span,
+then the same refinement with angles for distances, and caps separated so none
+overlap; the planet is then turned so the pole sits where the land is thinnest
+and the land faces the opening camera (`faceTheReader`). It costs four numbers
+per region on the wire (the direction `u` and the cap's radius `cap`); each topic's flat offset is walked onto its cap by the
+client. ONE renderer draws both surfaces (`src/components/atlas/GlobeMap.tsx`,
+`globeProjection.ts`): *Terra* is the globe, the *Map* is the same planet
+unrolled (`flat`, a Winkel tripel sheet centred on the camera). Regions are
+countries with borders and sea (`globeTerritories.ts`); each country is cut
+into equal-area cities, one per topic (`globeCities.ts`, a capacity-constrained
+power diagram), built for the whole library in a worker (`cityBuild.ts`,
+`citiesWorker.ts`) so the page never waits on it. Where each surface opens is
+`homeView.ts`. The dot products, the power iteration and the neighbour lists
+both layouts use live in `server/vectors.js`. Guards: `tools/globe-gates.mjs`,
+`tools/atlas-world-gates.mjs` (the sheet's shape, the cities, the home view,
+labels, study next) and the jsdom harness `tools/harness/run.mjs`.
+
+The build also sends `next` (`server/studyNext.js`): in each course that
+finished a topic within three weeks of the library's own newest finish, the
+topic not yet begun that is nearest in meaning to one finished in the same
+region, one per region, at most three. Arithmetic over the vectors already loaded, no model
+and no clock; the region list shows it at its top, except while searching.
 
 Four things keep it bounded and honest:
 
@@ -843,7 +857,7 @@ Four things keep it bounded and honest:
 
 Regions also carry a **layout for their own topics** (`topic.x/y`,
 `region.topicRadius`): local PCA of the member vectors around their centroid,
-packed inside the bubble. That is what the map zooms into.
+packed inside the region's cap. That is where each topic's city starts.
 
 Region **names** fall back to the medoid's title with curriculum numbering
 stripped (`cleanRegionLabel`: "Module 9.5: Advanced Extensions" → "Advanced

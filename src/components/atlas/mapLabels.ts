@@ -1,8 +1,8 @@
 /**
  * Label placement for the atlas canvas.
  *
- * Split out of `AtlasMap` because this is the part of the map that can be
- * *wrong on purpose*: a name that lands on the wrong bubble, or gets cut to
+ * Split out of the map component because this is the part of the map that can be
+ * *wrong on purpose*: a name that lands on the wrong place, or gets cut to
  * "Ne…", is a rendering decision with no exception to catch it, and the browser
  * tools are not always available to look at one. Nothing here touches React or
  * the camera — it takes a 2D context and screen coordinates — so a script can
@@ -50,16 +50,21 @@ export interface Labeller {
         text: string, cx: number, cy: number, style: LabelStyle, maxWidth: number,
         align?: 'baseline' | 'middle',
     ) => boolean;
-    /** Wrapped into up to `maxLines`, centred on the point. Returns false if it was dropped. */
+    /** Wrapped into up to `maxLines`, centred on the point, or with
+     *  `anchor: 'bottom'` standing on it. Returns false if it was dropped. */
     wrapLabel: (
         text: string, cx: number, cy: number, style: LabelStyle, maxWidth: number,
-        maxLines?: number,
+        maxLines?: number, anchor?: 'middle' | 'bottom',
     ) => boolean;
     /** A region name, centred on its bubble — overflowing it if it must. */
     placeRegion: (
         text: string, cx: number, cy: number, radius: number, style: LabelStyle,
         opts?: { maxLines?: number; minSize?: number },
     ) => boolean;
+    /** Keep a box clear of every name placed after it, painting nothing: the
+     *  replay's head, which is drawn over everything and must not be printed
+     *  across. */
+    reserve: (x0: number, y0: number, x1: number, y1: number) => void;
     /**
      * Paint everything placed so far, in the order it was placed.
      *
@@ -143,6 +148,68 @@ export function refreshRootFontScale(): number {
 /** The reader's own px for a size expressed at 100%. */
 export const labelPx = (px: number) => Math.round(px * rootScale);
 
+/** The clear space kept between two names one above the other, at 100%. */
+export const LABEL_GAP_Y = 5;
+
+/** What a name has going for it when two names want the same ground. */
+export interface LabelClaim {
+    /** The place the reader picked. */
+    selected: boolean;
+    /** The place under the pointer, or the replay's head. */
+    focus: boolean;
+    /** Left at full strength by a search or a traced course (everything is,
+     *  when neither is on). */
+    undimmed: boolean;
+    /** How big the place is; the last word. */
+    size: number;
+}
+
+/**
+ * The order names are offered to the labeller, which keeps the FIRST box
+ * placed — so this order is the collision rule: the place the reader picked,
+ * then the one under the pointer, then what a search or a traced course left
+ * standing, and only then the bigger place. Size alone let a big region's name
+ * push the one the reader had just searched for off the map.
+ */
+export function labelOrder(a: LabelClaim, b: LabelClaim): number {
+    const rank = (c: LabelClaim) => (c.selected ? 4 : 0) + (c.focus ? 2 : 0) + (c.undimmed ? 1 : 0);
+    return rank(b) - rank(a) || b.size - a.size;
+}
+
+/**
+ * Text widths, by font and text. Every frame of a drag measures every name it
+ * tries to place, often several times over while wrapping and shortening it,
+ * and the same names come round at the same sizes on the next frame. Kept per
+ * font, so a change of size or weight is measured afresh. The font is the
+ * string the caller SET, passed in: reading `ctx.font` back has the browser
+ * serialise it on every read, which cost more than the measuring it saved.
+ */
+const widths = new Map<string, Map<string, number>>();
+let widthCount = 0;
+/** Past this many the cache starts over rather than grow without end. */
+const WIDTHS_MAX = 20_000;
+
+/** The width of `text` in `font`, which must be the font `ctx` is set to. */
+export function textWidth(ctx: CanvasRenderingContext2D, font: string, text: string): number {
+    let inFont = widths.get(font);
+    if (!inFont) {
+        inFont = new Map();
+        widths.set(font, inFont);
+    }
+    let w = inFont.get(text);
+    if (w === undefined) {
+        if (widthCount >= WIDTHS_MAX) {
+            widths.clear();
+            widthCount = 0;
+            inFont = new Map();
+            widths.set(font, inFont);
+        }
+        w = ctx.measureText(text).width;
+        inFont.set(text, w);
+        widthCount++;
+    }
+    return w;
+}
 
 export function createLabeller(
     ctx: CanvasRenderingContext2D,
@@ -164,16 +231,21 @@ export function createLabeller(
     const boxes: Box[] = [];
     const queued: { lines: string[]; cx: number; box: Box; style: LabelStyle }[] = [];
 
+    /** The font this labeller last set; every measure below runs after a
+     *  `setFont` in the same call, so it is the font the context holds. */
+    let font = '';
     const setFont = (size: number, weight: number) => {
-        ctx.font = `${weight} ${size}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+        font = `${weight} ${size}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+        ctx.font = font;
     };
+    const measure = (text: string) => (font ? textWidth(ctx, font, text) : ctx.measureText(text).width);
 
     const ellipsize = (text: string, maxWidth: number) => {
-        if (ctx.measureText(text).width <= maxWidth) return text;
+        if (measure(text) <= maxWidth) return text;
         let lo = 0, hi = text.length;
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
-            if (ctx.measureText(`${text.slice(0, mid)}…`).width <= maxWidth) lo = mid;
+            if (measure(`${text.slice(0, mid)}…`) <= maxWidth) lo = mid;
             else hi = mid - 1;
         }
         return lo > 0 ? `${text.slice(0, lo).trimEnd()}…` : '';
@@ -186,7 +258,7 @@ export function createLabeller(
         let line = '';
         for (let i = 0; i < words.length; i++) {
             const next = line ? `${line} ${words[i]}` : words[i];
-            if (!line || ctx.measureText(next).width <= maxWidth) { line = next; continue; }
+            if (!line || measure(next) <= maxWidth) { line = next; continue; }
             if (lines.length + 1 === maxLines) {
                 line = ellipsize(`${line} ${words.slice(i).join(' ')}`, maxWidth);
                 break;
@@ -201,15 +273,19 @@ export function createLabeller(
     /** Where these lines would land. Assumes the font is already set. */
     const boxOf = (lines: string[], cx: number, cy: number, size: number, align: 'baseline' | 'middle') => {
         const lh = size * 1.16;
-        const w = Math.max(...lines.map(l => ctx.measureText(l).width));
+        const w = Math.max(...lines.map(l => measure(l)));
         const top = align === 'middle' ? cy - (lh * lines.length) / 2 : cy - size * 0.85;
         return { x0: cx - w / 2 - 3, y0: top, x1: cx + w / 2 + 3, y1: top + lh * lines.length };
     };
 
     const free = (box: Box) => {
         if (box.x1 < 0 || box.x0 > width || box.y1 < 0 || box.y0 > height) return false;
+        // Two names stacked edge to edge read as ONE name ("Matrix Methods"
+        // straight over "Logic, Proofs, and"), so a box also keeps a gap
+        // above and below it; sideways the 3px each box carries already does.
+        const gap = labelPx(LABEL_GAP_Y);
         for (const b of boxes) {
-            if (box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0) return false;
+            if (box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 + gap && box.y1 + gap > b.y0) return false;
         }
         return true;
     };
@@ -261,11 +337,14 @@ export function createLabeller(
         return paint([ellipsize(text, maxWidth)], cx, cy, style, align);
     };
 
-    const wrapLabel: Labeller['wrapLabel'] = (text, cx, cy, style, maxWidth, maxLines = 2) => {
+    const wrapLabel: Labeller['wrapLabel'] = (text, cx, cy, style, maxWidth, maxLines = 2, anchor = 'middle') => {
         setFont(style.size, style.weight);
         const lines = wrap(text, maxWidth, maxLines);
         if (!lines.length) return false;
-        return paint(lines, cx, cy, style, 'middle');
+        // Held by its bottom edge, a second line grows the name upward, away
+        // from what it is above, instead of half a line down onto it.
+        const mid = anchor === 'bottom' ? cy - (style.size * 1.16 * lines.length) / 2 : cy;
+        return paint(lines, cx, mid, style, 'middle');
     };
 
     const placeRegion: Labeller['placeRegion'] = (
@@ -297,7 +376,7 @@ export function createLabeller(
             let lines = wrap(name, room, maxLines + step.lines);
             // One line is better than two when the whole name fits on one: a
             // wrapped name is harder to read and takes more of the map.
-            if (lines.length > 1 && ctx.measureText(name).width <= room) lines = [name];
+            if (lines.length > 1 && measure(name) <= room) lines = [name];
             if (!lines.length) continue;
 
             const attempt = { ...style, size };
@@ -332,5 +411,9 @@ export function createLabeller(
         queued.length = 0;
     };
 
-    return { label, wrapLabel, placeRegion, flush };
+    const reserve = (x0: number, y0: number, x1: number, y1: number) => {
+        boxes.push({ x0, y0, x1, y1 });
+    };
+
+    return { label, wrapLabel, placeRegion, reserve, flush };
 }

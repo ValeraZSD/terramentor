@@ -55,10 +55,17 @@ await esbuild.build({
     bundle: true, format: 'esm', platform: 'node', outfile: terrainBundle, logLevel: 'silent',
 });
 
+const homeBundle = join(mkdtempSync(join(cache, 'globe-gates-')), 'home.mjs');
+await esbuild.build({
+    entryPoints: [fileURLToPath(new URL('../src/components/atlas/homeView.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'node', outfile: homeBundle, logLevel: 'silent',
+});
+
 const P = await import(`file:///${bundle.replace(/\\/g, '/')}`);
 const T = await import(`file:///${terrainBundle.replace(/\\/g, '/')}`);
+const H = await import(`file:///${homeBundle.replace(/\\/g, '/')}`);
 const F = await import(`file:///${flightBundle.replace(/\\/g, '/')}`);
-const { globeLayout, capRadius, fibonacciSphere, angleBetween, neighbourhoodScore, OPENING_PITCH, farPush, seedDirections } =
+const { globeLayout, capRadius, fibonacciSphere, angleBetween, neighbourhoodScore, farPush, seedDirections } =
     await import(new URL('../server/globe.js', import.meta.url).href);
 const { layoutRegions } = await import(new URL('../server/atlas.js', import.meta.url).href);
 
@@ -392,23 +399,31 @@ function lopsidedRegions(dim = 32) {
     // Measured 2026-10-22: 63° with min-to-max seeding and near-only
     // repulsion, 33° with the median seed and the far push.
     check('a lopsided library leaves no ocean wider than 50° (radius) on the planet', deg < 50, `${deg.toFixed(1)}°`);
-    // And the side the reader opens on is the land's side: the cap-area
-    // weighted mean of the layout, put through the client's own projection at
-    // the camera's opening yaw and pitch, points straight at the reader.
-    const pitchSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
-    const openingPitch = Number(/const DEFAULT_PITCH = ([\d.]+);/.exec(pitchSrc)?.[1]);
-    check('the layout turns toward the camera\'s own opening pitch', openingPitch === OPENING_PITCH,
-        `${OPENING_PITCH} vs GlobeMap ${openingPitch}`);
-    const facing = (ds, cs) => {
-        const m = [0, 0, 0];
-        ds.forEach((d, i) => { const w = 1 - Math.cos(cs[i]); m[0] += d[0] * w; m[1] += d[1] * w; m[2] += d[2] * w; });
-        const ml = len(m);
-        return ml > 0 ? P.rotate(m.map(x => x / ml), 0, openingPitch)[2] : 0;
+    // And the side the reader opens on is the land's side. The server spins
+    // the weight of the land (by cap area) to the camera's opening yaw, 0;
+    // which way the globe then faces is the client's `landView` (homeView.ts),
+    // which GlobeMap opens at — the most land, weighted toward the middle.
+    const viewOf = (ds, cs) => H.landView(ds.map((u, i) => ({ u, cap: cs[i] })));
+    const azimuth = (ds, cs) => {
+        let x = 0, y = 0;
+        ds.forEach((d, i) => { const w = 1 - Math.cos(cs[i]); x += d[0] * w; y += d[1] * w; });
+        return Math.atan2(x, y);
     };
-    check('the opening view faces the weight of the land', facing(dirs, caps) > 0.999,
-        `depth ${facing(dirs, caps).toFixed(4)}`);
+    check('the server turns the weight of the land to the opening yaw', Math.abs(azimuth(dirs, caps)) < 1e-6,
+        `azimuth ${azimuth(dirs, caps)}`);
+    // The middle of the opening view is ground: inside a region's cap.
+    const onLand = (ds, cs) => {
+        const v = viewOf(ds, cs);
+        if (!v) return false;
+        const centre = P.unrotate([0, 0, 1], v.yaw, v.pitch);
+        return ds.some((d, i) => angleBetween(d, centre) < cs[i]);
+    };
+    check('the opening view faces land', onLand(dirs, caps));
     const one = await globeLayout([{ centroid: [0.4, 0.3, 0.2, 0.1], members: [{}, {}] }]);
-    check('…a one-region library too', facing(one.dirs, one.caps) > 0.999, JSON.stringify(one.dirs[0]));
+    check('…a one-region library too', onLand(one.dirs, one.caps) && Math.abs(azimuth(one.dirs, one.caps)) < 1e-6,
+        JSON.stringify(one.dirs[0]));
+    const globeSrc = readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8');
+    check('the globe opens at that view', /landView\(/.test(globeSrc));
     // What the reader SEES, not the mean it was turned by: once the land is
     // spread over the whole planet the mean is short, so measure the share of
     // land area on the near side at the opening camera, on this library and
@@ -416,10 +431,11 @@ function lopsidedRegions(dim = 32) {
     // planet away).
     const nearShare = (ds, cs) => {
         let near = 0, all = 0;
+        const v = viewOf(ds, cs);
         ds.forEach((d, i) => {
             const w = 1 - Math.cos(cs[i]);
             all += w;
-            if (P.rotate(d, 0, openingPitch)[2] > 0) near += w;
+            if (P.rotate(d, v.yaw, v.pitch)[2] > 0) near += w;
         });
         return near / all;
     };
@@ -1018,18 +1034,14 @@ export { relLum, hexToRgb, hslToRgb, rgbToHsl } from './src/utils/color.ts';`,
     check('a green page + a green accent is parted',
         ratio(lum(S.terraSea({ dark: false, tint: '#caf2d9', untinted: SURF.light.untinted })),
             lum(S.globeRamp('#047857', false)[0])) >= S.SEA_LAND_CONTRAST - 1e-3);
-    // App colour on Terra climbs the globe's ladder, which is what the sea was
-    // measured against above; the flat map keeps the accent ramp.
+    // App colour climbs the globe's ladder, which is what the sea was measured
+    // against above.
     const region = { mastery: { proven: 0 }, size: 10, projects: [] };
-    check('App colour on Terra paints the globe ladder, the flat map the accent ramp',
-        S.regionColor(region, 'mastery', new Map(), '#047857', false, 'globe') === S.globeRamp('#047857', false)[0]
-        && S.regionColor(region, 'mastery', new Map(), '#047857', false) === S.ramp('#047857', false)[0]);
-    // The names rule is only a rule if both maps ask it, with their trace.
-    for (const [file, traced] of [['GlobeMap.tsx', 'tracing'], ['AtlasMap.tsx', 'traced']]) {
-        const src = readFileSync(new URL(`../src/components/atlas/${file}`, import.meta.url), 'utf8');
-        check(`${file} decides its names through regionNamesShown(…, !!${traced})`,
-            new RegExp(`regionNamesShown\\(\\s*\\w+,\\s*!!${traced}\\s*\\)`).test(src));
-    }
+    check('App colour paints the globe ladder',
+        S.regionColor(region, 'mastery', new Map(), '#047857', false, 'globe') === S.globeRamp('#047857', false)[0]);
+    // The names rule is only a rule if the map asks it, with its trace.
+    check('GlobeMap.tsx decides its names through regionNamesShown(…, !!tracing)',
+        /regionNamesShown\(\s*\w+,\s*!!tracing\s*\)/.test(readFileSync(new URL('../src/components/atlas/GlobeMap.tsx', import.meta.url), 'utf8')));
     check('a border shows ≥1.3:1 on the palest land, every accent, both modes',
         borderWorst >= 1.3, `worst ${borderWorst.toFixed(3)} at ${borderAt}`);
     check('…and the pre-fix border did not (the control)', oldBorderWorst < 1.3, oldBorderWorst.toFixed(3));

@@ -1451,7 +1451,19 @@ export interface AtlasData {
     };
     regions: AtlasRegion[];
     bridges: AtlasBridge[];
+    /** What to study next, best first (`server/studyNext.js`); absent when the map is unavailable. */
+    next?: AtlasNext[];
     builtAt?: string;
+}
+
+/** A topic not yet started that sits closest in meaning to one already finished, in a course under way. */
+export interface AtlasNext {
+    topicId: number;
+    regionId: number;
+    /** The finished topic it is closest to, and that topic's name. */
+    nearId: number;
+    nearTitle: string;
+    similarity: number;
 }
 
 /** How region naming is going (`GET /api/atlas/naming`), shown in Settings beside the naming model. */

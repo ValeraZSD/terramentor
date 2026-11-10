@@ -34,14 +34,3 @@ export function spring(x: number, v: number, to: number, omega: number, dt: numb
         v: (v - omega * impulse * dt) * decay,
     };
 }
-
-/**
- * The longest frame a spring may be integrated over in one go.
- *
- * A spring integrated across a 400ms stall is not a slow camera, it is a
- * catapult: the analytic step is exact for the equation, but the equation has
- * stopped describing anything a reader watched. A gap that long is the loop
- * having been idle, which each surface's own `IDLE_GAP_MS` catches first — this
- * is the floor under the ones that slip past it.
- */
-export const MAX_STEP_MS = 50;

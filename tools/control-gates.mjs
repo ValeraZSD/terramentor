@@ -156,7 +156,6 @@ const LEGACY = [
     // The atlas's lists and its control cluster: a row's height is the title in
     // it, and the map's cluster is one hairline-divided panel of 44px cells.
     { file: 'src/components/atlas/RegionList.tsx', attr: 'aria-expanded', has: 'open', why: 'a region row that expands — its height is its own title and bar' },
-    { file: 'src/components/atlas/RegionList.tsx', attr: 'onClick', has: 'openProjectNode(t.projectId, t.id)', why: 'a topic row inside a region — sized by the list' },
     { file: 'src/components/atlas/BridgeList.tsx', attr: 'className', has: 'min-w-0 text-left rounded-lg px-2 py-2 min-h-11', why: 'a bridge row: two titles side by side, each sized by its own text' },
     { file: 'src/components/atlas/MapControls.tsx', attr: 'aria-pressed', has: 'active === undefined ? undefined : active', why: 'a cell in the map control cluster — the divided panel owns the shape' },
     { file: 'src/components/creation/CreationRunParts.tsx', attr: 'onClick', has: 'toggleCollapse(node.key)', why: 'the fold chevron inside a live-structure tree row — the row owns the height' },

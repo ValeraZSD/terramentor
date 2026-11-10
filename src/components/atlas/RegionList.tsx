@@ -2,8 +2,8 @@ import { ReactNode, useEffect, useRef, useState } from 'react';
 import { AtlasColorMode, AtlasRegion } from '../../types';
 import { useStore } from '../../store';
 import { ColourSurface, CourseHue, regionColor } from './atlasColors';
-import { topicDotStatus } from './topicStatus';
-import { ArrowUpRight, ChevronDown, Check, Pencil, RotateCcw, Sparkles, X } from 'lucide-react';
+import TopicRow from './TopicRow';
+import { ChevronDown, Check, Pencil, RotateCcw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput } from '../ui/Field';
@@ -28,13 +28,6 @@ interface Props {
     /** Hand it back to the map: the medoid now, a model name on the next sweep. */
     onResetName: (region: AtlasRegion) => Promise<void>;
 }
-
-const STATUS_DOT: Record<string, string> = {
-    completed: 'bg-emerald-500',
-    in_progress: 'bg-amber-500',
-    skipped: 'bg-slate-400',
-    not_started: 'bg-slate-300 dark:bg-slate-600',
-};
 
 /**
  * Name a region by hand.
@@ -251,31 +244,7 @@ export default function RegionList({ regions, selectedId, onSelect, dark, accent
                         <ul>
                             {region.topics.map(t => (
                                 <li key={t.id}>
-                                    <button
-                                        data-row
-                                        onClick={() => openProjectNode(t.projectId, t.id)}
-                                        className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-left can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-                                    >
-                                        <span
-                                            aria-hidden="true"
-                                            className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[topicDotStatus(t)] || STATUS_DOT.not_started}`}
-                                        />
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
-                                                {t.title}
-                                                {t.transferred && (
-                                                    <>
-                                                        <Sparkles className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
-                                                        <span className="sr-only">{tr("started with a head start from another project")}</span>
-                                                    </>
-                                                )}
-                                            </span>
-                                            <span className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
-                                                {t.projectName}
-                                            </span>
-                                        </span>
-                                        <ArrowUpRight className="w-3.5 h-3.5 shrink-0 text-slate-400 dark:text-slate-500 can-hover:group-hover:text-accent-fg group-focus-visible:text-accent-fg" aria-hidden="true" />
-                                    </button>
+                                    <TopicRow topic={t} detail={t.projectName} onOpen={() => openProjectNode(t.projectId, t.id)} />
                                 </li>
                             ))}
                         </ul>
