@@ -101,26 +101,34 @@ function closingDelimiter(input: string, from: number, delim: string): number {
 }
 
 /**
- * A tilde fence as CommonMark reads one: three or more tildes opening a line,
- * indented by at most three spaces, closed by a line of at least as many
- * tildes and nothing else. A shorter run inside it is code, not the close.
- * (`~~` alone is strikethrough, hence the line start and the three.)
+ * A code fence as CommonMark reads one: three or more tildes or backticks
+ * opening a line, indented by at most three spaces, closed by a line of at
+ * least as many of the same character and nothing else. A shorter run inside
+ * it is code, not the close. (`~~` alone is strikethrough, hence the line
+ * start and the three; a backtick opener's line holds no further backtick, or
+ * it is inline code.) Each pair is [the whole fence, its opening line].
  */
-const TILDE_FENCE = /^ {0,3}(~{3,})(?!~)[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t]*$/my;
-const TILDE_OPENER = /^ {0,3}~{3,}/my;
+const FENCE_READERS: Array<[RegExp, RegExp]> = [
+    [/^ {0,3}(~{3,})(?!~)[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t\r]*$/my, /^ {0,3}~{3,}/my],
+    [/^ {0,3}(`{3,})(?!`)[^`\n]*$[\s\S]*?^ {0,3}\1`*[ \t\r]*$/my, /^ {0,3}`{3,}[^`\n]*$/my],
+];
 
-/** Where the tilde fence opening at line start `i` ends: after its closing
- *  line, at the end of the input when nothing closes it, or `i` when no fence
- *  opens here. */
-function tildeFenceEnd(input: string, i: number): number {
-    TILDE_FENCE.lastIndex = i;
-    if (TILDE_FENCE.test(input)) return TILDE_FENCE.lastIndex;
-    TILDE_OPENER.lastIndex = i;
-    return TILDE_OPENER.test(input) ? input.length : i;
+/** Where the fence opening at line start `i` ends: after its closing line, at
+ *  the end of the input when nothing closes it, or `i` when no fence opens
+ *  here. */
+function fenceEnd(input: string, i: number): number {
+    for (const [whole, opener] of FENCE_READERS) {
+        whole.lastIndex = i;
+        if (whole.test(input)) return whole.lastIndex;
+        opener.lastIndex = i;
+        if (opener.test(input)) return input.length;
+    }
+    return i;
 }
 
 /** A markdown document as alternating prose and fenced code, prose first, so
- *  every odd entry is a fence: backticks anywhere, or a tilde fence. */
+ *  every odd entry is a fence: one opening a line, or a closed run of three
+ *  backticks inside one. */
 function splitCodeFences(content: string): string[] {
     const parts: string[] = [];
     let prose = 0;
@@ -130,13 +138,13 @@ function splitCodeFences(content: string): string[] {
         prose = i = to;
     };
     while (i < content.length) {
+        if (i === 0 || content[i - 1] === '\n') {
+            const stop = fenceEnd(content, i);
+            if (stop > i) { fence(i, stop); continue; }
+        }
         if (content.startsWith('```', i)) {
             const close = content.indexOf('```', i + 3);
             if (close >= 0) { fence(i, close + 3); continue; }
-        }
-        if (i === 0 || content[i - 1] === '\n') {
-            const stop = tildeFenceEnd(content, i);
-            if (stop > i) { fence(i, stop); continue; }
         }
         i += 1;
     }
@@ -174,6 +182,14 @@ export function keepDollarsInMath(input: string): string {
             i += 2;
             continue;
         }
+        if ((ch === '~' || ch === '`' || ch === ' ') && (i === 0 || input[i - 1] === '\n')) {
+            const stop = fenceEnd(input, i);
+            if (stop > i) {
+                out += input.slice(i, stop);
+                i = stop;
+                continue;
+            }
+        }
         if (ch === '`') {
             const ticks = /^`+/.exec(input.slice(i))![0];
             const end = input.indexOf(ticks, i + ticks.length);
@@ -181,14 +197,6 @@ export function keepDollarsInMath(input: string): string {
             out += input.slice(i, stop);
             i = stop;
             continue;
-        }
-        if ((ch === '~' || ch === ' ') && (i === 0 || input[i - 1] === '\n')) {
-            const stop = tildeFenceEnd(input, i);
-            if (stop > i) {
-                out += input.slice(i, stop);
-                i = stop;
-                continue;
-            }
         }
         if (ch !== '$') {
             out += ch;
@@ -201,9 +209,14 @@ export function keepDollarsInMath(input: string): string {
         const body = close < 0 ? '' : input.slice(start, close);
         const formula = body.includes('\\$') && (delim === '$$' || (!!body.trim() && !/^\s|\s$/.test(body)));
         if (!formula) {
-            // Not ours: step over the delimiter and let the reader pair it.
-            out += delim;
-            i = start;
+            // Not ours. The reader pairs this delimiter with the next one it
+            // meets, escaped or not, so that stretch is copied whole: a
+            // dollar it spends as a close must not open a span here.
+            const next = input.indexOf(delim, start);
+            const paired = next >= 0 && (delim === '$$' || !input.slice(start, next).includes('\n\n'));
+            const stop = paired ? next + delim.length : start;
+            out += input.slice(i, stop);
+            i = stop;
             continue;
         }
         out += `${delim}${body.replace(/\\\$/g, '\\text{\\textdollar}')}${delim}`;

@@ -120,6 +120,13 @@ try {
     same('an ordinary formula', 'The area is $x^2$ and the ratio $a/b$.');
     same('prices with bare dollars around an escaped one are not paired into a formula', 'It costs $5 and \\$10 more, or $20.');
     same('a lone unpaired dollar', 'A fee of $5 applies.');
+    // The reader pairs the first two dollars here, so the amount after them
+    // is prose to it: rewriting it would print the TeX command as text.
+    same('an amount whose opening dollar the reader gives to an earlier price', 'The fee is $5 and $\\$10$.');
+    const spent = fixMarkdownMathTypography('The fee is $5 and $\\$10$.');
+    check('… in a lesson too (its escaped dollar is left as written)', spent.includes('$\\$10$') && !spent.includes('\\text'), spent);
+    const afterPair = sanitizeMathText('Area $x^2$ costs $\\$5$.');
+    check('an amount after a whole formula is still repaired', afterPair === 'Area $x^2$ costs $\\text{\\textdollar}5$.', afterPair);
     const plain = read(inline('It costs \\$20,000 in cash.'));
     check('… and the literal dollar still prints as one', plain.text === 'It costs $20,000 in cash.' && plain.formulas === 0, shown(plain));
     same('a fenced block reaches its renderer byte for byte', 'Run:\n\n```bash\necho "$\\$HOME$"\n```\n', fixMarkdownMathTypography);
@@ -132,6 +139,9 @@ try {
         ['a tilde fence indented by up to three spaces is still a fence', 'Run:\n\n  ~~~\n$x^2$\n$\\$5$\n  ~~~\n\nThen stop.'],
         ['a tilde fence nothing closes is code to the end', 'Run:\n\n~~~\n$x^2$\n$\\$5$\n'],
         ['a shorter run inside a longer fence nothing closes is still code', '~~~~\n~~~\n$\\$5$\n'],
+        ['a backtick fence nothing closes is code to the end', 'Run:\n\n```bash\n$x^2$\n$\\$5$\n'],
+        ['three backticks inside a four-backtick fence are code, not its close', '````\n```\n$x^2$\n$\\$5$\n````\n'],
+        ['a backtick fence indented by up to three spaces is still a fence', 'Run:\n\n  ```\n$x^2$\n$\\$5$\n  ```\n\nThen stop.'],
     ]) {
         same(`${label} (lesson)`, fenced, fixMarkdownMathTypography);
         same(`${label} (quiz string)`, fenced);
