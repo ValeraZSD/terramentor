@@ -2,7 +2,7 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/windows-sandbox-check.ps1
 #       [-Tag v1.4.0 | -Zip release/Terramentor-<version>-win32-x64.zip]
-#       [-Out <folder>] [-TimeoutMinutes 15] [-Keep] [-DryRun]
+#       [-Out <folder>] [-TimeoutMinutes 30] [-MinFreeCommitGB 6] [-Keep] [-DryRun]
 #
 # No -Tag and no -Zip: the latest stable release. A release zip is checked
 # against the release's SHA256SUMS before it goes anywhere.
@@ -31,7 +31,9 @@ param(
     [string]$Tag = '',
     [string]$Zip = '',
     [string]$Out = '',
-    [int]$TimeoutMinutes = 15,
+    # Explorer's zip folder alone took three minutes for 1.4.0 on a fast
+    # desktop, and the sandbox is slower.
+    [int]$TimeoutMinutes = 30,
     [int]$MinFreeCommitGB = 6,
     [switch]$Keep,
     [switch]$DryRun
@@ -120,7 +122,7 @@ if (-not $Out) { $Out = Join-Path $root ('temp\windows-sandbox\' + $version + '-
 $Out = [IO.Path]::GetFullPath($Out)
 $inDir = Join-Path $Out 'in'
 $outDir = Join-Path $Out 'out'
-if (Test-Path -LiteralPath (Join-Path $outDir 'done')) { Refuse "$Out already holds a finished run; give a new -Out" }
+if ((Test-Path -LiteralPath $outDir) -and @(Get-ChildItem -LiteralPath $outDir -Force).Count) { Refuse "$outDir already holds a run; give a new -Out" }
 New-Item -ItemType Directory -Force -Path $inDir, $outDir | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows-sandbox-run.ps1') -Destination $inDir -Force
 
@@ -175,29 +177,11 @@ if ($DryRun) {
 }
 
 # --- the sandbox ------------------------------------------------------------------
-$startedAt = Get-Date
-Start-Process -FilePath $sandboxExe -ArgumentList ('"' + $wsbPath + '"')
-$deadline = $startedAt.AddMinutes($TimeoutMinutes)
-Write-Host ("sandbox   started {0:HH:mm:ss}, gives up at {1:HH:mm:ss}" -f $startedAt, $deadline)
-
-$progress = Join-Path $outDir 'progress.log'
-$shown = 0
-$ended = 'timeout'
-while ((Get-Date) -lt $deadline) {
-    if (Test-Path -LiteralPath $progress) {
-        $lines = @(Get-Content -LiteralPath $progress -Encoding UTF8)
-        for ($i = $shown; $i -lt $lines.Count; $i++) { Write-Host ('  ' + $lines[$i]) }
-        $shown = $lines.Count
-    }
-    if (Test-Path -LiteralPath (Join-Path $outDir 'done')) { $ended = 'done'; break }
-    if ((Get-Date) -gt $startedAt.AddSeconds(30) -and (Get-SandboxProcesses).Count -eq 0) { $ended = 'closed'; break }
-    Start-Sleep -Seconds 2
-}
-
 # Only the sandbox this run started: processes that began after it did.
 function Close-OurSandbox {
     $ours = @(Get-SandboxProcesses | Where-Object {
         try { $_.StartTime -ge $startedAt.AddSeconds(-2) } catch { $false } })
+    if (-not $ours.Count) { Write-Host 'sandbox   none of its processes found to close'; return }
     foreach ($p in $ours) { try { Stop-Process -Id $p.Id -Force } catch { } }
     $waited = 0
     while ($waited -lt 60 -and @(Get-SandboxProcesses | Where-Object { $ours.Id -contains $_.Id }).Count) { Start-Sleep -Seconds 1; $waited++ }
@@ -206,20 +190,52 @@ function Close-OurSandbox {
     else { Write-Host 'sandbox   closed' }
 }
 
-if ($Keep) { Write-Host 'sandbox   left open (-Keep); close its window to throw it away' }
-elseif ($ended -ne 'closed') { Close-OurSandbox }
+$progress = Join-Path $outDir 'progress.log'
+$shown = 0
+function Show-Progress {
+    if (-not (Test-Path -LiteralPath $progress)) { return }
+    try { $lines = @(Get-Content -LiteralPath $progress -Encoding UTF8 -ErrorAction Stop) } catch { return }
+    for ($i = $script:shown; $i -lt $lines.Count; $i++) { Write-Host ('  ' + $lines[$i]) }
+    if ($lines.Count -gt $script:shown) { $script:shown = $lines.Count }
+}
+
+$startedAt = Get-Date
+$deadline = $startedAt.AddMinutes($TimeoutMinutes)
+$ended = 'timeout'
+Start-Process -FilePath $sandboxExe -ArgumentList ('"' + $wsbPath + '"')
+Write-Host ("sandbox   started {0:HH:mm:ss}, gives up at {1:HH:mm:ss}" -f $startedAt, $deadline)
+# finally: Ctrl+C or an error here must not leave the sandbox running, or the
+# next run refuses to start.
+try {
+    while ((Get-Date) -lt $deadline) {
+        Show-Progress
+        if (Test-Path -LiteralPath (Join-Path $outDir 'done')) { $ended = 'done'; break }
+        if ((Get-Date) -gt $startedAt.AddSeconds(30) -and (Get-SandboxProcesses).Count -eq 0) { $ended = 'closed'; break }
+        Start-Sleep -Seconds 2
+    }
+    Show-Progress   # the lines written just before `done`
+} finally {
+    if ($Keep) { Write-Host 'sandbox   left open (-Keep); close its window to throw it away' }
+    elseif ($ended -ne 'closed') { Close-OurSandbox }
+}
 
 # --- what came back ---------------------------------------------------------------
 $resultPath = Join-Path $outDir 'result.json'
-if ($ended -ne 'done' -or -not (Test-Path -LiteralPath $resultPath)) {
+if ($ended -ne 'done') {
     if ($ended -eq 'closed') { Write-Host 'FAIL the sandbox closed before the run finished' }
     else { Write-Host "FAIL no result within $TimeoutMinutes minutes" }
     Write-Host "     what there is: $outDir"
     exit 3
 }
-$result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+try { $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json }
+catch {
+    Write-Host ('FAIL the run finished but its result.json does not read: ' + $_.Exception.Message)
+    Write-Host "     what there is: $outDir"
+    exit 3
+}
 Write-Host ''
-Write-Host ("{0} {1} on {2} ({3}), {4} s" -f $result.verdict.ToUpperInvariant(), $result.zip, $result.os, $result.uiCulture, $result.seconds)
+Write-Host ([string]::Format([Globalization.CultureInfo]::InvariantCulture, '{0} {1} on {2} ({3}), {4} s',
+    $result.verdict.ToUpperInvariant(), $result.zip, $result.os, $result.uiCulture, $result.seconds))
 foreach ($f in @($result.failures)) { if ($f) { Write-Host ('  FAIL ' + $f) } }
 foreach ($n in @($result.notes)) { if ($n) { Write-Host ('  note ' + $n) } }
 Write-Host ('  shots ' + ((Get-ChildItem -LiteralPath $outDir -Filter *.png | Sort-Object LastWriteTime | ForEach-Object { $_.Name }) -join ', '))
