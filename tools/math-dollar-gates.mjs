@@ -34,14 +34,15 @@ try {
         stdin: {
             contents: "import { createElement } from 'react'; import { renderToStaticMarkup } from 'react-dom/server';"
                 + " import ReactMarkdown from 'react-markdown'; import remarkGfm from 'remark-gfm';"
-                + " import remarkMath from 'remark-math'; import remarkBreaks from 'remark-breaks'; import rehypeKatex from 'rehype-katex';"
+                + " import remarkMath from 'remark-math'; import remarkBreaks from 'remark-breaks';"
+                + " import { markdownRehypePlugins } from './src/utils/markdownSanitize';"
                 + " import MathText from './src/components/MathText';"
                 + " import { fixMarkdownMathTypography, sanitizeMathText } from './src/utils/mathText';"
                 + ' export { fixMarkdownMathTypography, sanitizeMathText };'
                 + ' export const inline = (content) => renderToStaticMarkup(createElement(MathText, { content }));'
-                // The markdown pipeline's own plugin list (Markdown.tsx), without its fenced visuals.
+                // The markdown pipeline's own plugin lists (Markdown.tsx), without its fenced visuals.
                 + ' export const lesson = (content) => renderToStaticMarkup(createElement(ReactMarkdown, {'
-                + "   remarkPlugins: [remarkGfm, remarkMath, remarkBreaks], rehypePlugins: [[rehypeKatex, { throwOnError: false, strict: 'ignore' }]],"
+                + '   remarkPlugins: [remarkGfm, remarkMath, remarkBreaks], rehypePlugins: markdownRehypePlugins,'
                 + ' }, fixMarkdownMathTypography(content)));',
             resolveDir: repoRoot, loader: 'js',
         },
@@ -103,9 +104,13 @@ try {
     const para = read(lesson('Cash falls by $\\$20,000$ and equipment rises by $\\$20,000$.'));
     check('two amounts in a sentence', para.text === 'Cash falls by $20,000 and equipment rises by $20,000.' && para.formulas === 2 && para.errors === 0, shown(para));
     const display = read(lesson('The total:\n\n$$\n\\$8{,}000 + \\$2{,}000 = \\$10{,}000\n$$\n\nThat is all.'));
-    check('a display equation of amounts',
+    // Passed before the fix too (a `$$` block on its own lines is read raw):
+    // here so the rewrite cannot damage it.
+    check('a display equation of amounts still draws',
         display.formulas === 1 && display.errors === 0 && display.text.replace(/\s/g, '') === 'Thetotal:$8,000+$2,000=$10,000Thatisall.', shown(display));
 
+    // Every check below passes without the fix: they bound it, so a wider
+    // rewrite that paired prose prices or reached into code would go red.
     section('what must stay as it was');
     const same = (label, s, fn = sanitizeMathText) => check(label, fn(s) === s, JSON.stringify(fn(s)));
     same('a literal dollar in prose', 'It costs \\$20,000 in cash.');
@@ -118,9 +123,10 @@ try {
     same('inline code is not maths', 'Type `$\\$5$` exactly.', fixMarkdownMathTypography);
     same('inline code is not maths in a quiz string either', 'Type `$\\$5$` exactly.');
     const once = sanitizeMathText('Assets increase by $\\$8{,}000$ and $\\$2$');
-    check('repairing twice changes nothing more', sanitizeMathText(once) === once, once);
+    const DOLLAR = '\\text{\\textdollar}';
+    check('repairing once rewrites, twice changes nothing more', once.includes(DOLLAR) && sanitizeMathText(once) === once, once);
     const mdOnce = fixMarkdownMathTypography('Cash falls by $\\$20,000$.');
-    check('… in a lesson too', fixMarkdownMathTypography(mdOnce) === mdOnce, mdOnce);
+    check('… in a lesson too', mdOnce.includes(DOLLAR) && fixMarkdownMathTypography(mdOnce) === mdOnce, mdOnce);
 
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exitCode = fail ? 1 : 0;
