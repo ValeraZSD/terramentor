@@ -35,16 +35,24 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-# Physical pixels in the screenshots, not the scaled desktop.
-Add-Type -TypeDefinition @'
+# Kept, not thrown: a run that cannot load its helpers must still write `done`,
+# or the host waits for its deadline.
+$setupError = $null
+try {
+    # Physical pixels in the screenshots, not the scaled desktop.
+    Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class SandboxRunNative {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
 }
 '@
-[void][SandboxRunNative]::SetProcessDPIAware()
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing, UIAutomationClient, UIAutomationTypes
+    [void][SandboxRunNative]::SetProcessDPIAware()
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing, UIAutomationClient, UIAutomationTypes
+    $UIA = [System.Windows.Automation.AutomationElement]
+    $Scope = [System.Windows.Automation.TreeScope]
+    $AnyElement = [System.Windows.Automation.Condition]::TrueCondition
+} catch { $setupError = $_.Exception.Message }
 
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $result = [ordered]@{ verdict = 'unfinished'; steps = @(); failures = @(); notes = @() }
@@ -82,10 +90,6 @@ function Write-Json([string]$name, $value) {
     $text = $value | ConvertTo-Json -Depth 8
     [IO.File]::WriteAllText((Join-Path $Out $name), $text, (New-Object Text.UTF8Encoding $false))
 }
-
-$UIA = [System.Windows.Automation.AutomationElement]
-$Scope = [System.Windows.Automation.TreeScope]
-$AnyElement = [System.Windows.Automation.Condition]::TrueCondition
 
 function Get-ProcessName([int]$id) {
     try { (Get-Process -Id $id -ErrorAction Stop).ProcessName } catch { '?' }
@@ -143,6 +147,7 @@ function Invoke-Element($e) {
 }
 
 if ($ProbeOnly) {
+    if ($setupError) { [Console]::Error.WriteLine('setup failed: ' + $setupError); exit 1 }
     $Out = $ProbeOnly
     New-Item -ItemType Directory -Force -Path $Out | Out-Null
     Save-Screen 'probe'
@@ -152,14 +157,15 @@ if ($ProbeOnly) {
 }
 
 if ($env:USERNAME -ne 'WDAGUtilityAccount') {
-    Write-Error 'This script changes the machine it runs on and runs only inside Windows Sandbox.'
+    [Console]::Error.WriteLine('This script changes the machine it runs on and runs only inside Windows Sandbox.')
     exit 2
 }
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
 
 try {
-    $run = Get-Content -LiteralPath (Join-Path $In 'run.json') -Raw | ConvertFrom-Json
+    if ($setupError) { throw ('setup failed: ' + $setupError) }
+    $run =Get-Content -LiteralPath (Join-Path $In 'run.json') -Raw | ConvertFrom-Json
     $result.zip = $run.zipName
     $result.sha256 = $run.sha256
     $result.version = $run.version
@@ -264,9 +270,83 @@ try {
         }
     }
 
+    # SmartScreen's prompt. On Windows 10 22H2 it is an ApplicationFrameWindow
+    # of explorer holding a CoreWindow of CHXSmartScreen, drawn a moment after
+    # the frame; elsewhere it may be smartscreen.exe's own window. Returns the
+    # element that holds its controls, or nothing.
+    function Get-SmartScreenContent($w, [int]$waitSeconds) {
+        $until = $clock.Elapsed.TotalSeconds + $waitSeconds
+        while ($true) {
+            try {
+                if ($w.Process -like '*smartscreen*') { return $w.Element }
+                foreach ($e in (Find-All $w.Element ([System.Windows.Automation.ControlType]::Window))) {
+                    if ((Get-ProcessName $e.Current.ProcessId) -like '*smartscreen*') { return $e }
+                }
+            } catch { return $null }   # the window went away
+            if ($clock.Elapsed.TotalSeconds -ge $until) { return $null }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    # A dialog's own buttons, left to right: not the title bar's Close.
+    function Get-DialogButtons($root) {
+        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+        @(Find-All $root ([System.Windows.Automation.ControlType]::Button) | Where-Object {
+            $c = $_.Current
+            $parent = $walker.GetParent($_)
+            $c.Name -and -not $c.IsOffscreen -and $c.IsEnabled -and -not ($parent -and (
+                $parent.Current.ControlType -eq [System.Windows.Automation.ControlType]::TitleBar -or
+                $parent.Current.AutomationId -eq 'TitleBar'))
+        } | Sort-Object { $_.Current.BoundingRectangle.X })
+    }
+
+    # Answers one dialog the way docs/DESKTOP.md tells a person to. SmartScreen
+    # first shows a link (More info) and one button (Don't run); the link
+    # brings Run anyway, left of Don't run. The Attachment Manager's "Open
+    # File - Security Warning" has Run left of Cancel and a help link that is
+    # never pressed (it opens a browser). Positions, not words: the sandbox
+    # speaks the host's language (a left-to-right one is assumed). A slow
+    # sandbox may draw the controls late, so it looks again for 15 s.
+    function Answer-Dialog($root, [bool]$smartScreen, $entry, [string]$tag) {
+        $linkPressed = -not $smartScreen
+        $names = ''
+        $until = $clock.Elapsed.TotalSeconds + 15
+        while ($clock.Elapsed.TotalSeconds -lt $until) {
+            try {
+                if (-not $linkPressed) {
+                    $links = Find-All $root ([System.Windows.Automation.ControlType]::Hyperlink)
+                    if ($links.Count -gt 0) {
+                        $name = $links[0].Current.Name
+                        if (Invoke-Element $links[0]) {
+                            $entry.actions += 'pressed link "' + $name + '"'
+                            $linkPressed = $true
+                            Start-Sleep -Milliseconds 1200
+                            Save-Screen ($tag + '-more')
+                            (Get-Tree $root) | Set-Content -LiteralPath (Join-Path $Out ($tag + '-more.uia.txt')) -Encoding UTF8
+                            continue
+                        }
+                    }
+                }
+                $buttons = @(Get-DialogButtons $root)
+                $names = ($buttons | ForEach-Object { '"' + $_.Current.Name + '"' }) -join ', '
+                if ($linkPressed -and $buttons.Count -ge 2) {
+                    $name = $buttons[0].Current.Name
+                    if (Invoke-Element $buttons[0]) { $entry.actions += 'pressed button "' + $name + '"'; return }
+                }
+            } catch {
+                $entry.actions += 'the window went away: ' + $_.Exception.Message
+                return
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $linkPressed) { $entry.actions += 'left open: no link within 15 s; buttons ' + $names }
+        else { $entry.actions += 'left open: no second button within 15 s; buttons ' + $names }
+    }
+
     # Opens the exe as a double-click does and answers what Windows puts up.
     # Only a dialog (SmartScreen's, or a classic #32770 box) is ever pressed;
-    # any other new window is photographed and left alone.
+    # any other new window is photographed and left alone. Explorer's own
+    # windows count only as a #32770 box or as SmartScreen's frame.
     function Open-AsDoubleClick([int]$n) {
         $before = @(Get-TopWindows | ForEach-Object { $_.Handle })
         $launchedAt = $clock.Elapsed.TotalSeconds
@@ -277,7 +357,7 @@ try {
             $new = @(Get-TopWindows | Where-Object {
                 $before -notcontains $_.Handle -and -not $seen.ContainsKey($_.Handle) -and
                 $_.Process -notin @('msedge', 'node', 'powershell', 'conhost') -and
-                -not ($_.Process -eq 'explorer' -and $_.Class -ne '#32770') })
+                -not ($_.Process -eq 'explorer' -and $_.Class -notin @('#32770', 'ApplicationFrameWindow')) })
             foreach ($w in $new) {
                 $seen[$w.Handle] = $true
                 $tag = 'launch' + $n + '-window' + ($asked.Count + 1)
@@ -287,26 +367,12 @@ try {
                 $entry = [ordered]@{ process = $w.Process; title = $w.Name; class = $w.Class; screenshot = $tag + '.png'; actions = @() }
                 $asked += $entry
                 if ($w.Process -eq 'Terramentor') { $entry.actions += 'left open: the launcher reports an error'; continue }
-                if ($w.Process -ne 'smartscreen' -and $w.Class -ne '#32770') { $entry.actions += 'left alone: not a dialog'; continue }
-                # SmartScreen first offers a link (More info), then two buttons,
-                # the left one running the program; the Attachment Manager's
-                # warning has Run left of Cancel. Positions, not words: the
-                # sandbox speaks the host's language.
-                $links = Find-All $w.Element ([System.Windows.Automation.ControlType]::Hyperlink)
-                if ($links.Count -gt 0) {
-                    if (Invoke-Element $links[0]) { $entry.actions += 'pressed link "' + $links[0].Current.Name + '"' }
-                    Start-Sleep -Milliseconds 1200
-                    Save-Screen ($tag + '-more')
-                    (Get-Tree $w.Element) | Set-Content -LiteralPath (Join-Path $Out ($tag + '-more.uia.txt')) -Encoding UTF8
-                }
-                $buttons = @(Find-All $w.Element ([System.Windows.Automation.ControlType]::Button) |
-                    Where-Object { $_.Current.Name -and -not $_.Current.IsOffscreen -and $_.Current.IsEnabled } |
-                    Sort-Object { $_.Current.BoundingRectangle.X })
-                if ($buttons.Count -ge 2) {
-                    if (Invoke-Element $buttons[0]) { $entry.actions += 'pressed button "' + $buttons[0].Current.Name + '"' }
-                } elseif ($buttons.Count -eq 1) {
-                    $entry.actions += 'left open: its one button is "' + $buttons[0].Current.Name + '"'
-                }
+                $wait = 0
+                if ($w.Class -eq 'ApplicationFrameWindow') { $wait = 10 }
+                $content = Get-SmartScreenContent $w $wait
+                if ($content) { Answer-Dialog $content $true $entry $tag }
+                elseif ($w.Class -eq '#32770') { Answer-Dialog $w.Element $false $entry $tag }
+                else { $entry.actions += 'left alone: not a dialog' }
             }
             $up = (Get-AppProcesses).Server.Count -gt 0
             if ($up -and ($asked.Count -gt 0 -or $clock.Elapsed.TotalSeconds - $launchedAt -gt 8)) { break }
@@ -357,14 +423,16 @@ try {
     while (-not (Test-Path -LiteralPath $lnk) -and $waited -lt 20) { Start-Sleep -Seconds 1; $waited++ }
     Step 'Start Menu shortcut' (Test-Path -LiteralPath $lnk) ''
 
-    # A first run makes no connection of its own (SECURITY.md).
-    if ($procs.Server.Count) {
-        $remote = @(Get-NetTCPConnection -OwningProcess $procs.Server[0].ProcessId -ErrorAction SilentlyContinue |
-            Where-Object { $_.State -ne 'Listen' -and $_.RemoteAddress -notin @('127.0.0.1', '::1', '0.0.0.0', '::') } |
-            ForEach-Object { $_.RemoteAddress + ':' + $_.RemotePort })
-        $result.outboundConnections = $remote
-        Step 'no outside connections' ($remote.Count -eq 0) ($remote -join ', ')
+    # A first run makes no connection of its own (SECURITY.md): looked at now
+    # and again before Quit.
+    function Get-Outbound {
+        foreach ($s in (Get-AppProcesses).Server) {
+            Get-NetTCPConnection -OwningProcess $s.ProcessId -ErrorAction SilentlyContinue |
+                Where-Object { $_.State -ne 'Listen' -and $_.RemoteAddress -notin @('127.0.0.1', '::1', '0.0.0.0', '::') } |
+                ForEach-Object { $_.RemoteAddress + ':' + $_.RemotePort }
+        }
     }
+    $outbound = @(Get-Outbound)
 
     # --- 6. a second double-click, then Quit ------------------------------------
     # An impatient second double-click must reach the running copy: one server.
@@ -378,6 +446,9 @@ try {
     Save-Screen 'second-launch'
 
     if ($port) {
+        $outbound = @(@($outbound) + @(Get-Outbound) | Select-Object -Unique)
+        $result.outboundConnections = $outbound
+        Step 'no outside connections' ($outbound.Count -eq 0) ($outbound -join ', ')
         try { Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$port/api/desktop/quit" -TimeoutSec 5 | Out-Null } catch { Note ('quit request: ' + $_.Exception.Message) }
         $waited = 0
         do { Start-Sleep -Seconds 1; $waited++; $procs = Get-AppProcesses; $left = $procs.Server.Count + $procs.Tray.Count + $procs.Browser.Count }
@@ -390,17 +461,24 @@ try {
     try { Save-Screen 'error' } catch { }
 } finally {
     # --- what the app wrote, and the verdict ------------------------------------
+    # Every piece on its own: whatever fails here, `done` is still written.
     $data = Join-Path $env:LOCALAPPDATA 'Terramentor'
-    $log = Join-Path $data 'logs\app.log'
-    if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination (Join-Path $Out 'app.log') }
+    try {
+        $log = Join-Path $data 'logs\app.log'
+        if (Test-Path -LiteralPath $log) { Copy-Item -LiteralPath $log -Destination (Join-Path $Out 'app.log') }
+    } catch { $result.notes += 'app.log not copied: ' + $_.Exception.Message }
     $result.libraryFiles = @(Get-ChildItem -LiteralPath $data -Force -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
     try {
         $result.defenderDetections = @(Get-MpThreatDetection -ErrorAction Stop | ForEach-Object { '' + $_.ThreatID + ' ' + ($_.Resources -join ' ') })
     } catch { $result.defenderDetections = @() }
-    if ($result.defenderDetections.Count) { Step 'Defender detections' $false ($result.defenderDetections -join '; ') }
+    if ($result.defenderDetections.Count) {
+        $line = 'Defender detections: ' + ($result.defenderDetections -join '; ')
+        $result.failures += $line
+        try { Say ('FAIL ' + $line) } catch { }
+    }
     if ($result.failures.Count -eq 0) { $result.verdict = 'pass' } else { $result.verdict = 'fail' }
     $result.seconds = [math]::Round($clock.Elapsed.TotalSeconds, 1)
-    Write-Json 'result.json' $result
-    Say ('done: ' + $result.verdict)
+    try { Write-Json 'result.json' $result } catch { try { Say ('result.json not written: ' + $_.Exception.Message) } catch { } }
+    try { Say ('done: ' + $result.verdict) } catch { }
     Set-Content -LiteralPath (Join-Path $Out 'done') -Value $result.verdict -Encoding Ascii
 }
