@@ -101,6 +101,50 @@ function closingDelimiter(input: string, from: number, delim: string): number {
 }
 
 /**
+ * A tilde fence as CommonMark reads one: three or more tildes opening a line,
+ * indented by at most three spaces, closed by a line of at least as many
+ * tildes and nothing else. A shorter run inside it is code, not the close.
+ * (`~~` alone is strikethrough, hence the line start and the three.)
+ */
+const TILDE_FENCE = /^ {0,3}(~{3,})[^\n]*$[\s\S]*?^ {0,3}\1~*[ \t]*$/my;
+const TILDE_OPENER = /^ {0,3}~{3,}/my;
+
+/** Where the tilde fence opening at line start `i` ends: after its closing
+ *  line, at the end of the input when nothing closes it, or `i` when no fence
+ *  opens here. */
+function tildeFenceEnd(input: string, i: number): number {
+    TILDE_FENCE.lastIndex = i;
+    if (TILDE_FENCE.test(input)) return TILDE_FENCE.lastIndex;
+    TILDE_OPENER.lastIndex = i;
+    return TILDE_OPENER.test(input) ? input.length : i;
+}
+
+/** A markdown document as alternating prose and fenced code, prose first, so
+ *  every odd entry is a fence: backticks anywhere, or a tilde fence. */
+function splitCodeFences(content: string): string[] {
+    const parts: string[] = [];
+    let prose = 0;
+    let i = 0;
+    const fence = (from: number, to: number) => {
+        parts.push(content.slice(prose, from), content.slice(from, to));
+        prose = i = to;
+    };
+    while (i < content.length) {
+        if (content.startsWith('```', i)) {
+            const close = content.indexOf('```', i + 3);
+            if (close >= 0) { fence(i, close + 3); continue; }
+        }
+        if (i === 0 || content[i - 1] === '\n') {
+            const stop = tildeFenceEnd(content, i);
+            if (stop > i) { fence(i, stop); continue; }
+        }
+        i += 1;
+    }
+    parts.push(content.slice(prose));
+    return parts;
+}
+
+/**
  * Make a price written inside a formula survive the markdown reader.
  *
  * A course about money writes its amounts as maths: `$\$20{,}000$`. To TeX that
@@ -138,13 +182,13 @@ export function keepDollarsInMath(input: string): string {
             i = stop;
             continue;
         }
-        if (ch === '~' && input.startsWith('~~~', i) && (i === 0 || input[i - 1] === '\n')) {
-            // A tilde fence: code up to the fence that closes it, or to the end.
-            const end = input.indexOf('\n~~~', i + 3);
-            const stop = end < 0 ? input.length : end + 4;
-            out += input.slice(i, stop);
-            i = stop;
-            continue;
+        if ((ch === '~' || ch === ' ') && (i === 0 || input[i - 1] === '\n')) {
+            const stop = tildeFenceEnd(input, i);
+            if (stop > i) {
+                out += input.slice(i, stop);
+                i = stop;
+                continue;
+            }
         }
         if (ch !== '$') {
             out += ch;
@@ -523,10 +567,7 @@ export function bindMathPunctuation(input: string): string {
  * guard tool can exercise it without pulling in React.
  */
 export function fixMarkdownMathTypography(content: string): string {
-    return content
-        // A fence is backticks anywhere or tildes opening a line (`~~` alone
-        // is strikethrough, so the tilde form needs its line start).
-        .split(/(```[\s\S]*?```|^~~~[\s\S]*?^~~~)/m)
+    return splitCodeFences(content)
         .map((segment, i) => {
             if (i % 2 === 1) return segment; // fenced code/visual block — leave as-is
             const commas = promoteDisplayMath(keepDollarsInMath(segment)).replace(

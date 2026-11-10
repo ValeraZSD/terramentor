@@ -127,6 +127,17 @@ try {
     same('inline code is not maths in a quiz string either', 'Type `$\\$5$` exactly.');
     same('a tilde fence in a lesson reaches its renderer byte for byte', 'Run:\n\n~~~bash\n$x^2$\n$\\$5$\n~~~\n\nThen stop.', fixMarkdownMathTypography);
     same('… and in a quiz string', 'Run:\n\n~~~bash\necho "$\\$HOME$"\n~~~\n');
+    for (const [label, fenced] of [
+        ['a shorter run of tildes inside a longer fence is code, not its close', '~~~~\n~~~\n$\\$5$\n~~~~\n'],
+        ['a tilde fence indented by up to three spaces is still a fence', 'Run:\n\n  ~~~\n$x^2$\n$\\$5$\n  ~~~\n\nThen stop.'],
+        ['a tilde fence nothing closes is code to the end', 'Run:\n\n~~~\n$x^2$\n$\\$5$\n'],
+    ]) {
+        same(`${label} (lesson)`, fenced, fixMarkdownMathTypography);
+        same(`${label} (quiz string)`, fenced);
+    }
+    const afterFence = fixMarkdownMathTypography('~~~\ncode\n~~~\n\nIt costs $\\$5$ now.');
+    check('prose after a closed tilde fence is still repaired', afterFence.includes('\\text{\\textdollar}') && afterFence.startsWith('~~~\ncode\n~~~\n'), afterFence);
+    same('two tildes are strikethrough, not a fence', 'It is ~~not~~ here.\n', fixMarkdownMathTypography);
     const once = sanitizeMathText('Assets increase by $\\$8{,}000$ and $\\$2$');
     const DOLLAR = '\\text{\\textdollar}';
     check('repairing once rewrites, twice changes nothing more', once.includes(DOLLAR) && sanitizeMathText(once) === once, once);
