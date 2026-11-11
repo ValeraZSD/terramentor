@@ -721,6 +721,15 @@ const vRow = JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?'
 ok('its course names the video it came from', vRow.kind === 'video' && vRow.url === 'https://www.youtube.com/watch?v=vidWallAll1' && vRow.host === 'youtube.com', vRow);
 const tiny = await api('POST', '/api/short-courses/read', { transcript: 'Leave it. Good dog.', title: 'Leave it!' });
 ok('a transcript of two lines is too small, and the read says how many words a course needs', tiny.json?.ok === true && tiny.json.size === 'too-small' && tiny.json.minWords === short.SHORT.minWords, tiny.json);
+// A read cancelled before its id came back cannot be discarded by the page; it
+// went only when another file was staged. The server sweeps at startup and hourly.
+{
+    const indexSource = readFileSync(join(ROOT, 'server/index.js'), 'utf8');
+    ok('staged sources past their day are swept at startup and hourly, not only when another file is staged',
+        /import \{ sweepStaged \} from '\.\/stagedDocuments\.js';/.test(indexSource)
+        && /setTimeout\(sweepStagedQuietly, \d+\)/.test(indexSource)
+        && /setInterval\(sweepStagedQuietly, 60 \* 60 \* 1000\)\.unref\(\)/.test(indexSource));
+}
 const notLink = await api('POST', '/api/short-courses/read', { transcript, url: 'javascript:alert(1)' });
 ok('a transcript\'s address must be a real link, or it is dropped', notLink.json?.ok === true && notLink.json.url === null, notLink.json);
 

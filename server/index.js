@@ -29,6 +29,7 @@ import { getGateConfig } from './settingsStore.js';
 import { currentAppIcon } from './appIconSettings.js';
 import { startUpdatePoll } from './updatePoll.js';
 import { expireResult } from './appUpdate.js';
+import { sweepStaged } from './stagedDocuments.js';
 // For the desktop launcher, the one caller that can start the updater.
 export { setUpdateInstaller } from './appUpdate.js';
 
@@ -251,6 +252,13 @@ setTimeout(() => {
     const { removed, bytes } = sweepOrphanMedia();
     if (removed) console.log(`[Media] swept ${removed} unreferenced file(s), ${(bytes / 1048576).toFixed(1)} MB`);
 }, 12000);
+// Staged sources past their day. Staging a file sweeps too, but a read the
+// learner cancelled before its id came back cannot be discarded by the page,
+// and without another file staged it would stay; so the sweep also runs at
+// startup and hourly.
+const sweepStagedQuietly = () => { try { sweepStaged(); } catch (e) { console.error('[Staged] sweep failed (non-fatal):', e.message); } };
+setTimeout(sweepStagedQuietly, 14000);
+setInterval(sweepStagedQuietly, 60 * 60 * 1000).unref();
 // Draw the atlas before anyone asks for it. Building it from cold takes
 // seconds on a large library and milliseconds once the cache behind
 // `buildAtlas` is warm — so the only person who waits is whoever opens the map
