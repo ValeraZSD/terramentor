@@ -1068,6 +1068,11 @@ ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<
 ok('chapters picked that come to too few words say so, and Create waits for more',
     /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
+// Clear was the only way out of a pasted transcript that came to too little,
+// and it threw the pasted text away with the read.
+ok('a pasted transcript too small for a course goes Back to its box with the text kept, and the read is let go',
+    /actions = pasted\s*\?[\s\S]{0,200}discardShortSource\(read\.stagedId\)[\s\S]{0,120}setBox\(\{ state: 'transcript', title: read\.title, url: read\.url \}\)[\s\S]{0,40}t\("Back"\)/.test(stripSource)
+    && !/state: 'transcript'[^\n]*setTranscript\(''\)/.test(stripSource));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
 // A page is fetched with no redirect allowlist, so a link that redirects

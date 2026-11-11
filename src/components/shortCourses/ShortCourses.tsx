@@ -402,7 +402,14 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 );
             } else if (read.size === 'too-small') {
                 second = t("Too little for a course.");
-                actions = clearButton;
+                // A pasted transcript goes back to its box with the text still in it,
+                // so more can be added; the source read from it is let go.
+                actions = pasted
+                    ? <>{clearButton}<Button variant="quiet" onClick={() => {
+                        void api.discardShortSource(read.stagedId).catch(() => { });
+                        setBox({ state: 'transcript', title: read.title, url: read.url });
+                    }}>{t("Back")}</Button></>
+                    : clearButton;
             } else if (!read.ai) {
                 second = `${readLine(read, !!pasted)} · ${t("Writing it needs an AI connection.")}`;
                 actions = <>{clearButton}<ConnectAIActions returnTo="/projects" /></>;
