@@ -799,9 +799,12 @@ ended if the host passes a view's updates on to it.
   (`server/checkFeedback.js`). Nothing is sent about questions answered right or not drawn. A
   retake may ask a missed question again, as one in the app may after its result screen showed
   the key; while another check on the topic is open, the form's reply, the view's update and
-  `get_mastery` all carry the score but hold the missed questions back until that check is
-  graded or closed (`checkOpenOn`), so the model cannot read a key during the retake. This is the learner's own
-  study record going to the model they chose to study with, under that provider's terms.
+  `get_mastery` all carry the score but hold the missed questions back (`checkOpenOn`), so no
+  key is newly sent during the retake; once no check is open, `get_mastery` shows the newest
+  graded check's. The hold cannot take back a key sent earlier: one the model was given after
+  a previous check stays in its conversation, so a retake that draws that question again is
+  not a cold test of it for the model, just as it is not for a learner who read the result
+  screen in the app. This is the learner's own study record going to the model they chose to study with, under that provider's terms.
 - **The sitting is a random token** (24 random bytes), held in the app's memory for at most
   two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
   in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to

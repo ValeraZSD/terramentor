@@ -314,8 +314,8 @@ function registerViews(server, appFor) {
             + 'right here, and where it asks its user to fill in forms the learner gets it as one form; its questions are not shown '
             + 'to you while it is open. Once it is graded you get the score and each question the learner missed, with their answer, '
             + 'the right one and why: from the form at once, from a view if this host gives a view\'s updates to you, and from '
-            + 'get_mastery either way; while another check on the topic is open you get the score only, and the missed '
-            + 'questions from get_mastery once that check is graded or closed. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
+            + 'get_mastery either way. While another check on the topic is open you get the score only; once none is open, '
+            + 'get_mastery shows the missed questions of the newest graded check, which is the other one if it was graded. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
         inputSchema: z.object({
             topic: topicRef.describe('The topic\'s nodeId (from project_state or find_in_library), or its title.'),
         }),

@@ -118,7 +118,7 @@ export function checkOpenOn(nodeId, except = null) {
 }
 
 /** What the agent is told in place of the missed questions while another check on the topic is open. */
-const HELD_MISSED = 'Another mastery check on this topic is open, so the questions missed are not shown until it is graded or closed; get_mastery shows them then.';
+const HELD_MISSED = 'Another mastery check on this topic is open, so the questions missed are not shown. Once none is open, get_mastery shows the missed questions of the newest graded check, which is the other one if it is graded.';
 
 /** Forget every sitting (the gates, between cases). */
 export function closeAllSittings() {

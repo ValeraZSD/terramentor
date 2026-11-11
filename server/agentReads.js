@@ -233,7 +233,7 @@ export function agentMastery(topic) {
     if (check) {
         lines.push(`The last mastery check, on ${String(check.at).slice(0, 10)}: ${check.score}/${check.total}, `
             + `${check.passed ? 'passed' : 'not passed'}${check.held
-                ? '. A new check on this topic is open, so the questions missed last time are not shown until it is graded or closed.'
+                ? '. A new check on this topic is open, so the questions missed last time are not shown while it is open.'
                 : check.missed.length ? '.' : ', nothing missed.'}`);
         if (check.missed.length) lines.push(missedText(check.missed));
     }

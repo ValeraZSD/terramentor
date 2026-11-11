@@ -134,7 +134,9 @@ teach you what you got wrong. Nothing of the questions you got right. The screen
 on to an app that hands a screen's updates to its model (MCP lets an app refuse them), and
 `get_mastery` shows the last check's either way. One exception: while another check on the same
 topic is open, the agent gets the score but not the missed questions, from the form, the screen
-and `get_mastery` alike, until that check is graded or closed. Like anything the
+and `get_mastery` alike. Once no check on the topic is open, `get_mastery` shows the missed
+questions of the newest graded check, so when that other check is graded too, its own missed
+questions are the ones shown. Like anything the
 agent reads, it goes to the model of the AI app you use, under that provider's terms. After a
 review the agent hears how many cards you reviewed.
 
