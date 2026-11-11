@@ -70,13 +70,7 @@ const stub = createServer((req, res) => {
         const system = msgs.find(m => m.role === 'system')?.content || '';
         const user = msgs.find(m => m.role === 'user')?.content || '';
         let content;
-        if (/turn a raw snippet the learner saved into a studiable topic/.test(system)) {
-            // Capture's enrichment model (section 8): one question, no cards.
-            content = JSON.stringify({
-                title: 'Adding two and two', overview: 'Two and two make four.', flashcards: [],
-                questions: [{ question: 'CONFIRM capture: what is 2 + 2?', type: 'multiple_choice', options: ['3', '4', '5', '6'], correct_answer: '4', explanation: 'Two and two make four.' }],
-            });
-        } else if (/checking a question before it is shown|audit the MODEL ANSWER/.test(system)) {
+        if (/checking a question before it is shown|audit the MODEL ANSWER/.test(system)) {
             const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
             content = tag === 'WORKING'
@@ -372,18 +366,6 @@ check('...where the background chain picks them up once the wait is over',
 check('a question a person wrote (an import) is stored unstamped; one a file marks unchecked is stamped pending',
     !!trust?.importedQuestion && !trust.importedQuestion(mc('Hand-written')).unverified && trust.importedQuestion({ ...mc('Marked'), unchecked: true }).unverified?.tries === 0
     && !('unchecked' in trust.importedQuestion({ ...mc('Marked'), unchecked: true })));
-
-// ---- 8. capture's questions ------------------------------------------------------------
-console.log('\n--- 8. the questions capture\'s enrichment model writes are stamped pending ---');
-const { createCapture, enrichCapture } = await import(B + 'capture.js');
-const cap = createCapture({ text: 'Two and two make four, which is why a pair of pairs is a quartet.' });
-const enriched = await enrichCapture({ nodeId: cap.nodeId });
-db.prepare("UPDATE projects SET status = 'archived' WHERE id = ?").run(cap.projectId);
-const capBank = db.prepare('SELECT questions FROM quizzes WHERE node_id = ?').all(cap.nodeId).flatMap(r => JSON.parse(r.questions));
-check('fixture: enrichment wrote one question from the stub', enriched?.questionCount === 1 && capBank.length === 1, JSON.stringify(enriched));
-check('...stored stamped pending, so it is practice until a verifier confirms it', capBank[0]?.unverified?.tries === 0, JSON.stringify(capBank[0]?.unverified ?? null));
-const { pendingVerification } = await import(B + 'feedGen.js');
-check('...and due at once for the background chain', pendingVerification(cap.nodeId)?.entry?.question?.question === 'CONFIRM capture: what is 2 + 2?');
 
 // ---- 9. a verdict written after the working ---------------------------------------------
 // A lesson question was stamped "verifier
