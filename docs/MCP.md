@@ -14,12 +14,13 @@ The agent itself can write two things back:
 - a note into your Inbox;
 - a **claim** that you answered one of its questions right or wrong.
 
-A claim is never proof. A right claim does not raise a topic's mastery and cannot pass the
-mastery gate; only questions Terramentor graded itself do that (its mastery check, quizzes and
-the questions in your study stream, a paper exercise). Card reviews are not proof either: they
-keep a topic's estimate fresh but never pass the gate, in the agent's window or in the app. In
-an app that can show it, the agent can open that check, or a review of your due cards, right in
-its own window; see
+A claim is never proof. A right claim may lift a topic's estimate a little, never past 60%,
+and cannot pass the mastery gate; only questions Terramentor graded itself do that (its mastery
+check, quizzes and the questions in your study stream, a paper exercise). Card reviews are not
+proof either: they keep a topic's estimate fresh but never pass the gate, in the agent's window
+or in the app. In an app that can show it, the agent can open that check, or a review of your
+due cards, right in its own window, and an app that can ask you to fill in a form gets the
+check as one form; see
 [The check and the review in the agent's window](#the-check-and-the-review-in-the-agents-window).
 
 The server is a separate program that talks to the running app over its HTTP API. It never
@@ -85,15 +86,19 @@ so the key stays out of the arguments. In Claude Desktop, for example:
 | `find_in_library` | Search projects, topics, saved links and documents for a word or two. Never your private notes | no |
 | `get_due` | Today's work in your own day: overdue and planned topics, cards due, deadlines and pace | no |
 | `topic_material` | A topic's Overview and Material, in parts if it is long. Never your private notes | no |
-| `get_mastery` | A topic's estimated mastery, whether it passed the gate, the measured evidence and the claims | no |
+| `get_mastery` | A topic's estimated mastery, whether it passed the gate, the measured evidence, the claims, and the questions you missed in its last mastery check | no |
 | `add_capture` | Save a note or a link into your Inbox. A note without a link that is already there is not saved again; one with a link is saved each time | adds a note |
 | `record_claim` | Record that you answered the agent's question on a topic right or wrong | adds a claim |
-| `mastery_check` | Open a topic's mastery check: in the agent's window where it can show it, otherwise a link to the topic in Terramentor | your answers, once you submit |
+| `mastery_check` | Open a topic's mastery check: in the agent's window where it can show it, as one form where it can ask you to fill one in, otherwise a link to the topic in Terramentor | your answers, once you submit |
 | `review_cards` | Open a review of the cards due in one project, or in every active one: in the window, or a link | each rating you give |
 
 What a claim does:
 
-- **A right claim** is stored and changes nothing else.
+- **A right claim** may lift the topic's estimated mastery one small step, up to 60%: the
+  most a head start from placement or a related course gives. Several right claims can add up
+  to 60% and no further; an estimate already at 60% or above stays where it is, and it lifts nothing while a wrong claim has lowered the topic since
+  you last answered on it in Terramentor, so a loop of right and wrong claims cannot move a
+  topic up and down. The lift is not counted by the mastery gate, now or after later answers.
 - **A wrong claim** may lower the topic's estimated mastery, once. Further wrong claims on
   that topic change nothing until you answer on it in Terramentor itself, or the app rebuilds
   the estimate from your own answers (after you report a question as wrong, say). A claim
@@ -102,8 +107,8 @@ What a claim does:
 - **Neither moves a topic on or off the review list.** A topic you once answered well comes
   back as a recall question after you leave it alone for a while (14 days by default), and a
   wrong claim does not stop that, even when it takes the estimate under one half. A topic
-  that was under one half before the claim stays off the list. Once you answer on the topic
-  in Terramentor, the estimate after your answer decides.
+  that was under one half before the claims stays off the list, however far right claims lift
+  it. Once you answer on the topic in Terramentor, the estimate after your answer decides.
 - **Neither** ever counts toward the mastery gate.
 - **Sending the same `attempt_id` again** records nothing new, so a harness can retry safely.
   The same `attempt_id` for a different answer is refused.
@@ -124,15 +129,30 @@ Terramentor's own screen inside its window:
   with what each would schedule. Space reveals, 1 to 4 rate, Z takes the last rating back.
   Terramentor's scheduler handles each card exactly as the review screen in the app does.
 
-The agent never sees a question, an answer or a card. It is told that the check opened. The
-screen then passes on your score, or how many cards you reviewed, to an app that hands a
-screen's updates to its model; MCP lets an app refuse them. Either way the check's result is
-recorded, and `get_mastery` shows it.
+While a check is open the agent sees none of it: it is told only that the check opened, and
+it never sees a card. Once you submit and Terramentor has graded the check, the agent is told
+your score and each question you missed, with your answer, the right one and why, so it can
+teach you what you got wrong. Nothing of the questions you got right. The screen passes this
+on to an app that hands a screen's updates to its model (MCP lets an app refuse them), and
+`get_mastery` shows the last check's either way, whenever the agent asks. Like anything the
+agent reads, it goes to the model of the AI app you use, under that provider's terms. After a
+review the agent hears how many cards you reviewed.
+
+**The check as a form.** An app that does not draw the screen but can ask you to fill in a
+form (MCP elicitation, form mode) gets the whole check as one form: each question with its
+own choices (an ordering as one choice per place, an assembly as one per gap) or a line to
+type in. Like the screen, a form leaves out questions with a picture or a sound, and it also
+leaves out code questions, which need Terramentor's editor; the check is drawn from the rest.
+Leave a question blank if you do not know it; a blank counts as wrong, as in the app.
+Terramentor grades and records the form as the topic's mastery check, as it does one taken in
+the app, and a pass completes the topic. Decline or close the form and nothing is recorded. It
+works on both protocol versions the server speaks (2025-11-25 and 2026-07-28).
 
 **Which apps show it.** The screen is an MCP App, an extension of MCP that a client may or may
-not draw. One that does not get a link that opens the topic, or your due cards, in Terramentor.
-Every client connected over HTTP gets the link too: the HTTP listener keeps no session, so it
-cannot know that a client draws views. The views were tested in the
+not draw. One that draws no views and takes no form gets a link that opens the topic, or your
+due cards, in Terramentor. Every client connected over HTTP on the 2025 protocol gets the link
+too: the HTTP listener keeps no session, so it cannot know that a client draws views or takes
+a form. The views were tested in the
 [MCP Inspector](#try-it-without-a-model) 2.13. Claude Desktop on Windows does not yet show
 these views for servers on your own computer
 ([anthropics/claude-ai-mcp#1069](https://github.com/anthropics/claude-ai-mcp/issues/1069)).
@@ -311,8 +331,9 @@ npx @modelcontextprotocol/inspector@2.13.0 -e TERRAMENTOR_API_KEY=<key> node mcp
 `tools/mcp-gates.mjs` is the test. It starts a scratch library and drives the real server over
 stdio and HTTP. It checks that a claim cannot clear the gate, that no key appears in any answer,
 that your private notes are neither read nor searched, that the HTTP listener refuses another
-computer and a web page from any other address, and that a check taken in a view is graded and
-recorded by the app, with no key reaching the agent before you submit.
+computer and a web page from any other address, and that a check taken in a view or a form is
+graded and recorded by the app, with no key reaching the agent before you submit and only the
+questions you missed after.
 
 ## Not yet
 

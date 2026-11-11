@@ -1,10 +1,15 @@
 // server/agentSittings.js — a mastery check and a card review that an agent
 // host (Claude, ChatGPT, VS Code) draws in its own window: the MCP App views
-// in mcp/views/, served by /api/agent/check/* and /api/agent/review/*.
+// in mcp/views/, served by /api/agent/check/* and /api/agent/review/*. A host
+// that draws no views but asks its user for input (a terminal agent) gets the
+// check as one form instead (mcp/checkForm.js), on the same sitting.
 //
-// The host's MODEL never takes part. It asks for a check or a review and is
+// The host's MODEL never answers. It asks for a check or a review and is
 // told one is open; the questions, the cards and every answer travel between
-// the learner's view and this server only. So:
+// the learner's view (or form) and this server only. Once a check is graded,
+// the model is told the score and each question the learner missed, with the
+// answer given and the right one (server/checkFeedback.js), as the app's own
+// result screen shows them; nothing of a check still open. So:
 //
 //   - The check is DRAWN here (`drawFromNode`, the app's own draw), and what
 //     leaves is the question without its key: no `correct_answer`, `accept`,
@@ -19,16 +24,18 @@
 //     writes the same card evidence a review in the app writes, no more.
 //
 // A sitting lives in this process, named by a random token the MCP server
-// hands the view in a tool result's `_meta` (never in text the model reads).
-// It holds nothing that is not in the library already; a restart ends it, and
-// the view says to start again.
+// hands the view in a tool result's `_meta`, or the host in a form round's
+// `requestState` (never in text the model reads). It holds nothing that is
+// not in the library already; a restart ends it, and the view says to start
+// again.
 
 import { randomBytes } from 'node:crypto';
 import db from './database.js';
 import { masteryCheckTarget } from './today.js';
 import { drawFromNode } from './questionLog.js';
 import { getGateConfig, getSetting } from './settingsStore.js';
-import { gradeLocally, hasUsableKey, readPieces, templateParts } from './answerFormats.js';
+import { gradeLocally, hasUsableKey } from './answerFormats.js';
+import { missedOf, missedText, shownAnswer, shownKey } from './checkFeedback.js';
 import { checkAnswerWithAI } from './ai.js';
 import { MIN_GATE_QUESTIONS, recordOnce } from './mastery.js';
 import { recordMasteryCheck } from './masteryCheck.js';
@@ -95,6 +102,19 @@ function find(token, kind) {
     return s;
 }
 
+/**
+ * Whether a check on this topic is open (drawn, not yet graded). A retake can
+ * draw questions the last check missed, so while one is open nothing reads
+ * the last check's keys back to the agent (agentReads.js).
+ */
+export function checkOpenOn(nodeId) {
+    const now = Date.now();
+    for (const s of sittings.values()) {
+        if (s.kind === 'check' && s.nodeId === Number(nodeId) && !s.result && now - s.touched <= SITTING_IDLE_MS) return true;
+    }
+    return false;
+}
+
 /** Forget every sitting (the gates, between cases). */
 export function closeAllSittings() {
     sittings.clear();
@@ -141,41 +161,6 @@ export function publicQuestion(q, n) {
 
 /** A question that shows a picture or plays a sound (`QuizQuestion.media`, `sanitizeQuestionMedia`). */
 const questionHasMedia = (q) => (Array.isArray(q?.media) ? q.media.length > 0 : !!q?.media);
-
-/** The key, as a learner reads it once the check is over. */
-function shownKey(q) {
-    if (q.type === 'sequence') {
-        try {
-            const k = JSON.parse(String(q.correct_answer));
-            if (Array.isArray(k)) return k.map(String);
-        } catch { /* shown as stored */ }
-    }
-    if (q.type === 'assemble') {
-        const pieces = readPieces(q.correct_answer);
-        if (pieces) return filledTemplate(q.template, pieces);
-    }
-    if (q.type === 'numeric' && text(q.unit, 40)) return `${q.correct_answer} ${text(q.unit, 40)}`;
-    return text(String(q.correct_answer ?? ''));
-}
-
-function filledTemplate(template, pieces) {
-    return templateParts(template).map((part, i) => part + (i < pieces.length ? (pieces[i] ?? '___') : '')).join('');
-}
-
-/** What the learner answered, read back the way the key is. */
-function shownAnswer(q, answer) {
-    if (q.type === 'sequence') {
-        try {
-            const a = JSON.parse(answer);
-            if (Array.isArray(a)) return a.map(String);
-        } catch { /* as typed */ }
-    }
-    if (q.type === 'assemble') {
-        const pieces = readPieces(answer, { holes: true });
-        if (pieces) return filledTemplate(q.template, pieces);
-    }
-    return text(answer);
-}
 
 /** An untouched input's answer (`defaultAnswer` in src/components/answer/formats.ts): an ordering as served, anything else nothing. */
 const defaultAnswer = (q) => (q.type === 'sequence' ? JSON.stringify(Array.isArray(q.items) ? q.items : []) : '');
@@ -234,9 +219,11 @@ export function checkTarget(topic) {
  * Open a mastery check on a topic (a nodeId or a title). Returns
  * `{ token, text, ...state }`, or `{ token: null, text }` when there is no
  * check to take here (too few checked questions: the app writes them when the
- * topic's check is opened there).
+ * topic's check is opened there). `form`: the check is taken in a form the
+ * host asks its user to fill in (mcp/checkForm.js), which has no field a code
+ * answer can be written in, so a code question is passed over as a picture is.
  */
-export function startCheck({ topic }) {
+export function startCheck({ topic, form = false }) {
     const { node, target } = checkable(topic);
     const { checkSize } = getGateConfig();
     // The app's draw in its own order (never asked first), the whole bank, so
@@ -244,7 +231,8 @@ export function startCheck({ topic }) {
     // than leaving a gap. A question with a picture or a sound is one: the
     // view loads nothing from outside its own document, and a question the
     // learner cannot fully see must not cost them a point.
-    const usable = drawFromNode(node.id, Number.MAX_SAFE_INTEGER).questions.filter(d => hasUsableKey(d.question));
+    const usable = drawFromNode(node.id, Number.MAX_SAFE_INTEGER).questions
+        .filter(d => hasUsableKey(d.question) && !(form && d.question.type === 'code'));
     const questions = usable.filter(d => !questionHasMedia(d.question)).slice(0, checkSize);
     const where = { nodeId: node.id, projectId: node.project_id, title: node.title, projectName: node.project_name };
     if (questions.length < MIN_GATE_QUESTIONS) {
@@ -254,12 +242,13 @@ export function startCheck({ topic }) {
             text: withMedia && usable.length >= MIN_GATE_QUESTIONS
                 ? `"${node.title}" has ${usable.length} checked questions, but ${withMedia} of them show a picture or play a sound, which only `
                     + `Terramentor can, and a mastery check needs ${MIN_GATE_QUESTIONS} without one here. Take this topic's mastery check in Terramentor.`
-                : `"${node.title}" has ${questions.length ? `only ${questions.length} checked question${questions.length === 1 ? '' : 's'}` : 'no checked questions'} yet, `
+                : `"${node.title}" has ${questions.length ? `only ${questions.length} checked question${questions.length === 1 ? '' : 's'}` : 'no checked questions'} `
+                    + `${form ? 'a form can ask (a code question needs Terramentor\'s editor) ' : ''}yet, `
                     + `and a mastery check needs ${MIN_GATE_QUESTIONS}. Opening the topic's mastery check in Terramentor writes them.`,
         };
     }
     const token = open({
-        kind: 'check', ...where, questions, attemptId: newAttemptId(),
+        kind: 'check', ...where, questions, attemptId: newAttemptId(), form: form === true,
         wasCompleted: target.status === 'completed', result: null, grading: null,
     });
     // The questions are not in this answer: it reaches the host's model, and
@@ -267,10 +256,22 @@ export function startCheck({ topic }) {
     return {
         token, ...where, count: questions.length, language: uiLanguage(),
         text: `A mastery check of ${questions.length} questions on "${node.title}" is open for the learner in the view. `
-            + 'You cannot see its questions or answers and must not try to answer them: the learner answers in the view, '
-            + 'Terramentor grades the answers and records the result. Wait for the learner to finish. '
-            + 'If the score does not reach you, get_mastery shows the recorded result.',
+            + 'Its questions are not shown to you while it is open, and you must not try to answer them: the learner answers in the view, '
+            + 'Terramentor grades the answers and records the result. Wait for the learner to finish. Once it is graded the view passes '
+            + 'on the score and each question the learner missed, with the answer given and the right one, if this host gives a '
+            + 'view\'s updates to you; get_mastery shows the same either way.',
     };
+}
+
+/**
+ * Close a check nobody will submit (a form the learner declined or
+ * cancelled). A graded check stays, so a retry of its submit gets its result.
+ */
+export function closeCheck(token) {
+    const s = find(token, 'check');
+    const closed = !s.result && !s.grading;
+    if (closed) sittings.delete(token);
+    return { closed, nodeId: s.nodeId, title: s.title };
 }
 
 export function checkQuestions(token) {
@@ -309,13 +310,25 @@ export async function submitCheck(token, answers) {
             }));
             const { outcome } = recordMasteryCheck({
                 nodeId: s.nodeId, score, total, questions: s.questions.map(d => d.question), asked,
-                attemptId: s.attemptId, review, via: 'agent_view',
+                attemptId: s.attemptId, review, via: s.form ? 'agent_form' : 'agent_view',
             });
             // A judged check shows the counts it was judged on: a question
             // reported while the answers were graded leaves the bank, and a
             // raw 4/5 beside a proven 3/4 that failed would contradict itself.
             // An unproven check judged nothing, so it keeps the raw counts.
             const judged = !outcome.unproven && Number.isInteger(outcome.proven_total) && outcome.proven_total > 0;
+            const items = s.questions.map((d, i) => ({
+                n: i + 1,
+                question: text(d.question.question),
+                correct: graded[i].correct,
+                answer: shownAnswer(d.question, graded[i].answer),
+                correctAnswer: shownKey(d.question),
+                explanation: graded[i].explanation,
+            }));
+            // What the host's model is told: each question missed, with the
+            // answer given and the right one. An unproven check recorded
+            // nothing and is not a result to learn from, so it tells none.
+            const missed = outcome.unproven ? [] : missedOf(items);
             s.result = {
                 score: judged ? outcome.proven_score : score,
                 total: judged ? outcome.proven_total : total,
@@ -323,13 +336,9 @@ export async function submitCheck(token, answers) {
                 unproven: !!outcome.unproven,
                 ...(outcome.unproven ? { proven: Number(outcome.proven_total) || 0 } : {}),
                 passPct: Math.round((outcome.pass_threshold ?? getGateConfig().checkPass) * 100),
-                items: s.questions.map((d, i) => ({
-                    n: i + 1,
-                    correct: graded[i].correct,
-                    answer: shownAnswer(d.question, graded[i].answer),
-                    correctAnswer: shownKey(d.question),
-                    explanation: graded[i].explanation,
-                })),
+                items,
+                missed,
+                missedText: missedText(missed),
                 // The pass completed the topic in the same write that recorded it.
                 completed: !!outcome.passed && outcome.completed === true,
             };

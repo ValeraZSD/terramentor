@@ -368,8 +368,8 @@ export function practiceCeiling(threshold) {
  * **Practice never proves.** Card ratings and drill rounds move `mastery_score`
  * (the retention estimate every other reader uses), but clause (a) reads
  * `gate_score`: the node's PROVING_EVIDENCE_TYPES replayed from its seed (with
- * any lowering a wrong agent claim made), and never
- * more than `mastery_score`. So four Easy ratings on a fresh topic (0.99) leave
+ * any lowering a wrong agent claim made, and no lift a right one made), and
+ * never more than `mastery_score`. So four Easy ratings on a fresh topic (0.99) leave
  * the gate at 0, Easy cards cannot lift a failed check or a weak quiz over the
  * line, and missed cards still lower what the gate sees. A node with no practice
  * evidence reads `mastery_score` exactly, so nothing else moves. Practice is
@@ -431,10 +431,11 @@ export function checkMasteryEligibility(nodeId, threshold = 0.85, checkPass = 0.
     const gateScore = gateScoreOf(record, counts.practice > 0);
     const bktClause = gateScore >= threshold && !borrowed;
     const eligible = hasEvidence && (bktClause || passedAssessment);
-    // The number a learner sees: what the gate counts, raised by practice up
-    // to the ceiling, never above the stored estimate. Right cards are not
-    // nothing, and they still cannot read as over the line.
-    const shownScore = counts.practice > 0 && !eligible
+    // The number a learner sees: what the gate counts, raised by practice or
+    // an agent's right claims up to the ceiling, never above the stored
+    // estimate. Right cards are not nothing, and they still cannot read as
+    // over the line.
+    const shownScore = (counts.practice > 0 || claimRaised(nodeId)) && !eligible
         ? Math.max(gateScore, Math.min(record.mastery_score, practiceCeiling(threshold)))
         : gateScore;
 
@@ -555,11 +556,21 @@ function isBorrowed(record, ownAnswers) {
 /** Where a replay starts: the seed a node holds (they combine by MAX), else 0. */
 const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
 
+/** An agent claim lowered (a wrong one) or lifted (a right one) this node's estimate. */
+const claimMoved = (nodeId) => !!stmt(
+    'SELECT 1 FROM mastery_claims WHERE node_id = ? AND mastery_after <> mastery_before LIMIT 1'
+).get(nodeId);
+/** A right agent claim lifted this node's estimate (server/claims.js). */
+const claimRaised = (nodeId) => !!stmt(
+    'SELECT 1 FROM mastery_claims WHERE node_id = ? AND correct = 1 AND mastery_after > mastery_before LIMIT 1'
+).get(nodeId);
+
 /**
  * The estimate the gate reads for a `node_mastery` row (see
- * checkMasteryEligibility): `mastery_score` with practice evidence taken out
- * and every lowering agent claim kept, never above it. Replayed only when one
- * of the two exists (otherwise the stored score IS that estimate); a rebuild of
+ * checkMasteryEligibility): `mastery_score` with practice evidence and every
+ * right agent claim's lift taken out and every lowering agent claim kept,
+ * never above it. Replayed only when practice or a claim moved it (otherwise
+ * the stored score IS that estimate); a rebuild of
  * the stored score drops claims (claims.js) but this replay keeps them, so the
  * gate's answer does not depend on whether the topic was ever rebuilt or ever
  * met a card. `practice` = whether the node has practice evidence, when the
@@ -569,9 +580,7 @@ function gateScoreOf(record, practice) {
     const hasPractice = practice ?? !!stmt(
         `SELECT 1 FROM mastery_evidence WHERE node_id = ? AND ${PRACTICE_EVIDENCE_SQL} LIMIT 1`
     ).get(record.node_id);
-    const replay = hasPractice || !!stmt(
-        'SELECT 1 FROM mastery_claims WHERE node_id = ? AND correct = 0 AND mastery_after < mastery_before LIMIT 1'
-    ).get(record.node_id);
+    const replay = hasPractice || claimMoved(record.node_id);
     return replay
         ? Math.min(record.mastery_score, replayOwnEvidence(record.node_id, seedOf(record), { provingOnly: true }))
         : record.mastery_score;

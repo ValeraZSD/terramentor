@@ -223,10 +223,13 @@
                     + 'Terramentor recorded no result; the learner can try again later.', { counted: false });
             } else {
                 const pct = Math.round((r.score / r.total) * 100);
+                // The score, then each question missed with the answer given
+                // and the right one (server/checkFeedback.js words them).
                 tellModel(`The learner finished the mastery check on "${title}": `
                     + `${r.score}/${r.total} (${pct}%), ${r.passed ? 'passed' : 'not passed'} (the pass mark is ${r.passPct}%). `
-                    + `Terramentor recorded it${r.passed && r.completed && !state.topicCompleted ? ' and marked the topic completed' : ''}.`,
-                { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct, completed: !!r.completed });
+                    + `Terramentor recorded it${r.passed && r.completed && !state.topicCompleted ? ' and marked the topic completed' : ''}.`
+                    + (r.missedText ? `\n${r.missedText}` : ''),
+                { score: r.score, total: r.total, passed: r.passed, passPct: r.passPct, completed: !!r.completed, missed: r.missed || [] });
             }
         } catch (err) {
             // Free the button before the error's render, or Submit stays disabled.
