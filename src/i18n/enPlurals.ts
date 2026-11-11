@@ -264,8 +264,6 @@ const enPlurals: Record<string, string> = {
     "and {{count}} more change_other": "and {{count}} more changes",
     "At most {{count}} files per message_one": "At most {{count}} file per message",
     "At most {{count}} files per message_other": "At most {{count}} files per message",
-    "Attaching {{count}} files…_one": "Attaching {{count}} file…",
-    "Attaching {{count}} files…_other": "Attaching {{count}} files…",
     "average of {{count}} quizzes_one": "average of {{count}} quiz",
     "average of {{count}} quizzes_other": "average of {{count}} quizzes",
     "Brings forward new cards and anything due in the next {{AHEAD_DAYS}} days. Answering early earns a shorter next interval._one": "Brings forward new cards and anything due in the next {{AHEAD_DAYS}} day. Answering early earns a shorter next interval.",

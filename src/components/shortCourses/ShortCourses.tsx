@@ -8,7 +8,7 @@
 // be read says why and offers its way on (readReasons.ts, the reader's `fix`):
 // a file instead, Try again, a pasted transcript, or "Write it from the title"
 // for a video with no captions. A whole book offers a few of its chapters, or a
-// full course through the New course dialog; a few lines offer the Inbox.
+// full course through the New course dialog; a few lines are too little.
 //
 // The rows are GET /api/short-courses, owned by ProjectsGrid, which leaves
 // these courses out of its own grid. A course leaves the strip when it grows
@@ -78,8 +78,8 @@ function hostOf(raw: string): string {
     }
 }
 
-/** What the box is showing. `pasted`: the transcript a read came from, kept
- *  for "Save to Inbox" when it turns out to be only a few lines. */
+/** What the box is showing. `pasted`: the transcript a read came from, so its
+ *  line says "Transcript" rather than the link's kind. */
 type Box =
     | { state: 'empty' }
     | { state: 'reading'; where: string; detail: string }
@@ -212,19 +212,6 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             show(r, { link: url, pasted });
         } catch (e) {
             addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const saveToInbox = async (read: ShortReadOk, pasted?: string) => {
-        setBusy(true);
-        try {
-            await api.capture(pasted ? { text: pasted } : { url: read.url ?? undefined, title: read.title });
-            clear();
-            addToast('success', t("Saved to your Inbox"));
-        } catch (e) {
-            addToast('error', t("Could not save the note"), e instanceof Error ? e.message : String(e));
         } finally {
             setBusy(false);
         }
@@ -414,11 +401,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     </>
                 );
             } else if (read.size === 'too-small') {
-                const canSave = !!pasted || !!read.url;
-                second = canSave
-                    ? t("Too little for a course, but it can be a note.")
-                    : t("Too little for a course.");
-                actions = <>{clearButton}{canSave && <Button variant="primary" busy={busy} onClick={() => void saveToInbox(read, pasted)}>{t("Save to Inbox")}</Button>}</>;
+                second = t("Too little for a course.");
+                actions = clearButton;
             } else if (!read.ai) {
                 second = `${readLine(read, !!pasted)} · ${t("Writing it needs an AI connection.")}`;
                 actions = <>{clearButton}<ConnectAIActions returnTo="/projects" /></>;

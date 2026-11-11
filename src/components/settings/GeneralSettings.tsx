@@ -207,12 +207,11 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                 <h2 className={GROUP_CAPTION}>{tr("Keyboard shortcuts")}</h2>
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
                     {/* Keycaps follow the platform (⌘ on Apple, Ctrl elsewhere) — the
-                        handlers always accepted both. Listed in full: the capture and
-                        assistant keys existed but were documented nowhere. */}
+                        handlers always accepted both. Listed in full: the assistant
+                        key existed but was documented nowhere. */}
                     <ul className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
                         {[
                             [tr("Open search"), `${MOD_KEY} + K`],
-                            [tr("Capture something to study later"), 'C'],
                             [tr("Open the assistant"), 'A'],
                             [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
                             [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],

@@ -1605,21 +1605,6 @@ export const api = {
     dismissOnboarding: () =>
         request<{ success: boolean }>('/onboarding/dismiss', { method: 'POST', body: JSON.stringify({ dismissed: true }) }),
 
-    /**
-     * Save something the learner just read into the Inbox project.
-     *
-     * Returns as soon as the node exists — enrichment (title, overview,
-     * flashcards, questions) runs as the background task identified by
-     * `taskId`, so a slow or absent model never blocks "keep this".
-     */
-    /** `once`: return the Inbox note already holding exactly this text, if
-     *  there is one, instead of filing a second (the assistant's prepared note). */
-    capture: (payload: { text?: string; url?: string; title?: string; hasFiles?: boolean; once?: boolean }) =>
-        request<{ nodeId: number; projectId: number; taskId: string | null; node: Node; existed?: boolean }>('/capture', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-        }),
-
     /** A card the assistant proposed, added on the learner's press. `existed`:
      *  that topic already had a card with this front, and nothing was added. */
     addAssistantCard: (card: { nodeId: number; front: string; back: string; extra?: string | null }) =>
@@ -1696,7 +1681,7 @@ export const api = {
 
     /** Save a file from the chat into the library, with the description the assistant wrote. */
     saveAssistantAttachment: (attachmentId: number, body: {
-        projectId?: number | null; nodeId?: number | null; inbox?: boolean;
+        projectId?: number | null; nodeId?: number | null;
         title?: string | null; description?: string; conversationId?: number | null; source?: string | null;
     }) =>
         request<{ id?: number; documentId: number; existed?: boolean; projectId?: number; nodeId?: number | null; title?: string }>(
@@ -1708,17 +1693,6 @@ export const api = {
             method: 'POST',
             body: JSON.stringify(body),
             timeout: 60000,
-        }),
-
-    // Second half of a file/photo capture: `capture()` is called with
-    // `hasFiles: true` first (which skips starting enrichment, since there is
-    // nothing to read yet), the files are attached via `uploadDocumentFiles`,
-    // and only then is enrichment started — otherwise the background task
-    // could run before the upload request lands and see an empty node.
-    enrichCapture: (nodeId: number, url?: string) =>
-        request<{ taskId: string | null }>(`/capture/${nodeId}/enrich`, {
-            method: 'POST',
-            body: JSON.stringify({ url }),
         }),
 
     /**

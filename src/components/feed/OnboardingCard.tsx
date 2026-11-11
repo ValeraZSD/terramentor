@@ -28,7 +28,7 @@ interface OnboardingStatus {
  * README is for.
  */
 const STEPS: { key: StepKey; label: string; hint: string }[] = [
-    // Any project but the Inbox ticks this, so an imported course or Anki deck counts.
+    // Any project ticks this, so an imported course or Anki deck counts.
     { key: 'project', label: k("Create a project"), hint: k("Describe what you want to learn and the AI drafts the curriculum, or import a course or an Anki deck.") },
     { key: 'schedule', label: k("Give it a deadline"), hint: k("The app spreads the topics across your time and tracks your pace against it.") },
     // Read on the home feed or on a course's Study page: one stream, so no "here".

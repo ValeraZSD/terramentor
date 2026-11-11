@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Flag, Inbox, Layers, Lightbulb, Link2, Loader2,
+    AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Flag, Layers, Lightbulb, Link2, Loader2,
     MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Undo2,
 } from 'lucide-react';
 import Checkbox from './Checkbox';
@@ -844,8 +844,6 @@ const saveOutcomes = new Map<string, SaveOutcome>();
 
 /** The heading of a prepared save — where it goes — or null when the place does not exist. */
 function saveHeading(t: (k: string, o?: Record<string, unknown>) => string, to: SaveProposal['to'], labels: Record<number, TopicLabel>, projects: { id: number; name: string }[]): string | null {
-    // Its own sentence: "your Inbox" spliced into "Save to …" does not decline.
-    if (to.kind === 'inbox') return t("Save to Inbox");
     if (to.kind === 'topic') {
         const l = labels[to.nodeId];
         return l && l.projectId === to.projectId ? t("Save to {{place}}", { place: `${l.title} · ${l.projectName}` }) : null;
@@ -896,9 +894,8 @@ function SavePreview({ save, attachment, heading, turnKey, index, conversationId
         setBusy(true);
         try {
             const r = await api.saveAssistantAttachment(attachment.id, {
-                projectId: save.to.kind === 'inbox' ? null : save.to.projectId,
+                projectId: save.to.projectId,
                 nodeId: save.to.kind === 'topic' ? save.to.nodeId : null,
-                inbox: save.to.kind === 'inbox',
                 title: save.title, description: save.description, conversationId, source,
             });
             setOutcome(r.existed
@@ -1206,58 +1203,6 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                                 <span className="text-sm text-slate-500 dark:text-slate-400">
                                     {Number.isFinite(fileId) ? t("That file is no longer in this conversation.") : t("The app cannot read this source.")}
                                 </span>
-                            )}
-                        </div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-/** A note for the Inbox, saved on the press — the same capture the header's button makes. */
-export function CaptureProposals({ captures, turnKey, onOpen }: { captures: string[]; turnKey: string; onOpen: (projectId: number, nodeId: number) => void }) {
-    const { t } = useTranslation();
-    const addToast = useStore(s => s.addToast);
-    const [, redraw] = useState(0);
-    const [busy, setBusy] = useState(false);
-    if (!captures.length) return null;
-
-    const save = async (text: string, key: string) => {
-        setBusy(true);
-        try {
-            // `once`: this button is drawn again on every re-read of the
-            // conversation, and a second press must find the first note.
-            const r = await api.capture({ text, once: true });
-            outcomes.set(key, { state: 'saved', nodeId: r.nodeId, projectId: r.projectId });
-            redraw(n => n + 1);
-        } catch (e) {
-            addToast('error', t("Could not save the note"), e instanceof Error ? e.message : String(e));
-        } finally { setBusy(false); }
-    };
-
-    return (
-        <div className="space-y-2">
-            {captures.map((text, i) => {
-                const key = `${turnKey}:capture:${i}`;
-                const done = outcomes.get(key);
-                return (
-                    <div key={key} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                        <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
-                            <Inbox className="w-4 h-4 shrink-0" aria-hidden="true" />
-                            {t("Note for your Inbox")}
-                        </div>
-                        <Markdown content={text} className="px-3 py-2 text-sm leading-6 text-slate-700 dark:text-slate-200" />
-                        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
-                            {done?.nodeId && done.projectId ? (
-                                <>
-                                    <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
-                                        <Check className="w-4 h-4 text-accent-fg" aria-hidden="true" />{t("Saved to your Inbox")}
-                                    </span>
-                                    <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={() => onOpen(done.projectId!, done.nodeId!)}>{t("Open")}</Button>
-                                </>
-                            ) : (
-                                <Button size="sm" variant="neutral" icon={<Inbox className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy} onClick={() => save(text, key)}>{t("Save to Inbox")}</Button>
                             )}
                         </div>
                     </div>

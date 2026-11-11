@@ -67,7 +67,7 @@ export interface ShortcutLike {
 }
 
 /**
- * May an app-wide letter key (`c` Capture, `a` the assistant) act on this
+ * May an app-wide letter key (`a` the assistant) act on this
  * press? Not while typing (a closed `<select>` counts: a letter picks an option
  * there), not mid-composition, not with a modifier, and not while something
  * else owns the keyboard: a modal dialog, or a surface that marks itself

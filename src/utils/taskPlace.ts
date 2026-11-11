@@ -50,7 +50,6 @@ export function taskTitle(
 // i18n-source-gates asserts every `labelKey` in server/*.js against en.json.
 export const SERVER_TASK_LABEL_KEYS = [
     k("Preparing feed lessons"),
-    k("Capture"),
     k("Tuning spaced repetition"),
     k("Daily briefing"),
     k("Planning chat"),
@@ -83,7 +82,6 @@ export const KIND_LABEL: Record<AITaskSummary['kind'], string> = {
     embed: k("Indexing"),
     bulk: k("Study material"),
     recover: k("PDF recovery"),
-    capture: k("Capture"),
     placement: k("Placement"),
     atlas: k("Atlas"),
     media_describe: k("Image descriptions"),
@@ -147,7 +145,6 @@ export function originPlace(origin: AITaskOrigin | null | undefined): TaskPlace 
         case 'assistant':
             return { go: 'assistant', openKey: k("Open the assistant") };
         case 'topic':
-        case 'inbox':
             return topic ?? project;
         case 'feed':
             if (projectId != null && nodeId != null) {
@@ -205,7 +202,6 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
         : { key: without });
     switch (origin.surface) {
         case 'assistant':
-            if (origin.detail === 'assistant_capture') return { key: k("Started when you saved a note from the assistant.") };
             return { key: k("Started from the assistant.") };
         case 'feed':
             return named(k("Started from a card in your feed, on “{{title}}”."), k("Started from a card in your feed."));
@@ -219,8 +215,6 @@ export function originSentence(origin: AITaskOrigin | null | undefined, title?: 
                 case 'flashcards': return named(k("Started from the flashcards of “{{title}}”."), k("Started from a topic's flashcards."));
                 default: return named(k("Started from the topic “{{title}}”."), k("Started from a topic's page."));
             }
-        case 'inbox':
-            return { key: k("Started when you captured a note into your Inbox.") };
         case 'project':
             if (origin.detail === 'bulk') return { key: k("Started from “Generate study material” on the project's page.") };
             if (origin.detail === 'placement') return { key: k("Started from the placement check on the project's page.") };
@@ -258,11 +252,10 @@ export function taskPlace(task: AITaskSummary): TaskPlace | null {
     const { projectId, nodeId } = task;
     switch (task.kind) {
         // Started on a topic, and the topic is where the result lands: the
-        // cards, the questions, the captured note.
+        // cards, the questions.
         case 'quiz':
         case 'mastery_check':
         case 'flashcards':
-        case 'capture':
         // A visual or a widget is repaired IN a card. When the card is a node's
         // material the node is the place; when it is a feed item the task
         // carries neither id and there is nothing to open.
