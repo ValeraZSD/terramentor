@@ -743,9 +743,10 @@ while nobody runs it nothing here changes.
     connected, the note is tidied as every capture is.
   - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
     table `mastery_claims`). Claims are kept apart from the evidence the app measured:
-    - a right claim may lift an estimate one step, never past 0.6 (the cap a head start
-      has, and under the gate's line), and never passes the mastery gate: the gate reads the
-      number the topic's own answers earn without the claims, now and after later answers;
+    - a right claim may lift an estimate one step, never past 0.6 or one point under the
+      gate's line, whichever is lower (the cap a head start has), and never passes the
+      mastery gate: the gate reads the number the topic's own answers earn with no right
+      claim's lift (a wrong claim's lowering stays in it), now and after later answers;
     - a right claim lifts nothing while a wrong claim has lowered that topic, until the app
       records an answer of its own there, so a loop of right and wrong claims moves nothing;
     - a wrong claim may lower the estimate once, then not again until the app records an

@@ -109,12 +109,15 @@ async function finishFormCheck(app, token, responses) {
     if (!SITTING_TOKEN.test(token)) return failure('This mastery check has ended. Call mastery_check again for a new one; nothing was recorded.');
     const answer = inputResponse(responses, FORM_INPUT);
     if (answer.kind !== 'elicit' || answer.action !== 'accept') {
-        const { title, closed } = await app.post('/api/agent/check/close', { token });
-        // Already graded (an earlier round of this form was accepted): the
-        // check stands as recorded, and saying "nothing was recorded" would be false.
+        const { title, closed, recorded } = await app.post('/api/agent/check/close', { token });
+        // An earlier round of this form was accepted: its answers are graded
+        // and recorded, or still being graded. Either way the check stands,
+        // and saying "nothing was recorded" would be false.
         if (closed === false) {
-            return reply(`The mastery check on "${title}" was already graded and recorded; get_mastery shows its result.`,
-                { title, recorded: true });
+            return recorded
+                ? reply(`The mastery check on "${title}" was already graded and recorded; get_mastery shows its result.`, { title, recorded: true })
+                : reply(`The answers to the mastery check on "${title}" are being graded; get_mastery shows the result once it is recorded.`,
+                    { title, recorded: false, grading: true });
         }
         const why = answer.kind !== 'elicit' ? 'The form\'s answers did not arrive' : `The learner ${answer.action === 'decline' ? 'declined' : 'closed'} the form`;
         return reply(`${why} for the mastery check on "${title}", so nothing was recorded. Call mastery_check again when they want to take it.`,

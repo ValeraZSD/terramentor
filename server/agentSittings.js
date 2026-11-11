@@ -105,15 +105,20 @@ function find(token, kind) {
 /**
  * Whether a check on this topic is open (drawn, not yet graded). A retake can
  * draw questions the last check missed, so while one is open nothing reads
- * the last check's keys back to the agent (agentReads.js).
+ * the last check's keys back to the agent (agentReads.js, and a graded
+ * check's own result while another on its topic is open: `checkState`).
+ * `except` is the sitting asking, which is never open against itself.
  */
-export function checkOpenOn(nodeId) {
+export function checkOpenOn(nodeId, except = null) {
     const now = Date.now();
     for (const s of sittings.values()) {
-        if (s.kind === 'check' && s.nodeId === Number(nodeId) && !s.result && now - s.touched <= SITTING_IDLE_MS) return true;
+        if (s !== except && s.kind === 'check' && s.nodeId === Number(nodeId) && !s.result && now - s.touched <= SITTING_IDLE_MS) return true;
     }
     return false;
 }
+
+/** What the agent is told in place of the missed questions while another check on the topic is open. */
+const HELD_MISSED = 'Another mastery check on this topic is open, so the questions missed are not shown until it is graded or closed; get_mastery shows them then.';
 
 /** Forget every sitting (the gates, between cases). */
 export function closeAllSittings() {
@@ -169,10 +174,12 @@ const defaultAnswer = (q) => (q.type === 'sequence' ? JSON.stringify(Array.isArr
  * One answer graded the way every question surface grades it
  * (`gradeAnswer` in src/utils/grading.ts): closed formats here by local match,
  * open ones through the checker, with the bare comparison when the checker
- * cannot be reached. Unanswered is wrong.
+ * cannot be reached. Unanswered is wrong. A view's untouched ordering is the
+ * order it shows; a form has no such order, so an ordering left blank there
+ * is blank, and the agent is told so rather than shown an order nobody gave.
  */
-async function gradeOne(q, raw) {
-    const answer = typeof raw === 'string' && raw.trim() ? raw.slice(0, ANSWER_CHARS) : defaultAnswer(q);
+async function gradeOne(q, raw, { form = false } = {}) {
+    const answer = typeof raw === 'string' && raw.trim() ? raw.slice(0, ANSWER_CHARS) : (form ? '' : defaultAnswer(q));
     if (!answer.trim()) return { correct: false, answer, explanation: text(q.explanation) };
     const local = gradeLocally(q, answer);
     if (local !== null) return { correct: local, answer, explanation: text(q.explanation) };
@@ -196,7 +203,10 @@ function checkState(s) {
         questions: s.questions.map((d, i) => publicQuestion(d.question, i + 1)),
         passPct: Math.round(checkPass * 100),
         topicCompleted: s.wasCompleted,
-        ...(s.result ? { result: s.result } : {}),
+        // Another check on the topic still open may ask these questions again.
+        ...(s.result ? {
+            result: checkOpenOn(s.nodeId, s) ? { ...s.result, missed: [], missedText: HELD_MISSED, missedHeld: true } : s.result,
+        } : {}),
     };
 }
 
@@ -271,7 +281,8 @@ export function closeCheck(token) {
     const s = find(token, 'check');
     const closed = !s.result && !s.grading;
     if (closed) sittings.delete(token);
-    return { closed, nodeId: s.nodeId, title: s.title };
+    // Not closed: graded and recorded, or its answers still being graded.
+    return { closed, recorded: !!s.result, nodeId: s.nodeId, title: s.title };
 }
 
 export function checkQuestions(token) {
@@ -296,7 +307,7 @@ export async function submitCheck(token, answers) {
             // checker calls meets a provider's rate limit, and a fallback
             // verdict there counts a right answer as wrong.
             const graded = [];
-            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i]));
+            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form }));
             const score = graded.filter(g => g.correct).length;
             const total = s.questions.length;
             const asked = s.questions.map((d, i) => ({

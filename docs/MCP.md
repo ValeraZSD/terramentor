@@ -94,9 +94,10 @@ so the key stays out of the arguments. In Claude Desktop, for example:
 
 What a claim does:
 
-- **A right claim** may lift the topic's estimated mastery one small step, up to 60%: the
-  most a head start from placement or a related course gives. Several right claims can add up
-  to 60% and no further; an estimate already at 60% or above stays where it is, and it lifts nothing while a wrong claim has lowered the topic since
+- **A right claim** may lift the topic's estimated mastery one small step, up to 60%, or one
+  point under your mastery threshold if that is lower: the most a head start from placement or
+  a related course gives. Several right claims can add up to that cap and no further; an
+  estimate already at it or above stays where it is, and it lifts nothing while a wrong claim has lowered the topic since
   you last answered on it in Terramentor, so a loop of right and wrong claims cannot move a
   topic up and down. The lift is not counted by the mastery gate, now or after later answers.
 - **A wrong claim** may lower the topic's estimated mastery, once. Further wrong claims on

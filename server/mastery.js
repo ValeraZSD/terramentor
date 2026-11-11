@@ -522,7 +522,12 @@ export function applySeededPrior(nodeId, kind, prior, sources = []) {
     const after = db.prepare(
         'SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?'
     ).get(nodeId);
-    const score = Math.max(after.transferred_prior ?? 0, after.placement_prior ?? 0);
+    // A right agent claim's lift still standing on this unmeasured topic
+    // combines with a seed written after it by MAX, as two seeds do
+    // (server/claims.js). Withdrawing a seed is unchanged: the score falls to
+    // what the other seed gives.
+    const score = Math.max(after.transferred_prior ?? 0, after.placement_prior ?? 0,
+        value == null ? 0 : standingClaimLift(nodeId, record.mastery_score));
 
     db.prepare(
         'UPDATE node_mastery SET mastery_score = ?, last_updated = CURRENT_TIMESTAMP WHERE node_id = ?'
@@ -555,6 +560,17 @@ function isBorrowed(record, ownAnswers) {
 
 /** Where a replay starts: the seed a node holds (they combine by MAX), else 0. */
 const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placement_prior ?? 0);
+
+/**
+ * The estimate a right agent claim lifted this node to, while it still
+ * stands: the node's latest claim raised it and nothing has moved it since.
+ * 0 otherwise.
+ */
+function standingClaimLift(nodeId, current) {
+    const last = stmt('SELECT mastery_before, mastery_after FROM mastery_claims WHERE node_id = ? ORDER BY id DESC LIMIT 1').get(nodeId);
+    if (!last || !(Number(last.mastery_after) > Number(last.mastery_before))) return 0;
+    return Math.abs(Number(current) - Number(last.mastery_after)) < 1e-9 ? Number(last.mastery_after) : 0;
+}
 
 /** An agent claim lowered (a wrong one) or lifted (a right one) this node's estimate. */
 const claimMoved = (nodeId) => !!stmt(

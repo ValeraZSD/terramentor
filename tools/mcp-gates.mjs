@@ -555,6 +555,16 @@ console.log('\n--- a right claim lifts the estimate a little, and never the gate
     const seededText = textOf(await call('get_mastery', { topic: String(seededOnly) }));
     ok('get_mastery never credits agents\' claims for an estimate a head start alone gave',
         !/right claims alone/i.test(seededText) && seededText.includes('40%') && /head start/i.test(seededText), seededText.slice(0, 400));
+    // The other order: the claim first, the head start after it.
+    const liftedFirst = addNode('Wave packets', section, { position: 61 });
+    const liftFirst = await call('record_claim', { topic: String(liftedFirst), correct: true, attempt_id: 'lift-then-seed' });
+    const liftedTo = scoreOf(liftedFirst);
+    mastery.applySeededPrior(liftedFirst, 'placement', liftedTo / 2);
+    const keptLift = scoreOf(liftedFirst);
+    mastery.applySeededPrior(liftedFirst, 'placement', 0.6);
+    ok('a head start written after a right claim lifted a topic keeps the lift: the two combine by MAX',
+        effectOf(liftFirst) === 'raised' && liftedTo > 0 && Math.abs(keptLift - liftedTo) < 1e-9 && scoreOf(liftedFirst) === 0.6,
+        `lifted ${liftedTo}, seed ${liftedTo / 2} → ${keptLift}, seed 0.6 → ${scoreOf(liftedFirst)}`);
 
     const m = await call('get_mastery', { topic: String(claimed) });
     ok('get_mastery says right claims lifted the estimate, up to 60%, and that the gate does not count them',
@@ -1606,6 +1616,38 @@ console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
         retakeRound.resultType === 'input_required' && !duringRetake.includes(`${EXPL}-num`) && !duringRetake.includes(FORM_BANK[2].question)
         && /new check on this topic is open/i.test(duringRetake) && afterRetake.includes(`${EXPL}-num`),
         `${JSON.stringify(retakeRound).slice(0, 200)} | ${duringRetake.slice(-300)} || ${afterRetake.slice(-120)}`);
+    // The same hold on a check's own result: one graded while another check
+    // on its topic is open tells the score and none of the questions missed.
+    const twinTopic = bankTopic('Wave reflection', 21);
+    const openTwin = (await modernCall({ topic: twinTopic }))?.result || {};
+    respond = (params) => ({ action: 'accept', content: fill(params, { right: ['multiple_choice'] }) });
+    const gradedBeside = await formCall(twinTopic);
+    const besideText = textOf(gradedBeside);
+    const besideMissed = gradedBeside?.result?.structuredContent?.result?.missed;
+    const [tKey] = Object.keys(openTwin.inputRequests || {});
+    await modernCall({ topic: twinTopic }, { inputResponses: { [tKey]: { action: 'cancel' } }, requestState: openTwin.requestState });
+    ok('a check graded while another on its topic is open tells the agent its score, but none of the questions missed nor their keys',
+        openTwin.resultType === 'input_required' && !isErr(gradedBeside) && /1 of 6|1\/6/.test(besideText) && evidenceOn(twinTopic) === 1
+        && Array.isArray(besideMissed) && besideMissed.length === 0 && /another mastery check on this topic is open/i.test(besideText)
+        && !besideText.includes(EXPL) && !FORM_BANK.slice(1).some(b => besideText.includes(b.question)), besideText.slice(0, 400));
+    // An ordering left blank in a form: a form shows no order of its own.
+    const blankSeqTopic = bankTopic('Wave refraction', 22);
+    respond = (params) => ({ action: 'accept', content: fill(params, { right: ['multiple_choice', 'true_false', 'numeric', 'assemble', 'fill_in'], blank: ['sequence'] }) });
+    const blankSeq = textOf(await formCall(blankSeqTopic));
+    const seqLines = blankSeq.includes(FORM_BANK[3].question) ? blankSeq.slice(blankSeq.indexOf(FORM_BANK[3].question)).split('\n').slice(0, 3).join('\n') : '';
+    ok('an ordering left blank in a form is wrong, and the agent is told it was left blank, not an order the learner never gave',
+        /5 of 6|5\/6/.test(blankSeq) && /Answered: \(left blank\)/.test(seqLines) && !/Answered: .*→/.test(seqLines), seqLines || blankSeq.slice(0, 300));
+    // A decline racing the form's own accepted answers while they are graded.
+    const sittingsMod = await import(B + 'agentSittings.js');
+    const gradingTopic = bankTopic('Wave absorption', 23);
+    const racing = sittingsMod.startCheck({ topic: gradingTopic, form: true });
+    const pending = sittingsMod.submitCheck(racing.token, Array(racing.count || 0).fill(null));
+    const midway = sittingsMod.closeCheck(racing.token);
+    await pending;
+    const afterwards = sittingsMod.closeCheck(racing.token);
+    ok('a decline that arrives while the form\'s answers are still being graded is not told the check was recorded',
+        midway.closed === false && midway.recorded === false && afterwards.closed === false && afterwards.recorded === true,
+        JSON.stringify({ midway, afterwards }));
     // Over HTTP on 2026-07-28 each request carries the client's capabilities,
     // so the stateless listener knows the client takes a form; the sitting
     // lives in the app between the two requests.
