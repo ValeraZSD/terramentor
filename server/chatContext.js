@@ -177,7 +177,6 @@ export function createStampFilter(emit) {
 /** Kind → what it is doing, in words the model can repeat. */
 const KIND_WORDS = {
     today_chat: 'Assistant chat',
-    capture: 'Saving a captured note',
     quiz: 'Writing a quiz',
     mastery_check: 'Writing a mastery check',
     flashcards: 'Writing flashcards',

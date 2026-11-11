@@ -64,7 +64,7 @@ console.log('\n--- clientError ---');
     const d = run(new Error('Chat request to http://10.0.0.5:8080/v1 failed (500): upstream body'), 500);
     ok('any other error on a 5xx is the fixed sentence', !!d && !d.includes('upstream body') && !d.includes('10.0.0.5'), d);
 
-    ok('a refusal the code wrote, on a 4xx, is sent as written', run(new Error('A capture needs some text, a URL, or a title'), 400) === 'A capture needs some text, a URL, or a title');
+    ok('a refusal the code wrote, on a 4xx, is sent as written', run(new Error('A card needs a front and a back.'), 400) === 'A card needs a front and a back.');
     ok('…and an error marked expose, on a 5xx too', run(Object.assign(new Error('The model is not answering'), { expose: true }), 502) === 'The model is not answering');
     const e = run(new Error("Could not read C:\\Users\\ana\\Documents\\notes.pdf or /home/ana/notes.pdf"), 400);
     ok('a file path inside a learner-facing message is replaced', !!e && !e.includes('ana') && e.startsWith('Could not read'), e);
@@ -199,13 +199,13 @@ console.log('\n--- on the real app ---');
         req.write(raw ? body : JSON.stringify(body));
         req.end();
     });
-    const empty = await call('/api/capture', {});
-    ok('an empty capture is still refused in the learner\'s words', empty.status === 400 && empty.body?.error === 'A capture needs some text, a URL, or a title', JSON.stringify(empty.body));
+    const empty = await call('/api/assistant/cards', {});
+    ok('an empty card is still refused in the learner\'s words', empty.status === 400 && empty.body?.error === 'A card needs a front and a back.', JSON.stringify(empty.body));
 
     const logged = [];
     const realError = console.error;
     console.error = (...a) => { logged.push(a.map(String).join(' ')); };
-    const bad = await call('/api/capture', '{bad', true);
+    const bad = await call('/api/assistant/cards', '{bad', true);
     console.error = realError;
     ok('a malformed JSON body is a 400 that says so, with no reference', bad.status === 400 && /invalid json/i.test(bad.body?.error || '') && !/ref [0-9a-f]{8}/.test(bad.body?.error || ''), `${bad.status} ${JSON.stringify(bad.body)}`);
     ok('…and writes no stack to the server log', !logged.some(l => /\n\s+at /.test(l) || /ref [0-9a-f]{8}/.test(l)), logged.join(' | ').slice(0, 200));

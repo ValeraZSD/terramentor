@@ -1201,18 +1201,11 @@ check('...and does not call itself "0 of 0 topics"', !/0 of 0 topics/.test(deckS
 db.prepare("UPDATE projects SET status = 'archived' WHERE id = ?").run(deckId);
 check('an archived project says its cards do not come up', /Not active: its cards do not come up in reviews/.test((await stateTool.run(String(deckId))).context), '');
 
-section('a prepared note is filed once, however often its Save is pressed');
-const { createCapture, findCapturedText } = await import('../server/capture.js');
-const firstNote = createCapture({ text: 'Ask why the signs flip.' });
-check('a note that was saved is found by its exact text', findCapturedText('  Ask why the signs flip. ')?.nodeId === firstNote.nodeId);
-check('different words are a different note', findCapturedText('Ask why the signs flip!') === null);
-check('the capture route consults it only when asked', /once && !url && !hasFiles/.test(serverSrc) && /findCapturedText\(text\)/.test(serverSrc));
-
 section('the prompt teaches the new controls');
 const planner = AI_PROMPTS.assistant({}, 'q', '', '', null, { web: false }).system;
 check('the mastery check marker is described', /\[\[check:PROJECT_ID:NODE_ID\]\]/.test(planner));
 check('a card is a fenced block with a topic line', /```card/.test(planner) && /topic: PROJECT_ID:NODE_ID/.test(planner));
-check('a capture is a fenced block', /```capture/.test(planner));
+check('nothing is kept outside a course: no capture fence, and a link to learn from becomes a short course', !/```capture/.test(planner) && /becomes a short course/.test(planner));
 check('all three are pressed by the learner, not applied', /the learner presses|they press/i.test(planner));
 const flat = planner.replace(/\s+/g, ' ');
 check('a check is on one topic, never a section', /taken on ONE topic — never a section heading/.test(flat));

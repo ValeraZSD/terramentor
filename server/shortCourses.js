@@ -40,8 +40,8 @@ import { claimStaged, discardStaged, loadStaged, stagedLanguage, stagedSummary, 
 import * as tasks from './tasks.js';
 import vaultStorage from './vaultStorage.js';
 
-/** The bounds of a short course. Under `minWords` a source is a note (the
- *  Inbox); over `maxWords` it is a book, which wants a full course or a few of
+/** The bounds of a short course. Under `minWords` a source is too little for
+ *  a course; over `maxWords` it is a book, which wants a full course or a few of
  *  its chapters. */
 export const SHORT = { minWords: 250, maxWords: 40000, minTopics: 3, maxTopics: 8 };
 
@@ -194,6 +194,8 @@ function finishStaging(stagedId, origin) {
             minWords: SHORT.minWords,
             maxWords: SHORT.maxWords,
         } : {}),
+        // Too little: how much a course needs, so the screen can say so.
+        ...(size === 'too-small' ? { minWords: SHORT.minWords } : {}),
     };
 }
 

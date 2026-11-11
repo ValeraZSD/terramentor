@@ -161,9 +161,9 @@ export async function stageFile(buffer, originalname, now = Date.now(), { hint =
         return { ok: false, title, error: message, reason: NO_TEXT.test(message) ? 'no_text' : 'unreadable' };
     }
     const { text, kind, meta } = extracted;
-    // A photo is accepted by the vault (Capture reads it with a vision model),
-    // but there is nothing in it a course outline can be built from.
-    if (!text) return { ok: false, title, error: 'No text to build a course from — a picture is read only in Capture.', reason: 'no_text' };
+    // A photo is accepted by the vault (kept as its original, shown as a
+    // picture), but there is nothing in it a course outline can be built from.
+    if (!text) return { ok: false, title, error: 'No text to build a course from: a picture has no words to read.', reason: 'no_text' };
     const map = buildSourceMap({ text, kind, meta, filename: originalname });
     const { hash, size } = vaultStorage.put(buffer);
     const id = randomUUID();

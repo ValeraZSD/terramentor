@@ -85,7 +85,7 @@ const providerFields = () => { const r = chat(); delete r.reasoning; return r; }
    `medium`; the course outline, every question and answer key written, and
    every check of a key or a lesson are `high`. */
 configure({});
-for (const op of ['chat', 'authoring', 'summary', 'vision', 'capture', 'explain', 'default']) {
+for (const op of ['chat', 'authoring', 'summary', 'vision', 'explain', 'default']) {
     check(`ordinary work (${op}) asks for medium by itself`,
         eq(ai.aiRouting(undefined, { operation: op }), { reasoning: { effort: 'medium' } }),
         JSON.stringify(ai.aiRouting(undefined, { operation: op })));
@@ -96,7 +96,7 @@ for (const op of ['structure', 'questions', 'verify']) {
         JSON.stringify(ai.aiRouting(undefined, { operation: op })));
 }
 check('nothing asks for low (or less) unless the learner chose it',
-    ['chat', 'authoring', 'structure', 'questions', 'verify', 'summary', 'vision', 'capture', 'default', 'project_identity', 'insights']
+    ['chat', 'authoring', 'structure', 'questions', 'verify', 'summary', 'vision', 'default', 'project_identity', 'insights']
         .every(op => !['low', 'minimal', 'none'].includes(ai.aiRouting(undefined, { operation: op }).reasoning?.effort)));
 check('writing questions gets at least authoring\'s timeout, and checking a key more than an ordinary call\'s',
     ai.operationTimeoutMs('questions') >= ai.operationTimeoutMs('authoring')

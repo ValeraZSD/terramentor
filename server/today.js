@@ -167,8 +167,8 @@ export function masteryCheckTarget(nodeId) {
  * have"), and the second is the one that decides whether the work fits.
  *
  * All arithmetic is UTC-midnight (parseDate), per the app-wide date rule.
- * Returns null for a project with no deadline, which is a normal state (the
- * Inbox is deliberately never scheduled), never an error.
+ * Returns null for a project with no deadline, which is a normal state (a
+ * short course or a card collection is never scheduled), never an error.
  */
 export function deadlineInfo(project, today) {
     if (!project?.deadline) return null;

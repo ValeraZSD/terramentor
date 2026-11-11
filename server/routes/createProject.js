@@ -972,7 +972,7 @@ function outlineHasWork({ kids, phases, topics }, pending) {
  *    wrote) with no topics. A run that finishes leaves neither: a level no
  *    answer filled fails it (`outlineGapsError`). Levels the learner made carry
  *    no `generated_by` and are theirs to leave empty, and model-written nodes
- *    under a node of the learner's (an Inbox capture's) are not an outline;
+ *    under a node of the learner's are not an outline;
  *  - the stopped run's own notice, with anything at all missing.
  *
  * No model is asked; the same gaps are what POST below fills.

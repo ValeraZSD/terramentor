@@ -1,78 +1,13 @@
-// /api/capture and /api/assistant/*: quick capture to the Inbox, and what the
-// assistant prepares for the learner to press — cards, course and topic
-// changes, saved links — with the checks run before any of it is offered.
-import db from '../database.js';
-import { getAISettings } from '../ai.js';
-import { createCapture, enrichCapture, findCapturedText } from '../capture.js';
-import * as tasks from '../tasks.js';
-import { scheduleNodeSync } from '../nodeEmbeddings.js';
+// /api/assistant/*: what the assistant prepares for the learner to press —
+// cards, course and topic changes, saved links and files — with the checks
+// run before any of it is offered.
 import { addAssistantCard, undoAssistantCard } from '../assistantWrites.js';
 import { applyAssistantEdit, currentValues, editBySource, EditError, saveAssistantAttachment, saveAssistantLink, undoAssistantEdit } from '../assistantEdits.js';
 import { checkCards, checkLink, peekLink } from '../assistantChecks.js';
-import { nodeTaskInfo } from './taskStream.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 
-const app = routeTable('capture');
-
-// AD-HOC CAPTURE ("I read something and want to keep it")
-//
-// Two steps on purpose: the node is written synchronously and returned, then
-// enrichment runs as a background task. Pressing Save can therefore never lose
-// the thing the learner wanted to keep, whatever the AI does afterwards.
-app.post('/api/capture', (req, res) => {
-    const { text, url, title, hasFiles, once, via } = req.body || {};
-    // `once`: the assistant's prepared note, whose Save is offered again on
-    // every re-read of the conversation (capture.js findCapturedText).
-    if (once && !url && !hasFiles) {
-        const found = findCapturedText(text);
-        if (found) return res.json({ ...found, taskId: null, existed: true, node: db.prepare('SELECT * FROM nodes WHERE id = ?').get(found.nodeId) });
-    }
-    let created;
-    try {
-        created = createCapture({ text, url, title });
-    } catch (e) {
-        return res.status(400).json({ error: clientError(e, 400) });
-    }
-    // Map the capture now — enrichment rewrites the title and Overview later,
-    // and re-maps it itself when it does.
-    scheduleNodeSync();
-
-    // A file/photo capture has nothing to enrich yet — the client uploads the
-    // files next and then calls /api/capture/:nodeId/enrich. Starting the
-    // background task here would race that upload and see an empty node.
-    let taskId = null;
-    if (!hasFiles && getAISettings().model) {
-        const captureInfo = nodeTaskInfo(created.nodeId);
-        // `via: 'agent'` is an outside agent's add_capture (mcp/): the Inbox,
-        // with no box pressed and not the in-app assistant. Otherwise `once` is
-        // the assistant's prepared note, saved from under its answer, and
-        // anything else came through the capture box.
-        const captureOrigin = via === 'agent'
-            ? { surface: 'inbox', nodeId: created.nodeId, projectId: created.projectId }
-            : once
-                ? { surface: 'assistant', detail: 'assistant_capture', nodeId: created.nodeId, projectId: created.projectId }
-                : { surface: 'inbox', detail: 'capture_box', nodeId: created.nodeId, projectId: created.projectId };
-        const { task } = tasks.createTask({
-            kind: 'capture',
-            label: 'Capture',
-            labelKey: 'Capture',
-            origin: captureOrigin,
-            // Name and colour too, not just the id: the dock draws the project
-            // COLOUR, and a chip that has none takes the accent of whatever
-            // screen the reader is on rather than of the work.
-            projectId: created.projectId,
-            projectName: captureInfo?.projectName || null,
-            projectColor: captureInfo?.projectColor || null,
-            nodeId: created.nodeId,
-            run: ({ emit, signal }) => enrichCapture({ nodeId: created.nodeId, url, emit, signal }),
-        });
-        taskId = task.id;
-    }
-
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(created.nodeId);
-    res.json({ ...created, taskId, node });
-});
+const app = routeTable('assistantWrites');
 
 // A card the assistant proposed, added because the learner pressed Add under
 // its preview (server/assistantWrites.js). Undo removes it only while it has
@@ -173,9 +108,9 @@ app.post('/api/assistant/links', async (req, res) => {
 // assistant wrote for it (server/assistantEdits.js `saveAssistantAttachment`).
 // Undo goes through /api/assistant/edits/:id/undo like every other change.
 app.post('/api/assistant/attachments/:id/save', (req, res) => {
-    const { projectId = null, nodeId = null, inbox = false, title = '', description = '', conversationId = null, source = null } = req.body || {};
+    const { projectId = null, nodeId = null, title = '', description = '', conversationId = null, source = null } = req.body || {};
     try {
-        res.json(saveAssistantAttachment({ attachmentId: req.params.id, projectId, nodeId, inbox: inbox === true, title, description, conversationId, source }));
+        res.json(saveAssistantAttachment({ attachmentId: req.params.id, projectId, nodeId, title, description, conversationId, source }));
     } catch (e) {
         sendEditError(res, e);
     }
@@ -187,31 +122,6 @@ app.delete('/api/assistant/cards/:id', (req, res) => {
     } catch (e) {
         res.status(400).json({ error: clientError(e, 400) });
     }
-});
-
-// Second half of a file/photo capture — see the `hasFiles` note above.
-app.post('/api/capture/:nodeId/enrich', (req, res) => {
-    const nodeId = Number(req.params.nodeId);
-    const node = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(nodeId);
-    if (!node) return res.status(404).json({ error: 'Capture not found' });
-    if (!getAISettings().model) return res.json({ taskId: null });
-
-    const { url = '' } = req.body || {};
-    const info = nodeTaskInfo(nodeId);
-    // Only the capture box attaches files, so this is always its second half.
-    const enrichOrigin = { surface: 'inbox', detail: 'capture_box', nodeId, projectId: node.project_id };
-    const { task } = tasks.createTask({
-        kind: 'capture',
-        label: 'Capture',
-        labelKey: 'Capture',
-        origin: enrichOrigin,
-        projectId: node.project_id,
-        projectName: info?.projectName || null,
-        projectColor: info?.projectColor || null,
-        nodeId,
-        run: ({ emit, signal }) => enrichCapture({ nodeId, url, emit, signal }),
-    });
-    res.json({ taskId: task.id });
 });
 
 export const routes = app.takeRoutes();

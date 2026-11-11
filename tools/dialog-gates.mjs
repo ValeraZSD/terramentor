@@ -66,7 +66,7 @@ section('every overlay shares the counted scroll lock, and one Escape closes one
 {
     // A hand-rolled overlay writing `body.style.overflow = ''` on close gave
     // the page its scroll back under a Modal still open beneath it.
-    const overlays = ['src/components/CaptureModal.tsx', 'src/components/completion/CompletionSummary.tsx', 'src/components/drills/DrillModal.tsx'];
+    const overlays = ['src/components/completion/CompletionSummary.tsx', 'src/components/drills/DrillModal.tsx'];
     for (const p of overlays) {
         const src = read(p);
         // Directly, or through useDialogFocus, which takes the same counted lock.
@@ -120,7 +120,7 @@ const headDir = join(scratch, 'head');
 // Paths under src/components. The hand-rolled overlays are mounted beside
 // Modal: each was converted to the same hook and is held to the same contract.
 const files = ['Modal', 'ConfirmDialog', 'Toast',
-    'CaptureModal', 'ScheduleModal', 'AnkiImportModal', 'BulkGenerateModal', 'PlacementModal',
+    'ScheduleModal', 'AnkiImportModal', 'BulkGenerateModal', 'PlacementModal',
     'ReportProblemDialog', 'TaskDetailModal', 'TaskFailureModal', 'visuals/ExportVisualModal', 'drills/DrillModal',
     'SearchBar', 'MasteryGateModal'];
 if (HEAD) {
@@ -184,7 +184,6 @@ await esbuild.build({
             export { default as Modal } from '${from('Modal')}';
             export { default as ConfirmDialog } from '${from('ConfirmDialog')}';
             export { default as ToastContainer } from '${from('Toast')}';
-            export { default as CaptureModal } from '${from('CaptureModal')}';
             export { default as ScheduleModal } from '${from('ScheduleModal')}';
             export { default as AnkiImportModal } from '${from('AnkiImportModal')}';
             export { default as BulkGenerateModal } from '${from('BulkGenerateModal')}';
@@ -567,7 +566,6 @@ globalThis.__setState({
     showConfirm: () => Promise.resolve(false),
 });
 
-await holdsTheContract('Capture', propSurface(surfaces.CaptureModal, {}));
 
 {
     let n = 0;

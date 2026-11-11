@@ -454,39 +454,25 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     check('...while the last one\'s empty reading is the answer, as it was: nothing legible', lone === '', String(lone));
 }
 {
-    // A captured photo of several subjects fans out into a topic per subject,
-    // with cards. The vision job read the photo, so those rows name the model
-    // that read it: here the backup, after the first choice answered 404. The
-    // first choice's catalogue says it takes images ('listed'), which is what
-    // lets a learner's own photo through.
-    const { enrichCapture } = await import('../server/capture.js');
-    const vault = (await import('../server/vaultStorage.js')).default;
+    // A picture in a deck is described for a learner who cannot see it. The
+    // vision job read it, so the row names the model that did: here the
+    // backup, after the first choice answered 404.
+    const { describeMedia } = await import('../server/mediaDescribe.js');
+    const { mediaStorage } = await import('../server/vaultStorage.js');
     jobs.setJobRoute('vision', [{ connectionId: idA, model: 'eyes-a', effort: '' }, { connectionId: idB, model: 'eyes', effort: '' }]);
     reset();
-    const reading = {
-        multiEntity: true,
-        sceneDescription: 'Two people at a table.',
-        entities: [
-            { name: 'Ada Lovelace', overview: 'Wrote the first published program.', flashcards: [{ front: 'Who wrote the first published program?', back: 'Ada Lovelace' }] },
-            { name: 'Charles Babbage', overview: 'Designed the Analytical Engine.', flashcards: [{ front: 'Who designed the Analytical Engine?', back: 'Charles Babbage' }] },
-        ],
-    };
-    A.plan = [{ json: { data: { architecture: { input_modalities: ['text', 'image'] } } } }, { status: 404 }];
-    B.plan = [{ status: 200, content: JSON.stringify(reading) }];
-    const cp = db.prepare("INSERT INTO projects (name) VALUES ('Capture stamps')").run().lastInsertRowid;
-    const cn = Number(db.prepare("INSERT INTO nodes (project_id, title) VALUES (?, 'A photo')").run(cp).lastInsertRowid);
-    db.prepare("INSERT INTO documents (node_id, project_id, title, content, file_type, file_hash) VALUES (?, ?, 'photo.png', ?, 'png', ?)")
-        .run(cn, cp, '', vault.put(Buffer.from('not really a png')).hash);
-    const result = await enrichCapture({ nodeId: cn }).catch(e => ({ error: e.message }));
-    const kids = db.prepare('SELECT id, generated_by FROM nodes WHERE parent_id = ? AND is_note = 0').all(cn);
-    const cards = db.prepare(`SELECT generated_by FROM flashcards WHERE node_id IN (${kids.map(() => '?').join(',') || 'NULL'})`).all(...kids.map(k => k.id));
+    A.plan = [{ status: 404 }];
+    B.plan = [{ status: 200, content: 'A hand-drawn sine wave with its peaks labelled.' }];
+    const { hash } = mediaStorage.put(Buffer.from('not really a png'));
+    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind) VALUES (NULL, ?, 'wave.png', 'image/png', 'image')").run(hash);
+    const res = await withAnswerScope(() => describeMedia(hash)).catch(e => ({ error: e.message }));
+    const row = db.prepare('SELECT description, generated_by FROM media_files WHERE hash = ?').get(hash);
     const modelOf = (raw) => { try { return JSON.parse(raw).model; } catch { return raw; } };
-    check('a photo\'s subjects become topics with cards, read by the vision job\'s backup after its first choice failed',
-        result?.entityCount === 2 && kids.length === 2 && cards.length === 2 && A.hits.length === 2 && B.hits.length === 1,
-        `${JSON.stringify(result)}, topics ${kids.length}, cards ${cards.length}, A ${A.hits.map(h => h.url).join(' ')}, B ${B.hits.length}`);
-    check('...and the topics and their cards name the model that read the photo, not the questions job\'s or the first choice',
-        kids.length === 2 && cards.length === 2 && [...kids, ...cards].every(r => modelOf(r.generated_by) === 'eyes'),
-        [...kids, ...cards].map(r => modelOf(r.generated_by)).join(', '));
+    check('a picture is described by the vision job\'s backup after its first choice failed',
+        res?.ok === true && /sine wave/.test(row?.description ?? '') && A.hits.length === 1 && B.hits.length === 1,
+        `${JSON.stringify(res)}, A ${A.hits.length}, B ${B.hits.length}`);
+    check('...and the description names the model that read it, not the first choice',
+        modelOf(row?.generated_by) === 'eyes', String(row?.generated_by));
     jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
 }
 

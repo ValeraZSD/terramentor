@@ -142,22 +142,23 @@ Learning something once is not knowing it. Two mechanisms fight the forgetting c
 
 This is what makes the plan cumulative instead of a checklist you sweep once and forget.
 
-## The Vault, capture, and the assistant
+## The Vault, short courses, and the assistant
 
 Three ways to bring things in and out:
 
 - **The Vault**: upload PDFs, notes and documents to a project. They are indexed and searched when
   the AI answers questions about that project, so the assistant and the lessons work from *your* material, not only
   its own knowledge.
-- **Capture** (the inbox icon in the header, or press **c**): paste an article or a link you want
-  to keep. It lands in your Inbox project, gets an overview, flashcards and a couple of questions
-  written for it, and joins the feed and your reviews the same day.
+- **Short courses** (the box at the top of **Projects**): paste a link to an article or a video, or
+  drop a file, and it becomes a course of three to eight topics written from that one source. It
+  joins the feed and your reviews the same day, with no dates to set. A single fact you want to
+  keep goes in as a card on the topic it belongs to: ask the assistant for one.
 - **The assistant** (the speech-bubble icon, press **a**, or **Ask the assistant** in a topic): it
   sees every project at once. Ask what to do today, what to drop when you are behind, or about
   whatever is on screen; with a topic open it knows that topic, your notes on it and its
   documents, and teaches it. It can look up a course's progress for itself and read the documents
-  in your library page by page. It can prepare a mastery check, a flashcard, a note for your
-  Inbox, a change to a course (its name, colour, description, a topic's title) or a problem report,
+  in your library page by page. It can prepare a mastery check, a flashcard, a short course
+  from a link, a change to a course (its name, colour, description, a topic's title) or a problem report,
   but nothing is added, changed or sent until you press the button under its answer, and a change
   can be undone. The **+** beside the box attaches a file, a photo or a screenshot (or drop or
   paste one onto the panel), and the model looks at it itself. **New chat** starts a fresh
@@ -201,6 +202,6 @@ The words the app and these documents use, each in one place.
 - **Head start**: a topic the placement check or another project suggests you already know. It
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
 - **Pace**: what you have closed against what the plan expected by today.
-- **Inbox**: the permanent project that captured links, text and photos land in.
+- **Short course**: a course of three to eight topics made from one link or file, never scheduled.
 - **Vault**: the documents you upload, to a project or to the whole library, which the assistant
   can read; a project's own documents also feed its lessons.

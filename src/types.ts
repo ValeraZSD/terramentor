@@ -531,7 +531,7 @@ export interface ChatConversation {
 export type AITaskKind =
     | 'today_chat' | 'quiz' | 'mastery_check'
     | 'flashcards' | 'insights' | 'briefing' | 'create_project' | 'widget' | 'visual' | 'feed' | 'embed'
-    | 'bulk' | 'recover' | 'capture' | 'placement' | 'atlas'
+    | 'bulk' | 'recover' | 'placement' | 'atlas'
     | 'media_describe' | 'srs_optimize' | 'search_words' | 'short_course';
 
 export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -542,7 +542,7 @@ export type AITaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
  * jobs started it. Ids only; the dialog resolves a title when it draws.
  */
 export interface AITaskOrigin {
-    surface: 'assistant' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'inbox' | 'atlas' | 'app';
+    surface: 'assistant' | 'feed' | 'topic' | 'project' | 'projects' | 'settings' | 'atlas' | 'app';
     detail?: string;
     job?: 'feed' | 'index_document' | 'index_topics' | 'name_regions' | 'describe_media' | 'recover_pdf' | 'briefing' | 'search_words';
     projectId?: number;

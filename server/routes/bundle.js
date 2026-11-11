@@ -65,8 +65,8 @@ const DOCUMENT_KINDS = new Set(['pdf', 'docx', 'xlsx', 'pptx', 'text', 'jpg', 'p
  * The `file_type` an imported document is stored under.
  *
  * The kind decides how the original is served back (`/api/documents/:id/original`
- * picks the Content-Type and inline-or-download from it), which documents the
- * capture path hands to a vision model as a picture, and which ones math
+ * picks the Content-Type and inline-or-download from it), which documents are
+ * shown as a picture, and which ones math
  * recovery opens as a PDF. So it comes from the BYTES whenever the bundle
  * carried them: the kind the re-extraction read them as. A stored original that
  * did not re-extract is `unknown`, which is served as a download — every

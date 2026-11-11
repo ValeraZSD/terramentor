@@ -267,7 +267,7 @@ markRunUndone('41');
 check('an Undo is remembered across the remount', runOf('41')?.undone === true && beginRun('41', { theme: 'dark' }) === false);
 check('another turn is its own', beginRun('42', { ui_scale: 100 }) === true && runOf('42')?.undone === false);
 
-section('three controls the learner presses: a mastery check, a card, a capture');
+section('controls the learner presses: a mastery check, a card');
 const outWrites = join(scratch, 'assistantWrites.mjs');
 await esbuild.build({
     entryPoints: [fileURLToPath(new URL('../src/utils/assistantWrites.ts', import.meta.url))],
@@ -298,8 +298,14 @@ check('math with pipes and brackets survives inside a card',
 check('at most three cards a message',
     splitWriteBlocks(Array.from({ length: 5 }, (_, i) => `\`\`\`card\ntopic: 1:${i + 2}\nfront: q${i}\nback: a${i}\n\`\`\``).join('\n')).cards.length === 3);
 const cap = splitWriteBlocks('Saving that.\n\n```capture\nFlux through a CLOSED surface counts enclosed charge;\nan open one does not.\n```');
-check('a capture block becomes one proposal with its text', cap.captures.length === 1 && cap.captures[0].startsWith('Flux through a CLOSED'), JSON.stringify(cap.captures));
-check('an empty capture proposes nothing', splitWriteBlocks('```capture\n   \n```').captures.length === 0);
+check('an old capture block proposes nothing and its text stays in the answer', cap.captures === undefined
+    && cap.body.includes('Flux through a CLOSED surface') && !cap.body.includes('```'), JSON.stringify(cap.body));
+check('an empty one leaves nothing behind', splitWriteBlocks('```capture\n   \n```').body.trim() === '');
+const twoCaps = splitWriteBlocks('One.\n```capture\nfirst note\n```\nBetween.\n```capture\nsecond note\n```\nAfter.');
+check('two old capture blocks both stay as words, in order, with the prose around them',
+    /One\.[\s\S]*first note[\s\S]*Between\.[\s\S]*second note[\s\S]*After\./.test(twoCaps.body) && !twoCaps.body.includes('```'), JSON.stringify(twoCaps.body));
+const capArriving = splitWriteBlocks('Saving that.\n\n```capture\nFlux through a clo', true);
+check('a capture block still arriving never shows its fence', !capArriving.body.includes('```') && capArriving.body.includes('Saving that.'), JSON.stringify(capArriving.body));
 check('an ordinary code fence is left alone', splitWriteBlocks('```js\nconst a = 1;\n```').body === '```js\nconst a = 1;\n```');
 const half = splitWriteBlocks('Here:\n\n```card\ntopic: 3:41\nfront: What shi', true);
 check('a card still arriving never shows its source', !half.body.includes('```') && !half.body.includes('topic:') && half.cards.length === 0, JSON.stringify(half.body));
@@ -312,11 +318,11 @@ check('readableAnswer carries the card and drops the check',
 // settle. Both paths must read the list before the updater, never inside it.
 check('a finished turn keeps its lookup rows: no updater reads actionsRef',
     !/actions:\s*actionsRef\.current/.test(drawerSrc) && (drawerSrc.match(/const looked = actionsRef\.current;/g) || []).length === 2);
-check('the drawer renders the three and resolves their topics',
-    /<CheckButtons\b/.test(drawerSrc) && /<CardProposals\b/.test(drawerSrc) && /<CaptureProposals\b/.test(drawerSrc)
+check('the drawer renders checks and cards, resolves their topics, and draws no capture proposal',
+    /<CheckButtons\b/.test(drawerSrc) && /<CardProposals\b/.test(drawerSrc) && !/CaptureProposals/.test(drawerSrc)
     && /splitChecks\(m\.content\)\.checks/.test(drawerSrc) && /(splitWriteBlocks\(m\.content\)|writes)\.cards\.map\(c => c\.nodeId\)/.test(drawerSrc));
 
-section('a fourth thing it prepares: a problem report the learner reviews and sends');
+section('another thing it prepares: a problem report the learner reviews and sends');
 // A learner who is annoyed with the app explains in plain words, the assistant
 // asks what it needs, and a drafted report opens Report a problem filled in,
 // for the learner to review and send. The fence carries the issue forms' own
@@ -370,7 +376,7 @@ check('Copy carries the report in words, under the form\'s own questions',
     && !/```|kind:|what-happened:/.test(copiedReport), JSON.stringify(copiedReport));
 check('the drawer renders it, and a turn whose answer is only a report is not "no answer"',
     /<ReportProposals reports=\{writes\.reports\} turnKey=\{turnKey\} \/>/.test(drawerSrc)
-    && /writes\.cards\.length \+ writes\.captures\.length \+ writes\.reports\.length\b[^;]*> 0/.test(drawerSrc));
+    && /writes\.cards\.length \+ writes\.reports\.length\b[^;]*> 0/.test(drawerSrc));
 const proposalsSrcR = readFileSync(fileURLToPath(new URL('../src/components/AssistantProposals.tsx', import.meta.url)), 'utf8');
 check('Review opens the SAME dialog as Settings, filled in from the draft',
     /<ReportProblemDialog[\s\S]{0,200}prefill=\{report\}/.test(proposalsSrcR) && /import ReportProblemDialog from '\.\/ReportProblemDialog'/.test(proposalsSrcR));

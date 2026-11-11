@@ -210,9 +210,8 @@ function isPdf(buf) {
     return buf.length >= 5 && buf.toString('latin1', 0, 5) === '%PDF-';
 }
 
-// Image magic bytes — used by Capture's photo path (server/capture.js), which
-// needs the original bytes stored and vision-readable, not "extracted" as
-// text. These never collide with isPdf/isZip, so the check can sit anywhere
+// Image magic bytes — a photo added to the vault is kept as its original and
+// shown as a picture, not "extracted" as text. These never collide with isPdf/isZip, so the check can sit anywhere
 // before the binary-rejection branch.
 function isJpeg(buf) {
     return buf.length >= 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
@@ -408,8 +407,8 @@ export async function extractText(buffer, filename) {
         kind = 'pdf';
         ({ text, meta } = await extractPdf(buffer));
     } else if (!structured && (isJpeg(buffer) || isPng(buffer) || isWebp(buffer))) {
-        // A photo has no "text" to extract — it's stored as an original for
-        // Capture's vision path (server/capture.js) to read directly. Return
+        // A photo has no "text" to extract — it's stored as an original and
+        // served back as a picture. Return
         // early: the `!text` check below would otherwise reject every image.
         return { text: '', kind: isJpeg(buffer) ? 'jpg' : isPng(buffer) ? 'png' : 'webp', meta: {} };
     } else if (structured) {

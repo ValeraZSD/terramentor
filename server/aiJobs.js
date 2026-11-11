@@ -48,7 +48,6 @@ const JOB_OF_OPERATION = {
     authoring: 'courses',
     insights: 'courses',
     questions: 'questions',
-    capture: 'questions',
     verify: 'checks',
     assistant_check: 'checks',
     vision: 'vision',

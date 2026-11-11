@@ -400,7 +400,7 @@ to: PROJECT_ID:NODE_ID
 title: a short name for it
 description: what the picture shows and every piece of writing in it, word for word — what someone searching their library later must be able to find it by
 \`\`\`
-\`to\` is a topic (PROJECT_ID:NODE_ID), a whole course (PROJECT_ID), or inbox. The description may run over several lines; for a document it may be one or two sentences, since its own text is saved with it. At most 2 per message.`;
+\`to\` is a topic (PROJECT_ID:NODE_ID) or a whole course (PROJECT_ID). The description may run over several lines; for a document it may be one or two sentences, since its own text is saved with it. At most 2 per message.`;
 
 // ---- open_attachment ---------------------------------------------------------
 

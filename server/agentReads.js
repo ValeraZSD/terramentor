@@ -18,8 +18,8 @@
 //   - The learner's profile ("About you") is not part of get_due: it is a
 //     description written for the app's own model, not a schedule.
 //
-// READ-ONLY, every one. The only writes an agent has are a capture (the
-// existing capture route) and a claim (server/claims.js).
+// READ-ONLY, every one. The only write an agent has is a claim
+// (server/claims.js).
 
 import db from './database.js';
 import { ambiguousProjectText, findProject, projectStateText } from './projectState.js';

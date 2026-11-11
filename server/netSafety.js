@@ -2,16 +2,15 @@
  * Where the server is allowed to point an outbound fetch.
  *
  * `fetchPageContent` took a URL and fetched it with no validation at all, and
- * two of its callers hand it a URL this machine's owner never typed:
- * `POST /api/capture` (`capture.js` — "save this link", enriched in the
- * background) and the resource curator, which fetches pages the *model* chose
- * out of search results. `isValidResourceUrl` looked like a guard but is a
+ * its callers hand it URLs this machine's owner never typed: a link inside a
+ * shared course, and the resource curator, which fetches pages the *model*
+ * chose out of search results. `isValidResourceUrl` looked like a guard but is a
  * quality filter: its only host rule is "contains a dot", which rejects
  * `localhost` and admits `127.0.0.1`, `192.168.1.1` and `169.254.169.254`.
  *
  * On a local-first app that is not an abstract SSRF: the same machine often runs
  * a model server on a loopback port, and the learner's router is one hop away,
- * so a shared course or a captured link could make the study app read a LAN
+ * so a shared course or a pasted link could make the study app read a LAN
  * service or a local port and paste the answer
  * back into a topic as "material". The threat model in SECURITY.md promises the
  * app does not reach out on its own; a target it was tricked into is the same
@@ -58,7 +57,7 @@ function isBlockedIPv4(v4) {
     // clients in fake-IP mode (Clash, Surge, sing-box) and some VPN clients
     // answer every public name with an address from it and carry the real
     // connection themselves. Refusing it would refuse every fetch on such a
-    // machine (link capture, web search, endpoint probes), and the only way
+    // machine (short courses from links, web search, endpoint probes), and the only way
     // out would be ALLOW_PRIVATE_FETCH=1, which opens every private target at
     // once: a far worse trade than leaving one rarely-routed block open.
     if (a === 192 && b === 0 && c === 0) return true;      // IETF protocol assignments 192.0.0.0/24
@@ -269,7 +268,7 @@ async function resolveHost(host) {
  * shared with every file read, zlib stream and crypto call this server makes.
  * A name whose resolver never answers holds a thread for as long as the OS
  * lets it (tens of seconds on a broken network), and a handful of such names,
- * from links the learner captured or pages a model picked, would stall reading
+ * from links the learner pasted or pages a model picked, would stall reading
  * the library itself. So:
  *
  *   - at most DNS_MAX_IN_FLIGHT lookups run at once; the rest wait their turn,

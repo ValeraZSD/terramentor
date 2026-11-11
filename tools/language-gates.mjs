@@ -260,7 +260,6 @@ console.log('\n--- foreign words glossed, cards state the task ---');
     for (const [name, p] of Object.entries(writers)) check(`${name}: glosses foreign words`, GLOSS.test(sys(p)), true);
     const cardWriters = {
         'card generator': AI_PROMPTS.flashcard_generator('ctx', 5),
-        capture: AI_PROMPTS.capture_enrich('t', 'material'),
         "assistant's card block": AI_PROMPTS.assistant({}, 'q'),
     };
     for (const [name, p] of Object.entries(cardWriters)) check(`${name}: states how a card is written`, CARDS.test(sys(p)), true);

@@ -165,8 +165,8 @@ function HoverBody() {
  * itself was offered, until "Got it" or the next launch (the server drops the
  * result when it starts): a fact that needs one glance, not a strip across the
  * page with a sentence at one edge and its controls at the other. The sentence
- * with the version, What's new and Got it are in its menu. Quiet, like Capture
- * beside it: it reports, where the update states above ask for a press. The
+ * with the version, What's new and Got it are in its menu. Quiet: it
+ * reports, where the update states above ask for a press. The
  * update has happened, so the last item acknowledges it; "Dismiss" and an X
  * read as waving something away.
  */
@@ -199,7 +199,7 @@ function UpdatedNote() {
     const notes = status.install?.notes?.releases.length ? status.install.notes : null;
     const read = () => { setOpen(false); if (notes) setReading(true); else anchor.current?.focus(); };
     // Got it takes the button away, so focus moves to the header control
-    // after it (Capture) rather than falling to the page.
+    // after it rather than falling to the page.
     const done = () => {
         const here = anchor.current;
         const controls = here ? [...(here.closest('header') ?? document.body).querySelectorAll<HTMLElement>('button, a[href]')].filter(el => el.offsetParent) : [];

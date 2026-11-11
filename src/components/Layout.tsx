@@ -1,7 +1,7 @@
 import { ReactNode, CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { ArrowLeft, ChevronDown, Inbox, Loader2, MessageSquare, Settings } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Loader2, MessageSquare, Settings } from 'lucide-react';
 import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
@@ -18,7 +18,6 @@ import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
 import CompletionSummary from './completion/CompletionSummary';
-import CaptureModal from './CaptureModal';
 import AssistantDrawer, { DEFAULT_WIDTH, DOCK_QUERY, MIN_WIDTH } from './AssistantDrawer';
 import { useAICreationContext } from './aiCreationContext';
 import CreationRunHost from './creation/CreationRunHost';
@@ -81,11 +80,9 @@ export default function Layout({ children }: { children: ReactNode }) {
     const placement = useStore(s => s.placement);
     const closePlacement = useStore(s => s.closePlacement);
 
-    // Capture and the assistant are GLOBAL by definition: both exist to be
-    // usable without first navigating somewhere, so they live in the app frame
-    // rather than on any one screen.
-    const [captureOpen, setCaptureOpen] = useState(false);
-    // The assistant's open state is in the store, not here: screens deep in the
+    // The assistant is GLOBAL by definition: it exists to be usable without
+    // first navigating somewhere, so it lives in the app frame rather than on
+    // any one screen. Its open state is in the store, not here: screens deep in the
     // tree (the project dashboard's "ask about this project") open it with a
     // question already in the composer.
     const assistantOpen = useStore(s => s.assistantOpen);
@@ -117,18 +114,16 @@ export default function Layout({ children }: { children: ReactNode }) {
     // Only name a key on a device that has keys.
     const hasKeyboard = usePhysicalKeyboard();
 
-    // Keyboard: the capture box has to be cheaper than switching apps, and a
-    // shortcut is the difference between "I'll save that" and actually saving
-    // it. Ignored while typing, so it never eats a "c" mid-sentence, and while
-    // a dialog or a review session owns the keyboard (`appMayTakeShortcut`).
+    // Keyboard: `a` opens the assistant from anywhere. Ignored while typing,
+    // so it never eats an "a" mid-sentence, and while a dialog or a review
+    // session owns the keyboard (`appMayTakeShortcut`).
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             // The letter on any layout, Caps Lock included (`shortcutLetter`).
             // Shift combos are left alone by the rule.
             if (!appMayTakeShortcut(e)) return;
             const key = shortcutLetter(e);
-            if (key === 'c') { e.preventDefault(); setCaptureOpen(true); }
-            else if (key === 'a') { e.preventDefault(); openAssistant(); }
+            if (key === 'a') { e.preventDefault(); openAssistant(); }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
@@ -355,7 +350,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 right of centre instead of overlapping it, which degrades
                 gracefully only while the tabs actually fit. Once they do not,
                 on a phone the strip is wider than the whole header, the row
-                overflows and the inbox and assistant icons — which cannot
+                overflows and the bar's icons — which cannot
                 shrink either — are painted straight over the last tabs,
                 making two destinations unreachable. A rail that scrolls keeps
                 every tab reachable at any width, and the active one is
@@ -467,14 +462,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                     <UpdateControl />
                     <BarAction
                         labelled={barLabels}
-                        onClick={() => setCaptureOpen(true)}
-                        icon={<Inbox className="w-4 h-4" aria-hidden="true" />}
-                        text={t("Capture")}
-                        label={hasKeyboard ? t("Capture something (c)") : t("Capture something")}
-                        title={hasKeyboard ? t("Capture something to study later (c)") : t("Capture something to study later")}
-                    />
-                    <BarAction
-                        labelled={barLabels}
                         onClick={() => openAssistant()}
                         icon={<MessageSquare className="w-4 h-4" aria-hidden="true" />}
                         text={t("Assistant")}
@@ -532,8 +519,6 @@ export default function Layout({ children }: { children: ReactNode }) {
 
             <ToastContainer />
             <ConfirmDialog />
-
-            <CaptureModal open={captureOpen} onClose={() => setCaptureOpen(false)} />
 
             {/* The Mastery Gate ("mastery check") lives at the app root, not in the
                 workspace: the learning feed's checkpoint opens it in place, and
@@ -601,7 +586,6 @@ export default function Layout({ children }: { children: ReactNode }) {
         <AssistantDrawer
             open={assistantOpen}
             onClose={closeAssistant}
-            onCapture={() => setCaptureOpen(true)}
             docked={assistantDocked}
             width={assistantWidth}
             onResize={resizeAssistant}

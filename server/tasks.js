@@ -111,7 +111,7 @@ function observe(task, phase, extra = {}) {
  * into it: anything outside the vocabulary is dropped rather than kept.
  *
  *   surface  where a person was: the assistant drawer, the feed, a topic's own page (its Overview, Material, quiz or cards),
- *            a project's dashboard, the projects page, Settings, the Inbox — or
+ *            a project's dashboard, the projects page, Settings — or
  *            `app` for a job nobody pressed a button for.
  *   detail   which part of that surface (the Overview vs the Material of one
  *            topic; which Settings section).
@@ -119,7 +119,7 @@ function observe(task, phase, extra = {}) {
  *            and topic indexing, region naming, …).
  */
 const ORIGIN_SURFACES = new Set([
-    'assistant', 'feed', 'topic', 'project', 'projects', 'settings', 'inbox', 'atlas', 'app',
+    'assistant', 'feed', 'topic', 'project', 'projects', 'settings', 'atlas', 'app',
 ]);
 const ORIGIN_DETAILS = new Set([
     // a topic's own page
@@ -130,8 +130,6 @@ const ORIGIN_DETAILS = new Set([
     'insights', 'bulk', 'placement',
     // Settings sections (the tab hashes in Settings.tsx)
     'ai', 'learning', 'data', 'general',
-    // how a note reached the Inbox
-    'capture_box', 'assistant_capture',
 ]);
 const ORIGIN_JOBS = new Set([
     'feed',            // feedGen preparing lessons, questions, widgets, checks

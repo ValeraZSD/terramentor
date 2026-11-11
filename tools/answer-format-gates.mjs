@@ -813,12 +813,12 @@ check('…but a sentence whose words are single letters is not a set of labels (
     check('a picture a model\'s reply claims is dropped, so lettered rows from a model are a defect',
         !!fromModel && fromModel.media === undefined && questionDefects(fromModel).some(d => /picture/.test(d))
         && normalizeFeedQuestion({ ...LABELS })?.media?.length === 1);
-    const modelPaths = ['../server/feedGen.js', '../server/capture.js']
+    const modelPaths = ['../server/feedGen.js']
         .filter(f => {
             const src = readFileSync(new URL(f, import.meta.url), 'utf8');
             return !/normalizeModelQuestion\(/.test(src) || /normalizeFeedQuestion/.test(src);
         });
-    check('…on both paths that read a model\'s questions', modelPaths.length === 0, modelPaths.join(', '));
+    check('…on the path that reads a model\'s questions', modelPaths.length === 0, modelPaths.join(', '));
 }
 check('a stem that already shows the built answer is a defect',
     questionDefects({ ...asServed(SENTENCE), question: 'Zet in de goede volgorde: ik morgen moet werken.' }).some(d => /already shows/.test(d)));

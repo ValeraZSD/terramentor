@@ -11,8 +11,8 @@
 //
 // Two answers, by who the message was written for:
 //
-//   - A refusal the code wrote for the learner ("A capture needs some text, a
-//     URL, or a title") is sent as written. Those are the 4xx answers, and any
+//   - A refusal the code wrote for the learner ("A card needs a front and a
+//     back.") is sent as written. Those are the 4xx answers, and any
 //     error a module marks `expose: true`. A file path inside one is still
 //     replaced, because a message that quotes the file it could not read was
 //     written by somebody thinking of the learner and not of the path.
