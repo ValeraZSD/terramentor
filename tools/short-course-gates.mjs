@@ -720,7 +720,7 @@ await waitBuilt(c.json.projectId);
 const vRow = JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?').get(c.json.projectId).made_from);
 ok('its course names the video it came from', vRow.kind === 'video' && vRow.url === 'https://www.youtube.com/watch?v=vidWallAll1' && vRow.host === 'youtube.com', vRow);
 const tiny = await api('POST', '/api/short-courses/read', { transcript: 'Leave it. Good dog.', title: 'Leave it!' });
-ok('a transcript of two lines is too small', tiny.json?.ok === true && tiny.json.size === 'too-small', tiny.json);
+ok('a transcript of two lines is too small, and the read says how many words a course needs', tiny.json?.ok === true && tiny.json.size === 'too-small' && tiny.json.minWords === short.SHORT.minWords, tiny.json);
 const notLink = await api('POST', '/api/short-courses/read', { transcript, url: 'javascript:alert(1)' });
 ok('a transcript\'s address must be a real link, or it is dropped', notLink.json?.ok === true && notLink.json.url === null, notLink.json);
 
@@ -1076,10 +1076,14 @@ const tooSmallBranch = (fromTranscriptBody.match(/if \(r\.ok && r\.size === 'too
 ok('a pasted transcript too small for a course stays in its box with the text and its word count, and the read is let go',
     tooSmallBranch !== null
     && /discardShortSource\(r\.stagedId\)/.test(tooSmallBranch)
-    && /setBox\(\{ state: 'transcript', title, url, short: r\.words \}\)/.test(tooSmallBranch)
+    && /setBox\(\{ state: 'transcript', title, url, short: r\.words, min: r\.minWords \?\? null \}\)/.test(tooSmallBranch)
+    && /transcriptRef\.current\?\.focus\(\)/.test(tooSmallBranch)
     && /return;/.test(tooSmallBranch)
     && !/setTranscript\(|clear\(|show\(/.test(tooSmallBranch)
-    && /box\.short != null && \([\s\S]{0,200}t\("\{\{words\}\} words", \{ count: box\.short, words: num\(box\.short\) \}\)\} · \{t\("Too little for a course\."\)\}/.test(stripSource)
+    // The line says how much there was against how much a course needs, and
+    // once the text is edited it keeps only the need.
+    && /t\("\{\{words\}\} of \{\{min\}\} words", \{ count: box\.min, words: num\(box\.short \?\? 0\), min: num\(box\.min\) \}\)[\s\S]{0,200}· \{t\("Too little for a course\."\)\}/.test(stripSource)
+    && /box\.short == null && box\.min != null\s*\? t\("A course needs \{\{min\}\} words or more\.", \{ count: box\.min, min: num\(box\.min\) \}\)/.test(stripSource)
     && /if \(box\.short != null\) setBox\(\{ \.\.\.box, short: undefined \}\)/.test(stripSource)
     && !/\{t\("Back"\)\}<\/Button><\/>/.test(stripSource));
 // A transcript read had no controller: Cancel emptied the box (and the text),

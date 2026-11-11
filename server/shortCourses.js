@@ -194,6 +194,8 @@ function finishStaging(stagedId, origin) {
             minWords: SHORT.minWords,
             maxWords: SHORT.maxWords,
         } : {}),
+        // Too little: how much a course needs, so the screen can say so.
+        ...(size === 'too-small' ? { minWords: SHORT.minWords } : {}),
     };
 }
 

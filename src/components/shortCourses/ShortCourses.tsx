@@ -85,7 +85,7 @@ type Box =
     | { state: 'reading'; where: string; detail: string }
     | { state: 'read'; read: ShortReadOk; pasted?: string }
     | { state: 'unreadable'; fail: ShortReadFail; where: string; link: string | null }
-    | { state: 'transcript'; title: string; url: string | null; short?: number }
+    | { state: 'transcript'; title: string; url: string | null; short?: number; min?: number | null }
     | { state: 'chapters'; read: ShortReadOk; picked: number[] };
 
 function useReadLine() {
@@ -124,6 +124,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const [dragOver, setDragOver] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const transcriptRef = useRef<HTMLTextAreaElement>(null);
     useEffect(() => () => abortRef.current?.abort(), []);
 
     const begin = (where: string, detail: string) => {
@@ -214,7 +215,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             // was, so more can be pasted; the read made from it is let go.
             if (r.ok && r.size === 'too-small') {
                 void api.discardShortSource(r.stagedId).catch(() => { });
-                setBox({ state: 'transcript', title, url, short: r.words });
+                setBox({ state: 'transcript', title, url, short: r.words, min: r.minWords ?? null });
+                transcriptRef.current?.focus();
                 return;
             }
             if (r.ok && r.size === 'ok' && r.ai) {
@@ -275,11 +277,13 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     </div>
                 </div>
                 <TextArea
+                    ref={transcriptRef}
                     aria-label={t("The video's transcript")}
                     value={transcript}
                     onChange={e => {
                         setTranscript(e.target.value);
-                        // The count was of the text sent; edited, it no longer holds.
+                        // The count was of the text sent; edited, it no longer
+                        // holds, and the line keeps only what a course needs.
                         if (box.short != null) setBox({ ...box, short: undefined });
                     }}
                     rows={5}
@@ -287,13 +291,17 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     className="block leading-6 resize-y"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                    {box.short != null && (
+                    {(box.short != null || box.min != null) && (
                         <span role="status" className="mr-auto text-sm text-slate-500 dark:text-slate-400">
-                            {t("{{words}} words", { count: box.short, words: num(box.short) })} · {t("Too little for a course.")}
+                            {box.short == null && box.min != null
+                                ? t("A course needs {{min}} words or more.", { count: box.min, min: num(box.min) })
+                                : <>{box.min != null
+                                    ? t("{{words}} of {{min}} words", { count: box.min, words: num(box.short ?? 0), min: num(box.min) })
+                                    : t("{{words}} words", { count: box.short ?? 0, words: num(box.short ?? 0) })} · {t("Too little for a course.")}</>}
                         </span>
                     )}
                     <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!transcript.trim()}onClick={() => void fromTranscript(box.title, box.url)}>
+                    <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
                         {t("Create short course")}
                     </Button>
                 </div>

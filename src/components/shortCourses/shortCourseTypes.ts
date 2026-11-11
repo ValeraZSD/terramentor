@@ -41,7 +41,8 @@ export interface ShortReadOk {
     /** A book: its chapters, and the file as the New course dialog takes it. */
     chapters?: ShortChapter[];
     staged?: StagedDocument;
-    /** The fewest words the chapters picked may come to. */
+    /** The fewest words the chapters picked may come to; on a source that is
+     *  too small, the fewest a course needs. */
     minWords?: number;
     /** The most words the chapters picked may come to. */
     maxWords?: number;
