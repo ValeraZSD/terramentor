@@ -43,10 +43,19 @@ const FORBIDDEN = new Set(Object.keys(lucide).filter((n) => SPARKLE_NAME.test(n)
 ok('lucide still exports Sparkles (the forbidden set is not empty)', FORBIDDEN.has('Sparkles'),
     `read ${FORBIDDEN.size} names from lucide-react`);
 
+/** A whole-module re-export (`export * from 'lucide-react'`) hands every icon
+ *  on under another module's name, so it counts as importing all of them. */
+const ALL = '*';
+const forbidden = (n) => n === ALL || FORBIDDEN.has(n);
+
 /** Every name a file imports or re-exports from lucide-react, by its lucide
- *  name (`X as Y` → X). Comments inside the braces are not names. */
-export function lucideImports(src) {
+ *  name (`X as Y` → X). Comments are not code: a comment that opens a line is
+ *  dropped first (only those, so a glob like 'src/**' + '/*.ts' in a string
+ *  survives), and comments inside the braces are not names. */
+export function lucideImports(source) {
+    const src = source.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, '').replace(/^[ \t]*\/\/[^\n]*/gm, '');
     const names = [];
+    if (/export\s+\*(?:\s+as\s+\w+)?\s+from\s*['"]lucide-react(?:\/[^'"]*)?['"]/.test(src)) names.push(ALL);
     for (const m of src.matchAll(/(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]lucide-react(?:\/[^'"]*)?['"]/g)) {
         const list = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
         for (const part of list.split(',')) {
@@ -54,9 +63,16 @@ export function lucideImports(src) {
             if (name) names.push(name);
         }
     }
-    // `import * as Icons from 'lucide-react'` then `Icons.Sparkles`.
+    // `import * as Icons from 'lucide-react'` then `Icons.Sparkles`, or
+    // `const { Sparkles: Mark } = Icons`.
     for (const ns of src.matchAll(/import\s+\*\s+as\s+(\w+)\s+from\s*['"]lucide-react['"]/g)) {
         for (const use of src.matchAll(new RegExp(`\\b${ns[1]}\\.(\\w+)`, 'g'))) names.push(use[1]);
+        for (const d of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${ns[1]}\\b`, 'g'))) {
+            for (const part of d[1].split(',')) {
+                const name = part.trim().split(/\s*[:=]\s*/)[0].replace(/^\.\.\./, '').trim();
+                if (name) names.push(name);
+            }
+        }
     }
     return names;
 }
@@ -66,21 +82,33 @@ const sample = [
     "import { ArrowLeft, Sparkles } from 'lucide-react';",
     "import {\n    Check,\n    WandSparkles as Magic,\n} from 'lucide-react';",
     "export { Sparkle as AiMark } from 'lucide-react';",
-    "import * as Icons from 'lucide-react'; const I = Icons.Stars;",
+    "import * as Icons from 'lucide-react'; const I = Icons.Stars; const { Wand2: W, Check } = Icons;",
     "import { Compass, History } from 'lucide-react';",
 ].join('\n');
-const seen = lucideImports(sample).filter((n) => FORBIDDEN.has(n));
-ok('detector: finds a plain, a renamed, a re-exported and a namespaced sparkle', seen.join(',') === 'Sparkles,WandSparkles,Sparkle,Stars', `got ${seen.join(',') || 'nothing'}`);
-ok('detector: passes History and Compass, and a comment naming Sparkles',
-    !lucideImports("import {\n    Compass, // was Sparkles\n    History, /* not Stars */\n} from 'lucide-react';").some((n) => FORBIDDEN.has(n)));
+const seen = lucideImports(sample).filter(forbidden);
+ok('detector: finds a plain, a renamed, a re-exported, a namespaced and a destructured sparkle',
+    seen.join(',') === 'Sparkles,WandSparkles,Sparkle,Stars,Wand2', `got ${seen.join(',') || 'nothing'}`);
+ok('detector: a whole-module re-export of lucide counts as importing every icon',
+    lucideImports("export * from 'lucide-react';").some(forbidden));
+ok('detector: passes History and Compass, a commented-out import and a comment naming Sparkles',
+    !lucideImports([
+        "// import { Sparkles } from 'lucide-react';",
+        "/* import { Stars } from 'lucide-react'; */",
+        "import {\n    Compass, // was Sparkles\n    History, /* not Stars */\n} from 'lucide-react';",
+    ].join('\n')).some(forbidden));
 
-// 1 + 2. Every source file.
-const files = globSync('src/**/*.{ts,tsx,js,jsx}', { cwd: ROOT }).map((f) => f.replace(/\\/g, '/')).sort();
+// 1. Every code file under src/: no sparkle import.
+const files = globSync('src/**/*.{ts,tsx,js,jsx,mjs,cjs}', { cwd: ROOT }).map((f) => f.replace(/\\/g, '/')).sort();
 ok('src/ has source files to scan', files.length > 50, `${files.length} files under ${ROOT}`);
 for (const rel of files) {
     const src = readFileSync(path.join(ROOT, rel), 'utf8');
-    const bad = lucideImports(src).filter((n) => FORBIDDEN.has(n));
+    const bad = lucideImports(src).filter(forbidden);
     ok(`${rel}: no sparkle icon`, bad.length === 0, `imports ${[...new Set(bad)].join(', ')} from lucide-react`);
+}
+// 2. Every text file under src/ (code, locale JSON, SVG, CSS, HTML): no ✨.
+const textFiles = globSync('src/**/*.{ts,tsx,js,jsx,mjs,cjs,json,svg,css,html,md}', { cwd: ROOT }).map((f) => f.replace(/\\/g, '/')).sort();
+for (const rel of textFiles) {
+    const src = readFileSync(path.join(ROOT, rel), 'utf8');
     if (rel !== EMOJI_TABLE && src.includes('✨')) {
         const line = src.slice(0, src.indexOf('✨')).split('\n').length;
         ok(`${rel}: no ✨`, false, `line ${line}`);
