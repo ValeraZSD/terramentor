@@ -30,7 +30,7 @@
 # Windows version (the sandbox is always the host's build), Windows 11's Smart
 # App Control, a UAC prompt (the sandbox runs with UAC off), and anti-virus.
 # Defender's service was stopped in the sandbox of Windows 10 22H2; the run
-# reads its state and says so when it is not scanning.
+# reads its state and notes when it is not scanning.
 #
 # Needs the "Windows Sandbox" optional feature (Pro, Enterprise or Education;
 # a restart after turning it on). Windows runs one sandbox at a time, and this
@@ -40,7 +40,7 @@ param(
     [string]$Tag = '',
     [string]$Zip = '',
     [string]$Out = '',
-    # A run of 1.4.0 took two minutes inside; Explorer's zip folder alone can
+    # A run of 1.4.0 took about 80 s inside; Explorer's zip folder alone can
     # take three on a desktop whose anti-virus scans every file.
     [int]$TimeoutMinutes = 30,
     [int]$MinFreeCommitGB = 6,
@@ -250,8 +250,8 @@ public static class SandboxCheckWindow {
         int moved = 0;
         foreach (var h in Windows(pid)) {
             RECT r;
+            if (IsIconic(h)) continue;   // and its rectangle then says nothing
             if (!first.ContainsKey(h) && GetWindowRect(h, out r)) first[h] = r;
-            if (IsIconic(h)) continue;
             if (!Away(h, screenRight)) {
                 SetWindowPos(h, IntPtr.Zero, screenRight + 64, 0, 0, 0, NOSIZE | NOZORDER | NOACTIVATE | ASYNC);
                 moved++;
@@ -278,12 +278,18 @@ public static class SandboxCheckWindow {
     // minimised, which lets Windows activate the window under it; that takes a
     // moment, and restoring before it leaves the keyboard where it was
     // (measured). Async calls: a sandbox busy connecting must not stall the run.
+    // The window in front when it is not the sandbox's: where the keyboard goes back to.
+    public static IntPtr UserForeground(uint[] pids) {
+        IntPtr h = GetForegroundWindow(); uint owner;
+        GetWindowThreadProcessId(h, out owner);
+        return (h != IntPtr.Zero && Array.IndexOf(pids, owner) < 0 && !IsIconic(h)) ? h : IntPtr.Zero;
+    }
     public static bool GiveBackKeyboard(uint[] pids, IntPtr userWindow, int screenRight) {
         IntPtr h = GetForegroundWindow(); uint owner;
         uint thread = GetWindowThreadProcessId(h, out owner);
         if (Array.IndexOf(pids, owner) < 0) return false;
         uint userOwner = 0;
-        if (userWindow != IntPtr.Zero && IsWindow(userWindow)) GetWindowThreadProcessId(userWindow, out userOwner);
+        if (userWindow != IntPtr.Zero && IsWindow(userWindow) && !IsIconic(userWindow)) GetWindowThreadProcessId(userWindow, out userOwner);
         if (userOwner != 0 && Array.IndexOf(pids, userOwner) < 0) {
             uint me = GetCurrentThreadId();
             bool joined = AttachThreadInput(me, thread, true);
@@ -314,15 +320,19 @@ public static class SandboxCheckWindow {
 Add-Type -AssemblyName System.Windows.Forms
 [void][SandboxCheckWindow]::SetProcessDPIAware()   # the same pixels as the window rectangles
 $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+# Where a window comes back to: the main monitor, since the corner of all
+# monitors together can lie on none of them.
+$corner = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $movedAway = 0
 $keyboardBack = 0
 $hideError = $null
 # Whose window the keyboard went back to: the one it was taken from, or not.
 $userWindow = [SandboxCheckWindow]::GetForegroundWindow()
 $keyboardTo = @{}
-# The launcher (its splash) and the client (the sandbox's screen).
+# The launcher (its splash), the client (the sandbox's screen) and whatever
+# else of the sandbox's draws a window on another Windows build.
 function Get-OurClients {
-    @(Get-Process -Name WindowsSandbox, WindowsSandboxClient -ErrorAction SilentlyContinue | Where-Object {
+    @(Get-Process -Name 'WindowsSandbox*' -ErrorAction SilentlyContinue | Where-Object {
         try { $_.StartTime -ge $startedAt.AddSeconds(-2) } catch { $false } })
 }
 function Hide-SandboxWindow {
@@ -333,22 +343,25 @@ function Hide-SandboxWindow {
     try {
         foreach ($p in $ours) { $script:movedAway += [SandboxCheckWindow]::MoveAway([uint32]$p.Id, $screen.Right) }
         $pids = [uint32[]]@($ours | ForEach-Object { [uint32]$_.Id })
-        if ($handBack -and $pids.Count -and [SandboxCheckWindow]::GiveBackKeyboard($pids, $userWindow, $screen.Right)) {
+        # The window somebody is working in now, not the one in front at the start.
+        $inFront = $(if ($pids.Count) { [SandboxCheckWindow]::UserForeground($pids) } else { [IntPtr]::Zero })
+        if ($inFront -ne [IntPtr]::Zero) { $script:userWindow = $inFront }
+        if ($handBack -and $pids.Count -and [SandboxCheckWindow]::GiveBackKeyboard($pids, $script:userWindow, $screen.Right)) {
             $script:keyboardBack++
             $now = [SandboxCheckWindow]::GetForegroundWindow()
-            $script:keyboardTo[$(if ($now -eq $userWindow) { 'the window that had it' } else { 'another window' })] = $true
+            $script:keyboardTo[$(if ($now -eq $script:userWindow) { 'the window that had it' } else { 'another window' })] = $true
         }
     } catch { if (-not $script:hideError) { $script:hideError = $_.Exception.Message } }
 }
 function Show-SandboxWindow {
     foreach ($p in Get-OurClients) {
-        try { [SandboxCheckWindow]::Bring([uint32]$p.Id, $screen.Left + 64, $screen.Top + 64) } catch { }
+        try { [SandboxCheckWindow]::Bring([uint32]$p.Id, $corner.Left + 64, $corner.Top + 64) } catch { }
     }
 }
 function Put-SandboxWindowBack {
     $ours = @(Get-OurClients)
     foreach ($p in $ours) {
-        try { [SandboxCheckWindow]::PutBack([uint32]$p.Id, $screen.Left + 64, $screen.Top + 64, $screen.Right) } catch { }
+        try { [SandboxCheckWindow]::PutBack([uint32]$p.Id, $corner.Left + 64, $corner.Top + 64, $screen.Right) } catch { }
     }
     if ($ours.Count) { Start-Sleep -Milliseconds 300 }   # the moves are posted; let them land
 }
