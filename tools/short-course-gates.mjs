@@ -1068,18 +1068,22 @@ ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<
 ok('chapters picked that come to too few words say so, and Create waits for more',
     /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
-// Clear was the only way out of a pasted transcript that came to too little,
-// and it threw the pasted text away with the read.
-// The handler's own body is read, so a reset of the text on any line of it fails.
-const backHandler = (stripSource.match(/actions = pasted\s*\?[\s\S]*?<Button variant="quiet" onClick=\{\(\) => \{([\s\S]*?)\}\}>\{t\("Back"\)\}<\/Button>/) || [])[1] ?? null;
-ok('a pasted transcript too small for a course goes Back to its box with the text kept, and the read is let go',
-    backHandler !== null
-    && /discardShortSource\(read\.stagedId\)/.test(backHandler)
-    && /setBox\(\{ state: 'transcript', title: read\.title, url: read\.url \}\)/.test(backHandler)
-    && !/setTranscript\(|clear\(/.test(backHandler));
-// A transcript read had no controller: Cancel emptied the box (and the text),
-// then the late result appeared anyway, and its Back opened an empty box.
+// A pasted transcript that came to too little left its box for a line with
+// Clear, which threw the text away; then for Clear and Back, two grey words
+// strangers could not choose between. It now stays in its box, text and all.
 const fromTranscriptBody = (stripSource.match(/const fromTranscript = async[\s\S]*?\n {4}\};\n/) || [''])[0];
+const tooSmallBranch = (fromTranscriptBody.match(/if \(r\.ok && r\.size === 'too-small'\) \{([\s\S]*?)\n {12}\}/) || [])[1] ?? null;
+ok('a pasted transcript too small for a course stays in its box with the text and its word count, and the read is let go',
+    tooSmallBranch !== null
+    && /discardShortSource\(r\.stagedId\)/.test(tooSmallBranch)
+    && /setBox\(\{ state: 'transcript', title, url, short: r\.words \}\)/.test(tooSmallBranch)
+    && /return;/.test(tooSmallBranch)
+    && !/setTranscript\(|clear\(|show\(/.test(tooSmallBranch)
+    && /box\.short != null && \([\s\S]{0,200}t\("\{\{words\}\} words", \{ count: box\.short, words: num\(box\.short\) \}\)\} · \{t\("Too little for a course\."\)\}/.test(stripSource)
+    && /if \(box\.short != null\) setBox\(\{ \.\.\.box, short: undefined \}\)/.test(stripSource)
+    && !/\{t\("Back"\)\}<\/Button><\/>/.test(stripSource));
+// A transcript read had no controller: Cancel emptied the box (and the text),
+// then the late result appeared anyway over the empty box.
 ok('a transcript read is dropped once Cancel or a newer read takes the box',
     /abortRef\.current = ac;/.test(fromTranscriptBody)
     && /readShortSource\(\{ transcript: pasted,[^)]*\}, ac\.signal\)/.test(fromTranscriptBody)

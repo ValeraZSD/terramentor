@@ -85,7 +85,7 @@ type Box =
     | { state: 'reading'; where: string; detail: string }
     | { state: 'read'; read: ShortReadOk; pasted?: string }
     | { state: 'unreadable'; fail: ShortReadFail; where: string; link: string | null }
-    | { state: 'transcript'; title: string; url: string | null }
+    | { state: 'transcript'; title: string; url: string | null; short?: number }
     | { state: 'chapters'; read: ShortReadOk; picked: number[] };
 
 function useReadLine() {
@@ -210,6 +210,13 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
         try {
             const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined }, ac.signal);
             if (ac.signal.aborted) return;
+            // Too little stays in its box with the text, saying how much there
+            // was, so more can be pasted; the read made from it is let go.
+            if (r.ok && r.size === 'too-small') {
+                void api.discardShortSource(r.stagedId).catch(() => { });
+                setBox({ state: 'transcript', title, url, short: r.words });
+                return;
+            }
             if (r.ok && r.size === 'ok' && r.ai) {
                 setBusy(false);
                 await create({ stagedId: r.stagedId }, r);
@@ -270,12 +277,21 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 <TextArea
                     aria-label={t("The video's transcript")}
                     value={transcript}
-                    onChange={e => setTranscript(e.target.value)}
+                    onChange={e => {
+                        setTranscript(e.target.value);
+                        // The count was of the text sent; edited, it no longer holds.
+                        if (box.short != null) setBox({ ...box, short: undefined });
+                    }}
                     rows={5}
                     autoFocus
                     className="block leading-6 resize-y"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                    {box.short != null && (
+                        <span role="status" className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                            {t("{{words}} words", { count: box.short, words: num(box.short) })} · {t("Too little for a course.")}
+                        </span>
+                    )}
                     <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
                     <Button variant="primary" busy={busy} disabled={!transcript.trim()}onClick={() => void fromTranscript(box.title, box.url)}>
                         {t("Create short course")}
@@ -408,14 +424,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                 );
             } else if (read.size === 'too-small') {
                 second = t("Too little for a course.");
-                // A pasted transcript goes back to its box with the text still in it,
-                // so more can be added; the source read from it is let go.
-                actions = pasted
-                    ? <>{clearButton}<Button variant="quiet" onClick={() => {
-                        void api.discardShortSource(read.stagedId).catch(() => { });
-                        setBox({ state: 'transcript', title: read.title, url: read.url });
-                    }}>{t("Back")}</Button></>
-                    : clearButton;
+                actions = clearButton;
             } else if (!read.ai) {
                 second = `${readLine(read, !!pasted)} · ${t("Writing it needs an AI connection.")}`;
                 actions = <>{clearButton}<ConnectAIActions returnTo="/projects" /></>;
