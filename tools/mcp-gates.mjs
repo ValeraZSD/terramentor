@@ -15,18 +15,23 @@
 //   3. No credential reaches a result: not the API key, the password, its hash,
 //      the session secret or the provider key — in any answer or any error.
 //   4. Nothing a tool writes can clear the mastery gate. A claim (an answer the
-//      harness graded itself) never raises an estimate, never writes a
-//      mastery_evidence row, and is never counted by checkMasteryEligibility;
-//      a wrong one may lower it, once until the app records an answer of its
-//      own on that topic or rebuilds the estimate from its own answers, and
-//      never under a head start that still stands. The same attempt id twice
-//      is one claim, and its retry does not repeat the first outcome; the same
-//      id for another answer is refused.
-//   5. A wrong claim does not take a topic off fading recall: a topic proven
-//      over 0.5 and left alone stays on the plan's list, Today's and the
-//      recall cards, one at 0.45 stays off, and once the app's own answers or
-//      a rebuild move the estimate the topic follows its real score. Both
-//      lists read one definition and agree at every step.
+//      harness graded itself) never writes a mastery_evidence row and is never
+//      counted by checkMasteryEligibility. A right one may lift the estimate a
+//      step at a time up to the cap a head start gets (0.6, under any pass
+//      line), never while a wrong claim has lowered the topic since the app's
+//      last answer there, and the gate reads the same number with the lift as
+//      without it, after later answers too. A wrong one may lower it, once
+//      until the app records an answer of its own on that topic or rebuilds
+//      the estimate from its own answers, and never under a head start that
+//      still stands. The same attempt id twice is one claim, and its retry
+//      does not repeat the first outcome; the same id for another answer is
+//      refused.
+//   5. Claims alone move no topic on or off fading recall: a topic proven over
+//      0.5 and lowered by a wrong claim stays on the plan's list, Today's and
+//      the recall cards, one at 0.45 stays off whether a wrong claim lowers it
+//      or right claims lift it over 0.5, and once the app's own answers or a
+//      rebuild move the estimate the topic follows its real score. Both lists
+//      read one definition and agree at every step.
 //   6. Without the key a password-locked app answers nothing, and the HTTP
 //      listener holds no key of its own: it forwards the caller's. A redirect
 //      from the app is not followed, and an unusable TERRAMENTOR_URL is
@@ -50,7 +55,17 @@
 //      rated only after its answer is shown and once per presentation, Undo
 //      restores every field the rating wrote, and a rating in the view
 //      writes exactly the evidence the same rating writes in the app: card
-//      evidence, never an assessment.
+//      evidence, never an assessment. Once a check is graded, the model is
+//      told each question the learner missed, the answer given and the right
+//      one, and get_mastery lists the last graded check's; nothing of a check
+//      still open.
+//  11. A host that asks its user for input (MCP elicitation) and draws no
+//      views gets the check as one form, on the 2025 protocol (a pushed
+//      elicitation/create) and on 2026-07-28 (one input_required round): no
+//      key in it, a code question left out, the answers graded and written by
+//      the app as one mastery check, and the review in the tool result. A
+//      declined or cancelled form, or a requestState the server never issued,
+//      records nothing.
 
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
@@ -176,8 +191,13 @@ const childEnv = (extra) => {
 
 const children = new Set();
 
-/** `node mcp/index.js` on stdio, as Claude Code or Claude Desktop launches it. */
-function stdioServer(env) {
+/**
+ * `node mcp/index.js` on stdio, as Claude Code or Claude Desktop launches it.
+ * `answer(request)`, when given, answers each request the server sends the
+ * client (an elicitation/create) with what it returns; without it they go
+ * unanswered, as before any test needed them.
+ */
+function stdioServer(env, { answer } = {}) {
     const child = spawn(process.execPath, [ENTRY], { env: childEnv(env), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     children.add(child);
     let buf = '', stderr = '', exited = null, nextId = 1;
@@ -191,7 +211,9 @@ function stdioServer(env) {
             if (!line) continue;
             let msg;
             try { msg = JSON.parse(line); } catch { continue; }
-            if (msg.id != null && waiting.has(msg.id)) { waiting.get(msg.id).resolve(msg); waiting.delete(msg.id); }
+            if (msg.method && msg.id != null) {
+                if (answer) Promise.resolve(answer(record(msg))).then((result) => send({ jsonrpc: '2.0', id: msg.id, result }));
+            } else if (msg.id != null && waiting.has(msg.id)) { waiting.get(msg.id).resolve(msg); waiting.delete(msg.id); }
         }
     });
     child.stderr.on('data', (d) => { stderr += d; });
@@ -370,15 +392,21 @@ console.log('\n--- a claim cannot clear the gate ---');
     }
     ok('25 right answers claimed on each topic are recorded', allOk
         && db.prepare('SELECT COUNT(*) AS n FROM mastery_claims WHERE node_id IN (?, ?) AND correct = 1').get(fresh, studied).n === 50);
-    ok('…raise neither estimate', scoreOf(fresh) <= freshBefore && scoreOf(studied) <= studiedBefore, `${freshBefore}→${scoreOf(fresh)}, ${studiedBefore}→${scoreOf(studied)}`);
+    // A head start's cap, under the gate's 0.85: right claims lift a topic
+    // never answered here to it and no further, and leave one already over it.
+    const CAP = mastery.practiceCeiling(0.85);
+    ok('…lift each estimate at most to the cap a head start gets (0.6), under the gate\'s line',
+        freshBefore === 0 && Math.abs(scoreOf(fresh) - CAP) < 1e-9 && scoreOf(studied) <= Math.max(studiedBefore, CAP) + 1e-9,
+        `${freshBefore}→${scoreOf(fresh)}, ${studiedBefore}→${scoreOf(studied)}`);
     ok('…clear neither topic\'s gate', !gate(fresh).eligible && !gate(studied).eligible);
     ok('…and write no mastery_evidence row', evidenceRows() === evidenceBefore, `${evidenceBefore} → ${evidenceRows()}`);
     ok('…nor count as the topic\'s own answers', gate(fresh).own_answers === 0 && gate(fresh).evidence_count === 0);
 
     const effectOf = (msg) => msg?.result?.structuredContent?.effect;
+    const beforeWrong = scoreOf(studied);
     const wrong = await call('record_claim', { topic: String(studied), correct: false });
-    ok('a wrong claim may lower an estimate', !isErr(wrong) && scoreOf(studied) < studiedBefore && effectOf(wrong) === 'lowered',
-        `${studiedBefore} → ${scoreOf(studied)}, ${effectOf(wrong)}`);
+    ok('a wrong claim may lower an estimate', !isErr(wrong) && scoreOf(studied) < beforeWrong && effectOf(wrong) === 'lowered',
+        `${beforeWrong} → ${scoreOf(studied)}, ${effectOf(wrong)}`);
     ok('…and says it was recorded as a claim, not as evidence', /claim/i.test(textOf(wrong)) && !/proven|passed the gate/i.test(textOf(wrong)), textOf(wrong).slice(0, 200));
     ok('…and promises nothing the app does not do', !/sooner|bring .* back/i.test(textOf(wrong)), textOf(wrong).slice(0, 200));
 
@@ -457,6 +485,75 @@ console.log('\n--- a claim cannot clear the gate ---');
 
     const m = await call('get_mastery', { topic: String(fresh) });
     ok('get_mastery counts the claims apart from the evidence', /claim/i.test(textOf(m)) && m?.result?.structuredContent?.claims?.total === 25, JSON.stringify(m?.result?.structuredContent?.claims || null));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- a right claim lifts the estimate a little, and never the gate ---');
+{
+    const CAP = mastery.practiceCeiling(0.85);
+    const gate = (id) => mastery.checkMasteryEligibility(id, 0.85, 0.8);
+    const effectOf = (msg) => msg?.result?.structuredContent?.effect;
+    const rowOf = (id) => db.prepare('SELECT mastery_score, total_attempts, last_updated FROM node_mastery WHERE node_id = ?').get(id);
+    // Two topics with the same weak quiz; claims go to one of them only.
+    const claimed = addNode('Refraction', section, { position: 11 });
+    const twin = addNode('Refraction, without claims', section, { position: 12 });
+    for (const id of [claimed, twin]) mastery.updateMasteryFromAttempt(id, 1, 4, 'quiz');
+    const start = rowOf(claimed);
+    const evidence0 = evidenceRows();
+    const first = await call('record_claim', { topic: String(claimed), correct: true, question_type: 'short_answer', attempt_id: 'lift-1' });
+    const lifted = rowOf(claimed);
+    ok('a right claim lifts an estimate under the cap, says by how much, and moves nothing else (no evidence, answer count or decay timer)',
+        effectOf(first) === 'raised' && lifted.mastery_score > start.mastery_score && lifted.mastery_score <= CAP + 1e-9 && /went from/i.test(textOf(first))
+        && evidenceRows() === evidence0 && lifted.total_attempts === start.total_attempts && lifted.last_updated === start.last_updated,
+        `${JSON.stringify(start)} → ${JSON.stringify(lifted)} (${effectOf(first)}) ${textOf(first).slice(0, 160)}`);
+    let last = null;
+    for (let i = 2; i <= 12; i++) last = await call('record_claim', { topic: String(claimed), correct: true, attempt_id: `lift-${i}` });
+    ok('right claims stop at the cap (0.6) and say so', Math.abs(scoreOf(claimed) - CAP) < 1e-9 && effectOf(last) === 'at_cap',
+        `${scoreOf(claimed)} (${effectOf(last)})`);
+    const g = gate(claimed), gt = gate(twin);
+    ok('the gate reads the number the topic\'s answers earn without the claims, and the learner sees the lift',
+        Math.abs(g.gate_score - gt.gate_score) < 1e-9 && !g.eligible && Math.abs(g.shown_score - CAP) < 1e-9 && gt.shown_score < CAP,
+        `gate ${g.gate_score} vs ${gt.gate_score}, shown ${g.shown_score} vs ${gt.shown_score}`);
+    // A later answer of the app's own starts from the stored estimate, lifted
+    // by the claims: what the topic knows keeps the lift, the gate must not.
+    for (const id of [claimed, twin]) mastery.updateMasteryFromAttempt(id, 4, 4, 'quiz');
+    const g2 = gate(claimed), gt2 = gate(twin);
+    ok('after a later quiz the estimate keeps the lift and the gate still reads exactly the number without the claims',
+        scoreOf(claimed) > scoreOf(twin) && Math.abs(g2.gate_score - gt2.gate_score) < 1e-9 && g2.eligible === gt2.eligible,
+        `stored ${scoreOf(claimed)} vs ${scoreOf(twin)}, gate ${g2.gate_score} vs ${gt2.gate_score}`);
+
+    // Once a wrong claim has lowered a topic, right claims lift nothing until
+    // the app's own next answer there: a loop of right and wrong claims cannot
+    // move the topic up and down.
+    const held = addNode('Diffraction', section, { position: 13 });
+    mastery.updateMasteryFromAttempt(held, 2, 4, 'quiz');
+    const lowered = await call('record_claim', { topic: String(held), correct: false, attempt_id: 'held-w' });
+    const afterLowered = scoreOf(held);
+    const loop = [];
+    for (let i = 0; i < 4; i++) {
+        loop.push(effectOf(await call('record_claim', { topic: String(held), correct: true, attempt_id: `held-r${i}` })));
+        loop.push(effectOf(await call('record_claim', { topic: String(held), correct: false, attempt_id: `held-w${i}` })));
+    }
+    ok('after a wrong claim has lowered a topic, right claims are held and wrong ones spent: a loop of both moves nothing',
+        effectOf(lowered) === 'lowered' && loop.every((e, i) => e === (i % 2 ? 'already_lowered' : 'held')) && scoreOf(held) === afterLowered,
+        `${effectOf(lowered)} ${afterLowered} → ${scoreOf(held)} ${loop.join(',')}`);
+    mastery.updateMasteryFromAttempt(held, 2, 4, 'quiz');
+    const afterOwn = scoreOf(held);
+    const rearmed = await call('record_claim', { topic: String(held), correct: true, attempt_id: 'held-after-quiz' });
+    ok('…until the app records an answer of its own there', effectOf(rearmed) === 'raised' && scoreOf(held) > afterOwn,
+        `${afterOwn} → ${scoreOf(held)} (${effectOf(rearmed)})`);
+
+    // A head start at the cap: claims and seeds combine by MAX, so nothing to add.
+    const headStart = addNode('Superposition', section, { position: 14 });
+    mastery.applySeededPrior(headStart, 'placement', 0.6);
+    const onSeed = await call('record_claim', { topic: String(headStart), correct: true, attempt_id: 'seed-right' });
+    const seedRow = db.prepare('SELECT mastery_score, placement_prior FROM node_mastery WHERE node_id = ?').get(headStart);
+    ok('a right claim on a head start at the cap adds nothing and keeps the head start', effectOf(onSeed) === 'at_cap'
+        && seedRow.mastery_score === 0.6 && seedRow.placement_prior === 0.6, `${JSON.stringify(seedRow)} (${effectOf(onSeed)})`);
+
+    const m = await call('get_mastery', { topic: String(claimed) });
+    ok('get_mastery says right claims lifted the estimate, up to 60%, and that the gate does not count them',
+        /claims? .*lift/i.test(textOf(m)) && /60%/.test(textOf(m)) && !/never raises/i.test(textOf(m)), textOf(m).slice(-400));
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +642,22 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
     ok('…and after a rebuild from its own evidence', effectOf(third) === 'lowered' && heldOn && row(reported).mastery_score <= 0.5 && off(reported, 'rebuilt'),
         `${effectOf(third)} held ${heldOn}, rebuilt to ${row(reported).mastery_score} ${shown('rebuilt')}`);
 
-    // Three topics, under the plan's LIMIT 10: this pins the shared predicate,
+    // Right claims lift a topic at 0.45 over the bar. A claim alone brings no
+    // topic onto recall, and a wrong claim after them takes it no lower than
+    // where they found it.
+    const echoes = addNode('Echoes', sound, { position: 3 });
+    mastery.updateMasteryFromAttempt(echoes, 2, 4, 'quiz');
+    db.prepare('UPDATE node_mastery SET mastery_score = 0.45, last_updated = ? WHERE node_id = ?').run(LONG_AGO, echoes);
+    const lifts = [];
+    for (let i = 0; i < 6; i++) lifts.push(effectOf(await call('record_claim', { topic: String(echoes), correct: true, attempt_id: `echoes-${i}` })));
+    const liftedTo = row(echoes).mastery_score;
+    const offWhenLifted = off(echoes, 'lifted');
+    const wrongAfter = await call('record_claim', { topic: String(echoes), correct: false, attempt_id: 'echoes-wrong' });
+    ok('right claims that lift a topic at 0.45 over 0.5 do not put it on fading recall, nor does a wrong claim after them',
+        lifts[0] === 'raised' && liftedTo > 0.5 && offWhenLifted && effectOf(wrongAfter) === 'lowered' && off(echoes, 'lifted, then lowered'),
+        `${lifts.join(',')} → ${liftedTo}, ${effectOf(wrongAfter)} → ${row(echoes).mastery_score} ${shown('lifted, then lowered')}`);
+
+    // Four topics, under the plan's LIMIT 10: this pins the shared predicate,
     // not what either list does past a cap.
     ok('the plan\'s list and Today agree at every step, below the plan\'s cap of 10', disagreed.length === 0, disagreed.join('; '));
     // One definition, so the two cannot drift: each reader's query, from its
@@ -1045,6 +1157,13 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
             && JSON.stringify(submitted.answers) === JSON.stringify(expected), JSON.stringify({ submitted, expected }));
         const told = contexts()[0]?.params?.structuredContent || {};
         ok('the learner\'s score is passed to the model once the app has graded it', told.total === BANK.length && told.score === 1 && told.passed === false, JSON.stringify(told));
+        // Four missed: three left blank and the ordering left as served.
+        const toldText = contexts()[0]?.params?.content?.[0]?.text || '';
+        const missedTold = Array.isArray(told.missed) ? told.missed : [];
+        ok('…and each question the learner missed, with the answer given, the right one and why',
+            missedTold.length === BANK.length - 1 && missedTold.every(m => toldText.includes(m.question) && String(m.correctAnswer ?? '').length > 0)
+            && BANK.filter((b, i) => i !== picked).every(b => toldText.includes(b.question)) && toldText.includes(EXPL),
+            `${JSON.stringify(missedTold).slice(0, 300)} | ${toldText.slice(0, 300)}`);
     } finally {
         checkView.close();
     }
@@ -1055,6 +1174,14 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const fr = data(failed).result || {};
     ok('a submitted check is graded by the app: 3 of 5, not passed', !isErr(failed) && fr.score === 3 && fr.total === 5 && fr.passed === false, JSON.stringify(fr).slice(0, 300));
     ok('the key and explanation come back only after the answer', (fr.items || []).every(i => 'correctAnswer' in i) && JSON.stringify(fr).includes(EXPL));
+    // Right: the choice, true/false and number. Missed: the ordering (left as
+    // served) and the gap ("no idea").
+    const afterFail = await hostCall('get_mastery', { topic: checkedTopic });
+    const reviewText = textOf(afterFail);
+    ok('get_mastery then lists the check\'s missed questions with the answers given and the right ones, and none it got right',
+        reviewText.includes(BANK[3].question) && reviewText.includes(BANK[4].question) && reviewText.includes('no idea') && reviewText.includes(FILL_KEY)
+        && reviewText.includes('fundamental') && !reviewText.includes(BANK[0].question) && !reviewText.includes(BANK[1].question),
+        reviewText.slice(-600));
     ok('one check, one mastery_check evidence row, marked as taken in a view', checkEvidence() === evidenceBeforeCheck + 1
         && JSON.parse(db.prepare("SELECT metadata FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check' ORDER BY id DESC").get(checkedTopic).metadata).via === 'agent_view');
     // Red: the same sitting submitted again, with other answers.
@@ -1298,6 +1425,148 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const closeFromReview = await hostCall('check_complete', { sitting: rs });
     ok('a review session has no way to complete a topic', isErr(closeFromReview) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(carded).status !== 'completed');
     host.close();
+}
+
+// ---------------------------------------------------------------------------
+console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
+{
+    // One question of each format a form can ask, and a code question, which
+    // needs a multi-line editor no form field is.
+    const EXPL = 'FORM-EXPLANATION-CANARY';
+    const FORM_BANK = [
+        { uuid: 'form-mc', type: 'multiple_choice', question: 'What does a wave carry from place to place?', options: ['Matter', 'Energy', 'Air', 'Nothing'], correct_answer: 'Energy', explanation: `${EXPL}-mc Energy, not matter.` },
+        { uuid: 'form-tf', type: 'true_false', question: 'A louder sound has a larger amplitude.', correct_answer: 'True', explanation: `${EXPL}-tf Loudness is amplitude.` },
+        { uuid: 'form-num', type: 'numeric', question: 'A 5 Hz wave is 2 m long. How fast does it travel?', correct_answer: '10', unit: 'm/s', explanation: `${EXPL}-num Frequency times wavelength.` },
+        { uuid: 'form-seq', type: 'sequence', question: 'Order these by frequency, lowest first.', items: ['visible light', 'radio waves', 'X-rays'], correct_answer: JSON.stringify(['radio waves', 'visible light', 'X-rays']), explanation: `${EXPL}-seq Radio is lowest.` },
+        { uuid: 'form-asm', type: 'assemble', question: 'Complete the relation for a wave\'s speed.', template: 'speed = ___ × ___', tokens: ['frequency', 'wavelength', 'amplitude'], correct_answer: JSON.stringify(['frequency', 'wavelength']), explanation: `${EXPL}-asm Speed is frequency times wavelength.` },
+        { uuid: 'form-fill', type: 'fill_in', question: 'How far a wave rises from its rest line is its ___.', correct_answer: 'amplitude', explanation: `${EXPL}-fill The amplitude.` },
+        { uuid: 'form-code', type: 'code', language: 'python', question: 'Write speed(f, lam) that returns the wave\'s speed.', starter: 'def speed(f, lam):\n    pass', correct_answer: 'def speed(f, lam):\n    return f * lam', explanation: `${EXPL}-code Multiply them.` },
+    ];
+    const bankTopic = (title, position) => {
+        const id = addNode(title, section, { position });
+        db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)')
+            .run(id, title, JSON.stringify(FORM_BANK.map(b => ({ ...b, uuid: `${b.uuid}-${id}` }))));
+        return id;
+    };
+    const evidenceOn = (id) => db.prepare("SELECT COUNT(*) AS n FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check'").get(id).n;
+    const fieldsOf = (params) => params?.requestedSchema?.properties || {};
+    // Question n's fields: `q<n>`, or `q<n>_<k>` for a question with several
+    // (a position in an ordering, a gap in an assembly).
+    const fieldNames = (props, n) => Object.keys(props).filter(k => k === `q${n}` || k.startsWith(`q${n}_`));
+    const questionOf = (props, n) => {
+        const said = fieldNames(props, n).map(k => `${props[k].title || ''} ${props[k].description || ''}`).join(' ');
+        return FORM_BANK.find(b => said.includes(b.question));
+    };
+    // The learner's answers: `right` holds the formats answered right, `blank`
+    // the ones left empty; every other is answered wrong.
+    const fill = (params, { right = [], blank = [] } = {}) => {
+        const props = fieldsOf(params);
+        const content = {};
+        for (let n = 1; fieldNames(props, n).length; n++) {
+            const q = questionOf(props, n);
+            if (!q || blank.includes(q.type)) continue;
+            const ok = right.includes(q.type);
+            if (q.type === 'sequence') (ok ? JSON.parse(q.correct_answer) : q.items).forEach((it, k) => { content[`q${n}_${k + 1}`] = it; });
+            else if (q.type === 'assemble') (ok ? JSON.parse(q.correct_answer) : ['amplitude', 'frequency']).forEach((p, k) => { content[`q${n}_${k + 1}`] = p; });
+            else if (q.type === 'multiple_choice') content[`q${n}`] = ok ? q.correct_answer : 'Matter';
+            else if (q.type === 'true_false') content[`q${n}`] = ok ? 'True' : 'False';
+            else content[`q${n}`] = ok ? q.correct_answer : 'no idea';
+        }
+        return content;
+    };
+    const asked = [];
+    let respond = () => ({ action: 'cancel' });
+    const formHost = stdioServer({ TERRAMENTOR_URL: appUrl, TERRAMENTOR_API_KEY: API_KEY }, {
+        answer: (msg) => { asked.push(msg); return respond(msg.params); },
+    });
+    record(await formHost.rpc('initialize', { protocolVersion: '2025-11-25', capabilities: { elicitation: { form: {} } }, clientInfo: { name: 'mcp-gates-form', version: '1.0.0' } }));
+    formHost.notify('notifications/initialized');
+    const formCall = (topic) => call('mastery_check', { topic }, formHost);
+
+    // Three right (the choice, true/false and the assembly), one left blank
+    // (the gap), the rest wrong.
+    const formTopic = bankTopic('Wave energy', 15);
+    const before = evidenceOn(formTopic);
+    respond = (params) => ({ action: 'accept', content: fill(params, { right: ['multiple_choice', 'true_false', 'assemble'], blank: ['fill_in'] }) });
+    const taken = await formCall(formTopic);
+    const form = asked[0]?.params || {};
+    const props = fieldsOf(form);
+    const questionsAsked = [];
+    for (let n = 1; fieldNames(props, n).length; n++) questionsAsked.push(questionOf(props, n)?.type);
+    const formJson = JSON.stringify(asked[0] || {});
+    ok('a host that asks its user for input, and draws no views, gets the check as ONE form: every question but the code one, no key',
+        asked.length === 1 && asked[0].method === 'elicitation/create' && (form.mode ?? 'form') === 'form' && /Wave energy/.test(form.message || '')
+        && questionsAsked.length === FORM_BANK.length - 1 && !questionsAsked.includes('code') && questionsAsked.every(Boolean)
+        && !/correct_?answer|explanation|"accept"|distractors/i.test(formJson) && !formJson.includes(EXPL)
+        && Object.values(props).every(p => p.type === 'string' && !('properties' in p)),
+        `${asked.length} requests; ${JSON.stringify(questionsAsked)}; ${formJson.slice(0, 400)}`);
+    ok('…the choices are the question\'s own: its options, an ordering\'s items at each position, an assembly\'s pieces at each gap',
+        Object.keys(props).length > 0 && Object.entries(props).every(([k, p]) => {
+            const q = questionOf(props, Number(/^q(\d+)/.exec(k)?.[1]));
+            if (q?.type === 'multiple_choice') return JSON.stringify(p.enum) === JSON.stringify(q.options);
+            if (q?.type === 'true_false') return JSON.stringify(p.enum) === '["True","False"]';
+            if (q?.type === 'sequence') return JSON.stringify([...(p.enum || [])].sort()) === JSON.stringify([...q.items].sort());
+            if (q?.type === 'assemble') return JSON.stringify(p.enum) === JSON.stringify(q.tokens);
+            return !p.enum;
+        }), JSON.stringify(props).slice(0, 600));
+    const result = taken?.result?.structuredContent?.result || {};
+    const said = textOf(taken);
+    ok('the app grades and records the answers as one mastery check, marked as taken in a form', !isErr(taken) && evidenceOn(formTopic) === before + 1
+        && JSON.parse(db.prepare("SELECT metadata FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check' ORDER BY id DESC").get(formTopic)?.metadata || '{}').via === 'agent_form'
+        && result.score === 3 && result.total === 6 && result.passed === false, `${said.slice(0, 300)} ${JSON.stringify(result).slice(0, 200)}`);
+    const missed = Array.isArray(result.missed) ? result.missed : [];
+    ok('what the agent receives: the score, and each missed question with the learner\'s answer, the right one and why; nothing on the ones got right',
+        /3 of 6|3\/6/.test(said) && missed.length === 3
+        && ['form-num', 'form-seq', 'form-fill'].every(u => said.includes(FORM_BANK.find(b => b.uuid === u).question) && said.includes(`${EXPL}-${u.slice(5)}`))
+        && said.includes('no idea') && said.includes('amplitude') && said.includes('radio waves')
+        && !said.includes(`${EXPL}-mc`) && !said.includes(`${EXPL}-tf`) && !said.includes(`${EXPL}-asm`), said);
+    const reviewed = await call('get_mastery', { topic: formTopic }, formHost);
+    ok('get_mastery shows the same review afterwards', textOf(reviewed).includes(FORM_BANK[2].question) && textOf(reviewed).includes(`${EXPL}-num`)
+        && !textOf(reviewed).includes(`${EXPL}-mc`), textOf(reviewed).slice(-500));
+
+    // Declined, or cancelled: the learner stopped; nothing is written.
+    for (const [action, done] of [['decline', 'declined'], ['cancel', 'cancelled']]) {
+        const t = bankTopic(`Wave power, ${action}`, 16);
+        respond = () => ({ action });
+        const r = await formCall(t);
+        ok(`a ${done} form records nothing, and the agent is told so`, !isErr(r) && evidenceOn(t) === 0 && /nothing (?:was )?recorded/i.test(textOf(r))
+            && !/correct|right answer/i.test(textOf(r)), textOf(r).slice(0, 240));
+    }
+
+    // The 2026-07-28 protocol: no initialize, the client's capabilities ride
+    // on every request, and the client fulfils the input itself.
+    const envelope = (caps) => ({
+        'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+        'io.modelcontextprotocol/clientCapabilities': caps,
+        'io.modelcontextprotocol/clientInfo': { name: 'mcp-gates-2026', version: '1.0.0' },
+    });
+    const modern = stdioServer({ TERRAMENTOR_URL: appUrl, TERRAMENTOR_API_KEY: API_KEY });
+    const modernCall = async (args, extra = {}) => record(await modern.rpc('tools/call', { name: 'mastery_check', arguments: args, _meta: envelope({ elicitation: {} }), ...extra }));
+    const newTopic = bankTopic('Wave speed in strings', 17);
+    const round1 = (await modernCall({ topic: newTopic }))?.result || {};
+    const inputs = Object.entries(round1.inputRequests || {});
+    const openReview = await call('get_mastery', { topic: newTopic }, modern);
+    ok('on 2026-07-28 the check is one input_required round with one form, and nothing of it reaches get_mastery while it is open',
+        round1.resultType === 'input_required' && typeof round1.requestState === 'string' && inputs.length === 1 && inputs[0][1].method === 'elicitation/create'
+        && !FORM_BANK.some(b => textOf(openReview).includes(b.question)) && evidenceOn(newTopic) === 0,
+        `${JSON.stringify(round1).slice(0, 300)} | ${textOf(openReview).slice(-200)}`);
+    const [key, request] = inputs[0] || [];
+    const answered = { [key]: { action: 'accept', content: fill(request?.params, { right: ['multiple_choice', 'true_false', 'numeric', 'sequence', 'assemble', 'fill_in'] }) } };
+    const round2 = await modernCall({ topic: newTopic }, { inputResponses: answered, requestState: round1.requestState });
+    const again = await modernCall({ topic: newTopic }, { inputResponses: answered, requestState: round1.requestState });
+    ok('…the retry with the answers records the check once, passed, and the same retry again records nothing more',
+        !isErr(round2) && round2?.result?.structuredContent?.result?.passed === true && evidenceOn(newTopic) === 1
+        && !isErr(again) && evidenceOn(newTopic) === 1 && db.prepare('SELECT status FROM nodes WHERE id = ?').get(newTopic).status === 'completed',
+        `${textOf(round2).slice(0, 200)} | ${textOf(again).slice(0, 200)}`);
+    const forgedTopic = bankTopic('Wave speed in water', 18);
+    const forged = await modernCall({ topic: forgedTopic }, { inputResponses: answered, requestState: 'F'.repeat(32) });
+    ok('a requestState the server never issued records nothing, and says the check has ended', evidenceOn(forgedTopic) === 0
+        && /ended|no longer open/i.test(textOf(forged)), textOf(forged).slice(0, 200));
+    const plain2026 = (await record(await modern.rpc('tools/call', { name: 'mastery_check', arguments: { topic: forgedTopic }, _meta: envelope({}) })))?.result || {};
+    ok('a 2026-07-28 client that takes no input gets the link, as before', plain2026.resultType !== 'input_required'
+        && textOf({ result: plain2026 }).includes(`/project/${pid}/tree/${forgedTopic}`), JSON.stringify(plain2026).slice(0, 200));
+    modern.close();
+    formHost.close();
 }
 
 // ---------------------------------------------------------------------------
