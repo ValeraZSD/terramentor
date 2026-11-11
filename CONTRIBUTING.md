@@ -282,7 +282,9 @@ To cut a stable release:
    or in one merged before the release is announced. Nightlies get the same pass before a
    stable is promoted from them.
 5. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
-   **Nightly** by hand with **nightly**) and try that build.
+   **Nightly** by hand with **nightly**) and try that build. On Windows,
+   `tools/windows-sandbox-check.ps1 -Tag <the nightly's tag>` tries its zip the way someone
+   who has never run Terramentor would ([docs/DESKTOP.md](docs/DESKTOP.md#how-it-is-built)).
 6. Run **Nightly** by hand with **stable**. It releases the commit of the latest nightly, not
    `main`'s head, so work merged since does not ride along. It rebuilds that commit, because
    the version is part of the build. When `package.json` at that commit is not newer than the
