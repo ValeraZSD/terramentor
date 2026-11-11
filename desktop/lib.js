@@ -253,7 +253,11 @@ export function browserArgs(url, profileDir, windowMode = DEFAULT_WINDOW_MODE) {
         `--user-data-dir=${profileDir}`,
         '--no-first-run',
         '--no-default-browser-check',
-        '--disable-features=TranslateUI',
+        // The feature is named `Translate`. `TranslateUI` names nothing in
+        // current Chromium or Edge, so it was ignored and Edge offered to
+        // translate the welcome screen "from English" on a Windows set to
+        // another language. With `Translate` off the offer never appears.
+        '--disable-features=Translate',
     ];
     // EXCLUSIVE, not additive. Chromium does not ignore `--window-size` when
     // `--start-maximized` is also given: measured in Edge with both flags and

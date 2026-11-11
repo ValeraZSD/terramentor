@@ -241,6 +241,10 @@ console.log('\n--- which browser opens the window ---');
     check('app mode', args[0], '--app=http://127.0.0.1:3001');
     ok('a dedicated profile, so the window is its own instance', args.some((a) => a.startsWith('--user-data-dir=')));
     ok('no first-run prompts', args.includes('--no-first-run') && args.includes('--no-default-browser-check'));
+    // Chromium's feature is `Translate`; an unknown name such as `TranslateUI`
+    // is ignored silently and the translate offer comes back.
+    const disabled = args.filter((a) => a.startsWith('--disable-features=')).flatMap((a) => a.slice('--disable-features='.length).split(','));
+    ok('no offer to translate the app window', disabled.includes('Translate'));
 
     check('default browser, Windows', defaultBrowserCommand('http://x', 'win32'), { cmd: 'cmd.exe', args: ['/c', 'start', '', 'http://x'] });
     // `open` answers by its exit: a browser LaunchServices could not start is a failure, not a start.
