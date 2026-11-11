@@ -48,6 +48,31 @@ ok('lucide still exports Sparkles (the forbidden set is not empty)', FORBIDDEN.h
 const ALL = '*';
 const forbidden = (n) => n === ALL || FORBIDDEN.has(n);
 
+/** A brace list with its comments removed and its string literals kept
+ *  (`{ A = 'x//y', Sparkles }` keeps `Sparkles`). */
+function withoutComments(list) {
+    let out = '';
+    for (let i = 0; i < list.length; i++) {
+        const c = list[i];
+        if (c === '"' || c === "'" || c === '`') {
+            let j = i + 1;
+            while (j < list.length && list[j] !== c) j += list[j] === '\\' ? 2 : 1;
+            out += list.slice(i, j + 1);
+            i = j;
+        } else if (c === '/' && list[i + 1] === '*') {
+            const end = list.indexOf('*/', i + 2);
+            i = end < 0 ? list.length : end + 1;
+            out += ' ';
+        } else if (c === '/' && list[i + 1] === '/') {
+            const end = list.indexOf('\n', i);
+            i = end < 0 ? list.length : end - 1;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
 /** Every name a file imports or re-exports from lucide-react, by its lucide
  *  name (`X as Y` → X). Comments are not code: a comment that opens a line is
  *  dropped first (only those, so a glob like 'src/**' + '/*.ts' in a string
@@ -57,8 +82,7 @@ export function lucideImports(source) {
     const names = [];
     if (/export\s+\*(?:\s+as\s+\w+)?\s+from\s*['"]lucide-react(?:\/[^'"]*)?['"]/.test(src)) names.push(ALL);
     for (const m of src.matchAll(/(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]lucide-react(?:\/[^'"]*)?['"]/g)) {
-        const list = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-        for (const part of list.split(',')) {
+        for (const part of withoutComments(m[1]).split(',')) {
             const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim();
             if (name) names.push(name);
         }
@@ -68,7 +92,7 @@ export function lucideImports(source) {
     for (const ns of src.matchAll(/import\s+\*\s+as\s+(\w+)\s+from\s*['"]lucide-react['"]/g)) {
         for (const use of src.matchAll(new RegExp(`\\b${ns[1]}\\.(\\w+)`, 'g'))) names.push(use[1]);
         for (const d of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${ns[1]}\\b`, 'g'))) {
-            for (const part of d[1].split(',')) {
+            for (const part of withoutComments(d[1]).split(',')) {
                 const name = part.trim().split(/\s*[:=]\s*/)[0].replace(/^\.\.\./, '').trim();
                 if (name) names.push(name);
             }
@@ -88,6 +112,11 @@ const sample = [
 const seen = lucideImports(sample).filter(forbidden);
 ok('detector: finds a plain, a renamed, a re-exported, a namespaced and a destructured sparkle',
     seen.join(',') === 'Sparkles,WandSparkles,Sparkle,Stars,Wand2', `got ${seen.join(',') || 'nothing'}`);
+const commented = lucideImports(
+    "import * as Icons from 'lucide-react'; const { /* icon */ Sparkles, Check = 'a//b', Stars } = Icons;",
+).filter(forbidden);
+ok('detector: a comment or a string inside a destructuring hides no sparkle',
+    commented.join(',') === 'Sparkles,Stars', `got ${commented.join(',') || 'nothing'}`);
 ok('detector: a whole-module re-export of lucide counts as importing every icon',
     lucideImports("export * from 'lucide-react';").some(forbidden));
 ok('detector: passes History and Compass, a commented-out import and a comment naming Sparkles',
