@@ -129,8 +129,12 @@ function removeUnfinishedNotice(projectId) {
 
 // The runs the last process was in the middle of when it ended: no catch
 // wrote their notice, so it is written now, once, as the app starts.
+// A short course (`made_from`) says so on its own strip and is written again
+// whole by its Retry, so it gets no notice.
+const isShortCourse = db.prepare('SELECT 1 FROM projects WHERE id = ? AND made_from IS NOT NULL').pluck();
 for (const id of interruptedCreations) {
     try {
+        if (isShortCourse.get(id)) continue;
         upsertUnfinishedNotice(id, 'The app was closed while this course was being created.');
     } catch (e) {
         console.error('[AI Creation] Could not mark an interrupted creation:', e.message);
@@ -993,10 +997,13 @@ function creationUnfinished(projectId, finished) {
 app.get('/api/ai/continue-creation/:projectId', (req, res) => {
     const projectId = requestedId(req.params.projectId);
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const project = db.prepare('SELECT id, kind, creation_finished FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, kind, creation_finished, made_from FROM projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const running = activeGenerations.has(projectId);
-    res.json({ canContinue: !running && project.kind !== 'deck' && creationUnfinished(projectId, project.creation_finished), running });
+    // A short course is one flat list of topics by design: its topics are not
+    // phases waiting for sections.
+    const outlined = project.kind !== 'deck' && project.made_from == null;
+    res.json({ canContinue: !running && outlined && creationUnfinished(projectId, project.creation_finished), running });
 });
 
 /**
@@ -1023,9 +1030,10 @@ app.get('/api/ai/continue-creation/:projectId', (req, res) => {
 app.post('/api/ai/continue-creation', async (req, res) => {
     const projectId = requestedId(req.body?.projectId);
     if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-    const project = db.prepare('SELECT id, name, description, summary, color, kind FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name, description, summary, color, kind, made_from FROM projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (project.kind === 'deck') return res.status(400).json({ error: 'A card project has no outline to continue' });
+    if (project.made_from != null) return res.status(400).json({ error: 'A short course has no outline to continue' });
     // A run stopped a moment ago may still be unwinding its last call: Stop
     // and then Continue is waited out, a run still going is not. While it
     // waits this request is in no registry a Stop could find, so a client

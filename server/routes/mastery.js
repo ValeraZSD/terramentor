@@ -4,6 +4,7 @@ import {
     ATTEMPT_ID_ERROR, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
 } from '../mastery.js';
 import { recordMasteryCheck } from '../masteryCheck.js';
+import { masteryCheckTarget } from '../today.js';
 import { generateDailyPlan, getGhostQuestions } from '../dailyPlan.js';
 import { getGateConfig } from '../settingsStore.js';
 import { readAttempt } from './request.js';
@@ -52,10 +53,10 @@ app.post('/api/nodes/:nodeId/mastery/quiz', (req, res) => {
 
 // Practice-drill round. Recorded under its own `drill` evidence type:
 // updateMasteryFromAttempt applies BKT for any type, so a round sharpens the
-// retention estimate and refreshes the decay timer — but checkMasteryEligibility's
-// raw-score clause honours only `quiz`/`mastery_check`, so a drill can never clear
-// the completion gate on its own. Practice tunes the estimate; proving needs an
-// assessment.
+// retention estimate and refreshes the decay timer — but checkMasteryEligibility
+// reads the estimate with drills and cards taken out and its raw-score clause
+// honours only `quiz`/`mastery_check`/`paper`, so a drill can never clear the
+// completion gate. Practice tunes the estimate; proving needs an assessment.
 /**
  * Which drill on a topic a round was played on: `drillKeyOf` in
  * `src/components/drills/parseDrill.ts` (an 8-hex-digit hash of the fence) or
@@ -133,6 +134,9 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
     const { score, total } = attempt;
     const attemptId = readAttemptId(req.body.attemptId);
     if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
+    // Recorded only where it could have been drawn: on a topic.
+    const target = masteryCheckTarget(nodeId);
+    if (target.refused) return res.status(target.httpStatus).json({ error: target.refused, code: target.code });
     try {
         // The write itself is server/masteryCheck.js, shared with the check an
         // agent host draws in its own window.
@@ -160,7 +164,12 @@ app.get('/api/projects/:projectId/ghost-questions', (req, res) => {
     const max = parseInt(req.query.max) || 2;
     try {
         const ghosts = getGhostQuestions(req.params.projectId, max, getGateConfig().decayDays);
-        res.json(ghosts);
+        // Each question with its own row: a topic's picks can come from two
+        // of its quiz rows, and `quizIndex` means nothing without the row.
+        res.json(ghosts.map(({ picks, ...ghost }) => ({
+            ...ghost,
+            questions: picks.map(p => ({ ...p.question, quizId: p.quizId, quizIndex: p.index })),
+        })));
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

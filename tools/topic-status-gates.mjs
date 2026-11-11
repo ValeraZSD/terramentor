@@ -223,7 +223,7 @@ if (typeof tree.nextLeafStatus === 'function') {
     check('the panel presses the button leafStatus names', /shownStatus = leafStatus\(/.test(panel) && /aria-pressed=\{shownStatus === value\}/.test(panel));
     check('…and "Not started" cannot be pressed over the learner\'s own work',
         /disabled=\{value === 'not_started' && hasOwnWork\}/.test(panel) && /hasOwnWork = \(node\?\.seen \?\? 0\) > 0 \|\| \(node\?\.attempts \?\? 0\) > 0/.test(panel));
-    for (const file of ['RegionList', 'AtlasMap', 'GlobeMap']) {
+    for (const file of ['TopicRow', 'GlobeMap']) {
         const text = src(`src/components/atlas/${file}.tsx`);
         check(`${file} colours a topic by topicDotStatus`, /topicDotStatus\(/.test(text) && !/topic\.attempts > 0 \|\| topic\.status === 'in_progress'/.test(text));
     }

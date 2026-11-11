@@ -17,7 +17,7 @@ import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
 import { LessonBeingWritten, LessonWriteFailed } from './LessonPending';
 import { feedGenSignal, lessonPending } from '../../utils/feedPlacement';
-import { ArrowLeft, FolderOpen, Loader2, ListTree } from 'lucide-react';
+import { ArrowLeft, FolderOpen, History, Loader2, ListTree } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { findNode, getNodePath } from '../../utils/tree';
@@ -45,6 +45,7 @@ type StandaloneCard = FeedFlashcardCard | FeedRecallCard | FeedNoticeCard;
 
 type FeedGroup =
     | { type: 'chapter'; head: ChapterCard; cards: ChapterCard[]; continued: boolean }
+    | { type: 'review'; cards: FeedRecallCard[] }
     | { type: 'single'; card: StandaloneCard };
 
 const isChapterCard = (card: FeedCard): card is ChapterCard =>
@@ -63,6 +64,14 @@ function groupCards(cards: FeedCard[]): FeedGroup[] {
     const seenNodes = new Set<number>();
 
     for (const card of cards) {
+        // The review round: recall questions from several fading topics,
+        // under one line saying what they are.
+        if (card.kind === 'recall' && card.review) {
+            const last = groups[groups.length - 1];
+            if (last?.type === 'review') last.cards.push(card);
+            else groups.push({ type: 'review', cards: [card] });
+            continue;
+        }
         if (!isChapterCard(card)) {
             groups.push({ type: 'single', card });
             continue;
@@ -531,6 +540,40 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                             </ChapterSection>
                         ))}
                     </ChapterGroup>
+                ) : group.type === 'review' ? (
+                    // The round says how long it is at its head and where it ends at its
+                    // foot (a labelled rule under the last card): the cards in it carry
+                    // no badge of their own, so without the foot the lesson after it
+                    // reads as one more of them.
+                    <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-2">
+                        <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+                            <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                            <span>
+                                {tr("Recall: what you haven't practiced in a while")}
+                                <span className="block font-normal text-slate-600 dark:text-slate-400">
+                                    {tr("{{count}} questions", { count: group.cards.length })}
+                                </span>
+                            </span>
+                        </h2>
+                        <div className="space-y-5">
+                            {group.cards.map(card => (
+                                <div
+                                    key={card.key}
+                                    ref={setCardRef(card.key)}
+                                    tabIndex={-1}
+                                    style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
+                                    className="outline-none"
+                                >
+                                    {renderStandalone(card, !!feedDone[card.key], handleDone)}
+                                </div>
+                            ))}
+                        </div>
+                        <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
+                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                            {tr('End of recall')}
+                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                        </p>
+                    </section>
                 ) : (
                     <div
                         key={group.card.key}

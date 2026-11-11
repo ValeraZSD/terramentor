@@ -1422,6 +1422,10 @@ section('reading is bounded per TURN, not only per call');
     const topicRead = turn.find(t => t.name === 'read_topic');
     const anyTopic = db.prepare('SELECT id FROM nodes WHERE is_note = 0 ORDER BY id LIMIT 1').get().id;
     check('a topic read spends the same allowance', (await topicRead.run(String(anyTopic))).summary === 'reading budget spent');
+    // A title is matched as the text it is: `%` and `_` are not wildcards.
+    const { findTopic, findDocument } = await import('../server/libraryReads.js');
+    check('"%" and "_" name no topic and no document',
+        ['%', '_', '%%'].every(tt => findTopic({ title: tt }) === null && findDocument({ title: tt }) === null));
     check('the next turn starts with a fresh allowance', !!(await chatTools({ library: true }).find(t => t.name === 'read_document').run(String(notesId))).items);
 }
 

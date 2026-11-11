@@ -76,8 +76,9 @@ export interface ReviewQueue {
      * been. Pass nothing for a card that has left for a later day.
      */
     advance: (requeueAt?: number | null) => void;
-    /** Move to the next unreviewed card without marking the current one reviewed. */
-    skip: () => void;
+    /** Move to the next unreviewed card without marking the current one reviewed.
+     *  False when there is no other card to move to, and nothing was recorded. */
+    skip: () => boolean;
     /** Restart the session from the beginning. */
     reset: () => void;
     /**
@@ -224,11 +225,11 @@ export function useReviewQueue(total: number): ReviewQueue {
     }, [step]);
 
     const skip = useCallback(() => {
-        setFlipped(false);
         // A skip settles nothing: the card keeps whatever ladder position it had
         // and is simply passed over.
         const target = findNext(index, reviewed, pending, Date.now());
-        if (target === null || target === index) return;
+        if (target === null || target === index) return false;
+        setFlipped(false);
         setIndex(target);
         // Recorded even though nothing was written: "I skipped that by mistake"
         // is the same wish as "I rated that by mistake".
@@ -237,6 +238,7 @@ export function useReviewQueue(total: number): ReviewQueue {
             wasPendingAt: pending.has(index) ? (pending.get(index) as number) : null,
             markedReviewed: false,
         }]);
+        return true;
     }, [reviewed, pending, index, total]);
 
     const reset = useCallback(() => {

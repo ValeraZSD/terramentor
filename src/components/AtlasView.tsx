@@ -3,9 +3,9 @@ import type { ReactNode } from 'react';
 import { api } from '../api';
 import { useStore, isDarkTheme } from '../store';
 import { AtlasColorMode, AtlasData, AtlasRegion, AtlasSurface, AtlasTopic } from '../types';
-import AtlasMap from './atlas/AtlasMap';
 import GlobeMap from './atlas/GlobeMap';
 import RegionList from './atlas/RegionList';
+import StudyNext from './atlas/StudyNext';
 import BridgeList from './atlas/BridgeList';
 import CourseList from './atlas/CourseList';
 import TracePanel from './atlas/TracePanel';
@@ -13,7 +13,7 @@ import { CourseTrace, listCourses, traceCourse } from './atlas/coursePaths';
 import { AtlasStage, useJourneyReplay } from './atlas/useJourneyReplay';
 import { paceOf } from './atlas/atlasSettings';
 import AtlasSettingsModal from './atlas/AtlasSettingsModal';
-import { ColourSurface, courseHues, courseSwatches, globeRamp, ramp } from './atlas/atlasColors';
+import { ColourSurface, courseHues, courseSwatches, globeRamp } from './atlas/atlasColors';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { Button } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -80,6 +80,13 @@ let lastAtlas: AtlasData | null = null;
  * landscape is a sheet, and the same phone at 100% is a column.
  */
 const SHEET_BELOW_REM = 44;
+
+/**
+ * Which ladder the index's swatches and bars are painted in. Both surfaces are
+ * the planet (the Map is it unrolled), so land stands on sea on both and both
+ * paint Terra's ladder; the index has to show the colours the map uses.
+ */
+const colourSurface: ColourSurface = 'globe';
 
 /**
  * Measures the box it draws and hands its children the answer.
@@ -170,13 +177,10 @@ export default function AtlasView() {
     const setAtlasColorMode = useStore(s => s.setAtlasColorMode);
     const surface = useStore(s => s.atlasSurface);
     const setAtlasSurface = useStore(s => s.setAtlasSurface);
-    // Terra paints on its own ladder (`courseFill`'s and `regionColor`'s
-    // `surface`), so the swatches in the index show that ladder.
-    const colourSurface: ColourSurface = surface === 'globe' ? 'globe' : 'map';
     const viewer = useStore(s => s.atlasSettings);
     const dark = isDarkTheme(theme);
-    // Not read here: handed to the canvases so their palette memo re-resolves
-    // when the surfaces change. See `AtlasMap`'s prop doc.
+    // Not read here: handed to the canvas so its palette memo re-resolves when
+    // the surfaces change. See `GlobeMap`'s prop doc.
     const themeTint = useStore(s => s.themeTint);
     // The two dials the replay's arithmetic takes, rebuilt only when they move:
     // the surfaces hold it in a ref that is read every frame, and the clock
@@ -416,7 +420,7 @@ export default function AtlasView() {
         return courseSwatches(
             [...byId.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
             hues, dark, colourSurface);
-    }, [data, hues, dark, colorMode, colourSurface]);
+    }, [data, hues, dark, colorMode]);
 
     const selectFromList = (id: number | null) => {
         setSelectedId(id);
@@ -634,7 +638,7 @@ export default function AtlasView() {
     const { stats } = data;
     // The ladder the map paints in the app's colour — the progress bar is drawn
     // in it, which makes the bar the map's key without a legend of its own.
-    const steps = (colourSurface === 'globe' ? globeRamp : ramp)(accentColor, dark);
+    const steps = globeRamp(accentColor, dark);
     const total = stats.proven + stats.learning + stats.untouched;
     const share = (n: number) => (total > 0 ? `${(n / total) * 100}%` : '0%');
 
@@ -818,6 +822,9 @@ export default function AtlasView() {
             </p>
             {tab === 'regions' ? (
                 <section aria-label={tr("Regions")}>
+                    {/* A search is asking for regions, and the hint would push
+                        the first answer down. */}
+                    {!query.trim() && <StudyNext next={data.next} regions={data.regions} />}
                     <RegionList
                         regions={regions}
                         selectedId={selectedId}
@@ -1007,55 +1014,34 @@ export default function AtlasView() {
             className={fullscreen ? 'fixed inset-0 z-30 safe-pt-0 safe-px-0 bg-slate-50 dark:bg-slate-900' : `relative flex-1 min-w-0 ${narrow ? 'min-h-[9rem]' : 'min-h-0'}`}
             style={fullscreen ? { paddingBottom: 'calc(var(--task-dock-h, 0px) + var(--safe-bottom))' } : undefined}
         >
-            {surface === 'globe' ? (
-                <GlobeMap
-                    ref={h => { stageRef.current = h; }}
-                    regions={data.regions}
-                    selectedId={selectedId}
-                    onSelect={selectFromMap}
-                    onOpenTopic={openTopic}
-                    matches={matches}
-                    dark={dark}
-                    themeTint={themeTint}
-                    accent={accentColor}
-                    colorMode={colorMode}
-                    hues={hues}
-                    trace={trace}
-                    journeyStep={journeyStep}
-                    pace={pace}
-                    regionNames={viewer.regionNames}
-                    fullscreen={fullscreen}
-                    onToggleFullscreen={() => setFullscreen(f => !f)}
-                    controls={!sheetCovers(narrow)}
-                    player={player(narrow)}
-                >
-                    {surfaceSwitch}
-                </GlobeMap>
-            ) : (
-                <AtlasMap
-                    ref={h => { stageRef.current = h; }}
-                    regions={data.regions}
-                    selectedId={selectedId}
-                    onSelect={selectFromMap}
-                    onOpenTopic={openTopic}
-                    matches={matches}
-                    dark={dark}
-                    themeTint={themeTint}
-                    accent={accentColor}
-                    colorMode={colorMode}
-                    hues={hues}
-                    trace={trace}
-                    journeyStep={journeyStep}
-                    pace={pace}
-                    regionNames={viewer.regionNames}
-                    fullscreen={fullscreen}
-                    onToggleFullscreen={() => setFullscreen(f => !f)}
-                    controls={!sheetCovers(narrow)}
-                    player={player(narrow)}
-                >
-                    {surfaceSwitch}
-                </AtlasMap>
-            )}
+            {/* One renderer for both surfaces: the Map is the same planet
+                unrolled (`flat`). Keyed on the surface, so a switch opens the
+                other one on its own home view, as two components did. */}
+            <GlobeMap
+                key={surface}
+                flat={surface === 'map'}
+                ref={h => { stageRef.current = h; }}
+                regions={data.regions}
+                selectedId={selectedId}
+                onSelect={selectFromMap}
+                onOpenTopic={openTopic}
+                matches={matches}
+                dark={dark}
+                themeTint={themeTint}
+                accent={accentColor}
+                colorMode={colorMode}
+                hues={hues}
+                trace={trace}
+                journeyStep={journeyStep}
+                pace={pace}
+                regionNames={viewer.regionNames}
+                fullscreen={fullscreen}
+                onToggleFullscreen={() => setFullscreen(f => !f)}
+                controls={!sheetCovers(narrow)}
+                player={player(narrow)}
+            >
+                {surfaceSwitch}
+            </GlobeMap>
         </section>
     );
 

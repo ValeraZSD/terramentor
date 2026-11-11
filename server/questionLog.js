@@ -14,12 +14,16 @@
 // whether a topic is proven is BKT's, and a bank that re-asked misses would be
 // a second scheduler quietly disagreeing with it.
 //
+// The one reader that weighs right and wrong is a RECALL (`recallOrder`): it
+// does not decide whether a topic is proven, only which question best asks
+// whether a fading one stuck.
+//
 // Ghost (review) questions embedded in a saved practice quiz belong to OTHER
 // topics and are never drawn here.
 
 import db from './database.js';
 import { NOW_ISO } from './database.js';
-import { hasUsableKey } from './answerFormats.js';
+import { hasUsableKey, GUESS_BY_FORMAT } from './answerFormats.js';
 import { isUnverified, locateAsked } from './questionTrust.js';
 
 /** How many questions one practice sitting or one mastery check draws by default. */
@@ -188,6 +192,73 @@ export function drawFromQuiz(quizId, size, opts = {}) {
     return { nodeId, ...proofDraw(nodeId, bank, size, opts) };
 }
 
+/**
+ * A fading topic's questions in the order a RECALL asks them, by difficulty.
+ *
+ * A recall asks whether what was learned here stuck, so the question is chosen
+ * from this log's record of every answer to it, on every surface:
+ *   1. the questions the learner has got right before, hardest first (the
+ *      larger share of its graded answers missed): still answering the hardest
+ *      thing once known is the strongest sign the topic stuck;
+ *   2. then the questions with no graded answer yet, the format a guess cannot
+ *      pass first (`GUESS_BY_FORMAT`): a recall answer is written as evidence,
+ *      and a lucky true/false says little;
+ *   3. then the questions only ever missed: never got right, they say nothing
+ *      about forgetting.
+ * Within a tier and the same share of misses, the format a guess cannot pass
+ * first in EVERY tier (a correct calculation known twice says more than a
+ * correct true/false known twice), then the least recently asked, then
+ * storage order, so the pick is the same on every read (no lottery). The question the topic's
+ * previous recall asked goes last, so two reviews in a row never repeat one.
+ *
+ * Only what a draw could hand out: the topic's own questions with a usable key
+ * (`bankOf`), and never one a verifier has not confirmed, since its answer
+ * would record nothing. Returns `{ quizId, index, question }` entries.
+ */
+export function recallOrder(nodeId) {
+    const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
+    if (!bank.length) return [];
+    const quizIds = [...new Set(bank.map(b => b.quizId))];
+    const marks = quizIds.map(() => '?').join(',');
+    // A copy of one of these questions answered inside another topic's
+    // practice quiz is logged under THAT quiz, by the uuid the copy keeps:
+    // the same question answered, so it counts here too.
+    const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
+    const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    const record = new Map(db.prepare(`
+        SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last
+        FROM question_log WHERE quiz_id IN (${marks})${byUuid}
+        GROUP BY k
+    `).all(...quizIds, ...uuids).map(r => [r.k, r]));
+    const previous = db.prepare(`
+        SELECT ${LOG_KEY} AS k FROM question_log
+        WHERE quiz_id IN (${marks}) AND surface = 'recall'
+        ORDER BY asked_at DESC, id DESC LIMIT 1
+    `).get(...quizIds)?.k ?? null;
+
+    const ranked = bank.map((b, position) => {
+        const r = record.get(askKey(b));
+        const hits = r?.hits || 0;
+        const misses = r?.misses || 0;
+        return {
+            b, position,
+            tier: hits > 0 ? 0 : misses > 0 ? 2 : 1,
+            missShare: hits + misses > 0 ? misses / (hits + misses) : 0,
+            guess: GUESS_BY_FORMAT[b.question.type] ?? GUESS_BY_FORMAT.multiple_choice,
+            last: r?.last ?? '',
+            previous: askKey(b) === previous,
+        };
+    });
+    ranked.sort((x, y) =>
+        (x.previous - y.previous)
+        || (x.tier - y.tier)
+        || (y.missShare - x.missShare)
+        || (x.guess - y.guess)
+        || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0)
+        || (x.position - y.position));
+    return ranked.map(r => r.b);
+}
+
 /** How much of a node's bank has ever been asked. */
 export function askedCount(nodeId) {
     return db.prepare(`
@@ -206,7 +277,8 @@ const insertStmt = () => db.prepare(`
  * `{quizId, index, uuid?, stem?, correct?}`; anything that does not name a
  * question a real quiz row still holds is ignored — a client cannot log a
  * question that does not exist. `surface` is where it was asked
- * (`feed` | `mastery_check` | `quiz`), kept for the record, not read by the draw.
+ * (`feed` | `recall` | `mastery_check` | `quiz`), kept for the record; only the
+ * recall pick reads it, to never ask a topic's previous recall question next.
  *
  * The question is found by its uuid when the entry sends one, and only
  * otherwise at its position (`locateAsked`): a veto in the background splices

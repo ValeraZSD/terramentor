@@ -137,7 +137,8 @@ Learning something once is not knowing it. Two mechanisms fight the forgetting c
   weeks, hard ones tomorrow, and "Again" means minutes. The scheduler fits itself to your own
   review history once there is enough of it.
 - **Recall cards**: saved questions from topics you did well on and have not practised for a
-  while. Answering one refreshes both the estimate and the timer.
+  while. They open the feed as a short round, one question per topic, starting with the hardest
+  one you have answered right before. Answering one refreshes both the estimate and the timer.
 
 This is what makes the plan cumulative instead of a checklist you sweep once and forget.
 

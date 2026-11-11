@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AtlasRegion } from '../../types';
 import { AtlasColorMode, CourseHue } from './atlasColors';
-import AtlasMap from './AtlasMap';
 import GlobeMap from './GlobeMap';
 import { CourseTrace, END_HOLD_MS, stepDurationMs } from './coursePaths';
 import { AtlasSettings, ASPECTS, outputFps, outputFrame, paceOf } from './atlasSettings';
@@ -61,7 +60,7 @@ interface Props {
     settings: AtlasSettings;
     format: VideoFormat;
     dark: boolean;
-    /** The theme tint — see the same prop on `AtlasMap`. */
+    /** The theme tint — see the same prop on `GlobeMap`. */
     themeTint: string;
     accent: string;
     colorMode: AtlasColorMode;
@@ -129,6 +128,7 @@ export default function AtlasRenderStage({
         let openingTimer = 0;
         let tailTimer = 0;
         let settleRaf = 0;
+        const armedAt = performance.now();
 
         /** Call `then` on the first frame the surface reports nothing moving. */
         const whenSettled = (then: () => void) => {
@@ -153,6 +153,13 @@ export default function AtlasRenderStage({
                     live.current.onFailed(tr("The frame never reached its size, so nothing was recorded."));
                     return;
                 }
+                raf = requestAnimationFrame(begin);
+                return;
+            }
+            // The cities first: landing, they move every dot to its city's
+            // middle, so a shot framed before them is not the one the film
+            // ends on. Waited for no longer than the camera is.
+            if (!stageRef.current?.citiesSettled() && performance.now() - armedAt < SETTLE_LIMIT_MS) {
                 raf = requestAnimationFrame(begin);
                 return;
             }
@@ -268,9 +275,7 @@ export default function AtlasRenderStage({
                 className="mx-auto overflow-hidden rounded-xl ring-1 ring-slate-200 dark:ring-slate-700 bg-slate-100 dark:bg-slate-900"
                 style={{ width: box.w, height: box.h }}
             >
-                {surface === 'globe'
-                    ? <GlobeMap ref={h => { stageRef.current = h; }} {...shared} />
-                    : <AtlasMap ref={h => { stageRef.current = h; }} {...shared} />}
+                <GlobeMap ref={h => { stageRef.current = h; }} flat={surface === 'map'} {...shared} />
             </div>
 
             <div>

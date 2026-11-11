@@ -80,9 +80,10 @@ Anki decks come in with their media and review history and go back out as `.apkg
 
 Every topic in your library on a map, or on a planet you can turn, placed by what it is about
 rather than which course it belongs to. Pick a course and it replays the order you finished its topics in,
-and can save the replay as a video or a GIF.
+and can save the replay as a video or a GIF. The list beside it opens with up to three topics to study next,
+each close in meaning to one you have finished.
 
-![The course's topics as named territories on a planet, darker where more is proven, beside a list of regions.](docs/screenshots/atlas.webp)
+![The course's topics as named territories on a planet, darker where more is proven, beside a list of regions that opens with three topics to study next.](docs/screenshots/atlas.webp)
 
 ## Why not a chatbot and Anki?
 

@@ -38,10 +38,12 @@ export const listRoutes = app.takeRoutes();
 app.put('/api/projects/reorder', (req, res) => {
     const { projectIds } = req.body;
     if (!Array.isArray(projectIds)) return res.status(400).json({ error: 'projectIds must be an array' });
+    if (projectIds.length > 10000 || !projectIds.every(id => Number.isInteger(id) && id > 0)) {
+        return res.status(400).json({ error: 'projectIds must be project ids' });
+    }
+    const place = db.prepare('UPDATE projects SET position = ? WHERE id = ?');
     const transaction = db.transaction(() => {
-        projectIds.forEach((id, index) => {
-            db.prepare('UPDATE projects SET position = ? WHERE id = ?').run(index, id);
-        });
+        projectIds.forEach((id, index) => { place.run(index, id); });
     });
     transaction();
     // Same shape as GET /api/projects — a degraded row set here would corrupt

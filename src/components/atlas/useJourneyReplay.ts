@@ -4,10 +4,10 @@ import { CourseTrace, END_HOLD_MS, ReplayPace, stepDurationMs } from './coursePa
 /**
  * What a replay asks of whichever surface is drawing the library.
  *
- * Both `AtlasMapHandle` and `GlobeMapHandle` carry these, and each answers them
- * in its own geometry: framing a course is a pan and a zoom on the sheet and a
- * turn on the planet, following a replay slides one camera and swings the
- * other. The caller states the intention; the surface owns the move.
+ * `GlobeMapHandle` carries these, and answers them in the geometry of the
+ * surface it is drawing: on the sheet a turn slides the map under the camera,
+ * on the planet it turns the globe. The caller states the intention; the
+ * surface owns the move.
  */
 export interface AtlasStage {
     flyTo: (regionId: number) => void;
@@ -19,6 +19,9 @@ export interface AtlasStage {
     canvas: () => HTMLCanvasElement | null;
     /** Nothing is moving, fading or flying — what a film waits for at each end. */
     settled: () => boolean;
+    /** The cities have landed (or failed) and the dots stand where they put
+     *  them: what a film waits for before it frames its opening shot. */
+    citiesSettled: () => boolean;
     /**
      * Close the floating card if one is open (pinned or hovered); true when
      * there was one. The first step of the page's Escape (`AtlasView`), which

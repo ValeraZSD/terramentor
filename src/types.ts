@@ -875,6 +875,8 @@ export interface FeedFlashcardCard {
 
 export interface FeedRecallCard extends FeedCardCommon {
     kind: 'recall';
+    /** One of the review round that opens the stream (server/feed.js), drawn under one header. */
+    review?: boolean;
     daysSince: number | null;
     quizId: number;
     question: QuizQuestion;
@@ -895,6 +897,26 @@ export interface FeedCheckpointCard extends FeedCardCommon {
     borrowedEstimate?: boolean;
     /** Which seed set the borrowed part, so the card names the right one. */
     borrowedFrom?: 'transfer' | 'placement' | null;
+    /**
+     * `masteryScore` is over the threshold only because of card reviews and
+     * drills, which the gate does not count: the card says so, for the same
+     * reason as `borrowedEstimate`.
+     */
+    practiceLifted?: boolean;
+    /**
+     * The estimate the gate counts (practice taken out); what the card shows,
+     * so its number agrees with the gate's refusal. Absent on an old payload.
+     */
+    gateScore?: number;
+    /**
+     * What the card prints: `gateScore`, raised by right card and drill answers
+     * up to `practiceCeiling` (under the line). Absent on an old payload.
+     */
+    shownScore?: number;
+    practiceCeiling?: number;
+    /** Card ratings and drill answers on this topic: right, of total. */
+    practiceRight?: number;
+    practiceTotal?: number;
     /** The topic's stored status: its own page serves it after it closed, too. */
     nodeStatus?: Node['status'];
     gateMode: 'off' | 'advisory' | 'enforced';
@@ -1429,7 +1451,19 @@ export interface AtlasData {
     };
     regions: AtlasRegion[];
     bridges: AtlasBridge[];
+    /** What to study next, best first (`server/studyNext.js`); absent when the map is unavailable. */
+    next?: AtlasNext[];
     builtAt?: string;
+}
+
+/** A topic not yet started that sits closest in meaning to one already finished, in a course under way. */
+export interface AtlasNext {
+    topicId: number;
+    regionId: number;
+    /** The finished topic it is closest to, and that topic's name. */
+    nearId: number;
+    nearTitle: string;
+    similarity: number;
 }
 
 /** How region naming is going (`GET /api/atlas/naming`), shown in Settings beside the naming model. */

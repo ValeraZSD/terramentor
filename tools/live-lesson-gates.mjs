@@ -221,6 +221,21 @@ console.log('\n--- what was already right stays right ---');
     check('a flashcard in the pull does not push the checkpoint past topic 2', keys(withCard) === 'fi-1 checkpoint-1 fi-2 fcnew-5', keys(withCard));
 }
 
+console.log('\n--- a checkpoint never lands inside the review round ---');
+{
+    // Topic 4 is still open and faded, so its recall card opens the stream in
+    // the round; the topic's checkpoint pulled later closes its chapter (or
+    // goes to the end), never in between the round's cards.
+    const recall = (key, nodeId) => ({ key, kind: 'recall', review: true, nodeId });
+    const screen = [recall('recall-4-1-0', 4), recall('recall-5-2-0', 5), card('fi-1', 'lesson', 1)];
+    const merged = placeCheckpoints(screen, [card('checkpoint-4', 'checkpoint', 4)]);
+    check('the round stays whole, the checkpoint goes after it',
+        keys(merged) === 'recall-4-1-0 recall-5-2-0 fi-1 checkpoint-4', keys(merged));
+    const withChapter = placeCheckpoints([...screen, card('fi-4', 'lesson', 4), card('fi-2', 'lesson', 2)], [card('checkpoint-4', 'checkpoint', 4)]);
+    check('with its chapter on screen it closes that chapter',
+        keys(withChapter) === 'recall-4-1-0 recall-5-2-0 fi-1 fi-4 checkpoint-4 fi-2', keys(withChapter));
+}
+
 console.log('\n--- while its lesson is written (or failed to be) the page shows only that, and the lesson takes its place ---');
 {
     const { lessonPending, pulledLessonWrite } = await import(pathToFileURL(out).href);

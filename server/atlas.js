@@ -40,6 +40,7 @@ import { TRANSFER_MIN_SIMILARITY } from './masteryTransfer.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE, projectTeaches } from './nodeRole.js';
 import { countsInCards } from './progress.js';
+import { estimateProven, PROVING_EVIDENCE_SQL, PRACTICE_EVIDENCE_SQL } from './mastery.js';
 import { cachedNamesFor, scheduleRegionNaming, regionSignature, nameModelFor, USER_MODEL } from './regionNaming.js';
 import {
     dot, normalizeInto, powerIteration, deflate, nearestNeighbours,
@@ -47,6 +48,7 @@ import {
     LAYOUT_MIN_ITERATIONS, LAYOUT_MAX_ITERATIONS,
 } from './vectors.js';
 import { globeLayout } from './globe.js';
+import { studyNext } from './studyNext.js';
 
 export { cleanRegionLabel };
 
@@ -1231,6 +1233,18 @@ const percent = (mastery) => Math.round(mastery * 100);
 
 async function findBridges(regions, minSimilarity) {
     const bridges = [];
+    // A bridge's proven side: over 0.85 on proving evidence, the test transfer
+    // applies to a source (its own default bar), so "a head start is waiting"
+    // is only said where transfer would lend one. Not "completed" alone: a
+    // topic marked done without the check, or finished on its cards, lends
+    // nothing.
+    const provenMemo = new Map();
+    const isProven = (t) => {
+        if (!provenMemo.has(t.id)) {
+            provenMemo.set(t.id, t.mastery >= 0.85 && estimateProven(t.id, 0.85));
+        }
+        return provenMemo.get(t.id);
+    };
     for (const region of regions) {
         const m = region.members.length <= BRIDGE_SCAN_CAP
             ? region.members
@@ -1244,12 +1258,16 @@ async function findBridges(regions, minSimilarity) {
                 if (sim < minSimilarity) continue;
                 // Order the pair by what the learner can DO with it: a proven
                 // side first makes the row read "you know this → this is the
-                // one waiting for you". Compared in whole percents, the
-                // precision the cache key holds them to (`drawnPrint`).
-                const [a, b] = percent(m[i].mastery) >= percent(m[j].mastery) ? [m[i], m[j]] : [m[j], m[i]];
+                // one waiting for you". Between two proven or two unproven
+                // sides, the higher estimate first, compared in whole
+                // percents, the precision the cache key holds them to
+                // (`drawnPrint`).
+                const pi = isProven(m[i]), pj = isProven(m[j]);
+                const iFirst = pi !== pj ? pi : percent(m[i].mastery) >= percent(m[j].mastery);
+                const [a, b] = iFirst ? [m[i], m[j]] : [m[j], m[i]];
                 bridges.push({
                     similarity: Number(sim.toFixed(4)),
-                    proven: a.status === 'completed' || a.mastery >= 0.85,
+                    proven: isProven(a),
                     a: { id: a.id, title: a.title, projectId: a.project_id, projectName: a.project_name, projectColor: a.project_color, status: a.status, mastery: a.mastery },
                     b: { id: b.id, title: b.title, projectId: b.project_id, projectName: b.project_name, projectColor: b.project_color, status: b.status, mastery: b.mastery },
                 });
@@ -1289,8 +1307,15 @@ function signature(includeArchived = false) {
  * title, status, finish date, parent, role and course; its mastery in whole
  * percents (what the topic card prints) and whether it clears the 0.85 a bridge
  * calls proven; its answer count (printed beside the percent); whether it has
- * a transferred prior (the topic row marks it, the value is never shown); how
- * many cards it holds and how many have been met.
+ * a transferred prior (the topic row marks it, the value is never shown) or a
+ * placement one, and how many agent claims lowered it (with the answer count,
+ * what `estimateProven` reads for a bridge's flag besides the estimate) and,
+ * only on a topic over 0.85 with card or drill evidence, how many proving
+ * answers it has (there the gate's replay, not the printed estimate, decides
+ * the flag; the first practice row turns the term on, so it rebuilds too; under
+ * 0.85 or without practice an answer costs no rebuild); how many
+ * cards it holds and how many have been met. Beside the teaching switches, the
+ * learner's fitted BKT rates (`bkt_params`), which the replay runs on.
  * Per course on the map: name, colour, status, kind, both dates, and the switch that says
  * whether it teaches topics or is counted in cards.
  *
@@ -1320,6 +1345,9 @@ function drawnStatements() {
                     || ',' || quote(n.parent_id) || ',' || quote(n.role) || ',' || quote(n.project_id)
                     || ',' || quote(ROUND(COALESCE(nm.mastery_score, 0) * 100)) || ',' || quote(COALESCE(nm.mastery_score, 0) >= 0.85)
                     || ',' || quote(COALESCE(nm.total_attempts, 0)) || ',' || quote(nm.transferred_prior IS NOT NULL)
+                    || ',' || quote(nm.placement_prior IS NOT NULL)
+                    || ',' || quote(COALESCE(mc.lowered, 0))
+                    || ',' || quote(CASE WHEN ev.practice AND COALESCE(nm.mastery_score, 0) >= 0.85 THEN ev.proving END)
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
              FROM nodes n
@@ -1328,6 +1356,12 @@ function drawnStatements() {
              LEFT JOIN (SELECT node_id, COUNT(*) AS cards,
                                SUM(review_count > 0 AND last_reviewed IS NOT NULL) AS seen
                         FROM flashcards GROUP BY node_id) fc ON fc.node_id = n.id
+             LEFT JOIN (SELECT node_id, COUNT(*) AS lowered FROM mastery_claims
+                        WHERE correct = 0 AND mastery_after < mastery_before
+                        GROUP BY node_id) mc ON mc.node_id = n.id
+             LEFT JOIN (SELECT node_id, SUM(${PROVING_EVIDENCE_SQL}) AS proving,
+                               MAX(${PRACTICE_EVIDENCE_SQL}) AS practice
+                        FROM mastery_evidence GROUP BY node_id) ev ON ev.node_id = n.id
              WHERE n.is_note = 0 AND (? OR COALESCE(p.status, 'active') != 'archived')`).pluck(),
         db.prepare(
             `SELECT group_concat(
@@ -1337,7 +1371,7 @@ function drawnStatements() {
              FROM projects WHERE ? OR COALESCE(status, 'active') != 'archived'`).pluck(),
         db.prepare(
             `SELECT group_concat(quote(key) || ',' || quote(value), char(10) ORDER BY key)
-             FROM settings WHERE key GLOB 'teach_topics_*'`).pluck(),
+             FROM settings WHERE key GLOB 'teach_topics_*' OR key = 'bkt_params'`).pluck(),
     ];
     return drawnSql;
 }
@@ -1514,7 +1548,21 @@ async function buildAtlasNow({
         largestRegion: summaries[0]?.size || 0,
     };
 
-    const value = { available: true, reason: null, stats, regions: summaries, bridges, builtAt: new Date().toISOString() };
+    // What to study next: arithmetic over the vectors and statuses already
+    // here, no model (`server/studyNext.js`). Which courses are under way is
+    // read off every finished topic, embedded or not: the newest finish can be
+    // one whose vector has not been written yet.
+    const finishes = db.prepare(`
+        SELECT n.project_id, MAX(strftime('%Y-%m-%dT%H:%M:%SZ', n.completed_at)) AS completed_iso
+        FROM nodes n JOIN projects p ON p.id = n.project_id
+        WHERE n.is_note = 0 AND n.status = 'completed'
+          ${includeArchived ? '' : `AND COALESCE(p.status, 'active') != 'archived'`}
+          AND ${TOPIC_NODE}
+        GROUP BY n.project_id
+    `).all();
+    const next = await studyNext(regions, { finishes });
+
+    const value = { available: true, reason: null, stats, regions: summaries, bridges, next, builtAt: new Date().toISOString() };
     // The build yields, so a rating written meanwhile can leave this result
     // half before and half after it. Answer this request with it, but cache it
     // only if the library is still the one the key describes.

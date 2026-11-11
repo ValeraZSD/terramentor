@@ -76,7 +76,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `flashcards` | FSRS-7 state (`stability`, `stability_fast`, `fsrs_difficulty`, `state`, `lapses`, `learning_steps`; a NULL `stability_fast` beside a `stability` marks a card last scheduled by FSRS-6, seeded on read), kept in step with the live `next_review` (the due date), `last_interval` and `difficulty` (the 0–5 "higher = harder" value the UI shows); `ease_factor` is the SM-2 history a pre-FSRS card is migrated from. Card content beyond front/back: `extra`, `extra_front`, `media` (files in `media_files`), `generated_by`. |
 | `review_log` | One row per review: rating, elapsed/scheduled days, state before, stability and difficulty before and after, `source` (`app` or `anki`), Anki's revlog id. Written by the flashcard update endpoint, removed on undo, imported with a deck. Input to `server/fsrsOptimizer.js`. |
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
-| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands, and the gate reads none of it. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
+| `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands; the gate keeps each lowering in its own estimate (§4.2) even after a rebuild. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
@@ -226,17 +226,50 @@ completion gate does not depend on it alone.
 `checkMasteryEligibility(nodeId, threshold, checkPass)` passes when there is
 evidence **and** either:
 
-- **(a)** BKT posterior ≥ `mastery_threshold`, **or**
+- **(a)** the gate's estimate (`gate_score`) ≥ `mastery_threshold`, **or**
 - **(b)** an assessment of type `quiz` / `mastery_check` / `paper`, with at least
   `MIN_GATE_QUESTIONS` items, passed at ≥ `mastery_check_pass` raw accuracy.
 
-`flashcard`, `drill` and `placement` evidence sharpen the estimate and refresh the
-decay timer but never satisfy clause (b). Placement is excluded for a structural
-reason, not a policy one: a probe asks one question per topic, so it can never be
-an assessment of `MIN_GATE_QUESTIONS` items.
+Only those three types are **proving** evidence (`PROVING_EVIDENCE_TYPES`).
+Every other type that runs BKT is practice, by exclusion (`flashcard` and `drill`
+today; a new type is practice until it is listed as proving): a card is graded by
+the learner's own press and a drill replays the same items. They move the BKT
+estimate (`mastery_score`) and refresh the decay timer, but `gate_score` is the
+node's proving evidence replayed from its seed, with each wrong agent claim's
+lowering stepped in where it was made, capped at `mastery_score`. Practice rows
+never enter it, and the cap lets them pull it lower. The replay uses the learner's
+current fitted rates, as `rescoreNode` does, so after a refit it can differ from
+what those answers gave at the time. A node with neither practice evidence nor a
+lowering claim reads `mastery_score` unchanged. A rebuild of `mastery_score`
+(`rescoreNode`) drops a claim's lowering from the stored score, but the gate's replay
+keeps it (at the current fitted rates too, so a refit can raise or lower such a
+topic's `gate_score`, never above `mastery_score`), so whether a topic passes does not depend on whether it was rebuilt or
+ever met a card. When practice alone put the estimate over the line, the read says so
+(`practice_lifted`) and the checkpoint card explains it. What a learner SEES is
+`shown_score`: `gate_score` raised by practice up to `PRACTICE_CEILING` (0.6, the
+ceiling a placement or transferred seed gets; just under the threshold when that is
+lower), never above `mastery_score`. Four right cards read as 60%, not 0%, and still
+never as a pass; the completion refusal quotes the same number. `placement` evidence is the
+seed it wrote, so it proves nothing either.
 
 **Clause (a) is suspended on any SEEDED node** (transferred §7.3 or placed
-§4.4) until it has `MIN_GATE_QUESTIONS` answers of its own.
+§4.4) until it has `MIN_GATE_QUESTIONS` proving answers of its own (`own_answers`;
+card ratings, drills and the placement answer do not count).
+
+A card-only topic (a deck section, a course topic with cards and no bank) is
+therefore never completed by its ratings under `enforced`: it is skipped, or
+proven by a check (`advisory` also offers "Mark done without the check", `off`
+does not ask). Nothing is lost by that: a card topic's progress is cards met
+(`server/progress.js`), so a deck reaches 100% and its finished screen with every
+section still open.
+
+Three other readers call a topic proven by its estimate, and all ask
+`estimateProven` (clause (a) whole: `gate_score` over the bar and not borrowed;
+clause (b) is not asked): the finished-project screen's "proven" count
+(`server/completion.js`), mastery transfer's choice of twin (§7.3, applied inside
+the neighbour search before its limit), and the Atlas bridge flag (whose pair puts
+the proven side first). A topic held over the line only by its cards or a seed
+neither counts as proven, lends a prior, nor marks a bridge as a head start waiting.
 
 Modes (`mastery_gate_mode`): `off` never gates; `advisory` lets the
 learner mark done anyway; `enforced` (default for a new library) blocks `completed` without proof. **Skip is
@@ -264,6 +297,21 @@ from answers of their own) and not been measured on for `decay_days`. It is serv
 as a Recall card in the feed (`getGhostQuestions` in `server/dailyPlan.js`) or added
 to a practice quiz as a review question from an earlier topic (`includeGhosts`). It
 is never part of a mastery check.
+
+Which question is asked is picked by difficulty, the same on every read
+(`recallOrder` in `server/questionLog.js`), from the question log every surface
+writes: the questions the learner has got right before, the largest share of
+misses first; then those with no graded answer, the format with the lowest guess
+floor first; then those only ever missed; ties within a tier go to the lower
+guess floor, then the least recently asked. An answer to a copy of the question
+inside another topic's practice quiz counts (matched by its uuid). The question
+the topic's previous recall asked goes last. Only usable keys a verifier has
+confirmed are candidates, and a recall answer is logged as `recall`.
+In the feed they arrive as a review round that OPENS the home stream and a
+course's stream: one question from each fading topic, oldest first, at most
+`feed_recall_per_batch` and never more than the page, on the opening page of a
+visit only (a later page never starts one), drawn under one header
+(`review: true` on the card). A topic's own page carries none.
 
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
@@ -415,8 +463,8 @@ pages by exclude key. With no scope it is the whole library by urgency (`/`); wi
 `projectId` it is one course by the same urgency; with `nodeId` it is one topic or
 section with the schedule ignored (`getFocusForNode`), because the learner chose
 it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
-`practice`, `notice`. Interleave is roughly lesson → question → … with a
-flashcard every 3–4 items and a recall about every 8.
+`practice`, `notice`. The recall round opens the stream (above); after it the
+interleave is roughly lesson → question → … with a flashcard every 3–4 items.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
@@ -758,15 +806,29 @@ topic (no model call, so the map is deterministic), lays regions out in two stag
 (PCA for a starting arrangement, then `refineLayout` against the regions' real
 neighbour distances), and lists cross-project **bridges** separately.
 
-The same regions are also placed on a **sphere** for the *Terra* view
-(`server/globe.js`, called from `atlas.js`): three principal components, each
-axis scaled to its own span, then the same refinement with angles for distances,
-and caps separated so none overlap. It costs three numbers per region on the
-wire; each topic's flat offset is walked onto its cap by the client
-(`src/components/atlas/GlobeMap.tsx`, `globeProjection.ts`), which also draws the
-regions as territories with borders and sea (`globeTerritories.ts`). The
-dot products, the power iteration and the neighbour lists both layouts use live
-in `server/vectors.js`. Guard: `tools/globe-gates.mjs`.
+The same regions are also placed on a **sphere** (`server/globe.js`, called
+from `atlas.js`): three principal components, each axis scaled to its own span,
+then the same refinement with angles for distances, and caps separated so none
+overlap; the planet is then turned so the pole sits where the land is thinnest
+and the land faces the opening camera (`faceTheReader`). It costs four numbers
+per region on the wire (the direction `u` and the cap's radius `cap`); each topic's flat offset is walked onto its cap by the
+client. ONE renderer draws both surfaces (`src/components/atlas/GlobeMap.tsx`,
+`globeProjection.ts`): *Terra* is the globe, the *Map* is the same planet
+unrolled (`flat`, a Winkel tripel sheet centred on the camera). Regions are
+countries with borders and sea (`globeTerritories.ts`); each country is cut
+into equal-area cities, one per topic (`globeCities.ts`, a capacity-constrained
+power diagram), built for the whole library in a worker (`cityBuild.ts`,
+`citiesWorker.ts`) so the page never waits on it. Where each surface opens is
+`homeView.ts`. The dot products, the power iteration and the neighbour lists
+both layouts use live in `server/vectors.js`. Guards: `tools/globe-gates.mjs`,
+`tools/atlas-world-gates.mjs` (the sheet's shape, the cities, the home view,
+labels, study next) and the jsdom harness `tools/harness/run.mjs`.
+
+The build also sends `next` (`server/studyNext.js`): in each course that
+finished a topic within three weeks of the library's own newest finish, the
+topic not yet begun that is nearest in meaning to one finished in the same
+region, one per region, at most three. Arithmetic over the vectors already loaded, no model
+and no clock; the region list shows it at its top, except while searching.
 
 Four things keep it bounded and honest:
 
@@ -795,7 +857,7 @@ Four things keep it bounded and honest:
 
 Regions also carry a **layout for their own topics** (`topic.x/y`,
 `region.topicRadius`): local PCA of the member vectors around their centroid,
-packed inside the bubble. That is what the map zooms into.
+packed inside the region's cap. That is where each topic's city starts.
 
 Region **names** fall back to the medoid's title with curriculum numbering
 stripped (`cleanRegionLabel`: "Module 9.5: Advanced Extensions" → "Advanced
@@ -833,7 +895,8 @@ unrelated), topic placement, and the label table.
 ### 7.3 Mastery transfer (`server/masteryTransfer.js`)
 
 Seeds a topic's BKT **prior** from a semantically identical topic proven in
-another project. The boundary *is* the design:
+another project (proven as the gate reads it, `estimateProven`: card reviews and
+drills never make a twin). The boundary *is* the design:
 
 - **It never closes a gate**, enforced twice: `TRANSFER_CEILING` caps a seeded
   prior strictly below any sane threshold, *and* the gate's BKT clause is
@@ -1074,6 +1137,8 @@ The modules the sections above do not cover, one line each.
   index ended in `error` (the model answered with a fault) is never retried on its own.
 - `GET /api/embeddings/status` fires a live probe by default, which with a
   model-swapping proxy can cost a swap just from opening Settings.
-- Ghost-question selection is random per decaying node, not difficulty-targeted.
+- Recall difficulty comes from the question log alone, which began in September 2026:
+  a library answered before then has no per-question record, so its recalls start
+  from the format prior until new answers arrive.
 - A lazy route chunk is not precached: the first visit to a route needs the
   network, and the stamped service worker caches the chunk for the next time.

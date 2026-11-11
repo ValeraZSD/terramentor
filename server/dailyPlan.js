@@ -1,5 +1,6 @@
 import db, { NOW_ISO } from './database.js';
 import { getDecayingNodes } from './mastery.js';
+import { recallOrder } from './questionLog.js';
 import { WORK_LEAF, LEAF_STATUS } from './today.js';
 import { reviewDue } from './decks.js';
 import { isReadyToProve } from './readyToProve.js';
@@ -160,71 +161,46 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
 }
 
 /**
- * Get ghost questions for a specific node.
- * These are questions from decaying nodes that should be mixed in
- * to force interleaved practice.
+ * Recall ("ghost") questions from a project's fading topics, oldest-faded
+ * first: up to `maxTopics` topics that have a question to ask, up to
+ * `perTopic` questions each, in the order `recallOrder` (questionLog.js) puts
+ * them, which is by difficulty and the same on every read.
+ *
+ * Through `bankOf`, so every quiz row of the topic counts, a ghost copy a
+ * practice quiz absorbed from another topic never does (its answer would
+ * credit this topic with evidence about that one), and a NULL or legacy
+ * `questions` row is skipped rather than failing the whole read: one bad row
+ * once stopped every recall card in the library.
  *
  * @param {number} projectId
- * @param {number} maxGhostQuestions - Maximum ghost questions to inject
+ * @param {number} maxTopics - How many fading topics to take
  * @param {number} decayDays - Configured decay window (settings `decay_days`)
  * @param {Date} [now] - The instant the window ends at (gates pin it)
- * @returns Array of { nodeId, title, quizId, questions }
+ * @param {{perTopic?: number}} [opts]
+ * @returns Array of { nodeId, title, lastUpdated, quizId, questions, picks }:
+ *   `picks` is `{ quizId, index, question }` per question, where it lives;
+ *   `questions` the same questions as `{ ...question, quizIndex }`, the shape a
+ *   practice quiz embeds; `quizId` the first pick's row (the picks may come
+ *   from different rows: a question's own row is in `picks`).
  */
-export function getGhostQuestions(projectId, maxGhostQuestions = 2, decayDays = 14, now = new Date()) {
-    const decayingNodes = getDecayingNodes(projectId, decayDays, now);
-
-    if (decayingNodes.length === 0) return [];
-
-    const ghostQuestions = [];
-    const limit = Math.min(maxGhostQuestions, decayingNodes.length);
-
-    for (let i = 0; i < limit; i++) {
-        const node = decayingNodes[i];
-        // Get a random quiz for this decaying node
-        const quiz = db.prepare(`
-            SELECT q.* FROM quizzes q
-            WHERE q.node_id = ?
-            ORDER BY RANDOM()
-            LIMIT 1
-        `).get(node.node_id);
-
-        if (quiz) {
-            // `quizzes.questions` is free TEXT and its rows outlive the code
-            // that wrote them, so a NULL or a legacy shape is a row to skip, not
-            // a reason to fail the request. Unguarded, `JSON.parse(null)` is
-            // `null` and the `.map` below throws: this endpoint answers 500, and
-            // its two other callers (`feed.js`, `studyMaterial.js`) swallow the
-            // error — so ONE bad row silently stopped every recall card in the
-            // library, with a console line as the only trace. `bankOf` in
-            // questionLog.js reads the same column and already does this.
-            let questions;
-            try { questions = JSON.parse(quiz.questions); } catch { continue; }
-            if (!Array.isArray(questions)) continue;
-            // Exclude questions this quiz itself absorbed as ghosts from another
-            // node — re-injecting them here would credit *this* node's mastery
-            // with evidence that's actually about the ghost's original topic.
-            const ownQuestions = questions
-                .map((q, quizIndex) => (q && !q.isGhost ? { ...q, quizIndex } : null))
-                .filter(Boolean);
-            if (ownQuestions.length === 0) continue;
-            // Pick 1-2 random questions from the quiz (Fisher–Yates — the
-            // sort(random) idiom skews selection toward the original order)
-            for (let i = ownQuestions.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [ownQuestions[i], ownQuestions[j]] = [ownQuestions[j], ownQuestions[i]];
-            }
-            const selected = ownQuestions.slice(0, 2);
-
-            ghostQuestions.push({
-                nodeId: node.node_id,
-                title: node.title,
-                quizId: quiz.id,
-                questions: selected,
-                isGhost: true,
-                reason: 'Spaced repetition review',
-            });
-        }
+export function getGhostQuestions(projectId, maxTopics = 2, decayDays = 14, now = new Date(), { perTopic = 2 } = {}) {
+    const out = [];
+    // Every fading topic, oldest first, not the first ten: when the oldest
+    // ones have nothing a draw may hand out, a younger one still gets asked.
+    for (const node of getDecayingNodes(projectId, decayDays, now, { limit: null })) {
+        if (out.length >= maxTopics) break;
+        const picks = recallOrder(node.node_id).slice(0, Math.max(1, perTopic));
+        if (!picks.length) continue;
+        out.push({
+            nodeId: node.node_id,
+            title: node.title,
+            lastUpdated: node.last_updated,
+            quizId: picks[0].quizId,
+            questions: picks.map(p => ({ ...p.question, quizIndex: p.index })),
+            picks,
+            isGhost: true,
+            reason: 'Spaced repetition review',
+        });
     }
-
-    return ghostQuestions;
+    return out;
 }

@@ -10,6 +10,7 @@
  *   node tools/harness/cam-trace.mjs                 # the longest course
  *   node tools/harness/cam-trace.mjs --course=12     # a project id
  *   node tools/harness/cam-trace.mjs --steps=20      # how many to fly
+ *   node tools/harness/cam-trace.mjs --surface=globe # Terra instead of the Map
  *
  * Output: temp/camtrace/trace.json  (and a summary on stdout).
  */
@@ -157,8 +158,7 @@ let t = 0;
 let phase = 'ride';
 let beatLeft = stepDurationMs(trace, 1);
 const sample = () => {
-    // Whatever that surface's camera IS: a place and a zoom on the sheet, a
-    // pair of angles and a zoom on the planet.
+    // The camera both surfaces share: a pair of angles and a zoom.
     const cam = handle.ref.current.camera();
     frames.push({
         t: Math.round(t), step, phase,
@@ -212,70 +212,38 @@ for (let i = 0; i < Math.round(3200 / FRAME); i++) {
 // whole journey does in thirty.
 const samples = frames.slice(0, rideFrames);
 
-// How far the PICTURE moved between two frames, in screen pixels a second —
-// each surface in its own geometry, because a camera that pans and a camera
-// that turns are not the same instrument. On the planet a turn of dθ carries
-// the surface under the reader by the drawn radius times dθ, and the drawn
-// radius is what the zoom decides.
+// How far the PICTURE moved between two frames, in screen pixels — and both
+// surfaces have the same camera now, a turn (yaw, pitch) and a zoom, so one
+// measure serves both. A turn of dθ carries the ground under the reader by the
+// drawn scale times dθ: on the planet the drawn radius, on the sheet about one
+// unit of the unrolled map (`FLAT_DX_DLON` of it across). The zoom decides the
+// scale.
 const TRACE_DIR = resolve(dirname(here), '../temp/camtrace');
-const DISC_R = Math.min(VIEW.w, VIEW.h) * 0.44 / 2;
-const pictureSpeed = onGlobe
-    ? (a, b) => {
-        const k = (a.k + b.k) / 2;
-        const dyaw = (b.yaw - a.yaw) * Math.cos((a.pitch + b.pitch) / 2);
-        const turn = Math.hypot(dyaw, b.pitch - a.pitch) * DISC_R * k;
-        return (turn + Math.abs(Math.log(b.k / a.k)) * DISC_R * k) / (FRAME / 1000);
-    }
-    : (a, b) => {
-        const k = (a.k + b.k) / 2;
-        const px = Math.min(VIEW.w, VIEW.h) / 2.2 * k;
-        return (Math.hypot(b.x - a.x, b.y - a.y) * px
-            + Math.abs(Math.log(b.k / a.k)) * px * 0.5) / (FRAME / 1000);
+const { FLAT_DX_DLON, FLAT_HALF_W, FLAT_HALF_H } = globalThis.__proj;
+/** Pixels per radian at zoom 1: on the planet its drawn radius, the short
+ *  side times `BASE_FILL` (0.44), as GlobeMap's `radius()` sizes it. */
+const UNIT = onGlobe
+    ? Math.min(VIEW.w, VIEW.h) * 0.44
+    : Math.min(VIEW.w / (2 * FLAT_HALF_W), VIEW.h / (2 * FLAT_HALF_H));
+const ACROSS = onGlobe ? 1 : FLAT_DX_DLON;
+/** One frame's movement of the picture: a step in pixels, and the zoom's share. */
+const step2d = (a, b) => {
+    const R = UNIT * (a.k + b.k) / 2;
+    return {
+        x: (b.yaw - a.yaw) * Math.cos((a.pitch + b.pitch) / 2) * ACROSS * R,
+        y: (b.pitch - a.pitch) * R,
+        zoom: Math.abs(Math.log(b.k / a.k)) * R * (onGlobe ? 1 : 0.5),
     };
-
-// Everything from here to the ending is the SHEET's own arithmetic — world
-// coordinates, a bounding box, a leg on screen — and says nothing about a
-// planet, which is turned rather than panned.
-if (!onGlobe) {
-
-// Is the hop being flown actually ON SCREEN, frame by frame? The camera may
-// hold whatever shot it likes as long as the leg the arrow is flying is inside
-// it — a line whose end the reader cannot see says nothing about where it went.
-const pts = trace.journey.map(id => trace.points.get(id));
-const WORLD = 1.1;
-const base = Math.min(VIEW.w, VIEW.h) / (2 * WORLD);
-let offFrames = 0;
-let worstOut = 0;
-for (const v of samples) {
-    if (v.at == null || v.at < 1) continue;
-    // Where a topic is, which is also where it is drawn at every zoom.
-    const place = (i) => (pts[i] ? { x: pts[i].x, y: pts[i].y } : null);
-    const a = place(Math.floor(v.at) - 1), b = place(Math.floor(v.at));
-    let off = false;
-    for (const p of [a, b]) {
-        if (!p) continue;
-        const sx = (p.x - v.x) * base * v.k + VIEW.w / 2;
-        const sy = (p.y - v.y) * base * v.k + VIEW.h / 2;
-        const outBy = Math.max(-sx, sx - VIEW.w, -sy, sy - VIEW.h);
-        if (outBy > 0) { off = true; worstOut = Math.max(worstOut, outBy); }
-    }
-    if (off) offFrames++;
-}
-console.log(`leg off screen on ${offFrames} of ${samples.length} frames` +
-    (offFrames ? ` — worst ${worstOut.toFixed(0)}px past the edge` : ''));
+};
+const pictureSpeed = (a, b) => {
+    const s = step2d(a, b);
+    return (Math.hypot(s.x, s.y) + s.zoom) / (FRAME / 1000);
+};
 
 mkdirSync(TRACE_DIR, { recursive: true });
 const payload = {
-    course: course.name, courseId: course.id, total, steps,
+    course: course.name, courseId: course.id, total, steps, surface: SURFACE,
     view: VIEW, frameMs: FRAME, samples: frames, rideFrames, holdFrames,
-    // Enough of the map to DRAW the trace over it: where the bubbles are, and
-    // where the journey goes. A camera trace on its own says how much it moved;
-    // over the map it says whether that was the journey's doing.
-    regions: atlas.regions.map(r => ({ x: r.x, y: r.y, r: r.radius })),
-    journey: trace.journey.map(id => {
-        const p = trace.points.get(id);
-        return { x: p.x, y: p.y };
-    }),
     /** Where each step began, in ms — the beats, for the plot's gridlines. */
     beats: (() => {
         const marks = [];
@@ -287,6 +255,8 @@ const payload = {
 writeFileSync(join(TRACE_DIR, 'trace.json'), JSON.stringify(payload));
 
 // ---- what the trace says, in numbers ---------------------------------------
+// Whether the hop being flown stays on screen is read off the drawn strokes in
+// `run.mjs`, which sees the picture; this sees only the camera.
 const ks = samples.map(s => s.k);
 const turns = [];           // every time the zoom changes direction
 let dir = 0;
@@ -321,18 +291,11 @@ console.log(`frames actually drawn: ${drawn} of ${samples.length} ` +
     `(${(100 * drawn / samples.length).toFixed(0)}%) — a replay should draw every one`);
 // How the PICTURE moved, which is the other half of "weird": a camera can hold
 // a perfectly sensible zoom and still lurch, if it keeps stopping and starting.
-const scale = Math.min(VIEW.w, VIEW.h) / 2.2;
 const speed = [];
 // The hand-over into the replay is a fly-to and is meant to be brisk; it is not
 // what "jiggle" is about, so the first half-second is not counted.
 const SETTLE = 30;
-for (let i = SETTLE; i < samples.length; i++) {
-    const a = samples[i - 1], b = samples[i];
-    const k = (a.k + b.k) / 2;
-    const pan = Math.hypot(b.x - a.x, b.y - a.y) * scale * k;
-    const zm = Math.abs(Math.log(b.k / a.k)) * scale * 0.5;
-    speed.push((pan + zm) / (FRAME / 1000));
-}
+for (let i = SETTLE; i < samples.length; i++) speed.push(pictureSpeed(samples[i - 1], samples[i]));
 const sorted = speed.slice().sort((x, y) => x - y);
 const pct = (q) => sorted[Math.floor(q * (sorted.length - 1))];
 const med = pct(0.5);
@@ -346,14 +309,14 @@ console.log(`near-stalls (under 15% of median): ${stalls} frames, ` +
 // a direction change costs it a curve. These two numbers are that, measured.
 const hops = [];
 for (let i = 1; i < samples.length; i++) {
-    hops.push(Math.hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y));
+    const s = step2d(samples[i - 1], samples[i]);
+    hops.push(Math.hypot(s.x, s.y));
 }
 const busy = hops.slice().sort((a, b) => a - b)[Math.floor(hops.length / 2)];
 const turnDeg = [];
 for (let i = 2; i < samples.length; i++) {
-    const a = samples[i - 2], b = samples[i - 1], c = samples[i];
-    const v1 = { x: b.x - a.x, y: b.y - a.y };
-    const v2 = { x: c.x - b.x, y: c.y - b.y };
+    const v1 = step2d(samples[i - 2], samples[i - 1]);
+    const v2 = step2d(samples[i - 1], samples[i]);
     const m1 = Math.hypot(v1.x, v1.y), m2 = Math.hypot(v2.x, v2.y);
     // Only where the map is MOVING. A turn taken at a standstill is not a turn
     // anyone sees — and a camera with weight reaches a standstill on purpose
@@ -371,11 +334,13 @@ for (let i = 2; i < samples.length; i++) {
     zoomTurn.push(Math.abs(r2 - r1) / (FRAME / 1000) / (FRAME / 1000));
 }
 zoomTurn.sort((x, y) => x - y);
-console.log(`camera turn per frame (while moving): ` +
-    `median ${turnDeg[Math.floor(turnDeg.length / 2)].toFixed(1)}deg, ` +
-    `p99 ${turnDeg[Math.floor(turnDeg.length * 0.99)].toFixed(1)}deg, ` +
-    `max ${turnDeg[turnDeg.length - 1].toFixed(1)}deg ` +
-    `(over 90deg is a reversal)`);
+if (turnDeg.length) {
+    console.log(`camera turn per frame (while moving): ` +
+        `median ${turnDeg[Math.floor(turnDeg.length / 2)].toFixed(1)}deg, ` +
+        `p99 ${turnDeg[Math.floor(turnDeg.length * 0.99)].toFixed(1)}deg, ` +
+        `max ${turnDeg[turnDeg.length - 1].toFixed(1)}deg ` +
+        `(over 90deg is a reversal)`);
+}
 console.log(`zoom acceleration: p99 ${zoomTurn[Math.floor(zoomTurn.length * 0.99)].toFixed(2)}, ` +
     `max ${zoomTurn[zoomTurn.length - 1].toFixed(2)} (ln k per second squared)`);
 const jerk = [];
@@ -386,15 +351,17 @@ const rough = [...jerk].sort((x, y) => y.v - x.v).slice(0, 8);
 {   // The neighbourhood of the single roughest frame, printed: a number this
     // big is either the camera being handed a new place to be or the journey
     // changing speed, and the two look nothing alike frame by frame.
-    const worstIdx = samples.findIndex(v => v === rough[0].s);
+    const worstIdx = samples.findIndex(v => v === rough[0]?.s);
     if (worstIdx < 0) console.log('   (frame not found)');
-    console.log('around the roughest frame:');
-    for (let i = worstIdx - 4; i <= worstIdx + 3; i++) {
-        const a = samples[i - 1], b = samples[i];
-        if (!a || !b) continue;
-        const dx = Math.hypot(b.x - a.x, b.y - a.y);
-        console.log(`   t${b.t} step ${b.step} at ${b.at == null ? '-' : b.at.toFixed(3)} ` +
-            `k ${b.k.toFixed(3)} dworld ${dx.toFixed(5)} dk ${(b.k - a.k).toFixed(4)}`);
+    else {
+        console.log('around the roughest frame:');
+        for (let i = worstIdx - 4; i <= worstIdx + 3; i++) {
+            const a = samples[i - 1], b = samples[i];
+            if (!a || !b) continue;
+            const s = step2d(a, b);
+            console.log(`   t${b.t} step ${b.step} at ${b.at == null ? '-' : b.at.toFixed(3)} ` +
+                `k ${b.k.toFixed(3)} moved ${Math.hypot(s.x, s.y).toFixed(2)}px dk ${(b.k - a.k).toFixed(4)}`);
+        }
     }
 }
 console.log('the roughest frames: ' + rough.map(r =>
@@ -403,7 +370,6 @@ jerk.splice(0, jerk.length, ...jerk.map(r => r.v));
 jerk.sort((x, y) => x - y);
 console.log(`change of speed between frames: median ${jerk[Math.floor(jerk.length / 2)].toFixed(0)}, ` +
     `p99 ${jerk[Math.floor(jerk.length * 0.99)].toFixed(0)}, max ${jerk[jerk.length - 1].toFixed(0)} px/s`);
-} // ---- end of the sheet's own arithmetic ----------------------------------
 
 // ---- and the ENDING, which is its own move ---------------------------------
 //
@@ -461,5 +427,5 @@ console.log(`change of speed between frames: median ${jerk[Math.floor(jerk.lengt
     }
 }
 
-if (!onGlobe) console.log(`written ${join(TRACE_DIR, 'trace.json')}`);
+console.log(`written ${join(TRACE_DIR, 'trace.json')}`);
 await library.cleanup();
