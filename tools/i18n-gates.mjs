@@ -109,6 +109,34 @@ ok('the store applies ui_language from settings', /ui_language/.test(readFileSyn
 ok('no hardcoded en-US date formatting remains in the client',
     !readdirAll(srcDir).some((f) => /'en-(US|GB)'/.test(readFileSync(f, 'utf8'))));
 ok('the html lang attribute follows the language', /documentElement\.lang = /.test(i18nSrc));
+// While the page loads, the root is empty until the locale arrives, so the only
+// language the page states is <html lang>. A browser decides there whether to
+// offer a translation: with index.html's `lang="en"` Edge offered to translate a
+// Russian welcome screen "from English". public/lang-boot.js sets it first.
+{
+    const html = readFileSync(join(repoRoot, 'index.html'), 'utf8');
+    const boot = readFileSync(join(repoRoot, 'public', 'lang-boot.js'), 'utf8');
+    const head = html.slice(0, html.indexOf('</head>'));
+    ok('index.html loads the language boot as a classic script in <head>',
+        /<script src="\/lang-boot\.js"><\/script>/.test(head) && !/<script[^>]*type="module"[^>]*>[\s\S]*lang-boot/.test(head));
+    const bootCodes = JSON.parse((boot.match(/var SUPPORTED = (\[[^\]]*\])/) || [, 'null'])[1].replace(/'/g, '"'));
+    const appCodes = [...i18nSrc.matchAll(/\{ code: '([a-z]+)', name:/g)].map((m) => m[1]);
+    check('the language boot knows the same languages as LANGUAGES', bootCodes, appCodes);
+    ok('the language boot reads the cache the app writes', boot.includes(`'${(i18nSrc.match(/LANGUAGE_STORAGE_KEY = '([^']+)'/) || [])[1]}'`));
+    // Run it the way a browser does, against a fake page, for the cases that decide the lang.
+    const run = ({ cached = null, languages = [], language = '' } = {}) => {
+        const documentElement = { lang: 'en' };
+        const store = { getItem: (k) => (k === 'terramentor-lang' ? cached : null) };
+        new Function('document', 'navigator', 'localStorage', boot)({ documentElement }, { languages, language }, store);
+        return documentElement.lang;
+    };
+    check('a Russian browser with nothing cached states ru', run({ languages: ['ru-RU', 'en-US'] }), 'ru');
+    check('a language the app lacks is skipped for the next one', run({ languages: ['ko', 'pt-BR'] }), 'pt');
+    check('none it has is English', run({ languages: ['ko', 'ar'] }), 'en');
+    check('the language this device showed last wins over the browser', run({ cached: 'nl', languages: ['ru'] }), 'nl');
+    check('a cached code the app does not have is ignored', run({ cached: 'xx', languages: ['de'] }), 'de');
+    check('navigator.language when languages is empty', run({ language: 'uk-UA' }), 'uk');
+}
 // `import.meta.glob` is replaced at build time only where it is CALLED; a
 // `typeof import.meta.glob` guard survives into the bundle and is false there,
 // which shipped every locale as silently English once. Call it inside try/catch.

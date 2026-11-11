@@ -26,10 +26,11 @@ const TEMPLATE = join(root, 'src', 'sw-template.js');
  *  what the browser must already have to paint offline. Lazy route chunks are
  *  deliberately not here — they are cached the first time they are opened. */
 /** Shell files served from public/ as they are, so not in the bundle and not
- *  hashed: `theme-boot.js` is index.html's one classic script, without which an
- *  offline launch paints in the default theme. Their CONTENT goes into the
- *  build id, since their name never changes. */
-const PUBLIC_SHELL = ['theme-boot.js'];
+ *  hashed: index.html's two classic scripts, without which an offline launch
+ *  paints in the default theme (`theme-boot.js`) or states English as the
+ *  page's language (`lang-boot.js`). Their CONTENT goes into the build id,
+ *  since their name never changes. */
+const PUBLIC_SHELL = ['lang-boot.js', 'theme-boot.js'];
 
 function shellFiles(bundle) {
     const out = new Set(['/', ...PUBLIC_SHELL.map(f => '/' + f)]);
