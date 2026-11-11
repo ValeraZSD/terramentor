@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowDownCircle, Check, ExternalLink, PackageCheck, RotateCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowDownCircle, Check, ExternalLink, PackageCheck, RotateCw, ScrollText } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useStore } from '../../store';
@@ -217,7 +217,7 @@ function UpdatedNote() {
                     holds items only. */}
                 <p aria-hidden="true" className="px-3 pt-2 pb-1.5 max-w-xs text-sm text-slate-600 dark:text-slate-300 break-words">{t("Terramentor has been updated to {{version}}.", { version: unbroken(version) })}</p>
                 {notes
-                    ? <MenuItem onSelect={read} icon={<Sparkles className="w-4 h-4" />}>{t("What's new")}</MenuItem>
+                    ? <MenuItem onSelect={read} icon={<ScrollText className="w-4 h-4" />}>{t("What's new")}</MenuItem>
                     : <MenuItem href={releaseUrl} onSelect={read} icon={<ExternalLink className="w-4 h-4" />}>{t("What's new")}</MenuItem>}
                 <MenuItem onSelect={done} icon={<Check className="w-4 h-4" />}>{t("Got it")}</MenuItem>
             </MenuPopover>

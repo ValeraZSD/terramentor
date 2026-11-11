@@ -17,7 +17,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, Paperclip, Play, RotateCcw, Sparkles, Trash2, X, SquarePlay,
+    Loader2, MoreVertical, Paperclip, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
@@ -42,7 +42,7 @@ import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind 
 const NARROW_PX = 560;
 
 const KIND_ICON: Record<SourceKind, typeof Globe> = {
-    video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: Sparkles,
+    video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: PenLine,
 };
 
 /** The label between two rules that every section of the page uses. */
@@ -592,7 +592,7 @@ function ShortCard({ row, project, onChanged }: {
         </>
     ) : (
         <>
-            <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <PenLine className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{t("Written from its title")}</span>
         </>
     );

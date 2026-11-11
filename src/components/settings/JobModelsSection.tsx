@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-    MessageSquare, BookOpen, ListChecks, ShieldCheck, Image as ImageIcon, Wand2, LifeBuoy, Route, Plus,
+    MessageSquare, BookOpen, ListChecks, ShieldCheck, Image as ImageIcon, Tag, LifeBuoy, Route, Plus,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useStore } from '../../store';
@@ -39,7 +39,7 @@ const JOB_TEXT: Record<typeof JOB_IDS[number], { icon: LucideIcon; title: string
     questions: { icon: ListChecks, title: k("Questions and cards"), desc: k("Question banks, quizzes, flashcards, and placement checks.") },
     checks: { icon: ShieldCheck, title: k("Checking answers"), desc: k("A second, independent read of every answer key and lesson before you see it.") },
     vision: { icon: ImageIcon, title: k("Reading pictures"), desc: k("PDF pages that lost their formulas, card pictures, photos of your written work.") },
-    small: { icon: Wand2, title: k("Small tasks"), desc: k("Names for regions on the atlas, and other short jobs.") },
+    small: { icon: Tag, title: k("Small tasks"), desc: k("Names for regions on the atlas, and other short jobs.") },
 };
 
 const hostOfUrl = (url: string) => { try { return new URL(url).host; } catch { return url; } };

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useStore } from '../store';
 import { AITaskSummary } from '../types';
-import { X, Check, AlertTriangle, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
+import { X, Check, AlertTriangle, ChevronDown, ChevronUp, ListChecks } from 'lucide-react';
 import TaskFailureModal from './TaskFailureModal';
 import TaskDetailModal from './TaskDetailModal';
 import { KIND_LABEL, taskTitle } from '../utils/taskPlace';
@@ -553,7 +553,7 @@ export default function TaskDock() {
                     {running ? (
                         <RunningDot projectColor={running.projectColor} />
                     ) : (
-                        <Sparkles className="w-3.5 h-3.5 text-accent-fg" aria-hidden="true" />
+                        <ListChecks className="w-3.5 h-3.5 text-accent-fg" aria-hidden="true" />
                     )}
                     {activeCount > 0
                         ? tr("{{count}} AI tasks", { count: activeCount })

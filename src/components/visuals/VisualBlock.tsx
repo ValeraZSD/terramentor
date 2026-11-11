@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, MoreHorizontal, PenLine, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Check, Code2, Copy, Download, Loader2, MessageSquareWarning, MoreHorizontal, Brush, PenLine, Wrench, X } from 'lucide-react';
 import { loadRenderer, SELF_THEMING_KINDS, VISUAL_KIND_LABELS, type VisualRenderer } from './registry';
 import { hasKnownGood, rendererIsBroken } from './rendererHealth';
 import { isVisualBrief, isUndrawnError, type UndrawnReason } from './resolveBrief';
@@ -1059,7 +1059,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                             disabled={repairing}
                             className="shrink-0 -my-1.5"
                             title={tr("Ask the AI to fix this spec")}
-                            icon={<Wand2 size={14} aria-hidden="true" />}
+                            icon={<Wrench size={14} aria-hidden="true" />}
                         >
                             {tr("Fix with AI")}
                         </Button>
@@ -1212,7 +1212,7 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                                 title={kind === 'widget'
                                     ? tr("One pass of your model builds this widget from its spec")
                                     : tr("One pass of your model draws the {{noun}} from this description", { noun: undrawnNoun })}
-                                icon={<Wand2 size={14} aria-hidden="true" />}
+                                icon={<Brush size={14} aria-hidden="true" />}
                             >
                                 {undrawn.reason === 'failed' ? tr("Try again")
                                     : kind === 'widget' ? (undrawn.reason === 'broken' ? tr("Rebuild widget") : tr("Build widget"))

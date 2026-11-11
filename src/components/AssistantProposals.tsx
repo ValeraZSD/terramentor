@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useTranslation } from 'react-i18next';
 import {
     AlertTriangle, ArrowDown, ArrowRight, ArrowUpRight, BookmarkPlus, Bug, Check, ExternalLink, Flag, Layers, Lightbulb, Link2, Loader2,
-    MessageSquareWarning, Pencil, Plus, RotateCcw, ShieldCheck, Sparkles, Undo2,
+    MessageSquareWarning, Pencil, PenLine, Plus, RotateCcw, ShieldCheck, Undo2,
 } from 'lucide-react';
 import Checkbox from './Checkbox';
 import { ItemQuote, ReportedNote, reasonLabel, reportedLine, undoItemReport } from './ui/ReportItem';
@@ -1163,7 +1163,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                 return (
                     <div key={key} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                         <div className="flex items-center gap-2 px-3 pt-2.5 text-sm text-slate-500 dark:text-slate-400">
-                            <Sparkles className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            <Plus className="w-4 h-4 shrink-0" aria-hidden="true" />
                             {t("A short course")}
                         </div>
                         <div className="px-3 py-2 space-y-2">
@@ -1196,7 +1196,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
                                     <Button size="sm" variant="quiet" icon={<ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />} onClick={onOpen}>{t("Open")}</Button>
                                 </>
                             ) : source ? (
-                                <Button size="sm" variant="neutral" icon={<Sparkles className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy === key} disabled={busy !== null && busy !== key} onClick={() => void create(s, source, key)}>
+                                <Button size="sm" variant="neutral" icon={<PenLine className="w-3.5 h-3.5" aria-hidden="true" />} busy={busy === key} disabled={busy !== null && busy !== key} onClick={() => void create(s, source, key)}>
                                     {t("Create short course")}
                                 </Button>
                             ) : (

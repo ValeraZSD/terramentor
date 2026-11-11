@@ -6,8 +6,8 @@ import ProjectQuizzesList from './ProjectQuizzesList';
 import QuizView from './QuizView';
 import {
     Brain, CheckCircle2, Zap, RefreshCw, Loader2,
-    Sparkles, BarChart3, Play, RotateCcw,
-    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass
+    MessageSquare, BarChart3, Play, RotateCcw,
+    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History
 } from 'lucide-react';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { useElementWidth } from '../hooks/useElementWidth';
@@ -178,7 +178,7 @@ export default function StudyDashboard() {
                         {heroHeadStart && !heroReady && (
                             <p data-line="head-start" className="flex items-start gap-1.5 mt-2 text-sm text-slate-600 dark:text-slate-300">
                                 {heroHeadStart.source === 'transfer'
-                                    ? <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />
+                                    ? <History className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />
                                     : <Compass className="w-4 h-4 shrink-0 mt-0.5 text-accent-fg" aria-hidden="true" />}
                                 <span className="min-w-0">
                                     <span className="font-medium text-accent-fg">
@@ -290,7 +290,7 @@ export default function StudyDashboard() {
                     screen) and costs nothing until asked. The question is
                     pre-filled, not sent. */}
                 <ToolRow
-                    icon={Sparkles}
+                    icon={MessageSquare}
                     title={tr("Ask about this project")}
                     hint={tr("What to focus on, what to drop, how the deadline is looking")}
                     onClick={() => openAssistant(

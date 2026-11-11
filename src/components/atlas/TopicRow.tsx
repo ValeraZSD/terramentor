@@ -1,4 +1,4 @@
-import { ArrowUpRight, Sparkles } from 'lucide-react';
+import { ArrowUpRight, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AtlasTopic } from '../../types';
 import { topicDotStatus } from './topicStatus';
@@ -39,7 +39,7 @@ export default function TopicRow({ topic, detail, onOpen }: {
                     {topic.title}
                     {topic.transferred && (
                         <>
-                            <Sparkles className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
+                            <History className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
                             <span className="sr-only">{tr("started with a head start from another project")}</span>
                         </>
                     )}
