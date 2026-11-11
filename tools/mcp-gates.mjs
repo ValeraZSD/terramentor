@@ -550,6 +550,11 @@ console.log('\n--- a right claim lifts the estimate a little, and never the gate
     const seedRow = db.prepare('SELECT mastery_score, placement_prior FROM node_mastery WHERE node_id = ?').get(headStart);
     ok('a right claim on a head start at the cap adds nothing and keeps the head start', effectOf(onSeed) === 'at_cap'
         && seedRow.mastery_score === 0.6 && seedRow.placement_prior === 0.6, `${JSON.stringify(seedRow)} (${effectOf(onSeed)})`);
+    const seededOnly = addNode('Wave interference', section, { position: 60 });
+    mastery.applySeededPrior(seededOnly, 'placement', 0.4);
+    const seededText = textOf(await call('get_mastery', { topic: String(seededOnly) }));
+    ok('get_mastery never credits agents\' claims for an estimate a head start alone gave',
+        !/right claims alone/i.test(seededText) && seededText.includes('40%') && /head start/i.test(seededText), seededText.slice(0, 400));
 
     const m = await call('get_mastery', { topic: String(claimed) });
     ok('get_mastery says right claims lifted the estimate, up to 60%, and that the gate does not count them',
@@ -1509,6 +1514,14 @@ console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
             if (q?.type === 'assemble') return JSON.stringify(p.enum) === JSON.stringify(q.tokens);
             return !p.enum;
         }), JSON.stringify(props).slice(0, 600));
+    const splitFields = Object.entries(props).filter(([k]) => /^q\d+_\d+$/.test(k));
+    ok('…and each field of a question asked over several names that question and which part it is',
+        splitFields.length === 5 && splitFields.every(([k, p]) => {
+            const [, n, part] = /^q(\d+)_(\d+)$/.exec(k);
+            const q = questionOf(props, Number(n));
+            const of = fieldNames(props, Number(n)).length;
+            return !!q && (p.title || '').startsWith(`${n}. ${q.question.slice(0, 40)}`) && (p.title || '').includes(`${part} of ${of})`);
+        }), splitFields.map(([, p]) => p.title).join(' | '));
     const result = taken?.result?.structuredContent?.result || {};
     const said = textOf(taken);
     ok('the app grades and records the answers as one mastery check, marked as taken in a form', !isErr(taken) && evidenceOn(formTopic) === before + 1
@@ -1545,9 +1558,13 @@ console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
     const newTopic = bankTopic('Wave speed in strings', 17);
     const round1 = (await modernCall({ topic: newTopic }))?.result || {};
     const inputs = Object.entries(round1.inputRequests || {});
-    const openReview = await call('get_mastery', { topic: newTopic }, modern);
+    // A read on 2026-07-28 carries the same per-request envelope; without it
+    // the server answers an error, and an error holds no question either.
+    const modernRead = async (topic) => record(await modern.rpc('tools/call', { name: 'get_mastery', arguments: { topic }, _meta: envelope({ elicitation: {} }) }));
+    const openReview = await modernRead(newTopic);
     ok('on 2026-07-28 the check is one input_required round with one form, and nothing of it reaches get_mastery while it is open',
         round1.resultType === 'input_required' && typeof round1.requestState === 'string' && inputs.length === 1 && inputs[0][1].method === 'elicitation/create'
+        && !isErr(openReview) && textOf(openReview).includes('Wave speed in strings')
         && !FORM_BANK.some(b => textOf(openReview).includes(b.question)) && evidenceOn(newTopic) === 0,
         `${JSON.stringify(round1).slice(0, 300)} | ${textOf(openReview).slice(-200)}`);
     const [key, request] = inputs[0] || [];
@@ -1562,6 +1579,53 @@ console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
     const forged = await modernCall({ topic: forgedTopic }, { inputResponses: answered, requestState: 'F'.repeat(32) });
     ok('a requestState the server never issued records nothing, and says the check has ended', evidenceOn(forgedTopic) === 0
         && /ended|no longer open/i.test(textOf(forged)), textOf(forged).slice(0, 200));
+    // A decline sent again after the same form was accepted and graded.
+    const lateDecline = await modernCall({ topic: newTopic }, { inputResponses: { [key]: { action: 'decline' } }, requestState: round1.requestState });
+    ok('a decline that arrives after the form was graded says the check was recorded, and changes nothing',
+        !isErr(lateDecline) && /already graded and recorded/i.test(textOf(lateDecline)) && !/nothing was recorded/i.test(textOf(lateDecline))
+        && evidenceOn(newTopic) === 1, textOf(lateDecline).slice(0, 200));
+    // A declined form ends its sitting: the same requestState then accepted records nothing.
+    const closedTopic = bankTopic('Wave speed in glass', 20);
+    const closeRound = (await modernCall({ topic: closedTopic }))?.result || {};
+    const [cKey, cRequest] = Object.entries(closeRound.inputRequests || {})[0] || [];
+    const declined = await modernCall({ topic: closedTopic }, { inputResponses: { [cKey]: { action: 'decline' } }, requestState: closeRound.requestState });
+    const afterClose = await modernCall({ topic: closedTopic }, {
+        inputResponses: { [cKey]: { action: 'accept', content: fill(cRequest?.params, { right: ['multiple_choice', 'true_false', 'numeric', 'sequence', 'assemble', 'fill_in'] }) } },
+        requestState: closeRound.requestState,
+    });
+    ok('a declined form ends its check: the same form accepted afterwards records nothing and says the check has ended',
+        /declined/i.test(textOf(declined)) && evidenceOn(closedTopic) === 0 && /ended/i.test(textOf(afterClose)), `${textOf(declined).slice(0, 150)} | ${textOf(afterClose).slice(0, 150)}`);
+    // While a new check is open on a topic, the last check's missed questions
+    // (keys included) are held back: the new draw may ask them again.
+    const retakeRound = (await modernCall({ topic: formTopic }))?.result || {};
+    const duringRetake = textOf(await modernRead(formTopic));
+    const [rKey] = Object.keys(retakeRound.inputRequests || {});
+    await modernCall({ topic: formTopic }, { inputResponses: { [rKey]: { action: 'cancel' } }, requestState: retakeRound.requestState });
+    const afterRetake = textOf(await modernRead(formTopic));
+    ok('while a new check on the topic is open, get_mastery holds back the last check\'s missed questions and their keys, and shows them again once it is closed',
+        retakeRound.resultType === 'input_required' && !duringRetake.includes(`${EXPL}-num`) && !duringRetake.includes(FORM_BANK[2].question)
+        && /new check on this topic is open/i.test(duringRetake) && afterRetake.includes(`${EXPL}-num`),
+        `${JSON.stringify(retakeRound).slice(0, 200)} | ${duringRetake.slice(-300)} || ${afterRetake.slice(-120)}`);
+    // Over HTTP on 2026-07-28 each request carries the client's capabilities,
+    // so the stateless listener knows the client takes a form; the sitting
+    // lives in the app between the two requests.
+    const h = await httpServer({ TERRAMENTOR_URL: appUrl });
+    const httpTopic = bankTopic('Wave speed in air', 19);
+    const httpCall = (id, extra = {}) => post(h.port, {
+        jsonrpc: '2.0', id, method: 'tools/call',
+        params: { name: 'mastery_check', arguments: { topic: httpTopic }, _meta: envelope({ elicitation: { form: {} } }), ...extra },
+    }, { Authorization: `Bearer ${API_KEY}`, 'MCP-Protocol-Version': '2026-07-28', 'Mcp-Method': 'tools/call', 'Mcp-Name': 'mastery_check' });
+    const r1 = h.port ? await httpCall(1) : { text: h.out };
+    const h1 = r1.json?.result || {};
+    const [hKey, hRequest] = Object.entries(h1.inputRequests || {})[0] || [];
+    const h2 = h.port && hKey ? (await httpCall(2, {
+        requestState: h1.requestState,
+        inputResponses: { [hKey]: { action: 'accept', content: fill(hRequest?.params, { right: ['multiple_choice', 'true_false', 'numeric', 'sequence', 'assemble', 'fill_in'] }) } },
+    })).json : null;
+    ok('…and over HTTP, where the listener keeps no session and reads the client\'s capabilities from the request',
+        h1.resultType === 'input_required' && h2?.result?.structuredContent?.result?.passed === true && evidenceOn(httpTopic) === 1,
+        `${r1.status} ${String(r1.text).slice(0, 300)} | ${JSON.stringify(h2).slice(0, 200)}`);
+    h.child.kill();
     const plain2026 = (await record(await modern.rpc('tools/call', { name: 'mastery_check', arguments: { topic: forgedTopic }, _meta: envelope({}) })))?.result || {};
     ok('a 2026-07-28 client that takes no input gets the link, as before', plain2026.resultType !== 'input_required'
         && textOf({ result: plain2026 }).includes(`/project/${pid}/tree/${forgedTopic}`), JSON.stringify(plain2026).slice(0, 200));
