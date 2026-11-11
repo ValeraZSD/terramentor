@@ -39,12 +39,43 @@ $ProgressPreference = 'SilentlyContinue'
 # or the host waits for its deadline.
 $setupError = $null
 try {
-    # Physical pixels in the screenshots, not the scaled desktop.
+    # Physical pixels in the screenshots, not the scaled desktop; and the
+    # sandbox's sound, which plays on the host's speakers, muted.
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioEndpointVolume {
+    int f1(); int f2(); int f3(); int f4(); int f5(); int f6(); int f7(); int f8(); int f9(); int f10(); int f11();
+    [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, IntPtr context);
+    [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+}
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {
+    [PreserveSig] int Activate(ref Guid iid, int context, IntPtr parameters, [MarshalAs(UnmanagedType.IUnknown)] out object target);
+}
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {
+    int f1();
+    [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumerator { }
 public static class SandboxRunNative {
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    // Mutes the default output; true when it reads back muted.
+    public static bool MuteSpeakers() {
+        var devices = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+        IMMDevice speakers;
+        Marshal.ThrowExceptionForHR(devices.GetDefaultAudioEndpoint(0, 1, out speakers));   // eRender, eMultimedia
+        var iid = typeof(IAudioEndpointVolume).GUID;
+        object o;
+        Marshal.ThrowExceptionForHR(speakers.Activate(ref iid, 23, IntPtr.Zero, out o));     // CLSCTX_ALL
+        var volume = (IAudioEndpointVolume)o;
+        Marshal.ThrowExceptionForHR(volume.SetMute(true, IntPtr.Zero));
+        bool muted;
+        Marshal.ThrowExceptionForHR(volume.GetMute(out muted));
+        return muted;
+    }
 }
 '@
     [void][SandboxRunNative]::SetProcessDPIAware()
@@ -171,10 +202,30 @@ try {
     $result.version = $run.version
     Say ('first run of ' + $run.zipName)
 
+    # Long before the app opens: a sandbox plays on the host's speakers. Its
+    # speaker can appear a moment after logon, so a missing one is waited for.
+    # Stopping Windows Audio as well needs an administrator.
+    $muted = $false; $why = ''
+    for ($i = 0; $i -lt 20 -and -not $muted; $i++) {
+        try { $muted = [SandboxRunNative]::MuteSpeakers(); if (-not $muted) { $why = 'it did not take' } }
+        catch { $why = $_.Exception.Message }
+        if (-not $muted) { Start-Sleep -Seconds 1 }
+    }
+    $sound = @($(if ($muted) { 'muted' } else { 'not muted (' + $why + ')' }))
+    $stopped = $false
+    try { Stop-Service -Name Audiosrv -Force -ErrorAction Stop; $stopped = $true; $sound += 'Windows Audio stopped' }
+    catch { $sound += 'Windows Audio left running' }
+    $result.sound = $sound -join ', '
+    if ($muted -or $stopped) { Say ('sound: ' + $result.sound) } else { Note ('sound is NOT off: ' + $result.sound) }
+
     # --- the machine ------------------------------------------------------------
     $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
     $result.os = $cv.ProductName + ' ' + $cv.DisplayVersion + ' build ' + $cv.CurrentBuild + '.' + $cv.UBR
-    $result.uiCulture = (Get-UICulture).Name
+    # The shell speaks the language Windows was installed in (the host's). The
+    # new user's own setting read en-US on a Russian host while the shell and the
+    # browser spoke Russian (1.4.0, 11 Nov 2026), so both are kept.
+    $result.uiCulture = [Globalization.CultureInfo]::InstalledUICulture.Name
+    $result.userCulture = (Get-UICulture).Name
     $result.uacEnabled = ((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System').EnableLUA -eq 1)
     $result.scriptElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -190,8 +241,20 @@ try {
             mode = '' + $mp.AMRunningMode; signatures = '' + $mp.AntivirusSignatureVersion
         }
     } catch { $result.defender = 'unavailable: ' + $_.Exception.Message }
+    # Whether it scans at all, when the status above cannot be read. Read again
+    # just before the double-click: a fresh logon may not have started it yet.
+    function Read-DefenderState {
+        $svc = Get-Service -Name WinDefend -ErrorAction SilentlyContinue
+        [ordered]@{
+            service = $(if ($svc) { '' + $svc.Status } else { 'absent' })
+            engine = $(if (Get-Process -Name MsMpEng -ErrorAction SilentlyContinue) { 'running' } else { 'not running' })
+        }
+    }
+    $result.defenderState = Read-DefenderState
     $result.smartScreen = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' -ErrorAction SilentlyContinue).SmartScreenEnabled
     Say ($result.os + ', ' + $result.uiCulture + ', Edge ' + $result.edge + ', screen ' + $result.screen)
+    Say ('Defender service ' + $result.defenderState.service + ', engine ' + $result.defenderState.engine +
+        ', UAC ' + $(if ($result.uacEnabled) { 'on' } else { 'off' }) + ', run elevated ' + $result.scriptElevated)
 
     # --- 1. downloaded ----------------------------------------------------------
     $downloads = Join-Path $env:USERPROFILE 'Downloads'
@@ -381,6 +444,8 @@ try {
         , $asked
     }
 
+    $result.defenderState = Read-DefenderState
+    if ($result.defenderState.engine -ne 'running') { Note 'Defender is not scanning in this sandbox, so this run says nothing about what it does' }
     $launchAt = $clock.Elapsed.TotalSeconds
     $asked1 = Open-AsDoubleClick 1
     $result.firstDoubleClick = $asked1
