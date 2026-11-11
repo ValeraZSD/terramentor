@@ -5,7 +5,7 @@
 // second process opening the same file would race the first; so the MCP server
 // is a thin client of the app that is already running, and every read and
 // write is the app's own route behind its own password check
-// (server/routes/agent.js, POST /api/capture). tools/mcp-gates.mjs fails if
+// (server/routes/agent.js). tools/mcp-gates.mjs fails if
 // anything under mcp/ imports server/.
 
 /** Where the app listens by default (`npm run standalone`, the desktop app). */

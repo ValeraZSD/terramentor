@@ -318,22 +318,13 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     infos.sort((a, b) => urgency(b) - urgency(a));
 
     const anyScheduledWork = infos.some(i => i.overdue.length || i.todays.length);
-    // The Inbox is never scheduled — giving a capture a deadline would turn
-    // "not read yet" into "overdue" by tomorrow. So instead it holds a standing
-    // slot: its unscheduled leaves are always eligible, even on a day full of
-    // real curriculum work. Urgency sorts it last (no overdue, nothing due), so
-    // it fills the tail of the feed rather than displacing anything.
-    // Read straight from settings rather than importing capture.js, which
-    // already imports normalizeFeedQuestion from here — a cycle for one lookup.
-    const inboxId = Number(
-        db.prepare("SELECT value FROM settings WHERE key = 'inbox_project_id'").get()?.value
-    ) || null;
-    // A CARD COLLECTION gets the Inbox's standing slot, for the same reason. It
-    // is never scheduled — thirty stages with deadlines would all be overdue by
-    // next week, the exact "not read yet becomes overdue" failure the Inbox rule
-    // exists to avoid — so without one it would be invisible in the feed on
-    // every day that has any scheduled work, which for a real library is every
-    // day.
+    // A CARD COLLECTION holds a STANDING SLOT: its unscheduled leaves are always
+    // eligible, even on a day full of real curriculum work. It is never
+    // scheduled — thirty stages with deadlines would all be overdue by next
+    // week, "not read yet" turned into "overdue" — so without one it would be
+    // invisible in the feed on every day that has any scheduled work, which for
+    // a real library is every day. Urgency sorts it last (no overdue, nothing
+    // due), so it fills the tail of the feed rather than displacing anything.
     //
     // The property that earns the slot is the one stated above — cards to
     // serve, no dates it could ever be late against — not "did this arrive
@@ -345,8 +336,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // a day of overdue work it would wait behind all of it.
     const undated = (p) => !(p.start_date && p.deadline);
     const isStanding = (info) =>
-        info.project.id === inboxId
-        || ((!!info.project.has_cards || !!info.project.made_from) && undated(info.project));
+        (!!info.project.has_cards || !!info.project.made_from) && undated(info.project);
 
     // ...and a standing slot has to be RESERVED, not merely last in line. Sorting
     // by urgency put the standing projects at the end (they have nothing overdue
@@ -355,9 +345,6 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // filled all six slots and the deck contributed nothing at all. "Sorts last"
     // is not the same as "gets a turn". Scheduled work still gets first refusal
     // on the larger share; the reservation only guarantees the tail exists.
-    //
-    // This was latent for the Inbox too: a capture was equally unreachable on a
-    // busy day, which is the opposite of what an inbox is for.
     // Only one with a topic to serve: a short course still being written, or
     // one whose writing failed, would hold a slot and fill it with nothing.
     const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
@@ -411,7 +398,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
         if (focus.length >= maxTotal - reserved) break;
         take(info, maxTotal - reserved);
     }
-    // One node each, round-robin, so two decks and an inbox share the tail
+    // One node each, round-robin, so two decks and a short course share the tail
     // instead of the first of them taking all of it.
     for (let pass = 0; pass < maxPerProject && focus.length < maxTotal; pass++) {
         for (const info of standingInfos) {

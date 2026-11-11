@@ -34,7 +34,7 @@
 //     raw distance whose scale depends on the embedding model.
 //
 //  3. **Freshness is reconciled, not hooked.** Nodes are written from a dozen
-//     places (AI creation, import, capture, manual edit, bundle import), and a
+//     places (AI creation, import, short courses, manual edit, bundle import), and a
 //     per-call-site hook would be wrong within a week. Instead `node_embeddings`
 //     stores a hash of the exact text that was embedded and the model that
 //     embedded it, and `syncNodeEmbeddings` re-embeds only the drift. It costs

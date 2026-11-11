@@ -44,7 +44,7 @@ const IMAGE_KINDS = ['jpg', 'png', 'webp'];
 // DOCUMENTS
 
 // Who a new document belongs to: a project, a topic, or a topic AND the
-// project it is in (what the vault and capture send). Both ids were stored as
+// project it is in (what the vault sends). Both ids were stored as
 // sent, so a topic of one course could be filed under another course too:
 // both courses' exports then shipped it, and deleting the wrong course
 // cascaded it away from the topic it hung on. A missing owner was a 500 from

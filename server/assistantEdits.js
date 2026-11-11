@@ -36,7 +36,6 @@ import { scheduleNodeSync } from './nodeEmbeddings.js';
 import { courseRenamed } from './searchWords.js';
 import { logActivity } from './activityLog.js';
 import { aiProvenance } from './ai.js';
-import { getOrCreateInboxProject } from './capture.js';
 import { persistDocument } from './stagedDocuments.js';
 import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
 
@@ -316,7 +315,7 @@ export const SAVE_DESCRIPTION_MAX = 8000;
 
 /**
  * Save a file from the chat into the library (server/chatAttachments.js): a
- * document row on a topic, a course or the Inbox, holding the same stored
+ * document row on a topic or a course, holding the same stored
  * bytes. A picture is saved WITH the description the model wrote for it —
  * the only place a description is ever written, because it is what a later
  * search of the library finds the picture by — and a document with its own
@@ -327,15 +326,13 @@ export const SAVE_DESCRIPTION_MAX = 8000;
  * conversation (to `conversationId` when one is named), the place must exist,
  * and a picture must come with words.
  */
-export function saveAssistantAttachment({ attachmentId, conversationId = null, projectId = null, nodeId = null, inbox = false, title = '', description = '', source = null }) {
+export function saveAssistantAttachment({ attachmentId, conversationId = null, projectId = null, nodeId = null, title = '', description = '', source = null }) {
     const att = db.prepare('SELECT * FROM chat_attachments WHERE id = ?').get(Number(attachmentId));
     if (!att || att.message_id == null) throw new EditError(404, 'That file is not in a conversation.');
     if (conversationId != null && att.conversation_id !== Number(conversationId)) throw new EditError(404, 'That file is not in this conversation.');
     let pid = null;
     let nid = null;
-    if (inbox) {
-        pid = getOrCreateInboxProject();
-    } else if (nodeId != null) {
+    if (nodeId != null) {
         const node = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?').get(Number(nodeId));
         if (!node) throw new EditError(404, 'That topic does not exist.');
         if (projectId != null && Number(projectId) !== node.project_id) throw new EditError(404, 'That topic is not in that course.');
@@ -345,7 +342,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
         if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(Number(projectId))) throw new EditError(404, 'That course does not exist.');
         pid = Number(projectId);
     } else {
-        throw new EditError(400, 'Say where to save it: a topic, a course or the Inbox.', { fields: ['to'] });
+        throw new EditError(400, 'Say where to save it: a topic or a course.', { fields: ['to'] });
     }
     const name = oneLine(String(title || ''), SAVE_TITLE_MAX) ?? att.name;
     const words = String(description || '').replace(/\r\n?/g, '\n').trim().slice(0, SAVE_DESCRIPTION_MAX);

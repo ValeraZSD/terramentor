@@ -52,7 +52,7 @@ const DEFAULT_TOPK = 5;
 
 // ---- settings helpers -------------------------------------------------------
 
-// Guarded like the copies in capture.js / paper.js / settingsStore.js — this module is
+// Guarded like the copies in paper.js / settingsStore.js — this module is
 // the one that must never throw (it runs on a background chain, and semantic
 // search is an enhancement, never a dependency), yet it was the one copy of
 // this helper with no try/catch. Every call site below already treats null as

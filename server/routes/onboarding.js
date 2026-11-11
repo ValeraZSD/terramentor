@@ -18,12 +18,10 @@ const app = routeTable('onboarding');
 app.get('/api/onboarding', (req, res) => {
     try {
         const count = (sql, ...args) => db.prepare(sql).get(...args)?.c ?? 0;
-        const inboxId = Number(getSetting('inbox_project_id', '')) || -1;
 
-        // "A project of your own" — the Inbox is ours, not theirs, so it does
-        // not tick this box. A new library starts empty, so the only project
-        // anyone has is one they made.
-        const ownProjects = count('SELECT COUNT(*) c FROM projects WHERE id != ?', inboxId);
+        // "A project of your own": a new library starts empty, so the only
+        // project anyone has is one they made.
+        const ownProjects = count('SELECT COUNT(*) c FROM projects');
 
         res.json({
             dismissed: getSetting('onboarding_dismissed', 'false') === 'true',

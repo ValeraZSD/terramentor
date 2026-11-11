@@ -1311,7 +1311,7 @@ try {
   // where no column trigger can reach — so these two triggers rewrite the array
   // itself, giving every question the topic OWNS a `uuid` it lacks, on insert
   // and on every rewrite. A trigger rather than a helper at each writer for the
-  // same reason as above: the feed, bulk generation, capture, the importer, the
+  // same reason as above: the feed, bulk generation, the importer, the
   // answer check and the offline repair tool all write banks, and a writer that
   // forgot would silently produce questions nothing can find again.
   //
@@ -2116,6 +2116,11 @@ addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
 addColumnIfMissing('projects', 'made_from', 'TEXT DEFAULT NULL');
 // The same, for a source Read staged before its course exists.
 addColumnIfMissing('staged_documents', 'origin', 'TEXT DEFAULT NULL');
+// There is no Inbox any more: a link or a file becomes a short course, a fact a
+// card in its course. A library that had one keeps that project as an ordinary
+// course, under the name the learner knows, with every topic and answer in it;
+// only the row that marked it goes, so nothing treats it as special again.
+db.prepare("DELETE FROM settings WHERE key = 'inbox_project_id'").run();
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
