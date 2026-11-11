@@ -9,10 +9,8 @@ The other app can be Claude Code, Claude Desktop, VS Code or Cursor. It can see:
 - a topic's lesson text;
 - how well you know a topic.
 
-The agent itself can write two things back:
-
-- a note into your Inbox;
-- a **claim** that you answered one of its questions right or wrong.
+The agent itself can write one thing back: a **claim** that you answered one of its questions
+right or wrong.
 
 A claim is never proof. A right claim may lift a topic's estimate a little, never past 60%,
 and cannot pass the mastery gate; only questions Terramentor graded itself do that (its mastery
@@ -87,7 +85,6 @@ so the key stays out of the arguments. In Claude Desktop, for example:
 | `get_due` | Today's work in your own day: overdue and planned topics, cards due, deadlines and pace | no |
 | `topic_material` | A topic's Overview and Material, in parts if it is long. Never your private notes | no |
 | `get_mastery` | A topic's estimated mastery, whether it passed the gate, the measured evidence, the claims, and the questions you missed in its last mastery check | no |
-| `add_capture` | Save a note or a link into your Inbox. A note without a link that is already there is not saved again; one with a link is saved each time | adds a note |
 | `record_claim` | Record that you answered the agent's question on a topic right or wrong | adds a claim |
 | `mastery_check` | Open a topic's mastery check: in the agent's window where it can show it, as one form where it can ask you to fill one in, otherwise a link to the topic in Terramentor | your answers, once you submit |
 | `review_cards` | Open a review of the cards due in one project, or in every active one: in the window, or a link | each rating you give |

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    Play, Loader2, CheckCircle2, Settings2, CalendarClock, Sparkles, Layers, ListOrdered, BookOpen,
+    Play, Loader2, CheckCircle2, Settings2, CalendarClock, FastForward, Layers, ListOrdered, BookOpen,
 } from 'lucide-react';
 import { api } from '../../api';
 import { DashboardSection } from '../dashboard/DashboardSection';
@@ -209,7 +209,7 @@ export default function CardsPanel({
                     <Button
                         variant="neutral"
                         onClick={() => setSession({ stage: null, ahead: true })}
-                        icon={<Sparkles className="h-4 w-4" aria-hidden="true" />}
+                        icon={<FastForward className="h-4 w-4" aria-hidden="true" />}
                     >
                         {t("Study ahead anyway")}
                     </Button>

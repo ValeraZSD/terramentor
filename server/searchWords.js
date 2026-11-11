@@ -147,14 +147,6 @@ const stmt = (sql) => {
     return s;
 };
 
-function inboxId() {
-    try {
-        return Number(stmt("SELECT value FROM settings WHERE key = 'inbox_project_id'").get()?.value) || 0;
-    } catch {
-        return 0;
-    }
-}
-
 /**
  * A topic leaf of the course (alias `n`): a deck's "Stage 3" slices are
  * leaves too, and their titles say nothing about the subject.
@@ -188,10 +180,9 @@ export function pendingCourses(model, limit = MAX_PER_SWEEP) {
         SELECT id, name, description FROM projects
         WHERE search_words IS NULL
           AND COALESCE(ai_generating, 0) = 0
-          AND id != ?
           AND NOT (COALESCE(search_words_tries, 0) >= ? AND search_words_by = ?)
           AND EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = projects.id AND ${TOPIC_LEAF})
-        ORDER BY id LIMIT ?`).all(inboxId(), MAX_ATTEMPTS, model, limit);
+        ORDER BY id LIMIT ?`).all(MAX_ATTEMPTS, model, limit);
 }
 
 /** The course as it is NOW: a sweep's list is minutes old by its last course. */

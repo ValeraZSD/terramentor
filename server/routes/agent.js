@@ -6,7 +6,7 @@
 // server must carry the library's API key (Settings → Security), without one
 // only this computer is let in (server/auth.js). The agent's own routes READ,
 // except POST /api/agent/claims, which writes a claim (server/claims.js) and
-// never evidence. A capture goes through the app's own POST /api/capture. The
+// never evidence. The
 // /check and /review routes write evidence and card schedules, but only what
 // the learner answered in the view (server/agentSittings.js).
 //

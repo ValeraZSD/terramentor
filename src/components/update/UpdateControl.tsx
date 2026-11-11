@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowDownCircle, Check, ExternalLink, PackageCheck, RotateCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowDownCircle, Check, ExternalLink, PackageCheck, RotateCw, ScrollText } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useStore } from '../../store';
@@ -165,8 +165,8 @@ function HoverBody() {
  * itself was offered, until "Got it" or the next launch (the server drops the
  * result when it starts): a fact that needs one glance, not a strip across the
  * page with a sentence at one edge and its controls at the other. The sentence
- * with the version, What's new and Got it are in its menu. Quiet, like Capture
- * beside it: it reports, where the update states above ask for a press. The
+ * with the version, What's new and Got it are in its menu. Quiet: it
+ * reports, where the update states above ask for a press. The
  * update has happened, so the last item acknowledges it; "Dismiss" and an X
  * read as waving something away.
  */
@@ -199,7 +199,7 @@ function UpdatedNote() {
     const notes = status.install?.notes?.releases.length ? status.install.notes : null;
     const read = () => { setOpen(false); if (notes) setReading(true); else anchor.current?.focus(); };
     // Got it takes the button away, so focus moves to the header control
-    // after it (Capture) rather than falling to the page.
+    // after it rather than falling to the page.
     const done = () => {
         const here = anchor.current;
         const controls = here ? [...(here.closest('header') ?? document.body).querySelectorAll<HTMLElement>('button, a[href]')].filter(el => el.offsetParent) : [];
@@ -217,7 +217,7 @@ function UpdatedNote() {
                     holds items only. */}
                 <p aria-hidden="true" className="px-3 pt-2 pb-1.5 max-w-xs text-sm text-slate-600 dark:text-slate-300 break-words">{t("Terramentor has been updated to {{version}}.", { version: unbroken(version) })}</p>
                 {notes
-                    ? <MenuItem onSelect={read} icon={<Sparkles className="w-4 h-4" />}>{t("What's new")}</MenuItem>
+                    ? <MenuItem onSelect={read} icon={<ScrollText className="w-4 h-4" />}>{t("What's new")}</MenuItem>
                     : <MenuItem href={releaseUrl} onSelect={read} icon={<ExternalLink className="w-4 h-4" />}>{t("What's new")}</MenuItem>}
                 <MenuItem onSelect={done} icon={<Check className="w-4 h-4" />}>{t("Got it")}</MenuItem>
             </MenuPopover>

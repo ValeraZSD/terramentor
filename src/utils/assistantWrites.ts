@@ -3,7 +3,6 @@
  *
  *   [[check:PROJECT_ID:NODE_ID]]   open the app's own mastery check on a topic
  *   ```card  topic/front/back ```  preview a flashcard, with an Add button
- *   ```capture  text ```           preview a note, with a Save-to-Inbox button
  *   ```report  kind/title/fields ``` preview a problem report, with a Review
  *                                  button that opens Report a problem filled in
  *   ```project  project/name/icon/colour/description/status/new cards per day ```
@@ -60,7 +59,6 @@ export interface CardProposal {
 const SIDE_MAX = 2000;
 const MAX_CHECKS = 2;
 const MAX_CARDS = 3;
-const MAX_CAPTURES = 1;
 
 const asId = (raw: string): number | null => {
     const n = Number(String(raw).trim());
@@ -88,7 +86,10 @@ export function splitChecks(content: string, streaming = false): { body: string;
     return { body: body === content ? content : tidy(body), checks };
 }
 
-/** A complete prepared block (```card, ```project, …), on lines of its own. */
+/** A complete prepared block (```card, ```project, …), on lines of its own.
+ *  `capture` is read only to be undone: older answers offered a note for an
+ *  Inbox, which no longer exists, so its words go back into the answer as a
+ *  paragraph and it proposes nothing. */
 const BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*\n([\s\S]*?)\n?[ \t]*```[ \t]*(?=\n|$)/gi;
 /** An opener with no closer after it: still arriving, or never closed. */
 const OPEN_BLOCK_RE = /(^|\n)[ \t]*```[ \t]*(card|capture|report|project|topic|link|course|short|save|wrong)[ \t]*(?:\n([\s\S]*))?$/i;
@@ -347,7 +348,7 @@ export function liveOutcome<O extends { projectId?: number; seen?: boolean }>(ma
  */
 export interface SaveProposal {
     attachmentId: number;
-    to: { kind: 'topic'; projectId: number; nodeId: number } | { kind: 'course'; projectId: number } | { kind: 'inbox' };
+    to: { kind: 'topic'; projectId: number; nodeId: number } | { kind: 'course'; projectId: number };
     title: string | null;
     description: string;
 }
@@ -495,9 +496,8 @@ function parseSave(text: string): SaveProposal | null {
     const where = (f.to ?? '').trim();
     const ids = topicIds(where);
     const course = asId(where);
-    const to: SaveProposal['to'] | null = /^inbox$/i.test(where) ? { kind: 'inbox' }
-        : ids ? { kind: 'topic', ...ids }
-            : course !== null ? { kind: 'course', projectId: course } : null;
+    const to: SaveProposal['to'] | null = ids ? { kind: 'topic', ...ids }
+        : course !== null ? { kind: 'course', projectId: course } : null;
     if (!to) return null;
     return {
         attachmentId,
@@ -542,9 +542,10 @@ function parseWrong(text: string): WrongProposal | null {
 }
 
 /**
- * Split card, capture and report blocks out of an assistant message.
+ * Split card, report and the other prepared blocks out of an assistant message.
  *
- * Every block comes OUT, valid or not, so no fence source is ever drawn. While
+ * Every block comes OUT, valid or not, so no fence source is ever drawn (an old
+ * `capture` block leaves its words behind, see BLOCK_RE). While
  * streaming, an unclosed block is hidden and proposes nothing yet; once the
  * turn has settled, a block the model forgot to close runs to the end of the
  * message and is read like any other.
@@ -552,7 +553,6 @@ function parseWrong(text: string): WrongProposal | null {
 export interface WriteBlocks {
     body: string;
     cards: CardProposal[];
-    captures: string[];
     reports: ReportProposal[];
     projects: ProjectEditProposal[];
     topics: TopicEditProposal[];
@@ -564,10 +564,9 @@ export interface WriteBlocks {
 }
 
 export function splitWriteBlocks(content: string, streaming = false): WriteBlocks {
-    const none = { cards: [], captures: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [], wrongs: [] };
+    const none = { cards: [], reports: [], projects: [], topics: [], links: [], courses: [], shorts: [], saves: [], wrongs: [] };
     if (!content.includes('`')) return { body: content, ...none };
     const cards: CardProposal[] = [];
-    const captures: string[] = [];
     const reports: ReportProposal[] = [];
     const projects: ProjectEditProposal[] = [];
     const topics: TopicEditProposal[] = [];
@@ -576,8 +575,13 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
     const shorts: ShortCourseProposal[] = [];
     const saves: SaveProposal[] = [];
     const wrongs: WrongProposal[] = [];
-    const take = (kind: string, inner: string) => {
+    // What the block leaves in the answer: nothing, except an old note's words.
+    const take = (kind: string, inner: string): string => {
         const k = kind.toLowerCase();
+        if (k === 'capture') {
+            const note = inner.trim();
+            return note ? `\n\n${note}\n\n` : '';
+        }
         if (k === 'wrong') {
             const w = parseWrong(inner);
             if (w && wrongs.length < MAX_WRONGS) wrongs.push(w);
@@ -607,20 +611,15 @@ export function splitWriteBlocks(content: string, streaming = false): WriteBlock
         } else if (k === 'short') {
             const s = parseShort(inner);
             if (s && shorts.length < MAX_COURSES) shorts.push(s);
-        } else {
-            const note = inner.trim();
-            if (note && note.length <= SIDE_MAX && captures.length < MAX_CAPTURES) captures.push(note);
         }
+        return '';
     };
-    let body = content.replace(BLOCK_RE, (_m, lead: string, kind: string, inner: string) => { take(kind, inner); return lead; });
-    body = body.replace(OPEN_BLOCK_RE, (_m, lead: string, kind: string, inner = '') => {
-        if (!streaming) take(kind, inner);
-        return lead;
-    });
+    let body = content.replace(BLOCK_RE, (_m, lead: string, kind: string, inner: string) => lead + take(kind, inner));
+    body = body.replace(OPEN_BLOCK_RE, (_m, lead: string, kind: string, inner = '') => (streaming ? lead : lead + take(kind, inner)));
     if (streaming) body = body.replace(PARTIAL_OPENER_RE, '$1');
     // Tidied only where something came out: a blank line inside someone's
     // code block is theirs.
-    return { body: body === content ? content : tidy(body), cards, captures, reports, projects, topics, links, courses, shorts, saves, wrongs };
+    return { body: body === content ? content : tidy(body), cards, reports, projects, topics, links, courses, shorts, saves, wrongs };
 }
 
 const words = (s: string) => new Set((s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []));

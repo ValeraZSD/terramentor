@@ -265,7 +265,7 @@ function done() {
 // ---------------------------------------------------------------------------
 console.log('--- the server starts and lists the v1 tools ---');
 const READ_TOOLS = ['project_state', 'find_in_library', 'get_due', 'topic_material', 'get_mastery'];
-const PROPOSE_TOOLS = ['add_capture', 'record_claim'];
+const PROPOSE_TOOLS = ['record_claim'];
 // Open a check or a review the learner takes in the host's window; plain text where a host draws no views.
 const VIEW_TOOLS = ['mastery_check', 'review_cards'];
 // What the views call: listed only to a host that draws views, and to the view alone.
@@ -292,9 +292,6 @@ for (const t of tools) {
     ok(`${t.name} is marked ${readOnly ? 'read-only' : 'as a write'}`, t.annotations?.readOnlyHint === readOnly);
     ok(`${t.name} says what it is for and takes an object`, String(t.description || '').length > 40 && t.inputSchema?.type === 'object');
 }
-// A capture with a link is saved again on every call (server/routes/capture.js
-// dedupes link-less text only), so the tool may not tell a harness a retry is free.
-ok('add_capture is not marked idempotent', tools.find(t => t.name === 'add_capture')?.annotations?.idempotentHint !== true);
 
 // ---------------------------------------------------------------------------
 console.log('\n--- every tool answers from the library ---');
@@ -362,18 +359,12 @@ const evidenceBefore = evidenceRows();
     ok('get_mastery gives the estimate and the gate\'s answer', !isErr(m) && /\d+%/.test(textOf(m)) && /gate|check|proven|eligible/i.test(textOf(m)), textOf(m).slice(0, 300));
     ok('get_mastery returns structured content', typeof m?.result?.structuredContent?.mastery === 'number' && typeof m?.result?.structuredContent?.passed === 'boolean', JSON.stringify(m?.result?.structuredContent || null));
 
-    const cap = await call('add_capture', { text: 'Ask about standing waves in a closed pipe' });
-    const inbox = db.prepare("SELECT n.id FROM nodes n JOIN projects p ON p.id = n.project_id WHERE n.title LIKE '%standing waves%'").all();
-    ok('add_capture puts a note in the Inbox', !isErr(cap) && inbox.length === 1, textOf(cap).slice(0, 200));
-    const again = await call('add_capture', { text: 'Ask about standing waves in a closed pipe' });
-    const inboxAgain = db.prepare("SELECT n.id FROM nodes n WHERE n.title LIKE '%standing waves%'").all();
-    ok('…and the same note twice is one capture, which the answer says', !isErr(again) && inboxAgain.length === 1
-        && cap?.result?.structuredContent?.existed === false && again?.result?.structuredContent?.existed === true,
-        `${JSON.stringify(cap?.result?.structuredContent || null)} → ${JSON.stringify(again?.result?.structuredContent || null)}`);
+    // There is no Inbox to drop a note into: the old tool's name is unknown and writes nothing.
     const nodesNow = () => db.prepare('SELECT COUNT(*) AS n FROM nodes').get().n;
-    const nodesBeforeLink = nodesNow();
-    const script = await call('add_capture', { text: 'a link', url: 'javascript:alert(1)' });
-    ok('add_capture refuses a link that is not http(s)', isErr(script) && nodesNow() === nodesBeforeLink, textOf(script).slice(0, 200));
+    const nodesBefore = nodesNow();
+    const cap = await call('add_capture', { text: 'Ask about standing waves in a closed pipe' });
+    ok('add_capture is no tool: the call is refused and no note is written anywhere', (isErr(cap) || !!cap?.error) && nodesNow() === nodesBefore,
+        JSON.stringify(cap).slice(0, 200));
 }
 
 // ---------------------------------------------------------------------------

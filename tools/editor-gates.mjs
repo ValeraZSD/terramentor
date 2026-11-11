@@ -2,19 +2,17 @@
 // and nothing a learner typed is thrown away by a slip of the keyboard.
 //
 // Run:  node tools/editor-gates.mjs          (the working tree)
-//       node tools/editor-gates.mjs --head   (MarkdownNotes and CaptureModal as they
-//                                             were at HEAD, to watch the cases fail)
+//       node tools/editor-gates.mjs --head   (MarkdownNotes as it was at HEAD,
+//                                             to watch the cases fail)
 //
-// WHY. Three ways to lose text:
+// WHY. Two ways to lose text:
 //   - MarkdownNotes called `onSave`, cleared its dirty flag, said "Saved" and left
 //     edit mode in one go. The Overview and My notes pass an async callback whose
 //     write can fail (the store answers `false` and toasts), so a failed write
 //     showed "Saved" beside "Failed to save changes", with the unsaved text in the
 //     preview as if it were kept;
 //   - the notes box took Tab and Shift+Tab to insert spaces, so a keyboard could
-//     not leave it, and Escape — the obvious way out — threw a dirty edit away;
-//   - Capture cleared its text, link, title and files every time it opened, so an
-//     Escape or a stray backdrop tap lost a pasted article.
+//     not leave it, and Escape — the obvious way out — threw a dirty edit away.
 // Every case MOUNTS the real component (the store, the api and Markdown are
 // stubs) and presses real keys.
 import { createRequire } from 'node:module';
@@ -55,7 +53,6 @@ globalThis.cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // A mouse-and-keyboard machine: the keyboard hints and first-field focus follow it.
 window.matchMedia = (q) => ({ matches: /pointer: fine/.test(q), media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
-// jsdom has no object URLs; Capture previews a pasted image with one.
 window.URL.createObjectURL = () => 'blob:x';
 window.URL.revokeObjectURL = () => { };
 globalThis.URL = window.URL;
@@ -63,7 +60,7 @@ globalThis.URL = window.URL;
 const scratch = mkdtempSync(join(root, 'node_modules', '.cache', 'editor-gates-'));
 const out = join(scratch, 'bundle.cjs');
 const headDir = join(scratch, 'head');
-const files = ['MarkdownNotes', 'CaptureModal'];
+const files = ['MarkdownNotes'];
 if (HEAD) {
     mkdirSync(headDir);
     for (const f of files) writeFileSync(join(headDir, `${f}.tsx`), read(`src/components/${f}.tsx`));
@@ -106,7 +103,6 @@ await esbuild.build({
     stdin: {
         contents: `
             export { default as MarkdownNotes } from '${from('MarkdownNotes')}';
-            export { default as CaptureModal } from '${from('CaptureModal')}';
             export { default as ConfirmDialog } from './src/components/ConfirmDialog';`,
         resolveDir: root,
         loader: 'tsx',
@@ -120,7 +116,7 @@ await esbuild.build({
 });
 const React = require('react');
 const { createRoot } = require('react-dom/client');
-const { MarkdownNotes, CaptureModal, ConfirmDialog } = require(out);
+const { MarkdownNotes, ConfirmDialog } = require(out);
 const h = React.createElement;
 const doc = window.document;
 const act = (fn) => React.act(fn);
@@ -280,67 +276,6 @@ press('Enter', { ctrlKey: true }, textarea());
 await flush();
 check('Ctrl+Enter still saves', saves.length === 1 && saves[0] === 'saved by keys', JSON.stringify(saves));
 act(() => notesRoot3.unmount());
-
-// ---------------------------------------------------------------------------
-section('Capture keeps its draft until it is saved or discarded');
-globalThis.__api = {
-    capture: async () => { if (captureFails) throw new Error('offline'); return { nodeId: 5, projectId: 9, taskId: null }; },
-    uploadDocumentFiles: async () => ({}),
-    enrichCapture: async () => ({ taskId: null }),
-};
-let captureFails = false;
-let open = false;
-const capHost = doc.createElement('div'); doc.body.append(capHost);
-let capRoot = createRoot(capHost);
-const renderCapture = () => act(() => capRoot.render(h(CaptureModal, { open, onClose: () => { open = false; renderCapture(); } })));
-const field = (label) => capHost.querySelector(`[aria-label="${label}"]`);
-open = true; renderCapture(); await flush();
-type(field('Paste what you want to keep…'), 'A long pasted article');
-type(field('Source URL'), 'https://example.org/a');
-type(field('Title'), 'Worth keeping');
-const fileInput = capHost.querySelector('input[type="file"]');
-const photo = new window.File(['x'], 'photo.png', { type: 'image/png' });
-act(() => {
-    Object.defineProperty(fileInput, 'files', { value: [photo], configurable: true });
-    fileInput.dispatchEvent(new window.Event('change', { bubbles: true }));
-});
-check('(setup) the file was attached', /photo\.png/.test(capHost.textContent));
-press('Escape');
-await flush();
-check('(setup) Escape closed it', !capHost.querySelector('[role="dialog"]'));
-open = true; renderCapture(); await flush();
-check('reopened after Escape: the text is still there', field('Paste what you want to keep…')?.value === 'A long pasted article', JSON.stringify(field('Paste what you want to keep…')?.value));
-check('and the link and the title', field('Source URL')?.value === 'https://example.org/a' && field('Title')?.value === 'Worth keeping');
-check('and the attached file', /photo\.png/.test(capHost.textContent));
-click(buttonNamed(/^Close$/, capHost));
-act(() => capRoot.unmount());
-capRoot = createRoot(capHost);
-open = true; renderCapture(); await flush();
-check('a draft outlives the component (the shell remounting)', field('Paste what you want to keep…')?.value === 'A long pasted article');
-
-captureFails = true;
-click(buttonNamed(/Save to Inbox/, capHost));
-await flush();
-check('a failed save leaves the dialog open with the text', field('Paste what you want to keep…')?.value === 'A long pasted article');
-captureFails = false;
-
-const discard = buttonNamed(/^Discard$/, capHost);
-check('there is an explicit Discard control', !!discard);
-if (discard) {
-    click(discard);
-    await flush();
-    check('Discard empties the form', field('Paste what you want to keep…')?.value === '' && !/photo\.png/.test(capHost.textContent));
-    press('Escape'); await flush();
-    open = true; renderCapture(); await flush();
-    check('and a discarded draft does not come back', field('Paste what you want to keep…')?.value === '');
-}
-type(field('Paste what you want to keep…'), 'Saved for real');
-click(buttonNamed(/Save to Inbox/, capHost));
-await flush();
-check('(setup) a successful save closes it', !capHost.querySelector('[role="dialog"]'));
-open = true; renderCapture(); await flush();
-check('a successful save clears the draft', field('Paste what you want to keep…')?.value === '', JSON.stringify(field('Paste what you want to keep…')?.value));
-act(() => capRoot.unmount());
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
 console.log(`\neditor gates: ${pass} passed, ${fail} failed${HEAD ? ' (against HEAD)' : ''}`);

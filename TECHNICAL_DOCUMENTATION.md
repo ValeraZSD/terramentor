@@ -452,7 +452,7 @@ The home page. `server/feed.js` composes, `server/feedGen.js` generates ahead,
 first, then today's leaves; getting ahead only when nothing is due anywhere.
 Capped per project and in total (`focusPerProject` / `focusTotal` in `FEED_DEFAULTS`,
 overridable as the `feed_focus_per_project` and `feed_focus_total` settings).
-The Inbox, and any project that holds cards and has no start-to-deadline window
+A short course, and any project that holds cards and has no start-to-deadline window
 (typically an imported deck), gets a **standing slot**: it is never scheduled, so a
 deadline would turn "unread" into "overdue" by tomorrow, and sorting by urgency
 would put it last for ever. So up to a third of the focus slots (at least one) are
@@ -636,7 +636,7 @@ paragraphs. Older rows without a position draw above the answer as before.
 **Writes the learner presses** (`server/assistantWrites.js`,
 `src/utils/assistantWrites.ts`). The assistant never writes on its own. It may
 propose a mastery check on a topic, one flashcard (shown as a preview, added by
-`POST /api/assistant/cards`, deduplicated on its front), a note for the Inbox, or a
+`POST /api/assistant/cards`, deduplicated on its front), a short course from a link, or a
 problem report that opens the app's own *Report a problem* dialog prefilled; each
 appears as a button under the answer. Separately, it may change seven appearance and
 locale settings at once, each with an Undo (`server/assistantSettings.js`,
@@ -955,7 +955,6 @@ and a route an earlier one answers first.
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |
 | Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media-descriptions/run\|status\|cancel` |
 | Semantic | `/embeddings/status\|settings\|reindex`, `/node-embeddings/status\|reindex`, `/nodes/:id/similar`, `/nodes/:id/transfer`, `/nodes/search-semantic`, `/atlas`, `/atlas/regions/:signature/name` |
-| Capture | `/capture`, `/capture/:nodeId/enrich` |
 | Agents (the MCP server, `docs/MCP.md`) | `/agent/state`, `/agent/find`, `/agent/due`, `/agent/topic`, `/agent/mastery` (reads, plain text for a model plus the figures), `/agent/claims` (POST a claim); `/agent/check/*` (`where`, `start`, `questions`, `submit`, `completion`, `completed`) and `/agent/review/*` (`where`, `start`, `next`, `reveal`, `rate`, `undo`), the mastery check and card review an MCP host draws, each call after `start` naming its sitting token |
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |
 | Import/export | `/export/:projectId`, `/export/:projectId/bundle`, `/export/:projectId/anki`, `/import`, `/import/bundle`, `/import/anki/inspect`, `/import/anki/commit`, `/import/anki/:stagingId` |
@@ -1127,7 +1126,7 @@ The modules the sections above do not cover, one line each.
 | `version.js` | The update check (see SECURITY.md, *The update check*) |
 | `masteryCheck.js`, `cardWrite.js` | The one write of a mastery check's result (`recordMasteryCheck`, once per attempt id) and of a card's rating (`writeCard`), shared by the app's own routes and an agent's sittings so both write the same rows |
 | `agentSittings.js` | The mastery checks and card reviews an MCP host draws (`mcp/views/`): the app draws, grades and schedules; a sitting is a random token held in memory (two hours idle, 64 at a time) and keys leave only after the check is submitted |
-| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*`, `/api/capture` and `PUT /api/nodes/:id` (the app's own completion gate, which `check_complete` sends after a passed check) (`docs/MCP.md`) |
+| `agentReads.js`, `claims.js`; `mcp/` | What an outside agent reads, built on the assistant's own readers (never a topic's private notes, which `searchAll(…, { notes: false })` does not search either, and a read never writes), and its claims. `mcp/` is the MCP server itself, a separate process that reaches the library only through `/api/agent/*` and `PUT /api/nodes/:id` (the app's own completion gate, which `check_complete` sends after a passed check) (`docs/MCP.md`) |
 
 ## 13. Known gaps
 

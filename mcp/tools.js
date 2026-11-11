@@ -1,14 +1,14 @@
 // The tools an agent harness sees, each a thin call to the running app
-// (mcp/app.js → server/routes/agent.js). Five READ the library; two PROPOSE:
-// a capture into the Inbox, and a claim that the learner answered something;
-// two OPEN a view the host draws (mcp/views.js): the app's own mastery check
-// and card review, which the learner takes in the host's window. A host that
-// draws no views but asks its user for input gets the check as one form
-// (mcp/checkForm.js). Nothing the model sends can prove a topic: the mastery
-// gate is cleared only by the app's own mastery check, quizzes and paper
-// exercises (server/claims.js says what a claim may and may not move), and a
-// check in a view or a form is the app's check, with the learner's answers.
-// tools/mcp-gates.mjs pins the list, the annotations and that boundary.
+// (mcp/app.js → server/routes/agent.js). Five READ the library; one PROPOSES:
+// a claim that the learner answered something; two OPEN a view the host draws
+// (mcp/views.js): the app's own mastery check and card review, which the
+// learner takes in the host's window. A host that draws no views but asks its
+// user for input gets the check as one form (mcp/checkForm.js). Nothing the
+// model sends can prove a topic: the mastery gate is cleared only by the app's
+// own mastery check, quizzes and paper exercises (server/claims.js says what a
+// claim may and may not move), and a check in a view or a form is the app's
+// check, with the learner's answers. tools/mcp-gates.mjs pins the list, the
+// annotations and that boundary.
 
 import * as z from 'zod';
 import { CLIENT_CAPABILITIES_META_KEY, McpServer, inputRequired, inputResponse } from '@modelcontextprotocol/server';
@@ -25,7 +25,7 @@ const INSTRUCTIONS = [
     'where a topic stands. Use only ids these tools returned; never invent one.',
     'When the learner answers a question you asked them on a topic, send record_claim. A claim is a note, not proof: a right one',
     'may lift a topic\'s estimate a little and never past a head start\'s cap, and only Terramentor\'s own mastery check proves a',
-    'topic, so send the learner there to prove it. add_capture saves something to study later into their Inbox.',
+    'topic, so send the learner there to prove it.',
     'To prove a topic, open mastery_check: where this host draws views, or asks its user to fill in a form, the learner takes',
     'Terramentor\'s own check right here. Its questions are not shown to you while it is open; once it is graded you get the',
     'score and each question the learner missed, with their answer and the right one, to teach from. Never answer it or quiz',
@@ -226,28 +226,6 @@ export function buildServer({ version, appFor }) {
     }, ({ topic }) => guarded(async () => {
         const r = await appFor().get('/api/agent/mastery', { topic });
         return r.mastery ? reply(r.text, r.mastery) : failure(r.text);
-    }));
-
-    server.registerTool('add_capture', {
-        title: 'Save to the Inbox',
-        description: 'Save something the learner wants to study later — a note, a question, a link — into their Terramentor Inbox, '
-            + 'where they can turn it into a topic. A note with no link whose text is already there is not saved again; '
-            + 'anything with a link is saved each time. If the app has an AI model connected, it '
-            + 'tidies the note in the background as it does every capture.',
-        inputSchema: z.object({
-            text: z.string().max(20000).optional().describe('The note itself.'),
-            url: z.string().max(2000).regex(/^https?:\/\/\S+$/i, 'url must be an http:// or https:// address').optional()
-                .describe('A web link (http or https) to keep with it.'),
-            title: z.string().max(200).optional().describe('A short title; made from the text when left out.'),
-        }),
-        annotations: PROPOSE,
-    }, ({ text, url, title }) => guarded(async () => {
-        if (!String(text || '').trim() && !String(url || '').trim()) return failure('Give the note\'s text, a url, or both.');
-        const r = await appFor().post('/api/capture', { text, url, title, once: true, via: 'agent' });
-        const saved = { nodeId: r.nodeId, projectId: r.projectId, existed: !!r.existed };
-        return reply(r.existed
-            ? `Already in the learner's Inbox (nodeId ${r.nodeId}); nothing was added.`
-            : `Saved to the learner's Inbox as nodeId ${r.nodeId}. They can turn it into a topic from there.`, saved);
     }));
 
     server.registerTool('record_claim', {

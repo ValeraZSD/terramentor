@@ -7,7 +7,7 @@ import { splitOpenTargets, splitDestinations, splitTutorActions, type Destinatio
 import { splitSettingChanges } from '../utils/assistantSettings';
 import { splitChecks, splitWriteBlocks } from '../utils/assistantWrites';
 import {
-    CardProposals, CaptureProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
+    CardProposals, CheckButtons, CourseDraftProposals, ShortCourseProposals, LinkProposals, ProjectChangeProposals, ReportProposals,
     SaveProposals, TopicChangeProposals, WrongProposals,
 } from './AssistantProposals';
 import { screenItems } from '../utils/itemReportStore';
@@ -48,8 +48,6 @@ import { useNumberFormat } from '../hooks/useNumberFormat';
 interface Props {
     open: boolean;
     onClose: () => void;
-    /** Opens the capture dialog — the assistant's one "tool" that writes. */
-    onCapture: () => void;
     /**
      * True when there is room to sit BESIDE the page instead of over it — the
      * app frame has already reserved `width` px on its right, so this panel must
@@ -605,7 +603,6 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // conversation up the moment the drawer opens — and reopening the
         // assistant to RE-READ an answer is at least as common as asking a new
         // question. There the learner taps the box when they mean to type.
-        // (Capture is different: it exists only to type, so it keeps its focus.)
         if (!typingIsCheap()) return;
         const id = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(id);
@@ -1511,10 +1508,10 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     // its paragraphs (utils/turnTimeline.ts). Rows with no
                     // recorded place stand under the panel and above the answer.
                     const timeline = splitTurnTimeline({ reasoning: reasoningByMsg[m.id], content: m.content, actions: m.actions });
-                    // A turn whose whole answer is a card or a note it prepared
+                    // A turn whose whole answer is a card or a change it prepared
                     // said something — the preview is the answer.
                     const writes = splitWriteBlocks(m.content);
-                    const prepared = writes.cards.length + writes.captures.length + writes.reports.length
+                    const prepared = writes.cards.length + writes.reports.length
                         + writes.projects.length + writes.topics.length + writes.links.length + writes.courses.length
                         + writes.shorts.length + writes.saves.length + writes.wrongs.length > 0;
                     const turnKey = String(dbIdRef.current.get(m.id) ?? m.id);
@@ -1624,16 +1621,11 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 record={!freshIdsRef.current.has(m.id)}
                                             />
                                             {/* What it PREPARED for the learner to press:
-                                                a mastery check, cards, a note for the
-                                                Inbox (utils/assistantWrites.ts). Nothing
+                                                a mastery check, cards
+                                                (utils/assistantWrites.ts). Nothing
                                                 here happens until they press it. */}
                                             <CheckButtons checks={splitChecks(m.content).checks} labels={labels} />
                                             <CardProposals cards={writes.cards} labels={labels} turnKey={turnKey} />
-                                            <CaptureProposals
-                                                captures={writes.captures}
-                                                turnKey={turnKey}
-                                                onOpen={(projectId, nodeId) => { openProjectNode(projectId, nodeId); if (!docked) onClose(); }}
-                                            />
                                             {/* An item on their screen it checked and
                                                 found wrong: Report sends the same
                                                 request the item's own flag does. */}

@@ -31,9 +31,9 @@
 //     disputed, it is deleted, like any question the verifier vetoes.
 //
 // A model-written question is stamped from the moment it is STORED, not only
-// once a verifier has failed on it: `finalizeQuiz` and capture write their
-// questions PENDING (`markPending`: the same stamp, `tries: 0`, reason "not
-// checked yet"), and `vetQuiz` takes the stamp off each one it confirms. So a
+// once a verifier has failed on it: `finalizeQuiz` writes its questions
+// PENDING (`markPending`: the same stamp, `tries: 0`, reason "not checked
+// yet"), as the importer does a question its file marked `unchecked`, and `vetQuiz` takes the stamp off each one it confirms. So a
 // bank is never proof while its vetting is still running (minutes on a local
 // model), and a vetting that is cancelled half way leaves the unchecked half
 // stamped, where the background chain finds it, instead of unstamped for good.
@@ -101,7 +101,7 @@ export const PENDING_REASON = 'not checked yet';
  * `delayMs` is how long the background chain leaves it alone — `vetQuiz`'s
  * own pass is normally running then, and a second verifier call on the same
  * question would only be spent twice; after an abort, that wait is how soon
- * the chain picks it up. 0 (capture, import) is due at once.
+ * the chain picks it up. 0 (import) is due at once.
  */
 export function markPending(question, { now = Date.now(), delayMs = 0, reason = PENDING_REASON } = {}) {
     return {

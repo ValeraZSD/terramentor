@@ -346,3 +346,29 @@ Design decisions worth knowing before changing it:
 Guard: `node tools/desktop-gates.mjs` (path resolution on every platform, the
 launcher's decisions, the shutdown rule, the lifecycle router on a real Express
 app, the icon containers, and that every packaging piece exists).
+
+**A Windows zip on a machine that has never run it.** CI starts the staged
+copy, but never as a person opens it: a GitHub runner is Windows Server with
+developer tools on it, and nothing there was downloaded by a browser.
+`tools/windows-sandbox-check.ps1` runs a release zip (`-Tag`, the latest stable
+by default, checked against its `SHA256SUMS`) or a local build (`-Zip`) in
+Windows Sandbox, a throwaway copy of the Windows it runs on. Inside,
+`tools/windows-sandbox-run.ps1` marks the zip as downloaded from the internet,
+unpacks it with Explorer's zip folder (which carries the mark onto every file),
+opens `Terramentor.exe` through Explorer as a double-click does, answers
+SmartScreen with *More info → Run anyway*, waits for the page, then
+double-clicks again and quits. Screenshots of every prompt and of the first
+screen, the app's log and `result.json` come back under
+`temp/windows-sandbox/`, and the sandbox is closed (`-Keep` leaves it open).
+While it runs, the sandbox's window is kept past the edge of the screen, the
+keyboard is taken back each time the window grabs it while starting, and its
+sound is muted, so the machine stays usable (`-Watch` leaves the window in
+view). The sandbox itself is a virtual machine at normal priority, so run it
+when nothing heavy is running. For 1.4.0 the run inside took about 80 s:
+some 40 s to unpack, the first screen 7 s after the double-click.
+It needs the Windows Sandbox feature (Pro, Enterprise or Education), which no
+hosted runner offers, so it is run by hand. The sandbox is always the host's
+own Windows build, so Windows 11's Smart App Control stays outside what it can
+show; so does a UAC prompt, since the sandbox runs with UAC off, and so does
+anti-virus: on Windows 10 22H2 Defender's service is stopped inside the
+sandbox (the run reads its state and says when it is not scanning).

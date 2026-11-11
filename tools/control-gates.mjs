@@ -56,9 +56,6 @@ const SCOPE = [
     'src/components/ProjectFormFields.tsx',
     'src/components/IconPicker.tsx',
     'src/components/ExternalAuthoring.tsx',
-    // Capture: converted when the attach control was found to be a line of
-    // text with a paperclip in front of it, which nobody read as pressable.
-    'src/components/CaptureModal.tsx',
     // New code, so there is no conversion debt to grandfather: the
     // finished-project screen is built out of the vocabulary from the start.
     'src/components/completion/*.tsx',

@@ -670,8 +670,8 @@ const handPhase = addNode(handId, null, 'Later');
 ok('a hand-made project with an empty phase is not offered', (await canOffer(handId)) === false);
 addNode(handId, handPhase, 'Some day');
 ok('…nor with an empty section', (await canOffer(handId)) === false);
-// The Inbox shape: a capture is the learner's node; the model fans it out into
-// children of its own, which have no children.
+// The shape an old Inbox left behind: a node the learner made, with the
+// model's children under it, which have no children.
 const inboxId = Number(db.prepare(`INSERT INTO projects (name) VALUES ('Inbox-like')`).run().lastInsertRowid);
 const capture = addNode(inboxId, null, 'A pasted article');
 addNode(inboxId, capture, 'An idea the model drew out', JSON.stringify({ provider: 'openai', model: 'stub-model' }));

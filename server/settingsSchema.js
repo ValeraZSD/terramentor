@@ -238,6 +238,7 @@ export const SETTINGS = {
     placement_dismissed: server('learning'),
     celebrated_projects: server('ui'),
     first_lesson_read_at: server('internal'),
+    // Marked the old Inbox; deleted at startup (database.js), never written.
     inbox_project_id: server('internal'),
     node_roles_backfilled: server('internal'),
     study_time_since: server('internal'),

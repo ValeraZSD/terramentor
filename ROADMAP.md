@@ -55,7 +55,7 @@ more useful than a wish.
   cancellation story and a design for an answer that is *replaced* mid-read.
 - **Bigger writes from the assistant.** It looks things up mid-answer (the web if you allow
   it, your library, whole documents page by page, one course in depth) and prepares small
-  things you press: a mastery check, one card with a preview, a note for the Inbox, a problem
+  things you press: a mastery check, one card with a preview, a short course from a link, a problem
   report to check and send. Generating a whole quiz or deck from a
   conversation needs a review step that scales past one item, because a model that writes on
   a misread changes the library.

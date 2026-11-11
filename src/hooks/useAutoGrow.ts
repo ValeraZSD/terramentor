@@ -51,7 +51,7 @@ export function fitTextarea(el: HTMLTextAreaElement, max: GrowCeiling): void {
  * always wrong in the same direction: the learner writes a four-line derivation
  * into a three-line box and can then only see the last line of their own work
  * while checking it. Every place a learner types prose — the "check your
- * understanding" answer box, the assistant composer, the tutor, Capture —
+ * understanding" answer box, the assistant composer, the tutor —
  * shares this, so they behave the same way.
  *
  * The ceiling matters as much as the growth: past it the field scrolls instead

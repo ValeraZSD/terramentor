@@ -15,7 +15,7 @@ import {
   Plus, ExternalLink, Trash2, Link2, Video, BookOpen, FileText,
   GripVertical, Edit2, CheckCircle2, Circle,
   FileCode2, Wrench, GraduationCap, Globe, Keyboard,
-  Sparkles, Loader2,
+  Search, Loader2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
@@ -342,7 +342,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
             onClick={findResources}
             busy={finding}
             title={tr("Search the web and add the best links for this topic")}
-            icon={<Sparkles className="w-4 h-4" aria-hidden="true" />}
+            icon={<Search className="w-4 h-4" aria-hidden="true" />}
           >
             {finding ? tr("Searching…") : tr("Find")}
           </Button>

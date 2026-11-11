@@ -698,11 +698,11 @@ and is described here in the same detail as the update check.
   have. That is a query against your own SQLite file: it opens no socket and is not part of
   anything above.
 - **Nothing the model says writes to your library.** What the assistant proposes is a button
-  under its answer, and only your press adds it: a mastery check, a flashcard, a note for the
-  Inbox, a problem report, and also changes to what you already have: a course's name, icon,
+  under its answer, and only your press adds it: a mastery check, a flashcard, a problem report,
+  and also changes to what you already have: a course's name, icon,
   colour, description, status (including archiving it) or daily new cards, a topic's title, a
-  web page kept as a link on a topic, a file from the conversation saved into a course or the
-  Inbox, and a new course, which only fills in the New course dialog for you to create. A change
+  web page kept as a link on a topic, a file from the conversation saved into a course or a
+  topic, and a new course, which only fills in the New course dialog for you to create. A change
   shows its before and after, Apply writes only if the fields still hold what the preview
   showed, and Undo puts back what was there (`server/assistantEdits.js`). Each value passes the
   same rules as your own edits, never the model's word. The one thing it changes by itself is a short list of
@@ -713,13 +713,13 @@ and is described here in the same detail as the update check.
 ## The MCP server (an agent in another app)
 
 `mcp/` is an optional MCP server (`docs/MCP.md`). It lets an agent harness on this computer,
-such as Claude Code, Claude Desktop, VS Code or Cursor, read your library, propose two things
+such as Claude Code, Claude Desktop, VS Code or Cursor, read your library, propose one thing
 to it, and open the app's own mastery check or card review for you to take in its window. It is
 a separate program that you or your harness start. The app never starts it, and
 while nobody runs it nothing here changes.
 
 - **It opens no database and keeps no data.** It is a client of the running app's own HTTP API
-  (`/api/agent/*` and `POST /api/capture`, `server/routes/agent.js`, plus the app's own
+  (`/api/agent/*`, `server/routes/agent.js`, plus the app's own
   `PUT /api/nodes/:id` to complete a topic after a passed check), behind the same password
   check as every page. `tools/mcp-gates.mjs` fails if anything under `mcp/` imports the server.
   It connects to `TERRAMENTOR_URL` and nowhere else.
@@ -737,10 +737,7 @@ while nobody runs it nothing here changes.
 
   What it reads goes to the model of the harness you use, under that provider's terms, like
   anything you paste into it.
-- **What the agent's model can write is two things, and neither is a proof.**
-  - **A note into the Inbox**, through the capture route. A note without a link whose text is
-    already there is not saved again; this tool takes only an `http(s)` link. If a model is
-    connected, the note is tidied as every capture is.
+- **What the agent's model can write is one thing, and it is not a proof.**
   - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
     table `mastery_claims`). Claims are kept apart from the evidence the app measured:
     - a right claim may lift an estimate one step, never past 0.6 or one point under the

@@ -8,7 +8,7 @@
 // be read says why and offers its way on (readReasons.ts, the reader's `fix`):
 // a file instead, Try again, a pasted transcript, or "Write it from the title"
 // for a video with no captions. A whole book offers a few of its chapters, or a
-// full course through the New course dialog; a few lines offer the Inbox.
+// full course through the New course dialog; a few lines are too little.
 //
 // The rows are GET /api/short-courses, owned by ProjectsGrid, which leaves
 // these courses out of its own grid. A course leaves the strip when it grows
@@ -17,7 +17,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, Paperclip, Play, RotateCcw, Sparkles, Trash2, X, SquarePlay,
+    Loader2, MoreVertical, Paperclip, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
@@ -42,7 +42,7 @@ import type { ShortCourseRow, ShortRead, ShortReadFail, ShortReadOk, SourceKind 
 const NARROW_PX = 560;
 
 const KIND_ICON: Record<SourceKind, typeof Globe> = {
-    video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: Sparkles,
+    video: SquarePlay, page: Globe, pdf: FileText, file: File, topic: PenLine,
 };
 
 /** The label between two rules that every section of the page uses. */
@@ -78,14 +78,14 @@ function hostOf(raw: string): string {
     }
 }
 
-/** What the box is showing. `pasted`: the transcript a read came from, kept
- *  for "Save to Inbox" when it turns out to be only a few lines. */
+/** What the box is showing. `pasted`: the transcript a read came from, so its
+ *  line says "Transcript" rather than the link's kind. */
 type Box =
     | { state: 'empty' }
     | { state: 'reading'; where: string; detail: string }
     | { state: 'read'; read: ShortReadOk; pasted?: string }
     | { state: 'unreadable'; fail: ShortReadFail; where: string; link: string | null }
-    | { state: 'transcript'; title: string; url: string | null }
+    | { state: 'transcript'; title: string; url: string | null; short?: number; min?: number | null }
     | { state: 'chapters'; read: ShortReadOk; picked: number[] };
 
 function useReadLine() {
@@ -124,6 +124,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const [dragOver, setDragOver] = useState(false);
     const fileRef = useRef<HTMLInputElement>(null);
     const abortRef = useRef<AbortController | null>(null);
+    const transcriptRef = useRef<HTMLTextAreaElement>(null);
     useEffect(() => () => abortRef.current?.abort(), []);
 
     const begin = (where: string, detail: string) => {
@@ -201,9 +202,23 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const fromTranscript = async (title: string, url: string | null) => {
         const pasted = transcript.trim();
         if (!pasted) return;
+        // The read owns the box's controller like any other, so Cancel or a
+        // newer read drops its result instead of showing it late.
+        abortRef.current?.abort();
+        const ac = new AbortController();
+        abortRef.current = ac;
         setBusy(true);
         try {
-            const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined });
+            const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined }, ac.signal);
+            if (ac.signal.aborted) return;
+            // Too little stays in its box with the text, saying how much there
+            // was, so more can be pasted; the read made from it is let go.
+            if (r.ok && r.size === 'too-small') {
+                void api.discardShortSource(r.stagedId).catch(() => { });
+                setBox({ state: 'transcript', title, url, short: r.words, min: r.minWords ?? null });
+                transcriptRef.current?.focus();
+                return;
+            }
             if (r.ok && r.size === 'ok' && r.ai) {
                 setBusy(false);
                 await create({ stagedId: r.stagedId }, r);
@@ -211,20 +226,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             }
             show(r, { link: url, pasted });
         } catch (e) {
-            addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
-        } finally {
-            setBusy(false);
-        }
-    };
-
-    const saveToInbox = async (read: ShortReadOk, pasted?: string) => {
-        setBusy(true);
-        try {
-            await api.capture(pasted ? { text: pasted } : { url: read.url ?? undefined, title: read.title });
-            clear();
-            addToast('success', t("Saved to your Inbox"));
-        } catch (e) {
-            addToast('error', t("Could not save the note"), e instanceof Error ? e.message : String(e));
+            if (!ac.signal.aborted) addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
         } finally {
             setBusy(false);
         }
@@ -275,18 +277,37 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     </div>
                 </div>
                 <TextArea
+                    ref={transcriptRef}
                     aria-label={t("The video's transcript")}
                     value={transcript}
-                    onChange={e => setTranscript(e.target.value)}
+                    onChange={e => {
+                        setTranscript(e.target.value);
+                        // The count was of the text sent; edited, it no longer
+                        // holds, and the line keeps only what a course needs.
+                        if (box.short != null) setBox({ ...box, short: undefined });
+                    }}
                     rows={5}
                     autoFocus
                     className="block leading-6 resize-y"
                 />
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!transcript.trim()}onClick={() => void fromTranscript(box.title, box.url)}>
-                        {t("Create short course")}
-                    </Button>
+                    {(box.short != null || box.min != null) && (
+                        <span role="status" className="mr-auto text-sm text-slate-500 dark:text-slate-400">
+                            {box.short == null && box.min != null
+                                ? t("A course needs {{min}} words or more.", { count: box.min, min: num(box.min) })
+                                : <>{box.min != null
+                                    ? t("{{words}} of {{min}} words", { count: box.min, words: num(box.short ?? 0), min: num(box.min) })
+                                    : t("{{words}} words", { count: box.short ?? 0, words: num(box.short ?? 0) })} · {t("Too little for a course.")}</>}
+                        </span>
+                    )}
+                    {/* The two buttons wrap as one pair: on a narrow box the line
+                        takes its own row and Cancel stays beside Create. */}
+                    <div className="ml-auto flex items-center gap-2">
+                        <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
+                        <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
+                            {t("Create short course")}
+                        </Button>
+                    </div>
                 </div>
             </div>
         );
@@ -414,11 +435,8 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                     </>
                 );
             } else if (read.size === 'too-small') {
-                const canSave = !!pasted || !!read.url;
-                second = canSave
-                    ? t("Too little for a course, but it can be a note.")
-                    : t("Too little for a course.");
-                actions = <>{clearButton}{canSave && <Button variant="primary" busy={busy} onClick={() => void saveToInbox(read, pasted)}>{t("Save to Inbox")}</Button>}</>;
+                second = t("Too little for a course.");
+                actions = clearButton;
             } else if (!read.ai) {
                 second = `${readLine(read, !!pasted)} · ${t("Writing it needs an AI connection.")}`;
                 actions = <>{clearButton}<ConnectAIActions returnTo="/projects" /></>;
@@ -574,7 +592,7 @@ function ShortCard({ row, project, onChanged }: {
         </>
     ) : (
         <>
-            <Sparkles className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+            <PenLine className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{t("Written from its title")}</span>
         </>
     );

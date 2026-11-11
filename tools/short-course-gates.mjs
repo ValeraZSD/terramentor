@@ -720,7 +720,16 @@ await waitBuilt(c.json.projectId);
 const vRow = JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?').get(c.json.projectId).made_from);
 ok('its course names the video it came from', vRow.kind === 'video' && vRow.url === 'https://www.youtube.com/watch?v=vidWallAll1' && vRow.host === 'youtube.com', vRow);
 const tiny = await api('POST', '/api/short-courses/read', { transcript: 'Leave it. Good dog.', title: 'Leave it!' });
-ok('a transcript of two lines is too small', tiny.json?.ok === true && tiny.json.size === 'too-small', tiny.json);
+ok('a transcript of two lines is too small, and the read says how many words a course needs', tiny.json?.ok === true && tiny.json.size === 'too-small' && tiny.json.minWords === short.SHORT.minWords, tiny.json);
+// A read cancelled before its id came back cannot be discarded by the page; it
+// went only when another file was staged. The server sweeps at startup and hourly.
+{
+    const indexSource = readFileSync(join(ROOT, 'server/index.js'), 'utf8');
+    ok('staged sources past their day are swept at startup and hourly, not only when another file is staged',
+        /import \{ sweepStaged \} from '\.\/stagedDocuments\.js';/.test(indexSource)
+        && /setTimeout\(sweepStagedQuietly, \d+\)/.test(indexSource)
+        && /setInterval\(sweepStagedQuietly, 60 \* 60 \* 1000\)\.unref\(\)/.test(indexSource));
+}
 const notLink = await api('POST', '/api/short-courses/read', { transcript, url: 'javascript:alert(1)' });
 ok('a transcript\'s address must be a real link, or it is dropped', notLink.json?.ok === true && notLink.json.url === null, notLink.json);
 
@@ -1068,6 +1077,31 @@ ok('the transcript is typed in the app\'s own TextArea, not a bare textarea', /<
 ok('chapters picked that come to too few words say so, and Create waits for more',
     /const tooFew = picked\.length > 0 && words < \(read\.minWords \?\? 0\)/.test(stripSource) && /disabled=\{!picked\.length \|\| tooFew\b/.test(stripSource)
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
+// A pasted transcript that came to too little left its box for a line with
+// Clear, which threw the text away; then for Clear and Back, two grey words
+// strangers could not choose between. It now stays in its box, text and all.
+const fromTranscriptBody = (stripSource.match(/const fromTranscript = async[\s\S]*?\n {4}\};\n/) || [''])[0];
+const tooSmallBranch = (fromTranscriptBody.match(/if \(r\.ok && r\.size === 'too-small'\) \{([\s\S]*?)\n {12}\}/) || [])[1] ?? null;
+ok('a pasted transcript too small for a course stays in its box with the text and its word count, and the read is let go',
+    tooSmallBranch !== null
+    && /discardShortSource\(r\.stagedId\)/.test(tooSmallBranch)
+    && /setBox\(\{ state: 'transcript', title, url, short: r\.words, min: r\.minWords \?\? null \}\)/.test(tooSmallBranch)
+    && /transcriptRef\.current\?\.focus\(\)/.test(tooSmallBranch)
+    && /return;/.test(tooSmallBranch)
+    && !/setTranscript\(|clear\(|show\(/.test(tooSmallBranch)
+    // The line says how much there was against how much a course needs, and
+    // once the text is edited it keeps only the need.
+    && /t\("\{\{words\}\} of \{\{min\}\} words", \{ count: box\.min, words: num\(box\.short \?\? 0\), min: num\(box\.min\) \}\)[\s\S]{0,200}· \{t\("Too little for a course\."\)\}/.test(stripSource)
+    && /box\.short == null && box\.min != null\s*\? t\("A course needs \{\{min\}\} words or more\.", \{ count: box\.min, min: num\(box\.min\) \}\)/.test(stripSource)
+    && /if \(box\.short != null\) setBox\(\{ \.\.\.box, short: undefined \}\)/.test(stripSource)
+    && !/\{t\("Back"\)\}<\/Button><\/>/.test(stripSource));
+// A transcript read had no controller: Cancel emptied the box (and the text),
+// then the late result appeared anyway over the empty box.
+ok('a transcript read is dropped once Cancel or a newer read takes the box',
+    /abortRef\.current = ac;/.test(fromTranscriptBody)
+    && /readShortSource\(\{ transcript: pasted,[^)]*\}, ac\.signal\)/.test(fromTranscriptBody)
+    && /if \(ac\.signal\.aborted\) return;[\s\S]*show\(r,/.test(fromTranscriptBody)
+    && /if \(!ac\.signal\.aborted\) addToast/.test(fromTranscriptBody));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
 // A page is fetched with no redirect allowlist, so a link that redirects

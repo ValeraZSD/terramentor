@@ -6,7 +6,7 @@ import type { BulkCandidate, BulkJobStatus, BulkKind } from '../types';
 import { todayStr } from '../utils/tree';
 import {
     AlertTriangle, CheckCircle2, ChevronDown, Layers, Loader2, Pause, Search,
-    ShieldCheck, Sparkles, X,
+    ShieldCheck, X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Checkbox from './Checkbox';
@@ -218,7 +218,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 <header className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
                     <div className="flex items-center gap-3 min-w-0">
                         <span className="w-10 h-10 rounded-xl bg-accent/15 flex items-center justify-center shrink-0">
-                            <Sparkles className="w-5 h-5 text-accent-fg" aria-hidden="true" />
+                            <Layers className="w-5 h-5 text-accent-fg" aria-hidden="true" />
                         </span>
                         <div className="min-w-0">
                             <h2 className="font-semibold text-slate-900 dark:text-white leading-tight">{t("Generate study material")}</h2>

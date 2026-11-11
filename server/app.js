@@ -33,7 +33,7 @@ import * as tasksApi from './routes/tasks.js';
 import * as catalogApi from './routes/catalog.js';
 import * as nodesApi from './routes/nodes.js';
 import * as onboardingApi from './routes/onboarding.js';
-import * as captureApi from './routes/capture.js';
+import * as assistantWritesApi from './routes/assistantWrites.js';
 import * as systemApi from './routes/system.js';
 import * as settingsApi from './routes/settings.js';
 import * as providersApi from './routes/providers.js';
@@ -450,7 +450,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(projectsApi.deleteRoutes);
     mount(nodesApi.nodeRoutes);
     mount(onboardingApi.routes);
-    mount(captureApi.routes);
+    mount(assistantWritesApi.routes);
     mount(nodesApi.labelRoutes);
     mount(systemApi.routes);
     mount(settingsApi.routes);

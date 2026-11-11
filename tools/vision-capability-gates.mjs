@@ -13,7 +13,7 @@
 //   - a verdict and a missing route are cached, a 429 / 503 / dead socket is
 //     not (one blip must not pin a model for ten minutes);
 //   - a model id that would walk the URL fetches nothing;
-//   - paper marking and Capture accept 'listed', PDF recovery does NOT — it
+//   - paper marking accepts 'listed', PDF recovery does NOT — it
 //     runs unattended, and 'listed' there would send every page of every
 //     upload to a billed model on its own.
 // No model, no internet.
@@ -102,7 +102,6 @@ try {
     check('the pre-fix rule turned a listed model down (the control)', preFixRule('listed') === 'no');
 
     const src = (f) => readFileSync(new URL(`../server/${f}`, import.meta.url), 'utf8');
-    check("Capture accepts 'listed'", /cap === 'yes' \|\| cap === 'listed'/.test(src('capture.js')));
     check("PDF recovery does not (it runs unattended)", !src('pdfRecovery.js').includes("'listed'")
         && /cap === 'yes' \? 'yes' : 'no'/.test(src('pdfRecovery.js')));
 } finally {

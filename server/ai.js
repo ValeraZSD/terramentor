@@ -2496,7 +2496,7 @@ export async function webSearch(query, maxResults = 6) {
  * page which answers with a gigabyte cannot take the process down with it.
  *
  * `response.text()` has no bound of its own, which is the whole problem: the URL
- * was chosen by a captured link or by the model reading search results, so "the
+ * was chosen by a link the learner gave or by the model reading search results, so "the
  * body is a reasonable size" is not something anyone here gets to assume.
  */
 const MAX_PAGE_BYTES = 400_000;
@@ -2509,7 +2509,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), PAGE_FETCH_TIMEOUT_MS);
     try {
-        // The URL here was chosen by a captured link or by the model reading
+        // The URL here was chosen by a link the learner gave or by the model reading
         // search results, never typed by the owner — so it is vetted (and every
         // redirect hop re-vetted) before a connection is opened. See netSafety.js.
         const response = await safeFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: controller.signal });
@@ -3489,7 +3489,7 @@ const READY_TO_PROVE_RULE = `An overdue topic marked readyToProve (or READY TO P
 const GLOSS_RULE =`FOREIGN WORDS ARE GLOSSED. Any word or phrase you write in a language other than the one you are writing in — a word of the language being studied, a borrowed term, a quoted example — is followed the FIRST time it appears by its meaning in brackets, in the language you are writing in: "frequentie (частота)", "quiz (тест)", "de baby (младенец)". A whole example sentence gets its translation the same way, after it. Not for names of people, places or products, not inside code or formulas, and never where the learner's task is to recall that very meaning (a card or question asking what a word means must not print the answer beside it).`;
 
 // How every card is written, on every path a model writes one (the card
-// generator, capture, the assistant's card block). A front that reads only
+// generator, the assistant's card block). A front that reads only
 // "de baby" leaves the learner not knowing whether to translate it, pronounce
 // it or name its article, and a card stating a spelling rule with no example of
 // it is correct and useless.
@@ -3959,27 +3959,6 @@ Rules:
 6. ${GLOSS_RULE}${buildVisualsGuide({ p5: false, widget: false })}`,
         user: `${context}\n\nQUESTION THEY ANSWERED:\n${question}\n\nCORRECT ANSWER: ${correctAnswer}${userAnswer ? `\n\nTHEIR ANSWER: ${userAnswer}` : ''}`
     }),
-    // Ad-hoc capture (server/capture.js): turn something the learner pasted —
-    // an article, a paragraph of notes, a link — into a studiable topic. ONE
-    // call produces everything, because a capture must feel instant-ish; a
-    // four-call pipeline would make "keep this" cost as much as creating a
-    // project. The schema is flat for the same reason the feed's is (a small
-    // local model follows one level of nesting, not three).
-    capture_enrich: (provisionalTitle, material, url) => ({
-        system: `You turn a raw snippet the learner saved into a studiable topic.
-CRITICAL: Output ONLY a JSON object:
-{"title": "...", "overview": "...", "flashcards": [{"front": "...", "back": "..."}], "questions": [{"question": "...", "type": "multiple_choice", "options": ["...","...","...","..."], "correct_answer": "...", "explanation": "..."}]}
-Rules:
-1. "title": 3-8 words naming what this is ABOUT. Not "Article", not the website's name — the actual subject.
-2. "overview": 2-4 sentences in Markdown: what this covers and why it is worth remembering. Write it for the learner reading it in a month with no memory of saving it. Summarise the MATERIAL — never invent facts it does not contain.
-3. "flashcards": 2-5 cards on the ideas actually worth retaining. Front = a question, or an instruction and the item; back = a concise complete answer. Skip trivia and anything the material only mentions in passing. Return [] if it is too thin for honest cards.
-${CARD_RULES}
-4. "questions": 1-2 multiple-choice questions with exactly 4 options; correct_answer must EXACTLY equal one option string. Return [] if the material does not support a fair question.
-${OPTION_RULES}
-${EXPLANATION_RULE}
-6. Inline math with $...$ where the material uses it.`,
-        user: `The learner saved this${url ? ` from ${url}` : ''} under the working title "${provisionalTitle}".\n\nMATERIAL:\n${material}`
-    }),
     // Naming a place on the atlas.
     //
     // The map's own rule names a region after its most central member's title,
@@ -4151,10 +4130,7 @@ back: the answer
 A side may run over several lines and may use the same markdown and $math$ as your answer.
 The topic is the one the card is ABOUT, open or completed. In a deck with no topics, a card goes on its LAST card section (project_state lists them).
 ${CARD_SHAPE_RULES}
-- A NOTE TO THEIR INBOX, when they want to keep a thought that belongs to no topic yet ("remind me", "save that"). One fenced block, at most 1 per message; the app saves it to their Inbox project when they press Save:
-\`\`\`capture
-the note, in their words or a faithful summary
-\`\`\`
+When they want to keep something ("remind me", "save that"), it goes into a course: a fact or a distinction becomes a card on the topic it is about, and a page, a video or a file to learn from becomes a short course. A thought that fits no course they have is said back to them, not saved.
 ${ASSISTANT_EDITS_GUIDE}
 Say in one short sentence what you have prepared; never claim it is already done — they press.
 
