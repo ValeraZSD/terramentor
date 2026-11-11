@@ -1070,9 +1070,21 @@ ok('chapters picked that come to too few words say so, and Create waits for more
     && /tooFew && ` · \$\{t\("Too little for a course\."\)\}`/.test(stripSource));
 // Clear was the only way out of a pasted transcript that came to too little,
 // and it threw the pasted text away with the read.
+// The handler's own body is read, so a reset of the text on any line of it fails.
+const backHandler = (stripSource.match(/actions = pasted\s*\?[\s\S]*?<Button variant="quiet" onClick=\{\(\) => \{([\s\S]*?)\}\}>\{t\("Back"\)\}<\/Button>/) || [])[1] ?? null;
 ok('a pasted transcript too small for a course goes Back to its box with the text kept, and the read is let go',
-    /actions = pasted\s*\?[\s\S]{0,200}discardShortSource\(read\.stagedId\)[\s\S]{0,120}setBox\(\{ state: 'transcript', title: read\.title, url: read\.url \}\)[\s\S]{0,40}t\("Back"\)/.test(stripSource)
-    && !/state: 'transcript'[^\n]*setTranscript\(''\)/.test(stripSource));
+    backHandler !== null
+    && /discardShortSource\(read\.stagedId\)/.test(backHandler)
+    && /setBox\(\{ state: 'transcript', title: read\.title, url: read\.url \}\)/.test(backHandler)
+    && !/setTranscript\(|clear\(/.test(backHandler));
+// A transcript read had no controller: Cancel emptied the box (and the text),
+// then the late result appeared anyway, and its Back opened an empty box.
+const fromTranscriptBody = (stripSource.match(/const fromTranscript = async[\s\S]*?\n {4}\};\n/) || [''])[0];
+ok('a transcript read is dropped once Cancel or a newer read takes the box',
+    /abortRef\.current = ac;/.test(fromTranscriptBody)
+    && /readShortSource\(\{ transcript: pasted,[^)]*\}, ac\.signal\)/.test(fromTranscriptBody)
+    && /if \(ac\.signal\.aborted\) return;[\s\S]*show\(r,/.test(fromTranscriptBody)
+    && /if \(!ac\.signal\.aborted\) addToast/.test(fromTranscriptBody));
 ok('the assistant is told a short course is being written, not where from (a title has no link or file)',
     /short_course: 'Writing a short course',/.test(readFileSync(join(ROOT, 'server/chatContext.js'), 'utf8')));
 // A page is fetched with no redirect allowlist, so a link that redirects

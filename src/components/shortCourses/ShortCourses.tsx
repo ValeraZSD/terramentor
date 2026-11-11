@@ -201,9 +201,15 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     const fromTranscript = async (title: string, url: string | null) => {
         const pasted = transcript.trim();
         if (!pasted) return;
+        // The read owns the box's controller like any other, so Cancel or a
+        // newer read drops its result instead of showing it late.
+        abortRef.current?.abort();
+        const ac = new AbortController();
+        abortRef.current = ac;
         setBusy(true);
         try {
-            const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined });
+            const r = await api.readShortSource({ transcript: pasted, title, url: url ?? undefined }, ac.signal);
+            if (ac.signal.aborted) return;
             if (r.ok && r.size === 'ok' && r.ai) {
                 setBusy(false);
                 await create({ stagedId: r.stagedId }, r);
@@ -211,7 +217,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
             }
             show(r, { link: url, pasted });
         } catch (e) {
-            addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
+            if (!ac.signal.aborted) addToast('error', t("Could not read it"), e instanceof Error ? e.message : String(e));
         } finally {
             setBusy(false);
         }
