@@ -19,7 +19,7 @@
         try { cached = localStorage.getItem('terramentor-lang'); } catch (e) { /* private mode */ }
         if (cached && cached !== 'auto' && SUPPORTED.indexOf(cached) >= 0) pick = cached;
         if (!pick) {
-            var tags = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+            var tags = navigator.languages || [navigator.language];
             for (var i = 0; i < tags.length && !pick; i++) {
                 var base = String(tags[i] || '').toLowerCase().split(/[-_]/)[0];
                 if (SUPPORTED.indexOf(base) >= 0) pick = base;
