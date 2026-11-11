@@ -300,10 +300,14 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                                     : t("{{words}} words", { count: box.short ?? 0, words: num(box.short ?? 0) })} · {t("Too little for a course.")}</>}
                         </span>
                     )}
-                    <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
-                        {t("Create short course")}
-                    </Button>
+                    {/* The two buttons wrap as one pair: on a narrow box the line
+                        takes its own row and Cancel stays beside Create. */}
+                    <div className="ml-auto flex items-center gap-2">
+                        <Button variant="quiet" onClick={() => clear()}>{t("Cancel")}</Button>
+                        <Button variant="primary" busy={busy} disabled={!transcript.trim()} onClick={() => void fromTranscript(box.title, box.url)}>
+                            {t("Create short course")}
+                        </Button>
+                    </div>
                 </div>
             </div>
         );
