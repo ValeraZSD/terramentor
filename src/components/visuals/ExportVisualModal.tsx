@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, X } from 'lucide-react';
+import { PenLine, X } from 'lucide-react';
 import { Button, IconButton } from '../ui/Button';
 import { TextInput, TextArea, Select } from '../ui/Field';
 import ProgressBar from '../ui/ProgressBar';
@@ -229,7 +229,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                                         busy={drafting}
                                         className="-ml-2.5"
                                         title={tr("Ask the AI to draft a title and caption from the drawing")}
-                                        icon={<Sparkles size={14} aria-hidden="true" />}
+                                        icon={<PenLine size={14} aria-hidden="true" />}
                                     >
                                         {drafting ? tr("Drafting…") : tr("Draft with AI")}
                                     </Button>

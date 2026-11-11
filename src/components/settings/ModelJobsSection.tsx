@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import { api, OllamaModel } from '../../api';
 import {
-    RefreshCw, Loader2, Sparkles, Database,
+    RefreshCw, Loader2, Search, Database, Workflow,
     Image as ImageIcon, Map as MapIcon, FileText,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -219,13 +219,13 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
             <section className={active ? 'mb-8' : 'hidden'}>
                 {/* No intro: each row says its own state, and resource
                     hunting ships on, so no promise that nothing runs unasked. */}
-                <SectionHeader title={tr("Model jobs")} icon={Sparkles} />
+                <SectionHeader title={tr("Model jobs")} icon={Workflow} />
                 {/* A full-strength divider, not the hairline the other lists
                     use: these rows OPEN, and two open neighbours are two grey
                     bodies that a `slate-100` line could not part. */}
                 <Panel flush className="divide-y divide-slate-200 dark:divide-slate-700">
                     <ModelJobRow
-                        icon={Sparkles}
+                        icon={Search}
                         title={tr("Resource hunting")}
                         desc={tr("Searches the web for links for every topic while a project is created.")}
                         aside={findResources && readLinks ? tr("On") : !findResources && !readLinks ? tr("Off") : tr("Partly on")}
