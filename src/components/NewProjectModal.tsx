@@ -18,7 +18,7 @@
 // (`COURSE_DIALOG_SIZE`). Appearance is a single tile rather than a set of
 // open controls beside the form.
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
-import { ArrowLeft, FileInput, MessageSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, FileInput, MessageSquare, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
@@ -394,7 +394,7 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
                     {/* One primary button, and Cancel is the dialog's ✕ (and
                         Escape). Narrow, it takes the full width. */}
                     <div className={cx('flex', wide ? 'shrink-0' : '[&>button]:w-full')}>
-                        <Button variant="primary" onClick={handleCreateWithAI} disabled={!!blockedAI} title={blockedAI || undefined} icon={<Sparkles className="w-4 h-4" />} className="whitespace-nowrap">
+                        <Button variant="primary" onClick={handleCreateWithAI} disabled={!!blockedAI} title={blockedAI || undefined} icon={<PenLine className="w-4 h-4" />} className="whitespace-nowrap">
                             {t("Create with AI")}
                         </Button>
                     </div>

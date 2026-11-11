@@ -1,4 +1,4 @@
-import { RotateCcw, ThumbsDown, ThumbsUp, Sparkles } from 'lucide-react';
+import { RotateCcw, ThumbsDown, ThumbsUp, Zap } from 'lucide-react';
 import { k } from '../../i18n';
 import type { ReviewRating } from '../../utils/srs';
 
@@ -53,7 +53,7 @@ export const RATING_STYLES: Record<ReviewRating, RatingStyle> = {
     },
     easy: {
         label: k("Easy"),
-        icon: Sparkles,
+        icon: Zap,
         color: 'text-blue-700 dark:text-blue-300',
         bg: 'bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50',
         border: 'border-blue-300 dark:border-blue-700',

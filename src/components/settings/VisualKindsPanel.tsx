@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { dayHeaders } from '../../utils/locale';
 import { hexToRgb } from '../../utils/color';
-import { MousePointer2, Sparkles } from 'lucide-react';
+import { MousePointer2, Shapes } from 'lucide-react';
 import { api } from '../../api';
 import { useStore, themeKeyOf } from '../../store';
 import Checkbox from '../Checkbox';
@@ -719,7 +719,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     return (
         <>
             <h2 className={`${GROUP_CAPTION} flex items-center gap-2`}>
-                <Sparkles className="w-4 h-4 text-accent-fg" /> {tr("Visuals")}
+                <Shapes className="w-4 h-4 text-accent-fg" /> {tr("Visuals")}
             </h2>
             <div className="mb-2 px-1">
                 <SettingNote>

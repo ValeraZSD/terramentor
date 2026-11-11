@@ -1,6 +1,6 @@
 import { useStore } from '../../store';
 import { PlacementHeadStart, TransferInfo } from '../../types';
-import { Compass, ShieldCheck, Sparkles } from 'lucide-react';
+import { Compass, History, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { Button } from '../ui/Button';
@@ -87,7 +87,9 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
         // "Open it" on a third (the first walk, 390px).
         return (
             <p className="flex items-start gap-1.5 px-4 sm:px-6 py-2 text-sm text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700/70">
-                <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                {fromTransfer
+                    ? <History className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                    : <Compass className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />}
                 <span className="min-w-0">
                     {fromTransfer && best
                         ? t("Started at {{priorPct}}% because you proved “{{title}}” in {{project}}.", { priorPct, title: best.title, project: best.project_name })
@@ -119,7 +121,7 @@ export default function HeadStartBanner({ transfer, placement, nodeId, nodeTitle
         <div className="px-4 sm:px-6 py-3 border-b border-slate-100 dark:border-slate-700/70 bg-accent/5">
             <p className="flex items-center gap-1.5 mb-1.5 text-2xs font-semibold text-accent-fg">
                 {fromTransfer
-                    ? <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                    ? <History className="w-3.5 h-3.5" aria-hidden="true" />
                     : <Compass className="w-3.5 h-3.5" aria-hidden="true" />}
                 {fromTransfer ? t("You've covered this before") : t("Placement head start")}
             </p>

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { BookOpen, Globe, Sparkles, Library, Palette, ShieldCheck } from 'lucide-react';
+import { BookOpen, Cpu, Globe, Library, Palette, ShieldCheck } from 'lucide-react';
 import { k } from '../../i18n';
 
 /**
@@ -20,7 +20,7 @@ export const SETTINGS_SECTIONS: {
 }[] = [
     { id: 'general', label: k("General"), summary: k("Theme, colours, text size, language"), icon: Palette },
     { id: 'learning', label: k("Learning"), summary: k("Mastery checks, your feed, your profile"), icon: BookOpen },
-    { id: 'ai', label: k("AI & Models"), summary: k("Connect an AI, choose its model"), icon: Sparkles },
+    { id: 'ai', label: k("AI & Models"), summary: k("Connect an AI, choose its model"), icon: Cpu },
     { id: 'web', label: k("Web & research"), summary: k("Answers from the web, search links"), icon: Globe },
     { id: 'devices', label: k("Devices & security"), summary: k("Your phone, other devices, password"), icon: ShieldCheck },
     { id: 'library', label: k("Library & about"), summary: k("Import, export, version, updates"), icon: Library },
