@@ -40,14 +40,16 @@ const ok = (name, cond, detail) => { checked++; if (!cond) findings.push({ name,
 // The forbidden names, from the lucide this checkout installs.
 const lucide = createRequire(path.join(HERE, 'package.json'))('lucide-react');
 const FORBIDDEN = new Set(Object.keys(lucide).filter((n) => SPARKLE_NAME.test(n)));
-ok('lucide still exports Sparkles (the forbidden set is not empty)', FORBIDDEN.has('Sparkles') && FORBIDDEN.has('WandSparkles'),
+ok('lucide still exports Sparkles (the forbidden set is not empty)', FORBIDDEN.has('Sparkles'),
     `read ${FORBIDDEN.size} names from lucide-react`);
 
-/** Every name a file imports from lucide-react, by its lucide name (`X as Y` → X). */
+/** Every name a file imports or re-exports from lucide-react, by its lucide
+ *  name (`X as Y` → X). Comments inside the braces are not names. */
 export function lucideImports(src) {
     const names = [];
-    for (const m of src.matchAll(/import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]lucide-react(?:\/[^'"]*)?['"]/g)) {
-        for (const part of m[1].split(',')) {
+    for (const m of src.matchAll(/(?:import|export)\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]lucide-react(?:\/[^'"]*)?['"]/g)) {
+        const list = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+        for (const part of list.split(',')) {
             const name = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim();
             if (name) names.push(name);
         }
@@ -63,12 +65,14 @@ export function lucideImports(src) {
 const sample = [
     "import { ArrowLeft, Sparkles } from 'lucide-react';",
     "import {\n    Check,\n    WandSparkles as Magic,\n} from 'lucide-react';",
+    "export { Sparkle as AiMark } from 'lucide-react';",
     "import * as Icons from 'lucide-react'; const I = Icons.Stars;",
     "import { Compass, History } from 'lucide-react';",
 ].join('\n');
 const seen = lucideImports(sample).filter((n) => FORBIDDEN.has(n));
-ok('detector: finds a plain, a renamed and a namespaced sparkle import', seen.join(',') === 'Sparkles,WandSparkles,Stars', `got ${seen.join(',') || 'nothing'}`);
-ok('detector: passes History and Compass', !lucideImports("import { Compass, History } from 'lucide-react';").some((n) => FORBIDDEN.has(n)));
+ok('detector: finds a plain, a renamed, a re-exported and a namespaced sparkle', seen.join(',') === 'Sparkles,WandSparkles,Sparkle,Stars', `got ${seen.join(',') || 'nothing'}`);
+ok('detector: passes History and Compass, and a comment naming Sparkles',
+    !lucideImports("import {\n    Compass, // was Sparkles\n    History, /* not Stars */\n} from 'lucide-react';").some((n) => FORBIDDEN.has(n)));
 
 // 1 + 2. Every source file.
 const files = globSync('src/**/*.{ts,tsx,js,jsx}', { cwd: ROOT }).map((f) => f.replace(/\\/g, '/')).sort();
