@@ -360,7 +360,15 @@ SmartScreen with *More info → Run anyway*, waits for the page, then
 double-clicks again and quits. Screenshots of every prompt and of the first
 screen, the app's log and `result.json` come back under
 `temp/windows-sandbox/`, and the sandbox is closed (`-Keep` leaves it open).
+While it runs, the sandbox's window is kept past the edge of the screen, the
+keyboard is taken back each time the window grabs it while starting, and its
+sound is muted, so the machine stays usable (`-Watch` leaves the window in
+view). The sandbox itself is a virtual machine at normal priority, so run it
+when nothing heavy is running. For 1.4.0 the run inside took about 80 s:
+some 40 s to unpack, the first screen 7 s after the double-click.
 It needs the Windows Sandbox feature (Pro, Enterprise or Education), which no
 hosted runner offers, so it is run by hand. The sandbox is always the host's
-own Windows build, so Windows 11's Smart App Control and other anti-virus than
-Defender stay outside what it can show.
+own Windows build, so Windows 11's Smart App Control stays outside what it can
+show; so does a UAC prompt, since the sandbox runs with UAC off, and so does
+anti-virus: on Windows 10 22H2 Defender's service is stopped inside the
+sandbox (the run reads its state and says when it is not scanning).
