@@ -563,11 +563,14 @@ const seedOf = (record) => Math.max(record.transferred_prior ?? 0, record.placem
 
 /**
  * The estimate a right agent claim lifted this node to, while it still
- * stands: the node's latest claim raised it and nothing has moved it since.
- * 0 otherwise.
+ * stands: the latest claim that moved the estimate raised it (a claim that
+ * moved nothing, such as one at the cap, is passed over) and nothing has
+ * moved it since. 0 otherwise.
  */
 function standingClaimLift(nodeId, current) {
-    const last = stmt('SELECT mastery_before, mastery_after FROM mastery_claims WHERE node_id = ? ORDER BY id DESC LIMIT 1').get(nodeId);
+    const last = stmt(
+        'SELECT mastery_before, mastery_after FROM mastery_claims WHERE node_id = ? AND mastery_after <> mastery_before ORDER BY id DESC LIMIT 1'
+    ).get(nodeId);
     if (!last || !(Number(last.mastery_after) > Number(last.mastery_before))) return 0;
     return Math.abs(Number(current) - Number(last.mastery_after)) < 1e-9 ? Number(last.mastery_after) : 0;
 }

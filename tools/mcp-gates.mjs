@@ -565,6 +565,17 @@ console.log('\n--- a right claim lifts the estimate a little, and never the gate
     ok('a head start written after a right claim lifted a topic keeps the lift: the two combine by MAX',
         effectOf(liftFirst) === 'raised' && liftedTo > 0 && Math.abs(keptLift - liftedTo) < 1e-9 && scoreOf(liftedFirst) === 0.6,
         `lifted ${liftedTo}, seed ${liftedTo / 2} → ${keptLift}, seed 0.6 → ${scoreOf(liftedFirst)}`);
+    // Claims to the cap, then one more that adds nothing, then a lower head start.
+    const atCapFirst = addNode('Wave beats', section, { position: 62 });
+    const capEffects = [];
+    for (let i = 0; i < 30 && capEffects.at(-1) !== 'at_cap'; i++) {
+        capEffects.push(effectOf(await call('record_claim', { topic: String(atCapFirst), correct: true, question_type: 'short_answer', attempt_id: `cap-then-seed-${i}` })));
+    }
+    const capped = scoreOf(atCapFirst);
+    mastery.applySeededPrior(atCapFirst, 'placement', 0.2);
+    ok('…and so does a lift followed by a right claim that added nothing at the cap',
+        capEffects.at(-1) === 'at_cap' && capEffects.includes('raised') && capped > 0.2 && Math.abs(scoreOf(atCapFirst) - capped) < 1e-9,
+        `${capEffects.join(',')}: ${capped} → seed 0.2 → ${scoreOf(atCapFirst)}`);
 
     const m = await call('get_mastery', { topic: String(claimed) });
     ok('get_mastery says right claims lifted the estimate, up to 60%, and that the gate does not count them',
@@ -1648,6 +1659,24 @@ console.log('\n--- a check in the host\'s own form (MCP elicitation) ---');
     ok('a decline that arrives while the form\'s answers are still being graded is not told the check was recorded',
         midway.closed === false && midway.recorded === false && afterwards.closed === false && afterwards.recorded === true,
         JSON.stringify({ midway, afterwards }));
+    // An ordering whose served items repeat one ("1. Mix", "3. Mix" lose their
+    // numbers after the duplicate check): every place gets a field.
+    const DUP_SEQ = {
+        uuid: 'form-dupseq', type: 'sequence', question: 'Put the steps of the mortar in order.',
+        items: ['Rest', 'Mix', 'Mix'], correct_answer: JSON.stringify(['Mix', 'Rest', 'Mix']), explanation: `${EXPL}-dupseq Mix twice.`,
+    };
+    const dupTopic = addNode('Wave mortar', section, { position: 24 });
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)')
+        .run(dupTopic, 'Wave mortar', JSON.stringify(FORM_BANK.map(b => (b.uuid === 'form-seq' ? DUP_SEQ : b)).map(b => ({ ...b, uuid: `${b.uuid}-${dupTopic}` }))));
+    let dupFields = [];
+    respond = (params) => {
+        const props = fieldsOf(params);
+        dupFields = Object.keys(props).filter(k => (props[k].title || '').includes(DUP_SEQ.question.slice(0, 30)));
+        return { action: 'accept', content: Object.fromEntries(dupFields.map((k, i) => [k, JSON.parse(DUP_SEQ.correct_answer)[i]])) };
+    };
+    const dupText = textOf(await formCall(dupTopic));
+    ok('an ordering that lists an item twice gets a field for every place, and its right order is graded right',
+        dupFields.length === 3 && /1 of 6|1\/6/.test(dupText) && !dupText.includes(`${EXPL}-dupseq`), `${dupFields.join(',')} | ${dupText.slice(0, 300)}`);
     // Over HTTP on 2026-07-28 each request carries the client's capabilities,
     // so the stateless listener knows the client takes a form; the sitting
     // lives in the app between the two requests.

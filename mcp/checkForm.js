@@ -32,7 +32,9 @@ export function takesForm(capabilities) {
 
 /** How much of a question's text the second and later fields of a split question repeat. */
 const PART_STEM_CHARS = 80;
-const unique = (list) => [...new Set((Array.isArray(list) ? list : []).filter(x => typeof x === 'string' && x))];
+/** A list's non-empty strings, in order, repeats kept; `unique` keeps each once. */
+const listed = (list) => (Array.isArray(list) ? list : []).filter(x => typeof x === 'string' && x);
+const unique = (list) => [...new Set(listed(list))];
 const gapsOf = (q) => Math.max(0, String(q.template ?? '').split(GAP).length - 1);
 /** An assembly's template with its gaps numbered, as the fields name them. */
 const numberedTemplate = (q) => String(q.template ?? '').split(GAP).map((part, i, all) => part + (i < all.length - 1 ? `[${i + 1}]` : '')).join('');
@@ -59,10 +61,12 @@ export function formSchema(questions) {
         } else if (q.type === 'true_false') {
             properties[`q${q.n}`] = { type: 'string', title: head, enum: ['True', 'False'] };
         } else if (q.type === 'sequence' && items.length) {
-            items.forEach((_, k) => {
+            // One field per item served, the choices each distinct item once:
+            // an item listed twice has two places in the order.
+            listed(q.items).forEach((_, k, served) => {
                 properties[`q${q.n}_${k + 1}`] = {
-                    type: 'string', title: part('place', k, items.length),
-                    description: `Place ${k + 1} of ${items.length}, in the order the question asks for.`, enum: items,
+                    type: 'string', title: part('place', k, served.length),
+                    description: `Place ${k + 1} of ${served.length}, in the order the question asks for.`, enum: items,
                 };
             });
         } else if (q.type === 'assemble' && tokens.length && gapsOf(q)) {
@@ -104,7 +108,7 @@ export function formAnswers(questions, content) {
     return questions.map((q) => {
         const got = values[q.n] || {};
         if (q.type === 'sequence' && unique(q.items).length) {
-            const places = unique(q.items).map((_, k) => got[k + 1] ?? '');
+            const places = listed(q.items).map((_, k) => got[k + 1] ?? '');
             return places.some(Boolean) ? JSON.stringify(places) : null;
         }
         if (q.type === 'assemble' && unique(q.tokens).length && gapsOf(q)) {
