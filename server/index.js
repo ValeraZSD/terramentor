@@ -6,6 +6,7 @@
 import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
+import { hostedStartProblem } from './hosted.js';
 import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
 import { logActivity } from './activityLog.js';
@@ -79,6 +80,19 @@ const httpsOpts = servingSPA && fs.existsSync(keyPath) && fs.existsSync(certPath
 // only if you explicitly want to expose it on all interfaces (and then a password
 // via the security settings is strongly recommended).
 const HOST = process.env.HOST || '127.0.0.1';
+
+// A hosted copy (server/hosted.js) never opens its port unlocked: bound beyond
+// loopback it needs a password already set or the operator's setup token.
+// Checked before anything listens, so a refused copy was never reachable.
+{
+    let passwordSet = false;
+    try { passwordSet = isAuthEnabled(); } catch (e) { console.error(`[hosted] Could not read whether a password is set: ${e.message}`); }
+    const problem = hostedStartProblem({ passwordSet });
+    if (problem) {
+        console.error(`[hosted] Refusing to start: ${problem}`);
+        process.exit(1);
+    }
+}
 
 // Refresh the shipped add-on manifests before serving. The user's enabled/
 // disabled choices survive; only the manifests themselves are updated, so a
