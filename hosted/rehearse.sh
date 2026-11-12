@@ -29,6 +29,13 @@ A=alice
 B=bob
 WORK="$(scratch_dir)"
 
+# It starts and, at the end, deletes the proxy and its certificates: never on a
+# machine that already runs copies.
+if docker container inspect terramentor-proxy >/dev/null 2>&1; then
+    echo "rehearse.sh: a terramentor-proxy already runs here; rehearse on a machine with no copies" >&2
+    exit 1
+fi
+
 cleanup() {
     [ "${KEEP:-}" = 1 ] && return 0
     for n in "$A" "$B"; do
@@ -94,7 +101,7 @@ archive="$(bash "$COPY" backup "$A" | tail -1)"
 [ -s "$archive" ] && ok "online backup of $A: $archive ($(wc -c < "$archive") bytes)" || no "no archive"
 # Read through stdin: GNU tar takes "Z:/..." for a remote host.
 listing="$(tar tzf - < "$archive")"
-echo "$listing" | grep -q 'terramentor.db$' && echo "$listing" | grep -q 'terramentor.secrets.json$' && ok "it holds the database and the credentials" || no "archive contents: $listing"
+grep -q '/terramentor.db$' <<< "$listing" && grep -q '/credentials.json$' <<< "$listing" && ok "it holds the database and the credentials" || no "archive contents: $listing"
 [ "$(status "$A" "/api/projects/$id" -b "$WORK/a.jar" -X DELETE)" = 200 ] && ok "the project is deleted" || no "delete"
 c "$A" /api/projects -b "$WORK/a.jar" | grep -q 'Rehearsal course' && no "still there after delete" || ok "…and gone"
 bash "$COPY" restore "$A" "$archive"
@@ -103,6 +110,15 @@ c "$A" /api/projects -b "$WORK/a2.jar" | grep -q 'Rehearsal course' && ok "the p
 
 all="$(bash "$COPY" backup --all)"
 [ "$(echo "$all" | grep -c 'tar.gz$')" = 2 ] && ok "backup --all wrote one archive per copy" || no "backup --all: $all"
+
+echo "--- update and refusals of the tool itself ---"
+before="$(ls "$TM_BACKUP_DIR/$A" | wc -l)"
+bash "$COPY" update "$A" | grep -q "^updated: $A$" && ok "update replaces $A's container" || no "update $A"
+[ "$(ls "$TM_BACKUP_DIR/$A" | wc -l)" -gt "$before" ] && ok "…after backing it up" || no "update made no backup"
+[ "$(login "$A" "$pwA" a3)" = 200 ] && c "$A" /api/projects -b "$WORK/a3.jar" | grep -q 'Rehearsal course' \
+    && ok "the same password and library after the update" || no "library or password lost in the update"
+if AI_MODEL='' bash "$COPY" new carol >/dev/null 2>&1; then no "a copy with no model was made"; else ok "a copy with no model is refused"; fi
+docker volume inspect tm-carol-data >/dev/null 2>&1 && no "the refused copy left a volume" || ok "…and leaves nothing behind"
 
 echo "--- remove ---"
 out="$(bash "$COPY" remove "$B" --yes)"; echo "$out"

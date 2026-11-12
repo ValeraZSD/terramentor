@@ -100,6 +100,9 @@ cmd_new() {
         esac
     done
     exists "$name" && die "a copy called $name already exists"
+    # With no model named, the learner's own choice would decide what the
+    # operator's key pays for; a hosted copy refuses that choice instead.
+    [ -n "${AI_MODEL:-}" ] || die "set AI_MODEL in hosted/.env: the model every copy uses"
     docker volume inspect "$(volume "$name")" >/dev/null 2>&1 && die "volume $(volume "$name") already exists (a removed copy's data?); remove it or pick another name"
     # A copy half made is undone, so the same name can simply be tried again.
     trap "undo_new $name" EXIT
@@ -186,8 +189,10 @@ cmd_update() {
     local names
     if [ "$what" = --all ]; then names="$(copies)"; else valid_name "$what"; exists "$what" || die "no copy called $what"; names="$what"; fi
     # A registry image is fetched first; a locally built one is used as it is.
-    docker pull -q "$TM_IMAGE" >/dev/null 2>&1 || true
+    docker pull -q "$TM_IMAGE" >/dev/null 2>&1 || echo "copy.sh: could not pull $TM_IMAGE; using the local image" >&2
     for n in $names; do
+        # A new image may migrate the database: the library before it is kept.
+        backup_one "$n" >/dev/null || die "the backup of $n failed; $n was not updated"
         docker rm -f "$(container "$n")" >/dev/null
         run_copy "$n"
         wait_up "$n"
@@ -201,30 +206,44 @@ cmd_list() {
     done
 }
 
+# Prints the archive's path as its last line, or fails with nothing kept. Every
+# step is checked by hand: `set -e` does not apply inside a function called
+# from `||` or `$( )`, which is how --all and remove call this one.
 backup_one() {
     local name="$1"
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
-    exists "$name" || die "no copy called $name"
-    local stamp dir out tmp
+    exists "$name" || { echo "copy.sh: no copy called $name" >&2; return 1; }
+    local stamp dir out tmp ok=1
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     dir="/data/.backup-$stamp"
     out="$TM_BACKUP_DIR/$name"
-    mkdir -p "$out"; chmod 700 "$out"
+    mkdir -p "$out" && chmod 700 "$out" || return 1
     tmp="$out/.$stamp.tar.gz.part"
     if running "$name"; then
         # Online: SQLite's backup API reads a consistent copy while the app writes.
-        docker exec "$(container "$name")" node server/hostedCli.js backup "$dir"
-        docker cp "$(container "$name")":"$dir" - | gzip > "$tmp"
-        docker exec "$(container "$name")" rm -rf "$dir"
+        docker exec "$(container "$name")" node server/hostedCli.js backup "$dir" >&2 || ok=0
+        # pipefail (set above) makes a failed `docker cp` fail the pipe.
+        if [ "$ok" = 1 ]; then docker cp "$(container "$name")":"$dir" - | gzip > "$tmp" || ok=0; fi
+        docker exec "$(container "$name")" rm -rf "$dir" >/dev/null 2>&1 || true
     else
         docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" sh -c \
-            "node server/hostedCli.js backup '$dir' >&2 && tar cz -C /data '.backup-$stamp' && rm -rf '$dir'" > "$tmp"
+            "trap 'rm -rf $dir' EXIT; node server/hostedCli.js backup '$dir' >&2 && tar cz -C /data '.backup-$stamp'" > "$tmp" || ok=0
     fi
-    chmod 600 "$tmp"
-    mv "$tmp" "$out/$stamp.tar.gz"
-    echo "$out/$stamp.tar.gz"
-    # Keep the newest TM_BACKUP_KEEP; the names sort by time.
+    # An empty or cut-off archive is still a gzip file: read it back.
+    # (A here-string, not a pipe: `grep -q` leaving early would fail tar.)
+    local listing=""
+    if [ "$ok" = 1 ]; then listing="$(tar tzf - < "$tmp" 2>/dev/null)" || ok=0; fi
+    if [ "$ok" = 1 ] && ! grep -q '/terramentor\.db$' <<< "$listing"; then ok=0; fi
+    if [ "$ok" != 1 ]; then
+        rm -f "$tmp"
+        echo "copy.sh: the backup of $name failed; nothing was kept" >&2
+        return 1
+    fi
+    chmod 600 "$tmp" && mv "$tmp" "$out/$stamp.tar.gz" || return 1
+    # Keep the newest TM_BACKUP_KEEP; the names sort by time, and only checked
+    # archives are ever here.
     ls -1 "$out"/*.tar.gz 2>/dev/null | sort | head -n "-$TM_BACKUP_KEEP" | xargs -r rm -f
+    echo "$out/$stamp.tar.gz"
 }
 
 cmd_backup() {
@@ -265,7 +284,7 @@ cmd_remove() {
     fi
     # The person's data leaves the server only after it is safely out.
     local archive
-    archive="$(backup_one "$name" | tail -1)"
+    archive="$(backup_one "$name")" || die "the backup failed; nothing was removed"
     [ -s "$archive" ] || die "the backup failed; nothing was removed"
     docker rm -f "$(container "$name")" >/dev/null
     rm -f "$SITES/$name.caddy" "$KEYS/$name.env"

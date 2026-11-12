@@ -25,6 +25,8 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { dataPaths } from './paths.js';
 import { makePrivateDir, makePrivateFile } from './privateFiles.js';
+// The credentials file is opened only by secrets.js; this tool asks it.
+import { copyCredentialsTo, replaceCredentialsFrom } from './secrets.js';
 
 // stdout carries this tool's answer and nothing else (copy.sh reads the
 // generated password from it); what the library says while it opens goes to
@@ -34,7 +36,7 @@ console.log = console.error;
 console.info = console.error;
 
 const DB_FILE = 'terramentor.db';
-const SECRETS_FILE = 'terramentor.secrets.json';
+const CREDENTIALS_FILE = 'credentials.json';
 const VAULT_DIR = 'vault';
 
 function fail(message) {
@@ -79,7 +81,13 @@ function linkTree(from, to) {
         const b = join(to, entry.name);
         if (entry.isDirectory()) linkTree(a, b);
         else if (entry.isFile()) {
-            try { linkSync(a, b); } catch { copyFileSync(a, b); }
+            try {
+                linkSync(a, b);
+            } catch {
+                // A file deleted since the listing (the copy kept running) is
+                // simply not in the backup; anything else stops it.
+                try { copyFileSync(a, b); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+            }
         }
     }
 }
@@ -87,7 +95,7 @@ function linkTree(from, to) {
 async function backupCommand([dir]) {
     if (!dir) fail('usage: backup <dir>');
     if (existsSync(dir)) fail(`${dir} already exists`);
-    const { dbPath, vaultRoot, secretsPath } = dataPaths();
+    const { dbPath, vaultRoot } = dataPaths();
     if (!existsSync(dbPath)) fail(`no library at ${dbPath}`);
     makePrivateDir(dir);
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -97,10 +105,7 @@ async function backupCommand([dir]) {
         db.close();
     }
     makePrivateFile(join(dir, DB_FILE));
-    if (existsSync(secretsPath)) {
-        copyFileSync(secretsPath, join(dir, SECRETS_FILE));
-        makePrivateFile(join(dir, SECRETS_FILE));
-    }
+    const credentials = copyCredentialsTo(join(dir, CREDENTIALS_FILE));
     if (existsSync(vaultRoot)) linkTree(vaultRoot, join(dir, VAULT_DIR));
     // Read back what was written: a backup nobody opened is a hope.
     const check = new Database(join(dir, DB_FILE), { readonly: true, fileMustExist: true });
@@ -113,7 +118,7 @@ async function backupCommand([dir]) {
         check.close();
     }
     const bytes = statSync(join(dir, DB_FILE)).size;
-    print(`backup ok: ${projects} project(s), database ${bytes} bytes, credentials ${existsSync(join(dir, SECRETS_FILE)) ? 'included' : 'none'}`);
+    print(`backup ok: ${projects} project(s), database ${bytes} bytes, credentials ${credentials ? 'included' : 'none'}`);
 }
 
 function restoreCommand([dir]) {
@@ -127,15 +132,16 @@ function restoreCommand([dir]) {
     } finally {
         check.close();
     }
-    const { dbPath, vaultRoot, secretsPath } = dataPaths();
+    const { dbPath, vaultRoot } = dataPaths();
+    // Copied beside the library first, so a full disk fails here with the old
+    // library still whole; only then is it swapped in.
+    const incoming = `${dbPath}.restoring`;
+    copyFileSync(from, incoming);
+    makePrivateFile(incoming);
     // A WAL left by the replaced library would be replayed into the restored one.
-    for (const suffix of ['', '-wal', '-shm']) rmSync(dbPath + suffix, { force: true });
-    copyFileSync(from, dbPath);
-    makePrivateFile(dbPath);
-    if (existsSync(join(dir, SECRETS_FILE))) {
-        copyFileSync(join(dir, SECRETS_FILE), secretsPath);
-        makePrivateFile(secretsPath);
-    }
+    for (const suffix of ['-wal', '-shm']) rmSync(dbPath + suffix, { force: true });
+    renameSync(incoming, dbPath);
+    if (existsSync(join(dir, CREDENTIALS_FILE))) replaceCredentialsFrom(join(dir, CREDENTIALS_FILE));
     if (existsSync(join(dir, VAULT_DIR))) {
         const aside = `${vaultRoot}.replaced`;
         rmSync(aside, { recursive: true, force: true });
