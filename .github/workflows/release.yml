@@ -10,7 +10,7 @@
 # manifest.json and manifest.json.sig beside the zips.
 #
 # WHY THE IMAGE MATTERS MORE THAN THE TAG. `git clone && npm install` is the
-# install barrier ROADMAP.md calls the project's biggest problem. A published
+# install barrier, the project's biggest problem. A published
 # image turns installing into `docker compose up -d` and updating into
 # `docker compose pull && docker compose up -d` — the same two commands forever,
 # and the user's machine needs nothing but Docker. The git tag is what the

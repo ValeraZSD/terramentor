@@ -63,6 +63,5 @@ body:
       options:
         - label: >
             I have skimmed ROADMAP.md, including the "Not doing" section (no
-            gamification, no telemetry, no cloud-only version) and the "Deferred"
-            section, which explains what is blocked on what.
+            gamification, no telemetry, no cloud-only version).
           required: true
