@@ -119,8 +119,9 @@ alone. Passing it completes the topic.
 Three modes, in Settings → Learning → *Proving a topic*:
 
 - **Just track**: the card offers **Complete topic**, and no check.
-- **Ask me**: the check leads, and **Mark done without the check** sits beside it. A topic closed
-  that way says *Completed, not proven yet* and keeps the check on offer.
+- **Ask me**: until the topic is proven, the check leads and **Mark done without the check** sits
+  beside it. A topic closed that way says *Completed, not proven yet* and keeps the check on offer.
+  Once it is proven, **Complete topic** leads and the check stays beside it.
 - **Require proof** (the default, marked *Recommended*): completion needs proof.
 
 **Skip** is available in every mode. Skipped means *"I moved on without proving it"*: it counts as
