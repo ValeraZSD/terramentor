@@ -210,10 +210,13 @@ const stCols = columnsOf(db, 'study_time');
 check('the key is topic, hour, activity and device',
     stCols.filter(c => c.pk).sort((a, b) => a.pk - b.pk).map(c => c.name), ['node_id', 'hour', 'activity', 'device']);
 check('a row written with no device is this one', db.prepare('SELECT DISTINCT device FROM study_time').pluck().all(), [LOCAL_DEVICE]);
-db.prepare("INSERT INTO study_time (node_id, hour, activity, active_ms, device) VALUES (?, '2026-11-01T10', 'reading', 60000, 'laptop')").run(fx.n);
-check('another device in the same hour adds its own row, and the total is the sum',
-    db.prepare("SELECT COUNT(*) AS rows, SUM(active_ms) AS ms FROM study_time WHERE node_id = ? AND hour = '2026-11-01T10'").get(fx.n),
-    { rows: 2, ms: 660000 });
+// The statement a build from before `device` runs, word for word: it must keep
+// adding to the same row, or that build loses its whole study clock here.
+const olderBuildAdd = () => db.prepare(`INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T10', 'reading', 60000)
+    ON CONFLICT (node_id, hour, activity) DO UPDATE SET active_ms = active_ms + excluded.active_ms`).run(fx.n);
+check('an older build can still record time in this library', (() => { try { olderBuildAdd(); return 'recorded'; } catch (err) { return err.message; } })(), 'recorded');
+check('...into the same row', db.prepare("SELECT COUNT(*) AS rows, SUM(active_ms) AS ms FROM study_time WHERE node_id = ? AND hour = '2026-11-01T10'").get(fx.n),
+    { rows: 1, ms: 660000 });
 
 // ============================================================================
 console.log('--- no REPLACE writes a synced table ---');
@@ -284,8 +287,16 @@ check('the fixture really is old: review_log has no uuid', oldCols.includes('uui
 const stTotal = (file) => { const c = new Database(file, { readonly: true }); const r = c.prepare('SELECT SUM(active_ms) FROM study_time').pluck().get(); c.close(); return r; };
 const totalBefore = stTotal(OLD);
 
+// The copy holds the same rows under DIFFERENT integer ids (shifted in every
+// table nothing points at), so a name that read an id would differ.
 const COPY = join(scratch, 'copy.db');
 copyFileSync(OLD, COPY);
+const SHIFTED = ['review_log', 'quiz_attempts', 'paper_attempts', 'question_log', 'mastery_claims', 'item_reports', 'assistant_edits'];
+{
+    const c = new Database(COPY);
+    for (const t of SHIFTED) c.prepare(`UPDATE ${t} SET id = id + 1000`).run();
+    c.close();
+}
 const boot = (file) => spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--boot-only', file, join(scratch, 'vault-boot')], { encoding: 'utf8' });
 for (const f of [OLD, COPY]) {
     const r = boot(f);
@@ -301,8 +312,10 @@ const uA = uuidsOf(OLD), uB = uuidsOf(COPY);
 check('every row of every uuid table has a uuid', UUID_TABLES.filter(t => uA[t].some(r => !r.uuid)), []);
 check('...a v5 uuid named from its content, on the tables that just gained one',
     UUID_TABLES.filter(t => !FIRST_UUID_TABLES.includes(t)).filter(t => uA[t].some(r => !V5.test(r.uuid))), []);
-check('two copies of one old library name every old row the same',
-    UUID_TABLES.filter(t => JSON.stringify(uA[t]) !== JSON.stringify(uB[t])), []);
+const inOrder = (rows) => rows.map(r => r.uuid);
+check('the copy really has other ids', SHIFTED.every(t => uA[t].length && uA[t][0].r !== uB[t][0].r), true);
+check('two copies of one old library name every old row the same, whatever its integer id',
+    UUID_TABLES.filter(t => JSON.stringify(inOrder(uA[t])) !== JSON.stringify(inOrder(uB[t]))), []);
 const twins = uA.review_log.slice(0, 2).map(r => r.uuid);
 check('two identical reviews in one millisecond get two uuids', twins[0] !== twins[1] && twins.every(Boolean), true);
 const cFresh = (() => { const c = new Database(OLD, { readonly: true }); const r = c.prepare('SELECT uuid FROM flashcards WHERE id = ?').pluck().get(fx.c); c.close(); return r; })();

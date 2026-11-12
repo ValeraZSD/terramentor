@@ -289,7 +289,7 @@ export const SETTING_SCOPES = Object.freeze({
         'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision', 'paper_vision', 'deck_new_per_day',
         'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
         'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
-        'onboarding_dismissed', 'placement_dismissed', 'celebrated_projects', 'first_lesson_read_at', 'study_time_since',
+        'onboarding_dismissed', 'first_lesson_read_at',
         'deck_new_per_day_', 'teach_topics_',
     ],
     device: [
@@ -303,6 +303,11 @@ export const SETTING_SCOPES = Object.freeze({
         'update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
         'update_check', 'update_check_asked',
         'inbox_project_id', 'node_roles_backfilled', 'time_zone', 'today_briefing', 'app_version',
+        // Lists of integer project ids, which name other projects in another
+        // copy: device until they hold uuids.
+        'placement_dismissed', 'celebrated_projects',
+        // The day the clock started in THIS copy of the library.
+        'study_time_since',
         'openai_address_migration_done',
         'creation_avg_ms_', 'bulk_avg_ms_',
     ],

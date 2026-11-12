@@ -1922,6 +1922,12 @@ try {
       `);
     })();
   }
+  // While one computer writes the table, every row has the same device, so
+  // (topic, hour, activity) is still unique. This index says so, and it is what
+  // lets a build from before `device` keep recording time in this library: its
+  // `ON CONFLICT (node_id, hour, activity)` needs a unique index on exactly
+  // those columns. Whatever first stores a second device's rows drops it.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_study_time_one_device ON study_time(node_id, hour, activity)');
 } catch (e) {
   console.error('[Migration] study_time device key (non-fatal):', e.message);
 }
@@ -2148,16 +2154,17 @@ db.prepare("DELETE FROM settings WHERE key = 'inbox_project_id'").run();
 // an integer id means a different project in another copy of the library.
 // Rows still keyed by an id move to the uuid key; one that names no project is
 // dropped, as deleting the project would have done. A uuid key already there
-// was written later, so it wins.
+// is kept: this build wrote it, and only an older build would have written
+// the id key since.
 try {
   const projectUuid = db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck();
   const keep = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING');
   const drop = db.prepare('DELETE FROM settings WHERE key = ?');
+  const idKeyed = db.prepare('SELECT key, value FROM settings WHERE key GLOB ? AND key NOT GLOB ?');
   let rekeyed = 0;
   db.transaction(() => {
     for (const prefix of PROJECT_SETTING_PREFIXES) {
-      const rows = db.prepare(`SELECT key, value FROM settings WHERE key GLOB ? AND key NOT GLOB ?`)
-        .all(`${prefix}[0-9]*`, `${prefix}*[^0-9]*`);
+      const rows = idKeyed.all(`${prefix}[0-9]*`, `${prefix}*[^0-9]*`);
       for (const { key, value } of rows) {
         const uuid = projectUuid.get(Number(key.slice(prefix.length)));
         if (uuid) keep.run(prefix + uuid, value);

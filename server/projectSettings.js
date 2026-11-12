@@ -5,33 +5,36 @@
 
 import db from './database.js';
 
-const projectUuid = (projectId) =>
-    db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck().get(projectId) ?? null;
+let stmts = null;
+const s = () => (stmts ??= {
+    uuid: db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck(),
+    read: db.prepare('SELECT value FROM settings WHERE key = ?').pluck(),
+    write: db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
+    clear: db.prepare('DELETE FROM settings WHERE key = ?'),
+});
 
 /** The settings key for `projectId`'s row of `prefix`, or null when there is no such project. */
 export function projectSettingKey(prefix, projectId) {
-    const uuid = projectUuid(projectId);
+    const uuid = s().uuid.get(projectId);
     return uuid ? prefix + uuid : null;
 }
 
 /** The stored value, or null when unset or the project does not exist. */
 export function readProjectSetting(prefix, projectId) {
     const key = projectSettingKey(prefix, projectId);
-    if (!key) return null;
-    return db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(key) ?? null;
+    return key ? s().read.get(key) ?? null : null;
 }
 
 /** Store `value`; false when the project does not exist (nothing written). */
 export function writeProjectSetting(prefix, projectId, value) {
     const key = projectSettingKey(prefix, projectId);
     if (!key) return false;
-    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-        .run(key, String(value));
+    s().write.run(key, String(value));
     return true;
 }
 
 /** Remove the row; a no-op when unset or the project does not exist. */
 export function clearProjectSetting(prefix, projectId) {
     const key = projectSettingKey(prefix, projectId);
-    if (key) db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    if (key) s().clear.run(key);
 }
