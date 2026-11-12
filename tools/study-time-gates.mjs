@@ -331,7 +331,8 @@ const ST = await import(B_URL + 'studyTime.js');
 const { recordStudyTime, nodeStudyTime, projectStudyTime, dayStudyTime, recentDays, studyTimeSince, StudyTimeError } = ST;
 
 const tableCols = db.prepare('PRAGMA table_info(study_time)').all().map(c => c.name);
-eq('the table holds a topic, an hour, an activity and milliseconds', tableCols, ['node_id', 'hour', 'activity', 'active_ms']);
+eq('the table holds a topic, an hour, an activity, milliseconds and the device that counted them (and its uuid)',
+    tableCols, ['node_id', 'hour', 'activity', 'active_ms', 'device', 'uuid']);
 check('the dead table is gone from a new library',
     !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'learning_sessions'").get());
 check('the clock records the day it started', /^\d{4}-\d{2}-\d{2}$/.test(studyTimeSince() || ''), String(studyTimeSince()));

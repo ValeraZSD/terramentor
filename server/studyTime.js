@@ -89,7 +89,7 @@ function statements() {
         nodeExists: db.prepare('SELECT 1 FROM nodes WHERE id = ?'),
         add: db.prepare(`
             INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, ?, ?, ?)
-            ON CONFLICT (node_id, hour, activity)
+            ON CONFLICT (node_id, hour, activity, device)
             DO UPDATE SET active_ms = MIN(active_ms + excluded.active_ms, ${MAX_ROW_MS})
         `),
         dayTotal: db.prepare('SELECT COALESCE(SUM(active_ms), 0) AS ms FROM study_time WHERE hour BETWEEN ? AND ?'),

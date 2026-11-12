@@ -23,6 +23,7 @@
 // project's topics be taught?". Nothing else in the app branches on it.
 
 import db from './database.js';
+import { readProjectSetting, writeProjectSetting } from './projectSettings.js';
 
 export const ROLE_TOPIC = 'topic';
 export const ROLE_PAGINATION = 'pagination';
@@ -103,7 +104,7 @@ export function backfillNodeRoles({ force = false } = {}) {
 
 // ---- may this project's topics be taught? -----------------------------------
 
-const teachKey = (projectId) => `teach_topics_${projectId}`;
+const TEACH_PREFIX = 'teach_topics_';
 
 /**
  * Whether the teaching machinery (lesson generation, checkpoints) may run on
@@ -116,18 +117,15 @@ const teachKey = (projectId) => `teach_topics_${projectId}`;
  * feature. The switch makes it their choice instead of the importer's.
  */
 export function projectTeaches(projectId) {
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(teachKey(projectId));
-    if (row?.value != null && row.value !== '') return !(row.value === '0' || row.value === 'false');
+    const value = readProjectSetting(TEACH_PREFIX, projectId);
+    if (value != null && value !== '') return !(value === '0' || value === 'false');
     const project = db.prepare('SELECT kind FROM projects WHERE id = ?').get(projectId);
     if (!project) return false;
     return (project.kind || 'curriculum') !== 'deck';
 }
 
 export function setProjectTeaches(projectId, on) {
-    db.prepare(`
-        INSERT INTO settings (key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(teachKey(projectId), on ? '1' : '0');
+    writeProjectSetting(TEACH_PREFIX, projectId, on ? '1' : '0');
     return !!on;
 }
 

@@ -83,6 +83,8 @@ export function settingKeysInServer(root, globs = ['server/**/*.js']) {
                     continue;
                 }
                 if (i === FAMILY_SHAPE) { add(`${m[1]}*`, file); continue; }
+                // readProjectSetting('deck_new_per_day_', id): a family's prefix, ending in `_`.
+                if (i === 0 && m[1].endsWith('_')) { add(`${m[1]}*`, file); continue; }
                 if (m[1].includes("'")) {
                     for (const k of m[1].match(/'([a-zA-Z0-9_]+)'/g)) add(k.slice(1, -1), file);
                 } else add(m[1], file);

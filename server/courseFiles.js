@@ -1,5 +1,6 @@
 // What a course file carries out and brings back in, shared by the JSON doors and the .studyvault bundle.
 import db from './database.js';
+import { readProjectSetting } from './projectSettings.js';
 import { sanitizeQuestionMedia } from './agentic.js';
 import { normalizeQuestionFormat } from './answerFormats.js';
 import { questionDefects } from './feedQuality.js';
@@ -294,7 +295,7 @@ function insertImportedTree(newProjectId, nodes, onNode, { mediaByName = null } 
  * of whatever machine exported it.
  */
 function newPerDaySetting(projectId) {
-    const raw = db.prepare('SELECT value FROM settings WHERE key = ?').get(`deck_new_per_day_${projectId}`)?.value;
+    const raw = readProjectSetting('deck_new_per_day_', projectId);
     const n = Number.parseInt(raw ?? '', 10);
     return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
