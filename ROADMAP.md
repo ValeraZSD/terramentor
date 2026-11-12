@@ -15,9 +15,9 @@ phone with no connection, and after that the app can go into the app stores.
 **Catching the model's mistakes.** The lessons and questions a model writes are checked before
 you see them; one that fails a check is thrown away, not shown, and anything wrong that gets
 through can be flagged where it appears. Every kind of mistake that gets through is a check
-still to be written. Recall questions will get better at
-finding what you have started to forget. A tutor you can talk to is planned too, with your speech turned into
-text on your own computer, not in someone else's cloud.
+still to be written. Recall questions will get better at finding what you have started to
+forget. A tutor you can talk to is planned too, with your speech turned into text on your own
+computer, not in someone else's cloud.
 
 **More languages.** The interface comes in twelve languages, all machine-translated first. Next
 are more languages, the server's messages in yours, and native speakers reading the translations.
