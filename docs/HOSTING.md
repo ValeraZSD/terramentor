@@ -26,6 +26,30 @@ What this is not, so nobody is surprised:
 - The repository's `hosted/` folder on the server (cloning the repository is
   the simplest way to get it).
 
+### How big a server
+
+Memory is what runs out first. One copy, measured with the container's own
+counters (`/sys/fs/cgroup/memory.current` and `memory.peak`) behind the proxy,
+with a course of 48 topics (about 5,000 words of lesson each) and 576 cards:
+
+| state | memory |
+|---|---|
+| started, empty library, idle | 108 MiB |
+| after a review session (20 cards rated) | peak 155 MiB |
+| after signing in on a phone and opening every main screen and all 48 lessons | peak 246 MiB; 196 MiB held afterwards |
+| the proxy (Caddy), serving it | 21 MiB |
+
+Node keeps what it allocated, so plan on about 200 MiB for each copy that has
+been used, whether or not its person is online. Fifty copies then need about
+10 GiB, plus the system: a server with 16 GB holds them with little to spare,
+24 GB with room for imports and growth. CPU is not the limit: an idle copy uses
+under 1% of a core.
+
+`TM_MEMORY` (768m by default, about three times the measured peak) is each
+copy's ceiling, not a reservation, so the ceilings may add up to more than the
+server has. A copy that reaches its ceiling is stopped by the kernel and
+restarted; raise it for someone who imports large Anki decks.
+
 ## Setting up
 
 ```sh
@@ -48,7 +72,7 @@ they open the address, sign in, and add it to the home screen.
 
 Each copy runs read-only except for its volume and a temporary folder, with no
 Linux capabilities, `no-new-privileges`, and the limits from `hosted/.env`:
-`TM_MEMORY` (default `1536m`, enough for the largest deck an import takes),
+`TM_MEMORY` (default `768m`; see "How big a server"),
 `TM_CPUS` and `TM_PIDS`. The copies publish no port; only the proxy reaches
 them, each over a network shared with nothing but the proxy.
 

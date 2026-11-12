@@ -32,7 +32,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 : "${TM_DOMAIN:?set TM_DOMAIN in hosted/.env}"
 : "${TM_IMAGE:?set TM_IMAGE in hosted/.env}"
-TM_MEMORY="${TM_MEMORY:-1536m}"
+TM_MEMORY="${TM_MEMORY:-768m}"
 TM_CPUS="${TM_CPUS:-1}"
 TM_PIDS="${TM_PIDS:-256}"
 TM_BACKUP_KEEP="${TM_BACKUP_KEEP:-14}"
