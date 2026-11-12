@@ -2,13 +2,18 @@
 // right or wrong, in the agent's own window (mcp/, the record_claim tool). The
 // app did not see the question, the answer or the grading, so a claim is kept
 // apart from evidence (`mastery_claims`, never `mastery_evidence`) and is held
-// to one rule: it can never make a topic look better known than the app's own
-// evidence says.
+// to one rule: it can never bring a topic nearer to proven than the app's own
+// evidence does.
 //
-//   - A RIGHT claim changes nothing but its own row. Raising the estimate on a
-//     claim would let an agent walk a topic to the gate's door, and one lucky
-//     real answer would then clear it — the reason seeded priors are capped
-//     and suspended until the topic has answers of its own.
+//   - A RIGHT claim may lift the estimate a little: one BKT step on a right
+//     answer, taken only up to the cap a head start gets (`practiceCeiling`,
+//     0.6 under the default gate) and never above an estimate already over it,
+//     so claims and seeds combine by MAX as two seeds do. The gate never reads
+//     the lift (`gateScoreOf` in mastery.js replays only the app's own proving
+//     answers), so an agent cannot walk a topic to the gate's door. A topic with
+//     no estimate gets one. Held while a wrong claim has lowered the topic since
+//     the app's last answer there, so a loop of right and wrong claims cannot
+//     move a topic up and down.
 //   - A WRONG claim may lower the estimate: one BKT step on a wrong answer at
 //     the format's guess rate, taken only when it lowers (the step's learning
 //     transition can lift a very low prior, and that half is not taken). It
@@ -23,22 +28,25 @@
 //   - Nothing else moves: not `total_attempts` (a claim is not progress, the
 //     topic does not turn "in progress"), not `last_updated` (the decay timer
 //     is the app's own evidence), not the fitted rates, not the gate's
-//     evidence count. A topic with no mastery row gets none.
+//     evidence count, not whether a topic is on fading recall (fading.js). A
+//     wrong claim on a topic with no mastery row writes none.
 //
 // A rebuild of the estimate from the app's own evidence (`replayOwnEvidence`
 // in mastery.js, e.g. `forgetSeed` when placement is cleared) does not replay
-// claims: they are the weaker record, so a lowering is undone by it, and the
-// claim row's `mastery_after` then describes the past. A lowering counts as
-// spent only while the estimate is still at or under what it left. The
-// completion gate's estimate is the exception (`gateScoreOf` in mastery.js):
-// it replays each lowering claim once per evidence mark, so neither a rebuild
-// nor a later card review washes a claim out of whether a topic is proven.
+// claims: they are the weaker record, so a lift or a lowering is undone by it,
+// and the claim row's `mastery_after` then describes the past. A lowering
+// counts as spent only while the estimate is still at or under what it left.
+// The completion gate's estimate is the exception (`gateScoreOf` in
+// mastery.js): it replays each lowering claim once per evidence mark and no
+// lift, so neither a rebuild nor a later card review washes a claim out of
+// whether a topic is proven, and no right claim brings it nearer.
 //
 // Written once per `attemptId` (`recordOnce`, surface 'claim'), like every
 // answer the app records, so a harness that retries a call writes one row.
 
 import db, { NOW_ISO } from './database.js';
-import { bktUpdate, GUESS_BY_QUESTION_TYPE, readAttemptId, recordOnce, ATTEMPT_ID_ERROR } from './mastery.js';
+import { bktUpdate, getNodeMastery, GUESS_BY_QUESTION_TYPE, practiceCeiling, readAttemptId, recordOnce, ATTEMPT_ID_ERROR } from './mastery.js';
+import { getGateConfig } from './settingsStore.js';
 import { WORK_LEAF } from './today.js';
 
 /** The doors a claim can arrive by. One so far; the column is free text so a second needs no migration. */
@@ -64,9 +72,10 @@ const stmt = (sql) => {
  * Validate a claim and write it. Throws ClaimError (400/404) before writing
  * anything, and 409 when `attemptId` was already used for another answer.
  * Returns `{ claimId, nodeId, title, correct, masteryBefore, masteryAfter,
- * lowered, effect, duplicate }`; `masteryBefore`/`After` are null when the
- * topic has no estimate yet, and `effect` is one of right | lowered |
- * already_lowered | at_seed | no_estimate | unchanged.
+ * lowered, raised, cap, effect, duplicate }`; `masteryBefore`/`After` are null
+ * when a wrong claim finds no estimate, `cap` is how far right claims may lift
+ * it, and `effect` is one of raised | at_cap | held (right claims) | lowered |
+ * already_lowered | at_seed | no_estimate (wrong ones) | unchanged.
  */
 export function recordClaim({ nodeId, correct, questionType = null, attemptId = null, client = null, source = 'mcp' } = {}) {
     if (!Number.isInteger(nodeId) || nodeId < 1) throw new ClaimError(400, 'nodeId must be a topic\'s id (a whole number)');
@@ -84,14 +93,39 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
     if (node.is_note) throw new ClaimError(400, `nodeId ${nodeId} is a piece of Material, not a topic: claim on the topic it belongs to`);
     if (!node.work) throw new ClaimError(400, `nodeId ${nodeId} is a section, not a topic: claim on one of the topics under it`);
 
+    const cap = practiceCeiling(getGateConfig().threshold);
+    const p_G = questionType ? GUESS_BY_QUESTION_TYPE[questionType] : undefined;
     const { duplicate, outcome } = recordOnce('claim', attempt, () => {
+        // A right claim may give a topic its first estimate; a wrong one has
+        // nothing to lower there.
+        if (correct) getNodeMastery(nodeId);
         const row = stmt('SELECT mastery_score, transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
         const mark = stmt('SELECT COALESCE(MAX(id), 0) AS m FROM mastery_evidence WHERE node_id = ?').get(nodeId).m;
         const before = row ? Number(row.mastery_score) || 0 : null;
         let after = before;
         // What the claim did to the estimate, for the agent's reply.
-        let effect = correct ? 'right' : row ? 'unchanged' : 'no_estimate';
-        if (!correct && row) {
+        let effect = row ? 'unchanged' : 'no_estimate';
+        if (correct) {
+            // Held while a wrong claim has lowered the topic since the app's
+            // last answer there: lifting it back would let a loop of right and
+            // wrong claims move it up and down with nothing measured between.
+            const lowered = stmt(`
+                SELECT 1 FROM mastery_claims
+                WHERE node_id = ? AND evidence_mark = ? AND mastery_after < mastery_before LIMIT 1
+            `).get(nodeId, mark);
+            if (lowered) {
+                effect = 'held';
+            } else {
+                const stepped = Math.min(cap, bktUpdate(before, true, { p_G }).p_K_posterior);
+                if (stepped > before + 1e-9) {
+                    after = stepped;
+                    stmt('UPDATE node_mastery SET mastery_score = ? WHERE node_id = ?').run(after, nodeId);
+                    effect = 'raised';
+                } else if (before >= cap - 1e-9) {
+                    effect = 'at_cap';
+                }
+            }
+        } else if (row) {
             // Spent while the estimate still sits where that lowering left it. A
             // rebuild from the app's own evidence (an item report, a cleared
             // head start) undoes the lowering without a new evidence id, and
@@ -104,7 +138,7 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
             if (last && before <= Number(last.mastery_after) + 1e-9) {
                 effect = 'already_lowered';
             } else {
-                const stepped = bktUpdate(before, false, { p_G: questionType ? GUESS_BY_QUESTION_TYPE[questionType] : undefined }).p_K_posterior;
+                const stepped = bktUpdate(before, false, { p_G }).p_K_posterior;
                 const seed = Math.max(Number(row.transferred_prior) || 0, Number(row.placement_prior) || 0);
                 // The seed is a floor only while it stands: once the learner's own
                 // answers have put the estimate under it, it is already withdrawn.
@@ -130,6 +164,8 @@ export function recordClaim({ nodeId, correct, questionType = null, attemptId = 
             masteryBefore: before,
             masteryAfter: after,
             lowered: effect === 'lowered',
+            raised: effect === 'raised',
+            cap,
             effect,
         };
     });

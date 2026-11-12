@@ -15,7 +15,7 @@
 import { agentDue, agentFind, agentMastery, agentProjectState, agentTopic, noTopicText } from '../agentReads.js';
 import { ClaimError, recordClaim } from '../claims.js';
 import {
-    SittingError, checkCompletion, checkQuestions, checkTarget, markCheckCompleted, reviewNext, reviewRate, reviewReveal,
+    SittingError, checkCompletion, checkQuestions, checkTarget, closeCheck, markCheckCompleted, reviewNext, reviewRate, reviewReveal,
     reviewTarget, reviewUndo, startCheck, startReview, submitCheck,
 } from '../agentSittings.js';
 import { routeTable } from './routeTable.js';
@@ -80,10 +80,11 @@ app.post('/api/agent/claims', (req, res) => {
     }
 });
 
-// A mastery check and a card review drawn in the host's own window
-// (server/agentSittings.js). The token names a sitting; it reaches the view
-// in a tool result's `_meta` and comes back on every call. Keys and answers
-// never leave here before the check is submitted.
+// A mastery check and a card review drawn in the host's own window, or a
+// check asked as one form (server/agentSittings.js). The token names a
+// sitting; it reaches the view in a tool result's `_meta` (a form round in
+// its `requestState`) and comes back on every call. Keys and answers never
+// leave here before the check is submitted.
 function sitting(res, run) {
     Promise.resolve()
         .then(run)
@@ -100,9 +101,10 @@ const token = (req) => (typeof req.body?.token === 'string' ? req.body.token : '
 app.get('/api/agent/check/where', (req, res) => sitting(res, () => checkTarget(queryText(req.query.topic))));
 app.get('/api/agent/review/where', (req, res) => sitting(res, () => reviewTarget(queryText(req.query.project))));
 
-app.post('/api/agent/check/start', (req, res) => sitting(res, () => startCheck({ topic: req.body?.topic })));
+app.post('/api/agent/check/start', (req, res) => sitting(res, () => startCheck({ topic: req.body?.topic, form: req.body?.form === true })));
 app.post('/api/agent/check/questions', (req, res) => sitting(res, () => checkQuestions(token(req))));
 app.post('/api/agent/check/submit', (req, res) => sitting(res, () => submitCheck(token(req), req.body?.answers)));
+app.post('/api/agent/check/close', (req, res) => sitting(res, () => closeCheck(token(req))));
 app.post('/api/agent/check/completion', (req, res) => sitting(res, () => checkCompletion(token(req))));
 app.post('/api/agent/check/completed', (req, res) => sitting(res, () => markCheckCompleted(token(req))));
 

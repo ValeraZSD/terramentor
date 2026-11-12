@@ -1,16 +1,19 @@
 // The tools an agent harness sees, each a thin call to the running app
 // (mcp/app.js → server/routes/agent.js). Five READ the library; one PROPOSES:
-// a claim that the learner answered something; two OPEN a view the host draws (mcp/views.js): the app's own mastery check
-// and card review, which the learner takes in the host's window. Nothing the
+// a claim that the learner answered something; two OPEN a view the host draws
+// (mcp/views.js): the app's own mastery check and card review, which the
+// learner takes in the host's window. A host that draws no views but asks its
+// user for input gets the check as one form (mcp/checkForm.js). Nothing the
 // model sends can prove a topic: the mastery gate is cleared only by the app's
 // own mastery check, quizzes and paper exercises (server/claims.js says what a
-// claim may and may not move), and a check in a view is the app's check, with
-// the learner's answers. tools/mcp-gates.mjs pins the list, the annotations
-// and that boundary.
+// claim may and may not move), and a check in a view or a form is the app's
+// check, with the learner's answers. tools/mcp-gates.mjs pins the list, the
+// annotations and that boundary.
 
 import * as z from 'zod';
-import { McpServer } from '@modelcontextprotocol/server';
+import { CLIENT_CAPABILITIES_META_KEY, McpServer, inputRequired, inputResponse } from '@modelcontextprotocol/server';
 import { AppError, AppTimeout } from './app.js';
+import { formAnswers, formMessage, formSchema, takesForm } from './checkForm.js';
 import { VIEWS, VIEW_MIME, viewHtml } from './views.js';
 
 export const SERVER_NAME = 'terramentor';
@@ -20,11 +23,13 @@ const INSTRUCTIONS = [
     'lessons, cards, what is due and how well each topic is known. Read it before teaching: project_state or find_in_library',
     'to see what they study and to get real ids, get_due for today, topic_material for a topic\'s lesson text, get_mastery for',
     'where a topic stands. Use only ids these tools returned; never invent one.',
-    'When the learner answers a question you asked them on a topic, send record_claim. A claim is a note, not proof: it never',
-    'raises a topic\'s mastery, and only Terramentor\'s own mastery check proves a topic, so send the learner there to prove it.',
-    'To prove a topic, open mastery_check: where this host draws views the learner takes Terramentor\'s own check right here,',
-    'and you see only that it is open and then the score; never answer it or quiz them on it in its place. review_cards opens',
-    'their due cards the same way.',
+    'When the learner answers a question you asked them on a topic, send record_claim. A claim is a note, not proof: a right one',
+    'may lift a topic\'s estimate a little and never past a head start\'s cap, and only Terramentor\'s own mastery check proves a',
+    'topic, so send the learner there to prove it.',
+    'To prove a topic, open mastery_check: where this host draws views, or asks its user to fill in a form, the learner takes',
+    'Terramentor\'s own check right here. Its questions are not shown to you while it is open; once it is graded you get the',
+    'score and each question the learner missed, with their answer and the right one, to teach from. Never answer it or quiz',
+    'them on it in its place. review_cards opens their due cards the same way.',
 ].join(' ');
 
 /** The MCP Apps extension (spec 2026-01-26): a host that draws views says so in its capabilities. */
@@ -65,6 +70,86 @@ async function guarded(body) {
  * Inspector both send an id as one, and refusing `3` for `"3"` helps nobody.
  */
 const topicRef = z.union([z.string().min(1).max(200), z.number().int().positive()]);
+
+/** The one input a form check asks for: every question, as one form. */
+const FORM_INPUT = 'check';
+/** A sitting's token as the app mints it (agentSittings.js `newToken`). */
+const SITTING_TOKEN = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * Open a check as one form (mcp/checkForm.js): the app opens the sitting and
+ * hands out its questions without keys, and the tool answers with an input
+ * round whose state is the sitting's token. The host shows the form to its
+ * user, not to its model.
+ */
+async function startFormCheck(app, topic) {
+    const r = await app.post('/api/agent/check/start', { topic, form: true });
+    if (!r.token) {
+        const link = `${app.origin}/project/${r.projectId}/tree/${r.nodeId}`;
+        return reply(`${r.text} ${link} opens the topic.`, { nodeId: r.nodeId, projectId: r.projectId, title: r.title, questions: 0, open: false, link });
+    }
+    const { questions = [], passPct } = await app.post('/api/agent/check/questions', { token: r.token });
+    return inputRequired({
+        inputRequests: {
+            [FORM_INPUT]: inputRequired.elicit({
+                message: formMessage({ title: r.title, count: questions.length, passPct }),
+                requestedSchema: formSchema(questions),
+            }),
+        },
+        requestState: r.token,
+    });
+}
+
+/**
+ * The form came back. Accepted: the app grades and records the answers as
+ * the topic's mastery check, and the model is told the score and what was
+ * missed. Declined or cancelled: the sitting is closed and nothing recorded.
+ */
+async function finishFormCheck(app, token, responses) {
+    if (!SITTING_TOKEN.test(token)) return failure('This mastery check has ended. Call mastery_check again for a new one; nothing was recorded.');
+    const answer = inputResponse(responses, FORM_INPUT);
+    if (answer.kind !== 'elicit' || answer.action !== 'accept') {
+        const { title, closed, recorded } = await app.post('/api/agent/check/close', { token });
+        // An earlier round of this form was accepted: its answers are graded
+        // and recorded, or still being graded. Either way the check stands,
+        // and saying "nothing was recorded" would be false.
+        if (closed === false) {
+            return recorded
+                ? reply(`The mastery check on "${title}" was already graded and recorded; get_mastery shows its result.`, { title, recorded: true })
+                : reply(`The answers to the mastery check on "${title}" are being graded; get_mastery shows the result once it is recorded.`,
+                    { title, recorded: false, grading: true });
+        }
+        const why = answer.kind !== 'elicit' ? 'The form\'s answers did not arrive' : `The learner ${answer.action === 'decline' ? 'declined' : 'closed'} the form`;
+        return reply(`${why} for the mastery check on "${title}", so nothing was recorded. Call mastery_check again when they want to take it.`,
+            { title, recorded: false });
+    }
+    const { questions = [] } = await app.post('/api/agent/check/questions', { token });
+    let r;
+    try {
+        r = await app.post('/api/agent/check/submit', { token, answers: formAnswers(questions, answer.content) }, { timeoutMs: SUBMIT_TIMEOUT_MS });
+    } catch (err) {
+        // The app grades on after this request gives up, once (submitCheck).
+        if (err instanceof AppTimeout) {
+            return reply('Terramentor is still grading the answers; they are graded and recorded once. get_mastery shows the result in a minute.');
+        }
+        throw err;
+    }
+    const res = r.result || {};
+    const title = r.topic?.title || '';
+    if (res.unproven) {
+        return reply(`The mastery check on "${title}" could not count: too few of its questions are confirmed yet. Terramentor recorded `
+            + 'no result; the learner can try again later.', { nodeId: r.topic?.id, title, result: { counted: false } });
+    }
+    const pct = res.total ? Math.round((res.score / res.total) * 100) : 0;
+    const completed = !!res.passed && !!res.completed && !r.topicCompleted;
+    return reply(`The learner took the mastery check on "${title}" in this host's form: ${res.score} of ${res.total} (${pct}%), `
+        + `${res.passed ? 'passed' : 'not passed'} (the pass mark is ${res.passPct}%). Terramentor recorded it as the topic's mastery check`
+        + `${completed ? ' and marked the topic completed' : ''}.${res.missedText ? `\n${res.missedText}` : ''}`,
+    {
+        nodeId: r.topic?.id, projectId: r.topic?.projectId, title,
+        result: { score: res.score, total: res.total, passed: !!res.passed, passPct: res.passPct, completed: !!res.completed, missed: res.missed || [] },
+    });
+}
 
 /** A topic reference for record_claim: the nodeId, as a number or its digits. */
 function nodeIdOf(topic) {
@@ -146,9 +231,10 @@ export function buildServer({ version, appFor }) {
     server.registerTool('record_claim', {
         title: 'Record an answer you graded',
         description: 'Record that the learner answered one of YOUR questions on a topic, right or wrong, as you graded it. '
-            + 'Terramentor keeps it as a claim beside its own evidence: a right claim never raises the topic\'s mastery and can never '
-            + 'pass the mastery gate (only the app\'s own mastery check does); a wrong one may lower the estimate, once until the '
-            + 'learner answers on that topic in the app again. Send one claim per answer, each with its own attempt_id.',
+            + 'Terramentor keeps it as a claim beside its own evidence: a right claim may lift the topic\'s estimate a little, never '
+            + 'past the cap a head start gets, and can never pass the mastery gate (only the app\'s own mastery check does); a wrong '
+            + 'one may lower the estimate, once until the learner answers on that topic in the app again, and until then right '
+            + 'claims lift nothing. Send one claim per answer, each with its own attempt_id.',
         inputSchema: z.object({
             topic: z.union([z.string().max(20), z.number().int()]).describe('The topic\'s nodeId (a number from project_state or find_in_library). Not a title.'),
             correct: z.boolean().describe('Whether the learner\'s answer was right.'),
@@ -164,7 +250,10 @@ export function buildServer({ version, appFor }) {
         const r = await appFor().post('/api/agent/claims', { nodeId, correct, questionType, attemptId });
         const pct = (x) => `${Math.round(x * 100)}%`;
         const EFFECTS = {
-            right: 'The estimate is unchanged: a claim never raises it.',
+            raised: `The estimate went from ${pct(r.masteryBefore)} to ${pct(r.masteryAfter)}; the mastery gate does not count that.`,
+            at_cap: `The estimate is unchanged: right claims lift a topic only up to ${pct(r.cap ?? 0.6)}, and it is there or above.`,
+            held: 'The estimate is unchanged: an earlier wrong claim lowered it, and right claims lift nothing until the learner '
+                + 'answers on it in Terramentor again.',
             lowered: `The estimate went from ${pct(r.masteryBefore)} to ${pct(r.masteryAfter)}.`,
             already_lowered: 'The estimate is unchanged: an earlier wrong claim already lowered it, and claims lower a topic '
                 + 'once until the learner answers on it in Terramentor again.',
@@ -214,21 +303,32 @@ function registerViews(server, appFor) {
     const opensView = (uri) => ({ ui: { resourceUri: uri }, 'ui/resourceUri': uri });
     const OPEN = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 
+    // A host that asks its user for input: from the request's own capabilities
+    // on 2026-07-28, from initialize before it.
+    const takesInput = (ctx) => takesForm(ctx?.mcpReq?.envelope?.[CLIENT_CAPABILITIES_META_KEY] ?? server.server.getClientCapabilities());
+
     server.registerTool('mastery_check', {
         title: 'Take a mastery check',
         description: 'Open a topic\'s mastery check for the learner: questions drawn from the topic\'s checked bank, graded and '
             + 'recorded by Terramentor. It is the only way an agent can have a topic proved. Where this host draws app views the learner takes it '
-            + 'right here; you never see its questions or answers. This answer says only that it is open: the view passes the '
-            + 'score on once the learner submits, if this host gives a view\'s updates to you, and get_mastery shows the recorded '
-            + 'result either way. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
+            + 'right here, and where it asks its user to fill in forms the learner gets it as one form; its questions are not shown '
+            + 'to you while it is open. Once it is graded you get the score and each question the learner missed, with their answer, '
+            + 'the right one and why: from the form at once, from a view if this host gives a view\'s updates to you, and from '
+            + 'get_mastery either way. While another check on the topic is open you get the score only; once none is open, '
+            + 'get_mastery shows the missed questions of the newest graded check, which is the other one if it was graded. Elsewhere the answer is a link that opens the topic in Terramentor. Never answer it for the learner.',
         inputSchema: z.object({
             topic: topicRef.describe('The topic\'s nodeId (from project_state or find_in_library), or its title.'),
         }),
         annotations: OPEN,
         _meta: opensView(VIEWS.check.uri),
-    }, ({ topic }) => guarded(async () => {
+    }, ({ topic }, ctx) => guarded(async () => {
         const app = appFor();
+        // The form's answers: the round below came back with the learner's
+        // input (2026-07-28: the client's retry; before it, the SDK's own).
+        const sitting = ctx?.mcpReq?.requestState?.();
+        if (sitting) return finishFormCheck(app, sitting, ctx.mcpReq.inputResponses);
         if (!drawsViews()) {
+            if (takesInput(ctx)) return startFormCheck(app, topic);
             const r = await app.get('/api/agent/check/where', { topic });
             const link = `${app.origin}/project/${r.projectId}/tree/${r.nodeId}`;
             return reply(`This host does not draw Terramentor's views, so the mastery check on "${r.title}" is taken in Terramentor: `

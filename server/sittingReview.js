@@ -57,6 +57,12 @@ function reviewQuestion(q) {
     if (accept?.length) out.accept = accept;
     const items = list(q.items, 2000);
     if (items?.length) out.items = items;
+    // An assembly's key is its pieces read into the template's gaps
+    // (`AssembledKey`), so the record keeps both.
+    const template = text(q.template, 2000);
+    if (template) out.template = template;
+    const tokens = list(q.tokens, SHORT_CAP);
+    if (tokens?.length) out.tokens = tokens;
     // The uuid names the bank question, so a report on it can leave it out of
     // this record (`getSittingReview`).
     for (const k of ['unit', 'language', 'uuid']) { const v = text(q[k], SHORT_CAP); if (v) out[k] = v; }

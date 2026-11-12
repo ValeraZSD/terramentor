@@ -740,7 +740,12 @@ while nobody runs it nothing here changes.
 - **What the agent's model can write is one thing, and it is not a proof.**
   - **A claim** that you answered one of the agent's questions right or wrong (`server/claims.js`,
     table `mastery_claims`). Claims are kept apart from the evidence the app measured:
-    - a right claim never raises an estimate and never passes the mastery gate;
+    - a right claim may lift an estimate one step, never past 0.6 or one point under the
+      gate's line, whichever is lower (the cap a head start has), and never passes the
+      mastery gate: the gate reads the number the topic's own answers earn with no right
+      claim's lift (a wrong claim's lowering stays in it), now and after later answers;
+    - a right claim lifts nothing while a wrong claim has lowered that topic, until the app
+      records an answer of its own there, so a loop of right and wrong claims moves nothing;
     - a wrong claim may lower the estimate once, then not again until the app records an
       answer of its own on that topic or rebuilds the estimate from its own answers (an item
       report does). An agent reads lesson text it did not write, so a line planted in a lesson
@@ -748,8 +753,8 @@ while nobody runs it nothing here changes.
     - a wrong claim never lowers the estimate below a head start while that head start stands;
     - an `attempt_id` sent again for a different answer is refused.
 
-  Proving a topic stays the app's own mastery check, which you take in the app or in the
-  view below; no tool the model calls submits one.
+  Proving a topic stays the app's own mastery check, which you take in the app, in the view
+  below or in the host's own form; no tool the model calls submits one.
 - **With a password set, it needs the API key.** On stdio the harness passes
   `TERRAMENTOR_API_KEY` from its config. The key is the whole API's key, not a narrower one for
   agents: a program holding it can call any `/api` route the key opens, not only the MCP
@@ -782,12 +787,24 @@ Two tools, `mastery_check` and `review_cards`, open a view that a host which dra
 the cards there. The host's model only asks for it, and is told when it opened, and how it
 ended if the host passes a view's updates on to it.
 
-- **The model never sees a question, an answer or a key.** The check is drawn by the app
+- **While a check is open the model sees none of it.** The check is drawn by the app
   (`server/agentSittings.js`, the app's own draw), graded by the app, and written through the
   same function as the app's own gate dialog (`server/masteryCheck.js`), once per sitting. A
   card is rated by the app's own scheduler and written by the same function as the review
-  screen (`server/cardWrite.js`). Keys and explanations leave the app only after the whole
-  check is submitted, and only to the view.
+  screen (`server/cardWrite.js`). No question, answer or key reaches the model before the whole
+  check is submitted and graded.
+- **After grading, the model is told what the learner missed.** The view's update to the host,
+  the form's reply and `get_mastery` carry the score and, for each question answered wrong, the
+  question, the learner's answer, the right answer and the explanation
+  (`server/checkFeedback.js`). Nothing is sent about questions answered right or not drawn. A
+  retake may ask a missed question again, as one in the app may after its result screen showed
+  the key; while another check on the topic is open, the form's reply, the view's update and
+  `get_mastery` all carry the score but hold the missed questions back (`checkOpenOn`), so no
+  key is newly sent during the retake; once no check is open, `get_mastery` shows the newest
+  graded check's. The hold cannot take back a key sent earlier: one the model was given after
+  a previous check stays in its conversation, so a retake that draws that question again is
+  not a cold test of it for the model, just as it is not for a learner who read the result
+  screen in the app. This is the learner's own study record going to the model they chose to study with, under that provider's terms.
 - **The sitting is a random token** (24 random bytes), held in the app's memory for at most
   two hours of no use, 64 at a time, gone on a restart. The MCP server hands it to the view
   in the tool result's `_meta`, which the MCP Apps extension delivers to the view and not to
@@ -804,7 +821,14 @@ ended if the host passes a view's updates on to it.
   open check (never their keys before submission) and submit it for the learner. The answers
   would still be graded and recorded by the app, and a check passed that way counts like any
   other: the app cannot tell who pressed the buttons in the host's window.
-- **"The model never sees a question" is about the MCP server.** A program on this computer
+- **The check as a form trusts the host the same way.** A host that does not draw views but
+  supports MCP elicitation in form mode gets the check as one `elicitation/create` form: the
+  questions and their choices, never a key. The host shows it to its user and returns the
+  answers; the model is not in that path. On the 2026-07-28 protocol the open sitting travels
+  as `requestState`, an opaque token the app issued; a token it never issued records nothing.
+  A host that hands the form to its model instead of its user would let the model answer the
+  check, and the app could not tell: the same residual risk as the view's.
+- **"The model sees nothing of an open check" is about the MCP server.** A program on this computer
   that can reach the app (any program while no password is set, or one holding the API key)
   can call `/api/agent/check/*` itself and read an open check's questions. That is no new
   reach: such a program can already call the app's own check and quiz routes.

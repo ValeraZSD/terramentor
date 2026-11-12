@@ -27,9 +27,14 @@ import { searchAll } from './search.js';
 import { projectsFor } from './aiTools.js';
 import { findTopic, parseReadArg, readBudget, readTopic } from './libraryReads.js';
 import { buildTodayBriefingContext } from './today.js';
-import { checkMasteryEligibility } from './mastery.js';
+import { checkMasteryEligibility, practiceCeiling } from './mastery.js';
 import { getGateConfig } from './settingsStore.js';
 import { claimSummary } from './claims.js';
+import { missedOf, missedText, reviewItems } from './checkFeedback.js';
+import { getSittingReview } from './sittingReview.js';
+// A cycle (agentSittings reads topicFor from here); both sides call across it
+// only inside functions, never while the modules load.
+import { checkOpenOn } from './agentSittings.js';
 
 const PROJECTS_LISTED = 40;
 const RESOURCE_HITS = 2;
@@ -155,9 +160,36 @@ const EVIDENCE_NAMES = {
 };
 
 /**
+ * The topic's newest mastery check, read back from the review the app kept
+ * of it (server/sittingReview.js): its score and each question the learner
+ * missed, with the answer given and the right one. Only a GRADED check is
+ * kept, so nothing of one still open is here. Null when the newest check
+ * kept no review (one taken before reviews were kept).
+ */
+function lastCheck(nodeId, checkPass) {
+    const row = db.prepare(`
+        SELECT id FROM mastery_evidence WHERE node_id = ? AND evidence_type = 'mastery_check' ORDER BY id DESC LIMIT 1
+    `).get(nodeId);
+    const review = row ? getSittingReview(row.id) : null;
+    if (!review || !review.total) return null;
+    // A check open on the topic may draw these very questions again.
+    const held = checkOpenOn(nodeId);
+    const missed = held ? [] : missedOf(reviewItems(review));
+    return {
+        at: review.at,
+        score: review.score,
+        total: review.total,
+        passed: review.score / review.total >= checkPass,
+        missed,
+        held,
+    };
+}
+
+/**
  * Where a topic stands: the estimate, whether it has passed the mastery gate,
- * the evidence the app measured, and the claims agents sent (counted apart,
- * because the app did not see those answers).
+ * the evidence the app measured, the claims agents sent (counted apart,
+ * because the app did not see those answers), and the newest mastery check's
+ * missed questions.
  */
 export function agentMastery(topic) {
     const node = topicFor(topic);
@@ -178,22 +210,37 @@ export function agentMastery(topic) {
     `).all(node.id);
     const claims = claimSummary(node.id);
     const status = node.status || 'not_started';
+    const cap = practiceCeiling(gate.threshold);
+    const check = lastCheck(node.id, gate.checkPass);
 
     const lines = [`Topic "${cut(node.title)}" (nodeId ${node.id}) in project "${cut(node.project_name)}" — status ${status}.`];
     lines.push(e.has_evidence
         ? `Estimated mastery ${pct(e.mastery_score)} (the gate asks for ${pct(gate.threshold)}, or a check of 4+ questions at ${pct(gate.checkPass)}).`
-        : 'No evidence yet: the app has seen no answer on this topic.');
+        : `No evidence yet: the app has seen no answer on this topic.${hasRow && e.mastery_score > 0
+            ? (claims.correct > 0 && !e.borrowed_estimate
+                ? ` Agents' right claims alone put the estimate at ${pct(e.mastery_score)}.`
+                : ` The estimate stands at ${pct(e.mastery_score)}.`)
+            : ''}`);
     lines.push(e.eligible
         ? 'It has passed the mastery gate.'
-        : `It has not passed the mastery gate. Only the app's own mastery check, quizzes or a paper exercise prove a topic; the learner takes the check in Terramentor.`);
+        : `It has not passed the mastery gate. Only the app's own mastery check, quizzes or a paper exercise prove a topic; mastery_check opens the check for the learner, here where this host can show it or ask it as a form, otherwise in Terramentor.`);
     if (e.borrowed_estimate) lines.push('Part of the estimate is a head start borrowed from another course or a placement probe, so it cannot pass the gate on its own.');
     if (e.practice_lifted) lines.push('The estimate is over the line only because of card reviews and drills, which keep a topic fresh but never prove it.');
     if (recent.length) {
         lines.push('Most recent evidence:');
         for (const r of recent) lines.push(`- ${String(r.created_at).slice(0, 10)} ${EVIDENCE_NAMES[r.type] || r.type}: ${Math.round(r.score)}/${r.total}`);
     }
+    if (check) {
+        lines.push(`The last mastery check, on ${String(check.at).slice(0, 10)}: ${check.score}/${check.total}, `
+            + `${check.passed ? 'passed' : 'not passed'}${check.held
+                ? '. A new check on this topic is open, so the questions missed last time are not shown while it is open.'
+                : check.missed.length ? '.' : ', nothing missed.'}`);
+        if (check.missed.length) lines.push(missedText(check.missed));
+    }
     lines.push(claims.total
-        ? `Claims from agents: ${claims.total} (${claims.correct} right, ${claims.wrong} wrong), the last on ${claims.lastAt.slice(0, 10)}. A claim never raises the estimate; a wrong one may lower it.`
+        ? `Claims from agents: ${claims.total} (${claims.correct} right, ${claims.wrong} wrong), the last on ${claims.lastAt.slice(0, 10)}. `
+            + `Right claims may lift the estimate a little, never past ${pct(cap)}, and the mastery gate never counts that lift; `
+            + 'a wrong one may lower it.'
         : 'No claims from agents.');
 
     return {
@@ -211,6 +258,7 @@ export function agentMastery(topic) {
             gateMode: gate.mode,
             evidence: { count: e.evidence_count, byType },
             claims,
+            lastCheck: check,
         },
     };
 }
