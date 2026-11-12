@@ -17,15 +17,15 @@ you see them. One that fails is thrown away. One the check could not read is mar
 and an unchecked question never counts as proof that you know a topic. Anything wrong that gets
 through can be flagged where it appears, and every kind of mistake that gets through is a check
 still to be written. Recall questions will get better at finding what you have started to
-forget. A tutor you can talk to is planned too, with your speech turned into text on your own
-computer.
+forget. A tutor you can talk to is planned too, one that follows your accent and pronunciation
+and hears how you are doing from your voice.
 
 **More languages.** The interface comes in twelve languages, all machine-translated first. Next
 are more languages, the server's messages in yours, and native speakers reading the translations.
 
 **Courses you can share.** A course can already be exported as one file, and each question and
-card a model wrote says which model it was. Next, a course you imported can receive its
-author's corrections and new editions.
+card a model wrote says which model it was. Next, a course you imported can fetch its author's
+corrections and new editions when you ask it to.
 
 ## Not doing
 
@@ -33,8 +33,8 @@ author's corrections and new editions.
   your disk. Syncing between devices will be optional.
 - **Tracking how you use it.** No telemetry, analytics or crash reporting. [SECURITY.md](SECURITY.md)
   shows how to check this yourself with a packet capture.
-- **Gamification.** No streaks, points or leaderboards, and the app sends no notifications.
-  The measure is whether you can prove you know the material ([CoreIdea.md](CoreIdea.md)).
+- **Gamification.** No streaks, points or leaderboards. The measure is whether you can prove you
+  know the material ([CoreIdea.md](CoreIdea.md)).
 - **Rationing learning.** No daily lesson limit, no locked topics, no feature held back to sell
   an upgrade.
 - **Lock-in.** Courses export as files, decks as Anki packages, and the database opens in any
