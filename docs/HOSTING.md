@@ -41,9 +41,15 @@ with a course of 48 topics (about 5,000 words of lesson each) and 576 cards:
 
 Node keeps what it allocated, so plan on about 200 MiB for each copy that has
 been used, whether or not its person is online. Fifty copies then need about
-10 GiB, plus the system: a server with 16 GB holds them with little to spare,
-24 GB with room for imports and growth. CPU is not the limit: an idle copy uses
-under 1% of a core.
+10 GiB, plus the system and the proxy (under 1 GiB):
+
+| server memory | 50 copies |
+|---|---|
+| 12 GB | fit, with about 1 GiB to spare: enough for everyone studying at once, not for several large imports at once. Add a few GB of swap as a buffer. |
+| 24 GB | fit with room for imports and growth, or about 100 copies |
+
+CPU is not the limit: an idle copy uses under 1% of a core. Nothing here
+depends on the provider: any Linux server with Docker runs it.
 
 `TM_MEMORY` (768m by default, about three times the measured peak) is each
 copy's ceiling, not a reservation, so the ceilings may add up to more than the
