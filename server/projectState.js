@@ -14,6 +14,7 @@
  * so a proposal can point at a topic that is not in the snapshot.
  */
 import db from './database.js';
+import { readProjectSetting } from './projectSettings.js';
 import { calculatePace } from './scheduling.js';
 import { deadlineInfo, LEAF_NODE, LEAF_STATUS, WORK_LEAF } from './today.js';
 import { reviewDue } from './decks.js';
@@ -154,7 +155,7 @@ export function projectStateText(projectId, { markers = true } = {}) {
         ORDER BY me.created_at DESC, me.id DESC LIMIT ${RECENT_TESTS}
     `).all(p.id);
 
-    const newPerDay = Number.parseInt(db.prepare('SELECT value FROM settings WHERE key = ?').get(`deck_new_per_day_${p.id}`)?.value ?? '', 10);
+    const newPerDay = Number.parseInt(readProjectSetting('deck_new_per_day_', p.id) ?? '', 10);
 
     // A deck's cards hang off its SECTIONS (the stages an import cut out of
     // card order), which are not topics — so a deck with no topics read as

@@ -75,7 +75,7 @@ function finalizeTodayBriefing(aiResponse) {
 
     // No project row exists for a global artifact — cache in the settings kv.
     try {
-        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
             'today_briefing',
             JSON.stringify({ insights: parsed, generatedAt: new Date().toISOString() })
         );

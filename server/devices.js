@@ -58,7 +58,7 @@ function q() {
             touch: db.prepare('UPDATE auth_devices SET last_seen_at = ? WHERE id = ?'),
             removeAllBut: db.prepare('DELETE FROM auth_devices WHERE id IS NOT ?'),
             getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
-            setSetting: db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
+            setSetting: db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
         };
     }
     return stmts;

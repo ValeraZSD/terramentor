@@ -71,7 +71,7 @@ app.put('/api/settings/:key', (req, res) => {
         if (e instanceof SettingValueError) return res.status(400).json({ error: e.message });
         throw e;
     }
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(req.params.key, value);
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(req.params.key, value);
     // Pointing the app somewhere by hand (the welcome screen does) ends any
     // protocol a saved connection forced: a ChatGPT plan's format left behind
     // would send an OpenAI key's requests through the plan's route.

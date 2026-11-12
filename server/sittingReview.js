@@ -98,7 +98,10 @@ export function saveSittingReview(evidenceId, raw) {
     if (!Number.isInteger(evidenceId)) return false;
     const items = normalizeSittingReview(raw);
     if (!items) return false;
-    db.prepare('INSERT OR REPLACE INTO sitting_reviews (evidence_id, items) VALUES (?, ?)')
+    // An upsert, not REPLACE: a second review of one sitting overwrites the
+    // first in place and the row keeps its uuid.
+    db.prepare(`INSERT INTO sitting_reviews (evidence_id, items) VALUES (?, ?)
+                ON CONFLICT(evidence_id) DO UPDATE SET items = excluded.items, created_at = excluded.created_at`)
         .run(evidenceId, JSON.stringify(items));
     return true;
 }

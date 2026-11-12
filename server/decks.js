@@ -32,13 +32,14 @@
 // background job, no new table.
 
 import db, { NOW_ISO } from './database.js';
+import { readProjectSetting, writeProjectSetting } from './projectSettings.js';
 import { cardState, MATURE_DAYS } from './deckStructure.js';
 import { IN_DAY, dayBounds, studyDay } from './studyDay.js';
 
 /** Anki's own default, and the right one: 20 new cards a day is ~10 minutes. */
 export const DEFAULT_NEW_PER_DAY = 20;
 
-const settingKey = (projectId) => `deck_new_per_day_${projectId}`;
+const NEW_PER_DAY_PREFIX = 'deck_new_per_day_';
 
 const readSetting = (key) => {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -70,7 +71,7 @@ export const AUTHORED_NEW_PER_DAY = 10;
  * shape `bulk_avg_ms_*` already uses.
  */
 export function getNewPerDay(projectId) {
-    const raw = readSetting(settingKey(projectId)) ?? readSetting('deck_new_per_day');
+    const raw = readProjectSetting(NEW_PER_DAY_PREFIX, projectId) ?? readSetting('deck_new_per_day');
     const n = Number.parseInt(raw ?? '', 10);
     if (Number.isFinite(n) && n >= 0) return Math.min(n, 9999);
     return defaultNewPerDay(projectId);
@@ -91,10 +92,7 @@ function defaultNewPerDay(projectId) {
 
 export function setNewPerDay(projectId, value) {
     const n = Math.max(0, Math.min(9999, Number.parseInt(value, 10) || 0));
-    db.prepare(`
-        INSERT INTO settings (key, value) VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `).run(settingKey(projectId), String(n));
+    writeProjectSetting(NEW_PER_DAY_PREFIX, projectId, n);
     return n;
 }
 

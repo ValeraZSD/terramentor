@@ -195,7 +195,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
     // The key is bound to OpenRouter's origin like any key saved by hand, and
     // the provider and base URL move with it, so the next model call uses it.
     saveActiveKey(key, apiKeyOriginOf(OPENROUTER_BASE_URL));
-    const put = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    const put = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     db.transaction(() => {
         put.run('ai_provider', 'openai');
         put.run('ai_openai_base_url', OPENROUTER_BASE_URL);

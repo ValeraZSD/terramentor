@@ -50,7 +50,7 @@ app.get('/api/onboarding', (req, res) => {
 });
 
 app.post('/api/onboarding/dismiss', (req, res) => {
-    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('onboarding_dismissed', ?)")
+    db.prepare("INSERT INTO settings (key, value) VALUES ('onboarding_dismissed', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .run(req.body?.dismissed === false ? 'false' : 'true');
     res.json({ success: true });
 });

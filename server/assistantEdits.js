@@ -26,6 +26,7 @@
  * (`server/projectFields.js` is shared), but this is the door.
  */
 import db from './database.js';
+import { clearProjectSetting, readProjectSetting, writeProjectSetting } from './projectSettings.js';
 import { addProvenanceFields } from './projectIdentity.js';
 import {
     newPerDay, oneLine, projectColour, projectDescription, projectIconName, projectName, projectStatus, topicTitle,
@@ -59,8 +60,7 @@ const hasCards = (projectId) => !!db.prepare(
     'SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? LIMIT 1',
 ).get(projectId);
 
-const settingStmt = (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
-const newPerDayKey = (projectId) => `deck_new_per_day_${projectId}`;
+const NEW_PER_DAY_PREFIX = 'deck_new_per_day_';
 
 /**
  * Each kind: how to read its target, and per field how a value is judged
@@ -111,14 +111,13 @@ const KINDS = {
                     return n;
                 },
                 get: (row) => getNewPerDay(row.id),
-                write: (id, v) => db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-                    .run(newPerDayKey(id), String(v)),
+                write: (id, v) => writeProjectSetting(NEW_PER_DAY_PREFIX, id, v),
                 // The stored row itself: absent means "follow the default",
                 // and Undo puts the absence back, not today's default as a number.
-                snapshot: (id) => settingStmt(newPerDayKey(id)),
+                snapshot: (id) => readProjectSetting(NEW_PER_DAY_PREFIX, id),
                 restore: (id, snap) => (snap == null
-                    ? db.prepare('DELETE FROM settings WHERE key = ?').run(newPerDayKey(id))
-                    : db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(newPerDayKey(id), snap)),
+                    ? clearProjectSetting(NEW_PER_DAY_PREFIX, id)
+                    : writeProjectSetting(NEW_PER_DAY_PREFIX, id, snap)),
             },
         },
         afterWrite: () => {},
