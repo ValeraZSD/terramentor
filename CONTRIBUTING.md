@@ -59,8 +59,7 @@ written. The opinions live in:
 
 - `CoreIdea.md`: the philosophy. Seven design principles. Read at least these.
 - `docs/ARCHITECTURE.md`: the engineering conventions, and the *reasons* behind them.
-- `ROADMAP.md`: where the project is going, what is deferred and why, and what it will
-  deliberately never do.
+- `ROADMAP.md`: where the project is going, and what it will deliberately never do.
 
 Things that will be declined regardless of quality:
 
@@ -240,7 +239,7 @@ line falls, but a near miss can still show; the Windows run is the one that coun
   `tools/language-gates.mjs`. A native speaker's eye is the scarce input.
 - **Breaking the quality gates.** If you can produce feed content that is wrong and passes
   `server/feedQuality.js`, that is a valuable bug report even without a fix.
-- **Packaging**: a signed desktop build (see `ROADMAP.md`). The install barrier is the single
+- **Packaging**: making the desktop app easier to install. The install barrier is the single
   biggest problem the project has.
 
 ## Releasing (maintainer)
