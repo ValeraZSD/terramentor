@@ -27,7 +27,7 @@ deadline, asks you to prove each topic rather than tick it off, and brings back 
 starting to forget. The app is free and has no account; the model is paid per use to its
 provider, under your own key, or runs on your own computer.
 
-![From an empty library to a marked answer: a course on waves and light is drafted, the assistant draws an animated standing wave, a lesson opens, and a question is answered.](docs/screenshots/hero.webp)
+![From an empty library to a marked answer: a short course on standing waves is drafted, the assistant draws an animated standing wave, a lesson opens, and a question is answered.](docs/screenshots/hero.webp)
 
 ## How it works
 
