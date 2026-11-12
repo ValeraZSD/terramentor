@@ -13,13 +13,15 @@ through a server that stores only encrypted copies it has no key to. Reviews wil
 phone with no connection, and after that the app can go into the app stores.
 
 **Catching the model's mistakes.** The lessons and questions a model writes are checked before
-you see them. A question that fails is thrown away. A lesson that fails is rewritten, and if
-every rewrite fails, the last one is shown with the fault recorded against it. Anything the check
-could not read is marked unchecked, and an unchecked question never counts as proof that you
-know a topic. Anything wrong that gets through can be flagged where it appears, and every kind of
-mistake that gets through is a check still to be written. Recall questions will get better at
-finding what you have started to forget. A tutor you can talk to is planned too, one that
-follows your accent and pronunciation and hears how you are doing from your voice.
+you see them. A question whose answer the check disputes is thrown away. One that is correct but
+weak is used only when no better one gets written, and its weakness is recorded. A lesson that
+fails is rewritten, and if every rewrite fails, the last one is shown with the fault recorded
+against it. Anything the check could not read is marked unchecked, and an unchecked question
+never counts as proof that you know a topic. Anything wrong that gets through can be flagged
+where it appears, and every kind of mistake that gets through is a check still to be written.
+Recall questions will get better at finding what you have started to forget. A tutor you can
+talk to is planned too, one that follows your accent and pronunciation and hears how you are
+doing from your voice.
 
 **More languages.** The interface comes in twelve languages, all machine-translated first. Next
 are more languages, the server's messages in yours, and native speakers reading the translations.
