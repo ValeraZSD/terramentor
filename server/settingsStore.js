@@ -25,6 +25,6 @@ function getGateConfig() {
 }
 
 const setSettingValue = (key, value) =>
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 
 export { getGateConfig, getSetting, setSettingValue };

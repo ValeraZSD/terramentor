@@ -4,6 +4,8 @@
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
+import { clearProjectSetting } from '../projectSettings.js';
+import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
 import { daysBetween, isScheduleDate, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
 import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
@@ -214,10 +216,11 @@ app.delete('/api/projects/:id', (req, res) => {
 
     const projectId = Number(req.params.id);
     db.transaction(() => {
+        // Per-project dials live in `settings`, keyed by the project's uuid,
+        // where no foreign key reaches them; cleared while the uuid can still
+        // be read.
+        for (const prefix of PROJECT_SETTING_PREFIXES) clearProjectSetting(prefix, projectId);
         db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
-        // Two per-project dials live in `settings`, keyed by the id, where no
-        // foreign key reaches them.
-        db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(`deck_new_per_day_${projectId}`, `teach_topics_${projectId}`);
     })();
 
     freeDocumentAssets(docs, chunkIds);

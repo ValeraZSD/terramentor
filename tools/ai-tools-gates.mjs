@@ -1006,7 +1006,7 @@ db.prepare('INSERT INTO node_mastery (node_id, mastery_score) VALUES (?, 0.4)').
 db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, 'f = ?', 'f0 (v+vr)/(v-vs)', ?)").run(doppler, new Date(Date.now() - 3600000).toISOString());
 db.prepare("INSERT INTO flashcards (node_id, front, back) VALUES (?, 'unseen', 'card')").run(doppler);
 db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'mastery_check', 6, 10)").run(doppler);
-setSetting(`deck_new_per_day_${psId}`, '15');
+setSetting(`deck_new_per_day_${db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck().get(psId)}`, '15');
 
 const stateTool = chatTools({ library: true }).find(t => t.name === 'project_state');
 check('the global assistant holds project_state', !!stateTool);

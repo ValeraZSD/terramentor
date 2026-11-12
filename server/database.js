@@ -9,6 +9,8 @@ import { migrateToConversations } from './chatConversations.js';
 import {
   ACTIVE_KEY, ACTIVE_KEY_ORIGIN, credentialsHeldInLibrary, getSecret, moveSecretsOutOfLibrary, scrubLibraryCopy, secretsFile, setSecret,
 } from './secrets.js';
+import { FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
+import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1276,20 +1278,13 @@ try {
 // backfilled once here.
 try {
   // Evaluated per-row (randomblob is non-deterministic), so each row is unique.
-  const UUID_EXPR = `lower(
-    hex(randomblob(4)) || '-' ||
-    hex(randomblob(2)) || '-4' ||
-    substr(hex(randomblob(2)), 2) || '-' ||
-    substr('89ab', abs(random()) % 4 + 1, 1) ||
-    substr(hex(randomblob(2)), 2) || '-' ||
-    hex(randomblob(6))
-  )`;
+  const UUID_EXPR = UUID_SQL;
 
   let backfilled = 0;
   // `flashcards` too: a card's schedule and its review history
   // hang on its row, so a later edition of a course can only update a card in
   // place if the file can say which card it means.
-  for (const table of ['projects', 'nodes', 'resources', 'flashcards']) {
+  for (const table of FIRST_UUID_TABLES) {
     addColumnIfMissing(table, 'uuid', 'TEXT');
     db.exec(`
       CREATE TRIGGER IF NOT EXISTS ${table}_uuid_ai AFTER INSERT ON ${table}
@@ -1606,13 +1601,15 @@ try {
     moved += db.prepare(`UPDATE quiz_attempts SET answers = replace(answers, '"boss_fight"', '"mastery_check"') WHERE answers LIKE '%boss_fight%'`).run().changes;
 
     // The learner's setting wins over the default the seed block inserted under
-    // the new key earlier this same boot, so this is REPLACE and not IGNORE.
+    // the new key earlier this same boot, so this overwrites and does not IGNORE.
+    const copySetting = db.prepare('INSERT INTO settings (key, value) SELECT ?, value FROM settings WHERE key = ? ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    const dropSetting = db.prepare('DELETE FROM settings WHERE key = ?');
     for (const [from, to] of [
       ['boss_fight_pass', 'mastery_check_pass'],
       ['bulk_avg_ms_boss_fight', 'bulk_avg_ms_mastery_check'],
     ]) {
-      moved += db.prepare('INSERT OR REPLACE INTO settings (key, value) SELECT ?, value FROM settings WHERE key = ?').run(to, from).changes;
-      db.prepare('DELETE FROM settings WHERE key = ?').run(from);
+      moved += copySetting.run(to, from).changes;
+      dropSetting.run(from);
     }
 
     // Rewritten in JS, not by SQL `replace`: SQLite's is case-sensitive while
@@ -1889,20 +1886,55 @@ try {
 // `study_time_since` is the UTC day the clock started in THIS library: a
 // course begun before it has only part of its time here, and the screens say
 // "counted since" instead of passing a part off as the whole.
-db.exec(`
-  CREATE TABLE IF NOT EXISTS study_time (
+//
+// `device` is part of the key: two computers studying in the same hour each
+// add to their own row and the total is the sum. Time measured before the
+// column existed, all of it on one computer, is `LOCAL_DEVICE`.
+const STUDY_TIME_TABLE = (name) => `
+  CREATE TABLE IF NOT EXISTS ${name} (
     node_id INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     hour TEXT NOT NULL,
     activity TEXT NOT NULL,
     active_ms INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (node_id, hour, activity)
-  );
+    device TEXT NOT NULL DEFAULT '${LOCAL_DEVICE}',
+    PRIMARY KEY (node_id, hour, activity, device)
+  );`;
+db.exec(`
+  ${STUDY_TIME_TABLE('study_time')}
   CREATE INDEX IF NOT EXISTS idx_study_time_hour ON study_time(hour);
   CREATE TABLE IF NOT EXISTS study_time_flushes (
     id TEXT PRIMARY KEY,
     at TEXT NOT NULL
   );
 `);
+// A library from before `device`: a primary key cannot be altered, so the
+// table is copied into the new shape in one transaction. Every row keeps its
+// topic, hour, activity and milliseconds, so no total moves.
+try {
+  const cols = db.prepare('PRAGMA table_info(study_time)').all().map(c => c.name);
+  if (!cols.includes('device')) {
+    db.transaction(() => {
+      db.exec(`
+        ${STUDY_TIME_TABLE('study_time_keyed')}
+        INSERT INTO study_time_keyed (node_id, hour, activity, active_ms)
+          SELECT node_id, hour, activity, active_ms FROM study_time;
+        DROP TABLE study_time;
+        ALTER TABLE study_time_keyed RENAME TO study_time;
+        CREATE INDEX IF NOT EXISTS idx_study_time_hour ON study_time(hour);
+      `);
+    })();
+  }
+  // While one computer writes the table, every row has the same device, so
+  // (topic, hour, activity) is still unique. This index says so, and it is what
+  // lets a build from before `device` keep recording time in this library: its
+  // `ON CONFLICT (node_id, hour, activity)` needs a unique index on exactly
+  // those columns. The change that first stores a second device's rows must
+  // drop it in the same step: a second device's row for the same topic, hour
+  // and activity would fail this index. Nothing stores one yet.
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_study_time_one_device ON study_time(node_id, hour, activity)');
+} catch (e) {
+  console.error('[Migration] study_time device key (non-fatal):', e.message);
+}
 try {
   db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)')
     .run('study_time_since', new Date().toISOString().slice(0, 10));
@@ -2122,13 +2154,70 @@ addColumnIfMissing('staged_documents', 'origin', 'TEXT DEFAULT NULL');
 // only the row that marked it goes, so nothing treats it as special again.
 db.prepare("DELETE FROM settings WHERE key = 'inbox_project_id'").run();
 
+// A per-project setting names its project by uuid (`deck_new_per_day_<uuid>`):
+// an integer id means a different project in another copy of the library.
+// Rows still keyed by an id move to the uuid key; one that names no project is
+// dropped, as deleting the project would have done; one whose project has no
+// uuid yet stays under its id for a later start. A uuid key already there
+// is kept: this build wrote it, and only an older build would have written
+// the id key since.
+try {
+  const project = db.prepare('SELECT uuid FROM projects WHERE id = ?');
+  const keep = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING');
+  const drop = db.prepare('DELETE FROM settings WHERE key = ?');
+  const idKeyed = db.prepare('SELECT key, value FROM settings WHERE key GLOB ? AND key NOT GLOB ?');
+  let rekeyed = 0;
+  db.transaction(() => {
+    for (const prefix of PROJECT_SETTING_PREFIXES) {
+      const rows = idKeyed.all(`${prefix}[0-9]*`, `${prefix}*[^0-9]*`);
+      for (const { key, value } of rows) {
+        const row = project.get(Number(key.slice(prefix.length)));
+        if (row && !row.uuid) continue;
+        if (row) keep.run(prefix + row.uuid, value);
+        drop.run(key);
+        rekeyed++;
+      }
+    }
+  })();
+  if (rekeyed > 0) console.log(`[Migration] Keyed ${rekeyed} per-project setting(s) by project uuid`);
+} catch (e) {
+  console.error('[Migration] per-project setting keys (non-fatal):', e.message);
+}
+
+// A portable uuid on every synced table (server/syncTables.js), after the
+// first four above. Same pattern: a column, an AFTER INSERT trigger that gives
+// a new row a random uuid, a UNIQUE index. Rows that predate the column are
+// named from their content (deriveMissingUuids), so two copies of one library
+// give the same old row the same uuid. Parents before children, in one
+// transaction: a child's name is made from its parent's uuid.
+try {
+  let named = 0;
+  db.transaction(() => {
+    for (const table of UUID_TABLES) {
+      if (FIRST_UUID_TABLES.includes(table)) continue;
+      addColumnIfMissing(table, 'uuid', 'TEXT');
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_uuid ON ${table}(uuid);
+        CREATE TRIGGER IF NOT EXISTS ${table}_uuid_ai AFTER INSERT ON ${table}
+        WHEN NEW.uuid IS NULL BEGIN
+          UPDATE ${table} SET uuid = ${UUID_SQL} WHERE rowid = NEW.rowid;
+        END;
+      `);
+      named += deriveMissingUuids(db, table);
+    }
+  })();
+  if (named > 0) console.log(`[Migration] Gave ${named} existing row(s) a portable uuid`);
+} catch (e) {
+  console.error('[Migration] portable uuids (non-fatal):', e.message);
+}
+
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp
 // written earlier would mark the database as migrated by a run that then threw
 // halfway, and the next start would skip both the migration and its snapshot.
 try {
   const v = currentAppVersion();
-  if (v) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('app_version', v);
+  if (v) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('app_version', v);
 } catch { /* a stamp is bookkeeping; never fatal */ }
 
 /** The file this process opened — for the desktop status panel and the logs. */

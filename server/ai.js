@@ -298,7 +298,7 @@ export function activeKey() {
 export function saveActiveKey(key, origin) {
     if (key) setSecrets({ [ACTIVE_KEY]: key, [ACTIVE_KEY_ORIGIN]: origin });
     else deleteSecrets(ACTIVE_KEY, ACTIVE_KEY_ORIGIN);
-    if (origin) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(API_KEY_ORIGIN_SETTING, origin);
+    if (origin) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(API_KEY_ORIGIN_SETTING, origin);
     else db.prepare('DELETE FROM settings WHERE key = ?').run(API_KEY_ORIGIN_SETTING);
 }
 

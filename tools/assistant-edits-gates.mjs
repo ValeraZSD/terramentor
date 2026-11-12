@@ -281,7 +281,8 @@ const noCards = await call('POST', '/api/assistant/edits', { kind: 'project', ta
 ok('a course with no cards has no daily allowance to change', noCards.status === 400 && /no cards/.test(noCards.json?.error), JSON.stringify(noCards.json));
 const deckNow = (await call('GET', `/api/assistant/targets/project/${deck}`)).json;
 const perDay = await call('POST', '/api/assistant/edits', { kind: 'project', targetId: deck, changes: { new_per_day: 35 }, expect: { new_per_day: deckNow.new_per_day } });
-const keyRow = () => db.prepare('SELECT value FROM settings WHERE key = ?').get(`deck_new_per_day_${deck}`);
+const deckUuid = db.prepare('SELECT uuid FROM projects WHERE id = ?').pluck().get(deck);
+const keyRow = () => db.prepare('SELECT value FROM settings WHERE key = ?').get(`deck_new_per_day_${deckUuid}`);
 ok('a deck\'s new cards a day is written as its own setting', perDay.status === 200 && keyRow()?.value === '35', JSON.stringify(perDay.json));
 await call('POST', `/api/assistant/edits/${perDay.json.id}/undo`);
 ok('...and Undo puts back the ABSENCE of a setting, not today\'s default as a number', keyRow() === undefined);

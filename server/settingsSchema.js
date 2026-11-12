@@ -255,11 +255,78 @@ export const SETTINGS = {
  * All are written by the server or by a route of their own.
  */
 export const SETTING_FAMILIES = [
-    { prefix: 'deck_new_per_day_', writable: 'server', sensitivity: 'learning' },
-    { prefix: 'teach_topics_', writable: 'server', sensitivity: 'learning' },
+    // Per project, named by the project's uuid (server/projectSettings.js).
+    { prefix: 'deck_new_per_day_', writable: 'server', sensitivity: 'learning', perProject: true },
+    { prefix: 'teach_topics_', writable: 'server', sensitivity: 'learning', perProject: true },
+    // Per kind of run: how long this computer's model took.
     { prefix: 'creation_avg_ms_', writable: 'server', sensitivity: 'internal' },
     { prefix: 'bulk_avg_ms_', writable: 'server', sensitivity: 'internal' },
 ];
+
+/** Prefixes whose suffix is a project's uuid. */
+export const PROJECT_SETTING_PREFIXES = SETTING_FAMILIES.filter(f => f.perProject).map(f => f.prefix);
+
+/**
+ * Which rows belong to the LIBRARY (the learner's choices about what is taught
+ * and how; the same on every computer that opens it) and which to the DEVICE
+ * (how this computer looks and behaves, what it can reach, its own bookkeeping).
+ * A later sync carries library rows only. Every row above and every family is
+ * in exactly one list (tools/sync-identity-gates.mjs), so a new row cannot
+ * travel by default. Credentials (auth.js `isSecretSettingKey`) are in neither
+ * and never leave the computer.
+ *
+ * A row that names a model or an address is DEVICE: what one computer can
+ * reach (its Ollama, its models) is not what another can, and a library that
+ * could re-point another computer's requests would hand it that computer's
+ * keys. `theme` is device here; it could as well follow the learner.
+ */
+export const SETTING_SCOPES = Object.freeze({
+    library: [
+        'ui_language', 'number_format', 'week_start_day', 'welcome_done',
+        'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
+        'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
+        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner',
+        'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision', 'paper_vision', 'deck_new_per_day',
+        'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
+        'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
+        'onboarding_dismissed', 'first_lesson_read_at',
+        'deck_new_per_day_', 'teach_topics_',
+    ],
+    device: [
+        'theme', 'theme_tint', 'theme_surfaces', 'accent_color', 'app_icon_style', 'app_icon_bg', 'app_icon_radius',
+        'ui_scale', 'sidebarWidth', 'detailPanelWidth', 'atlas_color_mode', 'atlas_surface', 'atlas_viewer',
+        'ai_setup_dismissed', 'library_notice_dismissed', 'app_placement_notice_dismissed', 'activity_log_enabled',
+        'ai_enabled', 'ai_model', 'ai_openai_model', 'pdf_recovery_vision_model', 'paper_vision_model', 'atlas_naming_model',
+        'ai_provider', 'ai_openai_base_url', 'ai_ollama_url', 'searxng_url',
+        'embedding_provider', 'embedding_model', 'embedding_enabled', 'embedding_dim', 'embedding_space',
+        'desktop_keep_running', 'desktop_window_mode', 'desktop_autostart_window',
+        'update_latest', 'update_last_check', 'update_last_error', 'update_answer_channel', 'update_channel',
+        'update_check', 'update_check_asked',
+        'inbox_project_id', 'node_roles_backfilled', 'time_zone', 'today_briefing', 'app_version',
+        // Lists of integer project ids, which name other projects in another
+        // copy: device until they hold uuids.
+        'placement_dismissed', 'celebrated_projects',
+        // The day the clock started in THIS copy of the library.
+        'study_time_since',
+        'openai_address_migration_done',
+        'creation_avg_ms_', 'bulk_avg_ms_',
+    ],
+});
+
+/**
+ * 'library', 'device', or null for a key no list names (a credential, or a row
+ * nobody classed) — which a sync must treat as device: only 'library' travels.
+ */
+export function settingScope(key) {
+    if (typeof key !== 'string') return null;
+    for (const scope of ['library', 'device']) {
+        if (SETTING_SCOPES[scope].includes(key)) return scope;
+    }
+    const family = SETTING_FAMILIES.find(f => key.startsWith(f.prefix) && key.length > f.prefix.length);
+    if (!family) return null;
+    return SETTING_SCOPES.library.includes(family.prefix) ? 'library'
+        : SETTING_SCOPES.device.includes(family.prefix) ? 'device' : null;
+}
 
 /** The entry for `key`, or null for a name this table does not know. */
 export function settingSpec(key) {

@@ -466,7 +466,7 @@ export function moveSecretsOutOfLibrary(db) {
             const del = db.prepare('DELETE FROM settings WHERE key = ?');
             for (const key of settingsKeys) del.run(key);
             if (originFromFile) {
-                db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(ACTIVE_KEY_ORIGIN, originFromFile);
+                db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ACTIVE_KEY_ORIGIN, originFromFile);
             }
             if (hasConnections) {
                 const clear = db.prepare('UPDATE ai_connections SET api_key = ?, credentials = NULL WHERE id = ?');
@@ -542,6 +542,6 @@ function compact(db) {
         db.prepare('DELETE FROM settings WHERE key = ?').run(COMPACT_PENDING);
     } catch (e) {
         console.warn(`[Secrets] Could not compact the library file (${e.message}). The credentials are gone from its rows, but old copies may remain in unused pages until a later start compacts it.`);
-        try { db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(COMPACT_PENDING); } catch { /* retried only if recorded */ }
+        try { db.prepare("INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(COMPACT_PENDING); } catch { /* retried only if recorded */ }
     }
 }
