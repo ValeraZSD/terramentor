@@ -38,7 +38,8 @@ The pictures below come from one physics course.
 Describe what you want to learn and the model drafts a course: phases, then topics, each with an
 overview, in your language. Add a book or your notes and the course follows their chapters, and
 its lessons draw on their pages. The draft runs in the background, so you can keep
-studying meanwhile. You can also import a course file or an Anki deck.
+studying meanwhile. A single link or file becomes a short course of a few topics with no dates,
+and you can also import a course file or an Anki deck.
 
 ### Plan
 
@@ -61,7 +62,8 @@ document you attach, and can change a course for you, with Undo.
 ### Prove
 
 A topic is proven when you pass its mastery check (choices, numbers you work out, answers you
-type, steps you put in order, a sentence or an equation you build from pieces), or when you
+type, steps you put in order, a sentence or an equation you build from pieces, code that runs
+against tests on your own device), or when you
 work an exercise on paper, photograph it and have it marked. Before you see a question with one right answer, the model answers it again without the key, and a key it
 disputes is thrown out. That catches slips, not a misconception the model holds both times. You
 can always skip a topic; it then stays marked as skipped, not as known.
@@ -79,7 +81,8 @@ Anki decks come in with their media and review history and go back out as `.apkg
 ### The atlas
 
 Every topic in your library on a map, or on a planet you can turn, placed by what it is about
-rather than which course it belongs to. Pick a course and it replays the order you finished its topics in,
+rather than which course it belongs to; zoom in and each region splits into cities, one per
+topic. Pick a course and it replays the order you finished its topics in,
 and can save the replay as a video or a GIF. The list beside it opens with up to three topics to study next,
 each close in meaning to one you have finished.
 
