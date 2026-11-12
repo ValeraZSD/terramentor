@@ -103,3 +103,41 @@ jobs:
         if: matrix.os == 'windows-latest'
         timeout-minutes: 15
         run: node tools/docs-shots.mjs
+
+  # The image, built and started on every pull request. Before this job only
+  # the release workflow built it, so a change that broke the Dockerfile or the
+  # build context was found when a release failed. Then the container is held
+  # to the README's first visit, and hosted mode (docs/HOSTING.md) to its
+  # promises: it refuses to start unlocked, and two copies behind the HTTPS
+  # proxy are created, kept apart, backed up, restored and removed by
+  # hosted/copy.sh exactly as on a server.
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build
+        run: docker build --build-arg GIT_SHA="$GITHUB_SHA" -t terramentor:ci .
+
+      - name: First visit to a fresh container
+        run: |
+          docker run -d --name smoke -p 127.0.0.1:3001:3001 terramentor:ci
+          bash tools/first-visit-smoke.sh http://127.0.0.1:3001 "docker logs smoke"
+          docker rm -f smoke
+
+      - name: Hosted mode refuses to start without a password
+        run: |
+          set +e
+          out="$(docker run --rm -e TERRAMENTOR_HOSTED=1 terramentor:ci 2>&1)"
+          code=$?
+          set -e
+          echo "$out" | tail -5
+          echo "exit code: $code"
+          test "$code" = 1
+          echo "$out" | grep -q 'Refusing to start: bound to 0.0.0.0 with no password'
+          if echo "$out" | grep -q 'Server running at'; then echo 'it listened'; exit 1; fi
+
+      - name: Two hosted copies behind the proxy
+        run: TM_IMAGE=terramentor:ci bash hosted/rehearse.sh
