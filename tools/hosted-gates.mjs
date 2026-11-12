@@ -136,6 +136,19 @@ try {
         /AUTH_ALLOW_OPEN_REMOTE/.test(decide({ TERRAMENTOR_HOSTED: '1', HOST: '0.0.0.0', AUTH_ALLOW_OPEN_REMOTE: '1' }, true) || ''));
     ok('ALLOW_PRIVATE_FETCH=1 refuses a hosted copy even on loopback',
         /ALLOW_PRIVATE_FETCH/.test(decide({ TERRAMENTOR_HOSTED: '1', HOST: '127.0.0.1', ALLOW_PRIVATE_FETCH: '1' }) || ''));
+    for (const flag of ['true', 'yes', 'on']) {
+        ok(`TERRAMENTOR_HOSTED=${flag} is refused rather than read as "not hosted"`,
+            /must be 1/.test(decide({ TERRAMENTOR_HOSTED: flag, HOST: '0.0.0.0' }) || ''));
+    }
+    ok('TERRAMENTOR_HOSTED=0 is an ordinary copy', decide({ TERRAMENTOR_HOSTED: '0', HOST: '127.0.0.1' }) === null);
+    // The router matches case-blind and ignores a trailing slash; the guard must too.
+    for (const [method, url] of [
+        ['PUT', '/API/AI/KEY'], ['put', '/Api/ai/Key/'], ['POST', '/api/auth/disable/'], ['POST', '/API/auth/disable'],
+        ['POST', '/api/Searxng/test/'], ['POST', '/api/UPDATES/download'], ['PUT', '/api//ai/key'], ['POST', '/api/auth/disable?x=1'],
+    ]) {
+        ok(`${method} ${url} is refused like its lower-case form`, !!hosted.hostedRefusalOf(method, url));
+    }
+    ok('a read of the same path is not refused', hosted.hostedRefusalOf('GET', '/API/ai/key/') === null);
     ok('the token is read only in hosted mode', hosted.operatorSetupToken({ TERRAMENTOR_SETUP_TOKEN: TOKEN }) === '');
     ok('a hosted copy trusts the proxy on its private network; off hosted mode only loopback',
         JSON.stringify(hosted.trustProxySetting({ TERRAMENTOR_HOSTED: '1' })) === '["loopback","uniquelocal"]'
@@ -192,6 +205,14 @@ try {
                 ['POST', '/api/devices/tailscale/serve', {}],
                 ['POST', '/api/desktop/quit', {}],
                 ['POST', '/api/auth/disable', { password: 'a-long-password-1' }],
+                // Which model answers is what the operator's key pays for.
+                ['PUT', '/api/settings/ai_openai_model', { value: 'some/expensive-model' }],
+                ['PUT', '/api/settings/ai_reasoning_effort', { value: 'high' }],
+                ['POST', '/api/embeddings/settings', { provider: 'ollama', model: 'x' }],
+                // Spelled the ways the router still routes them.
+                ['POST', '/API/auth/disable/', { password: 'a-long-password-1' }],
+                ['PUT', '/Api/AI/Key/', { key: 'sk-test' }],
+                ['POST', '/api/Searxng/Test', { url: 'http://10.0.0.5:8080' }],
             ];
             for (const [method, path, body] of refusedCalls) {
                 const a = await request(port, method, path, { host: PUBLIC_NAME, body, cookie });
@@ -206,6 +227,8 @@ try {
             ok('reading the update panel still works', updates.status === 200, updates.status);
             const theme = await request(port, 'PUT', '/api/settings/theme', { host: PUBLIC_NAME, body: { value: 'dark' }, cookie });
             ok('the library\'s own settings are still written', theme.status === 200, `${theme.status} ${theme.text}`);
+            const aiOff = await request(port, 'PUT', '/api/settings/ai_enabled', { host: PUBLIC_NAME, body: { value: 'false' }, cookie });
+            ok('the learner can still turn the model off', aiOff.status === 200, `${aiOff.status} ${aiOff.text}`);
             const login = await request(port, 'POST', '/api/auth/login', { host: PUBLIC_NAME, body: { password: 'a-long-password-1' } });
             ok('the password still signs in after the refused removal', login.status === 200 && !!login.cookie, `${login.status} ${login.text}`);
             await stop(r.child);
@@ -239,7 +262,7 @@ try {
             const backupDir = join(s.dir, 'backup-1');
             const backup = cli(['backup', backupDir]);
             ok('an online backup while the copy runs succeeds and counts the project', backup.status === 0 && /backup ok: 1 project/.test(backup.stdout), `${backup.status} ${backup.stdout} ${backup.stderr}`);
-            ok('the backup holds the credentials beside the database', existsSync(join(backupDir, 'terramentor.secrets.json')));
+            ok('the backup holds the credentials beside the database', existsSync(join(backupDir, 'credentials.json')));
             const twice = cli(['backup', backupDir]);
             ok('a backup never writes over an existing one', twice.status === 1, twice.stderr);
             await stop(r.child);

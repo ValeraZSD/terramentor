@@ -62,7 +62,7 @@ app.put('/api/settings/:key', (req, res) => {
     }
     // On a hosted copy the server's network is not the learner's: those rows
     // are the operator's, set in the environment (server/hosted.js).
-    const hostedWhy = hostedSettingRefusal(spec);
+    const hostedWhy = hostedSettingRefusal(spec, req.params.key);
     if (hostedWhy) return res.status(403).json({ error: hostedWhy, hosted: true });
     let value;
     try {

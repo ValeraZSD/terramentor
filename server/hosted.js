@@ -49,6 +49,11 @@ const isLoopbackBind = (host) => LOOPBACK_BIND.has(host) || /^127(?:\.\d{1,3}){3
  * walk without a library.
  */
 export function hostedStartProblem({ env = process.env, passwordSet = false } = {}) {
+    // `true` or `yes` would otherwise start an ordinary copy with every rule off.
+    const flag = String(env.TERRAMENTOR_HOSTED ?? '').trim();
+    if (flag !== '' && flag !== '0' && flag !== '1') {
+        return `TERRAMENTOR_HOSTED is "${flag}"; it must be 1 (a hosted copy) or 0.`;
+    }
     if (!isHosted(env)) return null;
     if (env.AUTH_ALLOW_OPEN_REMOTE === '1') {
         return 'AUTH_ALLOW_OPEN_REMOTE=1 opens the app without a password; a hosted copy never runs open. Remove it.';
@@ -83,7 +88,8 @@ export function trustProxySetting(env = process.env) {
 
 /**
  * The requests a hosted copy refuses, whoever sends them. Each entry is
- * [method test, path test, why]. Paths are matched on `req.path` under /api.
+ * [method test, path test, why]. Paths are matched after `requestPath`, so
+ * they are written lower-case with no trailing slash.
  */
 const WRITE = (m) => m !== 'GET' && m !== 'HEAD' && m !== 'OPTIONS';
 const OPERATOR_AI = 'On this hosted copy the model and its key are set by whoever runs it.';
@@ -92,27 +98,51 @@ const REFUSED = [
     [WRITE, /^\/api\/desktop(?:\/|$)/, 'This hosted copy has no desktop controls.'],
     [WRITE, /^\/api\/devices\/tailscale(?:\/|$)/, 'Tailscale is not available on a hosted copy.'],
     [WRITE, /^\/api\/ai\/(?:connections|jobs|key|openrouter|chatgpt|models)(?:\/|$)/, OPERATOR_AI],
+    [WRITE, /^\/api\/embeddings\/settings$/, OPERATOR_AI],
     [WRITE, /^\/api\/searxng\/test$/, 'A hosted copy does not test addresses on its server\'s network.'],
     [WRITE, /^\/api\/auth\/disable$/, 'A hosted copy always has a password. Change it instead.'],
 ];
 
+/**
+ * A request path as the router sees it. Express matches routes case-blind and
+ * with or without a trailing slash, so `/API/ai/Key/` reaches the handler of
+ * `/api/ai/key`; the guard must read it the same way.
+ */
+export function requestPath(url) {
+    const path = String(url).split('?')[0].toLowerCase().replace(/\/{2,}/g, '/');
+    return path.length > 1 ? path.replace(/\/+$/, '') : path;
+}
+
 /** Why this request is refused on a hosted copy, or null. */
-export function hostedRefusalOf(method, path) {
+export function hostedRefusalOf(method, url) {
+    const path = requestPath(url);
+    const verb = String(method).toUpperCase();
     for (const [methodTest, pathTest, why] of REFUSED) {
-        if (methodTest(method) && pathTest.test(path)) return why;
+        if (methodTest(verb) && pathTest.test(path)) return why;
     }
     return null;
 }
 
-/** The settings writer's half: a 'network' row is the operator's (settingsSchema.js). */
-export function hostedSettingRefusal(spec) {
-    return isHosted() && spec?.sensitivity === 'network' ? OPERATOR_AI : null;
+/** The 'ai' rows a learner still sets on a hosted copy: turning the model off. */
+const LEARNER_AI_ROWS = new Set(['ai_enabled']);
+
+/**
+ * The settings writer's half (settingsSchema.js): 'network' rows say where
+ * requests go, and 'ai' rows which model answers and how hard it works, which
+ * is what the operator pays for. Both are the operator's, set in the
+ * environment.
+ */
+export function hostedSettingRefusal(spec, key = '') {
+    if (!isHosted()) return null;
+    if (spec?.sensitivity === 'network') return OPERATOR_AI;
+    if (spec?.sensitivity === 'ai' && !LEARNER_AI_ROWS.has(key)) return OPERATOR_AI;
+    return null;
 }
 
 /** Express middleware: refuse what a hosted copy must not do. A no-op off hosted mode. */
 export function hostedGuard(req, res, next) {
     if (!isHosted()) return next();
-    const why = hostedRefusalOf(req.method, req.originalUrl.split('?')[0]);
+    const why = hostedRefusalOf(req.method, req.originalUrl);
     if (!why) return next();
     res.status(403).json({ error: why, hosted: true });
 }

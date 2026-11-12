@@ -865,7 +865,15 @@ ok('…and the Agent and the fetch come from the same undici', /import \{ Agent,
     ok('...and a set password spends the code', setupRoute.includes('clearSetupCode()'));
     const statusRoute = indexSrc.slice(indexSrc.indexOf("app.get('/api/auth/status'"), indexSrc.indexOf("app.post('/api/auth/login'"));
     ok('status answers setupRequired to another machine', statusRoute.includes('remoteSetupRequired(req)') && statusRoute.includes('setupRequired: true'));
-    ok('trust proxy stays loopback-only (a remote client cannot claim to be local)', /app\.set\('trust proxy', 'loopback'\)/.test(indexSrc));
+    // A hosted copy (server/hosted.js) also trusts the proxy on its private
+    // container network; every other copy trusts loopback alone.
+    {
+        const hostedMod = await import('../server/hosted.js');
+        ok('trust proxy stays loopback-only (a remote client cannot claim to be local)',
+            /app\.set\('trust proxy', trustProxySetting\(\)\)/.test(indexSrc)
+            && hostedMod.trustProxySetting({}) === 'loopback'
+            && hostedMod.trustProxySetting({ TERRAMENTOR_HOSTED: '0' }) === 'loopback');
+    }
 }
 
 // --- 11. an AI-drawn animation is inert, and stays inside its own frame ------

@@ -74,7 +74,9 @@ $ docker run --rm -e TERRAMENTOR_HOSTED=1 ghcr.io/valerazsd/terramentor:1
 alternative is `TERRAMENTOR_SETUP_TOKEN` (at least 24 characters): the person
 enters it on the first visit, it is never printed to the log, and it replaces
 the random setup code a copy would otherwise print. `AUTH_ALLOW_OPEN_REMOTE=1`
-and `ALLOW_PRIVATE_FETCH=1` also stop a hosted copy from starting.
+and `ALLOW_PRIVATE_FETCH=1` also stop a hosted copy from starting, and so does
+any value of `TERRAMENTOR_HOSTED` other than `1` or `0` (`true` would otherwise
+start an ordinary copy with none of these rules).
 
 **The password cannot be removed from inside the app.** It can be changed.
 
@@ -84,6 +86,7 @@ network and its updates are yours, not the person's:
 | feature | on a hosted copy | why |
 |---|---|---|
 | Model address, provider, saved connections, the provider key, the OpenRouter and ChatGPT sign-ins, which connection each job uses | **refused** (403, `hosted: true`); set by the operator in the environment | where the app sends requests is an address on the server's network, which can reach the server's own services and its cloud's metadata address |
+| Which model answers and how (model names, reasoning effort, provider order, web search, the vision and naming models, the embedding model) | **refused**; turning the model off is still allowed | the operator's key pays for it; `copy.sh new` refuses to start a copy with no `AI_MODEL` |
 | Pulling or deleting a local model | **refused** | there is no local model; it would install software on the server |
 | SearXNG address and its "Test" button | **refused** | the test answers "is something listening there" for any address someone types |
 | Tailscale sharing | **refused** | it runs the Tailscale command on the server |
@@ -143,8 +146,8 @@ OpenRouter's documentation:
 - At the limit: "`openrouter_key_limit` means the API key's credit limit is
   exhausted." ([Limits](https://openrouter.ai/docs/api-reference/limits)).
 - Management: "All key management endpoints are under `/api/v1/keys` and
-  require a Management API key in the Authorization header." and "Management
-  keys cannot be used to make API calls to OpenRouter's completion endpoints"
+  require a Management API key in the Authorization header." A management key
+  manages keys and makes no model calls itself
   ([Management API keys](https://openrouter.ai/docs/features/provisioning-api-keys)).
 - The key itself is returned once: "The actual API key string (only shown
   once)" (Create API key).
