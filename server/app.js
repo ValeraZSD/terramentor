@@ -372,7 +372,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
             port,
             getSetting,
             setSetting: (key, value) =>
-                db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value),
+                db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value),
             onShutdown,
             libraryFallback: libraryFallbackFromEnv(),
             // The key the launcher's challenge is answered with: the same
