@@ -211,3 +211,9 @@ vite.config.ts.timestamp-*.mjs
 /.*/
 !/.github/
 !/.githooks/
+
+# hosted/copy.sh writes these on the server it runs on: per-copy proxy sites,
+# per-copy model keys and the proxy's network list.
+hosted/sites/
+hosted/copies/
+hosted/networks.yml

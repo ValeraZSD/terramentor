@@ -34,6 +34,7 @@ import { SECRET_SEARCH_KEYS } from './searchBackends.js';
 import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName, remoteAccessOf } from './devices.js';
 import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
+import { operatorSetupToken } from './hosted.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -668,6 +669,15 @@ let setupCode = null;
  * only the person running the server can read (`docker compose logs`).
  */
 export function announceSetupCode() {
+    // A hosted copy given a setup token by its operator (server/hosted.js)
+    // uses that instead, and never prints it: the operator handed it over
+    // already, and the log of a rented server is not only theirs to read.
+    const token = operatorSetupToken();
+    if (token) {
+        setupCode = token.toUpperCase();
+        console.log('[security] No password is set. Open the app and enter the setup token you were given to set one.');
+        return null;
+    }
     if (!setupCode) {
         const raw = crypto.randomBytes(6).toString('hex').toUpperCase();
         setupCode = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8)}`;
@@ -676,6 +686,8 @@ export function announceSetupCode() {
     return setupCode;
 }
 export function checkSetupCode(code) {
+    const token = operatorSetupToken();
+    if (token) setupCode = token.toUpperCase();
     if (!setupCode || typeof code !== 'string') return false;
     return timingEqual(code.trim().toUpperCase(), setupCode);
 }
