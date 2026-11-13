@@ -329,6 +329,16 @@ check('per-project rows moved to the uuid key, the orphan dropped', settingsAfte
 const second = boot(OLD);
 check('a second boot succeeds', second.status, 0);
 check('...and renames nothing', UUID_TABLES.filter(t => JSON.stringify(uuidsOf(OLD)[t]) !== JSON.stringify(uA[t])), []);
+// Back to an older build, which writes the id key beside the uuid key this build
+// left, then up again: the id key is the newer value and wins.
+{
+    const c = new Database(OLD);
+    c.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(`deck_new_per_day_${fx.p}`, '12');
+    c.close();
+}
+check('a boot after going back to an older build succeeds', boot(OLD).status, 0);
+const reUpgraded = (() => { const c = new Database(OLD, { readonly: true }); const r = c.prepare("SELECT key, value FROM settings WHERE key GLOB 'deck_new_per_day_*' ORDER BY key").all(); c.close(); return r; })();
+check('...and keeps what the older build set, under the uuid', reUpgraded, [{ key: `deck_new_per_day_${pUuid}`, value: '12' }]);
 
 db.close();
 rmSync(scratch, { recursive: true, force: true });
