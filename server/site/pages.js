@@ -5,13 +5,14 @@
 // script nothing to run. They follow the app's lock screen (AuthGate.tsx):
 // one card on a slate page, the accent only on the primary action.
 
-import { appIconSvg } from '../iconArt.js';
+import { markOnlySvg } from '../iconArt.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-// The app's own default icon (the full cut, globe grid and all, on its tile),
-// from the one drawing every icon comes from: never a copy of a smaller cut.
-const MARK = appIconSvg({}, 'tile', 64).replace('<svg ', '<svg class="mark" ');
+// The app's full cut (globe grid and all) as a line drawing with no tile, in
+// the page's ink colour, from the one drawing every icon comes from: never a
+// copy of a smaller cut.
+const MARK = markOnlySvg({ ink: 'currentColor', paper: 'none', grid: true, stroke: 2.2 }).replace('<svg ', '<svg class="mark" ');
 
 // The app's own neutral grey ramp (src/index.css), so these pages and the app
 // read as one product; text at 7:1 or more and field borders at 3:1 or more
@@ -28,7 +29,7 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;line-height:1.5}
 main{width:100%;max-width:24rem;background:var(--card);border-radius:1rem;box-shadow:0 20px 25px -5px rgb(0 0 0/.1),0 8px 10px -6px rgb(0 0 0/.1);padding:2rem}
 .head{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:1.25rem}
-.mark{width:3rem;height:3rem;margin-bottom:.75rem}
+.mark{width:3.5rem;height:3.5rem;margin-bottom:.75rem;color:var(--ink)}
 h1{margin:0;font-size:1.25rem;font-weight:600;color:var(--ink)}
 .sub{margin:.25rem 0 0;font-size:.875rem;color:var(--muted)}
 label{display:block;font-size:.875rem;font-weight:500;color:var(--body);margin:0 0 .25rem}
