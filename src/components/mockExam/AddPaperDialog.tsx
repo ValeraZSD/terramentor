@@ -7,6 +7,7 @@ import { Field, TextInput } from '../ui/Field';
 import { Select } from '../ui/Select';
 import Stepper from '../ui/Stepper';
 import { api } from '../../api';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 import type { MockExamList } from './mockExamTypes';
 
 interface PartDraft { key: number; question: string; part: string; points: number; nodeId: number | null }
@@ -17,6 +18,12 @@ function nextPart(last: PartDraft | undefined, key: number): PartDraft {
     if (/^[a-y]$/.test(last.part)) {
         return { key, question: last.question, part: String.fromCharCode(last.part.charCodeAt(0) + 1), points: last.points, nodeId: last.nodeId };
     }
+    return nextQuestion(last, key);
+}
+
+/** The first part of the question after `last`'s. */
+function nextQuestion(last: PartDraft | undefined, key: number): PartDraft {
+    if (!last) return { key, question: '1', part: '', points: 10, nodeId: null };
     const n = Number(last.question);
     return { key, question: Number.isInteger(n) ? String(n + 1) : '', part: '', points: last.points, nodeId: null };
 }
@@ -34,6 +41,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     onAdded: () => void;
 }) {
     const { t } = useTranslation();
+    const fmt = useNumberFormat();
     const [title, setTitle] = useState('');
     const [minutes, setMinutes] = useState(180);
     const [gradeMin, setGradeMin] = useState(1);
@@ -47,6 +55,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
 
     const total = parts.reduce((a, p) => a + p.points, 0);
     const edit = (key: number, patch: Partial<PartDraft>) => setParts(ps => ps.map(p => (p.key === key ? { ...p, ...patch } : p)));
+    const add = (next: typeof nextPart) => setParts(ps => [...ps, next(ps[ps.length - 1], Math.max(...ps.map(x => x.key)) + 1)]);
 
     const save = () => {
         setBusy(true);
@@ -101,7 +110,9 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                         </Field>
                     </div>
                     <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                        {t("From the paper's cover: \"grade = points / total × 9 + 1\" runs from 1 to 10.")}
+                        {t("As printed on the paper's cover: grade = points / total × {{span}} + {{min}}, from {{min}} to {{max}}.", {
+                            span: fmt(gradeMax - gradeMin), min: fmt(gradeMin), max: fmt(gradeMax),
+                        })}
                     </p>
                 </div>
                 <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
@@ -116,7 +127,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                             <li key={p.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-700 p-2">
                                 <TextInput aria-label={t("Question")} value={p.question} onChange={e => edit(p.key, { question: e.target.value })} className="!w-16 text-center" />
                                 <TextInput aria-label={t("Part")} value={p.part} onChange={e => edit(p.key, { part: e.target.value })} className="!w-14 text-center" placeholder="a" />
-                                <Stepper value={p.points} min={1} max={100} onChange={v => edit(p.key, { points: v })} label={t("Points")} className="w-32" />
+                                <Stepper value={p.points} min={1} max={100} onChange={v => edit(p.key, { points: Math.max(1, Math.round(v)) })} label={t("Points")} className="w-32" />
                                 <div className="flex-1 min-w-[10rem]">
                                     <Select value={p.nodeId == null ? '' : String(p.nodeId)} onChange={v => edit(p.key, { nodeId: v === '' ? null : Number(v) })} aria-label={t("Topic")}>
                                         <option value="">{t("No topic")}</option>
@@ -129,10 +140,14 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                         ))}
                     </ul>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                        <Button variant="quiet" icon={<Plus className="w-4 h-4" aria-hidden="true" />}
-                            onClick={() => setParts(ps => [...ps, nextPart(ps[ps.length - 1], Math.max(...ps.map(x => x.key)) + 1)])}>
-                            {t("Add a part")}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="quiet" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => add(nextQuestion)}>
+                                {t("Add a question")}
+                            </Button>
+                            <Button variant="quiet" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => add(nextPart)}>
+                                {t("Add a part")}
+                            </Button>
+                        </div>
                         <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">{t("{{count}} points in total", { count: total })}</span>
                     </div>
                 </div>

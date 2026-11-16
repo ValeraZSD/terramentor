@@ -172,9 +172,9 @@ export default function Workspace() {
         .filter(t => t.when || workspaceView === t.key);
 
     useEffect(() => {
-        const el = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${workspaceView}"]`);
+        const el = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${tabView}"]`);
         el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }, [workspaceView]);
+    }, [tabView]);
 
     // The pace pill's full form is shown only when it fits beside EVERY tab —
     // measured on this row, never guessed from the window. Every number the
@@ -320,7 +320,7 @@ export default function Workspace() {
                                     (server/decks.js `reviewDue`), so every
                                     project may show it. */}
                                 {isDashboardTab && dueFlashcardCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'dashboard'
+                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${tabView === 'dashboard'
                                         ? 'bg-accent text-white'
                                         : 'bg-amber-600 text-white'
                                         }`}>
@@ -393,7 +393,7 @@ export default function Workspace() {
                         <CalendarView scope={{ kind: 'project', projectId: currentProjectId }} />
                     )}
                     {workspaceView === 'vault' && <VaultProjectView />}
-                    {workspaceView === 'exam' && currentProjectId != null && <MockExamView projectId={currentProjectId} />}
+                    {workspaceView === 'exam' && currentProjectId != null && <MockExamView key={currentProjectId} projectId={currentProjectId} />}
                     {/* Study is the scoped stream — except for a project measured
                         in cards, where it is the review session (DeckStudy): a
                         deck has nothing to teach, so the stream would only hand

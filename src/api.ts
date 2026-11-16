@@ -2259,9 +2259,14 @@ export const api = {
     getMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}`),
     mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
+    /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
+    pauseMockOnLeave: (id: number) =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
     markMockPart: (id: number, partId: number, points: number | null) =>
         request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
-    finishMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST' }),
+    /** `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0"). */
+    finishMock: (id: number, fillUnmarked = false) =>
+        request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ fillUnmarked }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, FileText, Plus, Timer, Trash2 } from 'lucide-react';
 import { api } from '../../api';
@@ -10,6 +10,7 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { uiLocale } from '../../utils/locale';
 import AddPaperDialog from './AddPaperDialog';
 import MockSittingScreen from './MockSittingScreen';
+import { Panel } from './Panel';
 import type { MockExamList, MockListSitting } from './mockExamTypes';
 import { useDuration } from './mockFormat';
 
@@ -36,15 +37,36 @@ export default function MockExamView({ projectId }: { projectId: number }) {
     }, [projectId]);
     useEffect(() => { load(); }, [load]);
 
+    // Closing the tab or the app pauses every running clock, whether the
+    // learner is on its clock screen or back on this list; it waits there with
+    // Resume. Going back to the list inside the app does not pause: the time
+    // runs on as it would at the exam. The server ignores a pause once the
+    // writing is over.
+    const running = useRef<number[]>([]);
+    useEffect(() => {
+        running.current = [
+            ...(data?.papers.flatMap(p => p.sittings.filter(s => s.status === 'writing' && s.running).map(s => s.id)) ?? []),
+            ...(open != null ? [open] : []),
+        ];
+    }, [data, open]);
+    useEffect(() => {
+        const leave = () => { for (const id of new Set(running.current)) void api.pauseMockOnLeave(id).catch(() => {}); };
+        window.addEventListener('pagehide', leave);
+        return () => window.removeEventListener('pagehide', leave);
+    }, []);
+
+    // Stable, so the sitting screen's own load does not re-run on every render.
+    const closeSitting = useCallback(() => { setOpen(null); load(); }, [load]);
+
     if (open != null) {
-        return <MockSittingScreen sittingId={open} onClose={() => { setOpen(null); load(); }} />;
+        return <MockSittingScreen sittingId={open} onClose={closeSitting} />;
     }
 
     return (
         <div className="flex-1 overflow-auto">
-            <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-8 space-y-4">
-                <div className="flex items-center gap-3">
-                    <h2 className="flex-1 min-w-0 text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam")}</h2>
+            <div className="mx-auto w-full max-w-3xl px-4 py-6 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam")}</h2>
                     {data && data.papers.length > 0 && (
                         <Button variant="quiet" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setAdding(true)}>
                             {t("Add a past paper")}
@@ -62,9 +84,9 @@ export default function MockExamView({ projectId }: { projectId: number }) {
 
                 {data && data.papers.length === 0 && (
                     <Panel>
-                        <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("Sit a past paper")}</h3>
+                        <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("Practise with a past paper")}</h3>
                         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 max-w-prose">
-                            {t("Add an old exam paper and its worked solution from this course's files, with the points per question. You write it by hand with the app as the clock, then mark it yourself against the solution.")}
+                            {t("Add an old exam paper and its worked solution from this course's files, with the points per question. You write it by hand with the app as the clock, then grade it yourself against the solution.")}
                         </p>
                         <div className="mt-4">
                             <Button variant="primary" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setAdding(true)}>
@@ -75,7 +97,8 @@ export default function MockExamView({ projectId }: { projectId: number }) {
                 )}
 
                 {data && data.papers.length > 0 && (
-                    <StartPanel data={data} onStarted={setOpen} onError={(m) => addToast('error', m)} />
+                    // Keyed on the paper count: a paper just added becomes the one picked.
+                    <StartPanel key={data.papers.length} data={data} onStarted={setOpen} onError={(m) => addToast('error', m)} />
                 )}
 
                 {data && <EarlierMocks data={data} onOpen={setOpen} onChanged={load} />}
@@ -94,14 +117,6 @@ export default function MockExamView({ projectId }: { projectId: number }) {
     );
 }
 
-export function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-    return (
-        <section className={`rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 sm:p-6 shadow-sm ${className}`}>
-            {children}
-        </section>
-    );
-}
-
 function StartPanel({ data, onStarted, onError }: {
     data: MockExamList;
     onStarted: (id: number) => void;
@@ -115,7 +130,9 @@ function StartPanel({ data, onStarted, onError }: {
     const [length, setLength] = useState<'paper' | 'question'>('paper');
     const [question, setQuestion] = useState(questions[0]);
     const [busy, setBusy] = useState(false);
-    useEffect(() => { setQuestion(questions[0]); }, [questions]);
+    // Back to the first question only when another paper is picked, never on a
+    // reload of the same paper (which replaces every object in `data`).
+    useEffect(() => { setQuestion(questions[0]); }, [paper.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const qPoints = paper.parts.filter(p => p.question === question).reduce((a, p) => a + p.points, 0);
     const seconds = length === 'paper' ? paper.minutes * 60 : Math.ceil(paper.minutes * qPoints / paper.total) * 60;
@@ -162,7 +179,7 @@ function StartPanel({ data, onStarted, onError }: {
                 </Row>
             </div>
             <p className="mt-4 rounded-xl bg-slate-100 dark:bg-slate-900/60 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
-                {t("Print the paper or open it on a second screen, and write on paper as you will on the day. The app keeps the clock. Afterwards you mark it against the worked solution.")}
+                {t("Print the paper or open it on a second screen, and write on paper as you will on the day. The app keeps the clock. Afterwards you grade it against the worked solution.")}
             </p>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
                 {paper.paperDocumentId != null && (
@@ -182,7 +199,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     return (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 min-h-[3.5rem]">
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
-            <div className="ml-auto">{children}</div>
+            <div>{children}</div>
         </div>
     );
 }
@@ -191,6 +208,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
     const { t } = useTranslation();
     const fmt = useNumberFormat();
     const addToast = useStore(s => s.addToast);
+    const showConfirm = useStore(s => s.showConfirm);
     const rows = useMemo(() => data.papers
         .flatMap(p => p.sittings.map(s => ({ s, title: p.title })))
         .sort((a, b) => b.s.startedAt.localeCompare(a.s.startedAt)), [data]);
@@ -202,7 +220,21 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
         if (s.grade != null) return t("grade {{grade}}", { grade: fmt(s.grade, { decimals: 1 }) });
         return t("{{earned}} of {{total}} points", { earned: fmt(s.earned), total: fmt(s.total) });
     };
-    const discard = (id: number) => api.discardMock(id).then(onChanged).catch(e => addToast('error', e.message));
+    const discard = async (id: number) => {
+        const ok = await showConfirm({
+            title: t("Discard this mock?"),
+            message: t("Its time and any points you gave are deleted. The paper stays."),
+            confirmLabel: t("Discard"),
+            variant: 'danger',
+        });
+        if (!ok) return;
+        api.discardMock(id).then(onChanged).catch(e => addToast('error', e.message));
+    };
+    const pending = (s: MockListSitting) => {
+        if (s.status === 'marking') return t("Grade it");
+        if (s.timeUp) return t("Time is up");
+        return s.running ? t("Clock running") : t("Resume");
+    };
 
     return (
         <Panel>
@@ -221,7 +253,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
                                 <span className="text-slate-500 dark:text-slate-400"> · {title}{s.question ? ` · ${t("Question {{q}}", { q: s.question })}` : ''}</span>
                             </span>
                             <span className="shrink-0 text-sm tabular-nums text-slate-700 dark:text-slate-200">
-                                {s.status === 'done' ? outcome(s) : (s.status === 'writing' ? t("Resume") : t("Mark it"))}
+                                {s.status === 'done' ? outcome(s) : pending(s)}
                             </span>
                             <ChevronRight className="w-4 h-4 shrink-0 text-slate-400" aria-hidden="true" />
                         </button>
