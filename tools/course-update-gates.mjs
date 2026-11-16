@@ -3,9 +3,9 @@
 // Run:  node tools/course-update-gates.mjs
 //       node tools/course-update-gates.mjs --old-import   (must FAIL: today's door)
 //
-// Importing a newer edition of a course used to make a second project beside
-// the first: the new text in one, the learner's mastery, schedule and notes in
-// the other. This gate installs an edition, studies it the way the app records
+// POST /api/import makes a NEW project from any file: a newer edition through
+// it puts the new text in one project and the learner's mastery, schedule and
+// notes in the other. This gate installs an edition, studies it the way the app records
 // study, applies a newer file, and asserts on the course the learner now has.
 // Each of the seven cases is one rule of the update:
 //
@@ -17,9 +17,8 @@
 //   6. older file        a file older than the installed edition is refused
 //   7. pre-id fallback   a file without item ids is matched by content
 //
-// `--old-import` sends every update through POST /api/import instead, which is
-// what the app did before: every case must fail there, and the default run
-// proves it once more as a control.
+// `--old-import` sends every update through POST /api/import instead: every
+// case must fail there, and the default run proves it once more as a control.
 //
 // No model calls, no network beyond the loopback server it starts. Scratch
 // database and vault, set IN-PROCESS before anything is imported.
