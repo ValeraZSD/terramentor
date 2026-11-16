@@ -87,6 +87,53 @@ if (!OLD) {
         base: { exportedAt: '2026-02-01T00:00:00.000Z', project: { fields: {} }, entities: new Map() },
     });
     check('a file older than the base is refused by the planner itself', p.refused, 'older');
+
+    console.log('\n--- the planner, whole courses ---');
+    const topicFields = (title, description = null) => ({ title, description, is_note: 0, role: 'topic' });
+    const upNode = (ref, parentRef, position, fields) => ({ kind: 'node', uuid: null, ref, parentRef, position, fields });
+    const locNode = (uuid, id, parentUuid, position, fields, extra = {}) => ({ kind: 'node', uuid, id, parentUuid, position, fields, hasState: false, ...extra });
+    /** The base a course installed from a file has: every field as it stands, none edited. */
+    const baseOf = (entities, edited = {}) => new Map(entities.map(e => [`${e.kind}:${e.uuid}`, {
+        fields: Object.fromEntries(Object.entries({ ...e.fields, parent: e.parentUuid ?? null, ...(e.kind === 'node' ? { position: e.position } : {}) })
+            .map(([f, v]) => [f, { hash: fieldHash(v), edited: (edited[e.uuid] || []).includes(f) }])),
+    }]));
+    const planWhole = (upEntities, locEntities, edited) => planCourseUpdate({
+        upstream: { exportedAt: '2026-02-01T00:00:00.000Z', project: { fields: {} }, entities: upEntities },
+        local: { project: { fields: {} }, entities: locEntities },
+        base: { exportedAt: '2026-01-01T00:00:00.000Z', project: { fields: {} }, entities: baseOf(locEntities, edited) },
+    });
+    const opsOf = (pl, ...kinds) => pl.ops.filter(o => kinds.includes(o.op)).map(o => `${o.op}:${o.uuid ?? o.ref}`);
+
+    // Two id-less sections share a title and both changed: neither can be told
+    // apart, so nothing under them is inserted at the top or deleted.
+    let local = [locNode('s1', 1, null, 0, topicFields('S', 'old 1')), locNode('s2', 2, null, 1, topicFields('S', 'old 2')),
+        locNode('c1', 3, 's1', 0, topicFields('Child')), locNode('c2', 4, 's2', 0, topicFields('Child'))];
+    p = planWhole([upNode('a', null, 0, topicFields('S', 'new 1')), upNode('a1', 'a', 0, topicFields('Child')),
+        upNode('b', null, 1, topicFields('S', 'new 2')), upNode('b1', 'b', 0, topicFields('Child'))], local);
+    check('an unmatched section holds down its branch: nothing under it inserted or deleted', opsOf(p, 'insert', 'delete'), []);
+
+    // A card the learner edited and the file dropped is theirs now, not deleted.
+    const card = { kind: 'card', uuid: 'k1', id: 9, parentUuid: 'n1', fields: { front: 'f', back: 'my back', extra: null, extra_front: null, media: null }, hasState: false };
+    local = [locNode('n1', 1, null, 0, topicFields('N')), card];
+    p = planWhole([{ ...upNode('n1', null, 0, topicFields('N')), uuid: 'n1' }], local, { k1: ['back'] });
+    check('a dropped card the learner edited is kept, never deleted', opsOf(p, 'insert', 'delete', 'keepRemoved'), ['keepRemoved:k1']);
+
+    // Only the order of two topics changed.
+    local = [locNode('x', 1, null, 0, topicFields('X')), locNode('y', 2, null, 1, topicFields('Y'))];
+    p = planWhole([{ ...upNode('y', null, 0, topicFields('Y')), uuid: 'y' }, { ...upNode('x', null, 1, topicFields('X')), uuid: 'x' }], local);
+    check('a file that only reorders topics is an update, not "nothing"', [p.summary.nothing, p.summary.reordered, p.reorder[0]?.children], [false, 1, ['y', 'x']]);
+
+    // The learner put A under B; the file puts B under A.
+    local = [locNode('A', 1, 'B', 0, topicFields('A')), locNode('B', 2, null, 0, topicFields('B'))];
+    const loopBase = baseOf([locNode('A', 1, null, 0, topicFields('A')), locNode('B', 2, null, 1, topicFields('B'))], { A: ['parent'] });
+    p = planCourseUpdate({
+        upstream: { exportedAt: '2026-02-01T00:00:00.000Z', project: { fields: {} },
+            entities: [{ ...upNode('A', null, 0, topicFields('A')), uuid: 'A' }, { ...upNode('B', 'A', 0, topicFields('B')), uuid: 'B' }] },
+        local: { project: { fields: {} }, entities: local },
+        base: { exportedAt: '2026-01-01T00:00:00.000Z', project: { fields: {} }, entities: loopBase },
+    });
+    check('two moves that would make a loop: the learner’s stands, the file’s is not taken',
+        [p.ops.filter(o => 'parent' in (o.fields || {})).map(o => o.uuid), p.newBase.find(b => b.uuid === 'B')?.fields.parent?.edited], [[], 1]);
 }
 
 // ---- the server, on a loopback port, serving the scratch library ---------------
@@ -117,7 +164,8 @@ const upload = (path, file, fields = {}) => {
         parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
     }
     parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="course.json"\r\nContent-Type: application/json\r\n\r\n`));
-    parts.push(Buffer.from(JSON.stringify(file)));
+    // A Buffer is a bundle's bytes; anything else is a course file's JSON.
+    parts.push(Buffer.isBuffer(file) ? file : Buffer.from(JSON.stringify(file)));
     parts.push(Buffer.from(`\r\n--${boundary}--\r\n`));
     const body = Buffer.concat(parts);
     return call(path, { method: 'POST', body, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': String(body.length) } });
@@ -508,7 +556,66 @@ if (!OLD) {
 
     console.log('\n--- an unknown course is not an update ---');
     const stranger = await upload('/api/course-updates/inspect', edition1('never-installed'));
-    check('a file whose course is not in the library: no match, the importer makes a new project', stranger.body?.match ?? null, null);
+    check('a file whose course is not in the library: no match, the importer makes a new project',
+        [stranger.status, stranger.body && 'match' in stranger.body ? stranger.body.match : 'no match field'], [200, null]);
+
+    console.log('\n--- undo is refused when the learner used something the update added ---');
+    // Each case adds a topic with a link and a question, then does ONE thing
+    // the fingerprint of author-owned columns does not see.
+    const usedAfterUpdate = async (tag, use) => {
+        const id = await install(edition1(tag));
+        await update(id, edition2(tag, (f) => {
+            unit1(f).push({ title: 'Werkwoorden', uuid: u(tag, 'C'), description: 'Overview C.',
+                resources: [{ title: 'Uitleg', url: 'https://example.org/uitleg', type: 'link', uuid: u(tag, 'LC') }],
+                questions: [q('Welk lidwoord hoort bij "werkwoord"?', 'het', { uuid: u(tag, 'QC') })] });
+        }));
+        const c = nodeOf(id, 'Werkwoorden');
+        use(c);
+        const r = await api(`/api/course-updates/${id}/undo`, 'POST');
+        return [r.status, !!nodeOf(id, 'Werkwoorden')];
+    };
+    check('a note written on a topic the update added blocks the undo',
+        await usedAfterUpdate('undo-note', (c) => db.prepare("UPDATE nodes SET notes = 'mijn aantekening' WHERE id = ?").run(c.id)), [409, true]);
+    check('a link the update added and the learner ticked blocks the undo',
+        await usedAfterUpdate('undo-link', (c) => db.prepare('UPDATE resources SET completed = 1 WHERE node_id = ?').run(c.id)), [409, true]);
+    check('an attempt at a quiz the update added blocks the undo',
+        await usedAfterUpdate('undo-quiz', (c) => db.prepare("INSERT INTO quiz_attempts (quiz_id, score, total, answers) VALUES ((SELECT id FROM quizzes WHERE node_id = ?), 1, 1, '[]')").run(c.id)), [409, true]);
+
+    console.log('\n--- a question whose answer alone changed reads differently in the preview ---');
+    const atag = 'answer-only';
+    const apid = await install(edition1(atag));
+    const answerOnly = await upload('/api/course-updates/inspect', edition2(atag, (f) => {
+        const q2 = topic(f, 'Lidwoorden').questions[1];
+        q2.correct_answer = 'de';
+    }));
+    const qDiff = answerOnly.body?.items?.changed?.find(it => it.kind === 'question')?.diff?.[0];
+    check('the preview shows the answer it had and the answer it gets', [/✓ het/.test(qDiff?.from || ''), /✓ de/.test(qDiff?.to || '')], [true, true]);
+    check('fixture: the answer-only file was inspected against the installed course', answerOnly.body?.match?.projectId, apid);
+
+    console.log('\n--- a bundle with no course tree is refused, not read as "everything removed" ---');
+    const { default: JSZip } = await import('jszip');
+    const btag = 'bundle-no-tree';
+    const bpid = await install(edition1(btag));
+    const zip = new JSZip();
+    const { nodes: _dropped, ...manifest } = edition2(btag, () => { });
+    zip.file('manifest.json', JSON.stringify(manifest));
+    const noTree = await upload('/api/course-updates/inspect', await zip.generateAsync({ type: 'nodebuffer' }));
+    check('a bundle whose manifest has no "nodes" is refused', [noTree.status, noTree.body?.summary?.removed ?? null], [400, null]);
+    check('...and the course is untouched', !!nodeOf(bpid, 'Lidwoorden'), true);
+
+    console.log('\n--- the write paths reuse their statements ---');
+    const { markLearnerEdit } = await import(B + 'courseUpdate.js');
+    const { claimUuid } = await import(B + 'courseFiles.js');
+    const realPrepare = db.prepare;
+    let prepared = 0;
+    db.prepare = function (...args) { prepared++; return realPrepare.apply(this, args); };
+    try {
+        markLearnerEdit('card', 'warm', ['front', 'back']);
+        claimUuid('nodes', 'warm');
+        prepared = 0;
+        for (let i = 0; i < 5; i++) { markLearnerEdit('card', `u${i}`, ['front', 'back', 'extra']); claimUuid('nodes', `u${i}`); }
+    } finally { db.prepare = realPrepare; }
+    check('flagging edits and claiming ids in a loop prepare no new statements', prepared, 0);
 
     console.log('\n--- control: today’s import door ---');
     const ctag = 'control';
