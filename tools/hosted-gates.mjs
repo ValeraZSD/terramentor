@@ -24,7 +24,7 @@
  *   node tools/hosted-gates.mjs
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -67,12 +67,20 @@ function freePort() {
 
 /** Start the server; resolve when it listens or exits. */
 function startServer(env, { timeoutMs = 60_000 } = {}) {
-    const child = spawn(process.execPath, [ENTRY], { cwd: repoRoot, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    // --api-only: a checkout with a built dist/ and local .certs would otherwise
+    // serve HTTPS, and request() speaks plain HTTP.
+    const child = spawn(process.execPath, [ENTRY, '--api-only'], { cwd: repoRoot, env: childEnv(env), stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     child.stdout.on('data', d => { out += d; });
     child.stderr.on('data', d => { out += d; });
     return new Promise((res) => {
-        const timer = setTimeout(() => res({ child, out, listening: false, code: null, timedOut: true }), timeoutMs);
+        // A server that never says it listens is stopped before the caller
+        // moves on, so it cannot outlive the scratch library it was given.
+        const timer = setTimeout(() => {
+            clearInterval(poll);
+            child.removeAllListeners('exit');
+            stop(child).then(() => res({ child, out, listening: false, code: null, timedOut: true }));
+        }, timeoutMs);
         const poll = setInterval(() => {
             if (/Server running at/.test(out)) { clearInterval(poll); clearTimeout(timer); res({ child, get out() { return out; }, listening: true }); }
         }, 50);
@@ -267,6 +275,16 @@ try {
             ok('a backup never writes over an existing one', twice.status === 1, twice.stderr);
             await stop(r.child);
 
+            // A backup that fails its check: exit 1 means the library was not
+            // touched, which is what lets copy.sh start the copy again on it.
+            const badDir = join(s.dir, 'backup-bad');
+            mkdirSync(badDir);
+            writeFileSync(join(badDir, 'terramentor.db'), 'not a database');
+            const refused = cli(['restore', badDir]);
+            ok('a backup that fails its check is refused (exit 1), the library untouched',
+                refused.status === 1 && existsSync(join(s.dir, 'terramentor.db')) && !existsSync(join(s.dir, 'terramentor.db.restoring')),
+                `${refused.status} ${refused.stderr}`);
+
             // Empty the library, as a lost volume would be, then restore.
             for (const f of ['terramentor.db', 'terramentor.db-wal', 'terramentor.db-shm', 'terramentor.secrets.json']) rmSync(join(s.dir, f), { force: true });
             const restore = cli(['restore', backupDir]);
@@ -295,7 +313,8 @@ try {
             const set = await request(port, 'PUT', '/api/settings/searxng_url', { body: { value: 'http://127.0.0.1:8080' } });
             ok('this machine still sets an address', set.status === 200, `${set.status} ${set.text}`);
             const check = await request(port, 'POST', '/api/searxng/test', { body: { url: 'http://127.0.0.1:9' } });
-            ok('…and tests one', check.json?.hosted !== true && check.status !== 403, `${check.status} ${check.text}`);
+            // The handler itself answers: a closed port is its ordinary "not reachable".
+            ok('…and tests one', check.status === 200 && check.json?.ok === false && check.json?.hosted !== true, `${check.status} ${check.text}`);
             await stop(r.child);
         }
     }
