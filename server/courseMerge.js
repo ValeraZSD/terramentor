@@ -115,13 +115,15 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
     /** upstream refs no local item could be told apart for, and the local items involved. */
     const ambiguous = new Set();
     const protectedLocal = new Set();
+    /** upstream refs the learner deleted here that stay deleted, and everything under them. */
+    const withheld = new Set();
     /** The local name of an upstream topic: its local uuid, or `new:<ref>` once it will be inserted. */
     const localParentOf = (ref) => {
         if (ref == null) return null;
         const m = matched.get(ref);
         if (m) return m.uuid;
         const up = upByRef.get(ref);
-        return up && !ambiguous.has(ref) ? `new:${ref}` : undefined;
+        return up && !ambiguous.has(ref) && !withheld.has(ref) ? `new:${ref}` : undefined;
     };
     /** The name an upstream item is known by here. A question's id is unique
      *  only within its topic (curriculumSchema.js), so it is named through it. */
@@ -163,13 +165,38 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         }
     }
 
+    // ---- what the learner deleted ----------------------------------------------------
+    // An item with a base but no row here was deleted by the learner. It comes
+    // back only when the file changed it AND they chose the file's version; until
+    // then nothing is put under it, since there is no topic to put it in.
+    // A plain JSON file names no media, so media is not compared for it.
+    const deletedChanged = (u, b) => ENTITY_FIELDS[u.kind].some(f => f !== 'parent' && b.fields?.[f]
+        && !(f === 'media' && u.fields.media === undefined) && b.fields[f].hash !== fieldHash(u.fields[f]));
+    const deletedKey = (u) => `${u.kind}:${upKey(u)}:deleted`;
+    const chosen = (k) => choices?.[k] === 'file';
+    const unmatched = ups.filter(u => !matched.has(u.ref) && !ambiguous.has(u.ref));
+    const stillDeleted = new Set(unmatched.filter(u => {
+        const b = u.uuid ? baseEntities.get(key(u.kind, upKey(u))) : null;
+        return b && (!deletedChanged(u, b) || !chosen(deletedKey(u)));
+    }).map(u => u.ref));
+    for (const u of unmatched) {
+        // Up through the new items above it: a matched topic exists here, so the walk stops there.
+        for (let ref = u.ref; ref != null && !matched.has(ref); ref = upByRef.get(ref)?.parentRef) {
+            if (stillDeleted.has(ref)) { withheld.add(u.ref); break; }
+        }
+    }
+
     // ---- per field ----------------------------------------------------------------
     const ops = [];
     const conflicts = [];
     const newBase = [];
+    /** A base row whose parent is a topic this update inserts names it as
+     *  `newParent`: its uuid exists only once the insert ran, and the parent's
+     *  hash is taken from that uuid then (applyCourseUpdate). */
+    const baseEntry = (kind, uuid, fields, parent) => (typeof parent === 'string' && parent.startsWith('new:') && fields.parent
+        ? { kind, uuid, fields, newParent: parent } : { kind, uuid, fields });
     const touchedParents = new Set();   // `${kind}|${parent}`: siblings to put in the file's order
     const finalParent = new Map();      // local entity -> its parent after the plan
-    const chosen = (k) => choices?.[k] === 'file';
 
     /** One field, three ways. Returns 'take' | 'keep' | 'same' | 'conflict'. */
     const decide = (up, loc, b) => {
@@ -234,29 +261,34 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
             if (u.kind === 'card' && l.hasState && ('front' in take || 'back' in take)) op.reviewedTextChanged = true;
             ops.push(op);
         }
-        newBase.push({ kind: u.kind, uuid: l.uuid, fields: baseFields });
+        newBase.push(baseEntry(u.kind, l.uuid, baseFields, upFields.parent));
     }
 
     // ---- new in the file, or deleted here ----------------------------------------------
     for (const u of ups) {
         if (matched.has(u.ref) || ambiguous.has(u.ref)) continue;
         const parent = localParentOf(u.parentRef);
-        // Anything whose topic could not be matched has nowhere to go, and that
-        // holds down the whole branch: inserting it at the top would be a guess.
-        if (u.parentRef != null && parent === undefined) { ambiguous.add(u.ref); continue; }
         const b = u.uuid ? baseEntities.get(key(u.kind, upKey(u))) : null;
         const upFields = { ...u.fields, parent: parent ?? null };
         const baseFields = Object.fromEntries(ENTITY_FIELDS[u.kind].filter(f => upFields[f] !== undefined)
             .map(f => [f, { hash: fieldHash(upFields[f]), edited: 0 }]));
         if (ORDERED.has(u.kind)) baseFields.position = { hash: fieldHash(u.position ?? null), edited: 0 };
+        // Under a topic the learner deleted and still has deleted: it stays out with it.
+        if (u.parentRef != null && withheld.has(u.parentRef)) {
+            if (b) newBase.push(baseEntry(u.kind, upKey(u), baseFields, upFields.parent));
+            continue;
+        }
+        // Anything whose topic could not be matched has nowhere to go, and that
+        // holds down the whole branch: inserting it at the top would be a guess.
+        if (u.parentRef != null && parent === undefined) { ambiguous.add(u.ref); continue; }
         if (b) {
             // The learner deleted it. Unchanged in the file: it stays deleted.
-            const changed = ENTITY_FIELDS[u.kind].some(f => f !== 'parent' && b.fields?.[f] && b.fields[f].hash !== fieldHash(upFields[f]));
-            const ck = `${u.kind}:${upKey(u)}:deleted`;
-            if (!changed) { newBase.push({ kind: u.kind, uuid: upKey(u), fields: baseFields }); continue; }
+            const changed = deletedChanged(u, b);
+            const ck = deletedKey(u);
+            if (!changed) { newBase.push(baseEntry(u.kind, upKey(u), baseFields, upFields.parent)); continue; }
             if (!chosen(ck)) {
                 conflicts.push({ key: ck, kind: u.kind, uuid: upKey(u), field: 'deleted', label: u.label, where: u.where, mine: null, file: u.fields, unknownBase: false });
-                newBase.push({ kind: u.kind, uuid: upKey(u), fields: baseFields });
+                newBase.push(baseEntry(u.kind, upKey(u), baseFields, upFields.parent));
                 continue;
             }
         }

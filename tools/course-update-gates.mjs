@@ -134,6 +134,29 @@ if (!OLD) {
     });
     check('two moves that would make a loop: the learner’s stands, the file’s is not taken',
         [p.ops.filter(o => 'parent' in (o.fields || {})).map(o => o.uuid), p.newBase.find(b => b.uuid === 'B')?.fields.parent?.edited], [[], 1]);
+
+    // The learner deleted a card that had media; the next file is plain JSON,
+    // which names no media, and leaves the card as it was.
+    const keepTopic = locNode('n1', 1, null, 0, topicFields('N'));
+    const mediaCard = { kind: 'card', uuid: 'k2', id: 10, parentUuid: 'n1',
+        fields: { front: 'f', back: 'b', extra: null, extra_front: null, media: { front: [{ name: 'a.png', kind: 'image', alt: null }] } } };
+    p = planCourseUpdate({
+        upstream: { exportedAt: '2026-02-01T00:00:00.000Z', project: { fields: {} }, entities: [{ ...upNode('n1', null, 0, topicFields('N')), uuid: 'n1' },
+            { kind: 'card', uuid: 'k2', ref: 'k2', parentRef: 'n1', fields: { front: 'f', back: 'b', extra: null, extra_front: null } }] },
+        local: { project: { fields: {} }, entities: [keepTopic] },
+        base: { exportedAt: '2026-01-01T00:00:00.000Z', project: { fields: {} }, entities: baseOf([keepTopic, mediaCard]) },
+    });
+    check('a deleted card a media-less file did not change stays deleted, no conflict', [p.conflicts.length, opsOf(p, 'insert')], [0, []]);
+
+    // The learner deleted topic P; the file leaves P as it was and adds D under it.
+    const otherTopic = locNode('Q', 2, null, 1, topicFields('Q'));
+    p = planCourseUpdate({
+        upstream: { exportedAt: '2026-02-01T00:00:00.000Z', project: { fields: {} }, entities: [{ ...upNode('P', null, 0, topicFields('P')), uuid: 'P' },
+            upNode('d', 'P', 0, topicFields('D')), upNode('d1', 'd', 0, topicFields('D1')), { ...upNode('Q', null, 1, topicFields('Q')), uuid: 'Q' }] },
+        local: { project: { fields: {} }, entities: [otherTopic] },
+        base: { exportedAt: '2026-01-01T00:00:00.000Z', project: { fields: {} }, entities: baseOf([locNode('P', 1, null, 0, topicFields('P')), otherTopic]) },
+    });
+    check('nothing new is put under a topic the learner deleted (no orphan at the top)', [opsOf(p, 'insert'), p.conflicts.length], [[], 0]);
 }
 
 // ---- the server, on a loopback port, serving the scratch library ---------------
@@ -602,6 +625,33 @@ if (!OLD) {
     const noTree = await upload('/api/course-updates/inspect', await zip.generateAsync({ type: 'nodebuffer' }));
     check('a bundle whose manifest has no "nodes" is refused', [noTree.status, noTree.body?.summary?.removed ?? null], [400, null]);
     check('...and the course is untouched', !!nodeOf(bpid, 'Lidwoorden'), true);
+
+    console.log('\n--- a studied topic moved under a new section ---');
+    const mtag = 'move-under-new';
+    const mpid = await install(edition1(mtag));
+    study(mpid);
+    const studied = nodeOf(mpid, 'Lidwoorden');
+    await update(mpid, edition2(mtag, (f) => {
+        const [moved] = unit1(f).splice(0, 1);
+        f.nodes.push({ title: 'Unit 3', uuid: u(mtag, 'U3'), children: [moved] });
+    }));
+    const unit3 = nodeOf(mpid, 'Unit 3');
+    const parentBase = db.prepare("SELECT base_hash FROM course_base WHERE project_id = ? AND kind = 'node' AND uuid = ? AND field = 'parent'").get(mpid, studied.uuid)?.base_hash;
+    check('fixture: the topic now sits under the section the update added', nodeOf(mpid, 'Lidwoorden')?.parent_id, unit3?.id);
+    check('its base names the new section by the uuid it got, not the plan’s placeholder', parentBase, fieldHash(unit3?.uuid ?? null));
+    const movedUndo = await api(`/api/course-updates/${mpid}/undo`, 'POST');
+    check('undo puts it back under its old section with its progress, not through the new one’s cascade',
+        [movedUndo.status, nodeOf(mpid, 'Lidwoorden')?.parent_id, evidenceOn(nodeOf(mpid, 'Lidwoorden')?.id), cardsOf(nodeOf(mpid, 'Lidwoorden')?.id).find(c => c.front === 'de krant')?.review_count, !!nodeOf(mpid, 'Unit 3')],
+        [200, studied.parent_id, 1, 3, false]);
+
+    console.log('\n--- a bundle’s card media reads as file names in the preview ---');
+    const mdtag = 'bundle-media';
+    await install(edition1(mdtag));
+    const mzip = new JSZip();
+    mzip.file('manifest.json', JSON.stringify(edition2(mdtag, (f) => { topic(f, 'Lidwoorden').flashcards[0].media = { front: [{ name: 'krant.png', kind: 'image' }] }; })));
+    const withMedia = await upload('/api/course-updates/inspect', await mzip.generateAsync({ type: 'nodebuffer' }));
+    const mediaDiff = (withMedia.body?.items?.changed || []).flatMap(it => it.diff || []).find(d => d.field === 'media');
+    check('the media change reads "krant.png", not "[object Object]"', [withMedia.status, mediaDiff?.to ?? null], [200, 'krant.png']);
 
     console.log('\n--- the write paths reuse their statements ---');
     const { markLearnerEdit } = await import(B + 'courseUpdate.js');

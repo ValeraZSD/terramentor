@@ -314,6 +314,13 @@ export function undoLastUpdate(projectId) {
     db.transaction(() => {
         // A topic re-inserted before its parent is back: checked at commit.
         db.pragma('defer_foreign_keys = ON');
+        // Rows that were there before go back under their old topic FIRST: one
+        // the update moved under a topic it added would otherwise go with that
+        // topic's cascade, progress and all.
+        for (const [t, col] of [['nodes', 'parent_id'], ['resources', 'node_id'], ['flashcards', 'node_id'], ['quizzes', 'node_id']]) {
+            const back = prep(`UPDATE ${t} SET ${col} = ? WHERE id = ? AND ${col} IS NOT ?`);
+            for (const r of snap.rows[t]) back.run(r[col] ?? null, r.id, r[col] ?? null);
+        }
         // Rows the update added go first (children before parents is what the
         // cascade handles); rows it changed or removed come back.
         for (const t of ['quizzes', 'flashcards', 'resources', 'nodes']) {
@@ -554,7 +561,12 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         for (const o of plan.ops) {
             if (o.op === 'delete' || o.op === 'keepRemoved') prep('DELETE FROM course_base WHERE project_id = ? AND kind = ? AND uuid = ?').run(projectId, o.kind, o.uuid);
         }
-        for (const b of plan.newBase) writeBase(b.kind, b.uuid, b.fields);
+        for (const b of plan.newBase) {
+            // A parent this update inserted has its uuid only now.
+            writeBase(b.kind, b.uuid, b.newParent
+                ? { ...b.fields, parent: { ...b.fields.parent, hash: fieldHash(insertedUuid.get(b.newParent) ?? null) } }
+                : b.fields);
+        }
         putUpstreamStmt().run(projectId, plan.exportedAt, pf.version ?? prep('SELECT version FROM projects WHERE id = ?').get(projectId).version);
         undo.after = courseFingerprint(projectId);
         prep(`UPDATE course_upstream SET undo = ?, undo_at = ${NOW_ISO} WHERE project_id = ?`).run(JSON.stringify(undo), projectId);

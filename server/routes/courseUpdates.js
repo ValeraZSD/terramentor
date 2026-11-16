@@ -132,7 +132,8 @@ function display(field, value, titleOf) {
     if (field === 'parent') return titleOf(value);
     if (field === 'is_note') return value ? 'note' : 'topic';
     if (field === 'media') {
-        const names = [...(value.front || []), ...(value.back || [])];
+        const names = [...(value.front || []), ...(value.back || [])]
+            .map(m => (typeof m === 'string' ? m : m?.name ?? '')).filter(Boolean);
         return names.length ? names.join(', ') : null;
     }
     if (field === 'content') return questionText(value);
