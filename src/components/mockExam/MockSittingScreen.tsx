@@ -12,13 +12,14 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { uiLocale } from '../../utils/locale';
 import { Panel } from './MockExamView';
 import { useDuration } from './mockFormat';
-import type { MockDetail } from './mockExamTypes';
+import { CourseMockScreen, CourseResultScreen } from './CourseMock';
+import { isCourseDetail, type CourseMockDetail, type MockDetail } from './mockExamTypes';
 
 /** One mock, whichever moment it is at: writing, marking or done. */
 export default function MockSittingScreen({ sittingId, onClose }: { sittingId: number; onClose: () => void }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const [detail, setDetail] = useState<MockDetail | null>(null);
+    const [detail, setDetail] = useState<MockDetail | CourseMockDetail | null>(null);
 
     const load = useCallback(() => {
         api.getMock(sittingId).then(setDetail).catch(e => { addToast('error', e.message); onClose(); });
@@ -34,9 +35,17 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
                     </Button>
                 </div>
                 {!detail && <Panel><div className="h-40" aria-busy="true" /></Panel>}
-                {detail?.sitting.status === 'writing' && <ClockScreen detail={detail} onChange={setDetail} />}
-                {detail?.sitting.status === 'marking' && <MarkingScreen detail={detail} onChange={setDetail} />}
-                {detail?.sitting.status === 'done' && <ResultScreen detail={detail} onDone={onClose} />}
+                {detail && isCourseDetail(detail) ? (
+                    detail.sitting.status === 'done'
+                        ? <CourseResultScreen detail={detail} onDone={onClose} />
+                        : <CourseMockScreen detail={detail} onChange={setDetail} />
+                ) : (
+                    <>
+                        {detail?.sitting.status === 'writing' && <ClockScreen detail={detail} onChange={setDetail} />}
+                        {detail?.sitting.status === 'marking' && <MarkingScreen detail={detail} onChange={setDetail} />}
+                        {detail?.sitting.status === 'done' && <ResultScreen detail={detail} onDone={onClose} />}
+                    </>
+                )}
             </div>
         </div>
     );
@@ -169,7 +178,7 @@ function MarkingScreen({ detail, onChange }: { detail: MockDetail; onChange: (d:
     };
     const finish = () => {
         setFinishing(true);
-        api.finishMock(sitting.id).then(onChange).catch(e => { addToast('error', e.message); setFinishing(false); });
+        api.finishMock<MockDetail>(sitting.id).then(onChange).catch(e => { addToast('error', e.message); setFinishing(false); });
     };
 
     const solution = paper.solutionDocumentId != null ? api.documentOriginalUrl(paper.solutionDocumentId) : null;

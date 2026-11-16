@@ -6,7 +6,7 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
-import type { ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting } from './components/mockExam/mockExamTypes';
+import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
@@ -2256,12 +2256,21 @@ export const api = {
     deleteExamPaper: (paperId: number) => request<{ ok: true }>(`/mock-exams/papers/${paperId}`, { method: 'DELETE' }),
     startMock: (paperId: number, question: string | null) =>
         request<{ sitting: MockSitting }>(`/mock-exams/papers/${paperId}/sittings`, { method: 'POST', body: JSON.stringify({ question }) }),
-    getMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}`),
+    getMock: (id: number) => request<MockDetail | CourseMockDetail>(`/mock-sittings/${id}`),
+    // A mock from the course's own questions, answered on screen.
+    setRealExam: (projectId: number, exam: Partial<RealExam>) =>
+        request<{ exam: RealExam | null }>(`/projects/${projectId}/exam`, { method: 'PUT', body: JSON.stringify(exam) }),
+    drawMock: (projectId: number, size: number, minutes: number | null) =>
+        request<{ sitting: MockSitting; asked: number; drawn: number; short: boolean }>(`/projects/${projectId}/mock-exams/draw`, { method: 'POST', body: JSON.stringify({ size, minutes }) }),
+    /** One save, written once per `attemptId` (resent unchanged on a retry). */
+    saveMockAnswer: (id: number, save: { partId: number; answer?: string; later?: boolean; attemptId: string }) =>
+        request<{ duplicate: boolean; answered: number; left: number; later: number }>(`/mock-sittings/${id}/answers`, { method: 'PUT', body: JSON.stringify(save) }),
     mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
     markMockPart: (id: number, partId: number, points: number | null) =>
         request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
-    finishMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST' }),
+    finishMock: <D = MockDetail>(id: number, attemptId?: string) =>
+        request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:

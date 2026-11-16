@@ -16,7 +16,7 @@ export const REPORT_NOTE_MAX = 1000;
 
 /** Where a report was sent from: the server's closed REPORT_SURFACES. */
 export type ReportSurface =
-    | 'feed' | 'quiz' | 'mastery_check' | 'placement' | 'drill' | 'review' | 'lesson' | 'paper' | 'topic' | 'assistant';
+    | 'feed' | 'quiz' | 'mastery_check' | 'placement' | 'drill' | 'review' | 'lesson' | 'paper' | 'topic' | 'assistant' | 'mock';
 
 export type ReportKind = 'question' | 'lesson' | 'paper' | 'card' | 'drill' | 'probe';
 
