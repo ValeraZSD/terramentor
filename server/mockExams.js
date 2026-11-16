@@ -314,7 +314,7 @@ export function resumeSitting(id, { now = Date.now() } = {}) {
     return getSitting(id, { now });
 }
 
-/** "I am done" (or the learner hands in after time up): the clock stops and marking opens. */
+/** "Finish writing" (or the learner hands in after time up): the clock stops and marking opens. */
 export function stopWriting(id, { now = Date.now() } = {}) {
     const s = requireSitting(id);
     if (isCourse(s)) throw bad('A mock from this course ends with Finish');

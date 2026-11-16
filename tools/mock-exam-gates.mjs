@@ -217,11 +217,11 @@ try {
         check('past the time allowed it is still writing: nothing hands in by itself', late.status === 'writing' && late.elapsed > late.timeAllowed);
         check('…and it says the time is up', late.timeUp === true);
         const done = mock.stopWriting(s.id, { now: t0 + 4_500_000 });
-        check('"I am done" stops the clock and opens marking', done.status === 'marking' && done.running === false && done.elapsed === 900, JSON.stringify(done));
-        check('a second "I am done" changes nothing', mock.stopWriting(s.id, { now: t0 + 9_000_000 }).elapsed === 900);
+        check('"Finish writing" stops the clock and opens marking', done.status === 'marking' && done.running === false && done.elapsed === 900, JSON.stringify(done));
+        check('a second "Finish writing" changes nothing', mock.stopWriting(s.id, { now: t0 + 9_000_000 }).elapsed === 900);
         const pausedLate = mock.pauseSitting(s.id, { now: t0 + 9_000_000 });
         const resumedLate = mock.resumeSitting(s.id, { now: t0 + 9_000_000 });
-        check('pause or resume after "I am done" does nothing: the clock stays stopped at 900 s',
+        check('pause or resume after "Finish writing" does nothing: the clock stays stopped at 900 s',
             pausedLate.status === 'marking' && resumedLate.status === 'marking' && resumedLate.running === false
             && mock.getSitting(s.id, { now: t0 + 20_000_000 }).elapsed === 900, JSON.stringify(resumedLate));
         mock.discardSitting(s.id);
@@ -236,7 +236,7 @@ try {
         const early = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: 5 });
         check('a mark while still writing is refused', early.status === 409, String(early.status));
         const stop = await call('POST', `/api/mock-sittings/${sid}/stop`, {});
-        check('"I am done" over HTTP opens marking', stop.status === 200 && stop.body?.sitting?.status === 'marking', JSON.stringify(stop.body));
+        check('"Finish writing" over HTTP opens marking', stop.status === 200 && stop.body?.sitting?.status === 'marking', JSON.stringify(stop.body));
         const over = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: 9 });
         check('more points than the part is worth is refused', over.status === 400, String(over.status));
         const neg = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: -1 });

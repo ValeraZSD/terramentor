@@ -406,8 +406,12 @@ try {
             /<AnswerInput[^>]*disabled=\{finishing/.test(course));
         check('the docked assistant makes no room while an exam holds the window',
             /assistantDocked = [^;]*&& !examFocus/.test(src('src/components/Layout.tsx')));
+        const paperSrc = src('src/components/mockExam/MockSittingScreen.tsx');
         check('a past paper\'s way out says Back, not Save and leave',
-            /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(src('src/components/mockExam/MockSittingScreen.tsx')));
+            /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(paperSrc));
+        check('a paused past paper leads with Resume; Finish writing is then the quiet button',
+            /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{sitting\.running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
+                && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*act\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc));
     });
 } finally {
     server.close();

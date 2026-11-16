@@ -91,6 +91,7 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
     const elapsed = base.elapsed + (sitting.running ? Math.floor((Date.now() - base.at) / 1000) : 0);
     const left = sitting.timeAllowed - elapsed;
     const timeUp = left <= 0;
+    const paused = !sitting.running && !timeUp;
 
     // The screen stays on while the clock runs: the device is the clock on the
     // desk. The browser drops the lock when the tab is hidden, so it is asked
@@ -192,13 +193,15 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
                 )}
             </div>
 
+            {/* Paused, the way on is Resume: finishing is then the quiet one,
+                so a learner coming back does not end the paper by reflex. */}
             <div className="flex flex-wrap justify-end gap-2">
                 {!timeUp && (
-                    <Button busy={busy} onClick={() => act(sitting.running ? 'pause' : 'resume')}>
+                    <Button variant={paused ? 'primary' : 'neutral'} busy={busy} onClick={() => act(sitting.running ? 'pause' : 'resume')}>
                         {sitting.running ? t("Pause") : t("Resume")}
                     </Button>
                 )}
-                <Button variant="primary" busy={busy} onClick={() => act('stop')}>{t("I am done")}</Button>
+                <Button variant={paused ? 'neutral' : 'primary'} busy={busy} onClick={() => act('stop')}>{t("Finish writing")}</Button>
             </div>
         </Panel>
     );
