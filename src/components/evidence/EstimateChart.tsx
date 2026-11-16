@@ -103,6 +103,9 @@ export default function EstimateChart({ points, threshold, day, describe }: {
     // one: a rising line leaves that side empty, so it hides less of the line.
     const tipLeft = at ? (at.x > width / 2 ? undefined : at.x + 12) : undefined;
     const tipRight = at && at.x > width / 2 ? width - at.x + 12 : undefined;
+    // Never wider than the room on its side of the dot: a dot just right of
+    // the middle on a phone leaves less than the box's usual 14rem.
+    const tipMax = at ? Math.min(14 * rem, Math.max(0, (tipRight != null ? at.x : width - at.x) - 12)) : undefined;
     const high = at != null && at.y < (top + bottom) / 2;
     const tipTop = at && high ? at.y + 10 : undefined;
     const tipBottom = at && !high ? height - at.y + 10 : undefined;
@@ -173,8 +176,8 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                 {shown && at && (
                     <div
                         aria-hidden="true"
-                        className="pointer-events-none absolute z-10 w-max max-w-[14rem] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md dark:border-slate-600 dark:bg-slate-900"
-                        style={{ top: tipTop, bottom: tipBottom, left: tipLeft, right: tipRight }}
+                        className="pointer-events-none absolute z-10 w-max rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md dark:border-slate-600 dark:bg-slate-900"
+                        style={{ top: tipTop, bottom: tipBottom, left: tipLeft, right: tipRight, maxWidth: tipMax }}
                     >
                         <p className="text-slate-500 dark:text-slate-400">{day(shown.row.at)} · {describe(shown.row)}</p>
                         <p className="font-medium tabular-nums text-slate-900 dark:text-white">
