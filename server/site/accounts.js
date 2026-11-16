@@ -81,6 +81,9 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         listSessions: db.prepare(`SELECT id, device, created_at, last_seen_at FROM sessions WHERE account_id = ?
                                   ORDER BY last_seen_at DESC`),
         sweepSessions: db.prepare('DELETE FROM sessions WHERE expires_at < ? OR last_seen_at < ?'),
+        sessionAlive: db.prepare('SELECT 1 FROM sessions WHERE id = ? AND expires_at >= ? AND last_seen_at >= ?'),
+        unuseInvite: db.prepare('UPDATE invites SET used_at = NULL WHERE id = ?'),
+        sweepNetworks: db.prepare("DELETE FROM throttle WHERE key LIKE 'net:%' AND last_fail_at < ?"),
         throttleGet: db.prepare('SELECT * FROM throttle WHERE key = ?'),
         throttlePut: db.prepare(`INSERT INTO throttle (key, fails, last_fail_at) VALUES (?, ?, ?)
                                  ON CONFLICT(key) DO UPDATE SET fails = excluded.fails, last_fail_at = excluded.last_fail_at`),
@@ -172,7 +175,14 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         if (q.useInvite.run(nowIso(), invite.id).changes !== 1) {
             return { error: 'This invite link has expired or was already used. Ask for a new one.', spent: true };
         }
-        const libraryId = await createLibrary();
+        let libraryId;
+        try {
+            libraryId = await createLibrary();
+        } catch (e) {
+            // No library, no account: the link stays good for another try.
+            q.unuseInvite.run(invite.id);
+            throw e;
+        }
         const accountId = Number(q.addAccount.run(invite.email, hash, libraryId, nowIso(), nowIso()).lastInsertRowid);
         q.throttleClear.run(`acct:${invite.email}`);
         return { accountId, libraryId, ...startSession(accountId, ua) };
@@ -217,7 +227,13 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         listSessions: (accountId) => q.listSessions.all(accountId),
         endSession: (sessionId, accountId) => q.endSession.run(sessionId, accountId).changes === 1,
         endAllSessions: (accountId) => q.endAll.run(accountId).changes,
-        sweepSessions: (now = Date.now()) => q.sweepSessions.run(nowIso(now), nowIso(now - SESSION_IDLE_MS)).changes,
+        /** Drop ended sessions, and networks whose last wrong guess is over a day old. */
+        sweepSessions: (now = Date.now()) => {
+            q.sweepNetworks.run(now - NETWORK_FORGET_MS); // last_fail_at is epoch ms
+            return q.sweepSessions.run(nowIso(now), nowIso(now - SESSION_IDLE_MS)).changes;
+        },
+        /** Is this session still signed in? False once it was ended, swept or ran out. */
+        sessionAlive: (sessionId, now = Date.now()) => !!q.sessionAlive.get(sessionId, nowIso(now), nowIso(now - SESSION_IDLE_MS)),
         accountById: (id) => q.accountById.get(id),
         listAccounts: () => q.accounts.all(),
         /** Forget an account's wrong guesses (the operator's `unlock`); false when there is no such account. */

@@ -175,7 +175,9 @@ export function createFrontDesk({
             if (method === 'POST') {
                 const form = await readForm(req);
                 const result = await accounts.signIn(form.email, form.password, { ip: clientIp(req), ua: req.headers['user-agent'] });
-                if (result.ok) return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token) });
+                // Whatever an earlier person left in this browser (a session that ran
+                // out, or was ended from another device) goes before this one's opens.
+                if (result.ok) return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token), 'Clear-Site-Data': CLEAR_SITE_DATA });
                 const { nonce, headers } = nonceHeaders();
                 const error = result.wait ? `Too many tries. Wait ${result.wait} seconds and try again.`
                     : result.passwordOff ? 'Signing in with this password is switched off after too many wrong tries. Ask whoever runs this site to switch it back on.'
@@ -199,34 +201,40 @@ export function createFrontDesk({
                 if (String(form.password ?? '') !== String(form.again ?? '')) {
                     return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, error: 'The two passwords are not the same.' }), headers);
                 }
-                const result = await accounts.acceptInvite(token, form.password, req.headers['user-agent']);
+                let result;
+                try {
+                    result = await accounts.acceptInvite(token, form.password, req.headers['user-agent']);
+                } catch (e) {
+                    if (e?.code !== 'AUTH_BUSY') throw e;
+                    result = { error: 'The site is busy. Try again in a moment.' };
+                }
                 if (result.spent) return send(res, 410, inviteSpentPage({ nonce }), headers);
                 if (result.error) return send(res, 400, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH, error: result.error }), headers);
                 // The new library's first start makes its database; done here so
                 // the first page does not wait for it.
                 await pool.wake(result.libraryId).catch((e) => log.error(`[site] First start of a new library failed: ${e.message}`));
-                return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token) });
+                return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token), 'Clear-Site-Data': CLEAR_SITE_DATA });
             }
         }
 
         const session = currentSession(req);
         if (pathname === '/site/sign-out' && method === 'POST') {
-            if (session) accounts.endSession(session.sessionId, session.accountId);
+            if (session && accounts.endSession(session.sessionId, session.accountId)) closeStreams(session.sessionId);
             return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
         }
         if (!session) return redirect(res, '/site/sign-in');
         if (pathname === '/site/sign-out-everywhere' && method === 'POST') {
             accounts.endAllSessions(session.accountId);
+            closeEndedStreams();
             return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
         }
         const endOne = /^\/site\/sessions\/(\d+)\/sign-out$/.exec(pathname);
         if (endOne && method === 'POST') {
             const id = Number(endOne[1]);
+            if (accounts.endSession(id, session.accountId)) closeStreams(id);
             if (id === session.sessionId) {
-                accounts.endSession(id, session.accountId);
                 return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
             }
-            accounts.endSession(id, session.accountId);
             return redirect(res, '/site/sessions?ended');
         }
         if (pathname === '/site/sessions' && method === 'GET') {
@@ -241,6 +249,18 @@ export function createFrontDesk({
         }
         const { nonce, headers } = nonceHeaders();
         return send(res, 404, problemPage({ nonce, title: 'Not found', text: 'There is no page at this address.' }), headers);
+    }
+
+    // Answers being sent, by session, so ending a session also ends its open
+    // streams (a session signed out from another device must stop receiving).
+    const openAnswers = new Map(); // sessionId -> Set<res>
+    function closeStreams(sessionId) {
+        for (const r of openAnswers.get(sessionId) ?? []) r.destroy();
+        openAnswers.delete(sessionId);
+    }
+    /** Close the streams of every session that has ended, here or by the operator's cli.js. */
+    function closeEndedStreams() {
+        for (const id of [...openAnswers.keys()]) if (!accounts.sessionAlive(id)) closeStreams(id);
     }
 
     async function forward(req, res, session) {
@@ -259,6 +279,8 @@ export function createFrontDesk({
             return send(res, 502, problemPage({ nonce, title: 'Your library could not be opened', text: 'Try again in a moment.' }), headers);
         }
         void entry;
+        // The browser may have gone while the library woke; its close has already fired.
+        if (res.destroyed || req.destroyed) return;
         const headers = { ...req.headers };
         delete headers.cookie;
         delete headers[NOTE_HEADER];
@@ -273,10 +295,22 @@ export function createFrontDesk({
             accountId: session.accountId, sessionId: session.sessionId,
         });
         pool.streamOpened(session.libraryId);
+        const open = openAnswers.get(session.sessionId) ?? new Set();
+        openAnswers.set(session.sessionId, open);
+        open.add(res);
         let closed = false;
-        const done = () => { if (!closed) { closed = true; pool.streamClosed(session.libraryId); } };
+        let upstream = null;
+        const done = () => {
+            if (closed) return;
+            closed = true;
+            pool.streamClosed(session.libraryId);
+            open.delete(res);
+            if (!open.size && openAnswers.get(session.sessionId) === open) openAnswers.delete(session.sessionId);
+            // A closed tab ends the library's side too, or a stream would run on unread.
+            if (upstream && !res.writableFinished) upstream.destroy();
+        };
         res.on('close', done);
-        const upstream = http.request({
+        upstream = http.request({
             socketPath: pool.socketPath(session.libraryId), method: req.method, path: req.url, headers,
         }, (lib) => {
             const out = { ...lib.headers };
@@ -324,7 +358,7 @@ export function createFrontDesk({
 
     const sweeper = setInterval(() => {
         pool.sweep().catch((e) => log.error(`[site] Sweep failed: ${e.message}`));
-        try { accounts.sweepSessions(); } catch (e) { log.error(`[site] Session sweep failed: ${e.message}`); }
+        try { accounts.sweepSessions(); closeEndedStreams(); } catch (e) { log.error(`[site] Session sweep failed: ${e.message}`); }
     }, sweepEveryMs);
     sweeper.unref();
 
@@ -334,5 +368,5 @@ export function createFrontDesk({
         await pool.stopAll();
     }
 
-    return { server, accounts, pool, close };
+    return { server, accounts, pool, close, closeEndedStreams, openStreams: () => [...openAnswers.values()].reduce((n, s) => n + s.size, 0) };
 }
