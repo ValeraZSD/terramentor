@@ -115,7 +115,9 @@ try {
     check('…it names the question for the flag (q:<uuid>) when the bank stamped one', typeof stored.uuid === 'string' ? row.ref === `q:${stored.uuid}` : row.ref === null, JSON.stringify({ uuid: stored.uuid, ref: row?.ref }));
     check('…its step starts at 0 and rises', row.before === 0 && row.after > 0, JSON.stringify(row));
     check('…and ends at the stored estimate', close(row.after, getNodeMastery(one).mastery_score), `${row.after} vs ${getNodeMastery(one).mastery_score}`);
-    check('one answer is not proof: the word is "early" or "close", never "proven"', ['early', 'close'].includes(t.estimate.level), t.estimate.level);
+    // The model's first step is the same for a right and a wrong answer: one
+    // answer gets "too early to tell", not a word that reads its number.
+    check('one answer: "few" (too early to tell), never "proven", "early" or "close"', t.estimate.level === 'few', t.estimate.level);
     // A row with no uuid names its question by position, which a spliced bank
     // moves: it shows no question and offers no flag rather than a wrong one.
     sitting(one, 0, 1, 'quiz', { source: 'feed', key: `savedq-${quizId}-0`, questionType: 'multiple_choice' });
@@ -130,6 +132,20 @@ try {
     check('five rows, newest first', t.rows.length === 5 && t.count === 5 && t.rows[0]?.id > t.rows[4]?.id);
     check('each step starts where the one before it ended', asc.every((r, i) => i === 0 || close(r.before, asc[i - 1].after)), JSON.stringify(asc.map(r => [r.before, r.after])));
     check('the newest step ends at the stored estimate', close(t.rows[0]?.after, getNodeMastery(many).mastery_score), `${t.rows[0]?.after} vs ${getNodeMastery(many).mastery_score}`);
+    // The screen reads "Started the estimate at" for a row that begins at 0
+    // (the model's first step rises even on a wrong answer): only the oldest.
+    check('only the oldest row starts at 0, a wrong answer included', asc[0]?.before === 0 && asc[0]?.score === 0 && asc.slice(1).every(r => r.before > 0), JSON.stringify(asc.map(r => r.before)));
+    check('thirteen answers of its own: past "few"', ['early', 'close', 'proven'].includes(t.estimate.level), t.estimate.level);
+
+    // Practice is not proof: a drill gets no step, and the proving steps end
+    // at the number the gate reads, so the trail and the card agree.
+    sitting(many, 5, 5, 'drill');
+    t = await trail(many);
+    const drillRow = t.rows[0] ?? {};
+    check('a drill row: type drill, no step (practice does not count toward proof)', drillRow.type === 'drill' && drillRow.before === null && drillRow.after === null, JSON.stringify(drillRow));
+    const newestProving = t.rows.find(r => r.after != null);
+    check('…the newest proving step ends at the gate\'s own number (answersScore)', close(newestProving?.after, t.estimate.answersScore), `${newestProving?.after} vs ${t.estimate.answersScore}`);
+    check('…and that is the shown score unless cards lifted it', t.estimate.score >= t.estimate.answersScore - 1e-9, JSON.stringify(t.estimate));
     check('the shown score is the gate\'s shown_score, a number in 0..1', typeof t.estimate.score === 'number' && t.estimate.score >= 0 && t.estimate.score <= 1);
 
     console.log('\n--- 4. proven, then fading ---');
@@ -152,7 +168,7 @@ try {
     sitting(halfway, 1, 1); sitting(halfway, 1, 1);
     db.prepare("UPDATE node_mastery SET last_updated = datetime('now', '-40 days') WHERE node_id = ?").run(halfway);
     t = await trail(halfway);
-    check('never proven, left alone 40 days: not "fading" (it is "close" or "early")', ['close', 'early'].includes(t.estimate.level), JSON.stringify(t.estimate));
+    check('never proven, left alone 40 days: not "fading" (two answers: "few")', t.estimate.level === 'few', JSON.stringify(t.estimate));
 
     // Clause (b): a passed check proves the topic while the estimate stays
     // under a bar the learner raised to 95%. The word is "proven" and the
@@ -171,6 +187,9 @@ try {
     applySeededPrior(seeded, 'placement', 0.52, []);
     t = await trail(seeded);
     check('a placement seed and no answer: "borrowed", from placement', t.estimate.level === 'borrowed' && t.estimate.seed === 'placement', JSON.stringify(t.estimate));
+    sitting(seeded, 1, 1);
+    t = await trail(seeded);
+    check('…the first own answer steps from the seed, never from 0', close(t.rows[0]?.before, 0.52), JSON.stringify(t.rows[0]));
 
     const deckTopic = addNode(deck, 'Hiragana');
     const cards = Array.from({ length: 4 }, (_, i) => Number(db.prepare('INSERT INTO flashcards (node_id, front, back) VALUES (?, ?, ?)').run(deckTopic, `f${i}`, `b${i}`).lastInsertRowid));

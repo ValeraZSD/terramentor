@@ -1,8 +1,8 @@
 // What the app thinks a learner knows about one topic, and the evidence that
 // says so (GET /api/nodes/:nodeId/evidence). The estimate is the one the gate
-// and the end card already read (checkMasteryEligibility); each evidence row
-// carries the step it gave the estimate by the replay a rebuild runs
-// (evidenceMoves), so the trail adds up to what the topic would be rebuilt to.
+// and the end card already read (checkMasteryEligibility); each proving row
+// carries the step it gave that estimate by the gate's own replay
+// (evidenceMoves), so the trail adds up to the number on the card.
 //
 // Reads only. GET /api/nodes/:nodeId/mastery creates the topic's mastery row
 // on the way; this one does not, so opening a topic never writes.
@@ -50,15 +50,22 @@ function feedQuestion(meta) {
  *   fading     proven, then left alone past `decay_days` (FADING_TOPIC); a
  *              topic never proven is not called fading, whatever its age
  *   practice   over the bar only because of cards and drills
+ *   few        under FEW_ANSWERS graded answers of the learner's own: the
+ *              model's first step is the same for a right and a wrong one,
+ *              so a number here would say more than the answers do
  *   close      over halfway
  *   early      under halfway
  */
-function levelOf({ record, rows, eligibility, fading }) {
+export const FEW_ANSWERS = 3;
+
+function levelOf({ record, rows, eligibility, fading, deck }) {
     if (!record || (!(record.total_attempts > 0) && record.transferred_prior == null && record.placement_prior == null && !rows)) return 'none';
     if (eligibility.borrowed_estimate) return 'borrowed';
     if (eligibility.eligible) return fading ? 'fading' : 'proven';
     if (eligibility.practice_lifted) return 'practice';
     if (!(record.total_attempts > 0)) return 'none';
+    // A deck has only card ratings, never answers of this kind.
+    if (!deck && eligibility.own_answers < FEW_ANSWERS) return 'few';
     return eligibility.shown_score >= 0.5 ? 'close' : 'early';
 }
 
@@ -105,8 +112,9 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
             at: r.at,
             score: r.score,
             total: r.total,
-            // The estimate before and after this row, by the rebuild's replay;
-            // null for a placement answer, which set a head start instead.
+            // The estimate before and after this row, by the gate's replay;
+            // null for practice (not proof) and for a placement answer, which
+            // set a head start instead.
             before: move ? move.before : null,
             after: move ? move.after : null,
             // A single feed answer names its question; the learner can flag it.
@@ -120,7 +128,7 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
         };
     });
 
-    const level = levelOf({ record, rows: count > 0, eligibility, fading });
+    const level = levelOf({ record, rows: count > 0, eligibility, fading, deck: node.project_kind === 'deck' });
     return {
         nodeId: node.id,
         title: node.title,
@@ -131,6 +139,9 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
             level,
             // What every learner-facing reader prints (the end card, the refusal).
             score: eligibility && level !== 'none' ? eligibility.shown_score : null,
+            // What the proving answers alone give (the trail's steps end
+            // here); under `score` when cards or drills lifted the number.
+            answersScore: eligibility && level !== 'none' ? eligibility.gate_score : null,
             seed: record?.placement_prior != null ? 'placement' : record?.transferred_prior != null ? 'transfer' : null,
             ownAnswers: eligibility?.own_answers ?? 0,
             practiceRight: eligibility?.practice_right ?? 0,

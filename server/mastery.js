@@ -690,16 +690,18 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
 }
 
 /**
- * What each evidence row did to the estimate, by the replay a rebuild runs
- * (`rescoreNode`): evidence id → `{ before, after }`, from the seed the row
- * holds now. Reads only; placement rows are not in it (their seed was their
- * contribution). The rates are today's, so a row's step is what that answer
- * is worth now, which is what the stored estimate becomes on any rebuild.
+ * What each proving answer did to the estimate the gate reads: evidence id →
+ * `{ before, after }`, by the proving-only replay `gateScoreOf` runs, from the
+ * seed the row holds now. So the steps end at the number a learner is shown
+ * (shown_score) whenever practice did not lift it. Practice rows (cards,
+ * drills) and placement rows are not in it: practice does not count toward
+ * proof, and a placement answer's contribution is the seed. Reads only; the
+ * rates are today's, so a step is what that answer is worth now.
  */
 export function evidenceMoves(nodeId) {
     const record = stmt('SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
     const trace = new Map();
-    if (record) replayOwnEvidence(nodeId, seedOf(record), { trace });
+    if (record) replayOwnEvidence(nodeId, seedOf(record), { provingOnly: true, trace });
     return trace;
 }
 
