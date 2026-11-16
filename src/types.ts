@@ -249,6 +249,63 @@ export type ImportResult = Project & {
     failed?: { name: string; error: string }[];
 };
 
+/** One item in a course-update preview. */
+export interface CourseUpdateItem {
+    kind: 'node' | 'question' | 'card' | 'resource';
+    label: string;
+    where: string | null;
+    /** For a changed item: which of its fields the file changes. */
+    fields?: string[];
+}
+
+/** A field both the file and the learner changed: the learner's version is kept
+ *  unless they choose the file's. `mine` is null for an item they deleted. */
+export interface CourseUpdateConflict {
+    key: string;
+    kind: 'node' | 'question' | 'card' | 'resource' | 'project';
+    field: string;
+    label: string | null;
+    where: string | null;
+    mine: string | null;
+    file: string | null;
+    unknownBase: boolean;
+}
+
+export interface CourseUpdateSummary {
+    changed: number;
+    moved: number;
+    added: number;
+    removed: number;
+    keptRemoved: number;
+    conflicts: number;
+    ambiguous: number;
+    reviewedCardsChanged: number;
+    questionsReset: number;
+    projectFields: number;
+    nothing: boolean;
+}
+
+/** What `POST /api/course-updates/inspect` says a file would do. `match` is null
+ *  when the file's course is not in the library (the importer makes a new one). */
+export interface CourseUpdatePreview {
+    match: { projectId: number; name: string; version: string | null; fileVersion: string | null } | null;
+    refused: 'older' | null;
+    message?: string | null;
+    summary: CourseUpdateSummary | null;
+    items?: {
+        changed: (CourseUpdateItem & { fields: string[] })[];
+        moved: CourseUpdateItem[];
+        added: CourseUpdateItem[];
+        removed: CourseUpdateItem[];
+        keptRemoved: CourseUpdateItem[];
+        reviewedCardsChanged: CourseUpdateItem[];
+        ambiguous: CourseUpdateItem[];
+        project: string[];
+    } | null;
+    conflicts?: CourseUpdateConflict[];
+    warnings?: string[];
+}
+
 export interface Toast {
     id: string;
     type: 'success' | 'error' | 'info';
