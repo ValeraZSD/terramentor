@@ -173,18 +173,22 @@ cmd_new() {
     UNDO_NEW="$name"
 
     # The copy's AI key, kept beside this script and readable by root only.
+    # Each part is counted as this run's only once this run has made it, so an
+    # undo never removes what another run made: the key file is created only
+    # if it does not exist, and a network create that fails claims nothing.
     local envfile="$KEYS/$name.env"
+    ( set -C; : > "$envfile" ) 2>/dev/null || die "$envfile appeared while $name was being made"
     MADE+=(keys)
-    : > "$envfile"; chmod 600 "$envfile"
+    chmod 600 "$envfile"
     if [ -n "$keyfile" ]; then
         [ -s "$keyfile" ] || die "$keyfile is empty"
         printf 'AI_API_KEY=%s\n' "$(tr -d '\r\n' < "$keyfile")" > "$envfile"
     fi
 
+    docker network create "$(network "$name")" >/dev/null || die "could not create network $(network "$name")"
     MADE+=(network)
-    docker network create "$(network "$name")" >/dev/null
-    MADE+=(volume)
     docker volume create "$(volume "$name")" >/dev/null
+    MADE+=(volume)
     # The password is set BEFORE the copy first starts, so it never listens
     # unlocked (server/hosted.js refuses to). Printed once, below, and kept
     # nowhere: the library holds only its scrypt hash.
