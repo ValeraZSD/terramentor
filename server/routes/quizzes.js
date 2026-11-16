@@ -4,6 +4,7 @@
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
+import { softDelete } from '../softDelete.js';
 import {
     AI_PROMPTS, buildNodeContext, checkAnswerWithAI, generateResponse, probeAiReachable,
     streamResponse,
@@ -160,7 +161,7 @@ app.get('/api/ai/quizzes/:nodeId', (req, res) => {
         SELECT q.*,
             (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as attempt_count,
             (SELECT MAX(qa.score * 100 / qa.total) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as best_score
-        FROM quizzes q
+        FROM live_quizzes q
         WHERE q.node_id = ?
         ORDER BY q.created_at DESC
     `).all(req.params.nodeId);
@@ -249,7 +250,7 @@ function writeQuizAttempt(req, score, total) {
     const proven = provenSitting({ quizId: Number(req.params.quizId), asked, score, total, ghostResults });
     let masteryResult = null;
     try {
-        const quiz = db.prepare('SELECT node_id FROM quizzes WHERE id = ?').get(req.params.quizId);
+        const quiz = db.prepare('SELECT node_id FROM live_quizzes quizzes WHERE id = ?').get(req.params.quizId);
         if (quiz && proven.total > 0) {
             masteryResult = updateMasteryFromAttempt(quiz.node_id, proven.score, proven.total, 'quiz', {
                 quiz_id: Number(req.params.quizId),
@@ -313,7 +314,7 @@ app.post('/api/ai/quizzes/:quizId/attempt', (req, res) => {
 });
 
 app.delete('/api/ai/quizzes/:quizId', (req, res) => {
-    db.prepare('DELETE FROM quizzes WHERE id = ?').run(req.params.quizId);
+    if (!softDelete('quizzes', Number(req.params.quizId))) return res.status(404).json({ error: 'Quiz not found' });
     res.json({ success: true });
 });
 
@@ -327,7 +328,7 @@ app.post('/api/ai/explain-question', async (req, res) => {
     const { nodeId, question, correctAnswer, userAnswer } = req.body;
     if (!question) return res.status(400).json({ error: 'question is required' });
     try {
-        const node = nodeId ? db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId) : null;
+        const node = nodeId ? db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId) : null;
         const context = nodeId ? buildNodeContext(nodeId) : '';
         const { system, user } = AI_PROMPTS.explain_question(
             node?.title || 'this topic',
@@ -381,8 +382,8 @@ app.get('/api/projects/:projectId/quizzes', (req, res) => {
                 (SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as attempt_count,
                 (SELECT MAX(qa.score * 100 / qa.total) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as best_score,
                 (SELECT ROUND(AVG(qa.score * 100.0 / qa.total)) FROM quiz_attempts qa WHERE qa.quiz_id = q.id) as avg_score
-            FROM quizzes q
-            JOIN nodes n ON n.id = q.node_id
+            FROM live_quizzes q
+            JOIN live_nodes n ON n.id = q.node_id
             WHERE n.project_id = ?
             ORDER BY q.created_at DESC
         `).all(projectId);

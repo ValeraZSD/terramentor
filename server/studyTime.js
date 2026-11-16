@@ -86,7 +86,7 @@ function statements() {
     stmts = {
         rememberFlush: db.prepare('INSERT OR IGNORE INTO study_time_flushes (id, at) VALUES (?, ?)'),
         forgetFlushes: db.prepare('DELETE FROM study_time_flushes WHERE at < ?'),
-        nodeExists: db.prepare('SELECT 1 FROM nodes WHERE id = ?'),
+        nodeExists: db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?'),
         add: db.prepare(`
             INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, ?, ?, ?)
             ON CONFLICT (node_id, hour, activity, device)
@@ -98,8 +98,8 @@ function statements() {
             SELECT st.node_id AS nodeId, SUM(st.active_ms) AS ms, n.title AS nodeTitle,
                    p.id AS projectId, p.name AS projectName, p.color AS projectColor
             FROM study_time st
-            JOIN nodes n ON n.id = st.node_id
-            JOIN projects p ON p.id = n.project_id
+            JOIN live_nodes n ON n.id = st.node_id
+            JOIN live_projects p ON p.id = n.project_id
             WHERE st.hour BETWEEN ? AND ?
             GROUP BY st.node_id
             ORDER BY ms DESC, n.title
@@ -113,27 +113,27 @@ function statements() {
         `),
         node: db.prepare(`
             SELECT n.id, p.created_at AS projectCreated
-            FROM nodes n JOIN projects p ON p.id = n.project_id WHERE n.id = ?
+            FROM live_nodes n JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?
         `),
         // A topic and everything filed under it: a section's time is its topics'.
         subtreeRows: db.prepare(`
             WITH RECURSIVE sub(id) AS (
-                SELECT ? UNION ALL SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+                SELECT ? UNION ALL SELECT n.id FROM live_nodes n JOIN sub ON n.parent_id = sub.id
             )
             SELECT st.hour AS hour, st.activity AS activity, SUM(st.active_ms) AS ms
             FROM study_time st WHERE st.node_id IN (SELECT id FROM sub)
             GROUP BY st.hour, st.activity
         `),
-        project: db.prepare('SELECT id, created_at FROM projects WHERE id = ?'),
+        project: db.prepare('SELECT id, created_at FROM live_projects projects WHERE id = ?'),
         projectRows: db.prepare(`
             SELECT st.hour AS hour, st.activity AS activity, SUM(st.active_ms) AS ms
-            FROM study_time st JOIN nodes n ON n.id = st.node_id
+            FROM study_time st JOIN live_nodes n ON n.id = st.node_id
             WHERE n.project_id = ?
             GROUP BY st.hour, st.activity
         `),
         projectTopics: db.prepare(`
             SELECT st.node_id AS nodeId, n.title AS title, SUM(st.active_ms) AS ms
-            FROM study_time st JOIN nodes n ON n.id = st.node_id
+            FROM study_time st JOIN live_nodes n ON n.id = st.node_id
             WHERE n.project_id = ?
             GROUP BY st.node_id
             ORDER BY ms DESC, n.title

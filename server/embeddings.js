@@ -523,7 +523,7 @@ export async function semanticSearch(query, { nodeId = null, projectId = null, p
     let scope = '';
     const scopeParams = [];
     if (projectWide && projectId) {
-        scope = ' AND (d.project_id = ? OR d.node_id IN (SELECT id FROM nodes WHERE project_id = ?))';
+        scope = ' AND (d.project_id = ? OR d.node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))';
         scopeParams.push(projectId, projectId);
     }
     else if (nodeId && projectId) { scope = ' AND (d.node_id = ? OR d.project_id = ?)'; scopeParams.push(nodeId, projectId); }

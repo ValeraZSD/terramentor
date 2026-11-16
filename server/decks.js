@@ -82,7 +82,7 @@ function defaultNewPerDay(projectId) {
     // 'deck' means "arrived as an Anki import", which is exactly the question
     // being asked here.
     const imported = db.prepare(
-        "SELECT COALESCE(kind, 'curriculum') AS kind FROM projects WHERE id = ?"
+        "SELECT COALESCE(kind, 'curriculum') AS kind FROM live_projects projects WHERE id = ?"
     ).get(projectId)?.kind === 'deck';
     if (imported) return DEFAULT_NEW_PER_DAY;
     const raw = readSetting('feed_new_per_project');
@@ -133,8 +133,8 @@ function loadCards(projectId) {
     // as "the front of this stage is green" if the ticks are in deck order.
     return db.prepare(`
         SELECT ${CARD_COLUMNS}
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ?
         ORDER BY f.id
     `).all(projectId);
@@ -194,8 +194,8 @@ export function deckCounts(projectId, { now = new Date() } = {}) {
     const introducedToday = db.prepare(`
         SELECT COUNT(DISTINCT r.card_id) AS n
         FROM review_log r
-        JOIN flashcards f ON f.id = r.card_id
-        JOIN nodes n ON n.id = f.node_id
+        JOIN live_flashcards f ON f.id = r.card_id
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ?
           AND r.source = 'app'
           AND r.state_before = 0
@@ -255,8 +255,8 @@ export function deckForecast(projectId, { days = 14, now = new Date() } = {}) {
     const rows = db.prepare(`
         SELECT CASE WHEN julianday(f.next_review) IS NULL THEN NULL ${bucket} ELSE ${days} END AS offset,
                COUNT(*) AS n
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ? AND f.next_review IS NOT NULL AND f.review_count > 0
         GROUP BY offset
     `).all(...ends, projectId);   // the SELECT's `?` bind first
@@ -301,8 +301,8 @@ export function deckStages(projectId, { now = new Date() } = {}) {
     const nodes = db.prepare(`
         SELECT n.id, n.title, n.description, n.position, n.status, n.parent_id,
                p.title AS parent_title
-        FROM nodes n
-        LEFT JOIN nodes p ON p.id = n.parent_id
+        FROM live_nodes n
+        LEFT JOIN live_nodes p ON p.id = n.parent_id
         WHERE n.project_id = ? AND n.is_note = 0
         ORDER BY COALESCE(p.position, n.position), n.position, n.id
     `).all(projectId);
@@ -363,7 +363,7 @@ export function deckStages(projectId, { now = new Date() } = {}) {
  */
 export function buildDeckData(projectId, { forecastDays = 14, now = new Date() } = {}) {
     const project = db.prepare(
-        'SELECT id, name, color, icon, kind, description FROM projects WHERE id = ?'
+        'SELECT id, name, color, icon, kind, description FROM live_projects projects WHERE id = ?'
     ).get(projectId);
     if (!project) return null;
     // One instant for all three, so the counts, the ladder and the chart on one
@@ -442,10 +442,10 @@ export function studyQueue(projectId, { now = new Date(), newLimit = null, stage
         SELECT f.*, n.title AS node_title, n.parent_id, n.position AS node_position,
                parent.position AS parent_position,
                n.project_id, p.name AS project_name, p.color AS project_color
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
-        JOIN projects p ON p.id = n.project_id
-        LEFT JOIN nodes parent ON parent.id = n.parent_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
+        JOIN live_projects p ON p.id = n.project_id
+        LEFT JOIN live_nodes parent ON parent.id = n.parent_id
         WHERE n.project_id = ? AND (? IS NULL OR f.node_id = ?)
     `).all(projectId, stageId, stageId);
 
@@ -479,10 +479,10 @@ export function studyQueue(projectId, { now = new Date(), newLimit = null, stage
 export function globalStudyQueue({ now = new Date(), aheadDays = 0 } = {}) {
     const projects = db.prepare(`
         SELECT p.id
-        FROM projects p
+        FROM live_projects p
         WHERE COALESCE(p.status, 'active') = 'active'
           AND EXISTS (
-              SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
+              SELECT 1 FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
               WHERE n.project_id = p.id
           )
         ORDER BY p.position ASC, p.created_at ASC

@@ -152,8 +152,8 @@ const DOC_COLS = `
            d.project_id, d.node_id, length(d.content) AS chars,
            p.name AS project_name, n.title AS node_title
     FROM documents d
-    LEFT JOIN projects p ON p.id = d.project_id
-    LEFT JOIN nodes n ON n.id = d.node_id`;
+    LEFT JOIN live_projects p ON p.id = d.project_id
+    LEFT JOIN live_nodes n ON n.id = d.node_id`;
 
 /**
  * The document a reference names: an id, or a title (exact, then contained,
@@ -239,7 +239,7 @@ export function listDocuments(arg) {
 
     if (!rows.length) {
         const elsewhere = project
-            ? db.prepare(`SELECT p.id, p.name, COUNT(*) AS n FROM documents d JOIN projects p ON p.id = d.project_id GROUP BY p.id ORDER BY n DESC LIMIT 8`).all()
+            ? db.prepare(`SELECT p.id, p.name, COUNT(*) AS n FROM documents d JOIN live_projects p ON p.id = d.project_id GROUP BY p.id ORDER BY n DESC LIMIT 8`).all()
             : [];
         return {
             context: project
@@ -264,7 +264,7 @@ export function listDocuments(arg) {
         lines.push(documentLine(d, pagesOf));
     }
     if (capped) {
-        const counts = db.prepare(`SELECT d.project_id AS id, p.name, COUNT(*) AS n FROM documents d LEFT JOIN projects p ON p.id = d.project_id GROUP BY d.project_id ORDER BY n DESC`).all();
+        const counts = db.prepare(`SELECT d.project_id AS id, p.name, COUNT(*) AS n FROM documents d LEFT JOIN live_projects p ON p.id = d.project_id GROUP BY d.project_id ORDER BY n DESC`).all();
         lines.push(`Not listed: ${rows.length - shown.length} more. Documents per project: ${counts.map(c => (c.id ? `"${c.name}" (projectId ${c.id}): ${c.n}` : `no project: ${c.n}`)).join('; ')}. Call list_documents with one projectId to see all of that project's.`);
     }
     lines.push('To read one, call read_document with its docId; a long one is read a few pages per call, and each result says how to ask for the next part. A document marked as having no text cannot be read until it is recovered — say so rather than guessing its contents.');
@@ -423,7 +423,7 @@ export function readDocument(arg, { budget = readBudget() } = {}) {
 export function findTopic(ref) {
     const cols = `SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.description, n.notes, n.is_note, n.project_id, n.parent_id,
                          p.name AS project_name
-                  FROM nodes n JOIN projects p ON p.id = n.project_id`;
+                  FROM live_nodes n JOIN live_projects p ON p.id = n.project_id`;
     if (ref?.id != null) return db.prepare(`${cols} WHERE n.id = ?`).get(ref.id) || null;
     const title = String(ref?.title || '').trim();
     if (!title) return null;
@@ -462,10 +462,10 @@ export function readTopic(arg, { budget = readBudget(), notes = true, next: next
     const room = Math.min(READ_CHARS_PER_CALL, budget.total - budget.used);
     if (room < 500) return { ...budgetSpent(budget), label: node.title };
 
-    const parent = node.parent_id ? db.prepare('SELECT title FROM nodes WHERE id = ?').get(node.parent_id) : null;
-    const material = db.prepare('SELECT title, description FROM nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position, id').all(node.id)
+    const parent = node.parent_id ? db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(node.parent_id) : null;
+    const material = db.prepare('SELECT title, description FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1 ORDER BY position, id').all(node.id)
         .filter(n => String(n.description || '').trim());
-    const children = db.prepare(`SELECT n.id, n.title, ${LEAF_STATUS} AS status FROM nodes n WHERE n.parent_id = ? AND n.is_note = 0 ORDER BY n.position, n.id`).all(node.id);
+    const children = db.prepare(`SELECT n.id, n.title, ${LEAF_STATUS} AS status FROM live_nodes n WHERE n.parent_id = ? AND n.is_note = 0 ORDER BY n.position, n.id`).all(node.id);
     const sections = [];
     if (String(node.description || '').trim()) sections.push(`OVERVIEW:\n${String(node.description).trim()}`);
     for (const m of material) sections.push(`MATERIAL "${m.title}":\n${String(m.description).trim()}`);

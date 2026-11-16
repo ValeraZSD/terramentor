@@ -30,6 +30,7 @@ import { currentAppIcon, currentManifestColors } from './appIconSettings.js';
 import { assertEveryBlockMounted, mountRoutes, routeTable } from './routes/routeTable.js';
 import * as authApi from './routes/auth.js';
 import * as projectsApi from './routes/projects.js';
+import * as deletedApi from './routes/deleted.js';
 import * as tasksApi from './routes/tasks.js';
 import * as catalogApi from './routes/catalog.js';
 import * as nodesApi from './routes/nodes.js';
@@ -386,7 +387,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
             // made by whichever of the two gets there first.
             instanceKey: loadInstanceKey(dataPaths().dataDir),
             libraryEmpty: () => {
-                try { return db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === 0; }
+                try { return db.prepare('SELECT COUNT(*) AS n FROM live_projects projects').get().n === 0; }
                 catch { return false; }
             },
         })
@@ -454,6 +455,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(projectsApi.editRoutes);
     mount(catalogApi.routes);
     mount(projectsApi.deleteRoutes);
+    mount(deletedApi.routes);
     mount(nodesApi.nodeRoutes);
     mount(onboardingApi.routes);
     mount(assistantWritesApi.routes);

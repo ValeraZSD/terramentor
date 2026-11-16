@@ -37,7 +37,7 @@ const COMPLETED_NODES_LIMIT = 10;
 // frontend's tree.ts all mean the same thing by "leaf".
 export const LEAF_NODE = `
     n.is_note = 0
-    AND (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0) = 0
+    AND (SELECT COUNT(*) FROM live_nodes c WHERE c.parent_id = n.id AND c.is_note = 0) = 0
 `;
 
 // A leaf that is a UNIT OF WORK: structurally a leaf, and a topic rather than a
@@ -86,7 +86,7 @@ export function workLeaves(nodes) {
 // the client asks `leafStatus` of leaves alone and rolls a section up from its
 // children, so a section's own stray mastery row or card must not say more.
 export const LEAF_STATUS = `CASE WHEN COALESCE(n.status, 'not_started') = 'not_started' AND ${LEAF_NODE} AND (
-        EXISTS (SELECT 1 FROM flashcards f_met WHERE f_met.node_id = n.id
+        EXISTS (SELECT 1 FROM live_flashcards f_met WHERE f_met.node_id = n.id
                   AND f_met.review_count > 0 AND f_met.last_reviewed IS NOT NULL)
         OR EXISTS (SELECT 1 FROM node_mastery nm_own WHERE nm_own.node_id = n.id AND nm_own.total_attempts > 0)
     ) THEN 'in_progress' ELSE COALESCE(n.status, 'not_started') END`;
@@ -110,7 +110,7 @@ export const OPEN_WORK_LEAF = `
     AND n.status NOT IN ('completed', 'skipped')
 `;
 
-export const ACTIVE_PROJECT_JOIN = `JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'`;
+export const ACTIVE_PROJECT_JOIN = `JOIN live_projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'`;
 
 // The `completed_at` a node gets when it is set to completed, as the right-hand
 // side of an UPDATE (one `?`, the new timestamp). A node that is ALREADY
@@ -136,7 +136,7 @@ export function nodeLabels(ids) {
                     WHEN NOT (${LEAF_NODE}) THEN 'section'
                     WHEN NOT (${WORK_LEAF}) THEN 'stage'
                     ELSE 'topic' END as kind
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id IN (${wanted.map(() => '?').join(',')})
     `).all(...wanted);
 }
@@ -148,7 +148,7 @@ export function nodeLabels(ids) {
  * in its card order. Returns `{ status }`, or `{ refused, code, httpStatus }`.
  */
 export function masteryCheckTarget(nodeId) {
-    const node = db.prepare(`SELECT n.status, (${WORK_LEAF}) as work FROM nodes n WHERE n.id = ?`).get(Number(nodeId));
+    const node = db.prepare(`SELECT n.status, (${WORK_LEAF}) as work FROM live_nodes n WHERE n.id = ?`).get(Number(nodeId));
     if (!node) return { refused: 'That topic no longer exists.', code: 'not_found', httpStatus: 404 };
     if (!node.work) return { refused: 'A mastery check is taken on a topic, not on a section, a note or a deck stage.', code: 'not_a_topic', httpStatus: 400 };
     return { status: node.status };
@@ -193,14 +193,14 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
 
     const activeProjects = db.prepare(`
         SELECT id, name, color, icon, start_date, deadline, study_days
-        FROM projects
+        FROM live_projects projects
         WHERE COALESCE(status, 'active') = 'active'
         ORDER BY position ASC, created_at ASC
     `).all();
 
     const overdueRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM live_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_end < ?
@@ -209,7 +209,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
 
     const todayRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM live_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_start <= ?
@@ -219,8 +219,8 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
 
     const dueFlashcardCounts = db.prepare(`
         SELECT n.project_id, COUNT(*) AS count
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${reviewDue('f')}
         GROUP BY n.project_id
@@ -231,7 +231,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
     const decayingRows = db.prepare(`
         SELECT nm.node_id, n.project_id, nm.mastery_score, nm.last_updated, n.title
         FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN live_nodes n ON n.id = nm.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC
@@ -242,7 +242,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
     // compares both shapes.
     const completedNodes = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.status
-        FROM nodes n
+        FROM live_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${WORK_LEAF}
           AND n.status IN ('completed', 'skipped')
@@ -254,16 +254,16 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
     const quizAttemptsToday = db.prepare(`
         SELECT COUNT(*) AS count
         FROM quiz_attempts qa
-        JOIN quizzes q ON q.id = qa.quiz_id
-        JOIN nodes n ON n.id = q.node_id
+        JOIN live_quizzes q ON q.id = qa.quiz_id
+        JOIN live_nodes n ON n.id = q.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('qa.created_at')}
     `).get(day.start, day.end);
 
     const flashcardsReviewedToday = db.prepare(`
         SELECT COUNT(*) AS count
-        FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${IN_DAY('f.last_reviewed')} AND f.stability IS NOT NULL
     `).get(day.start, day.end);
@@ -497,9 +497,9 @@ export function buildTodayActivity(date) {
                f.front, n.id AS node_id, n.title AS node_title,
                p.id AS project_id, p.name AS project_name, p.color AS project_color
         FROM review_log rl
-        JOIN flashcards f ON f.id = rl.card_id
-        JOIN nodes n ON n.id = f.node_id
-        JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
+        JOIN live_flashcards f ON f.id = rl.card_id
+        JOIN live_nodes n ON n.id = f.node_id
+        JOIN live_projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
         WHERE rl.source = 'app' AND ${IN_DAY('rl.reviewed_at')}
         ORDER BY rl.reviewed_at DESC
     `).all(day.start, day.end);
@@ -510,8 +510,8 @@ export function buildTodayActivity(date) {
                n.id AS node_id, n.title AS node_title,
                p.id AS project_id, p.name AS project_name, p.color AS project_color
         FROM mastery_evidence me
-        JOIN nodes n ON n.id = me.node_id
-        JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
+        JOIN live_nodes n ON n.id = me.node_id
+        JOIN live_projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
         -- 'flashcard' evidence is the card ratings above, batched per topic
         -- (cardEvidence.js): listing it too showed every review twice, the
         -- second time as a "question" scored "18 of 20".
@@ -524,8 +524,8 @@ export function buildTodayActivity(date) {
                n.id AS node_id, n.title AS node_title,
                p.id AS project_id, p.name AS project_name, p.color AS project_color
         FROM feed_items fi
-        JOIN nodes n ON n.id = fi.node_id
-        JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
+        JOIN live_nodes n ON n.id = fi.node_id
+        JOIN live_projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
         WHERE fi.kind = 'lesson' AND fi.status = 'consumed' AND ${NOT_REPORTED('fi.result')} AND ${IN_DAY('fi.consumed_at')}
         ORDER BY fi.consumed_at DESC
     `).all(day.start, day.end);
@@ -534,8 +534,8 @@ export function buildTodayActivity(date) {
         SELECT ${AS_ISO('n.completed_at')} AS at, n.status,
                n.id AS node_id, n.title AS node_title,
                p.id AS project_id, p.name AS project_name, p.color AS project_color
-        FROM nodes n
-        JOIN projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
+        FROM live_nodes n
+        JOIN live_projects p ON p.id = n.project_id AND COALESCE(p.status, 'active') = 'active'
         WHERE n.is_note = 0 AND n.status IN ('completed', 'skipped')
           AND ${IN_DAY('n.completed_at')}
         ORDER BY n.completed_at DESC
@@ -662,7 +662,7 @@ export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
         SELECT n.id AS nodeId, n.project_id AS projectId, n.title,
                ${LEAF_STATUS} AS status,
                n.scheduled_start, n.scheduled_end
-        FROM nodes n
+        FROM live_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${WORK_LEAF}
           AND n.scheduled_start IS NOT NULL
@@ -682,7 +682,7 @@ export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
 
     const projects = db.prepare(`
         SELECT id, name, color, start_date, deadline
-        FROM projects
+        FROM live_projects projects
         WHERE COALESCE(status, 'active') = 'active'
         ORDER BY position ASC, created_at ASC
     `).all();
@@ -691,7 +691,7 @@ export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
     // window), so its days come from the plan — the same sections the
     // project's own calendar shows, so the two calendars agree. A section
     // past its end with cards not yet met is late like a topic.
-    const titleOf = db.prepare('SELECT title FROM nodes WHERE id = ?');
+    const titleOf = db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?');
     for (const p of projects) {
         if (!p.start_date || !p.deadline) continue;
         // Nothing on screen, and nothing can be late before the window opens.

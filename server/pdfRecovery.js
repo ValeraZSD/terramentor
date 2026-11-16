@@ -370,7 +370,7 @@ async function runRecovery(documentId, { force }) {
     // The project's NAME and COLOUR, not only its id: the dock draws the colour,
     // and it is the only thing on a chip that says which course the work is for.
     const owner = doc.project_id
-        ? db.prepare('SELECT name, color FROM projects WHERE id = ?').get(doc.project_id)
+        ? db.prepare('SELECT name, color FROM live_projects projects WHERE id = ?').get(doc.project_id)
         : null;
     const handle = tasks.registerExternal({
         kind: 'recover',

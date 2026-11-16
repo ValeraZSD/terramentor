@@ -49,7 +49,7 @@ export function cardAnswerIsCorrect(rating) {
 
 const cardNodeStmt = db.prepare(`
     SELECT f.node_id AS nodeId, n.role AS role
-    FROM flashcards f JOIN nodes n ON n.id = f.node_id
+    FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
     WHERE f.id = ?
 `);
 
@@ -66,7 +66,7 @@ const lastCoveredStmt = db.prepare(`
 // made of the version they reported (`reviewsThrough`, the newest rating then).
 const pendingStmt = db.prepare(`
     SELECT rl.id AS id, rl.rating AS rating
-    FROM review_log rl JOIN flashcards f ON f.id = rl.card_id
+    FROM review_log rl JOIN live_flashcards f ON f.id = rl.card_id
     WHERE f.node_id = ? AND rl.source = 'app' AND rl.id > ?
       AND NOT EXISTS (
         SELECT 1 FROM item_reports r

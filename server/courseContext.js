@@ -208,15 +208,15 @@ export function courseLeaves(projectId) {
     return db.prepare(`
         WITH RECURSIVE ordered AS (
             SELECT id, title, printf('%08d-%010d', COALESCE(position, 0), id) AS path, '' AS trail
-            FROM nodes WHERE project_id = ? AND parent_id IS NULL
+            FROM live_nodes nodes WHERE project_id = ? AND parent_id IS NULL
             UNION ALL
             SELECT c.id, c.title,
                    o.path || '/' || printf('%08d-%010d', COALESCE(c.position, 0), c.id),
                    CASE WHEN o.trail = '' THEN o.title ELSE o.trail || ' › ' || o.title END
-            FROM nodes c JOIN ordered o ON c.parent_id = o.id
+            FROM live_nodes c JOIN ordered o ON c.parent_id = o.id
         )
         SELECT n.id, n.title, n.status, n.completed_at AS completedAt, o.trail
-        FROM ordered o JOIN nodes n ON n.id = o.id
+        FROM ordered o JOIN live_nodes n ON n.id = o.id
         WHERE ${WORK_LEAF}
         ORDER BY o.path
     `).all(projectId);
@@ -250,9 +250,9 @@ function previousTopicText(nodeId) {
     const lessons = shownLessonText(shown);
     if (lessons) return { source: 'shown', text: lessons };
 
-    const node = db.prepare('SELECT description FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT description FROM live_nodes nodes WHERE id = ?').get(nodeId);
     const material = db.prepare(`
-        SELECT title, description FROM nodes
+        SELECT title, description FROM live_nodes nodes
         WHERE parent_id = ? AND is_note = 1 ORDER BY position, id
     `).all(nodeId);
     const parts = [];
@@ -270,7 +270,7 @@ function previousTopicText(nodeId) {
  * Null when the node is not a work leaf of its course.
  */
 export function courseNeighbourhood(nodeId, { before = NEIGHBOURS_BEFORE, after = NEIGHBOURS_AFTER } = {}) {
-    const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!node) return null;
     const leaves = courseLeaves(node.project_id);
     const idx = leaves.findIndex(l => l.id === nodeId);

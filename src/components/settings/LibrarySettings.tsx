@@ -10,9 +10,10 @@ import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
 import ActivityLogPanel from './ActivityLogPanel';
 import ThisComputerSection from './ThisComputerSection';
+import RecentlyDeletedSection from './RecentlyDeletedSection';
 import AboutSection from './AboutSection';
 
-/** Settings → Library & about: import and export, Anki, where the library
+/** Settings → Library & about: import and export, Anki, Recently deleted, where the library
  *  lives on this computer, the two local records, and the version. */
 export default function LibrarySettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
@@ -156,6 +157,8 @@ export default function LibrarySettings({ active }: { active: boolean }) {
                     </Button>
                 </div>
             </section>
+
+            <RecentlyDeletedSection active={active} />
 
             <ThisComputerSection active={active} onQuit={() => setQuitting(true)} />
 

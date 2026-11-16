@@ -109,7 +109,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     const handleDelete = async () => {
         const confirmed = await showConfirm({
             title: t("Delete Item"),
-            message: t("Delete \"{{title}}\"? This action cannot be undone.", { title: node.title }),
+            message: t("Delete \"{{title}}\"? You can bring it back from Recently deleted in Settings.", { title: node.title }),
             confirmLabel: t("Delete"),
             variant: 'danger',
         });

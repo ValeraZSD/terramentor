@@ -109,14 +109,14 @@ let chain = Promise.resolve();
 export function bulkCandidates(projectId) {
     const rows = db.prepare(`
         SELECT n.id, n.title, n.status, n.parent_id, n.position, n.scheduled_end
-        FROM nodes n
+        FROM live_nodes n
         WHERE n.project_id = ? AND ${WORK_LEAF}
         ORDER BY n.position ASC, n.id ASC
     `).all(projectId);
 
     const quizCounts = new Map(db.prepare(`
-        SELECT q.node_id AS id, COUNT(*) AS c FROM quizzes q
-        JOIN nodes n ON n.id = q.node_id WHERE n.project_id = ? GROUP BY q.node_id
+        SELECT q.node_id AS id, COUNT(*) AS c FROM live_quizzes q
+        JOIN live_nodes n ON n.id = q.node_id WHERE n.project_id = ? GROUP BY q.node_id
     `).all(projectId).map(r => [r.id, r.c]));
 
     // What the mastery check will actually find: every non-ghost question the node
@@ -124,22 +124,22 @@ export function bulkCandidates(projectId) {
     // gate filters them out, so counting them would overstate coverage.
     const questionCounts = new Map(db.prepare(`
         SELECT q.node_id AS id, COUNT(*) AS c
-        FROM quizzes q
-        JOIN nodes n ON n.id = q.node_id
+        FROM live_quizzes q
+        JOIN live_nodes n ON n.id = q.node_id
         JOIN json_each(q.questions) je
         WHERE n.project_id = ?
           AND COALESCE(json_extract(je.value, '$.isGhost'), 0) = 0
         GROUP BY q.node_id
     `).all(projectId).map(r => [r.id, r.c]));
     const cardCounts = new Map(db.prepare(`
-        SELECT f.node_id AS id, COUNT(*) AS c FROM flashcards f
-        JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? GROUP BY f.node_id
+        SELECT f.node_id AS id, COUNT(*) AS c FROM live_flashcards f
+        JOIN live_nodes n ON n.id = f.node_id WHERE n.project_id = ? GROUP BY f.node_id
     `).all(projectId).map(r => [r.id, r.c]));
 
     // The path a learner recognises ("Phase 2 › Recursion"), built from the
     // ancestors rather than shown as a flat list of leaf titles — in a real
     // curriculum half the leaves are called "Introduction".
-    const titleById = new Map(db.prepare('SELECT id, title, parent_id FROM nodes WHERE project_id = ?')
+    const titleById = new Map(db.prepare('SELECT id, title, parent_id FROM live_nodes nodes WHERE project_id = ?')
         .all(projectId).map(r => [r.id, r]));
     const pathOf = (node) => {
         const parts = [];
@@ -256,7 +256,7 @@ export function startBulk({ projectId, nodeIds, kinds, questionCount = 5, cardCo
         throw err;
     }
 
-    const project = db.prepare('SELECT name, color FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT name, color FROM live_projects projects WHERE id = ?').get(projectId);
     const controller = new AbortController();
     job = {
         id: `bulk-${Date.now()}`,

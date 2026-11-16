@@ -52,9 +52,9 @@ const provenanceModel = (stored) => {
 // search that rescanned the whole list for every node held the server for
 // ~10 s, every other request waiting behind it.
 const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
-const quizzesOfNode = once('SELECT questions, generated_by FROM quizzes WHERE node_id = ? ORDER BY id');
-const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM flashcards WHERE node_id = ? ORDER BY id');
-const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM resources WHERE node_id = ? ORDER BY position');
+const quizzesOfNode = once('SELECT questions, generated_by FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id');
+const cardsOfNode = once('SELECT uuid, front, back, extra, extra_front, media, generated_by FROM live_flashcards flashcards WHERE node_id = ? ORDER BY id');
+const resourcesOfNode = once('SELECT uuid, title, url, type, completed FROM live_resources resources WHERE node_id = ? ORDER BY position');
 
 /** A topic's links in export order. */
 const exportedResourceRows = (nodeId) => resourcesOfNode().all(nodeId);

@@ -13,6 +13,7 @@
  * stays a pure authoring library.
  */
 import db from './database.js';
+import { BY_APP, softDelete } from './softDelete.js';
 import { buildNodeContext, AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
 import { parseJsonWithRepair, escapeLatexBackslashes, normalizeChoice } from './agentic.js';
 import { normalizeQuestionFormat } from './answerFormats.js';
@@ -42,7 +43,7 @@ const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } 
  */
 export function bankTitle(nodeId) {
     try {
-        const title = db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId)?.title;
+        const title = db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId)?.title;
         if (title && title.trim()) return title.trim().slice(0, 200);
     } catch { /* a missing node is not worth failing an authored bank over */ }
     return 'Mastery check';
@@ -57,7 +58,7 @@ export function buildQuizPrompt(nodeId, questionCount, questionType) {
     let pastPerformance = [];
     try {
         const weakQuizzes = db.prepare(`
-            SELECT n.title FROM quiz_attempts qa JOIN quizzes q ON q.id = qa.quiz_id JOIN nodes n ON n.id = q.node_id
+            SELECT n.title FROM quiz_attempts qa JOIN live_quizzes q ON q.id = qa.quiz_id JOIN live_nodes n ON n.id = q.node_id
             WHERE n.id = ? AND qa.score * 100.0 / qa.total < 70
         `).all(nodeId);
         pastPerformance = weakQuizzes.map(w => w.title);
@@ -131,7 +132,7 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // mastery check gate, which must stay a pure assessment of its own node).
     if (includeGhosts) {
         try {
-            const nodeRow = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+            const nodeRow = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
             if (nodeRow) {
                 const ghosts = getGhostQuestions(nodeRow.project_id, 2, decayDays);
                 for (const ghost of ghosts) {
@@ -172,7 +173,7 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
     // Read back: the database gave each question its uuid on the way in
     // (database.js), and that is how `vetQuiz` finds it again after anything
     // else has touched the row.
-    const saved = safeParse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(result.lastInsertRowid)?.questions);
+    const saved = safeParse(db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(result.lastInsertRowid)?.questions);
     return { id: result.lastInsertRowid, questions: Array.isArray(saved) ? saved : stored };
 }
 
@@ -204,10 +205,10 @@ export function finalizeQuiz(nodeId, aiResponse, includeGhosts, { decayDays = 14
 const VERIFY_CONCURRENCY = 2;
 
 export async function vetQuiz(nodeId, quiz, { signal, onProgress } = {}) {
-    const title = db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId)?.title || 'this topic';
+    const title = db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId)?.title || 'this topic';
     // The STORED row is what is vetted: it carries the uuids the database gave
     // the questions, and the verdicts are written back to it by those.
-    const storedQs = safeParse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(quiz.id)?.questions);
+    const storedQs = safeParse(db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quiz.id)?.questions);
     const source = Array.isArray(storedQs) ? storedQs : quiz.questions;
     const own = source.filter(q => q && typeof q === 'object' && !q.isGhost);
 
@@ -268,7 +269,7 @@ export async function vetQuiz(nodeId, quiz, { signal, onProgress } = {}) {
  */
 function writeVetVerdicts(nodeId, quizId, own, verdicts) {
     return db.transaction(() => {
-        const row = db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(quizId);
+        const row = db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quizId);
         const qs = safeParse(row?.questions);
         if (!Array.isArray(qs)) return { questions: [], dropped: [], unverified: 0 };
         const dropped = [];
@@ -299,14 +300,14 @@ function writeVetVerdicts(nodeId, quizId, own, verdicts) {
         const emptied = !qs.some(q => q && !q.isGhost);
         const sat = emptied && !!db.prepare('SELECT 1 FROM quiz_attempts WHERE quiz_id = ? LIMIT 1').get(quizId);
         if (emptied && !sat) {
-            db.prepare('DELETE FROM quizzes WHERE id = ?').run(quizId);
+            softDelete('quizzes', quizId, { by: BY_APP });
         } else if (changed) {
             db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(qs), quizId);
         }
         // Read back after the write, so the caller hands out the uuids the
         // database holds (a rewrite stamps any question that lacked one).
         const after = emptied && !sat ? qs
-            : safeParse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(quizId)?.questions) || qs;
+            : safeParse(db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quizId)?.questions) || qs;
         return { questions: after, dropped, unverified: after.filter(q => q && !q.isGhost && isUnverified(q)).length };
     })();
 }
@@ -356,7 +357,7 @@ export async function finalizeFlashcards(nodeId, aiResponse, { signal } = {}) {
     }
 
     const existing = new Set(
-        db.prepare('SELECT front FROM flashcards WHERE node_id = ?').all(nodeId)
+        db.prepare('SELECT front FROM live_flashcards flashcards WHERE node_id = ?').all(nodeId)
             .map(r => normalizeChoice(r.front))
     );
     const insertStmt = db.prepare('INSERT INTO flashcards (node_id, front, back, generated_by) VALUES (?, ?, ?, ?)');

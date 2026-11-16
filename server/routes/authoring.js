@@ -1,5 +1,6 @@
 // /api/authoring: the two-pass external authoring briefs and the material merge.
 import db from '../database.js';
+import { BY_APP, softDelete } from '../softDelete.js';
 import { WORK_LEAF } from '../today.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import {
@@ -34,11 +35,11 @@ app.post('/api/authoring/outline-brief', (req, res) => {
  */
 app.get('/api/projects/:projectId/authoring/phases', (req, res) => {
     const projectId = Number(req.params.projectId);
-    const project = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const phases = db.prepare(`
-        SELECT id, title FROM nodes
+        SELECT id, title FROM live_nodes nodes
         WHERE project_id = ? AND parent_id IS NULL AND is_note = 0
         ORDER BY position, id
     `).all(projectId);
@@ -48,12 +49,12 @@ app.get('/api/projects/:projectId/authoring/phases', (req, res) => {
     const subtree = db.prepare(`
         WITH RECURSIVE sub(id) AS (
             SELECT ? UNION ALL
-            SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+            SELECT n.id FROM live_nodes n JOIN sub ON n.parent_id = sub.id
         )
         SELECT n.id, n.title,
-               EXISTS(SELECT 1 FROM nodes m WHERE m.parent_id = n.id AND m.is_note = 1) AS hasNotes,
+               EXISTS(SELECT 1 FROM live_nodes m WHERE m.parent_id = n.id AND m.is_note = 1) AS hasNotes,
                length(COALESCE(n.description, '')) AS descriptionLength
-        FROM nodes n WHERE n.id IN (SELECT id FROM sub) AND ${WORK_LEAF}
+        FROM live_nodes n WHERE n.id IN (SELECT id FROM sub) AND ${WORK_LEAF}
         ORDER BY n.position, n.id
     `);
 
@@ -74,12 +75,12 @@ app.get('/api/projects/:projectId/authoring/phases', (req, res) => {
 /** The material prompt for one phase, carrying that phase's exact leaf titles. */
 app.get('/api/projects/:projectId/authoring/material-brief', (req, res) => {
     const projectId = Number(req.params.projectId);
-    const project = db.prepare('SELECT id, name, description, content_language FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name, description, content_language FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const phaseId = Number(req.query.phaseId);
     const phase = phaseId
-        ? db.prepare('SELECT id, title FROM nodes WHERE id = ? AND project_id = ?').get(phaseId, projectId)
+        ? db.prepare('SELECT id, title FROM live_nodes nodes WHERE id = ? AND project_id = ?').get(phaseId, projectId)
         : null;
     if (phaseId && !phase) return res.status(404).json({ error: 'Phase not found in this project' });
 
@@ -89,18 +90,18 @@ app.get('/api/projects/:projectId/authoring/material-brief', (req, res) => {
         ? db.prepare(`
             WITH RECURSIVE sub(id) AS (
                 SELECT ? UNION ALL
-                SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+                SELECT n.id FROM live_nodes n JOIN sub ON n.parent_id = sub.id
             )
-            SELECT n.id, n.title FROM nodes n
+            SELECT n.id, n.title FROM live_nodes n
             WHERE n.id IN (SELECT id FROM sub) AND ${WORK_LEAF}
-              AND NOT EXISTS(SELECT 1 FROM nodes m WHERE m.parent_id = n.id AND m.is_note = 1)
+              AND NOT EXISTS(SELECT 1 FROM live_nodes m WHERE m.parent_id = n.id AND m.is_note = 1)
               AND length(COALESCE(n.description, '')) < ${MATERIAL_MIN_CHARS}
             ORDER BY n.position, n.id
         `).all(phase.id)
         : db.prepare(`
-            SELECT n.id, n.title FROM nodes n
+            SELECT n.id, n.title FROM live_nodes n
             WHERE n.project_id = ? AND ${WORK_LEAF}
-              AND NOT EXISTS(SELECT 1 FROM nodes m WHERE m.parent_id = n.id AND m.is_note = 1)
+              AND NOT EXISTS(SELECT 1 FROM live_nodes m WHERE m.parent_id = n.id AND m.is_note = 1)
               AND length(COALESCE(n.description, '')) < ${MATERIAL_MIN_CHARS}
             ORDER BY n.position, n.id
         `).all(projectId);
@@ -129,7 +130,7 @@ app.get('/api/projects/:projectId/authoring/material-brief', (req, res) => {
  */
 app.post('/api/projects/:projectId/authoring/material', (req, res) => {
     const projectId = Number(req.params.projectId);
-    const project = db.prepare('SELECT id, name FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id, name FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     let payload;
@@ -142,9 +143,9 @@ app.post('/api/projects/:projectId/authoring/material', (req, res) => {
 
     const courseLeaves = db.prepare(`
         SELECT n.id, n.title,
-               EXISTS(SELECT 1 FROM nodes m WHERE m.parent_id = n.id AND m.is_note = 1) AS hasNotes,
+               EXISTS(SELECT 1 FROM live_nodes m WHERE m.parent_id = n.id AND m.is_note = 1) AS hasNotes,
                length(COALESCE(n.description, '')) AS descriptionLength
-        FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF}
+        FROM live_nodes n WHERE n.project_id = ? AND ${WORK_LEAF}
         ORDER BY n.position, n.id
     `).all(projectId).map(r => ({ id: r.id, title: r.title, hasMaterial: leafHasMaterial(r) }));
 
@@ -163,9 +164,11 @@ app.post('/api/projects/:projectId/authoring/material', (req, res) => {
         INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position)
         VALUES (?, ?, ?, ?, '', 'not_started', 1, ?)
     `);
-    const dropMaterial = db.prepare('DELETE FROM nodes WHERE parent_id = ? AND is_note = 1');
+    // The material a file replaces is withdrawn as the app, like any replaced row.
+    const materialOf = db.prepare('SELECT id FROM live_nodes nodes WHERE parent_id = ? AND is_note = 1').pluck();
+    const dropMaterial = { run: (nodeId) => { for (const id of materialOf.all(nodeId)) softDelete('nodes', id, { by: BY_APP }); } };
     const writeOverview = db.prepare('UPDATE nodes SET description = ? WHERE id = ?');
-    const nextPosition = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM nodes WHERE parent_id = ?');
+    const nextPosition = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM live_nodes nodes WHERE parent_id = ?');
 
     let added = 0;
     const transaction = db.transaction(() => {

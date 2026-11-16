@@ -346,12 +346,12 @@ const savedFresh = await call('POST', '/api/assistant/links', { projectId: cours
 ok('Save opens the page it was shown, once, and saves it', savedFresh.status === 200 && savedFresh.json?.check?.verdict === 'ok' && pageHits.filter(h => h.includes('what-the-turn-read')).length === 1, JSON.stringify({ s: savedFresh.status, hits: pageHits }));
 await call('POST', `/api/assistant/edits/${savedFresh.json?.id}/undo`);
 const saved = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/waves'), title: 'A model\'s name for it', source: '502:link:0' });
-const res0 = db.prepare('SELECT title, url FROM resources WHERE node_id = ?').all(topic);
+const res0 = db.prepare('SELECT title, url FROM live_resources WHERE node_id = ?').all(topic);
 ok('a saved link takes the page\'s own title', saved.status === 200 && res0.length === 1 && res0[0].title === 'Standing Waves & Harmonics — Physics Notes', JSON.stringify(res0));
 ok('the same page twice is one row', (await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/waves') })).json?.existed === true
-    && db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 1);
+    && db.prepare('SELECT COUNT(*) AS n FROM live_resources WHERE node_id = ?').get(topic).n === 1);
 ok('a page that does not exist is not saved', (await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/gone') })).status === 409
-    && db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 1);
+    && db.prepare('SELECT COUNT(*) AS n FROM live_resources WHERE node_id = ?').get(topic).n === 1);
 const goneSave = await call('POST', '/api/assistant/links', { projectId: course, nodeId: topic, url: page('/gone') });
 const proposalsSrc = readFileSync(join(ROOT, 'src/components/AssistantProposals.tsx'), 'utf8');
 ok('…and the card then says what Save found, not "not opened yet", after a remount too, and when the save went through unchecked', goneSave.json?.check?.verdict === 'disputed'
@@ -359,7 +359,7 @@ ok('…and the card then says what Save found, not "not opened yet", after a rem
     && /useState<AssistantCheck \| undefined>\(\(\) => linkOpened\.get\(key\)\)/.test(proposalsSrc) && /if \(r\.check\) setOpened\(r\.check\);/.test(proposalsSrc),
     JSON.stringify(goneSave.json?.check));
 await call('POST', `/api/assistant/edits/${saved.json.id}/undo`);
-ok('Undo removes the saved link', db.prepare('SELECT COUNT(*) AS n FROM resources WHERE node_id = ?').get(topic).n === 0);
+ok('Undo removes the saved link', db.prepare('SELECT COUNT(*) AS n FROM live_resources WHERE node_id = ?').get(topic).n === 0);
 setSetting.run('ai_web_search', 'off');
 
 // ---- 6. what the assistant is told --------------------------------------------------

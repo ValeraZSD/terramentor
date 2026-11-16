@@ -18,7 +18,7 @@ const app = routeTable('studyDashboard');
 
 app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
     const { projectId } = req.params;
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     try {
@@ -27,7 +27,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         const allNodes = db.prepare(`
             SELECT id, parent_id, title, status, is_note,
                    scheduled_start, scheduled_end
-            FROM nodes WHERE project_id = ? AND is_note = 0
+            FROM live_nodes nodes WHERE project_id = ? AND is_note = 0
             ORDER BY position, id
         `).all(projectId);
 
@@ -73,8 +73,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                 SUM(CASE WHEN f.difficulty >= 3 THEN 1 ELSE 0 END) as weakCount,
                 SUM(CASE WHEN f.last_interval > 0 THEN 1 ELSE 0 END) as reviewedCount,
                 SUM(CASE WHEN f.last_interval > 0 AND f.difficulty < 3 THEN 1 ELSE 0 END) as retainedCount
-            FROM flashcards f
-            JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f
+            JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ?
         `).get(projectId);
 
@@ -83,10 +83,10 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
         // a fixed three-level join silently dropped cards at other depths).
         const deckRows = db.prepare(`
             WITH RECURSIVE subtree AS (
-                SELECT id, id as root_id FROM nodes
+                SELECT id, id as root_id FROM live_nodes nodes
                 WHERE project_id = ? AND parent_id IS NULL AND is_note = 0
                 UNION ALL
-                SELECT n.id, s.root_id FROM nodes n
+                SELECT n.id, s.root_id FROM live_nodes n
                 JOIN subtree s ON n.parent_id = s.id
             )
             SELECT
@@ -96,8 +96,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                 SUM(CASE WHEN ${reviewDue('f')} THEN 1 ELSE 0 END) as dueCount,
                 SUM(CASE WHEN f.difficulty >= 3 THEN 1 ELSE 0 END) as weakCount
             FROM subtree s
-            JOIN nodes cat ON cat.id = s.root_id
-            JOIN flashcards f ON f.node_id = s.id
+            JOIN live_nodes cat ON cat.id = s.root_id
+            JOIN live_flashcards f ON f.node_id = s.id
             GROUP BY cat.id
             HAVING totalCards > 0
             ORDER BY cat.position
@@ -135,8 +135,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                 ROUND(AVG(qa.score * 100.0 / qa.total)) as avg_score,
                 COUNT(*) as attempt_count
             FROM quiz_attempts qa
-            JOIN quizzes q ON q.id = qa.quiz_id
-            JOIN nodes n ON n.id = q.node_id
+            JOIN live_quizzes q ON q.id = qa.quiz_id
+            JOIN live_nodes n ON n.id = q.node_id
             WHERE n.project_id = ?
             GROUP BY q.node_id
             HAVING avg_score < 70
@@ -152,8 +152,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
                 q.title as quiz_title,
                 qa.created_at
             FROM quiz_attempts qa
-            JOIN quizzes q ON q.id = qa.quiz_id
-            JOIN nodes n ON n.id = q.node_id
+            JOIN live_quizzes q ON q.id = qa.quiz_id
+            JOIN live_nodes n ON n.id = q.node_id
             WHERE n.project_id = ?
             ORDER BY qa.created_at DESC
             LIMIT 10
@@ -163,8 +163,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             SELECT 
                 COUNT(DISTINCT q.id) as totalQuizzes,
                 ROUND(AVG(qa.score * 100.0 / qa.total)) as averageScore
-            FROM quizzes q
-            JOIN nodes n ON n.id = q.node_id
+            FROM live_quizzes q
+            JOIN live_nodes n ON n.id = q.node_id
             LEFT JOIN quiz_attempts qa ON qa.quiz_id = q.id
             WHERE n.project_id = ?
         `).get(projectId);
@@ -181,7 +181,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             pace = calculatePace(projectId);
         }
 
-        const allProjectNodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? AND is_note = 0').all(projectId);
+        const allProjectNodes = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? AND is_note = 0').all(projectId);
         // Progress is measured over WORK LEAVES only (a topic that gets proven),
         // never branch/category nodes and never a slice of an imported deck's
         // card order — otherwise this "% complete" diverges from the project
@@ -234,8 +234,8 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             // went on to the second topic of this one.
             const allNodesForHero = db.prepare(`
         SELECT n.id, n.title, n.status, n.scheduled_start, n.scheduled_end, n.parent_id,
-               (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0) as child_count
-        FROM nodes n
+               (SELECT COUNT(*) FROM live_nodes c WHERE c.parent_id = n.id AND c.is_note = 0) as child_count
+        FROM live_nodes n
         WHERE n.project_id = ? AND n.is_note = 0 AND ${TOPIC_NODE}
           AND n.status NOT IN ('completed', 'skipped')
         ORDER BY CASE WHEN n.scheduled_start IS NULL THEN 1 ELSE 0 END,
@@ -266,7 +266,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
 
         // Calculate Milestones (Top-level categories progress)
         const topCategories = db.prepare(`
-    SELECT id, title FROM nodes
+    SELECT id, title FROM live_nodes nodes
     WHERE project_id = ? AND parent_id IS NULL AND is_note = 0
     ORDER BY position ASC
 `).all(projectId);
@@ -275,24 +275,24 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             // 1. Fetch the category and all its descendants
             const allSubNodes = db.prepare(`
         WITH RECURSIVE descendants AS (
-            SELECT id, parent_id, status, is_note, role FROM nodes WHERE id = ?
+            SELECT id, parent_id, status, is_note, role FROM live_nodes nodes WHERE id = ?
             UNION ALL
-            SELECT n.id, n.parent_id, n.status, n.is_note, n.role FROM nodes n
+            SELECT n.id, n.parent_id, n.status, n.is_note, n.role FROM live_nodes n
             JOIN descendants d ON n.parent_id = d.id
         )
         SELECT d.id, d.parent_id, d.status, d.is_note, d.role,
                -- …and what its cards say, because a topic whose content is
                -- cards is finished by meeting them, not by being ticked
                -- (server/progress.js).
-               (SELECT COUNT(*) FROM flashcards f WHERE f.node_id = d.id) AS cards,
-               (SELECT COUNT(*) FROM flashcards f WHERE f.node_id = d.id
+               (SELECT COUNT(*) FROM live_flashcards f WHERE f.node_id = d.id) AS cards,
+               (SELECT COUNT(*) FROM live_flashcards f WHERE f.node_id = d.id
                   AND f.review_count > 0 AND f.last_reviewed IS NOT NULL) AS seen,
                -- …and whether it teaches, which decides its WEIGHT. Without it
                -- a taught topic carrying ten cards weighed ten here and one in
                -- the tree beside this bar (53% against 69% on one phase).
                ${TAUGHT_SQL} AS taught
         FROM descendants d
-        JOIN nodes n ON n.id = d.id
+        JOIN live_nodes n ON n.id = d.id
     `).all(cat.id);
 
             const nodeMap = new Map();

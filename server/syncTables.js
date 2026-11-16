@@ -69,6 +69,8 @@ const TABLE_LIST = [
     ['item_reports', { class: 'history', uuid: true, derive: D([['node_id', 'nodes'], ['project_id', 'projects']], 'created_at', ['kind', 'reason']) }],
     ['mastery_claims', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['source']) }],
     ['answer_attempts', { class: 'history', uuid: true, derive: D([], 'created_at', ['surface', 'attempt_id']) }],
+    // A card schedule change that is not a review (server/softDelete.js).
+    ['schedule_events', { class: 'history', uuid: true, derive: D([['card_id', 'flashcards']], 'created_at', ['kind']) }],
 
     // ---- counters ----------------------------------------------------------------------
     // Keyed by (topic, hour, activity, device): each device adds to its own row.
@@ -118,6 +120,12 @@ export const UUID_TABLES = TABLE_LIST.filter(([, t]) => t.uuid).map(([name]) => 
 
 /** The four tables that had a uuid before the rest; their rows were never derived. */
 export const FIRST_UUID_TABLES = ['projects', 'nodes', 'resources', 'flashcards'];
+
+/**
+ * The tables whose rows are deleted softly: a deleted row keeps its place with
+ * `deleted_at` set, and every read goes through `live_<table>`. Parents first.
+ */
+export const CONTENT_TABLES = ['projects', 'nodes', 'resources', 'flashcards', 'quizzes'];
 
 /** Whether rows of `table` may leave this library. Unknown tables never do. */
 export const isSyncedTable = (table) => SYNCED_CLASSES.has(SYNC_TABLES[table]?.class);

@@ -35,13 +35,13 @@ function finalizeTodayBriefing(aiResponse) {
     if (parsed && Array.isArray(parsed.actions)) {
         const nodeProject = new Map(
             db.prepare(`
-                SELECT n.id, n.project_id FROM nodes n
+                SELECT n.id, n.project_id FROM live_nodes n
                 ${ACTIVE_PROJECT_JOIN}
             `).all().map(r => [r.id, r.project_id])
         );
         const schedulableProjects = new Set(
             db.prepare(`
-                SELECT id FROM projects
+                SELECT id FROM live_projects projects
                 WHERE COALESCE(status, 'active') = 'active'
                   AND start_date IS NOT NULL AND deadline IS NOT NULL
             `).all().map(p => p.id)

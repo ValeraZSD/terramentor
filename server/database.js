@@ -9,7 +9,7 @@ import { migrateToConversations } from './chatConversations.js';
 import {
   ACTIVE_KEY, ACTIVE_KEY_ORIGIN, credentialsHeldInLibrary, getSecret, moveSecretsOutOfLibrary, scrubLibraryCopy, secretsFile, setSecret,
 } from './secrets.js';
-import { FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
+import { CONTENT_TABLES, FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2184,6 +2184,26 @@ try {
   console.error('[Migration] per-project setting keys (non-fatal):', e.message);
 }
 
+// Every change to a card's schedule that is not a review: a report parking the
+// card, the edit that unparks it, a schedule written directly, a rating taken
+// back. The review log holds the reviews; together they are everything that
+// moved a schedule, which a copy of the library needs in order to compute the
+// same schedule from the same history. `schedule` is the fields written, as
+// JSON; `review_uuid` names the review an undo took back. Created before the
+// uuid loop below, which gives it its uuid trigger and index.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schedule_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT,
+    card_id INTEGER NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    schedule TEXT DEFAULT NULL,
+    review_uuid TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_schedule_events_card ON schedule_events(card_id, id);
+`);
+
 // A portable uuid on every synced table (server/syncTables.js), after the
 // first four above. Same pattern: a column, an AFTER INSERT trigger that gives
 // a new row a random uuid, a UNIQUE index. Rows that predate the column are
@@ -2210,6 +2230,28 @@ try {
 } catch (e) {
   console.error('[Migration] portable uuids (non-fatal):', e.message);
 }
+
+// Soft delete (server/softDelete.js). A deleted course, topic, card, question
+// bank or link stays in its table with `deleted_at` set, so its history keeps
+// its parent and Restore has something to restore. `deleted_by` says why:
+// NULL = the learner deleted this row; '<table>:<uuid>' = it went with that
+// row; 'app' = the app replaced or withdrew it. Every read goes through the
+// `live_<table>` view, which skips deleted rows (tools/soft-delete-gates.mjs
+// fails on a read that does not). The views are `SELECT *`, which SQLite
+// expands when a statement is prepared, so a column added later shows in them.
+// A later migration that rebuilds one of these tables must DROP its view first
+// (a rename refuses while a view names the table) and let this block make it
+// again. Fatal on failure: with no views, no read in the app works.
+db.transaction(() => {
+  for (const table of CONTENT_TABLES) {
+    addColumnIfMissing(table, 'deleted_at', 'TEXT DEFAULT NULL');
+    addColumnIfMissing(table, 'deleted_by', 'TEXT DEFAULT NULL');
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_${table}_deleted ON ${table}(deleted_by) WHERE deleted_at IS NOT NULL;
+      CREATE VIEW IF NOT EXISTS live_${table} AS SELECT * FROM ${table} WHERE deleted_at IS NULL;
+    `);
+  }
+})();
 
 // The schema is now current for this build. Recorded LAST, after every CREATE
 // TABLE, every `addColumnIfMissing` and every table rebuild above — a stamp

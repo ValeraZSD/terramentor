@@ -18,9 +18,9 @@ const app = routeTable('importExport');
 
 app.get('/api/export/:projectId', (req, res) => {
     const { includeNotes, includeResources, includeProgress } = req.query;
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.projectId);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const allNodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(req.params.projectId);
+    const allNodes = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position').all(req.params.projectId);
     const childrenOf = childrenLookup(allNodes);
     const buildExportTree = (parentId) => {
         return childrenOf(parentId)
@@ -128,7 +128,7 @@ app.post('/api/import', (req, res) => {
     // feature, and doing it implicitly would be the wrong default. But staying
     // silent about it means quietly ending up with two copies of the same
     // course, so it is reported.
-    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM projects WHERE uuid = ?').get(project.uuid) : null;
+    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null;
     if (twin) {
         const editions = project.version && twin.version && project.version !== twin.version
             ? ` (you have ${twin.version}, this file is ${project.version})`
@@ -152,7 +152,7 @@ app.post('/api/import', (req, res) => {
 
     try {
         const newProjectId = transaction();
-        const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(newProjectId);
+        const newProject = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(newProjectId);
         console.log(`Successfully imported project "${newProject.name}" with id ${newProjectId}${questionCount ? ` (${questionCount} question(s))` : ''}${cardCount ? ` (${cardCount} card(s))` : ''}${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
         scheduleNodeSync();   // map the imported curriculum into the topic space
         scheduleSearchWords();
