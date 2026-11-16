@@ -60,6 +60,8 @@ const topicsWithState = (projectId) => {
     for (const r of prep('SELECT DISTINCT node_id AS id FROM quizzes WHERE generated_by IS NOT NULL AND node_id IN (SELECT id FROM nodes WHERE project_id = ?)').all(projectId)) ids.add(r.id);
     return ids;
 };
+/** Whether a topic holds anything of the learner's; `withState` is `topicsWithState`. */
+const topicHasState = (n, withState) => (n.status && n.status !== 'not_started') || !!text(n.notes) || !!n.completed_at || withState.has(n.id);
 
 /** The course as it stands in the library: every item with its author-owned
  *  fields, its row id, and whether anything of the learner's hangs on it. */
@@ -76,7 +78,7 @@ export function readInstalledCourse(projectId) {
         entities.push({
             kind: 'node', uuid: n.uuid, id: n.id, parentUuid: parent?.uuid ?? null, position: n.position,
             fields: { title: n.title, description: text(n.description), is_note: n.is_note ? 1 : 0, role: n.role || 'topic' },
-            hasState: (n.status && n.status !== 'not_started') || !!text(n.notes) || !!n.completed_at || withState.has(n.id),
+            hasState: topicHasState(n, withState),
             label: n.title, where: parent?.title ?? null,
         });
     }
@@ -214,10 +216,9 @@ export function recordInstalledBase(projectId, { exportedAt = null } = {}) {
  * file installed has no base row, and this changes nothing for it.
  */
 export function markLearnerEdit(kind, uuid, fields) {
-    const list = fields.filter(Boolean);
-    if (!uuid || !list.length) return;
-    db.prepare(`UPDATE course_base SET edited = 1 WHERE kind = ? AND uuid = ? AND field IN (${list.map(() => '?').join(',')})`)
-        .run(kind, uuid, ...list);
+    if (!uuid) return;
+    const flag = prep('UPDATE course_base SET edited = 1 WHERE kind = ? AND uuid = ? AND field = ?');
+    for (const f of fields) if (f) flag.run(kind, uuid, f);
 }
 
 // ---- undo: what an update changed, kept so it can be put back ------------------------
@@ -270,19 +271,20 @@ const UNDO_REFUSED = {
 // Why this undo would take more than the update wrote, or null when it is safe.
 function undoBlocker(projectId, snap) {
     if (!snap.after || courseFingerprint(projectId) !== snap.after) return 'changed';
-    const had = new Set(snap.rows.nodes.map(r => r.id));
-    for (const n of prep(scopeSql.nodes).all(projectId)) {
-        if (had.has(n.id)) continue;
-        if (n.status !== 'not_started') return 'progress';
-        if (prep(`SELECT 1 FROM node_mastery WHERE node_id = ?
-            UNION ALL SELECT 1 FROM mastery_evidence WHERE node_id = ?
-            UNION ALL SELECT 1 FROM study_time WHERE node_id = ? LIMIT 1`).get(n.id, n.id, n.id)) return 'progress';
-    }
-    const hadCards = new Set(snap.rows.flashcards.map(r => r.id));
-    for (const c of prep(scopeSql.flashcards).all(projectId)) {
-        if (hadCards.has(c.id)) continue;
-        if (c.review_count > 0 || prep('SELECT 1 FROM review_log WHERE card_id = ? LIMIT 1').get(c.id)) return 'progress';
-    }
+    // The fingerprint holds only author-owned columns: what the learner did on a
+    // row the update added (a note, a review, a ticked link, an attempt) is
+    // looked for here, because the undo deletes that row.
+    const added = (t) => {
+        const had = new Set(snap.rows[t].map(r => r.id));
+        return prep(scopeSql[t]).all(projectId).filter(r => !had.has(r.id));
+    };
+    const withState = topicsWithState(projectId);
+    if (added('nodes').some(n => topicHasState(n, withState))) return 'progress';
+    const reviewed = prep('SELECT 1 FROM review_log WHERE card_id = ? LIMIT 1');
+    if (added('flashcards').some(c => c.review_count > 0 || reviewed.get(c.id))) return 'progress';
+    if (added('resources').some(r => r.completed)) return 'progress';
+    const attempted = prep('SELECT 1 FROM quiz_attempts WHERE quiz_id = ? LIMIT 1');
+    if (added('quizzes').some(q => attempted.get(q.id))) return 'progress';
     return null;
 }
 
