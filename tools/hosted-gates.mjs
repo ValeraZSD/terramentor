@@ -300,6 +300,9 @@ try {
             ok('a hosted copy refuses to start on a library with an unfinished restore',
                 !rM.listening && rM.code === 1 && /restore of this library stopped partway/.test(rM.out), rM.out.slice(-600));
             if (rM.listening) await stop(rM.child);
+            const backupM = cli(['backup', join(s.dir, 'backup-unfinished')]);
+            ok('…and a backup of it is refused, so a mismatched library is never saved as good',
+                backupM.status === 1 && /unfinished/.test(backupM.stderr) && !existsSync(join(s.dir, 'backup-unfinished')), `${backupM.status} ${backupM.stdout} ${backupM.stderr}`);
 
             // Empty the library, as a lost volume would be, then restore.
             for (const f of ['terramentor.db', 'terramentor.db-wal', 'terramentor.db-shm', 'terramentor.secrets.json']) rmSync(join(s.dir, f), { force: true });

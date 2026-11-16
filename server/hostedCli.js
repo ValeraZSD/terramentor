@@ -105,6 +105,9 @@ async function backupCommand([dir]) {
     if (existsSync(dir)) fail(`${dir} already exists`);
     const { dbPath, vaultRoot } = dataPaths();
     if (!existsSync(dbPath)) fail(`no library at ${dbPath}`);
+    // Its database and credentials may not belong together: saving it as a
+    // good backup would let a later restore clear the marker on it.
+    if (existsSync(restoreMarkerPath(dbPath))) fail('a restore of this library is unfinished; restore a good backup first');
     makePrivateDir(dir);
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
     try {

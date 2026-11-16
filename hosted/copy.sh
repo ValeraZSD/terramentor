@@ -105,7 +105,7 @@ copies() { docker ps -a --filter label=terramentor.copy --format '{{.Label "terr
 # run already holds it (undo_new after a failed apply) goes straight on.
 PROXY_HELD=""
 proxy_apply() {
-    local mine=""
+    local mine="" n
     if [ -z "$PROXY_HELD" ]; then
         wait_lock _proxy
         PROXY_HELD=1
@@ -126,7 +126,11 @@ proxy_apply() {
         done
     } > "$HERE/networks.yml"
     export TM_ACME_LINE="${ACME_EMAIL:+email $ACME_EMAIL}"
-    (cd "$HERE" && docker compose -f docker-compose.yml -f networks.yml up -d --remove-orphans >/dev/null)
+    if ! (cd "$HERE" && docker compose -f docker-compose.yml -f networks.yml up -d --remove-orphans >/dev/null); then
+        echo "copy.sh: docker compose could not apply the proxy" >&2
+        if [ -n "$mine" ]; then unlock _proxy; PROXY_HELD=""; fi
+        return 1
+    fi
     docker exec terramentor-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
     if [ -n "$mine" ]; then unlock _proxy; PROXY_HELD=""; fi
 }
@@ -252,7 +256,7 @@ run_copy() {
 cmd_update() {
     local what="${1:-}"
     [ -n "$what" ] || die "usage: update <name> | --all"
-    local names
+    local names n
     if [ "$what" = --all ]; then names="$(copies)"; else valid_name "$what"; exists "$what" || die "no copy called $what"; names="$what"; fi
     # A registry image is fetched first; a locally built one is used as it is.
     docker pull -q "$TM_IMAGE" >/dev/null 2>&1 || echo "copy.sh: could not pull $TM_IMAGE; using the local image" >&2
@@ -262,6 +266,9 @@ cmd_update() {
         backup_one "$n" >/dev/null || die "the backup of $n failed; $n was not updated"
         docker rm -f "$(container "$n")" >/dev/null
         run_copy "$n"
+        # Another command applying the proxy while this container was gone
+        # left its network out; apply again (a no-op when nothing changed).
+        proxy_apply
         wait_up "$n"
         echo "updated: $n"
     done
@@ -320,7 +327,7 @@ cmd_backup() {
     local what="${1:-}"
     [ -n "$what" ] || die "usage: backup <name> | --all"
     if [ "$what" = --all ]; then
-        local failed=0
+        local failed=0 n
         for n in $(copies); do backup_one "$n" || { echo "copy.sh: backup of $n FAILED" >&2; failed=1; }; done
         return "$failed"
     fi
