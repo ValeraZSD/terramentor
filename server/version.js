@@ -16,8 +16,9 @@
 //   * The manual check is a BUTTON. A press is not a ping, and an idle app that
 //     is never pressed still makes zero connections, so the published
 //     verification procedure stays true word for word.
-//   * The daily poll is OPT-IN and ships OFF. Turning it on is the user
-//     accepting one outbound call a day, and SECURITY.md now names it.
+//   * The automatic check is OPT-IN and ships OFF. Turning it on is the user
+//     accepting one small outbound call every few hours (updatePoll.js), and
+//     SECURITY.md names the schedule.
 //   * The check is done by the SERVER, once, cached — not by each page load.
 //     Otherwise a phone, a laptop and three open tabs are four calls for one
 //     answer, and the count a packet capture shows would depend on how many
@@ -246,13 +247,34 @@ export function compareVersions(a, b) {
 
 // --- the check ---------------------------------------------------------------
 
-/** How long a cached answer stands before the daily poll refreshes it. */
-export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** How long an answer stands before the automatic check asks again. Once a day
+ *  missed nightlies for most of a day and, measured on a timer that does not
+ *  run while the computer sleeps, a laptop could go days without asking. An
+ *  unchanged answer comes back as an empty 304 (`fetchLatestRelease`), so
+ *  asking every few hours costs a few hundred bytes. */
+export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
-/** A failed check retries once, soon — a laptop's network is rarely up at boot. */
-export const RETRY_DELAY_MS = 10 * 60 * 1000;
+/** After a failed check, the waits before the next tries; past the last one,
+ *  the normal interval. A laptop's network is rarely up at boot, and a single
+ *  retry left one that stayed offline ten minutes blind for a whole day. */
+export const RETRY_DELAYS_MS = [10 * 60 * 1000, 30 * 60 * 1000, 60 * 60 * 1000];
+
+/** The scheduled check's clock: how often it looks at the wall clock to see
+ *  whether a check is due. A look is a comparison, no request. */
+export const DUE_TICK_MS = 60 * 1000;
+
+/** Back from sleep (the wall clock jumped further than a tick), an answer older
+ *  than this is asked again straight away, as other desktop apps do when the
+ *  lid opens, instead of waiting out the rest of the interval. */
+export const WAKE_RECHECK_MS = 60 * 60 * 1000;
 
 const FETCH_TIMEOUT_MS = 8000;
+
+/** The last full answer per URL with its ETag. The next ask sends the ETag back
+ *  (If-None-Match), and GitHub answers an unchanged release list with an empty
+ *  304 instead of the whole list again (tens of kilobytes on Nightly). In memory
+ *  only: after a restart the first ask is a full one. */
+const lastBodies = new Map();
 
 /**
  * Which releases an install is offered. `stable` is every full release and the
@@ -455,6 +477,7 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
         const url = nightly
             ? `${RELEASES_API}/repos/${slug}/releases?per_page=${NIGHTLY_PAGE}`
             : `${RELEASES_API}/repos/${slug}/releases/latest`;
+        const cached = lastBodies.get(url);
         const res = await fetchImpl(url, {
             signal: ctrl.signal,
             headers: {
@@ -463,6 +486,9 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
                 // counted as a distinct user across days.
                 'User-Agent': `Terramentor/${readPackageVersion()}`,
                 Accept: 'application/vnd.github+json',
+                // The ETag GitHub itself gave for the last answer: it names
+                // that answer's content, not this install.
+                ...(cached ? { 'If-None-Match': cached.etag } : {}),
             },
         });
         if (res.status === 404 && !nightly) {
@@ -472,8 +498,16 @@ export async function fetchLatestRelease(fetchImpl = globalThis.fetch, { channel
             // the repository is gone, which is a failure.)
             return { ok: true, latest: null };
         }
-        if (!res.ok) return { ok: false, error: `GitHub responded ${res.status}` };
-        const body = await res.json();
+        let body;
+        if (res.status === 304 && cached) {
+            body = cached.body;
+        } else {
+            if (!res.ok) return { ok: false, error: `GitHub responded ${res.status}` };
+            body = await res.json();
+            const etag = typeof res.headers?.get === 'function' ? res.headers.get('etag') : null;
+            if (etag && /^(W\/)?"[^"\r\n]{1,200}"$/.test(etag)) lastBodies.set(url, { etag, body });
+            else lastBodies.delete(url);
+        }
         if (nightly && !Array.isArray(body)) return { ok: false, error: 'Unexpected response' };
         const release = nightly ? newestRelease(body) : body;
         if (nightly && !release) return { ok: true, latest: null };

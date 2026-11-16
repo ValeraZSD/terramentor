@@ -524,12 +524,17 @@ would reach the network without you asking for something, so it is built to be c
 
 - **"Check now"** (Settings → Library & about → About) is a **button**. A press is you asking, so it
   is allowed to make the request.
-- **"Check daily"** is a separate toggle and **ships off**. Turning it on checks once straight
-  away; after that it is one request each time the app starts (15 seconds in) and one a day
-  while it runs, plus a single retry ten minutes later if a scheduled check fails. Nothing
-  else in the app enables it.
+- **"Check automatically"** is a separate toggle and **ships off**. Turning it on checks once
+  straight away; after that it is one request each time the app starts (15 seconds in) and one
+  every four hours while it runs, counted on the wall clock so the hours a computer sleeps
+  count too. When the computer wakes and the last answer is over an hour old, it asks once
+  straight away. A failed check is tried again after 10, 30 and 60 minutes, then every four
+  hours. Nothing else in the app enables it.
 - **What it sends:** an HTTP GET to `https://api.github.com/repos/<owner>/<repo>/releases/latest`
-  with a `User-Agent` naming the app and its version. No install identifier, no machine name,
+  with a `User-Agent` naming the app and its version, and, from the second ask on, an
+  `If-None-Match` header carrying the ETag GitHub gave the last answer, so an unchanged answer
+  comes back as an empty `304 Not Modified`. The ETag names that answer's content, which is the
+  same for every copy; it does not identify yours. No install identifier, no machine name,
   no library contents, no request body. GitHub can see that some copy of the app asked what
   the newest release is, from your IP address (the same thing it would see if you opened the
   releases page in a browser).
@@ -537,11 +542,14 @@ would reach the network without you asking for something, so it is built to be c
   the request is the one above. On Nightly it is a GET to
   `https://api.github.com/repos/<owner>/<repo>/releases?per_page=30` instead, with the same
   header, because GitHub has no "latest prerelease" to ask for: still one request, to the same
-  host, on the same schedule. Switching channels makes no request while "Check daily" is off;
+  host, on the same schedule. Switching channels makes no request while "Check automatically" is off;
   with it on, the switch checks once, at most once a minute.
 - **Who makes it:** the server process, on the schedule above and when you press a button that
   asks (below), never once per page load. The once-a-minute limits are the server's, so the
-  number of requests does not depend on how many devices or tabs you have open.
+  number of requests does not depend on how many devices or tabs you have open. An open page
+  re-reads the server's stored answer every two minutes while it is visible, so a new version
+  the server found shows without a reload; that read stays on your computer and never reaches
+  GitHub.
 - **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
   The same answer carries the release notes shown under "What's new", so reading them asks
   nothing more of the network.
@@ -855,7 +863,7 @@ Do not trust this file. Trust a packet capture. The claim is designed to be fals
 about ten minutes:
 
 1. Stop the app. Turn **off** AI features in Settings (or point them at a local endpoint).
-   Leave "Check daily" off; it is off unless you turned it on.
+   Leave "Check automatically" off; it is off unless you turned it on.
 2. Start a capture: `tcpdump`/Wireshark, or your OS firewall's outbound logging.
 3. Start the app, use it hard: browse the feed, open projects, add notes, run a review. Upload a
    PDF whose equations came out as empty brackets and let recovery run in "OCR only"; that is
@@ -873,7 +881,7 @@ about ten minutes:
    each vetted like the first address (never your own machine or network, unless the server
    was started with `ALLOW_PRIVATE_FETCH=1`; cloud metadata addresses stay refused): a page link's
    redirect may reach another host, a caption request's only one on `youtube.com`.
-6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
+6. Optional, to check the update-check paragraph rather than believe it: turn "Check automatically"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
    again and the connection should not recur.
 
