@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Gauge, History, ListChecks } from 'lucide-react';
-import { api } from '../../api';
+import { api, EVIDENCE_CHANGED } from '../../api';
 import type { EstimateLevel, EvidenceRow, EvidenceTrail } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
@@ -120,12 +120,19 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
     // Too few answers say nothing yet, and a fading topic's number is the one
     // it had when last answered (it does not decay): neither gets a bar that
     // reads as "now".
-    const shown = value != null && estimate.level !== 'few';
+    // A skipped topic is closed: its heading says so, and no number beside it.
+    const shown = value != null && estimate.level !== 'few' && trail.status !== 'skipped';
     const bar = shown && estimate.level !== 'fading';
     // Cards and drills lifted the number over what the answers give, and the
     // trail's steps end at the answers' number: say so, or the two disagree.
     const lifted = !deck && estimate.level !== 'practice' && estimate.score != null && estimate.answersScore != null
         && pct(estimate.score) > pct(estimate.answersScore);
+    // The other way round: the steps (the chart's line) end higher than the
+    // number, because missed practice lowered it (the gate keeps the lower).
+    const steps = chartPoints(trail.rows);
+    const lastStep = steps.length ? steps[steps.length - 1].value : null;
+    const lowered = !deck && !lifted && estimate.level !== 'fading' && estimate.score != null
+        && lastStep != null && pct(estimate.score) < pct(lastStep);
     return (
         <div className="space-y-1.5">
             {/* The label and the answer on lines of their own: run together
@@ -177,12 +184,20 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
                             {t("Your answers alone give {{pct}}%; cards and drills lifted it.", { pct: pct(estimate.answersScore) })}
                         </p>
                     )}
+                    {lowered && lastStep != null && (
+                        <p className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
+                            {t("Your answers here reached {{pct}}%; missed practice lowered it.", { pct: pct(lastStep) })}
+                        </p>
+                    )}
                 </div>
             )}
-            {/* One line: a skipped topic says so instead of what the answers say. */}
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-                {trail.status === 'skipped' ? t("You skipped it: closed without proof.") : levelLine(t, trail, day)}
-            </p>
+            {/* One line: a skipped topic says so instead of what the answers
+                say; a lowered one has said it above (its answers did well). */}
+            {!lowered && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {trail.status === 'skipped' ? t("You skipped it: closed without proof.") : levelLine(t, trail, day)}
+                </p>
+            )}
         </div>
     );
 }
@@ -281,8 +296,11 @@ function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; o
     const points = useMemo(() => chartPoints(trail.rows), [trail.rows]);
     // A line needs two answers, and a deck has no steps. Under "too early to
     // tell" the card hides the number, so the chart does not show it either.
+    // A fading topic has no bar for the same reason it gets no line: the
+    // estimate does not decay, so a line ending high would read as "now".
     const chart = trail.projectKind !== 'deck' && points.length >= 2
-        && trail.estimate.level !== 'few' && trail.estimate.level !== 'none';
+        && trail.estimate.level !== 'few' && trail.estimate.level !== 'none'
+        && trail.estimate.level !== 'fading' && trail.status !== 'skipped';
     return (
         <Modal isOpen onClose={onClose} title={trail.title} maxWidth="max-w-2xl">
             {reviewing != null ? (
@@ -352,6 +370,15 @@ export default function TopicEvidence({ nodeId, refreshKey }: { nodeId: number; 
         load();
         return () => { latest.current++; };
     }, [load, refreshKey]);
+    // An answer, a card rating or a report anywhere (the study tools under
+    // this card, the feed beside it) may have moved this topic: read it again,
+    // once per burst, since a card session writes once per card.
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const changed = () => { clearTimeout(timer); timer = setTimeout(load, 400); };
+        window.addEventListener(EVIDENCE_CHANGED, changed);
+        return () => { clearTimeout(timer); window.removeEventListener(EVIDENCE_CHANGED, changed); };
+    }, [load]);
 
     if (!trail || trail.nodeId !== nodeId) return null;
     const held = trail.count;

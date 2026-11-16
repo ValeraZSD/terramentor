@@ -92,11 +92,22 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             throw err;
         }
 
-        return res.json();
+        const body = await res.json();
+        const method = options?.method?.toUpperCase();
+        if (method && method !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
+        return body;
     } finally {
         clearTimeout(timeoutId);
     }
 }
+
+/**
+ * Writes that add, void or undo evidence about a topic. A screen that shows
+ * the evidence (the topic panel's card) listens for EVIDENCE_CHANGED, so an
+ * answer given beside it shows without reopening the topic.
+ */
+const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/probe\/\d+\/answer|item-reports)/;
+export const EVIDENCE_CHANGED = 'terramentor:evidence-changed';
 
 /** What the server says after a study-clock flush (server/studyTime.js). */
 export interface StudyTimeFlushResult {
