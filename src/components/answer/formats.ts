@@ -203,7 +203,9 @@ function editDistance(a: string, b: string): number {
     for (let j = 1; j <= t.length; j++) d[0][j] = j;
     for (let i = 1; i <= s.length; i++) {
         for (let j = 1; j <= t.length; j++) {
-            const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+            // Only an accent may change in place: a letter changed into
+            // another is not a slip (chlorine/chloride). See the server side.
+            const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
             d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
             if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
                 d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
@@ -220,7 +222,10 @@ function isSlipOf(word: string, key: string): boolean {
     if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
     const budget = slipBudget([...key].length);
     if (budget === 0) return false;
-    if (baseLetter([...word][0] || '') !== baseLetter([...key][0] || '')) return false;
+    const w = [...word];
+    const k = [...key];
+    if (baseLetter(w[0] || '') !== baseLetter(k[0] || '')) return false;
+    if (baseLetter(w[w.length - 1] || '') !== baseLetter(k[k.length - 1] || '')) return false;
     return editDistance(word, key) <= budget;
 }
 

@@ -201,7 +201,10 @@ function editDistance(a, b) {
     for (let j = 1; j <= t.length; j++) d[0][j] = j;
     for (let i = 1; i <= s.length; i++) {
         for (let j = 1; j <= t.length; j++) {
-            const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+            // A letter changed into ANOTHER letter is never a slip: that is
+            // how chlorine becomes chloride and alkane alkene. Only an accent
+            // may change in place.
+            const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
             d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
             if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
                 d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
@@ -216,16 +219,25 @@ const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
 /**
  * Could the learner have meant `key` and slipped while typing `word`?
  * Both already normalised. A word holding a digit is a number or a code and
- * is never forgiven (1984 is not 1985). The first letter must be the same
- * letter, accent aside: the slips this is for keep it, and a different first
- * letter is usually a different word (`affect`/`effect`, `accept`/`except`).
+ * is never forgiven (1984 is not 1985). The first and last letters must be
+ * the same letters, accent aside: the slips this is for keep them, a
+ * different first letter is usually a different word (`affect`/`effect`),
+ * and a different ending is usually a different FORM (`gebruik`/`gebruikt`,
+ * `sulfate`/`sulfates`, `mitochondrion`/`mitochondria`). What is left is a
+ * letter dropped, doubled or added inside the word, two neighbours swapped,
+ * or an accent; a letter changed into another one is not (see editDistance).
+ * Known limit: a swap can still make a real word (`diary`/`dairy`); the
+ * verdict then shows the key's spelling beside the answer.
  */
 function isSlipOf(word, key) {
     if (word === key) return true;
     if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
     const budget = slipBudget([...key].length);
     if (budget === 0) return false;
-    if (baseLetter([...word][0] || '') !== baseLetter([...key][0] || '')) return false;
+    const w = [...word];
+    const k = [...key];
+    if (baseLetter(w[0] || '') !== baseLetter(k[0] || '')) return false;
+    if (baseLetter(w[w.length - 1] || '') !== baseLetter(k[k.length - 1] || '')) return false;
     return editDistance(word, key) <= budget;
 }
 

@@ -219,7 +219,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                     <SettingRow
                         label={tr("Forgive spelling slips")}
                         htmlFor="setting-forgive-spelling"
-                        hint={tr("A typed answer one letter off a word of five letters or more (two off from nine) is marked right, and the right spelling is shown. Short words, numbers and the first letter must still be exact. Leave this off when spelling is what you are learning.")}
+                        hint={tr("A typed word of five letters or more is marked right with one slip (two from nine letters): a letter dropped, doubled or added, two letters swapped, or a wrong accent. The right spelling is shown. A letter changed into another, the first and last letters, short words and numbers stay exact. Leave this off when spelling is what you are learning.")}
                         control={<Switch id="setting-forgive-spelling" label={tr("Forgive spelling slips")} checked={forgiveSpelling} onChange={(on) => void setForgiveSpelling(on)} />}
                     />
                 </SettingGroup>
