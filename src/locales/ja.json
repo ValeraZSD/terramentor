@@ -3119,7 +3119,7 @@
   "Your answer": "回答",
   "Your answer, in {{unit}}": "{{unit}} でのあなたの解答",
   "Your answer:": "あなたの回答：",
-  "Your answers alone give {{pct}}%; cards and drills lifted it.": "回答だけでは {{pct}}%。カードとドリルで上がりました。",
+  "Your answers alone give {{pct}}%; practice lifted it.": "回答だけでは {{pct}}%。練習で上がりました。",
   "Your answers here cleared the bar.": "ここでの回答が基準を超えました。",
   "Your answers here reached {{pct}}%; missed practice lowered it.": "ここでの回答は {{pct}}% に達しました。練習でのミスで下がりました。",
   "Your answers so far say you are still learning it.": "これまでの回答では、まだ学習中です。",

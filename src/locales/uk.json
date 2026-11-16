@@ -3680,7 +3680,7 @@
   "Your answer": "Ваша відповідь",
   "Your answer, in {{unit}}": "Ваша відповідь у {{unit}}",
   "Your answer:": "Ваша відповідь:",
-  "Your answers alone give {{pct}}%; cards and drills lifted it.": "Самі відповіді дають {{pct}}%; картки й вправи підняли вище.",
+  "Your answers alone give {{pct}}%; practice lifted it.": "Самі відповіді дають {{pct}}%; практика підняла вище.",
   "Your answers here cleared the bar.": "Ваші відповіді тут пройшли поріг.",
   "Your answers here reached {{pct}}%; missed practice lowered it.": "Відповіді тут дійшли до {{pct}}%; помилки в практиці знизили його.",
   "Your answers so far say you are still learning it.": "Ваші відповіді поки кажуть, що ви ще вивчаєте тему.",

@@ -183,7 +183,8 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
                     </p>
                     {lifted && estimate.answersScore != null && (
                         <p className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
-                            {t("Your answers alone give {{pct}}%; cards and drills lifted it.", { pct: pct(estimate.answersScore) })}
+                            {/* "Practice": cards, drills, or a right answer to the assistant (an agent claim) */}
+                            {t("Your answers alone give {{pct}}%; practice lifted it.", { pct: pct(estimate.answersScore) })}
                         </p>
                     )}
                     {lowered && lastStep != null && (
@@ -375,10 +376,17 @@ export default function TopicEvidence({ nodeId, refreshKey }: { nodeId: number; 
     }, [load, refreshKey]);
     // An answer, a card rating or a report anywhere (the study tools under
     // this card, the feed beside it) may have moved this topic: read it again,
-    // once per burst, since a card session writes once per card.
+    // once per burst, since a card session writes once per card. Not while the
+    // dialog is open: a report made in it deletes a one-answer row, and its
+    // Undo would go with it; closing the dialog reads the trail anyway.
+    const openRef = useRef(open);
+    openRef.current = open;
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const changed = () => { clearTimeout(timer); timer = setTimeout(load, 400); };
+        const changed = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => { if (!openRef.current) load(); }, 400);
+        };
         window.addEventListener(EVIDENCE_CHANGED, changed);
         return () => { clearTimeout(timer); window.removeEventListener(EVIDENCE_CHANGED, changed); };
     }, [load]);

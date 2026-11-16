@@ -3493,7 +3493,7 @@
   "Your answer": "Votre réponse",
   "Your answer, in {{unit}}": "Votre réponse, en {{unit}}",
   "Your answer:": "Votre réponse :",
-  "Your answers alone give {{pct}}%; cards and drills lifted it.": "Tes réponses seules donnent {{pct}} % ; les cartes et exercices l'ont relevé.",
+  "Your answers alone give {{pct}}%; practice lifted it.": "Tes réponses seules donnent {{pct}} % ; la pratique l'a relevé.",
   "Your answers here cleared the bar.": "Tes réponses ici ont franchi le seuil.",
   "Your answers here reached {{pct}}%; missed practice lowered it.": "Tes réponses ici ont atteint {{pct}} % ; des exercices manqués l'ont fait baisser.",
   "Your answers so far say you are still learning it.": "Tes réponses jusqu'ici disent que tu l'apprends encore.",

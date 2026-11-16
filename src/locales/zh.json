@@ -3119,7 +3119,7 @@
   "Your answer": "你的答案",
   "Your answer, in {{unit}}": "你的答案，单位为 {{unit}}",
   "Your answer:": "你的答案：",
-  "Your answers alone give {{pct}}%; cards and drills lifted it.": "仅凭作答为 {{pct}}%；卡片和练习把它提高了。",
+  "Your answers alone give {{pct}}%; practice lifted it.": "仅凭作答为 {{pct}}%；练习把它提高了。",
   "Your answers here cleared the bar.": "你在这里的作答已达到标准。",
   "Your answers here reached {{pct}}%; missed practice lowered it.": "这里的作答达到了 {{pct}}%；练习中的失误把它拉低了。",
   "Your answers so far say you are still learning it.": "你目前的作答说明你仍在学习它。",
