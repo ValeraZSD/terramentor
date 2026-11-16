@@ -18,7 +18,7 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
  * `data-owns-keyboard` keeps the app-wide letter shortcuts (the assistant's
  * `a`) from firing while a learner types an answer or moves by keys.
  */
-export function ExamFrame({ title, status, actions, onLeave, leaving = false, footer, frameRef, children }: {
+export function ExamFrame({ title, status, actions, onLeave, leaveLabel, leaving = false, footer, frameRef, children }: {
     title: string;
     /** The frame's root: one element through pause and resume, so a width measured on it stays live. */
     frameRef?: RefObject<HTMLDivElement | null>;
@@ -27,6 +27,8 @@ export function ExamFrame({ title, status, actions, onLeave, leaving = false, fo
     /** Right of the bar (Pause). */
     actions?: ReactNode;
     onLeave: () => void;
+    /** The way out's words: "Save and leave" where leaving saves; a past paper's clock just goes "Back". */
+    leaveLabel?: string;
     leaving?: boolean;
     footer?: ReactNode;
     children: ReactNode;
@@ -41,21 +43,31 @@ export function ExamFrame({ title, status, actions, onLeave, leaving = false, fo
     const barRef = useRef<HTMLDivElement>(null);
     const width = useElementWidth(barRef);
     const rem = useRootFontSize();
-    const roomy = width >= 34 * rem;
+    const outLabel = leaveLabel ?? t("Save and leave");
+    // Three widths. Roomy: the title and the status between the two labelled
+    // buttons. A phone: both buttons keep their words (a bare arrow reads as
+    // "back, and lose it") and the status takes its own line under them; the
+    // title gives way. Very narrow (large text on a small phone): icons only.
+    const roomy = width >= EXAM_BAR_ROOMY * rem;
+    const tiny = width > 0 && width < EXAM_BAR_TINY * rem;
+    const statusLine = status && (
+        <p className="text-balance text-sm tabular-nums text-slate-600 dark:text-slate-300">{status}</p>
+    );
 
     return (
         <div ref={frameRef} data-owns-keyboard="" className="flex-1 min-h-0 flex flex-col bg-slate-100 dark:bg-slate-900">
             <div ref={barRef} className="shrink-0 safe-pt-0 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                <div className="mx-auto w-full max-w-5xl flex items-center gap-2 px-2 sm:px-4 min-h-[3.5rem] py-1.5">
-                    {roomy
-                        ? <Button variant="quiet" size="sm" busy={leaving} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} onClick={onLeave}>{t("Save and leave")}</Button>
-                        : <IconButton size="md" label={t("Save and leave")} icon={<ArrowLeft className="w-5 h-5" />} onClick={onLeave} disabled={leaving} />}
+                <div className="mx-auto w-full max-w-5xl flex flex-wrap items-center gap-x-2 px-2 sm:px-4 min-h-[3.5rem] py-1.5">
+                    {tiny
+                        ? <IconButton size="md" label={outLabel} icon={<ArrowLeft className="w-5 h-5" />} onClick={onLeave} disabled={leaving} />
+                        : <Button variant="quiet" size="sm" busy={leaving} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} onClick={onLeave}>{outLabel}</Button>}
                     <div className="flex-1 min-w-0 px-1 text-center">
-                        <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>
-                        {status && <p className="text-balance text-sm tabular-nums text-slate-600 dark:text-slate-300">{status}</p>}
+                        {roomy && <h2 className="truncate text-sm font-semibold text-slate-900 dark:text-white">{title}</h2>}
+                        {(roomy || tiny) && statusLine}
                     </div>
-                    {/* The same width as the way out, so the title sits at the true centre. */}
-                    <div className={`flex justify-end ${roomy ? 'min-w-[9.5rem]' : 'min-w-[2.75rem]'}`}>{actions}</div>
+                    {/* As wide as the way out when the title sits between them, so it sits at the true centre. */}
+                    <div className={`flex justify-end ${roomy ? 'min-w-[9.5rem]' : ''}`}>{actions}</div>
+                    {!roomy && !tiny && status && <div className="basis-full pb-1 text-center">{statusLine}</div>}
                 </div>
             </div>
             <div className="flex-1 min-h-0 overflow-auto">{children}</div>
@@ -68,18 +80,28 @@ export function ExamFrame({ title, status, actions, onLeave, leaving = false, fo
     );
 }
 
+/** Widths of the exam bar, in rem: the title shows from ROOMY, the buttons lose their words below TINY. */
+export const EXAM_BAR_ROOMY = 34;
+export const EXAM_BAR_TINY = 20;
+
 export interface StripItem {
     answered: boolean;
     marked: boolean;
 }
+
+// Answered is a filled cell, not answered an empty outlined one: a shape
+// difference that holds without colour. The fill is a tint of the accent, so
+// a finished row reads as done, not as greyed out.
+const ANSWERED = 'bg-accent/20 dark:bg-accent/35';
+const OPEN = 'border-2 border-slate-400 bg-white dark:border-slate-500 dark:bg-slate-800';
 
 /** One question's cell: its look is the same in the strip and the full grid. */
 function cellClass(item: StripItem, current: boolean) {
     const state = current
         ? 'bg-accent text-white font-semibold'
         : item.answered
-            ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white can-hover:hover:bg-slate-300 dark:can-hover:hover:bg-slate-500'
-            : 'border-2 border-dashed border-slate-400 text-slate-700 dark:border-slate-500 dark:text-slate-200 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700';
+            ? `${ANSWERED} text-slate-900 dark:text-white can-hover:hover:bg-accent/30 dark:can-hover:hover:bg-accent/45`
+            : `${OPEN} text-slate-700 dark:text-slate-200 can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700`;
     return `relative shrink-0 inline-flex items-center justify-center rounded-lg text-sm tabular-nums transition-colors ${FOCUS_RING} focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-800 ${state}`;
 }
 
@@ -213,8 +235,8 @@ export function QuestionGrid({ items, current, onGo }: {
                 ))}
             </ul>
             <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600 dark:text-slate-300">
-                <li className="flex items-center gap-1.5"><span aria-hidden="true" className="w-4 h-4 rounded bg-slate-200 dark:bg-slate-600" />{t("Answered")}</li>
-                <li className="flex items-center gap-1.5"><span aria-hidden="true" className="w-4 h-4 rounded border-2 border-dashed border-slate-400 dark:border-slate-500" />{t("Not answered")}</li>
+                <li className="flex items-center gap-1.5"><span aria-hidden="true" className={`w-4 h-4 rounded ${ANSWERED}`} />{t("Answered")}</li>
+                <li className="flex items-center gap-1.5"><span aria-hidden="true" className={`w-4 h-4 rounded ${OPEN}`} />{t("Not answered")}</li>
                 <li className="flex items-center gap-1.5"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-full bg-amber-500" />{t("Come back to this")}</li>
             </ul>
         </div>
