@@ -640,7 +640,7 @@ export function estimateProven(nodeId, threshold) {
  * proving rows alone (what `practice_lifted` asks: would they reach the line
  * with no claim at all?).
  */
-function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly } = {}) {
+function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly, trace = null } = {}) {
     const rows = stmt(`
         SELECT id, score, total, metadata FROM mastery_evidence
         WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
@@ -675,6 +675,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
         const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
+        const before = p;
         if (r.total >= MIN_GATE_QUESTIONS) {
             const prior = attempts === 0 ? Math.max(p || 0, BKT_PARAMS.p_L0) : p;
             p = bktBatchUpdate(prior, r.score, r.total, { p_G });
@@ -682,9 +683,24 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
             for (let i = 0; i < r.total; i++) p = bktUpdate(p, i < r.score, { p_G }).p_K_posterior;
         }
         attempts += r.total;
+        trace?.set(r.id, { before, after: p });
     }
     lowerUpTo(Infinity);
     return p;
+}
+
+/**
+ * What each evidence row did to the estimate, by the replay a rebuild runs
+ * (`rescoreNode`): evidence id → `{ before, after }`, from the seed the row
+ * holds now. Reads only; placement rows are not in it (their seed was their
+ * contribution). The rates are today's, so a row's step is what that answer
+ * is worth now, which is what the stored estimate becomes on any rebuild.
+ */
+export function evidenceMoves(nodeId) {
+    const record = stmt('SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
+    const trace = new Map();
+    if (record) replayOwnEvidence(nodeId, seedOf(record), { trace });
+    return trace;
 }
 
 /**
