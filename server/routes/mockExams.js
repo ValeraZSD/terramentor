@@ -49,7 +49,7 @@ app.put('/api/mock-sittings/:id/scores', handle(req => {
     return setPartScore(idOf(req.params.id), idOf(partId), points === null ? null : points);
 }));
 
-app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id))));
+app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id), { fillUnmarked: req.body?.fillUnmarked === true })));
 
 app.delete('/api/mock-sittings/:id', handle(req => { discardSitting(idOf(req.params.id)); return { ok: true }; }));
 

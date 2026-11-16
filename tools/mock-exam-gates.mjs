@@ -10,9 +10,10 @@
  *
  *   1. the grade comes from the paper's own formula and the pass line is shown
  *      in points (a CCVX paper: 79 points, grade = points / 79 * 9 + 1, pass
- *      at 5.5 = 40 points);
+ *      at 5.5 = 39.5 points, in halves like the points themselves);
  *   2. a paper's points table is checked when it is added (no zero-point part,
- *      no topic from another course);
+ *      no topic or document from another course, no document without a stored
+ *      file or of a kind the browser cannot show);
  *   3. the clock is the server's and only moves while it runs: pause banks it,
  *      leaving never loses it, time up never hands in by itself;
  *   4. marks are points per part, never more than the part is worth, and only
@@ -127,7 +128,19 @@ try {
         check('79 of 79 is a 10', g(p, 79) === 10, String(g(p, 79)));
         check('0 of 79 is a 1', g(p, 0) === 1, String(g(p, 0)));
         check('40 of 79 is a 5.6 (one decimal, as printed)', g(p, 40) === 5.6, String(g(p, 40)));
-        check('the pass line of 5.5 is 40 points (39.5 rounded up: half a point short is short)', mock.passPointsFor(p) === 40, String(mock.passPointsFor(p)));
+        check('the pass line of 5.5 is 39.5 points (points come in halves, so it is never rounded to a whole point)', mock.passPointsFor(p) === 39.5, String(mock.passPointsFor(p)));
+        check('39.5 of 79 is exactly a 5.5', g(p, 39.5) === 5.5, String(g(p, 39.5)));
+        check('the line follows the PRINTED grade: pass at 5.6 on 79 is 40 points, because 40 prints 5.6', mock.passPointsFor({ ...p, passGrade: 5.6 }) === 40, String(mock.passPointsFor({ ...p, passGrade: 5.6 })));
+        // Every half point on three papers: "passed" (earned >= line) says the
+        // same as the grade on screen reaching the pass grade.
+        let disagree = [];
+        for (const shape of [p, { ...p, passGrade: 5.6 }, { ...p, passGrade: 6 }, { total: 200, gradeMin: 1, gradeMax: 10, passGrade: 5.5 }, { total: 37, gradeMin: 0, gradeMax: 10, passGrade: 5.5 }]) {
+            const line = mock.passPointsFor(shape);
+            for (let e = 0; e <= shape.total; e += 0.5) {
+                if ((e >= line) !== (g(shape, e) >= shape.passGrade)) disagree.push(`${shape.total}/${shape.passGrade}@${e}`);
+            }
+        }
+        check('at every half point, the pass line agrees with the printed grade', disagree.length === 0, disagree.slice(0, 5).join(' '));
         check('no formula: no grade', g({ total: 79, gradeMin: null, gradeMax: null }, 50) === null);
         check('no pass grade: no pass line', mock.passPointsFor({ total: 79, gradeMin: 1, gradeMax: 10, passGrade: null }) === null);
     });
@@ -137,7 +150,7 @@ try {
         check('the CCVX paper is added', made.status === 200 && made.body?.paper?.id > 0, JSON.stringify(made.body));
         paper = made.body?.paper;
         check('its total is the sum of its parts: 79', paper?.total === 79, String(paper?.total));
-        check('its pass line reads 40 points', paper?.passPoints === 40, String(paper?.passPoints));
+        check('its pass line reads 39.5 points', paper?.passPoints === 39.5, String(paper?.passPoints));
         check('seven parts in five questions, in the order given', paper?.parts?.length === 7 && paper.parts.map(x => x.question).join('') === '1123345');
         const zero = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 0 }] });
         check('a zero-point part is refused', zero.status === 400, String(zero.status));
@@ -145,6 +158,10 @@ try {
         check('a paper with no parts is refused', none.status === 400, String(none.status));
         const stray = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 5, nodeId: foreign }] });
         check('a topic from another course is refused', stray.status === 400, String(stray.status));
+        const chapter = addNode(course, 'Calculus chapter');
+        db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, ?, ?, 0)').run(course, chapter, 'Limits');
+        const parent = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: '', points: 5, nodeId: chapter }] });
+        check('a chapter (not a topic you study) is refused, as the picker never offers it', parent.status === 400, String(parent.status));
         const twice = await call('POST', papersPath, { ...CCVX, parts: [{ question: '1', part: 'a', points: 5 }, { question: '1', part: 'a', points: 3 }] });
         check('the same question and part twice is refused', twice.status === 400, String(twice.status));
         const badFormula = await call('POST', papersPath, { ...CCVX, gradeMin: 10, gradeMax: 1 });
@@ -153,6 +170,36 @@ try {
         check('the course lists one paper', list.status === 200 && list.body?.papers?.length === 1, JSON.stringify(list.body)?.slice(0, 200));
         const elsewhere = await call('GET', `/api/projects/${other}/mock-exams`);
         check('another course lists none', elsewhere.status === 200 && elsewhere.body?.papers?.length === 0);
+        const missing = await call('GET', '/api/projects/999999/mock-exams');
+        check('a course that does not exist is a 404, not an empty list', missing.status === 404, String(missing.status));
+        const tooHigh = await call('POST', papersPath, { ...CCVX, gradeMin: 1, gradeMax: 1e9, passGrade: 5.5 });
+        check('a grade beyond 0 to 1000 is refused', tooHigh.status === 400, String(tooHigh.status));
+    });
+
+    await block('2b. the paper and its solution are this course\'s own stored PDF or picture', async () => {
+        const addDoc = (pid, title, fileType, hash) => Number(db.prepare(
+            'INSERT INTO documents (project_id, title, content, file_type, file_hash) VALUES (?, ?, \'\', ?, ?)',
+        ).run(pid, title, fileType, hash).lastInsertRowid);
+        const own = addDoc(course, 'Sample exam 19.pdf', 'pdf', 'a'.repeat(64));
+        const theirs = addDoc(other, 'Optics exam.pdf', 'pdf', 'b'.repeat(64));
+        const noFile = addDoc(course, 'Pasted notes', 'pdf', null);
+        const word = addDoc(course, 'Solutions.docx', 'docx', 'c'.repeat(64));
+        const photo = addDoc(course, 'Solutions page 1.jpg', 'jpg', 'd'.repeat(64));
+        const failed = addDoc(course, 'Broken.pdf', 'pdf', 'e'.repeat(64));
+        db.prepare("UPDATE documents SET status = 'failed' WHERE id = ?").run(failed);
+        const tryDoc = (id) => call('POST', papersPath, { ...CCVX, title: 'Doc check', paperDocumentId: id });
+        const ok = await tryDoc(own);
+        check('the course\'s own stored PDF is accepted', ok.status === 200 && ok.body?.paper?.paperDocumentId === own, JSON.stringify(ok.body)?.slice(0, 200));
+        const pic = await call('POST', papersPath, { ...CCVX, title: 'Photo check', solutionDocumentId: photo });
+        check('a photo of the solution (jpg) is accepted, and says it is not a PDF', pic.status === 200 && pic.body?.paper?.solutionKind === 'jpg', JSON.stringify(pic.body)?.slice(0, 200));
+        if (pic.body?.paper?.id) mock.deletePaper(pic.body.paper.id);
+        check('a document whose import failed is refused, as the picker never offers it', (await tryDoc(failed)).status === 400);
+        check('a document from another course is refused', (await tryDoc(theirs)).status === 400);
+        check('a document with no stored file is refused', (await tryDoc(noFile)).status === 400);
+        check('a kind the browser cannot show beside the points (docx) is refused', (await tryDoc(word)).status === 400);
+        const docs = (await call('GET', papersPath)).body?.documents?.map(d => d.id) ?? [];
+        check('the pickers offer only the course\'s own stored PDF', docs.includes(own) && !docs.includes(theirs) && !docs.includes(noFile) && !docs.includes(word), JSON.stringify(docs));
+        if (ok.body?.paper?.id) mock.deletePaper(ok.body.paper.id);
     });
 
     await block('3. the clock is the server\'s and moves only while it runs', async () => {
@@ -172,6 +219,11 @@ try {
         const done = mock.stopWriting(s.id, { now: t0 + 4_500_000 });
         check('"I am done" stops the clock and opens marking', done.status === 'marking' && done.running === false && done.elapsed === 900, JSON.stringify(done));
         check('a second "I am done" changes nothing', mock.stopWriting(s.id, { now: t0 + 9_000_000 }).elapsed === 900);
+        const pausedLate = mock.pauseSitting(s.id, { now: t0 + 9_000_000 });
+        const resumedLate = mock.resumeSitting(s.id, { now: t0 + 9_000_000 });
+        check('pause or resume after "I am done" does nothing: the clock stays stopped at 900 s',
+            pausedLate.status === 'marking' && resumedLate.status === 'marking' && resumedLate.running === false
+            && mock.getSitting(s.id, { now: t0 + 20_000_000 }).elapsed === 900, JSON.stringify(resumedLate));
         mock.discardSitting(s.id);
         check('a sitting never marked can be discarded', !mock.getSitting(s.id));
     });
@@ -195,6 +247,11 @@ try {
         const strayPart = otherPaper.body?.paper?.parts?.[0]?.id;
         const wrongPaper = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: strayPart, points: 1 });
         check('a part of another paper is refused', wrongPaper.status === 400 || wrongPaper.status === 404, String(wrongPaper.status));
+        const half = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: 2.5 });
+        check('a half point (2.5) is accepted', half.status === 200 && half.body?.result?.earned === 2.5, `${half.status} ${half.body?.result?.earned}`);
+        const cleared = await call('PUT', `/api/mock-sittings/${sid}/scores`, { partId: part('1', 'a'), points: null });
+        check('null clears a part back to ungraded', cleared.status === 200 && cleared.body?.result?.earned === 0
+            && cleared.body?.result?.parts?.find(x => x.id === part('1', 'a'))?.earned === null, JSON.stringify(cleared.body?.result?.parts?.[0]));
         // Derivatives: 1a 8/8, 1b 11/12, 5 13/13 → three right.
         // Integrals (a COMPLETED topic): 2 3/18 → one wrong.
         // Vectors: 3a 1/6 → wrong; 3b left unmarked.
@@ -222,7 +279,7 @@ try {
         const r = fin.body?.result;
         check('46 of 79 points', r?.earned === 46 && r?.total === 79, `${r?.earned}/${r?.total}`);
         check('grade 46/79*9+1 = 6.2', r?.grade === 6.2, String(r?.grade));
-        check('pass line 40 points, passed', r?.passPoints === 40 && r?.passed === true);
+        check('pass line 39.5 points, passed', r?.passPoints === 39.5 && r?.passed === true);
         const d = evidenceOf(derivatives), i = evidenceOf(integrals).filter(e => e.evidence_type === 'mock'), v = evidenceOf(vectors);
         check('Derivatives gets one mock row: 3 of 3 parts', d.length === 1 && d[0].evidence_type === 'mock' && d[0].score === 3 && d[0].total === 3, JSON.stringify(d));
         check('Integrals gets one mock row: 0 of 1', i.length === 1 && i[0].score === 0 && i[0].total === 1, JSON.stringify(i));
@@ -275,6 +332,54 @@ try {
         const list = (await call('GET', papersPath)).body;
         const hist = list?.papers?.find(p => p.id === paper.id)?.sittings;
         check('the paper lists its finished whole-paper mock with its grade', hist?.some(h => h.status === 'done' && h.grade === 6.2), JSON.stringify(hist));
+    });
+
+    await block('7b. half a point on the line passes', async () => {
+        const s = (await call('POST', `/api/mock-exams/papers/${paper.id}/sittings`, {})).body?.sitting;
+        await call('POST', `/api/mock-sittings/${s.id}/stop`, {});
+        const part = (q, p) => paper.parts.find(x => x.question === q && x.part === p).id;
+        // 8 + 12 + 18 + 1.5 = 39.5 of 79: exactly the 5.5 line.
+        for (const [q, p, pts] of [['1', 'a', 8], ['1', 'b', 12], ['2', '', 18], ['3', 'a', 1.5]]) {
+            await call('PUT', `/api/mock-sittings/${s.id}/scores`, { partId: part(q, p), points: pts });
+        }
+        const r = (await call('POST', `/api/mock-sittings/${s.id}/finish`, {})).body?.result;
+        check('39.5 of 79 is grade 5.5 and passes', r?.earned === 39.5 && r?.grade === 5.5 && r?.passed === true, JSON.stringify({ e: r?.earned, g: r?.grade, p: r?.passed, line: r?.passPoints }));
+    });
+
+    await block('7d. "Give them 0" grades every ungraded part 0 as it finishes', async () => {
+        const s = (await call('POST', `/api/mock-exams/papers/${paper.id}/sittings`, {})).body?.sitting;
+        await call('POST', `/api/mock-sittings/${s.id}/stop`, {});
+        const p1a = paper.parts.find(x => x.question === '1' && x.part === 'a').id;
+        await call('PUT', `/api/mock-sittings/${s.id}/scores`, { partId: p1a, points: 5 });
+        const before = db.prepare("SELECT COUNT(*) n FROM mastery_evidence WHERE evidence_type = 'mock'").get().n;
+        const r = (await call('POST', `/api/mock-sittings/${s.id}/finish`, { fillUnmarked: true })).body?.result;
+        check('no part is left ungraded and the graded one kept its 5', r?.unmarked === 0 && r?.earned === 5 && r?.parts?.filter(x => x.earned === 0).length === 6, JSON.stringify({ u: r?.unmarked, e: r?.earned }));
+        const wrote = db.prepare("SELECT COUNT(*) n FROM mastery_evidence WHERE evidence_type = 'mock'").get().n - before;
+        check('the zeros count as practice too: one row per tagged topic (3)', wrote === 3, String(wrote));
+        const plain = (await call('POST', `/api/mock-exams/papers/${paper.id}/sittings`, {})).body?.sitting;
+        await call('POST', `/api/mock-sittings/${plain.id}/stop`, {});
+        const r2 = (await call('POST', `/api/mock-sittings/${plain.id}/finish`, {})).body?.result;
+        check('without it, ungraded parts stay ungraded (7 of 7)', r2?.unmarked === 7, String(r2?.unmarked));
+    });
+
+    await block('7c. a topic with four or more parts is still practice', async () => {
+        const c = Number(db.prepare("INSERT INTO projects (name) VALUES ('Calculus')").run().lastInsertRowid);
+        const limits = addNode(c, 'Limits', 'in_progress');
+        const big = mock.createPaper(c, {
+            title: 'Limits paper', minutes: 60, gradeMin: 1, gradeMax: 10, passGrade: 5.5,
+            parts: ['a', 'b', 'c', 'd', 'e'].map(p => ({ question: '1', part: p, points: 4, nodeId: limits })),
+        });
+        const s = mock.startSitting(big.id, { now: 0 });
+        mock.stopWriting(s.id, { now: 60_000 });
+        for (const p of big.parts) mock.setPartScore(s.id, p.id, 4);
+        const eligibleBefore = checkMasteryEligibility(limits);
+        mock.finishSitting(s.id, { now: 120_000 });
+        const ev = evidenceOf(limits);
+        check('five full parts on one topic write one mock row of 5 of 5', ev.length === 1 && ev[0].evidence_type === 'mock' && ev[0].score === 5 && ev[0].total === 5, JSON.stringify(ev));
+        const el = checkMasteryEligibility(limits);
+        check('…which the gate does not read (gate score 0, still not eligible)', el.gate_score === 0 && el.eligible === false && eligibleBefore.eligible === false, JSON.stringify(el));
+        check('…and the topic is still in progress, not done', statusOf(limits) === 'in_progress');
+        db.prepare('DELETE FROM projects WHERE id = ?').run(c);
     });
 
     await block('8. named for sync, and gone with the course', async () => {

@@ -1249,6 +1249,8 @@ try {
       FOREIGN KEY (solution_document_id) REFERENCES documents(id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS idx_exam_papers_project ON exam_papers(project_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_paper_doc ON exam_papers(paper_document_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_solution_doc ON exam_papers(solution_document_id);
 
     CREATE TABLE IF NOT EXISTS exam_paper_parts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1263,6 +1265,7 @@ try {
       FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE SET NULL,
       UNIQUE (paper_id, question, part)
     );
+    CREATE INDEX IF NOT EXISTS idx_exam_paper_parts_node ON exam_paper_parts(node_id);
 
     CREATE TABLE IF NOT EXISTS mock_sittings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
