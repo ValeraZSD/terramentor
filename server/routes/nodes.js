@@ -122,6 +122,7 @@ const nodeProjectStmt = db.prepare('SELECT id, project_id FROM nodes WHERE id = 
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
 const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
 const nodeParentStmt = db.prepare('SELECT parent_id, uuid FROM nodes WHERE id = ?');
+const nodeAuthoredStmt = db.prepare('SELECT title, description, is_note FROM nodes WHERE id = ?');
 const siblingGroupStmt = db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
 const projectNodesStmt = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position');
 
@@ -385,12 +386,16 @@ app.put('/api/nodes/:id', (req, res) => {
     setClauses.push('updated_at = CURRENT_TIMESTAMP');
     values.push(req.params.id);
 
+    const before = nodeAuthoredStmt.get(req.params.id);
     db.prepare(`UPDATE nodes SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
     // The editor is a person's hand: a course update that also changes one of
-    // these fields asks before it overwrites it (server/courseUpdate.js).
+    // these fields asks before it overwrites it (server/courseUpdate.js). Only
+    // a field this save CHANGED counts: an editor sends every field it shows.
+    const changed = (k) => (before[k] ?? null) !== (node[k] ?? null);
     markLearnerEdit('node', node.uuid, [
-        title !== undefined && 'title', description !== undefined && 'description', note !== undefined && 'is_note',
+        title !== undefined && changed('title') && 'title', description !== undefined && changed('description') && 'description',
+        note !== undefined && changed('is_note') && 'is_note',
         parent_id !== undefined && parent_id !== current.parent_id && 'parent',
     ]);
     // Only the fields that make up a topic's embedded text are worth a sweep —
@@ -538,10 +543,12 @@ app.put('/api/resources/:id', (req, res) => {
     // 'article', which under COALESCE would rewrite the stored type on a
     // title-only edit.
     const nextType = type === undefined || type === null ? type : sanitizeResourceType(type);
+    const before = db.prepare('SELECT title, url, type FROM resources WHERE id = ?').get(req.params.id);
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
         .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
     const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(req.params.id);
-    markLearnerEdit('resource', resource.uuid, [title != null && 'title', nextUrl != null && 'url', nextType != null && 'type']);
+    // Only what this save changed: ticking a link done sends its title too.
+    markLearnerEdit('resource', resource.uuid, ['title', 'url', 'type'].filter(k => (before[k] ?? null) !== (resource[k] ?? null)));
     res.json(resource);
 });
 

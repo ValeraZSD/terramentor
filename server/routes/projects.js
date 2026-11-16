@@ -109,7 +109,7 @@ app.put('/api/projects/:id', (req, res) => {
     const updates = [];
     const values = [];
 
-    const before = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(req.params.id);
+    const before = db.prepare('SELECT name, description, content_language FROM projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Project not found' });
     const fieldError = projectFieldError({ name, description, color, icon, position });
     if (fieldError) return res.status(400).json({ error: fieldError });
@@ -200,7 +200,7 @@ app.put('/api/projects/:id', (req, res) => {
     // the same field asks first (server/courseUpdate.js).
     markLearnerEdit('project', project.uuid, [
         differs(name, before.name) && 'name', differs(description, before.description) && 'description',
-        content_language !== undefined && isSupportedLanguage(content_language) && 'content_language',
+        content_language !== undefined && (project.content_language ?? '') !== (before.content_language ?? '') && 'content_language',
     ]);
     res.json(project);
 });
