@@ -5,6 +5,7 @@
 // guarded against a double write and turned into evidence exactly like one
 // rated in the app.
 import db from './database.js';
+import { logScheduleEvent, writesSchedule } from './softDelete.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from './reviewLog.js';
 import { recordCardEvidence } from './cardEvidence.js';
 import { cardEdited, parkedByReport } from './itemReports.js';
@@ -18,7 +19,7 @@ export function writeCard(id, body = {}) {
         stability, stability_fast, fsrs_difficulty, state, lapses, learning_steps, review_count, rating, undo_review, undo_of } = body;
     // The row as it was, for the review log: a review is "this rating, from
     // this state, after this many days" and only the pre-update row knows it.
-    const before = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id);
+    const before = db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(id);
     if (!before) return { status: 404, json: { error: 'Flashcard not found' } };
     // The memory state is read back by the scheduler, which refuses anything but
     // a finite number: text stored here would break the card's next review. The
@@ -150,8 +151,16 @@ export function writeCard(id, body = {}) {
                 now: Number.isNaN(at.getTime()) ? new Date() : at,
             });
         } else if (undo_review === true) {
-            if (undo_of != null) undoReview(before.id, undo_of);
-            else undoLastReview(before.id);
+            // The schedule moves back with no review behind the move: an event,
+            // naming the review that was taken back.
+            const taken = [];
+            if (undo_of != null) undoReview(before.id, undo_of, taken);
+            else undoLastReview(before.id, taken);
+            logScheduleEvent(before.id, 'undo', { schedule: body, reviewUuid: taken[0] ?? null });
+        } else if (updates.length > 0 && writesSchedule(body)) {
+            // A schedule written with no rating (a client or an agent setting a
+            // due date): no review explains it, so the event is its record.
+            logScheduleEvent(before.id, 'set', { schedule: body });
         }
     })();
     if (isReview) {
@@ -175,5 +184,5 @@ export function writeCard(id, body = {}) {
     if (!isReview && undo_review !== true && textEdited) {
         try { cardEdited(before.id); } catch (err) { console.error('[cards] report settle failed:', err.message); }
     }
-    return { status: 200, json: db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id) };
+    return { status: 200, json: db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(id) };
 }

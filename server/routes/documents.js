@@ -55,11 +55,11 @@ function documentOwnerError(projectId, nodeId) {
     // boolean (`Number(true)` is 1) failed the bind the same way.
     const notAnId = (v) => !!v && !((typeof v === 'number' || typeof v === 'string') && Number.isSafeInteger(Number(v)) && Number(v) > 0);
     if (notAnId(projectId) || notAnId(nodeId)) return { status: 400, error: 'projectId and nodeId must be whole numbers' };
-    if (projectId && !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+    if (projectId && !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
         return { status: 404, error: 'Project not found' };
     }
     if (nodeId) {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        const node = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
         if (!node) return { status: 404, error: 'Topic not found' };
         if (projectId && node.project_id !== Number(projectId)) {
             return { status: 400, error: 'The topic belongs to another project' };
@@ -170,7 +170,7 @@ app.post('/api/documents/staged', handleVaultUpload, wrap(async (req, res) => {
 app.post('/api/documents/staged/claim', (req, res) => {
     const projectId = Number(req.body?.projectId);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).slice(0, 100) : [];
-    if (!projectId || !db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+    if (!projectId || !db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
         return res.status(404).json({ error: 'Project not found' });
     }
     const claimed = claimStaged(ids, projectId);

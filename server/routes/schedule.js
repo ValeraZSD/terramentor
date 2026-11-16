@@ -42,7 +42,7 @@ app.get('/api/schedule/overview', (req, res) => {
         const projects = db.prepare(`
             SELECT id, uuid, name, color, icon, position, status,
                    start_date, deadline, study_days
-            FROM projects
+            FROM live_projects projects
             WHERE COALESCE(status, 'active') != 'archived'
             ORDER BY position ASC, id ASC
         `).all();
@@ -51,12 +51,12 @@ app.get('/api/schedule/overview', (req, res) => {
         // passes rather than a query per project.
         const openCounts = new Map(db.prepare(`
             SELECT n.project_id AS pid, COUNT(*) AS c
-            FROM nodes n WHERE ${OPEN_WORK_LEAF} GROUP BY n.project_id
+            FROM live_nodes n WHERE ${OPEN_WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
         const leafCounts = new Map(db.prepare(`
             SELECT n.project_id AS pid, COUNT(*) AS c
-            FROM nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
+            FROM live_nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
         const extents = new Map(db.prepare(`
@@ -64,7 +64,7 @@ app.get('/api/schedule/overview', (req, res) => {
                    MIN(n.scheduled_start) AS first_start,
                    MAX(n.scheduled_end)   AS last_end,
                    COUNT(n.scheduled_start) AS scheduled_count
-            FROM nodes n
+            FROM live_nodes n
             WHERE ${WORK_LEAF} AND n.scheduled_start IS NOT NULL
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
@@ -80,8 +80,8 @@ app.get('/api/schedule/overview', (req, res) => {
                    COUNT(*) AS cards,
                    SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL
                             THEN 1 ELSE 0 END) AS seen
-            FROM flashcards f
-            JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f
+            JOIN live_nodes n ON n.id = f.node_id
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
 
@@ -160,12 +160,12 @@ app.post('/api/projects/:id/schedule', (req, res) => {
             startDate, deadline, studyDays: days,
         });
 
-        const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+        const updatedProject = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(id);
         const nodes = db.prepare(`
             SELECT id, project_id, parent_id, title, description, notes, status,
                    is_note, position, scheduled_start, scheduled_end, estimated_weight,
                    completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
+            FROM live_nodes nodes WHERE project_id = ?
         `).all(id);
 
         res.json({ success: true, project: updatedProject, nodes, warnings: result.warnings, stats: result.stats });
@@ -202,7 +202,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
             SELECT id, project_id, parent_id, title, description, notes, status,
                    is_note, position, scheduled_start, scheduled_end, estimated_weight,
                    completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
+            FROM live_nodes nodes WHERE project_id = ?
         `).all(id);
 
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });
@@ -251,10 +251,10 @@ app.put('/api/nodes/:id/weight', (req, res) => {
         return res.status(400).json({ error: 'Weight must be a non-negative number.' });
     }
     try {
-        const node = db.prepare('SELECT id FROM nodes WHERE id = ?').get(id);
+        const node = db.prepare('SELECT id FROM live_nodes nodes WHERE id = ?').get(id);
         if (!node) return res.status(404).json({ error: 'Node not found.' });
         db.prepare(`UPDATE nodes SET estimated_weight = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(estimated_weight, id);
-        const updated = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
+        const updated = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(id);
         res.json(updated);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });

@@ -15,7 +15,7 @@ import { isNodeWeight, sanitizeResourceType, VALID_NODE_STATUSES } from '../curr
 import { sanitizeUrl } from '../urlSafety.js';
 import { TAUGHT_SQL } from '../progress.js';
 import { getGateConfig } from '../settingsStore.js';
-import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
+import { softDelete } from '../softDelete.js';
 import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
@@ -76,13 +76,13 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
                COALESCE(fc.cards, 0) AS cards, COALESCE(fc.seen, 0) AS seen,
                COALESCE(nm.total_attempts, 0) AS attempts,
                ${TAUGHT_SQL} AS taught
-        FROM nodes n
+        FROM live_nodes n
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         LEFT JOIN (
             SELECT f.node_id,
                    COUNT(*) AS cards,
                    SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-            FROM flashcards f GROUP BY f.node_id
+            FROM live_flashcards f GROUP BY f.node_id
         ) fc ON fc.node_id = n.id
         WHERE ${filters.join(' AND ')} ORDER BY n.position
     `).all(...values);
@@ -109,7 +109,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
 
 let provableTopics = null;
 const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
-    SELECT n.id FROM nodes n
+    SELECT n.id FROM live_nodes n
     WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
       AND n.scheduled_end IS NOT NULL AND n.scheduled_end <= ?
       AND n.id IN (SELECT node_id FROM mastery_evidence)
@@ -117,11 +117,11 @@ const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
 
 // Hoisted: a reorder carries a whole sibling list, so preparing inside the loop
 // re-compiles the same statement once per node on every drag.
-const nodeProjectStmt = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?');
+const nodeProjectStmt = db.prepare('SELECT id, project_id FROM live_nodes nodes WHERE id = ?');
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
 const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
-const siblingGroupStmt = db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
-const projectNodesStmt = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position');
+const siblingGroupStmt = db.prepare('SELECT id, position FROM live_nodes nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
+const projectNodesStmt = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position');
 
 app.put('/api/nodes/reorder', (req, res) => {
     const { nodeIds, parentId } = req.body;
@@ -181,10 +181,10 @@ app.put('/api/nodes/reorder', (req, res) => {
 // this; the other writers derive their parent from rows they just read.
 // Returns `{ status, error }` or null.
 function newNodePlacementError(projectId, parentId, isNote = 0) {
-    const project = db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT id FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return { status: 404, error: 'Project not found' };
     if (parentId == null) return null;
-    const parent = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(parentId);
+    const parent = db.prepare('SELECT id, project_id, is_note FROM live_nodes nodes WHERE id = ?').get(parentId);
     if (!parent) return { status: 400, error: 'Parent node not found' };
     if (parent.project_id !== project.id) return { status: 400, error: 'The parent node belongs to another project' };
     if (parent.is_note && !isNote) return { status: 400, error: TOPIC_UNDER_NOTE };
@@ -211,7 +211,7 @@ const NOTE_HOLDING_TOPICS = 'This has topics under it, so it cannot become a not
 function completionGateRefusal(nodeId, override) {
     const gate = getGateConfig();
     if (override || gate.mode === 'off') return null;
-    const node = db.prepare(`SELECT (${WORK_LEAF}) AS work FROM nodes n WHERE n.id = ?`).get(nodeId);
+    const node = db.prepare(`SELECT (${WORK_LEAF}) AS work FROM live_nodes n WHERE n.id = ?`).get(nodeId);
     if (!node?.work) return null;
     const eligibility = checkMasteryEligibility(nodeId, gate.threshold, gate.checkPass);
     if (eligibility.eligible) return null;
@@ -255,8 +255,8 @@ function nodeTextError({ title, description, notes }, creating) {
     return null;
 }
 
-const nodeExistsStmt = db.prepare('SELECT id, project_id, parent_id FROM nodes WHERE id = ?');
-const nextPositionStmt = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM nodes WHERE project_id = ? AND parent_id IS ? AND id != ?');
+const nodeExistsStmt = db.prepare('SELECT id, project_id, parent_id FROM live_nodes nodes WHERE id = ?');
+const nextPositionStmt = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS pos FROM live_nodes nodes WHERE project_id = ? AND parent_id IS ? AND id != ?');
 
 // Thrown inside the create transaction to undo the insert when the gate refuses.
 class GateRefused extends Error {
@@ -280,7 +280,7 @@ app.post('/api/nodes', (req, res) => {
     // later, and gets its completed_at the same way. The gate is asked of the
     // inserted row, so the insert is undone when it refuses.
     const create = db.transaction(() => {
-        const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM nodes WHERE project_id = ? AND parent_id IS ?')
+        const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM live_nodes nodes WHERE project_id = ? AND parent_id IS ?')
             .get(project_id, parent_id || null);
         const result = db.prepare(`
             INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, completed_at)
@@ -301,7 +301,7 @@ app.post('/api/nodes', (req, res) => {
         if (err instanceof GateRefused) return res.status(400).json(err.refusal);
         throw err;
     }
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(id);
+    const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(id);
     scheduleNodeSync();
     // A course built by hand has no search words until a sweep runs, and
     // otherwise only a start, an import or a model change runs one.
@@ -363,18 +363,18 @@ app.put('/api/nodes/:id', (req, res) => {
             values.push(nextPositionStmt.get(current.project_id, parent_id, current.id).pos);
         }
     }
-    if (note === 1 && db.prepare('SELECT 1 FROM nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
+    if (note === 1 && db.prepare('SELECT 1 FROM live_nodes nodes WHERE parent_id = ? AND is_note = 0 LIMIT 1').get(req.params.id)) {
         return res.status(400).json({ error: NOTE_HOLDING_TOPICS });
     }
     if (note === 0 && parent_id === undefined && db.prepare(
-        'SELECT 1 FROM nodes n JOIN nodes p ON p.id = n.parent_id WHERE n.id = ? AND p.is_note = 1').get(req.params.id)) {
+        'SELECT 1 FROM live_nodes n JOIN live_nodes p ON p.id = n.parent_id WHERE n.id = ? AND p.is_note = 1').get(req.params.id)) {
         return res.status(400).json({ error: TOPIC_UNDER_NOTE });
     }
     if (note !== undefined) { setClauses.push('is_note = ?'); values.push(note); }
     if (estimated_weight !== undefined) { setClauses.push('estimated_weight = ?'); values.push(estimated_weight); }
 
     if (setClauses.length === 0) {
-        const existing = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
+        const existing = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(req.params.id);
         return res.json(existing);
     }
 
@@ -382,7 +382,7 @@ app.put('/api/nodes/:id', (req, res) => {
     values.push(req.params.id);
 
     db.prepare(`UPDATE nodes SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
+    const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(req.params.id);
     // Only the fields that make up a topic's embedded text are worth a sweep —
     // `parent_id` counts because the parent's title is part of it. A status
     // change is deliberately excluded: the feed writes those constantly and
@@ -394,24 +394,10 @@ app.put('/api/nodes/:id', (req, res) => {
 });
 
 app.delete('/api/nodes/:id', (req, res) => {
-    if (!nodeExistsStmt.get(req.params.id)) return res.status(404).json({ error: 'Node not found' });
-    // nodes.parent_id cascades recursively, so this can take an entire subtree
-    // with it — collect every descendant's documents (vec_chunks/vault blobs
-    // aren't covered by FK cascade) before deleting.
-    const docs = db.prepare(`
-        WITH RECURSIVE descendants(id) AS (
-            SELECT id FROM nodes WHERE id = ?
-            UNION ALL
-            SELECT n.id FROM nodes n JOIN descendants d ON n.parent_id = d.id
-        )
-        SELECT doc.id, doc.file_hash FROM documents doc WHERE doc.node_id IN (SELECT id FROM descendants)
-    `).all(req.params.id);
-    const chunkIds = documentChunkIds(docs);
-
-    db.prepare('DELETE FROM nodes WHERE id = ?').run(req.params.id);
-
-    freeDocumentAssets(docs, chunkIds);
-    scheduleNodeSync();   // vec_nodes has no FK — the sweep drops the orphans
+    // Marked deleted with its subtree; its documents and their files stay until
+    // the topic is removed for good (server/softDelete.js).
+    if (!softDelete('nodes', Number(req.params.id))) return res.status(404).json({ error: 'Node not found' });
+    scheduleNodeSync();   // a deleted topic is no longer embeddable: the sweep drops its vector
     res.json({ success: true });
 });
 
@@ -426,8 +412,8 @@ app.delete('/api/nodes/:id', (req, res) => {
 // changes it; otherwise the stored one counts.
 function reparentError(nodeId, parentId, { isNote } = {}) {
     if (parentId == null) return null;
-    const child = db.prepare('SELECT id, project_id, is_note FROM nodes WHERE id = ?').get(nodeId);
-    const parent = db.prepare('SELECT id, project_id, parent_id, is_note FROM nodes WHERE id = ?').get(parentId);
+    const child = db.prepare('SELECT id, project_id, is_note FROM live_nodes nodes WHERE id = ?').get(nodeId);
+    const parent = db.prepare('SELECT id, project_id, parent_id, is_note FROM live_nodes nodes WHERE id = ?').get(parentId);
     if (!child) return 'Node not found';
     if (!parent) return 'Parent node not found';
     if (parent.project_id !== child.project_id) return 'A node cannot be moved into another project';
@@ -439,14 +425,14 @@ function reparentError(nodeId, parentId, { isNote } = {}) {
         if (cur.parent_id === child.id) return 'A node cannot be moved under one of its own descendants';
         if (seen.has(cur.parent_id)) break;
         seen.add(cur.parent_id);
-        cur = db.prepare('SELECT id, parent_id FROM nodes WHERE id = ?').get(cur.parent_id);
+        cur = db.prepare('SELECT id, parent_id FROM live_nodes nodes WHERE id = ?').get(cur.parent_id);
     }
     return null;
 }
 
 app.put('/api/nodes/:id/move', (req, res) => {
     const { parent_id, position } = req.body;
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
+    const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(req.params.id);
     if (!node) return res.status(404).json({ error: 'Node not found' });
     // A missing parent_id bound as NULL and moved the node to the top level;
     // the top level is `null`, said on purpose. A position past the end is the
@@ -471,7 +457,7 @@ app.put('/api/nodes/:id/move', (req, res) => {
 // RESOURCES
 
 app.get('/api/nodes/:nodeId/resources', (req, res) => {
-    const resources = db.prepare('SELECT * FROM resources WHERE node_id = ? ORDER BY position').all(req.params.nodeId);
+    const resources = db.prepare('SELECT * FROM live_resources resources WHERE node_id = ? ORDER BY position').all(req.params.nodeId);
     res.json(resources);
 });
 
@@ -492,15 +478,15 @@ app.post('/api/resources', (req, res) => {
     const { node_id, title, url, type } = req.body;
     if (node_id == null) return res.status(400).json({ error: 'node_id is required' });
     if (typeof title !== 'string') return res.status(400).json({ error: 'A resource needs a title' });
-    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(node_id)) return res.status(404).json({ error: 'Node not found' });
+    if (!db.prepare('SELECT 1 FROM live_nodes nodes WHERE id = ?').get(node_id)) return res.status(404).json({ error: 'Node not found' });
     // A resource URL is rendered as an href, so the scheme is checked at every
     // write path, not just on import (see server/urlSafety.js).
     const checked = sanitizeUrl(url);
     if (!checked.ok) return res.status(400).json({ error: `Invalid URL: ${checked.reason}` });
-    const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM resources WHERE node_id = ?').get(node_id);
+    const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM live_resources resources WHERE node_id = ?').get(node_id);
     const result = db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)')
         .run(node_id, title, checked.url, sanitizeResourceType(type), maxPos.pos);
-    const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(result.lastInsertRowid);
+    const resource = db.prepare('SELECT * FROM live_resources resources WHERE id = ?').get(result.lastInsertRowid);
     res.json(resource);
 });
 
@@ -511,7 +497,7 @@ const resourcePositionStmt = db.prepare('UPDATE resources SET position = ? WHERE
 
 app.put('/api/resources/:id', (req, res) => {
     const { title, url, type, completed } = req.body;
-    if (!db.prepare('SELECT 1 FROM resources WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Resource not found' });
+    if (!db.prepare('SELECT 1 FROM live_resources resources WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'Resource not found' });
     if (title != null && typeof title !== 'string') return res.status(400).json({ error: 'A resource title is text' });
     if (completed != null && !RESOURCE_DONE.has(completed)) return res.status(400).json({ error: 'completed must be 0 or 1' });
     // COALESCE means undefined leaves the stored URL alone; only a supplied one
@@ -529,12 +515,12 @@ app.put('/api/resources/:id', (req, res) => {
     const nextType = type === undefined || type === null ? type : sanitizeResourceType(type);
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
         .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
-    const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(req.params.id);
+    const resource = db.prepare('SELECT * FROM live_resources resources WHERE id = ?').get(req.params.id);
     res.json(resource);
 });
 
 app.delete('/api/resources/:id', (req, res) => {
-    db.prepare('DELETE FROM resources WHERE id = ?').run(req.params.id);
+    if (!softDelete('resources', Number(req.params.id))) return res.status(404).json({ error: 'Resource not found' });
     res.json({ success: true });
 });
 
@@ -559,17 +545,17 @@ app.post('/api/nodes/labels', (req, res) => {
 // thin. Appends; never removes what is already there.
 app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
     const nodeId = Number(req.params.id);
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!node) return res.status(404).json({ error: 'Node not found' });
 
-    const project = db.prepare('SELECT name, summary FROM projects WHERE id = ?').get(node.project_id);
+    const project = db.prepare('SELECT name, summary FROM live_projects projects WHERE id = ?').get(node.project_id);
 
     // Walk up for the phase/topic titles the curator uses to disambiguate a
     // generic leaf title ("Basics" means nothing without its ancestors).
     const ancestors = [];
     let cursor = node.parent_id;
     for (let depth = 0; cursor && depth < 10; depth++) {
-        const parent = db.prepare('SELECT id, parent_id, title FROM nodes WHERE id = ?').get(cursor);
+        const parent = db.prepare('SELECT id, parent_id, title FROM live_nodes nodes WHERE id = ?').get(cursor);
         if (!parent) break;
         ancestors.unshift(parent.title);
         cursor = parent.parent_id;
@@ -582,11 +568,11 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
             getProjectLanguage(node.project_id)
         );
         const existing = new Set(
-            db.prepare('SELECT url FROM resources WHERE node_id = ?').all(nodeId).map(r => r.url)
+            db.prepare('SELECT url FROM live_resources resources WHERE node_id = ?').all(nodeId).map(r => r.url)
         );
         const fresh = found.filter(r => r.url && !existing.has(r.url));
 
-        let maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM resources WHERE node_id = ?').get(nodeId).pos;
+        let maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM live_resources resources WHERE node_id = ?').get(nodeId).pos;
         const insert = db.prepare('INSERT INTO resources (node_id, title, url, type, completed, position, generated_by) VALUES (?, ?, ?, ?, 0, ?, ?)');
         const provenance = aiProvenance({ job: 'courses' });
         db.transaction(() => {
@@ -595,7 +581,7 @@ app.post('/api/ai/nodes/:id/find-resources', async (req, res) => {
 
         res.json({
             added: fresh.length,
-            resources: db.prepare('SELECT * FROM resources WHERE node_id = ? ORDER BY position').all(nodeId),
+            resources: db.prepare('SELECT * FROM live_resources resources WHERE node_id = ? ORDER BY position').all(nodeId),
         });
     } catch (error) {
         console.error('[Resources] On-demand curation failed:', error);

@@ -66,11 +66,11 @@ const stmt = (sql) => {
 
 /** The project a topic belongs to, or null. */
 function projectOf(nodeId) {
-    return db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
+    return db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId)?.project_id ?? null;
 }
 
 /** Every document a course holds: filed on the project, or on one of its topics. */
-const COURSE_DOCS = '(d.project_id = ? OR d.node_id IN (SELECT id FROM nodes WHERE project_id = ?))';
+const COURSE_DOCS = '(d.project_id = ? OR d.node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))';
 
 /** Does this course hold any document with extracted text? A scan with no text layer has no chunks. */
 export function courseHasDocumentText(projectId) {
@@ -148,7 +148,7 @@ export function sourceRangesOf(nodeId) {
     for (let hop = 0; id != null && hop < 12; hop++) {
         const rows = stmt('SELECT document_id, page_from, page_to, char_from, char_to FROM node_sources WHERE node_id = ?').all(id);
         if (rows.length) return rows;
-        id = stmt('SELECT parent_id FROM nodes WHERE id = ?').get(id)?.parent_id ?? null;
+        id = stmt('SELECT parent_id FROM live_nodes nodes WHERE id = ?').get(id)?.parent_id ?? null;
     }
     return [];
 }
@@ -436,7 +436,7 @@ export function decodeEntities(s) {
 
 /** The topic's links a lesson may read: web pages, in the topic's own order. */
 export function readableLinksOf(nodeId) {
-    return stmt(`SELECT title, url, type FROM resources WHERE node_id = ? AND url LIKE 'http%' ORDER BY position, id`)
+    return stmt(`SELECT title, url, type FROM live_resources resources WHERE node_id = ? AND url LIKE 'http%' ORDER BY position, id`)
         .all(nodeId)
         .filter((r) => {
             if (r.type === 'video') return false;

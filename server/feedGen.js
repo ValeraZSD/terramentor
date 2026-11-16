@@ -179,7 +179,7 @@ export function siblingTitles(nodeId, limit = 40) {
     // neighbour that matters most (the very next topic, which is the one a plan
     // annexes) behind unrelated sections' topics at the same index.
     try {
-        const node = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        const node = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
         if (!node) return [];
         const leaves = courseLeaves(node.project_id);
         const idx = leaves.findIndex(l => l.id === nodeId);
@@ -254,7 +254,7 @@ function requestedTargets() {
         const row = db.prepare(`
             SELECT n.id, n.title, n.description, n.notes, n.is_note, n.project_id,
                    p.name AS project_name, p.color AS project_color
-            FROM nodes n LEFT JOIN projects p ON p.id = n.project_id WHERE n.id = ?
+            FROM live_nodes n LEFT JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?
         `).get(nodeId);
         // Not a note, not a slice of card order, and in a project whose topics
         // may be taught at all — `nodeIsTeachable` is both halves (nodeRole.js).
@@ -304,7 +304,7 @@ export function lessonWriteState(nodeId) {
     if (!Number.isInteger(nodeId) || nodeId <= 0 || !aiEnabled()) return null;
     if (!(requested.get(nodeId) >= Date.now())) return null;
     if (db.prepare(`SELECT 1 FROM feed_items WHERE node_id = ? AND kind = 'lesson' LIMIT 1`).get(nodeId)) return null;
-    const row = db.prepare('SELECT is_note FROM nodes WHERE id = ?').get(nodeId);
+    const row = db.prepare('SELECT is_note FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!row || row.is_note || !nodeIsTeachable(nodeId)) return null;
     const missing = nextMissing(nodeId);
     if (missing?.type !== 'plan' && missing?.type !== 'lesson') return null;
@@ -361,7 +361,7 @@ function heldBackTargets() {
     for (const nodeId of heldBack) {
         const row = db.prepare(`
             SELECT n.id, n.title, n.project_id, p.name AS project_name, p.color AS project_color
-            FROM nodes n LEFT JOIN projects p ON p.id = n.project_id WHERE n.id = ?
+            FROM live_nodes n LEFT JOIN live_projects p ON p.id = n.project_id WHERE n.id = ?
         `).get(nodeId);
         if (!row) { heldBack.delete(nodeId); continue; }
         out.push({ nodeId: row.id, title: row.title, projectId: row.project_id, projectName: row.project_name, projectColor: row.project_color });
@@ -487,7 +487,7 @@ async function recheckLesson(f, { row, meta, drills, facts }, signal) {
  * bounded, and a row with no verdict is left waiting rather than retried here.
  */
 export async function recheckStoredLessons(nodeId, { signal } = {}) {
-    const node = db.prepare('SELECT id, title FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT id, title FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!node) throw new Error(`No such node: ${nodeId}`);
     let steps = 0;
     for (let m = pendingLessonCheck(nodeId); m && steps < 50; m = pendingLessonCheck(nodeId), steps++) {
@@ -823,7 +823,7 @@ export function nextMissing(nodeId) {
 
 function nodeTitle(nodeId) {
     try {
-        return db.prepare('SELECT title FROM nodes WHERE id = ?').get(nodeId)?.title || '';
+        return db.prepare('SELECT title FROM live_nodes nodes WHERE id = ?').get(nodeId)?.title || '';
     } catch {
         return '';
     }
@@ -873,7 +873,7 @@ function ownedQuestions(nodeId, { provable = false } = {}) {
             WHERE COALESCE(json_extract(je.value, '$.isGhost'), 0) = 0
             ${provable ? `AND json_extract(je.value, '$.unverified') IS NULL` : ''}
         )), 0) AS n
-        FROM quizzes q WHERE q.node_id = ? AND json_valid(q.questions)
+        FROM live_quizzes q WHERE q.node_id = ? AND json_valid(q.questions)
     `).get(nodeId).n;
 }
 
@@ -890,7 +890,7 @@ export function pendingMaterial(nodeId) {
     }
 
     if (fs.prepareCards && !meta.skippedCards) {
-        const has = db.prepare(`SELECT 1 FROM flashcards WHERE node_id = ? LIMIT 1`).get(nodeId);
+        const has = db.prepare(`SELECT 1 FROM live_flashcards flashcards WHERE node_id = ? LIMIT 1`).get(nodeId);
         if (!has) return { type: 'material', kind: 'flashcards', plan };
     }
     return null;
@@ -1688,7 +1688,7 @@ async function runBurst() {
  * @returns {Promise<number>} items generated
  */
 export async function generateForNode(nodeId, { signal, onStep } = {}) {
-    const row = db.prepare('SELECT id, title FROM nodes WHERE id = ?').get(nodeId);
+    const row = db.prepare('SELECT id, title FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!row) throw new Error(`No such node: ${nodeId}`);
     const target = { nodeId: row.id, title: row.title };
 

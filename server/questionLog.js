@@ -59,7 +59,7 @@ const servable = (q) => !!q && typeof q === 'object' && !q.isGhost && hasUsableK
  * the storage order; the draw reorders.
  */
 export function bankOf(nodeId) {
-    const rows = db.prepare('SELECT id, questions FROM quizzes WHERE node_id = ? ORDER BY id').all(nodeId);
+    const rows = db.prepare('SELECT id, questions FROM live_quizzes quizzes WHERE node_id = ? ORDER BY id').all(nodeId);
     const out = [];
     for (const row of rows) {
         const qs = safeParse(row.questions);
@@ -73,7 +73,7 @@ export function bankOf(nodeId) {
 
 /** One quiz row's own questions, same tagging. */
 export function bankOfQuiz(quizId) {
-    const row = db.prepare('SELECT id, node_id, questions FROM quizzes WHERE id = ?').get(quizId);
+    const row = db.prepare('SELECT id, node_id, questions FROM live_quizzes quizzes WHERE id = ?').get(quizId);
     if (!row) return { nodeId: null, bank: [] };
     const qs = safeParse(row.questions);
     const bank = [];
@@ -263,7 +263,7 @@ export function recallOrder(nodeId) {
 export function askedCount(nodeId) {
     return db.prepare(`
         SELECT COUNT(DISTINCT COALESCE(l.question_uuid, l.quiz_id || ':' || l.question_index)) AS n
-        FROM question_log l JOIN quizzes q ON q.id = l.quiz_id WHERE q.node_id = ?
+        FROM question_log l JOIN live_quizzes q ON q.id = l.quiz_id WHERE q.node_id = ?
     `).get(nodeId).n;
 }
 
@@ -286,7 +286,7 @@ const insertStmt = () => db.prepare(`
  */
 export function logAsked(entries, surface) {
     if (!Array.isArray(entries) || !entries.length) return 0;
-    const rowStmt = db.prepare('SELECT node_id, questions FROM quizzes WHERE id = ?');
+    const rowStmt = db.prepare('SELECT node_id, questions FROM live_quizzes quizzes WHERE id = ?');
     const rows = new Map();
     const rowOf = (quizId) => {
         if (!rows.has(quizId)) {

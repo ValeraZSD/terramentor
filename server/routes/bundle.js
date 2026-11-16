@@ -95,10 +95,10 @@ function importedFileType(label, realHash, kindByHash) {
  * @returns {{ zip: JSZip, project: object } | null}  null when there is no such project
  */
 function buildBundleZip(projectId, { includeNotes = false, includeProgress = false, includeResources = true } = {}) {
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project) return null;
 
-    const allNodes = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position').all(projectId);
+    const allNodes = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position').all(projectId);
     const nodeById = new Map(allNodes.map(n => [n.id, n]));
     const media = projectMediaNames(projectId);
     const pathOf = (nodeId) => {
@@ -144,7 +144,7 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
     // A document whose upload failed has no text and no original: in a shared
     // course it would arrive as a broken row on someone else's machine.
     const docs = db.prepare(`SELECT * FROM documents
-        WHERE (project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?))
+        WHERE (project_id = ? OR node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))
           AND COALESCE(status, 'ready') != 'failed'`).all(projectId, projectId);
 
     try {
@@ -318,7 +318,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         throw err;
     }
 
-    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM projects WHERE uuid = ?').get(project.uuid) : null;
+    const twin = project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null;
     if (twin) {
         const editions = project.version && twin.version && project.version !== twin.version
             ? ` (you have ${twin.version}, this bundle is ${project.version})`
@@ -490,7 +490,7 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         // or if recovery is off) — the blob was restored above, so it's available.
         importedPdfIds.forEach(id => queueRecovery(id));
 
-        const newProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(result);
+        const newProject = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(result);
         console.log(`Imported bundle "${newProject.name}" (id ${result}) with ${(documents || []).length} document(s)${cardCount ? `, ${cardCount} card(s), ${mediaByName.size} media file(s)` : ''}${warnings.length ? ` (${warnings.length} warning(s))` : ''}`);
         logActivity({
             area: 'project',

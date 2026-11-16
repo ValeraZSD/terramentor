@@ -749,7 +749,7 @@ export function getProjectMasteryStats(projectId) {
             (SELECT COUNT(*) FROM mastery_evidence me WHERE me.node_id = nm.node_id AND me.evidence_type = 'quiz') as quiz_count,
             (SELECT COUNT(*) FROM mastery_evidence me WHERE me.node_id = nm.node_id AND me.evidence_type = 'mastery_check') as mastery_check_count
         FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN live_nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
         ORDER BY nm.mastery_score DESC
     `).all(projectId);
@@ -807,7 +807,7 @@ export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { 
             n.title,
             n.status
         FROM node_mastery nm
-        JOIN nodes n ON n.id = nm.node_id
+        JOIN live_nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
           AND ${FADING_TOPIC}
         ORDER BY nm.last_updated ASC

@@ -187,7 +187,7 @@ export function readActivity({ limit = 50, level = null, area = null, before = n
         SELECT a.id, a.at, a.level, a.area, a.event, a.detail, a.ms, a.project_id, a.node_id,
                p.name AS project_title
         FROM activity_log a
-        LEFT JOIN projects p ON p.id = a.project_id
+        LEFT JOIN live_projects p ON p.id = a.project_id
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY a.id DESC
         LIMIT @limit

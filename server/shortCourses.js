@@ -470,7 +470,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
 
     const projectId = Number(db.prepare(`INSERT INTO projects
         (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
-        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects), ?, ?, 1, NULL, ?)`)
+        VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM live_projects projects), ?, ?, 1, NULL, ?)`)
         .run(name.slice(0, 500), '', projectColour(body?.color) || '#3B82F6', projectIconName(body?.icon) || 'book',
             language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
     return buildOrFail(projectId, () => {
@@ -510,7 +510,7 @@ function existingShortCourse({ name, url, attachmentId }) {
     const attId = attachmentId != null && attachmentId !== '' ? Number(attachmentId) || 0 : null;
     const file = attId ? db.prepare('SELECT name FROM chat_attachments WHERE id = ?').get(attId)?.name ?? null : null;
     if (!place && !file) return null;
-    for (const row of db.prepare('SELECT id, made_from FROM projects WHERE made_from IS NOT NULL AND name = ? ORDER BY id DESC').all(name)) {
+    for (const row of db.prepare('SELECT id, made_from FROM live_projects projects WHERE made_from IS NOT NULL AND name = ? ORDER BY id DESC').all(name)) {
         const from = parseJson(row.made_from) || {};
         if (place ? sourcePlace(from.url) === place : (!from.url && from.attachment === attId && from.file === file)) return row.id;
     }
@@ -542,7 +542,7 @@ export function sourcePlace(u) {
 
 /** Write a short course's topics: one model call, as a background task. */
 function startBuild({ projectId, name, keepName, title, proposed, src, documentIdOf, fromTopic, lang, origin, words = 0 }) {
-    const color = db.prepare('SELECT color FROM projects WHERE id = ?').get(projectId)?.color || null;
+    const color = db.prepare('SELECT color FROM live_projects projects WHERE id = ?').get(projectId)?.color || null;
     const count = proposed.length || (src ? topicCountFor(words) : 4);
     const { task } = tasks.createTask({
         kind: 'short_course',
@@ -563,7 +563,7 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 const text = await structureCall(prompt, { signal, label: 'Short course', answered });
                 // Deleted while its one call ran: there is nothing to write
                 // into, and nothing went wrong.
-                if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId)) {
+                if (!db.prepare('SELECT 1 FROM live_projects projects WHERE id = ?').get(projectId)) {
                     emit({ phase: 'done', percent: 100 });
                     return { projectId, topics: 0 };
                 }
@@ -640,7 +640,7 @@ function writeCourse({ projectId, items, parsed, keepName, startName, src, docum
             }
         });
         const fields = [];
-        const prev = db.prepare('SELECT generated_by, description FROM projects WHERE id = ?').get(projectId);
+        const prev = db.prepare('SELECT generated_by, description FROM live_projects projects WHERE id = ?').get(projectId);
         // Compare-and-set as well: a name the learner gave it while it was
         // being written is theirs.
         if (name && !keepName && db.prepare('UPDATE projects SET name = ? WHERE id = ? AND name = ?').run(name, projectId, startName).changes) {
@@ -664,11 +664,11 @@ function writeCourse({ projectId, items, parsed, keepName, startName, src, docum
  * has no topics): from the documents it already holds, or from its topic.
  */
 export function retryShortCourse(projectId, { origin = { surface: 'projects' } } = {}) {
-    const p = db.prepare('SELECT id, name, made_from, ai_generating, content_language, learning_language FROM projects WHERE id = ?').get(Number(projectId) || 0);
+    const p = db.prepare('SELECT id, name, made_from, ai_generating, content_language, learning_language FROM live_projects projects WHERE id = ?').get(Number(projectId) || 0);
     const madeFrom = parseJson(p?.made_from);
     if (!p || !madeFrom) throw new ShortCourseError(404, 'No such short course.');
     if (p.ai_generating || tasks.findActive({ kind: 'short_course', projectId: p.id })) throw new ShortCourseError(409, 'It is being written now.');
-    if (db.prepare('SELECT 1 FROM nodes WHERE project_id = ? AND is_note = 0 LIMIT 1').get(p.id)) throw new ShortCourseError(409, 'It already has its topics.');
+    if (db.prepare('SELECT 1 FROM live_nodes nodes WHERE project_id = ? AND is_note = 0 LIMIT 1').get(p.id)) throw new ShortCourseError(409, 'It already has its topics.');
     if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
     const docs = db.prepare('SELECT id, title, content, file_type, original_filename, page_count FROM documents WHERE project_id = ? ORDER BY id').all(p.id);
     let src = null;
@@ -704,7 +704,7 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
     }
     const lang = withLearning(getLanguage(p.content_language) || getLanguage('en'), getLanguage(p.learning_language));
     db.prepare('UPDATE projects SET ai_generating = 1 WHERE id = ?').run(p.id);
-    const generated = parseJson(db.prepare('SELECT generated_by FROM projects WHERE id = ?').get(p.id)?.generated_by);
+    const generated = parseJson(db.prepare('SELECT generated_by FROM live_projects projects WHERE id = ?').get(p.id)?.generated_by);
     const keepName = !(generated?.fields || []).includes('name');
     const title = madeFrom.kind === 'topic' ? madeFrom.title : (docs[0]?.title || p.name);
     return buildOrFail(p.id, () => startBuild({
@@ -724,12 +724,12 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
 export function listShortCourses() {
     const rows = db.prepare(`
         SELECT p.id, p.name, p.icon, p.color, p.status, p.made_from, p.ai_generating, p.created_at,
-          (SELECT COUNT(*) FROM nodes n WHERE n.project_id = p.id AND n.is_note = 0) AS topics,
-          (SELECT COUNT(*) FROM nodes n WHERE n.project_id = p.id AND n.is_note = 0 AND n.status = 'completed') AS done,
-          (SELECT COUNT(*) FROM nodes n WHERE n.project_id = p.id AND n.is_note = 0 AND n.status IN ('in_progress', 'completed')) AS started,
-          EXISTS (SELECT 1 FROM nodes c JOIN nodes par ON par.id = c.parent_id
+          (SELECT COUNT(*) FROM live_nodes n WHERE n.project_id = p.id AND n.is_note = 0) AS topics,
+          (SELECT COUNT(*) FROM live_nodes n WHERE n.project_id = p.id AND n.is_note = 0 AND n.status = 'completed') AS done,
+          (SELECT COUNT(*) FROM live_nodes n WHERE n.project_id = p.id AND n.is_note = 0 AND n.status IN ('in_progress', 'completed')) AS started,
+          EXISTS (SELECT 1 FROM live_nodes c JOIN live_nodes par ON par.id = c.parent_id
                   WHERE c.project_id = p.id AND c.is_note = 0 AND par.is_note = 0) AS deep
-        FROM projects p
+        FROM live_projects p
         WHERE p.made_from IS NOT NULL AND p.status != 'archived'
         ORDER BY p.id DESC`).all();
     const out = [];

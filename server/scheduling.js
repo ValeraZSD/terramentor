@@ -211,7 +211,7 @@ function getProjectNodes(projectId) {
     return db.prepare(`
         SELECT id, parent_id, title, description, status, position, is_note, role,
                estimated_weight, scheduled_start, scheduled_end, completed_at
-        FROM nodes
+        FROM live_nodes nodes
         WHERE project_id = ?
         ORDER BY position ASC
     `).all(projectId);
@@ -608,7 +608,7 @@ function cardTotals(projectId) {
         cardTotalsStmt = db.prepare(`
             SELECT COUNT(*) AS cards,
                    COALESCE(SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END), 0) AS seen
-            FROM flashcards f JOIN nodes n ON n.id = f.node_id
+            FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
             WHERE n.project_id = ?
         `);
     }
@@ -680,7 +680,7 @@ export function persistSchedule(projectId, assignments, baselineSnapshot, config
     // schedule (otherwise they leak into the calendar / pace / daily plan as
     // phantom tasks). Guard the write so a derived date can never land on a note.
     const noteIds = new Set(
-        db.prepare('SELECT id FROM nodes WHERE project_id = ? AND is_note = 1').all(projectId).map(r => r.id)
+        db.prepare('SELECT id FROM live_nodes nodes WHERE project_id = ? AND is_note = 1').all(projectId).map(r => r.id)
     );
 
     const transaction = db.transaction(() => {
@@ -721,7 +721,7 @@ export function persistSchedule(projectId, assignments, baselineSnapshot, config
 export function recalibrateSchedule(projectId) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days, baseline_schedule
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     if (!project || !project.deadline) {
@@ -814,7 +814,7 @@ export function recalibrateSchedule(projectId) {
 export function calculatePace(projectId) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days, baseline_schedule
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     if (!project || !project.start_date || !project.deadline) {
@@ -984,7 +984,7 @@ export function calculatePace(projectId) {
 export function getScheduleSummary(projectId) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(projectId);
 
     if (!project || !project.start_date || !project.deadline) {
@@ -1050,7 +1050,7 @@ export function removeSchedule(projectId) {
  *   project has no window or is not measured in cards; sections in tree order.
  */
 export function cardPlan(projectId) {
-    const project = db.prepare('SELECT start_date, deadline, study_days FROM projects WHERE id = ?').get(projectId);
+    const project = db.prepare('SELECT start_date, deadline, study_days FROM live_projects projects WHERE id = ?').get(projectId);
     if (!project?.start_date || !project?.deadline) return null;
     if (scheduleWindowError(project.start_date, project.deadline)) return null;
     if (!projectCountsInCards(projectId)) return null;
@@ -1059,7 +1059,7 @@ export function cardPlan(projectId) {
     const counts = new Map(db.prepare(`
         SELECT f.node_id AS id, COUNT(*) AS cards,
                SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-        FROM flashcards f JOIN nodes n ON n.id = f.node_id
+        FROM live_flashcards f JOIN live_nodes n ON n.id = f.node_id
         WHERE n.project_id = ? GROUP BY f.node_id
     `).all(projectId).map(r => [r.id, r]));
 

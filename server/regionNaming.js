@@ -392,7 +392,7 @@ function regionLanguage(region) {
     for (const [pid, n] of counts) if (n > bestN) { best = pid; bestN = n; }
     if (best == null) return '';
     try {
-        return db.prepare('SELECT content_language FROM projects WHERE id = ?').get(best)?.content_language || '';
+        return db.prepare('SELECT content_language FROM live_projects projects WHERE id = ?').get(best)?.content_language || '';
     } catch (_) {
         return '';
     }

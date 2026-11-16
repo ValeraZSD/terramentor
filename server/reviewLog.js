@@ -88,26 +88,33 @@ export function hasAppReview(cardId, stamp) {
     return !!db.prepare(`SELECT 1 FROM review_log WHERE card_id = ? AND source = 'app' AND reviewed_at = ?`).get(cardId, at);
 }
 
-/** Take back the in-app review a rating stamped `stamp`. Returns rows removed (0 or 1). */
-export function undoReview(cardId, stamp) {
+/**
+ * Take back the in-app review a rating stamped `stamp`. Returns rows removed
+ * (0 or 1); the uuid of the review removed is pushed onto `taken`, if given.
+ */
+export function undoReview(cardId, stamp, taken = null) {
     const at = reviewedAtOf(stamp);
     if (!at) return 0;
-    return db.prepare(`
+    const rows = db.prepare(`
         DELETE FROM review_log WHERE id = (
             SELECT id FROM review_log WHERE card_id = ? AND source = 'app' AND reviewed_at = ?
             ORDER BY id DESC LIMIT 1
-        )
-    `).run(cardId, at).changes;
+        ) RETURNING uuid
+    `).pluck().all(cardId, at);
+    taken?.push(...rows);
+    return rows.length;
 }
 
-/** Take back the newest in-app review of a card. Returns rows removed (0 or 1). */
-export function undoLastReview(cardId) {
-    return db.prepare(`
+/** Take back the newest in-app review of a card. Returns rows removed (0 or 1); `taken` as above. */
+export function undoLastReview(cardId, taken = null) {
+    const rows = db.prepare(`
         DELETE FROM review_log WHERE id = (
             SELECT id FROM review_log WHERE card_id = ? AND source = 'app'
             ORDER BY reviewed_at DESC, id DESC LIMIT 1
-        )
-    `).run(cardId).changes;
+        ) RETURNING uuid
+    `).pluck().all(cardId);
+    taken?.push(...rows);
+    return rows.length;
 }
 
 /**

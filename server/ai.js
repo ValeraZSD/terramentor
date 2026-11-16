@@ -1919,19 +1919,19 @@ function getOrderedLeaves(projectId) {
         WITH RECURSIVE ordered AS (
             SELECT id, parent_id, title, status, is_note,
                    printf('%08d', COALESCE(position, 0)) AS path
-            FROM nodes
+            FROM live_nodes nodes
             WHERE project_id = ? AND parent_id IS NULL
             UNION ALL
             SELECT n.id, n.parent_id, n.title, n.status, n.is_note,
                    o.path || '/' || printf('%08d', COALESCE(n.position, 0))
-            FROM nodes n
+            FROM live_nodes n
             JOIN ordered o ON n.parent_id = o.id
         )
         SELECT o.id, o.title, o.status
         FROM ordered o
         WHERE o.is_note = 0
           AND NOT EXISTS (
-              SELECT 1 FROM nodes c WHERE c.parent_id = o.id AND c.is_note = 0
+              SELECT 1 FROM live_nodes c WHERE c.parent_id = o.id AND c.is_note = 0
           )
         ORDER BY o.path
     `).all(projectId);
@@ -1951,16 +1951,16 @@ function getOrderedLeaves(projectId) {
 // `profile: false` leaves the learner profile out, for a caller whose prompt
 // already carries it (the assistant's snapshot does).
 export function buildNodeContext(nodeId, { completedTopics = false, curriculumPosition = false, profile = true } = {}) {
-    const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(nodeId);
+    const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(nodeId);
     if (!node) return '';
     const project = db
-        .prepare('SELECT * FROM projects WHERE id = ?')
+        .prepare('SELECT * FROM live_projects projects WHERE id = ?')
         .get(node.project_id);
     const parents = [];
     let currentId = node.parent_id;
     while (currentId) {
         const parent = db
-            .prepare('SELECT * FROM nodes WHERE id = ?')
+            .prepare('SELECT * FROM live_nodes nodes WHERE id = ?')
             .get(currentId);
         if (parent) {
             parents.unshift(parent);
@@ -1969,11 +1969,11 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
     }
     const children = db
         .prepare(
-            'SELECT title, description FROM nodes WHERE parent_id = ?'
+            'SELECT title, description FROM live_nodes nodes WHERE parent_id = ?'
         )
         .all(nodeId);
     const resources = db
-        .prepare('SELECT title, url, type FROM resources WHERE node_id = ?')
+        .prepare('SELECT title, url, type FROM live_resources resources WHERE node_id = ?')
         .all(nodeId);
 
     let context = `Project: ${project?.name || 'Unknown'}\n`;
@@ -2007,9 +2007,9 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
         // counts — `skipped` was never proven, so the tutor must not assume
         // familiarity with it.
         const done = db.prepare(`
-            SELECT n.title FROM nodes n
+            SELECT n.title FROM live_nodes n
             WHERE n.project_id = ? AND n.is_note = 0 AND n.status = 'completed'
-              AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0)
+              AND NOT EXISTS (SELECT 1 FROM live_nodes c WHERE c.parent_id = n.id AND c.is_note = 0)
             ORDER BY n.completed_at IS NULL, n.completed_at
         `).all(node.project_id);
         if (done.length > 0) {
@@ -2031,7 +2031,7 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
         context += `Path (the app's own filing, not material — never teach or ask about it): ${parents.map(p => p.title).join(' > ')} > ${node.title}\n`;
     context += `\nCurrent Topic: ${node.title}\n`;
     if (curriculumPosition) {
-        const status = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM nodes n WHERE n.id = ?`).get(node.id)?.status;
+        const status = db.prepare(`SELECT ${LEAF_STATUS} AS status FROM live_nodes n WHERE n.id = ?`).get(node.id)?.status;
         context += `Status of this topic: ${status || 'not_started'}\n`;
     }
     if (node.description) context += `Overview: ${node.description}\n`;

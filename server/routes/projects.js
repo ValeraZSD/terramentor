@@ -4,14 +4,11 @@
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
-import { clearProjectSetting } from '../projectSettings.js';
-import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
 import { daysBetween, isScheduleDate, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
 import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
-import { sweepOrphanMedia } from '../ankiImport.js';
 import { loadProjectSummaries } from '../projectSummary.js';
-import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
+import { softDelete } from '../softDelete.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -31,7 +28,7 @@ app.get('/api/projects', (req, res) => {
 });
 
 app.get('/api/ai/generation-status', (req, res) => {
-    const generating = db.prepare('SELECT id, name, ai_generating FROM projects WHERE ai_generating = 1').all();
+    const generating = db.prepare('SELECT id, name, ai_generating FROM live_projects projects WHERE ai_generating = 1').all();
     res.json({ generating });
 });
 
@@ -62,7 +59,7 @@ app.get('/api/projects/:id', (req, res) => {
         SELECT id, name, description, summary, color, icon, position, ai_generating,
                start_date, deadline, study_days, status,
                created_at, updated_at
-        FROM projects WHERE id = ?
+        FROM live_projects projects WHERE id = ?
     `).get(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     res.json(project);
@@ -75,7 +72,7 @@ app.post('/api/projects', (req, res) => {
     const lang = isSupportedLanguage(content_language) ? (content_language || '') : '';
     const result = db.prepare('INSERT INTO projects (name, description, color, icon, position, content_language) VALUES (?, ?, ?, ?, ?, ?)')
         .run(name, description || '', color || '#3B82F6', icon || 'folder', nextProjectPosition(), lang);
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(result.lastInsertRowid);
     // The id, not the name: the name is the learner's, and the id is what every
     // later row in this log will refer to.
     logActivity({ area: 'project', event: 'project.created', projectId: project.id });
@@ -108,7 +105,7 @@ app.put('/api/projects/:id', (req, res) => {
     const updates = [];
     const values = [];
 
-    const before = db.prepare('SELECT name, description FROM projects WHERE id = ?').get(req.params.id);
+    const before = db.prepare('SELECT name, description FROM live_projects projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Project not found' });
     const fieldError = projectFieldError({ name, description, color, icon, position });
     if (fieldError) return res.status(400).json({ error: fieldError });
@@ -143,7 +140,7 @@ app.put('/api/projects/:id', (req, res) => {
                 return res.status(400).json({ error: `${label} must be a date written YYYY-MM-DD` });
             }
         }
-        const current = db.prepare('SELECT start_date, deadline FROM projects WHERE id = ?').get(req.params.id) || {};
+        const current = db.prepare('SELECT start_date, deadline FROM live_projects projects WHERE id = ?').get(req.params.id) || {};
         const nextStart = start_date !== undefined ? start_date : current.start_date;
         const nextDeadline = deadline !== undefined ? deadline : current.deadline;
         if (isScheduleDate(nextStart) && isScheduleDate(nextDeadline)
@@ -194,45 +191,26 @@ app.put('/api/projects/:id', (req, res) => {
     // steers every authoring prompt — a stale entry would keep writing lessons
     // in the old language after the learner switched.
     if (updates.length) invalidateProjectLanguage(id);
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const project = db.prepare('SELECT * FROM live_projects projects WHERE id = ?').get(id);
     res.json(project);
 });
 
 export const editRoutes = app.takeRoutes();
 
+// A deleted course stays in the library, marked, with everything in it, until
+// the learner removes it for good from Recently deleted (server/softDelete.js,
+// which also frees its files and per-project dials then).
 app.delete('/api/projects/:id', (req, res) => {
-    // documents/document_chunks cascade via FK on this delete, but vec_chunks
-    // and vault blobs don't — capture what's about to be removed first.
-    const docs = db.prepare(
-        'SELECT id, file_hash FROM documents WHERE project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?)'
-    ).all(req.params.id, req.params.id);
-    const chunkIds = documentChunkIds(docs);
-
-    // Card media: `media_files` cascades with the project, but the bytes are in
-    // the blob store, which no FK reaches. The sweep is the same set difference
-    // the vault does by hand above — deleting an imported deck must give the
-    // disk back, or "undo the import" is only true of the database.
-    const hadMedia = db.prepare('SELECT 1 FROM media_files WHERE project_id = ? LIMIT 1').get(req.params.id);
-
     const projectId = Number(req.params.id);
-    db.transaction(() => {
-        // Per-project dials live in `settings`, keyed by the project's uuid,
-        // where no foreign key reaches them; cleared while the uuid can still
-        // be read.
-        for (const prefix of PROJECT_SETTING_PREFIXES) clearProjectSetting(prefix, projectId);
-        db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
-    })();
-
-    freeDocumentAssets(docs, chunkIds);
-    if (hadMedia) sweepOrphanMedia({ allowEmpty: true });
-    // Worth a line precisely because the row it points at is gone: this is the
-    // answer to "where did my project go", and no foreign key may erase it.
+    const marked = softDelete('projects', projectId);
+    if (!marked) return res.status(404).json({ error: 'Project not found' });
+    // The answer to "where did my project go".
     logActivity({
         area: 'project',
         event: 'project.deleted',
         level: 'warn',
-        projectId: Number(req.params.id),
-        detail: `${docs.length} document(s)${hadMedia ? ', media swept' : ''}`,
+        projectId,
+        detail: `${marked} row(s) marked deleted`,
     });
     res.json({ success: true });
 });

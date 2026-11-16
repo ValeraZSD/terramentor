@@ -179,10 +179,10 @@ async function loadTopics({ includeArchived = false } = {}) {
                nm.transferred_prior,
                -- LEAF_NODE's test: a section heading is on the map too, and
                -- is not a topic the course counts.
-               (SELECT COUNT(*) FROM nodes c WHERE c.parent_id = n.id AND c.is_note = 0) = 0 AS is_leaf
+               (SELECT COUNT(*) FROM live_nodes c WHERE c.parent_id = n.id AND c.is_note = 0) = 0 AS is_leaf
         FROM vec_nodes v
-        JOIN nodes n ON n.id = v.rowid
-        JOIN projects p ON p.id = n.project_id
+        JOIN live_nodes n ON n.id = v.rowid
+        JOIN live_projects p ON p.id = n.project_id
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         WHERE n.is_note = 0
           ${includeArchived ? '' : `AND COALESCE(p.status, 'active') != 'archived'`}
@@ -244,11 +244,11 @@ export function subtreeProgress(topics) {
     const rows = db.prepare(`
         SELECT n.id, n.parent_id, n.project_id, n.is_note, n.role, n.status,
                COALESCE(fc.cards, 0) AS cards, COALESCE(fc.seen, 0) AS seen
-        FROM nodes n
+        FROM live_nodes n
         LEFT JOIN (
             SELECT f.node_id, COUNT(*) AS cards,
                    SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen
-            FROM flashcards f GROUP BY f.node_id
+            FROM live_flashcards f GROUP BY f.node_id
         ) fc ON fc.node_id = n.id
     `).all();
     const byId = new Map(rows.map(r => [r.id, r]));
@@ -328,7 +328,7 @@ export function resolveLineage(topics) {
     // to be walked THROUGH to find the mapped one above it. One query over a
     // two-column table, which is cheaper than a recursive CTE per topic.
     const parentOf = new Map();
-    for (const r of db.prepare('SELECT id, parent_id FROM nodes').all()) {
+    for (const r of db.prepare('SELECT id, parent_id FROM live_nodes nodes').all()) {
         parentOf.set(r.id, r.parent_id ?? null);
     }
 
@@ -1350,12 +1350,12 @@ function drawnStatements() {
                     || ',' || quote(CASE WHEN ev.practice AND COALESCE(nm.mastery_score, 0) >= 0.85 THEN ev.proving END)
                     || ',' || quote(COALESCE(fc.cards, 0)) || ',' || quote(COALESCE(fc.seen, 0)),
                     char(10) ORDER BY n.id)
-             FROM nodes n
-             JOIN projects p ON p.id = n.project_id
+             FROM live_nodes n
+             JOIN live_projects p ON p.id = n.project_id
              LEFT JOIN node_mastery nm ON nm.node_id = n.id
              LEFT JOIN (SELECT node_id, COUNT(*) AS cards,
                                SUM(review_count > 0 AND last_reviewed IS NOT NULL) AS seen
-                        FROM flashcards GROUP BY node_id) fc ON fc.node_id = n.id
+                        FROM live_flashcards flashcards GROUP BY node_id) fc ON fc.node_id = n.id
              LEFT JOIN (SELECT node_id, COUNT(*) AS lowered FROM mastery_claims
                         WHERE correct = 0 AND mastery_after < mastery_before
                         GROUP BY node_id) mc ON mc.node_id = n.id
@@ -1368,7 +1368,7 @@ function drawnStatements() {
                     quote(id) || ',' || quote(name) || ',' || quote(color) || ',' || quote(status)
                     || ',' || quote(kind) || ',' || quote(start_date) || ',' || quote(created_at),
                     char(10) ORDER BY id)
-             FROM projects WHERE ? OR COALESCE(status, 'active') != 'archived'`).pluck(),
+             FROM live_projects projects WHERE ? OR COALESCE(status, 'active') != 'archived'`).pluck(),
         db.prepare(
             `SELECT group_concat(quote(key) || ',' || quote(value), char(10) ORDER BY key)
              FROM settings WHERE key GLOB 'teach_topics_*' OR key = 'bkt_params'`).pluck(),
@@ -1434,7 +1434,7 @@ async function buildAtlasNow({
 
     const topics = await loadTopics({ includeArchived });
     const totalTopics = db.prepare(
-        `SELECT COUNT(*) c FROM nodes n JOIN projects p ON p.id = n.project_id
+        `SELECT COUNT(*) c FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
          WHERE n.is_note = 0 ${includeArchived ? '' : `AND COALESCE(p.status, 'active') != 'archived'`}`
     ).get()?.c || 0;
 
@@ -1554,7 +1554,7 @@ async function buildAtlasNow({
     // one whose vector has not been written yet.
     const finishes = db.prepare(`
         SELECT n.project_id, MAX(strftime('%Y-%m-%dT%H:%M:%SZ', n.completed_at)) AS completed_iso
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.is_note = 0 AND n.status = 'completed'
           ${includeArchived ? '' : `AND COALESCE(p.status, 'active') != 'archived'`}
           AND ${TOPIC_NODE}

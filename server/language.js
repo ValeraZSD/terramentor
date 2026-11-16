@@ -151,7 +151,7 @@ export function getProjectLanguage(projectId) {
     if (CACHE.has(projectId)) return CACHE.get(projectId);
     let lang = null;
     try {
-        const row = db.prepare('SELECT content_language, learning_language FROM projects WHERE id = ?').get(projectId);
+        const row = db.prepare('SELECT content_language, learning_language FROM live_projects projects WHERE id = ?').get(projectId);
         lang = withLearning(getLanguage(row?.content_language), getLanguage(row?.learning_language));
     } catch {
         lang = null;
@@ -199,7 +199,7 @@ export function invalidateProjectLanguage(projectId) {
 
 export function getNodeLanguage(nodeId) {
     try {
-        const row = db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(nodeId);
+        const row = db.prepare('SELECT project_id FROM live_nodes nodes WHERE id = ?').get(nodeId);
         return getProjectLanguage(row?.project_id);
     } catch {
         return null;

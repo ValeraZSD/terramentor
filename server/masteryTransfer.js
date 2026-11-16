@@ -132,7 +132,7 @@ export async function computeTransfer(nodeId, { threshold = 0.85, decayDays = 14
 // overwriting it with a borrowed number would destroy real measurement.
 const eligibleStmt = db.prepare(`
     SELECT n.id, n.status, COALESCE(nm.total_attempts, 0) AS own_attempts
-    FROM nodes n
+    FROM live_nodes n
     LEFT JOIN node_mastery nm ON nm.node_id = n.id
     WHERE n.id = ? AND n.is_note = 0
 `);
@@ -185,9 +185,9 @@ export async function applyTransfer(nodeId, opts = {}) {
 // measured (real evidence beats a borrowed estimate).
 const CANDIDATES_SQL = `
     SELECT n.id
-    FROM nodes n
+    FROM live_nodes n
     LEFT JOIN node_mastery nm ON nm.node_id = n.id
-    JOIN projects p ON p.id = n.project_id
+    JOIN live_projects p ON p.id = n.project_id
     WHERE n.is_note = 0
       AND n.status NOT IN ('completed', 'skipped')
       AND COALESCE(nm.total_attempts, 0) = 0
@@ -309,7 +309,7 @@ export function getTransferInfo(nodeId) {
     if (ids.length === 0) return null;
     const live = new Map(db.prepare(`
         SELECT n.id, n.title, n.project_id, p.name AS project_name, p.color AS project_color
-        FROM nodes n JOIN projects p ON p.id = n.project_id
+        FROM live_nodes n JOIN live_projects p ON p.id = n.project_id
         WHERE n.id IN (${ids.map(() => '?').join(',')}) AND n.is_note = 0
     `).all(...ids).map(r => [r.id, r]));
 

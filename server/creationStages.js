@@ -368,7 +368,7 @@ const insertNodeStmt = db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, description, notes, status, is_note, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-const existingUrlsStmt = db.prepare('SELECT url, position FROM resources WHERE node_id = ?');
+const existingUrlsStmt = db.prepare('SELECT url, position FROM live_resources resources WHERE node_id = ?');
 const insertResourceStmt = db.prepare(`
     INSERT INTO resources (node_id, title, url, type, completed, position, generated_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
