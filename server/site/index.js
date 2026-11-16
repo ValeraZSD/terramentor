@@ -2,7 +2,8 @@
 //
 //   SITE_DIR                 the site's folder (site.db, libraries/); required
 //   PORT, HOST               where the front desk listens (3001, 127.0.0.1)
-//   SITE_HOSTS               the names it answers to, comma-separated (any when unset)
+//   SITE_HOSTS               the names it answers to, comma-separated; required unless
+//                            HOST is loopback (then any name is answered)
 //   SITE_SEPARATE            1 (default on Linux): each library runs as its own user,
 //                            which needs the front desk to run as root. 0 runs them all
 //                            as this user: development on your own machine only
@@ -31,6 +32,11 @@ export function siteStartProblem(env = process.env, { platform = process.platfor
     const separate = sep === '' ? platform === 'linux' : sep === '1';
     if (separate && platform !== 'linux') return 'SITE_SEPARATE=1 (each library as its own user) works on Linux only. Use SITE_SEPARATE=0 to try a site on this machine.';
     if (separate && uid !== 0) return 'each library runs as its own user, which needs the front desk to run as root (docker run --user 0). SITE_SEPARATE=0 runs them all as one user, for development only.';
+    // Reachable from other machines, it must know its own names, or a page of
+    // another name pointed at this address would be answered as this site.
+    const host = String(env.HOST || '127.0.0.1').trim().toLowerCase();
+    const loopback = host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
+    if (!loopback && !String(env.SITE_HOSTS || '').trim()) return `HOST is ${host}, so other machines can reach this site: set SITE_HOSTS to the names it answers to (learn.example.org).`;
     const [major, minor] = process.versions.node.split('.').map(Number);
     if (major < 24 || (major === 24 && minor < 7)) return `Node ${process.versions.node} has no built-in argon2; the front desk needs Node 24.7 or later.`;
     return null;

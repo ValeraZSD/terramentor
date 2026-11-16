@@ -167,7 +167,8 @@ docker run -d --user 0 -v tm-site:/site -e SITE_DIR=/site -e HOST=0.0.0.0 \
 
 Put it behind a TLS proxy (Caddy, as for the copies): the session cookie is `__Host-` and
 `Secure`, so a browser keeps it only over HTTPS (or on `localhost`). `SITE_HOSTS` is the name
-or names the site answers to; any other `Host` gets 421.
+or names the site answers to; any other `Host` gets 421. With `HOST` beyond loopback (as in a
+container) the front desk refuses to start without it.
 
 **Accounts are made by invitation.** There is no public sign-up yet:
 
@@ -191,7 +192,7 @@ stores and how it signs people in is in `SECURITY.md`, "Accounts on a site".
 |---|---|---|
 | `SITE_DIR` | (required) | the site's folder: `site.db` (accounts, sessions) and `libraries/<n>/` |
 | `PORT`, `HOST` | 3001, 127.0.0.1 | where the front desk listens |
-| `SITE_HOSTS` | any | the names it answers to, comma-separated |
+| `SITE_HOSTS` | (required unless `HOST` is loopback) | the names it answers to, comma-separated; a front desk bound beyond loopback without it refuses to start |
 | `SITE_MAX_AWAKE` | 20 | libraries running at once; the next wake stops the longest-quiet idle one, or answers "busy" |
 | `SITE_LIBRARY_HEAP_MB` | 256 | each library's V8 heap limit |
 | `SITE_LIBRARY_MEMORY_MB` | 400 | resident memory past which a quiet library is stopped |

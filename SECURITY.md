@@ -461,7 +461,8 @@ loads it. What it does:
   and reading its environment.
 - **The front desk vouches for the person, the library checks the voucher.** Every request it
   passes on carries a short-lived note (30 seconds) signed with a key only that library and the
-  front desk hold; a library refuses any request without a valid note for itself, and a note
+  front desk hold; a library treats a request without a valid note for itself as signed out
+  (below, "What answers without a session"), and a note
   sent by a browser is removed before the request is passed on. Signing in and out happens only
   at the front desk; the library's own password routes are refused.
 - **Passwords**: at least 15 characters, at most 128, stored as argon2id (19 MiB, two passes,
@@ -473,9 +474,19 @@ loads it. What it does:
 - **Sessions**: a random 32-byte token in a `__Host-` cookie (`Secure`, `HttpOnly`,
   `SameSite=Lax`, `Path=/`); only its SHA-256 is stored. A session ends after 30 days unused or
   90 days in all. The devices page lists every session with sign-out for each and for all.
-- **Signing out clears the browser.** The answer carries `Clear-Site-Data: "cache", "storage"`,
-  and every answer from a library is sent `Cache-Control: no-store`, so the next person on the
-  same browser is not shown the last person's pages.
+- **Signing out clears the browser, and so does signing in.** Both answers carry
+  `Clear-Site-Data: "cache", "storage"` (signing in too, for whatever a session that ran out or
+  was ended from another device left behind), every answer from a library is sent
+  `Cache-Control: no-store`, and the app's service worker never caches `/site` pages, so the
+  next person on the same browser is not shown the last person's pages. Ending a session also
+  closes any answer still streaming to it.
+- **What answers without a session**: at the front desk, only its own `/site` pages (sign-in,
+  invite, health); every other request is sent to sign in. Behind it, a library treats the note
+  as its sign-in, so what the app answers signed out (its auth status route and the built
+  static files, the same for everyone) also answers a request with no note; only the front desk
+  can reach a library's socket to ask.
+- **Names**: bound beyond loopback, the front desk refuses to start without `SITE_HOSTS`, and
+  answers 421 to any other `Host`.
 - **The breached-password check** is the one outbound call the front desk makes. When someone
   sets a password, the first five characters of its SHA-1 are sent to
   `https://api.pwnedpasswords.com/range/<five characters>` with `Add-Padding: true`; the
