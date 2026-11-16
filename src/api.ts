@@ -6,6 +6,7 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
+import type { ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting } from './components/mockExam/mockExamTypes';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
@@ -2247,6 +2248,21 @@ export const api = {
 
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
+
+    // MOCK EXAMS: past papers sat by hand and marked by the learner (server/mockExams.js).
+    getMockExams: (projectId: number) => request<MockExamList>(`/projects/${projectId}/mock-exams`),
+    addExamPaper: (projectId: number, paper: ExamPaperInput) =>
+        request<{ paper: ExamPaper }>(`/projects/${projectId}/mock-exams`, { method: 'POST', body: JSON.stringify(paper) }),
+    deleteExamPaper: (paperId: number) => request<{ ok: true }>(`/mock-exams/papers/${paperId}`, { method: 'DELETE' }),
+    startMock: (paperId: number, question: string | null) =>
+        request<{ sitting: MockSitting }>(`/mock-exams/papers/${paperId}/sittings`, { method: 'POST', body: JSON.stringify({ question }) }),
+    getMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}`),
+    mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
+    markMockPart: (id: number, partId: number, points: number | null) =>
+        request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
+    finishMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST' }),
+    discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:
     // no document of that title is in the library now).
