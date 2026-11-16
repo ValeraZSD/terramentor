@@ -12,13 +12,14 @@
  *      left out), only from the topics studied so far, spread across them,
  *      never the same question twice in one mock, never-asked first, and a
  *      course with fewer questions than asked says so in numbers;
- *   2. nothing of the key leaves while the mock is open;
+ *   2. nothing of the key leaves while the mock is open, through the report
+ *      flag either, and a drawn set is sat once;
  *   3. an answer is never lost: written once per attempt id, kept through a
  *      pause and leaving, accepted after time is up (marked late), and time up
  *      hands nothing in;
  *   4. the score: right answers of N, unanswered counts zero, the in-time
- *      score beside the one with extra time, the spread of a single draw
- *      (Wilson 95%), answers read back wrong first;
+ *      score beside the one with extra time, the range of the learner's
+ *      likely level (Wilson 95%), answers read back wrong first;
  *   5. the evidence: practice, both ways, one row per topic answered, nothing
  *      for an unanswered question, never completes or reopens a topic, written
  *      once, and a reported question taken out again;
@@ -172,6 +173,26 @@ try {
             r.status === 200 && !/correct_answer|"accept"|explanation|"correct"/.test(r.text), r.text.slice(0, 200));
         check('each of the 10 questions carries its report ref', (r.body?.course?.questions ?? []).length === 10 && r.body.course.questions.every(q => /^q:/.test(q.ref)));
         check('and no result yet', r.status === 200 && r.body?.sitting?.status === 'writing' && r.body?.result == null);
+
+        // The "this is wrong" flag sits on every question: its preview and the
+        // report it files must not hand the key over either.
+        const ref0 = r.body?.course?.questions?.[0]?.ref;
+        global.__ref0 = ref0;
+        const tgt = await call('GET', `/api/item-reports/target?ref=${encodeURIComponent(ref0)}`);
+        check('the report preview of an open mock question shows the question without its key or explanation',
+            tgt.status === 200 && typeof tgt.body?.item?.question === 'string'
+                && tgt.body.item.correct_answer === undefined && tgt.body.item.explanation === undefined, tgt.text.slice(0, 200));
+        const filed = await call('POST', '/api/item-reports', { ref: ref0, reason: 'unclear', surface: 'mock' });
+        check('a report filed while the mock is open answers without the key',
+            filed.status >= 200 && filed.status < 300 && typeof filed.body?.report?.item?.question === 'string'
+                && filed.body.report.item.correct_answer === undefined && filed.body.report.item.explanation === undefined, filed.text.slice(0, 200));
+        if (filed.body?.report?.id) await call('DELETE', `/api/item-reports/${filed.body.report.id}`);
+
+        const paperId = db.prepare('SELECT paper_id FROM mock_sittings WHERE id = ?').get(first)?.paper_id;
+        const before = db.prepare('SELECT COUNT(*) n FROM mock_sittings WHERE paper_id = ?').get(paperId).n;
+        const again = await call('POST', `/api/mock-exams/papers/${paperId}/sittings`, {});
+        check('a drawn set takes no second sitting: a new mock is drawn anew',
+            again.status === 400 && db.prepare('SELECT COUNT(*) n FROM mock_sittings WHERE paper_id = ?').get(paperId).n === before, `${again.status} ${again.text.slice(0, 120)}`);
     });
 
     await block('3. an answer is never lost', async () => {
@@ -213,7 +234,7 @@ try {
     });
 
     await block('4. the score, the spread and the answers read back', async () => {
-        check('31 of 40: a different set would most likely give 25 to 35 (Wilson 95%)',
+        check('31 of 40: the level on these topics is most likely 25 to 35 of 40 (Wilson 95%)',
             JSON.stringify(mock.spreadOf?.(31, 40)) === JSON.stringify({ low: 25, high: 35 }), JSON.stringify(mock.spreadOf?.(31, 40)));
         check('7 of 10: 4 to 9', JSON.stringify(mock.spreadOf?.(7, 10)) === JSON.stringify({ low: 4, high: 9 }), JSON.stringify(mock.spreadOf?.(7, 10)));
         check('0 of 5 never goes below 0, 5 of 5 never above 5',
@@ -223,8 +244,11 @@ try {
         // marked to come back to; one left open; the rest right.
         const d = await detail(first);
         const qs = d.course.questions;
-        const nonHeat = qs.filter(q => KEY.get(refUuid(q)).nodeId !== heat);
-        const wrong = nonHeat[0], wrongLater = nonHeat[1], open = nonHeat[2];
+        // The wrong answer is on Optics, a completed topic, so "a wrong answer
+        // reopens nothing" is asked of a topic that got one.
+        const wrong = qs.find(q => KEY.get(refUuid(q)).nodeId === optics);
+        const nonHeat = qs.filter(q => KEY.get(refUuid(q)).nodeId !== heat && q !== wrong);
+        const wrongLater = nonHeat[0], open = nonHeat[1];
         for (const q of qs) {
             if (q === open) { await answer(first, q.partId, '', { later: false }); continue; }
             const k = KEY.get(refUuid(q));
@@ -246,6 +270,9 @@ try {
             groups.join(',') === ['wrong', 'wrong_later', 'none', ...Array(7).fill('right')].join(','), groups.join(','));
         check('now the key and the explanation come with them',
             (r?.review ?? []).every(x => x.question?.correct_answer === 'Beta' && /^Because/.test(x.question?.explanation ?? '')));
+        const tgt = await call('GET', `/api/item-reports/target?ref=${encodeURIComponent(global.__ref0)}`);
+        check('and the report preview shows the key again once the mock is finished',
+            tgt.status === 200 && tgt.body?.item?.correct_answer === 'Beta', tgt.text.slice(0, 200));
         check('by topic: Heat 2 of 2 right', (r?.topics ?? []).some(t => t.id === heat && t.right === 2 && t.total === 2), JSON.stringify(r?.topics));
     });
 
@@ -276,8 +303,11 @@ try {
         check('a second finish writes nothing and returns the same result', again.status === 200 && again.body?.result?.right === 7 && allMockRows() === n);
         const after = await answer(first, qs[0].partId, 'Gamma');
         check('a finished mock takes no more answers', after.status === 409, String(after.status));
+        // Answered ones only: 2 of the clock case's 3, 9 of this mock's 10. A
+        // question left open was not asked of the learner in any useful sense,
+        // and logging it would push it behind the never-asked ones.
         const logged = db.prepare("SELECT COUNT(*) n FROM question_log WHERE surface = 'mock'").get().n;
-        check('the asked questions are logged, so the next draw asks the rest first', logged >= 10, String(logged));
+        check('only answered questions are logged, so the next draw asks the rest first: 2 + 9', logged === 11, String(logged));
         // Never asked = not in the question log (the clock case in block 3 asked some too).
         const loggedUuids = new Set(db.prepare('SELECT question_uuid u FROM question_log WHERE question_uuid IS NOT NULL').all().map(r => r.u));
         const fresh = [...READY].filter(u => !loggedUuids.has(u));
@@ -309,15 +339,27 @@ try {
 
         const same = mock.drawCourseMock(course, { size: 10, minutes: 15, now: T0 });
         const sd = mock.sittingDetail(same.sitting.id, { now: T0 });
-        for (const q of sd.course.questions.slice(0, 8)) mock.saveAnswer(same.sitting.id, { partId: q.partId, answer: 'Beta', attemptId: `p${q.partId}`, now: T0 + 1000 });
+        for (const q of sd.course.questions) mock.saveAnswer(same.sitting.id, { partId: q.partId, answer: 'Beta', attemptId: `p${q.partId}`, now: T0 + 1000 });
         const r1 = mock.finishSitting(same.sitting.id, { now: T0 + 60_000, attemptId: 'f-same' }).result;
-        check('a mock in the real exam\'s format shows its pass line: 8 right, pass at 7, passed',
-            r1?.passRight === 7 && r1?.passed === true && r1?.notGrade === false, JSON.stringify({ p: r1?.passRight, ok: r1?.passed, ng: r1?.notGrade }));
+        check('a mock in the real exam\'s format shows its pass line: 10 right, pass at 7, passed',
+            r1?.right === 10 && r1?.passRight === 7 && r1?.passed === true && r1?.notGrade === false, JSON.stringify({ r: r1?.right, p: r1?.passRight, ok: r1?.passed, ng: r1?.notGrade }));
+        // A full mock row on one topic is what a real check would pass on
+        // (MIN_GATE_QUESTIONS right): the gate still must not read it.
+        const sameUuid = db.prepare('SELECT uuid FROM mock_sittings WHERE id = ?').get(same.sitting.id)?.uuid;
+        const wavesRow = allRowsOf(waves).find(x => JSON.parse(x.metadata || '{}').sitting === sameUuid);
+        check('Waves got a mock row of 4 or more, every one right', wavesRow && wavesRow.total >= 4 && wavesRow.score === wavesRow.total, JSON.stringify(wavesRow));
+        check('and is still not ready for its check: a mock is practice, never proof', checkMasteryEligibility(waves).eligible === false && statusOf(waves) === 'in_progress',
+            JSON.stringify(checkMasteryEligibility(waves)));
 
         const short = mock.drawCourseMock(course, { size: 4, minutes: 6, now: T0 });
+        const rowsBefore = allMockRows();
+        const logBefore = db.prepare("SELECT COUNT(*) n FROM question_log WHERE surface = 'mock'").get().n;
         const r2 = mock.finishSitting(short.sitting.id, { now: T0 + 1000, attemptId: 'f-short' }).result;
         check('a shorter mock has no pass line: it is not a grade', r2?.passRight == null && r2?.notGrade === true, JSON.stringify({ p: r2?.passRight, ng: r2?.notGrade }));
-        check('a mock nobody answered writes no evidence', r2?.notAnswered === 4);
+        check('a mock nobody answered writes no evidence and logs no question',
+            r2?.notAnswered === 4 && allMockRows() === rowsBefore
+                && db.prepare("SELECT COUNT(*) n FROM question_log WHERE surface = 'mock'").get().n === logBefore,
+            JSON.stringify({ na: r2?.notAnswered, rows: [rowsBefore, allMockRows()] }));
 
         await call('PUT', `/api/projects/${course}/exam`, { onScreen: false });
         check('a written exam: the clock is off by default again', mock.courseReadiness(course)?.clockOn === false);

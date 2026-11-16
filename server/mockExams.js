@@ -251,6 +251,11 @@ export function getSitting(id, { now = Date.now() } = {}) {
 export function startSitting(paperId, { question = null, now = Date.now() } = {}) {
     const paper = getPaper(paperId);
     if (!paper) throw new MockExamError(404, 'Paper not found');
+    // A drawn question set belongs to its one attempt (discardSitting removes
+    // the set with it), so it never gets a second.
+    if (stmt('SELECT source FROM exam_papers WHERE id = ?').get(paperId)?.source === 'course') {
+        throw bad('A mock from this course is drawn anew each time');
+    }
     let timeAllowed = paper.minutes * 60;
     if (question != null) {
         const q = String(question);
@@ -460,9 +465,11 @@ function shuffle(list) {
 }
 
 /**
- * How far one draw can be off: the Wilson 95% interval for `right` of `n`,
- * as counts of the same length ("a different set of 40 would most likely give
- * you between 25 and 35"). A statement about this draw, never a forecast.
+ * How far one draw can be off: the Wilson 95% interval for the learner's rate
+ * on these questions, given `right` of `n`, shown as counts of `n` ("your real
+ * level is most likely between 25 and 35 of 40"). It is an interval for the
+ * rate, not for the score of another draw (that one is wider), and never a
+ * forecast of the real exam.
  */
 export function spreadOf(right, n) {
     if (!(n > 0)) return null;
@@ -682,8 +689,9 @@ export function saveAnswer(sittingId, { partId, answer, later, attemptId = null,
 
 function standingReports(refs) {
     if (!refs.length) return new Set();
-    return new Set(db.prepare(`SELECT item_key FROM item_reports WHERE item_key IN (${refs.map(() => '?').join(',')}) AND ${STANDING_REPORT}`)
-        .all(...refs).map(r => r.item_key));
+    // One statement for any number of refs: the list runs this per finished mock.
+    return new Set(stmt(`SELECT item_key FROM item_reports WHERE item_key IN (SELECT value FROM json_each(?)) AND ${STANDING_REPORT}`)
+        .all(JSON.stringify(refs)).map(r => r.item_key));
 }
 
 /**
@@ -767,7 +775,7 @@ function courseSittingsOf(projectId, now) {
  * Finish a mock from the course: written once (`recordOnce`, and a finished
  * mock writes nothing again). One 'mock' evidence row per topic with an
  * answered question: its answered questions, right or wrong, by their final
- * answers. Unanswered questions and reported ones write nothing. The asked
+ * answers. Unanswered questions and reported ones write nothing. The answered
  * questions go to the question log, so the next draw asks the rest first.
  */
 function finishCourse(id, { now, attemptId }) {
@@ -782,8 +790,11 @@ function finishCourse(id, { now, attemptId }) {
         const asked = [];
         for (const r of rows) {
             if (reported.has(refOf(r.q))) continue;
-            asked.push({ quizId: r.quizId, index: r.questionIndex, uuid: r.q.uuid, stem: r.q.question, correct: r.answer == null ? null : r.right });
-            if (r.answer == null || r.nodeId == null) continue;
+            // A question left open may never have been reached: it stays
+            // fresh for the next draw rather than counting as asked.
+            if (r.answer == null) continue;
+            asked.push({ quizId: r.quizId, index: r.questionIndex, uuid: r.q.uuid, stem: r.q.question, correct: r.right });
+            if (r.nodeId == null) continue;
             const t = byTopic.get(r.nodeId) ?? { right: 0, total: 0, items: [] };
             t.total += 1;
             if (r.right) t.right += 1;
