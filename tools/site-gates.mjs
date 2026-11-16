@@ -29,7 +29,7 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import vm from 'node:vm';
 import { dirname, join, resolve } from 'node:path';
@@ -44,16 +44,22 @@ const ok = (name, cond, detail = '') => {
     console.log(`${cond ? '  ok  ' : ' FAIL '} ${name}${cond || !detail ? '' : `  (${detail})`}`);
 };
 
-const { hashPassword, verifyPassword, needsRehash, passwordShapeProblem, isBreached, MIN_LENGTH } = await import('../server/site/passwords.js');
+const { hashPassword, verifyPassword, needsRehash, passwordShapeProblem, isBreached, MIN_LENGTH, argonRuns, spendLikeAPasswordCheck } = await import('../server/site/passwords.js');
 const { makeNote, readNote, NOTE_HEADER } = await import('../server/siteLibrary.js');
 const { openSiteDb } = await import('../server/site/siteDb.js');
 const { createAccounts, networkOf, deviceLabel, WRONG, PASSWORD_OFF_AFTER } = await import('../server/site/accounts.js');
 const { createFrontDesk, COOKIE, CLEAR_SITE_DATA } = await import('../server/site/frontDesk.js');
-const { siteStartProblem } = await import('../server/site/index.js');
+const { siteStartProblem, siteSettings } = await import('../server/site/index.js');
 const { createLibraryPool } = await import('../server/site/libraries.js');
 
 const scratch = mkdtempSync(join(tmpdir(), 'site-gates-'));
 const CLOSED_MODEL = { AI_PROVIDER: 'openai', AI_BASE_URL: 'http://127.0.0.1:9/v1', AI_MODEL: 'none', SITE_BREACH_CHECK: '0' };
+// What a section started (front desks, pools, databases, processes), released
+// last-first when it ends or when a check throws, before the scratch folder goes.
+const held = [];
+async function release() {
+    while (held.length) { try { await held.pop()(); } catch { /* already gone */ } }
+}
 
 try {
     // -------------------------------------------------------------------------
@@ -133,10 +139,18 @@ try {
         ok('no invite for an address that has an account', /already has an account/.test(threw));
 
         const ip = '203.0.113.9';
-        const t0 = performance.now(); const wrong = await accounts.signIn('ann@example.org', 'not the password at all', { ip }); const tWrong = performance.now() - t0;
-        const t1 = performance.now(); const unknown = await accounts.signIn('nobody@example.org', 'not the password at all', { ip }); const tUnknown = performance.now() - t1;
+        // Counted, not timed: the stand-in hash an unknown address is checked
+        // against is made once, on first use, so that run is spent before counting.
+        await spendLikeAPasswordCheck('warm up');
+        const r0 = argonRuns(); const wrong = await accounts.signIn('ann@example.org', 'not the password at all', { ip }); const runsWrong = argonRuns() - r0;
+        const r1 = argonRuns(); const unknown = await accounts.signIn('nobody@example.org', 'not the password at all', { ip }); const runsUnknown = argonRuns() - r1;
+        const r2 = argonRuns(); const odd = await accounts.signIn('not an address', 'not the password at all', { ip }); const runsOdd = argonRuns() - r2;
         ok('a wrong password and an unknown address get the same answer', wrong.wrong === true && unknown.wrong === true && Object.keys(wrong).join() === Object.keys(unknown).join());
-        ok('and cost the same work (one argon2 each)', tUnknown > tWrong / 3 && tUnknown < tWrong * 3, `${tWrong.toFixed(0)} vs ${tUnknown.toFixed(0)} ms`);
+        ok('and cost the same work (one argon2 each, a non-address too)', runsWrong === 1 && runsUnknown === 1 && runsOdd === 1 && odd.wrong === true, `${runsWrong} / ${runsUnknown} / ${runsOdd}`);
+        ok('something that is not an address gets no count of its own, nor does an overlong one',
+            !db.prepare("SELECT 1 FROM throttle WHERE key = 'acct:not an address'").get()
+            && (await accounts.signIn(`${'a'.repeat(300)}@example.org`, 'x', { ip })).wrong === true
+            && !db.prepare("SELECT 1 FROM throttle WHERE key LIKE 'acct:aaaa%'").get());
         const signed = await accounts.signIn('ANN@example.org ', good, { ip, ua: 'Mozilla/5.0 (Macintosh; Mac OS X) Firefox/140.0' });
         ok('the right password signs in, address case and spaces aside', signed.ok === true && signed.accountId === made1.accountId);
 
@@ -176,13 +190,19 @@ try {
         // The sweep forgets a network a day after its last wrong guess, never an account's count.
         const day = 24 * 3600e3;
         const putThrottle = db.prepare('INSERT OR REPLACE INTO throttle (key, fails, last_fail_at) VALUES (?, 3, ?)');
-        putThrottle.run('net:198.18.0.0', Date.now() - day - 60e3);
-        putThrottle.run('net:198.18.1.0', Date.now() - 60e3);
-        putThrottle.run('acct:old@example.org', Date.now() - day - 60e3);
-        accounts.sweepSessions();
+        // One fixed instant for the rows and the sweep: nothing here reads the clock.
+        const NOW = Date.parse('2030-01-15T12:00:00Z');
+        putThrottle.run('net:198.18.0.0', NOW - day - 60e3);
+        putThrottle.run('net:198.18.1.0', NOW - 60e3);
+        putThrottle.run('acct:ann@example.org', NOW - day - 60e3);
+        putThrottle.run('acct:stranger@example.org', NOW - day - 60e3);
+        putThrottle.run('acct:recent-stranger@example.org', NOW - 60e3);
+        accounts.sweepSessions(NOW);
         const keys = new Set(db.prepare('SELECT key FROM throttle').all().map((r) => r.key));
-        ok('the sweep drops a network quiet for a day and keeps a recent one and every account',
-            !keys.has('net:198.18.0.0') && keys.has('net:198.18.1.0') && keys.has('acct:old@example.org'), [...keys].join(' '));
+        ok('the sweep drops a network quiet for a day and keeps a recent one',
+            !keys.has('net:198.18.0.0') && keys.has('net:198.18.1.0'), [...keys].join(' '));
+        ok('it keeps an account\'s count however old, and drops a day-old count for an address with no account',
+            keys.has('acct:ann@example.org') && !keys.has('acct:stranger@example.org') && keys.has('acct:recent-stranger@example.org'), [...keys].join(' '));
 
         // No library, no account: the invite link is not spent.
         const broken = createAccounts(db, { env: CLOSED_MODEL, createLibrary: async () => { throw new Error('no room for a library'); } });
@@ -207,6 +227,27 @@ try {
             /SITE_HOSTS/.test(siteStartProblem({ SITE_DIR: '/s', HOST: '0.0.0.0' }, { platform: 'linux', uid: 0 }) || '')
             && siteStartProblem({ SITE_DIR: '/s', HOST: '0.0.0.0', SITE_HOSTS: 'learn.example.org' }, { platform: 'linux', uid: 0 }) === null
             && siteStartProblem({ SITE_DIR: '/s', HOST: '127.0.0.1' }, { platform: 'linux', uid: 0 }) === null);
+        ok('a SITE_HOSTS of commas and spaces names nothing, so it is refused too',
+            /SITE_HOSTS/.test(siteStartProblem({ SITE_DIR: '/s', HOST: '0.0.0.0', SITE_HOSTS: ' , ,' }, { platform: 'linux', uid: 0 }) || ''));
+        ok('the start uses the value the check read: " 1 " is separate users (and needs root)',
+            siteSettings({ SITE_SEPARATE: ' 1 ' }, { platform: 'linux' }).separate === true
+            && /root/.test(siteStartProblem({ SITE_DIR: '/s', SITE_SEPARATE: ' 1 ' }, { platform: 'linux', uid: 1000 }) || '')
+            && siteSettings({ SITE_SEPARATE: ' 0 ' }, { platform: 'linux' }).separate === false
+            && siteSettings({ HOST: ' 0.0.0.0 ', SITE_HOSTS: ' Learn.example.org ,' }).hosts.join() === 'learn.example.org');
+        {
+            // The real start reads siteSettings too, not its own parse of the environment.
+            const startSrc = readFileSync(join(repoRoot, 'server', 'site', 'index.js'), 'utf8').split('const isMain')[1] || '';
+            ok('and the start itself reads siteSettings, not process.env.SITE_SEPARATE / SITE_HOSTS',
+                /siteSettings\(env\)/.test(startSrc) && !/env\.SITE_SEPARATE|env\.SITE_HOSTS|env\.HOST\b/.test(startSrc));
+            // The front desk speaks plain HTTP on a library's socket; certificates
+            // in the app folder must not turn a library to TLS.
+            const appSrc = readFileSync(join(repoRoot, 'server', 'index.js'), 'utf8');
+            ok('a site library never serves TLS, certificates or not', /const httpsOpts = servingSPA && !isSiteLibrary\(\) &&/.test(appSrc));
+            // A first status probe that failed must not leave the app thinking it is not on a site.
+            const storeSrc = readFileSync(join(repoRoot, 'src', 'store.ts'), 'utf8');
+            const recheck = storeSrc.split('recheckAuth: async () =>')[1]?.split('\n    },')[0] || '';
+            ok('the periodic auth recheck keeps "on a site" current too', /\bsite\b[^\n]*= await api\.getAuthStatus\(\)/.test(recheck) && /authSite: !!site/.test(recheck));
+        }
         {
             const sw = readFileSync(join(repoRoot, 'src', 'sw-template.js'), 'utf8');
             const m = sw.match(/function isBypassed\(url\) \{[\s\S]*?\r?\n\}\r?\n/);
@@ -223,6 +264,7 @@ try {
         const desk = createFrontDesk({
             db, siteDir, appRoot: repoRoot, separate: false, env: { ...process.env, ...CLOSED_MODEL }, log, sweepEveryMs: 3_600_000,
         });
+        held.push(() => db.close(), () => desk.close());
         await new Promise((r) => desk.server.listen(0, '127.0.0.1', r));
         const port = desk.server.address().port;
         const origin = `http://localhost:${port}`;
@@ -365,6 +407,39 @@ try {
         ok('and the cookie', /Max-Age=0/.test(String(signOut.headers['set-cookie'])));
         ok('the old cookie no longer works', (await req('GET', '/api/projects', { headers: { cookie } })).status === 401);
 
+        // A session ended by another device while its library woke: nothing is forwarded.
+        {
+            const again = await desk.accounts.signIn('dana@example.org', 'a long enough pass phrase', { ip: '192.0.2.50' });
+            const raceCookie = `${COOKIE}=${again.token}`;
+            const realWake = desk.pool.wake;
+            let reached = 0;
+            desk.pool.wake = async (id) => {
+                const e = await realWake(id);
+                desk.accounts.endSession(again.sessionId, again.accountId);
+                return e;
+            };
+            const realSocket = desk.pool.socketPath;
+            desk.pool.socketPath = (id) => { reached += 1; return realSocket(id); };
+            const raced = await req('POST', '/api/settings/theme', { headers: { cookie: raceCookie, origin, 'content-type': 'application/json' }, body: JSON.stringify({ value: 'dark' }) });
+            const racedPage = await req('GET', '/', { headers: { cookie: raceCookie } });
+            desk.pool.wake = realWake;
+            desk.pool.socketPath = realSocket;
+            ok('a session ended while its library woke gets "sign in again", and the request never reaches the library',
+                raced.status === 401 && JSON.parse(raced.text).site === true && racedPage.status === 303 && racedPage.headers.location === '/site/sign-in' && reached === 0,
+                `${raced.status} ${racedPage.status} reached=${reached}`);
+        }
+
+        // A request handed the library while the sweep asks its task list: the
+        // sweep reads the stream count again and leaves it running.
+        {
+            ok('(the library is awake for this)', desk.pool.isAwake(libId));
+            const sweeping = desk.pool.sweep(Date.now() + 3600_000); // runs up to its task-list question
+            desk.pool.streamOpened(libId);
+            await sweeping;
+            ok('a stream opened while the sweep asked the task list keeps its library running', desk.pool.isAwake(libId));
+            desk.pool.streamClosed(libId);
+        }
+
         // Stopping when idle: not while a request is open.
         desk.pool.streamOpened(libId);
         await desk.pool.sweep(Date.now() + 3600_000);
@@ -372,8 +447,7 @@ try {
         desk.pool.streamClosed(libId);
         await desk.pool.sweep(Date.now() + 3600_000);
         ok('an idle one with no task is stopped', !desk.pool.isAwake(libId));
-        await desk.close();
-        db.close();
+        await release();
     }
 
     // -------------------------------------------------------------------------
@@ -383,7 +457,9 @@ try {
         const db = openSiteDb(siteDir);
         const quiet = { log() {}, error() {}, warn() {} };
         const base = { db, siteDir, appRoot: repoRoot, env: { ...process.env, ...CLOSED_MODEL }, log: quiet };
+        held.push(() => db.close());
         const pool = createLibraryPool({ ...base, separate: false, maxAwake: 1 });
+        held.push(() => pool.stopAll());
         const a = pool.create();
         const b = pool.create();
         const both = await Promise.allSettled([pool.wake(a), pool.wake(b)]);
@@ -416,7 +492,25 @@ try {
         ]);
         ok('a library that cannot be started fails its wake, it does not hang', /stopped while starting/.test(failed) && performance.now() - t0 < 15000, failed || 'still waiting after 15 s');
         await brokenPool.stopAll();
-        db.close();
+
+        // Its process may leave a link where its tmp folder goes (to /etc, to another
+        // library): the start refuses it, and nothing is made or chowned through it.
+        const linked = pool.create();
+        const elsewhere = join(scratch, 'not-this-library');
+        mkdirSync(elsewhere);
+        symlinkSync(elsewhere, join(pool.libDir(linked), 'tmp'), 'junction');
+        let linkRefused = '';
+        try { await pool.wake(linked); } catch (e) { linkRefused = e.message; }
+        ok('a library whose tmp is a link is not started, and nothing happens through the link',
+            /not a plain folder/.test(linkRefused) && !pool.isAwake(linked) && readdirSync(elsewhere).length === 0, linkRefused);
+
+        // A socket path past the system's limit is a start-up error, not a failure at every wake.
+        if (process.platform !== 'win32') {
+            let tooLong = '';
+            try { createLibraryPool({ ...base, siteDir: join(scratch, 'd'.repeat(120)), separate: false }); } catch (e) { tooLong = e.message; }
+            ok('a SITE_DIR too long for a socket path is refused when the pool is made', /SITE_DIR is too long/.test(tooLong), tooLong);
+        }
+        await release();
     }
 
     // -------------------------------------------------------------------------
@@ -427,11 +521,15 @@ try {
         const env = { ...process.env, ...CLOSED_MODEL, DATA_DIR: dir, VAULT_ROOT: join(dir, 'vault'), PORT: String(free), HOST: '127.0.0.1' };
         for (const k of Object.keys(env)) if (/^(TERRAMENTOR_|SITE_|DB_PATH)/.test(k)) delete env[k];
         const child = spawn(process.execPath, [join(repoRoot, 'server', 'index.js')], { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+        // Listened for at once: an exit while starting is not replayed to a later listener.
+        let exitedEarly = false;
+        const exited = new Promise((r) => child.once('exit', () => { exitedEarly = true; r(); }));
+        held.push(() => { child.kill(); return exited; });
         let log = '';
         child.stdout.on('data', (c) => { log += c; });
         child.stderr.on('data', (c) => { log += c; });
         let body = null;
-        for (let i = 0; i < 300 && !body; i++) {
+        for (let i = 0; i < 300 && !body && !exitedEarly; i++) {
             await new Promise((r) => setTimeout(r, 100));
             try {
                 body = await new Promise((res, rej) => http.get(`http://127.0.0.1:${free}/api/auth/status`, (r) => {
@@ -439,12 +537,12 @@ try {
                 }).on('error', rej));
             } catch { /* starting */ }
         }
-        ok('the solo app answers its status with no site in it', !!body && !('site' in body), JSON.stringify(body));
+        ok('the solo app answers its status with no site in it', !!body && !('site' in body), body ? JSON.stringify(body) : `no answer${exitedEarly ? `; it exited: ${log.trim().split('\n').pop()}` : ''}`);
         ok('and starts its own start-up work as before', !log.includes('[site]'));
-        child.kill();
-        await new Promise((r) => child.once('exit', r));
+        await release();
     }
 } finally {
+    await release();
     rmSync(scratch, { recursive: true, force: true, maxRetries: 5 });
 }
 

@@ -220,11 +220,13 @@ try {
     const fromSW = answers.filter((a) => a.fromSW && new URL(a.url).pathname.startsWith('/api')).length;
 
     // Two more devices for person 2 (a phone and another computer), signed in
-    // without this browser's cookie, so Settings lists three.
+    // without this browser's cookie, so Settings lists three. The address is the
+    // one the second invite was for, read back from the front desk.
+    const email2 = await evaluate(`fetch('/site/sessions.json').then(r => r.json()).then(a => a.email)`);
     for (const ua of ['Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15']) {
         await send('Network.setUserAgentOverride', { userAgent: ua, acceptLanguage: 'en-US' });
-        await evaluate(`fetch('/site/sign-in', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'email=person2%40example.org&password=${encodeURIComponent(PASS2)}', redirect: 'manual', credentials: 'omit' })`);
+        await evaluate(`fetch('/site/sign-in', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'email=${encodeURIComponent(email2)}&password=${encodeURIComponent(PASS2)}', redirect: 'manual', credentials: 'omit' })`);
     }
     await send('Network.setUserAgentOverride', { userAgent: UA, acceptLanguage: 'en-US' });
     await evaluate(`fetch('/api/settings/welcome_done', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'true' }) }).then(r => r.status)`);
