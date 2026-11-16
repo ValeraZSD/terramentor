@@ -16,6 +16,7 @@ import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWor
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { markLearnerEdit } from '../courseUpdate.js';
 
 const app = routeTable('projects');
 
@@ -195,6 +196,12 @@ app.put('/api/projects/:id', (req, res) => {
     // in the old language after the learner switched.
     if (updates.length) invalidateProjectLanguage(id);
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    // A person renamed or re-described the course: an update that also changes
+    // the same field asks first (server/courseUpdate.js).
+    markLearnerEdit('project', project.uuid, [
+        differs(name, before.name) && 'name', differs(description, before.description) && 'description',
+        content_language !== undefined && isSupportedLanguage(content_language) && 'content_language',
+    ]);
     res.json(project);
 });
 

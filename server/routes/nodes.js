@@ -21,6 +21,7 @@ import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
 import { headStartsForProject } from '../headStart.js';
+import { markLearnerEdit } from '../courseUpdate.js';
 
 const app = routeTable('nodes');
 
@@ -120,6 +121,7 @@ const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
 const nodeProjectStmt = db.prepare('SELECT id, project_id FROM nodes WHERE id = ?');
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
 const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
+const nodeParentStmt = db.prepare('SELECT parent_id, uuid FROM nodes WHERE id = ?');
 const siblingGroupStmt = db.prepare('SELECT id, position FROM nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
 const projectNodesStmt = db.prepare('SELECT * FROM nodes WHERE project_id = ? ORDER BY position');
 
@@ -159,6 +161,7 @@ app.put('/api/nodes/reorder', (req, res) => {
     if (nodeIds.length === 0) return res.json({ success: true });
     const projectId = rows[0].project_id;
     const listed = new Set(nodeIds);
+    const movedOut = nodeIds.map(id => nodeParentStmt.get(id)).filter(n => n.parent_id !== (parentId ?? null));
     db.transaction(() => {
         nodeIds.forEach((id, index) => nodeRepositionStmt.run(index, parentId, id));
         // A list that is not the whole group (a tab that loaded before another
@@ -169,6 +172,7 @@ app.put('/api/nodes/reorder', (req, res) => {
             .sort((a, b) => a.position - b.position || Number(!listed.has(a.id)) - Number(!listed.has(b.id)));
         group.forEach((n, index) => { if (n.position !== index) nodePositionStmt.run(index, n.id); });
     })();
+    for (const n of movedOut) markLearnerEdit('node', n.uuid, ['parent']);
     res.json({ success: true, nodes: projectNodesStmt.all(projectId) });
 });
 
@@ -383,6 +387,12 @@ app.put('/api/nodes/:id', (req, res) => {
 
     db.prepare(`UPDATE nodes SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
     const node = db.prepare('SELECT * FROM nodes WHERE id = ?').get(req.params.id);
+    // The editor is a person's hand: a course update that also changes one of
+    // these fields asks before it overwrites it (server/courseUpdate.js).
+    markLearnerEdit('node', node.uuid, [
+        title !== undefined && 'title', description !== undefined && 'description', note !== undefined && 'is_note',
+        parent_id !== undefined && parent_id !== current.parent_id && 'parent',
+    ]);
     // Only the fields that make up a topic's embedded text are worth a sweep —
     // `parent_id` counts because the parent's title is part of it. A status
     // change is deliberately excluded: the feed writes those constantly and
@@ -465,6 +475,7 @@ app.put('/api/nodes/:id/move', (req, res) => {
         siblings.splice(position ?? siblings.length, 0, { id: node.id, position: -1 });
         siblings.forEach((s, idx) => { if (s.position !== idx) nodePositionStmt.run(idx, s.id); });
     })();
+    if (parent_id !== node.parent_id) markLearnerEdit('node', node.uuid, ['parent']);
     res.json(projectNodesStmt.all(node.project_id));
 });
 
@@ -530,6 +541,7 @@ app.put('/api/resources/:id', (req, res) => {
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
         .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
     const resource = db.prepare('SELECT * FROM resources WHERE id = ?').get(req.params.id);
+    markLearnerEdit('resource', resource.uuid, [title != null && 'title', nextUrl != null && 'url', nextType != null && 'type']);
     res.json(resource);
 });
 
