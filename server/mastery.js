@@ -194,7 +194,10 @@ export function getNodeMastery(nodeId) {
 // server/placement.js). It is real evidence — the learner genuinely answered —
 // so it is recorded rather than hidden, but its contribution is the seed it
 // wrote, so it neither proves a topic nor un-borrows that seed.
-export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement'];
+// 'mock' is a past paper the learner marked against its worked solution
+// (server/mockExams.js): a few self-marked parts per topic, so it is practice
+// that moves the estimate either way and never proves a topic.
+export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement', 'mock'];
 export const PROVING_EVIDENCE_TYPES = ['quiz', 'mastery_check', 'paper'];
 export const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
 // Practice is everything else that runs BKT: defined by exclusion, so a new

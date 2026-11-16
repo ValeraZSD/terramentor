@@ -1221,6 +1221,79 @@ try {
   console.log('paper_attempts table already exists or error:', e.message);
 }
 
+// MOCK EXAMS (server/mockExams.js): a real past paper, written by hand with the
+// app's clock and marked by the learner part by part against the worked
+// solution. A paper is its points table and its own grade formula; a sitting
+// is one go at it (the whole paper or one question), its clock kept here so
+// leaving the page never loses it; a mark is points per part.
+//
+// `uuid` is declared on the table itself: the last migration block gives every
+// synced table its insert trigger and unique index (syncTables.js). The paper
+// and solution are the course's own documents; deleting one leaves the paper.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS exam_papers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      project_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      minutes INTEGER NOT NULL CHECK (minutes > 0),
+      grade_min REAL,
+      grade_max REAL,
+      pass_grade REAL,
+      paper_document_id INTEGER,
+      solution_document_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (paper_document_id) REFERENCES documents(id) ON DELETE SET NULL,
+      FOREIGN KEY (solution_document_id) REFERENCES documents(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_project ON exam_papers(project_id);
+
+    CREATE TABLE IF NOT EXISTS exam_paper_parts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      paper_id INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      question TEXT NOT NULL,
+      part TEXT NOT NULL DEFAULT '',
+      points INTEGER NOT NULL CHECK (points > 0),
+      node_id INTEGER,
+      FOREIGN KEY (paper_id) REFERENCES exam_papers(id) ON DELETE CASCADE,
+      FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE SET NULL,
+      UNIQUE (paper_id, question, part)
+    );
+
+    CREATE TABLE IF NOT EXISTS mock_sittings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      paper_id INTEGER NOT NULL,
+      question TEXT,
+      time_allowed INTEGER NOT NULL,
+      elapsed INTEGER NOT NULL DEFAULT 0,
+      running_since TEXT,
+      status TEXT NOT NULL DEFAULT 'writing' CHECK (status IN ('writing', 'marking', 'done')),
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      FOREIGN KEY (paper_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mock_sittings_paper ON mock_sittings(paper_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS mock_part_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      sitting_id INTEGER NOT NULL,
+      part_id INTEGER NOT NULL,
+      points REAL NOT NULL CHECK (points >= 0),
+      FOREIGN KEY (sitting_id) REFERENCES mock_sittings(id) ON DELETE CASCADE,
+      FOREIGN KEY (part_id) REFERENCES exam_paper_parts(id) ON DELETE CASCADE,
+      UNIQUE (sitting_id, part_id)
+    );
+  `);
+} catch (e) {
+  console.error('mock exam tables:', e.message);
+}
+
 // What the app DID, kept locally so a person can look instead of reproduce.
 //
 // Three questions this answers and nothing else could: what was the app doing
