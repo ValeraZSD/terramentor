@@ -13,6 +13,7 @@ import { uiLocale } from '../../utils/locale';
 import { Panel } from './MockExamView';
 import { useDuration } from './mockFormat';
 import { CourseMockScreen, CourseResultScreen } from './CourseMock';
+import { ExamFrame } from './ExamFrame';
 import { isCourseDetail, type CourseMockDetail, type MockDetail } from './mockExamTypes';
 
 /** One mock, whichever moment it is at: writing, marking or done. */
@@ -26,6 +27,21 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
     }, [sittingId, addToast, onClose]);
     useEffect(() => { load(); }, [load]);
 
+    // While the exam itself runs it holds the whole window (ExamFrame): the
+    // course mock's questions, and the past paper's clock on the desk.
+    if (detail && isCourseDetail(detail) && detail.sitting.status !== 'done') {
+        return <CourseMockScreen detail={detail} onChange={setDetail} onLeave={onClose} />;
+    }
+    if (detail && !isCourseDetail(detail) && detail.sitting.status === 'writing') {
+        return (
+            <ExamFrame title={t("Mock exam")} onLeave={onClose}>
+                <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
+                    <ClockScreen detail={detail} onChange={setDetail} />
+                </div>
+            </ExamFrame>
+        );
+    }
+
     return (
         <div className="flex-1 overflow-auto">
             <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:py-8 space-y-4">
@@ -36,12 +52,9 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
                 </div>
                 {!detail && <Panel><div className="h-40" aria-busy="true" /></Panel>}
                 {detail && isCourseDetail(detail) ? (
-                    detail.sitting.status === 'done'
-                        ? <CourseResultScreen detail={detail} onDone={onClose} />
-                        : <CourseMockScreen detail={detail} onChange={setDetail} />
+                    <CourseResultScreen detail={detail} onDone={onClose} />
                 ) : (
                     <>
-                        {detail?.sitting.status === 'writing' && <ClockScreen detail={detail} onChange={setDetail} />}
                         {detail?.sitting.status === 'marking' && <MarkingScreen detail={detail} onChange={setDetail} />}
                         {detail?.sitting.status === 'done' && <ResultScreen detail={detail} onDone={onClose} />}
                     </>

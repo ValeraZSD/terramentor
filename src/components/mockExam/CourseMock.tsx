@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ListOrdered, Pause, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { api, newAttemptId } from '../../api';
 import { useStore } from '../../store';
 import { Button, IconButton } from '../ui/Button';
@@ -22,7 +22,10 @@ import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Panel, Row } from './MockExamView';
 import { useDuration } from './mockFormat';
-import type { CourseMockDetail, CourseQuestion, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
+import { usePhysicalKeyboard } from '../../utils/platform';
+import { isTextEntry } from '../../utils/escapeKey';
+import { ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
+import type { CourseMockDetail, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
 
 /**
  * A mock exam drawn from the course's own questions and answered on screen
@@ -211,31 +214,50 @@ function RealExamDialog({ projectId, exam, onClose, onSaved }: {
 
 interface PendingSave { answer?: string; later?: boolean; attemptId: string }
 
+/** A pause on leaving, scheduled per mock and cancelled when the screen mounts again at once. */
+const PENDING_PAUSE = new Map<number, number>();
+
 /**
  * Saves answers so none is lost: each change is queued per question and sent
  * with its own attempt id; a failed send stays queued and goes again with the
  * same id (the server writes one id once). Leaving sends what is queued.
  */
-function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: number; left: number; later: number }) => void) {
+function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: number; left: number; later: number }) => void, onRefused: (message: string) => void) {
     const pending = useRef(new Map<number, PendingSave>());
-    const inflight = useRef(new Set<number>());
+    // The save on its way per question: a flush waits for it rather than
+    // reading "not sent" while it is simply still travelling.
+    const inflight = useRef(new Map<number, Promise<boolean>>());
     const timers = useRef(new Map<number, number>());
     const [unsaved, setUnsaved] = useState(0);
     const savedRef = useRef(onSaved);
     savedRef.current = onSaved;
+    const refusedRef = useRef(onRefused);
+    refusedRef.current = onRefused;
 
     const send = useCallback((partId: number): Promise<boolean> => {
+        const running = inflight.current.get(partId);
+        if (running) return running;
         const p = pending.current.get(partId);
         if (!p) return Promise.resolve(true);
-        if (inflight.current.has(partId)) return Promise.resolve(false);
-        inflight.current.add(partId);
-        return api.saveMockAnswer(sittingId, { partId, ...p })
+        const trip = api.saveMockAnswer(sittingId, { partId, ...p })
             .then(r => {
                 if (pending.current.get(partId) === p) pending.current.delete(partId);
                 savedRef.current(r);
                 return true;
             })
-            .catch(() => false)
+            .catch((e: { status?: number; message?: string }) => {
+                // The server said no for good (a finished mock, an answer too
+                // long): sending it again would never succeed and would hold
+                // Finish forever. Say so and let it go. A lost connection, a
+                // timeout or a busy server stay queued and are tried again.
+                const status = e?.status ?? 0;
+                if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+                    if (pending.current.get(partId) === p) pending.current.delete(partId);
+                    refusedRef.current(e?.message || '');
+                    return true;
+                }
+                return false;
+            })
             .finally(() => {
                 inflight.current.delete(partId);
                 setUnsaved(pending.current.size);
@@ -243,6 +265,8 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
                 const next = pending.current.get(partId);
                 if (next && next !== p) void send(partId);
             });
+        inflight.current.set(partId, trip);
+        return trip;
     }, [sittingId]);
 
     const queue = useCallback((partId: number, patch: { answer?: string; later?: boolean }, delay = 0) => {
@@ -287,7 +311,12 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
     return { queue, flush, unsaved };
 }
 
-export function CourseMockScreen({ detail, onChange }: { detail: CourseMockDetail; onChange: (d: CourseMockDetail) => void }) {
+export function CourseMockScreen({ detail, onChange, onLeave }: {
+    detail: CourseMockDetail;
+    onChange: (d: CourseMockDetail) => void;
+    /** Back to the mock exams; the answers are written first and the clock stops. */
+    onLeave: () => void;
+}) {
     const { t } = useTranslation();
     const duration = useDuration();
     const addToast = useStore(s => s.addToast);
@@ -302,13 +331,23 @@ export function CourseMockScreen({ detail, onChange }: { detail: CourseMockDetai
     const [progress, setProgress] = useState({ answered: course.answered, left: course.left, later: course.later });
     const [listOpen, setListOpen] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [leaving, setLeaving] = useState(false);
     const finishId = useRef<string | null>(null);
-    const { queue, flush, unsaved } = useAnswerSaver(sitting.id, setProgress);
+    const { queue, flush, unsaved } = useAnswerSaver(sitting.id, setProgress,
+        message => addToast('error', message || t("That answer could not be saved.")));
 
-    const wrapRef = useRef<HTMLDivElement>(null);
-    const width = useElementWidth(wrapRef);
+    // Measured on the frame's root, the one element every state shares, so a
+    // mock opened paused lays out right once it is resumed.
+    const frameRef = useRef<HTMLDivElement>(null);
+    const width = useElementWidth(frameRef);
     const rem = useRootFontSize();
-    const wide = width >= 52 * rem;
+    const wide = width >= 40 * rem;
+
+    // On a touch screen with no keyboard attached, typing an answer brings up
+    // the on-screen keyboard: the navigation steps aside so the field and the
+    // keys keep the room. A desktop keeps it.
+    const physicalKeys = usePhysicalKeyboard();
+    const [typing, setTyping] = useState(false);
 
     // The clock, counted on from the server's last reading (as on a past paper).
     const base = useRef({ elapsed: sitting.elapsed, at: Date.now() });
@@ -322,12 +361,28 @@ export function CourseMockScreen({ detail, onChange }: { detail: CourseMockDetai
     const elapsed = base.current.elapsed + (sitting.running ? Math.floor((Date.now() - base.current.at) / 1000) : 0);
     const timeUp = timed && elapsed >= sitting.timeAllowed;
 
-    // Leaving stops the clock; the mock waits in the list with Resume.
+    // Leaving stops the clock; the mock waits in the list with Resume. The
+    // pause on unmount waits one tick and a remount cancels it: React's
+    // development double mount would otherwise stop a clock just started.
+    // A page brought back from the browser's back-forward cache reads the
+    // mock again, so a clock the leaving paused shows as paused.
     const sid = sitting.id;
+    const changeRef = useRef(onChange);
+    changeRef.current = onChange;
     useEffect(() => {
+        window.clearTimeout(PENDING_PAUSE.get(sid));
+        PENDING_PAUSE.delete(sid);
         const leave = () => { void fetch(`/api/mock-sittings/${sid}/pause`, { method: 'POST', keepalive: true }).catch(() => {}); };
+        const back = (e: PageTransitionEvent) => {
+            if (e.persisted) api.getMock(sid).then(d => changeRef.current(d as CourseMockDetail)).catch(() => {});
+        };
         window.addEventListener('pagehide', leave);
-        return () => { window.removeEventListener('pagehide', leave); leave(); };
+        window.addEventListener('pageshow', back);
+        return () => {
+            window.removeEventListener('pagehide', leave);
+            window.removeEventListener('pageshow', back);
+            PENDING_PAUSE.set(sid, window.setTimeout(() => { PENDING_PAUSE.delete(sid); leave(); }, 0));
+        };
     }, [sid]);
 
     const clockAct = useCallback((action: 'pause' | 'resume') => {
@@ -389,27 +444,43 @@ export function CourseMockScreen({ detail, onChange }: { detail: CourseMockDetai
 
     const paused = timed && !sitting.running;
 
-    const header = (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam from this course")}</h2>
-                <p className="text-sm text-slate-600 dark:text-slate-300 tabular-nums">
-                    {t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length })}
-                    {timed && !timeUp && ` · ${t("{{time}} left of {{allowed}}", { time: duration(sitting.timeAllowed - elapsed + 59), allowed: duration(sitting.timeAllowed) })}`}
-                    {unsaved > 0 && ` · ${t("saving…")}`}
-                </p>
-            </div>
-            {timed && !paused && !timeUp && (
-                <Button size="sm" busy={busy} icon={<Pause className="w-4 h-4" aria-hidden="true" />} onClick={() => void clockAct('pause')}>{t("Pause")}</Button>
-            )}
-        </div>
+    const leave = async () => {
+        setLeaving(true);
+        if (!(await flush())) {
+            addToast('error', t("Some answers are not saved yet. Check the connection and try again: nothing is lost."));
+            setLeaving(false);
+            return;
+        }
+        onLeave();
+    };
+
+    const status = [
+        t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
+        timed ? (timeUp ? t("Time is up") : t("{{time}} left", { time: duration(sitting.timeAllowed - elapsed + 59) })) : null,
+        unsaved > 0 ? t("saving…") : null,
+    ].filter(Boolean)
+        // Each part stays whole: at a large text size the line breaks between
+        // the count and the clock, never inside either.
+        .map((part, i, all) => i < all.length - 1
+            ? <Fragment key={i}><span className="whitespace-nowrap">{part} ·</span>{' '}</Fragment>
+            : <span key={i} className="whitespace-nowrap">{part}</span>);
+
+    const pauseButton = timed && !paused && !timeUp
+        ? (width > 0 && width < 34 * rem
+            ? <IconButton size="md" label={t("Pause")} icon={<Pause className="w-5 h-5" />} busy={busy} onClick={() => void clockAct('pause')} />
+            : <Button size="sm" busy={busy} icon={<Pause className="w-4 h-4" aria-hidden="true" />} onClick={() => void clockAct('pause')}>{t("Pause")}</Button>)
+        : null;
+
+    const frame = (children: React.ReactNode, footer?: React.ReactNode) => (
+        <ExamFrame title={t("Mock exam from this course")} status={status} actions={pauseButton}
+            onLeave={() => void leave()} leaving={leaving} footer={footer} frameRef={frameRef}>
+            {children}
+        </ExamFrame>
     );
 
-    // The wrapper is measured in every state, so the layout is right after a resume.
     if (paused) {
-        return (
-            <div ref={wrapRef} className="space-y-4">
-                {header}
+        return frame(
+            <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
                 <Panel>
                     <div className="py-10 text-center">
                         <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Paused")}</p>
@@ -421,129 +492,84 @@ export function CourseMockScreen({ detail, onChange }: { detail: CourseMockDetai
                         </div>
                     </div>
                 </Panel>
-            </div>
+            </div>,
         );
     }
 
-    const list = (
-        <QuestionList questions={questions} current={index} answers={answers} later={later} onGo={go} />
+    const items = questions.map(x => ({ answered: !!(answers[x.partId] ?? '').trim(), marked: !!later[x.partId] }));
+    const prev = (
+        <Button block={!wide} disabled={index === 0} icon={<ChevronLeft className="w-4 h-4" aria-hidden="true" />} onClick={() => go(index - 1)}>
+            {t("Previous")}
+        </Button>
+    );
+    const next = last
+        ? <Button block={!wide} variant="primary" busy={busy} onClick={() => void finish()}>{t("Finish the mock")}</Button>
+        : <Button block={!wide} variant="primary" trailing={<ChevronRight className="w-4 h-4" aria-hidden="true" />} onClick={() => go(index + 1)}>{t("Next")}</Button>;
+    const strip = <QuestionStrip items={items} current={index} onGo={go} />;
+    const expand = <GridButton onClick={() => setListOpen(true)} />;
+
+    const footer = (
+        <div className={`mx-auto w-full max-w-5xl px-2 sm:px-4 ${typing && !physicalKeys ? 'hidden' : ''}`}>
+            {wide ? (
+                <div className="flex items-center gap-2 py-2">{prev}{strip}{expand}{next}</div>
+            ) : (
+                <>
+                    <div className="flex items-center gap-1 pt-1">{strip}{expand}</div>
+                    <div className="flex gap-2 pt-1 pb-2">{prev}{next}</div>
+                </>
+            )}
+        </div>
     );
 
-    return (
-        <div ref={wrapRef} className="space-y-4">
-            {header}
-            {timeUp && (
-                <div className="rounded-xl bg-slate-100 dark:bg-slate-900/60 px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                    {t("Time is up. On the real exam you would hand in now. You can still answer: those answers are kept apart from the score.")}
-                </div>
-            )}
-            <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_16rem] gap-4 items-start' : 'space-y-4'}>
-                <Panel>
-                    <div className="flex items-start gap-2">
-                        <p className="flex-1 text-sm font-medium text-slate-500 dark:text-slate-400 tabular-nums">
-                            {t("Question {{n}} of {{total}}", { n: index + 1, total: questions.length })}
-                        </p>
-                        {!wide && (
-                            <Button size="sm" icon={<ListOrdered className="w-4 h-4" aria-hidden="true" />} onClick={() => setListOpen(true)}>
-                                {t("All questions")}
-                            </Button>
-                        )}
-                        <ReportItem key={q.partId} itemRef={q.ref} surface="mock" hideKey
-                            shown={answers[q.partId] ? { answer: answers[q.partId] } : undefined} className="-mt-0.5 -mr-1" />
+    return frame(
+        <>
+            <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:py-8 space-y-4"
+                onFocus={e => setTyping(isTextEntry(e.target))} onBlur={() => setTyping(false)}>
+                {timeUp && (
+                    <div role="status" className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
+                        {t("Time is up. On the real exam you would hand in now. You can still answer: those answers are kept apart from the score.")}
                     </div>
-                    <div className="mt-2 text-base text-slate-900 dark:text-white">
+                )}
+                <Panel>
+                    {/* The report flag keeps the card's top-right corner; on a
+                        narrow card "Come back to this" wraps under the number. */}
+                    <div className="flex items-start gap-2">
+                        <div className="flex-1 min-w-0 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                            <p className="whitespace-nowrap text-sm font-medium text-slate-600 dark:text-slate-300 tabular-nums">
+                                {t("Question {{n}} of {{total}}", { n: index + 1, total: questions.length })}
+                            </p>
+                            <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ml-2.5 whitespace-nowrap"
+                                icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
+                                {t("Come back to this")}
+                            </Button>
+                        </div>
+                        <ReportItem key={q.partId} itemRef={q.ref} surface="mock" hideKey
+                            shown={answers[q.partId] ? { answer: answers[q.partId] } : undefined} />
+                    </div>
+                    <div className="mt-3 text-base text-slate-900 dark:text-white">
                         <QuestionStem content={q.question.question} surface="mock" media={q.question.media} mediaSize="review" />
                     </div>
                     <div className="mt-4">
                         <AnswerInput key={q.partId} question={q.question} value={answers[q.partId] ?? ''}
                             onChange={v => change(q.partId, v)} onCommit={v => change(q.partId, v, true)} />
                         {formatOf(q.question).hint && (
-                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{t(formatOf(q.question).hint!)}</p>
+                            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{t(formatOf(q.question).hint!)}</p>
                         )}
-                    </div>
-                    <div className="mt-5 flex flex-wrap items-center gap-2">
-                        <Button variant="quiet" aria-pressed={!!later[q.partId]} onClick={toggleLater}
-                            icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
-                            {t("Come back to this")}
-                        </Button>
-                        <div className="ml-auto flex gap-2">
-                            {/* On a phone the row must stay one line: Previous is its arrow. */}
-                            {index > 0 && (wide
-                                ? <Button onClick={() => go(index - 1)}>{t("Previous")}</Button>
-                                : <IconButton label={t("Previous")} icon={<ChevronLeft className="w-4 h-4" />} onClick={() => go(index - 1)} />)}
-                            {last
-                                ? <Button variant="primary" busy={busy} onClick={() => void finish()}>{wide ? t("Finish the mock") : t("Finish")}</Button>
-                                : <Button variant="primary" onClick={() => go(index + 1)}>{t("Next")}</Button>}
-                        </div>
                     </div>
                 </Panel>
-                {wide && (
-                    <Panel className="!p-4">
-                        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{t("Questions")}</h3>
-                        <div className="mt-3">{list}</div>
-                        {!last && (
-                            <div className="mt-4">
-                                <Button block busy={busy} onClick={() => void finish()}>{t("Finish the mock")}</Button>
-                            </div>
-                        )}
-                    </Panel>
-                )}
             </div>
-            {listOpen && !wide && (
-                <BottomSheet title={t("Questions")} onClose={() => setListOpen(false)}>
+            {listOpen && (
+                <BottomSheet title={t("All questions")} onClose={() => setListOpen(false)}>
                     <div className="px-4 pb-4">
-                        {list}
-                        <div className="mt-4">
+                        <QuestionGrid items={items} current={index} onGo={go} />
+                        <div className="mt-5">
                             <Button block busy={busy} onClick={() => { setListOpen(false); void finish(); }}>{t("Finish the mock")}</Button>
                         </div>
                     </div>
                 </BottomSheet>
             )}
-        </div>
-    );
-}
-
-/** Every question as a numbered square: filled when answered, an amber dot when marked to come back to. */
-function QuestionList({ questions, current, answers, later, onGo }: {
-    questions: CourseQuestion[];
-    current: number;
-    answers: Record<number, string>;
-    later: Record<number, boolean>;
-    onGo: (i: number) => void;
-}) {
-    const { t } = useTranslation();
-    const marked = questions.filter(q => later[q.partId]).length;
-    return (
-        <div>
-            <ul className="grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))] gap-1.5">
-                {questions.map((q, i) => {
-                    const done = !!(answers[q.partId] ?? '').trim();
-                    const flag = !!later[q.partId];
-                    const name = [
-                        t("Question {{n}}", { n: i + 1 }),
-                        done ? t("answered") : t("not answered"),
-                        flag ? t("marked to come back to") : null,
-                    ].filter(Boolean).join(', ');
-                    return (
-                        <li key={q.partId}>
-                            <button type="button" data-question-cell onClick={() => onGo(i)} aria-label={name} aria-current={i === current ? 'step' : undefined}
-                                className={`relative w-full h-11 rounded-lg text-sm font-medium tabular-nums transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                                    done
-                                        ? 'bg-slate-200 text-slate-900 dark:bg-slate-600 dark:text-white can-hover:hover:bg-slate-300 dark:can-hover:hover:bg-slate-500'
-                                        : 'border border-slate-300 text-slate-600 dark:border-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/60'
-                                } ${i === current ? 'ring-2 ring-accent' : ''}`}>
-                                {i + 1}
-                                {flag && <span aria-hidden="true" className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />}
-                            </button>
-                        </li>
-                    );
-                })}
-            </ul>
-            <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                <span aria-hidden="true" className="w-2 h-2 rounded-full bg-amber-500" />
-                {t("{{n}} marked to come back to", { n: marked })}
-            </p>
-        </div>
+        </>,
+        footer,
     );
 }
 
@@ -573,7 +599,8 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam from this course, {{date}}", { date })}</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {sitting.timeAllowed > 0
-                        ? t("Answered on screen in {{used}} of {{allowed}}", { used: duration(sitting.elapsed), allowed: duration(sitting.timeAllowed) })
+                        // The clock runs on past the time while late answers are given; the score stops at the time.
+                        ? t("Answered on screen in {{used}} of {{allowed}}", { used: duration(Math.min(sitting.elapsed, sitting.timeAllowed)), allowed: duration(sitting.timeAllowed) })
                         : t("Answered on screen in {{used}}, no clock", { used: duration(sitting.elapsed) })}
                 </p>
             </div>
@@ -597,7 +624,7 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                     )}
                     {result.spread && (
                         <p>
-                            {t("One draw moves by chance: another set of {{total}} questions from the same topics would most likely give between {{low}} and {{high}} right.", {
+                            {t("One mock is a small sample: your real level on these topics is most likely between {{low}} and {{high}} of {{total}} right.", {
                                 total: result.total, low: result.spread.low, high: result.spread.high,
                             })}
                         </p>

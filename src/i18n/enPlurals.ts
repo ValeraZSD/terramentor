@@ -102,6 +102,8 @@ const enPlurals: Record<string, string> = {
     "{{count}} questions answered._other": "{{count}} questions answered.",
     "{{count}} questions are not answered. They count as zero in the score._one": "{{count}} question is not answered. It counts as zero in the score.",
     "{{count}} questions are not answered. They count as zero in the score._other": "{{count}} questions are not answered. They count as zero in the score.",
+    "{{count}} questions to come back to_one": "{{count}} question to come back to",
+    "{{count}} questions to come back to_other": "{{count}} questions to come back to",
     "{{count}} questions you reported as wrong are left out._one": "{{count}} question you reported as wrong is left out.",
     "{{count}} questions you reported as wrong are left out._other": "{{count}} questions you reported as wrong are left out.",
     "{{count}} questions_one": "{{count}} question",

@@ -60,6 +60,10 @@ export default function Workspace() {
     // The mock exam has no tab of its own: it opens from the Dashboard's
     // tools, so the rail keeps saying Dashboard while it is open.
     const tabView: WorkspaceView = workspaceView === 'exam' ? 'dashboard' : workspaceView;
+    // While a mock is answered, the tabs and the course tree step aside like
+    // the app header (mockExam/ExamFrame): an exam screen holds the exam only.
+    const examFocus = useStore(s => s.examFocus);
+    const sideNav = !studyView && !examFocus;
 
     // Close the nav drawer whenever a node is selected (the detail overlay takes
     // over) or when we leave mobile.
@@ -256,7 +260,7 @@ export default function Workspace() {
                 a second line rather than taking the rail's width. Nothing
                 changes at the default scale, where it all still fits on one
                 row. */}
-            <div ref={barRef} className="relative flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div ref={barRef} className={`relative ${examFocus ? 'hidden' : 'flex'} flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800`}>
                 {/* The full pace pill's measure (see `fit` above): laid out
                     at its own width, never seen, and nothing in it focuses. */}
                 <div ref={paceGhostRef} aria-hidden="true" className="invisible absolute left-0 top-0 w-max pointer-events-none">
@@ -358,9 +362,9 @@ export default function Workspace() {
             <div className="flex-1 flex overflow-hidden">
                 {/* Sidebar: inline on desktop, off-canvas drawer on mobile —
                     and absent on Study either way (see `studyView`). */}
-                {!isMobile && !studyView && <Sidebar />}
+                {!isMobile && sideNav && <Sidebar />}
 
-                {isMobile && !studyView && (
+                {isMobile && sideNav && (
                     <>
                         <div
                             className={`fixed inset-0 bg-black/50 z-30 transition-opacity ${navDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
@@ -408,7 +412,7 @@ export default function Workspace() {
                     mobile. The overlay no longer draws its own title + Close bar —
                     DetailPanel's header carries both on every platform, so the phone
                     doesn't spend 3rem of screen repeating the title. */}
-                {selectedNodeId && (
+                {selectedNodeId && !examFocus && (
                     isMobile ? (
                         <div className="fixed inset-0 z-40 safe-p-0 flex flex-col bg-white dark:bg-slate-800">
                             <DetailPanel />

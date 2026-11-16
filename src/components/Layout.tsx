@@ -86,6 +86,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     // tree (the project dashboard's "ask about this project") open it with a
     // question already in the composer.
     const assistantOpen = useStore(s => s.assistantOpen);
+    // While a mock exam is answered the header, the notices and the assistant
+    // step aside: the exam draws its own bar (mockExam/ExamFrame). The header
+    // is hidden, not unmounted, so its measured fit survives the round trip.
+    const examFocus = useStore(s => s.examFocus);
     const openAssistant = useStore(s => s.openAssistant);
     const closeAssistant = useStore(s => s.closeAssistant);
     const [assistantWidth, setAssistantWidth] = useState(storedAssistantWidth);
@@ -359,7 +363,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
                 under its status bar the bar's colour runs up behind the clock and
                 its row starts below it, the same 56px as the assistant's header. */}
-            <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
+            <header ref={headerRef} className={`h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 ${examFocus ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0`}>
                 <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
@@ -510,8 +514,8 @@ export default function Layout({ children }: { children: ReactNode }) {
                 reached from other devices and has no password. Below it, once,
                 that macOS is running a temporary copy of the app. */}
             <ExposedBanner />
-            <UpdateNotice />
-            <AppPlacementNotice />
+            {!examFocus && <UpdateNotice />}
+            {!examFocus && <AppPlacementNotice />}
 
             <main className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0">
                 {children}
@@ -584,7 +588,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Outside the app column, so a docked assistant takes real layout space
             rather than painting over the page. */}
         <AssistantDrawer
-            open={assistantOpen}
+            open={assistantOpen && !examFocus}
             onClose={closeAssistant}
             docked={assistantDocked}
             width={assistantWidth}
