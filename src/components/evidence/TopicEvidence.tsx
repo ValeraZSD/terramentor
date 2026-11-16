@@ -346,6 +346,7 @@ function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; o
     const [reviewing, setReviewing] = useState<number | null>(null);
     const day = useDay();
     const held = trail.count;
+    const shaky = trail.shaky ?? [];
     const points = useMemo(() => chartPoints(trail.rows), [trail.rows]);
     // A line needs two answers, and a deck has no steps. Under "too early to
     // tell" the card hides the number, so the chart does not show it either.
@@ -377,17 +378,25 @@ function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; o
                             />
                         </div>
                     )}
-                    {trail.shaky.length > 0 && <ShakyList items={trail.shaky} total={trail.shakyCount} />}
-                    <h3 className="mt-5 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                        <History className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                        {t("Evidence, newest first")}
-                    </h3>
-                    {trail.rows.length === 0 ? (
-                        <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("Nothing answered on this topic yet.")}</p>
-                    ) : (
-                        <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} deck={trail.projectKind === 'deck'} onOpen={setReviewing} />)}
-                        </ul>
+                    {shaky.length > 0 && <ShakyList items={shaky} total={trail.shakyCount ?? shaky.length} />}
+                    {/* Misses logged while a question waited for a verifier
+                        wrote no evidence, so a topic can have shaky questions
+                        and no rows: then the list stands alone, with no
+                        "nothing answered" under it. */}
+                    {(trail.rows.length > 0 || shaky.length === 0) && (
+                        <>
+                            <h3 className="mt-5 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                <History className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                                {t("Evidence, newest first")}
+                            </h3>
+                            {trail.rows.length === 0 ? (
+                                <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("Nothing answered on this topic yet.")}</p>
+                            ) : (
+                                <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                                    {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} deck={trail.projectKind === 'deck'} onOpen={setReviewing} />)}
+                                </ul>
+                            )}
+                        </>
                     )}
                     {held > trail.rows.length && (
                         <p className="pt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -443,24 +452,27 @@ export default function TopicEvidence({ nodeId, refreshKey }: { nodeId: number; 
 
     if (!trail || trail.nodeId !== nodeId) return null;
     const held = trail.count;
+    // Absent from a server older than this client (a phone on the hosted copy).
+    const shakyCount = trail.shakyCount ?? 0;
     return (
         <div className="space-y-2 rounded-lg border border-slate-200/60 bg-slate-50 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">
             <EstimateSummary trail={trail} />
-            {trail.shakyCount > 0 && (
+            {shakyCount > 0 && (
                 // The list is in the dialog; the card only says it is there.
                 <p className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                     <Repeat className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    {t("Still shaky: {{count}} question you keep missing", { count: trail.shakyCount })}
+                    {t("Still shaky: {{count}} question you keep missing", { count: shakyCount })}
                 </p>
             )}
-            {(held > 0 || trail.shakyCount > 0) && (
+            {(held > 0 || shakyCount > 0) && (
                 <Button
                     variant="neutral"
                     size="sm"
                     onClick={() => setOpen(true)}
                     icon={<History className="h-4 w-4" aria-hidden="true" />}
                 >
-                    {t("See the evidence ({{n}})", { n: held })}
+                    {/* No evidence rows, only misses (see the dialog): no "(0)". */}
+                    {held > 0 ? t("See the evidence ({{n}})", { n: held }) : t("See what you keep missing")}
                 </Button>
             )}
             {open && (

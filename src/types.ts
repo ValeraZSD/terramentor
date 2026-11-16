@@ -1690,10 +1690,11 @@ export interface EvidenceTrail {
     };
     count: number;
     rows: EvidenceRow[];
-    /** Questions missed twice or more in a row with no right answer since, most misses first. */
-    shaky: ShakyQuestion[];
+    /** Questions missed twice or more in a row with no right answer since, most misses first.
+     *  Absent from a server older than the client. */
+    shaky?: ShakyQuestion[];
     /** All of them; `shaky` lists the first SHAKY_LIMIT. */
-    shakyCount: number;
+    shakyCount?: number;
 }
 
 export interface ShakyQuestion {
