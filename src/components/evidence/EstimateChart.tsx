@@ -58,10 +58,14 @@ export default function EstimateChart({ points, threshold, day, describe }: {
 
     const xy = useMemo(() => {
         if (points.length === 0 || width === 0) return [];
-        const first = points[0].at;
-        const span = points[points.length - 1].at - first;
-        return points.map(p => ({
-            x: span > 0 ? left + ((p.at - first) / span) * (right - left) : (left + right) / 2,
+        // The order is the replay's (id); a synced or imported row can carry
+        // an earlier time than the row before it, so time never runs back.
+        let latest = -Infinity;
+        const at = points.map(p => (latest = Math.max(latest, p.at)));
+        const first = at[0];
+        const span = at[at.length - 1] - first;
+        return points.map((p, i) => ({
+            x: span > 0 ? left + ((at[i] - first) / span) * (right - left) : (left + right) / 2,
             y: bottom - p.value * (bottom - top),
         }));
     }, [points, width, left, right, top, bottom]);
