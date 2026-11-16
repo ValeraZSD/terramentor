@@ -108,19 +108,46 @@ function plotTwin(code: string): TextTwin {
     return { title, lines: lines.filter(Boolean) };
 }
 
-// A node written with its label: A[Label], A(Label), A{Label}, A((Label)),
-// A>Label], A[/Label/], A[(Label)] …; the label is what a reader is told.
-const NODE_RE = /^([A-Za-z0-9_\-.]+)\s*(?:\[\[|\[\(|\(\(|\[\/|\[\\|\{\{|\[|\(|\{|>)\s*"?(.*?)"?\s*(?:\]\]|\)\]|\)\)|\/\]|\\\]|\}\}|\]|\)|\})?\s*$/;
+// A node's shape, written around its label: A[Label], A(Label), A{Label},
+// A((Label)), A>Label], A[/Label/], A[(Label)] … Longest opener first. The
+// label runs to the shape's LAST closer, so `A[Check (optional)]` keeps its
+// brackets; the label is what a reader is told, never the id.
+const SHAPES: [string, string][] = [
+    ['(((', ')))'], ['([', '])'], ['[[', ']]'], ['[(', ')]'], ['((', '))'], ['{{', '}}'],
+    ['[/', '/]'], ['[\\', '\\]'], ['[/', '\\]'], ['[\\', '/]'], ['[', ']'], ['(', ')'], ['{', '}'], ['>', ']'],
+];
+const cleanLabel = (label: string) => label
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/^"(.*)"$/, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+function parseNode(token: string): { id: string; label?: string } {
+    const m = token.match(/^([A-Za-z0-9_\-.]+)\s*([\s\S]*)$/);
+    if (!m) return { id: token };
+    const rest = m[2].trim();
+    for (const [open, close] of SHAPES) {
+        if (rest.length >= open.length + close.length && rest.startsWith(open) && rest.endsWith(close)) {
+            return { id: m[1], label: cleanLabel(rest.slice(open.length, rest.length - close.length)) };
+        }
+    }
+    return { id: rest ? token : m[1] };
+}
 // Every arrow mermaid draws between two nodes, with the label it can carry
-// either between dashes (`-- yes -->`) or after it in pipes (`-->|yes|`).
-const ARROW_RE = /\s*(?:--\s+([^-|>][^|>]*?)\s+-->|-\.\s+([^.|>][^|>]*?)\s+\.->|==\s+([^=|>][^|>]*?)\s+==>|<?-->|<?-\.->|<?==>|---|--o|--x|-\.-|===)(?:\|([^|]*)\|)?\s*/g;
-const SKIP_RE = /^(%%|style\s|classDef\s|class\s|linkStyle\s|click\s|subgraph\b|end$|direction\s)/;
+// either between dashes (`-- yes -->`, also unspaced `--yes-->`) or after it
+// in pipes (`-->|yes|`).
+const ARROW_RE = /\s*(?:--\s*([^-|>\s][^|>]*?)\s*-->|-\.\s*([^.|>\s][^|>]*?)\s*\.->|==\s*([^=|>\s][^|>]*?)\s*==>|<?-->|<?-\.->|<?==>|---|--o|--x|-\.-|===)(?:\|([^|]*)\|)?\s*/g;
+const SKIP_RE = /^(style\s|classDef\s|class\s|linkStyle\s|click\s|subgraph\b|end$|direction\s)/;
 
 function mermaidTwin(code: string): TextTwin {
-    const all = code.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // `%%` lines (comments, and the `%%{init: …}%%` a model often opens with)
+    // go first, so the header is the diagram's real first line; a statement's
+    // closing `;` is punctuation, not part of the node after it.
+    const all = code.split(/\r?\n/).map(l => l.trim().replace(/;$/, '').trim()).filter(l => l && !l.startsWith('%%'));
     let title = '';
-    const front = all.findIndex(l => /^title\s*:?\s+/i.test(l));
-    if (front !== -1) title = all[front].replace(/^title\s*:?\s+/i, '').trim();
+    // `title: …` (front matter) or a `title …` line; never a node named Title.
+    const front = all.findIndex(l => /^title\s*:/i.test(l) || (/^title\s+/i.test(l) && !/--|==|->/.test(l)));
+    if (front !== -1) title = all[front].replace(/^title\s*:?\s*/i, '').trim();
     const body = all.filter((l, i) => i !== front && l !== '---');
     const header = (body[0] || '').toLowerCase();
     const lines = body.slice(1).filter(l => !SKIP_RE.test(l));
@@ -146,11 +173,9 @@ function mermaidTwin(code: string): TextTwin {
     if (/^(flowchart|graph|statediagram)/.test(header)) {
         const labels = new Map<string, string>();
         const name = (token: string) => {
-            const clean = token.replace(/:::\S+$/, '').trim();
-            const m = clean.match(NODE_RE);
-            if (!m) return clean;
-            if (m[2]) labels.set(m[1], m[2]);
-            return m[1];
+            const node = parseNode(token.replace(/:::\S+$/, '').trim());
+            if (node.label) labels.set(node.id, node.label);
+            return node.id;
         };
         const edges: { from: string; to: string; label: string }[] = [];
         for (const line of lines) {
@@ -200,6 +225,10 @@ function animationTwin(code: string): TextTwin {
     return { title: tag('title'), ...(desc ? { lines: [desc] } : {}) };
 }
 
+/** A p5 sketch in either mode, or a widget's built page: code, not a description. */
+const isSketchCode = (code: string) =>
+    /\bfunction\s+(setup|draw)\s*\(|\b\w+\.(setup|draw)\s*=|new\s+p5\s*\(|<(html|script|body)[\s>]/i.test(code);
+
 /**
  * The twin of one fenced visual, from its kind and spec. Never throws: a spec
  * the twin cannot read gives an empty twin, and the stage is still named by
@@ -214,7 +243,7 @@ export function textTwinFor(kind: string, code: string): TextTwin {
             case 'smiles': return { title: '', lines: [`SMILES: ${code.trim()}`] };
             case 'animation': return animationTwin(code);
             case 'p5':
-            case 'widget': return /\bfunction\s+(setup|draw)\s*\(/.test(code) ? { title: '' } : briefTwin(code);
+            case 'widget': return isSketchCode(code) ? { title: '' } : briefTwin(code);
             default: return { title: '' };
         }
     } catch {

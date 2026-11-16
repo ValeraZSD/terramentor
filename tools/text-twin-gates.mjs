@@ -83,6 +83,18 @@ check('a state diagram\'s start and its colon labels',
     same(textTwinFor('mermaid', 'stateDiagram-v2\n  [*] --> Idle\n  Idle --> Busy : job arrives').lines, ['start/end → Idle', 'Idle → Busy (job arrives)']));
 check('a sequence diagram\'s messages',
     same(textTwinFor('mermaid', 'sequenceDiagram\n  Browser->>Server: GET /\n  Server-->>Browser: 200 OK').lines, ['Browser → Server: GET /', 'Server → Browser: 200 OK']));
+const messy = textTwinFor('mermaid', [
+    '%%{init: {"theme": "dark"}}%%',
+    'flowchart LR;',
+    '  A[Check (optional)] --> B["Line one<br/>line two"];',
+    '  B--yes-->C([Done])',
+    '  Title --> A',
+].join('\n'));
+check('an init line, `;`, `<br/>`, brackets inside a label, an unspaced label, a node named Title', same(messy.lines, [
+    'Check (optional) → Line one line two',
+    'Line one line two → Done (yes)',
+    'Title → Check (optional)',
+]) && messy.title === '', JSON.stringify(messy));
 const pie = textTwinFor('mermaid', 'pie title Pets adopted\n  "Dogs" : 386\n  "Cats" : 85');
 check('a pie is a table of its slices, titled', pie.title === 'Pets adopted' && same(pie.table?.rows, [['Dogs', '386'], ['Cats', '85']]));
 check('any other diagram keeps its own statements',
@@ -95,6 +107,8 @@ check('an animation\'s own <title> and <desc>', anim.title === 'Orbit' && same(a
 const brief = textTwinFor('widget', 'Title: Projectile\nObjective: See how the angle changes the range\nControls: angle');
 check('a widget spec says its title and objective', brief.title === 'Projectile' && same(brief.lines, ['See how the angle changes the range']));
 check('a sketch\'s code is not read out as prose', twinHasBody(textTwinFor('p5', 'function setup() { createCanvas(9, 9); }')) === false);
+check('...in instance mode either', twinHasBody(textTwinFor('p5', 'new p5((s) => {\n  s.setup = () => s.createCanvas(9, 9);\n});')) === false);
+check('...nor a widget\'s built page', twinHasBody(textTwinFor('widget', '<html><body><script>draw()</script></body></html>')) === false);
 let threw = false;
 for (const [kind, code] of [['vega', '{not json'], ['plot', 'null'], ['vega', '[]'], ['mermaid', ''], ['animation', '<svg'], ['unknown', 'x']]) {
     try { const t = textTwinFor(kind, code); if (typeof t.title !== 'string') threw = true; } catch { threw = true; }
