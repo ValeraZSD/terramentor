@@ -4,9 +4,13 @@
 // script nothing to run. They follow the app's lock screen (AuthGate.tsx):
 // one card on a slate page, the accent only on the primary action.
 
+import { appIconSvg } from '../iconArt.js';
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const MARK = '<svg class="mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(8.366 7.975) scale(0.127)" fill="#ffffff" stroke="#000000" stroke-width="26.832" stroke-linejoin="round" stroke-linecap="round"><clipPath id="m"><path clip-rule="evenodd" d="M-400 -400 H800 V800 H-400 Z M368.02 8.09 L186.51 98.85 L186.51 280.36 L368.02 189.6 Z M5 8.09 L186.51 98.85 L186.51 280.36 L5 189.6 Z"/></clipPath><g clip-path="url(#m)"><circle cx="186.51" cy="189.6" r="181.51"/></g><polygon points="368.02 8.09 186.51 98.85 186.51 280.36 368.02 189.6"/><polygon points="5 8.09 186.51 98.85 186.51 280.36 5 189.6"/><line fill="none" x1="186.51" y1="8.09" x2="186.51" y2="371.11"/></g></svg>';
+// The app's own default icon (the full cut, globe grid and all, on its tile),
+// from the one drawing every icon comes from: never a copy of a smaller cut.
+const MARK = appIconSvg({}, 'tile', 64).replace('<svg ', '<svg class="mark" ');
 
 const CSS = `
 :root{color-scheme:light dark;--page:#f1f5f9;--card:#fff;--ink:#0f172a;--body:#334155;--muted:#64748b;--line:#cbd5e1;--field:#fff;
