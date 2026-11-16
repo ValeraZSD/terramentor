@@ -15,6 +15,7 @@ import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { libraryPace, projectVerdict } from '../pace.js';
 
 const app = routeTable('schedule');
 
@@ -85,6 +86,9 @@ app.get('/api/schedule/overview', (req, res) => {
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
 
+        // The learner's record, read once for every dated row (server/pace.js).
+        const library = projects.some(p => p.deadline) ? libraryPace() : null;
+
         const rows = projects.map(p => {
             const ext = extents.get(p.id) || {};
             // Pace — how far through the plan says you should be against how
@@ -124,6 +128,9 @@ app.get('/api/schedule/overview', (req, res) => {
                 // the grid's row makes.
                 teaches: projectTeaches(p.id),
                 pace,
+                // The date judged against the learner's own pace: needed,
+                // recent and best, the band and the offers. Null without a date.
+                verdict: p.deadline ? projectVerdict(p.id, { library }) : null,
             };
         });
         res.json({ projects: rows, today: studyToday() });
@@ -220,6 +227,11 @@ app.get('/api/projects/:id/pace', (req, res) => {
         // A project measured in cards stores no topic dates, so its Timeline
         // and Calendar draw the plan's sections from here (null otherwise).
         if (pace.basis === 'cards') pace.cardPlan = cardPlan(id);
+        // The date judged against the learner's own pace, and the weeks it was
+        // judged from (in the verdict's unit), beside the plan-based numbers.
+        const library = libraryPace();
+        pace.verdict = projectVerdict(id, { library });
+        pace.learnerPace = pace.verdict ? library[pace.verdict.unit] : null;
         res.json(pace);
     } catch (err) {
         console.error('[Pace] Error:', err);
