@@ -8,6 +8,8 @@ import { uiLocale } from '../../utils/locale';
 import { Button } from '../ui/Button';
 import AnswerReviewItem from '../answer/AnswerReviewItem';
 import { k } from '../../i18n';
+import ReportItem from '../ui/ReportItem';
+import { questionRef } from '../../utils/itemReports';
 
 const KIND_LABEL: Record<string, string> = {
     mastery_check: k("Mastery check"),
@@ -23,9 +25,11 @@ const KIND_LABEL: Record<string, string> = {
  * a second dialog over it: two stacked dialogs is two Escapes to leave and a
  * focus trap inside a focus trap.
  */
-export default function SittingReviewView({ evidenceId, onBack, onLeave }: {
+export default function SittingReviewView({ evidenceId, onBack, onLeave, backLabel }: {
     evidenceId: number;
     onBack: () => void;
+    /** What Back returns to, when it is not the day's ledger. */
+    backLabel?: string;
     /** The dialog closes before going somewhere else. */
     onLeave: () => void;
 }) {
@@ -48,7 +52,7 @@ export default function SittingReviewView({ evidenceId, onBack, onLeave }: {
 
     const back = (
         <Button variant="quiet" size="sm" onClick={onBack} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>
-            {t("Back to today")}
+            {backLabel ?? t("Back to today")}
         </Button>
     );
 
@@ -127,6 +131,16 @@ export default function SittingReviewView({ evidenceId, onBack, onLeave }: {
                         projectName={projectName}
                         projectId={review.projectId}
                         surface="sitting-review"
+                        // The way to dispute a mark: the question was wrong, so
+                        // the answer comes out of this sitting's score.
+                        report={(
+                            <ReportItem
+                                itemRef={questionRef(item.question)}
+                                surface={review.kind === 'mastery_check' ? 'mastery_check' : 'quiz'}
+                                shown={{ answer: item.answer, correct: item.correct }}
+                                listed
+                            />
+                        )}
                     />
                 ))}
             </div>
