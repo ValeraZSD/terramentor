@@ -71,7 +71,8 @@ const PORT = Number(process.env.PORT) || 3001;
 const certDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.certs');
 const keyPath = path.join(certDir, 'key.pem');
 const certPath = path.join(certDir, 'cert.pem');
-const httpsOpts = servingSPA && fs.existsSync(keyPath) && fs.existsSync(certPath)
+// A site library never: it answers the front desk in plain HTTP on its socket.
+const httpsOpts = servingSPA && !isSiteLibrary() && fs.existsSync(keyPath) && fs.existsSync(certPath)
     ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
     : null;
 
