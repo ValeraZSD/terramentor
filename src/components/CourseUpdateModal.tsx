@@ -158,12 +158,14 @@ export default function CourseUpdateModal() {
         try {
             const taken = Object.fromEntries(Object.entries(choices).filter(([, v]) => v === 'file'));
             await api.commitCourseUpdate(file, match.projectId, taken);
-            await loadProjects();
-            setPhase('done');
         } catch (e: any) {
             setError(e?.message || String(e));
             setPhase('preview');
+            return;
         }
+        // The update is written; a failed list refresh must not offer to apply it again.
+        setPhase('done');
+        loadProjects().catch(() => { });
     };
 
     const undo = async () => {
@@ -171,12 +173,13 @@ export default function CourseUpdateModal() {
         setError(null);
         try {
             await api.undoCourseUpdate(match.projectId);
-            await loadProjects();
-            setPhase('undone');
         } catch (e: any) {
             setError(e?.message || String(e));
             setPhase('done');
+            return;
         }
+        setPhase('undone');
+        loadProjects().catch(() => { });
     };
 
     const finish = () => {
