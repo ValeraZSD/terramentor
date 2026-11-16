@@ -117,6 +117,9 @@ function display(field, value, titleOf) {
     return String(value);
 }
 
+const PREVIEW_TEXT_MAX = 1200;
+const clip = (s) => (s == null ? null : s.length > PREVIEW_TEXT_MAX ? `${s.slice(0, PREVIEW_TEXT_MAX)}…` : s);
+
 function preview(twin, read, p) {
     const titles = new Map();
     for (const e of p.local.entities) if (e.kind === 'node') titles.set(e.uuid, e.label);
@@ -132,7 +135,15 @@ function preview(twin, read, p) {
         installedAt: p.base.exportedAt,
         fileAt: p.upstream.exportedAt,
         summary: r.summary ?? null,
-        items: r.items ?? null,
+        items: r.items ? {
+            ...r.items,
+            // Before and after as the learner reads them, long text cut to what a preview shows.
+            changed: r.items.changed.map(it => ({
+                ...it,
+                diff: (it.diff || []).map(d => ({ field: d.field, from: clip(display(d.field, d.from, titleOf)), to: clip(display(d.field, d.to, titleOf)) })),
+            })),
+            moved: r.items.moved.map(it => ({ ...it, to: it.to && 'title' in it.to ? it.to.title : titleOf(it.to?.uuid ?? null) })),
+        } : null,
         conflicts: (r.conflicts || []).map(c => ({
             key: c.key, kind: c.kind, field: c.field, label: c.label ?? null, where: c.where ?? null,
             mine: display(c.field, c.mine, titleOf),

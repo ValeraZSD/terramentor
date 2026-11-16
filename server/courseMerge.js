@@ -218,7 +218,9 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         if (Object.keys(take).length) {
             // Named as the learner's course shows it now, as a conflict is: the
             // file's title may be one they renamed and would not recognise.
-            const op = { op: 'update', kind: u.kind, id: l.id, uuid: l.uuid, fields: take, source: u.source, label: l.label ?? u.label, where: l.where ?? u.where };
+            const op = { op: 'update', kind: u.kind, id: l.id, uuid: l.uuid, fields: take, source: u.source, label: l.label ?? u.label, where: l.where ?? u.where,
+                // What each taken field reads now, for the preview's before/after.
+                before: Object.fromEntries(Object.keys(take).map(f => [f, localFields[f] ?? null])) };
             // A rewritten question is a different question to the learner: its
             // ask-record goes, so it is drawn as never asked. Moving it does the
             // same, because the record is filed under the bank it was asked from.
@@ -343,8 +345,16 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
     const updates = ops.filter(o => o.op === 'update');
     const contentChanged = updates.filter(o => Object.keys(o.fields).some(f => f !== 'parent'));
     const items = {
-        changed: contentChanged.map(o => ({ ...labelled(o), fields: Object.keys(o.fields).filter(f => f !== 'parent') })),
-        moved: updates.filter(o => 'parent' in o.fields).map(labelled),
+        changed: contentChanged.map(o => {
+            const fields = Object.keys(o.fields).filter(f => f !== 'parent');
+            return { ...labelled(o), fields, diff: fields.map(f => ({ field: f, from: o.before?.[f] ?? null, to: o.fields[f] })) };
+        }),
+        // Where it goes: a topic already here by its uuid, one the update adds by its title.
+        moved: updates.filter(o => 'parent' in o.fields).map(o => {
+            const p = o.fields.parent;
+            const isNew = typeof p === 'string' && p.startsWith('new:');
+            return { ...labelled(o), to: isNew ? { title: upByRef.get(p.slice(4))?.label ?? null } : { uuid: p ?? null } };
+        }),
         added: ops.filter(o => o.op === 'insert').map(labelled),
         removed: ops.filter(o => o.op === 'delete' && !o.withTopic).map(labelled),
         keptRemoved: ops.filter(o => o.op === 'keepRemoved' && !o.withTopic).map(labelled),

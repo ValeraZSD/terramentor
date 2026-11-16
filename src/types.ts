@@ -256,6 +256,10 @@ export interface CourseUpdateItem {
     where: string | null;
     /** For a changed item: which of its fields the file changes. */
     fields?: string[];
+    /** For a changed item: each changed field as the learner reads it now and after. */
+    diff?: { field: string; from: string | null; to: string | null }[];
+    /** For a moved item: the topic it moves under (null: the top of the course). */
+    to?: string | null;
 }
 
 /** A field both the file and the learner changed: the learner's version is kept

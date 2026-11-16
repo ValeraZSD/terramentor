@@ -265,6 +265,8 @@ console.log('\n--- case 1, fast-forward: what the author changed arrives, the le
     if (!OLD) {
         const s = r.inspected?.summary || {};
         check('1 fast-forward: the preview counted it before anything was written', [s.changed, s.added, s.conflicts], [3, 2, 0]);
+        const overview = (r.inspected?.items?.changed || []).find(it => it.kind === 'node')?.diff?.find(d => d.field === 'description');
+        check('1 fast-forward: the preview shows the Overview as it reads now and after', [overview?.from, overview?.to], ['Overview A, first edition.', 'Overview A, second edition.']);
     }
 }
 
@@ -349,6 +351,10 @@ console.log('\n--- case 4, moved: same topic row, new place, same mastery ---');
     check('4 moved: ...as the same row', a?.id, aId);
     check('4 moved: ...with its mastery and evidence', [masteryOn(a?.id), evidenceOn(a?.id)], [0.8, 1]);
     check('4 moved: ...and its reviewed card', cardsOf(a?.id).map(c => c.review_count), [3, 0]);
+    if (!OLD) {
+        const moved = r.inspected?.items?.moved?.find(it => it.label === 'Lidwoorden');
+        check('4 moved: the preview names where it goes', [moved?.where, moved?.to], ['Unit 1', 'Unit 2']);
+    }
 }
 
 // ---- 5. a second run changes nothing ------------------------------------------------
