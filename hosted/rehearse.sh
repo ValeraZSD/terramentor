@@ -21,12 +21,16 @@ export TM_HTTPS_PORT="${TM_HTTPS_PORT:-8443}"
 export TM_MEMORY="${TM_MEMORY:-768m}"
 # Scratch folders named so the Windows docker and curl of Git Bash read them too.
 scratch_dir() { (cd "$(mktemp -d)" && { pwd -W 2>/dev/null || pwd; }); }
-export TM_BACKUP_DIR="${TM_BACKUP_DIR:-$(scratch_dir)}"
+# A space in the path: the backup tool keeps paths whole (retention included).
+export TM_BACKUP_DIR="${TM_BACKUP_DIR:-$(scratch_dir)/backups here}"
 # A closed port: nothing here may reach a model.
 export AI_PROVIDER=openai AI_BASE_URL=http://127.0.0.1:9/v1 AI_MODEL=none
 COPY="$HERE/copy.sh"
 A=alice
 B=bob
+# Every name the rehearsal makes; it deletes only these, and only when none
+# existed before it started.
+NAMES="alice bob carol dave erin"
 WORK="$(scratch_dir)"
 
 # It starts and, at the end, deletes the proxy and its certificates: never on a
@@ -35,16 +39,23 @@ if docker container inspect terramentor-proxy >/dev/null 2>&1; then
     echo "rehearse.sh: a terramentor-proxy already runs here; rehearse on a machine with no copies" >&2
     exit 1
 fi
+for n in $NAMES; do
+    if docker container inspect "tm-$n" >/dev/null 2>&1 || docker volume inspect "tm-$n-data" >/dev/null 2>&1 \
+        || docker network inspect "tm-$n" >/dev/null 2>&1; then
+        echo "rehearse.sh: tm-$n already exists here and the rehearsal would delete it; rehearse on a machine with no copies" >&2
+        exit 1
+    fi
+done
 
 cleanup() {
     [ "${KEEP:-}" = 1 ] && return 0
-    for n in "$A" "$B"; do
+    for n in $NAMES; do
         docker rm -f "tm-$n" >/dev/null 2>&1 || true
         docker volume rm "tm-$n-data" >/dev/null 2>&1 || true
         rm -f "$HERE/sites/$n.caddy" "$HERE/copies/$n.env"
     done
     (cd "$HERE" && docker compose -f docker-compose.yml down -v >/dev/null 2>&1) || true
-    for n in "$A" "$B"; do docker network rm "tm-$n" >/dev/null 2>&1 || true; done
+    for n in $NAMES; do docker network rm "tm-$n" >/dev/null 2>&1 || true; done
     rm -f "$HERE/networks.yml"
     rm -rf "$WORK"
 }
@@ -108,6 +119,28 @@ bash "$COPY" restore "$A" "$archive"
 [ "$(login "$A" "$pwA" a2)" = 200 ] && ok "the same password opens the restored copy" || no "login after restore"
 c "$A" /api/projects -b "$WORK/a2.jar" | grep -q 'Rehearsal course' && ok "the project is back after the restore" || no "project not restored"
 
+echo "not a backup" | gzip > "$WORK/junk.tar.gz"
+if bash "$COPY" restore "$A" "$WORK/junk.tar.gz" 2>"$WORK/err"; then no "a file that is no backup was restored"; fi
+running_a() { [ "$(docker container inspect -f '{{.State.Running}}' "tm-$A")" = true ]; }
+running_a && [ "$(status "$A" /api/auth/status)" = 200 ] && ok "a file that is no backup is refused with $A still running: $(cat "$WORK/err")" || no "junk restore stopped $A"
+# A real archive whose database fails its check: the copy is stopped first, so
+# it must come back up on its own library.
+mkdir -p "$WORK/bad/.backup-x" && echo "not a database" > "$WORK/bad/.backup-x/terramentor.db"
+tar czf - -C "$WORK/bad" .backup-x > "$WORK/bad.tar.gz"
+if bash "$COPY" restore "$A" "$WORK/bad.tar.gz" 2>"$WORK/err"; then no "a broken backup was restored"; fi
+running_a && [ "$(login "$A" "$pwA" a4)" = 200 ] && c "$A" /api/projects -b "$WORK/a4.jar" | grep -q 'Rehearsal course' \
+    && ok "a backup that fails its check leaves $A running on its own library: $(tail -1 "$WORK/err")" || no "broken restore left $A down or changed"
+
+before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
+bash "$COPY" backup "$A" >/dev/null & p1=$!
+bash "$COPY" backup "$A" >/dev/null & p2=$!
+wait "$p1" && wait "$p2" || no "two backups at once failed"
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = $((before + 2)) ] && ok "two backups at once keep two archives" || no "two backups at once kept $(ls "$TM_BACKUP_DIR/$A")"
+newest="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | sort | tail -1)"
+TM_BACKUP_KEEP=2 bash "$COPY" backup "$A" >/dev/null
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = 2 ] && [ -s "$newest" ] \
+    && ok "retention keeps the newest 2 in a folder with a space in its path" || no "retention left: $(ls "$TM_BACKUP_DIR/$A")"
+
 all="$(bash "$COPY" backup --all)"
 [ "$(echo "$all" | grep -c 'tar.gz$')" = 2 ] && ok "backup --all wrote one archive per copy" || no "backup --all: $all"
 
@@ -119,6 +152,16 @@ bash "$COPY" update "$A" | grep -q "^updated: $A$" && ok "update replaces $A's c
     && ok "the same password and library after the update" || no "library or password lost in the update"
 if AI_MODEL='' bash "$COPY" new carol >/dev/null 2>&1; then no "a copy with no model was made"; else ok "a copy with no model is refused"; fi
 docker volume inspect tm-carol-data >/dev/null 2>&1 && no "the refused copy left a volume" || ok "…and leaves nothing behind"
+docker network create tm-dave >/dev/null
+if bash "$COPY" new dave >/dev/null 2>&1; then no "a copy was made over an existing network"; fi
+docker network inspect tm-dave >/dev/null 2>&1 && ok "a name whose network exists is refused, and that network is left alone" || no "copy.sh new deleted a network it did not make"
+docker network rm tm-dave >/dev/null
+bash "$COPY" new erin > "$WORK/erin1" 2>&1 & p1=$!
+bash "$COPY" new erin > "$WORK/erin2" 2>&1 & p2=$!
+r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
+[ $((r1 == 0)) -ne $((r2 == 0)) ] && [ "$(status erin /api/auth/status)" = 200 ] \
+    && ok "two 'new erin' at once: one makes it, the other is refused and undoes nothing of it" || no "new erin twice: $r1 $r2 $(cat "$WORK/erin1" "$WORK/erin2" | sed 's/^password: .*/password: (hidden)/')"
+bash "$COPY" remove erin --yes >/dev/null
 
 echo "--- remove ---"
 out="$(bash "$COPY" remove "$B" --yes)"; echo "$out"

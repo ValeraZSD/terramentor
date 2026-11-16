@@ -10,7 +10,9 @@
 #       An online backup of each copy into $TM_BACKUP_DIR/<name>/<time>.tar.gz.
 #       Run nightly from cron (docs/HOSTING.md).
 #   hosted/copy.sh restore <name> <archive.tar.gz>
-#       Stops the copy, puts the backup in place of its library, starts it.
+#       Reads the archive first, then stops the copy, puts the backup in place
+#       of its library and starts it. A failed check restarts it on its own
+#       library; only a restore that failed partway leaves it stopped.
 #   hosted/copy.sh remove <name> [--yes]
 #       Backs the copy up first, then removes it, its volume and its network.
 #   hosted/copy.sh update <name> | --all
@@ -43,6 +45,26 @@ mkdir -p "$SITES" "$KEYS"
 chmod 700 "$KEYS"
 
 die() { echo "copy.sh: $*" >&2; exit 1; }
+
+# One command at a time per copy: `new`, `restore`, `remove` and `update` take
+# the copy's lock (a directory: mkdir either makes it or fails, atomically),
+# and the exit handler gives it back and undoes a half-made `new`.
+LOCKS="$HERE/.locks"
+HELD=()
+UNDO_NEW=""
+on_exit() {
+    local rc=$?
+    [ -n "$UNDO_NEW" ] && undo_new "$UNDO_NEW"
+    for l in ${HELD[@]+"${HELD[@]}"}; do rmdir "$LOCKS/$l" 2>/dev/null || true; done
+    exit "$rc"
+}
+trap on_exit EXIT
+lock() {
+    mkdir -p "$LOCKS"
+    mkdir "$LOCKS/$1" 2>/dev/null || die "another copy.sh is working on $1 (if none is, a killed run left $LOCKS/$1: remove it)"
+    HELD+=("$1")
+}
+
 container() { echo "tm-$1"; }
 volume() { echo "tm-$1-data"; }
 network() { echo "tm-$1"; }
@@ -99,23 +121,32 @@ cmd_new() {
             *) die "unknown option $1" ;;
         esac
     done
-    exists "$name" && die "a copy called $name already exists"
     # With no model named, the learner's own choice would decide what the
     # operator's key pays for; a hosted copy refuses that choice instead.
     [ -n "${AI_MODEL:-}" ] || die "set AI_MODEL in hosted/.env: the model every copy uses"
+    lock "$name"
+    # Checked under the lock, so nothing below can belong to anyone else, and
+    # undo_new removes only what this run made.
+    exists "$name" && die "a copy called $name already exists"
     docker volume inspect "$(volume "$name")" >/dev/null 2>&1 && die "volume $(volume "$name") already exists (a removed copy's data?); remove it or pick another name"
+    docker network inspect "$(network "$name")" >/dev/null 2>&1 && die "network $(network "$name") already exists; remove it or pick another name"
+    [ -e "$SITES/$name.caddy" ] && die "$SITES/$name.caddy already exists; remove it or pick another name"
     # A copy half made is undone, so the same name can simply be tried again.
-    trap "undo_new $name" EXIT
+    MADE=()
+    UNDO_NEW="$name"
 
     # The copy's AI key, kept beside this script and readable by root only.
     local envfile="$KEYS/$name.env"
+    MADE+=(keys)
     : > "$envfile"; chmod 600 "$envfile"
     if [ -n "$keyfile" ]; then
         [ -s "$keyfile" ] || die "$keyfile is empty"
         printf 'AI_API_KEY=%s\n' "$(tr -d '\r\n' < "$keyfile")" > "$envfile"
     fi
 
+    MADE+=(network)
     docker network create "$(network "$name")" >/dev/null
+    MADE+=(volume)
     docker volume create "$(volume "$name")" >/dev/null
     # The password is set BEFORE the copy first starts, so it never listens
     # unlocked (server/hosted.js refuses to). Printed once, below, and kept
@@ -123,8 +154,10 @@ cmd_new() {
     local password
     password="$(docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" node server/hostedCli.js set-password --generate)"
 
+    MADE+=(container)
     run_copy "$name"
 
+    MADE+=(site)
     {
         echo "$(fqdn "$name") {"
         [ "${TM_TLS:-}" = internal ] && echo "	tls internal"
@@ -134,7 +167,7 @@ cmd_new() {
     } > "$SITES/$name.caddy"
     proxy_apply
     wait_up "$name"
-    trap - EXIT
+    UNDO_NEW=""
 
     echo "copy:     $name"
     echo "address:  $(origin "$name")"
@@ -142,14 +175,17 @@ cmd_new() {
     echo "(shown once; nothing keeps it. A lost password is a new one: remove and restore, or set-password on a restored library.)"
 }
 
+made() { local m; for m in ${MADE[@]+"${MADE[@]}"}; do [ "$m" = "$1" ] && return 0; done; return 1; }
 undo_new() {
     local name="$1"
-    echo "copy.sh: $name was not created; undoing what was made" >&2
-    docker rm -f "$(container "$name")" >/dev/null 2>&1 || true
-    rm -f "$SITES/$name.caddy" "$KEYS/$name.env"
-    proxy_apply >/dev/null 2>&1 || true
-    docker network rm "$(network "$name")" >/dev/null 2>&1 || true
-    docker volume rm "$(volume "$name")" >/dev/null 2>&1 || true
+    echo "copy.sh: $name was not created; undoing what this run made" >&2
+    made container && { docker rm -f "$(container "$name")" >/dev/null 2>&1 || true; }
+    made site && rm -f "$SITES/$name.caddy"
+    made keys && rm -f "$KEYS/$name.env"
+    made container && { proxy_apply >/dev/null 2>&1 || true; }
+    made network && { docker network rm "$(network "$name")" >/dev/null 2>&1 || true; }
+    made volume && { docker volume rm "$(volume "$name")" >/dev/null 2>&1 || true; }
+    return 0
 }
 
 wait_up() {
@@ -191,6 +227,7 @@ cmd_update() {
     # A registry image is fetched first; a locally built one is used as it is.
     docker pull -q "$TM_IMAGE" >/dev/null 2>&1 || echo "copy.sh: could not pull $TM_IMAGE; using the local image" >&2
     for n in $names; do
+        lock "$n"
         # A new image may migrate the database: the library before it is kept.
         backup_one "$n" >/dev/null || die "the backup of $n failed; $n was not updated"
         docker rm -f "$(container "$n")" >/dev/null
@@ -214,7 +251,9 @@ backup_one() {
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
     exists "$name" || { echo "copy.sh: no copy called $name" >&2; return 1; }
     local stamp dir out tmp ok=1
-    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    # The time first, so the names sort by it; a random tail, so two backups
+    # in the same second neither share a working folder nor replace each other.
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
     dir="/data/.backup-$stamp"
     out="$TM_BACKUP_DIR/$name"
     mkdir -p "$out" && chmod 700 "$out" || return 1
@@ -242,7 +281,8 @@ backup_one() {
     chmod 600 "$tmp" && mv "$tmp" "$out/$stamp.tar.gz" || return 1
     # Keep the newest TM_BACKUP_KEEP; the names sort by time, and only checked
     # archives are ever here.
-    ls -1 "$out"/*.tar.gz 2>/dev/null | sort | head -n "-$TM_BACKUP_KEEP" | xargs -r rm -f
+    # NUL-separated all the way, so a TM_BACKUP_DIR with spaces stays whole.
+    find "$out" -maxdepth 1 -type f -name '*.tar.gz' -print0 | sort -z | head -z -n "-$TM_BACKUP_KEEP" | xargs -0 -r rm -f
     echo "$out/$stamp.tar.gz"
 }
 
@@ -263,10 +303,25 @@ cmd_restore() {
     valid_name "$name"
     [ -f "$archive" ] || die "usage: restore <name> <archive.tar.gz>"
     exists "$name" || die "no copy called $name (create it with new, then restore into it)"
+    lock "$name"
+    # Read before the copy stops: a file that is no backup leaves it running.
+    local listing
+    listing="$(tar tzf - < "$archive" 2>/dev/null)" || die "$archive is not a readable archive; $name was not touched"
+    [ "$(grep -cE '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing")" = 1 ] || die "$archive is not one backup made by copy.sh; $name was not touched"
     docker stop "$(container "$name")" >/dev/null
+    # hostedCli exits 3 once it has started replacing the library, anything
+    # else non-zero with the library as it was (server/hostedCli.js).
+    local rc=0
     docker run --rm -i --network none -v "$(volume "$name")":/data "$TM_IMAGE" sh -c \
-        'mkdir -p /tmp/restore && tar xz -C /tmp/restore && node server/hostedCli.js restore /tmp/restore/.backup-*' < "$archive"
+        'mkdir -p /tmp/restore && tar xz -C /tmp/restore && node server/hostedCli.js restore /tmp/restore/.backup-*' < "$archive" || rc=$?
+    if [ "$rc" = 3 ]; then
+        die "the restore stopped partway through replacing $name's library; $name is left stopped. Restore it again from this or another backup"
+    fi
     docker start "$(container "$name")" >/dev/null
+    if [ "$rc" != 0 ]; then
+        wait_up "$name"
+        die "the restore failed before touching $name's library; $name runs again on it as it was"
+    fi
     for _ in $(seq 1 60); do
         if answers "$name"; then echo "restored: $(origin "$name")"; return 0; fi
         sleep 2
@@ -278,6 +333,7 @@ cmd_remove() {
     local name="${1:-}" yes="${2:-}"
     valid_name "$name"
     exists "$name" || die "no copy called $name"
+    lock "$name"
     if [ "$yes" != --yes ]; then
         read -r -p "Remove $name and its library? A backup is made first. Type the name to confirm: " typed
         [ "$typed" = "$name" ] || die "not confirmed"

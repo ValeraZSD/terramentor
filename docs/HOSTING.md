@@ -72,9 +72,12 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh new <name> [--ai-key-file F]` | creates the volume and network, sets the password before the first start, starts the copy, adds its site to the proxy |
 | `copy.sh list` | every copy, running or stopped, with its address |
 | `copy.sh backup <name>` / `--all` | an online backup of each copy into `TM_BACKUP_DIR/<name>/` |
-| `copy.sh restore <name> <archive>` | stops the copy, puts the backup in place, starts it |
+| `copy.sh restore <name> <archive>` | reads the archive, stops the copy, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
 | `copy.sh update <name>` / `--all` | recreates the container from `TM_IMAGE`; the library stays |
 | `copy.sh remove <name> [--yes]` | backs the copy up first, then removes it, its volume, network and key |
+
+`new`, `restore`, `update` and `remove` take a lock per copy in
+`hosted/.locks/`, so two operators cannot work on the same copy at once.
 
 Each copy runs read-only except for its volume and a temporary folder, with no
 Linux capabilities, `no-new-privileges`, and the limits from `hosted/.env`:

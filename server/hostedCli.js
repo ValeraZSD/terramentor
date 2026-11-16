@@ -38,6 +38,8 @@ console.info = console.error;
 const DB_FILE = 'terramentor.db';
 const CREDENTIALS_FILE = 'credentials.json';
 const VAULT_DIR = 'vault';
+// restore's exit code once the library has been partly replaced (copy.sh reads it).
+const RESTORE_PARTIAL = 3;
 
 function fail(message) {
     console.error(`hostedCli: ${message}`);
@@ -136,23 +138,37 @@ function restoreCommand([dir]) {
     // Copied beside the library first, so a full disk fails here with the old
     // library still whole; only then is it swapped in.
     const incoming = `${dbPath}.restoring`;
-    copyFileSync(from, incoming);
-    makePrivateFile(incoming);
-    // A WAL left by the replaced library would be replayed into the restored one.
-    for (const suffix of ['-wal', '-shm']) rmSync(dbPath + suffix, { force: true });
-    renameSync(incoming, dbPath);
-    if (existsSync(join(dir, CREDENTIALS_FILE))) replaceCredentialsFrom(join(dir, CREDENTIALS_FILE));
-    if (existsSync(join(dir, VAULT_DIR))) {
-        const aside = `${vaultRoot}.replaced`;
-        rmSync(aside, { recursive: true, force: true });
-        if (existsSync(vaultRoot)) renameSync(vaultRoot, aside);
-        mkdirSync(vaultRoot, { recursive: true });
-        linkTree(join(dir, VAULT_DIR), vaultRoot);
-        rmSync(aside, { recursive: true, force: true });
+    try {
+        copyFileSync(from, incoming);
+        makePrivateFile(incoming);
+    } catch (e) {
+        rmSync(incoming, { force: true });
+        fail(`could not copy the backup in (${e.message}); the library is untouched`);
     }
-    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-    const projects = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
-    db.close();
+    // Every exit above (1) left the library as it was. From here it is being
+    // replaced, and a failure says so with its own code: copy.sh then leaves
+    // the copy stopped instead of starting it on half a library.
+    let projects;
+    try {
+        // A WAL left by the replaced library would be replayed into the restored one.
+        for (const suffix of ['-wal', '-shm']) rmSync(dbPath + suffix, { force: true });
+        renameSync(incoming, dbPath);
+        if (existsSync(join(dir, CREDENTIALS_FILE))) replaceCredentialsFrom(join(dir, CREDENTIALS_FILE));
+        if (existsSync(join(dir, VAULT_DIR))) {
+            const aside = `${vaultRoot}.replaced`;
+            rmSync(aside, { recursive: true, force: true });
+            if (existsSync(vaultRoot)) renameSync(vaultRoot, aside);
+            mkdirSync(vaultRoot, { recursive: true });
+            linkTree(join(dir, VAULT_DIR), vaultRoot);
+            rmSync(aside, { recursive: true, force: true });
+        }
+        const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+        projects = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+        db.close();
+    } catch (e) {
+        console.error(`hostedCli: the restore stopped partway (${e.message}); restore again from a backup`);
+        process.exit(RESTORE_PARTIAL);
+    }
     print(`restore ok: ${projects} project(s)`);
 }
 
