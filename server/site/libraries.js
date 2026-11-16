@@ -254,7 +254,9 @@ export function createLibraryPool({
     async function sweep(now = Date.now()) {
         for (const [id, entry] of [...awake.entries()]) {
             const tooBig = residentMb(entry.pid) > memoryMb;
-            if ((now - entry.lastActive > idleMs || tooBig) && await mayStop(id, entry) && stillIdle(id, entry)) {
+            const due = () => tooBig || now - entry.lastActive > idleMs;
+            // `due` again after the await: a request that came and went meanwhile made it active.
+            if (due() && await mayStop(id, entry) && stillIdle(id, entry) && due()) {
                 await stop(id, tooBig ? 'over its memory cap' : 'idle');
             }
         }
