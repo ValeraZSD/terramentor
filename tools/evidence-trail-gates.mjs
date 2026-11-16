@@ -165,11 +165,14 @@ try {
     sitting(proven, 5, 5, 'mastery_check'); sitting(proven, 5, 5);
     t = await trail(proven);
     check('two full sittings: "proven"', t.estimate.level === 'proven', JSON.stringify(t.estimate));
-    db.prepare("UPDATE node_mastery SET last_updated = datetime('now', '-40 days') WHERE node_id = ?").run(proven);
-    db.prepare("UPDATE mastery_evidence SET created_at = datetime('now', '-40 days') WHERE node_id = ?").run(proven);
+    // A pinned instant years back: past any decay window on any clock, and
+    // the date asserted is the one written, not one read from the clock.
+    const LAST = '2020-03-01T12:00:00Z';
+    db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id = ?').run('2020-03-01 12:00:00', proven);
+    db.prepare('UPDATE mastery_evidence SET created_at = ? WHERE node_id = ?').run('2020-03-01 12:00:00', proven);
     t = await trail(proven);
-    check('left alone 40 days (decay 14): "fading"', t.estimate.level === 'fading', JSON.stringify(t.estimate));
-    check('…with the date it was last answered', typeof t.estimate.lastEvidenceAt === 'string' && Date.now() - Date.parse(t.estimate.lastEvidenceAt) > 30 * 86_400_000, t.estimate.lastEvidenceAt);
+    check('left alone for years (decay 14 days): "fading"', t.estimate.level === 'fading', JSON.stringify(t.estimate));
+    check('…with the date it was last answered', t.estimate.lastEvidenceAt === LAST, t.estimate.lastEvidenceAt);
     db.prepare("UPDATE nodes SET status = 'skipped' WHERE id = ?").run(proven);
     t = await trail(proven);
     check('a skipped topic is never "fading" (FADING_TOPIC), and says it is skipped', t.estimate.level !== 'fading' && t.status === 'skipped', JSON.stringify({ level: t.estimate.level, status: t.status }));
