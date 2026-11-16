@@ -126,7 +126,11 @@ proxy_apply() {
         done
     } > "$HERE/networks.yml"
     export TM_ACME_LINE="${ACME_EMAIL:+email $ACME_EMAIL}"
-    (cd "$HERE" && docker compose -f docker-compose.yml -f networks.yml up -d --remove-orphans >/dev/null)
+    if ! (cd "$HERE" && docker compose -f docker-compose.yml -f networks.yml up -d --remove-orphans >/dev/null); then
+        echo "copy.sh: docker compose could not apply the proxy" >&2
+        if [ -n "$mine" ]; then unlock _proxy; PROXY_HELD=""; fi
+        return 1
+    fi
     docker exec terramentor-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
     if [ -n "$mine" ]; then unlock _proxy; PROXY_HELD=""; fi
 }

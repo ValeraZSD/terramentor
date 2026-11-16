@@ -153,7 +153,8 @@ all="$(bash "$COPY" backup --all)"
 
 echo "--- update and refusals of the tool itself ---"
 before="$(ls "$TM_BACKUP_DIR/$A" | wc -l)"
-bash "$COPY" update "$A" | grep -q "^updated: $A$" && ok "update replaces $A's container" || no "update $A"
+rc=0; out="$(bash "$COPY" update "$A" 2>&1)" || rc=$?
+[ "$rc" = 0 ] && echo "$out" | grep -q "^updated: $A$" && ok "update replaces $A's container" || no "update $A (exit $rc): $out"
 [ "$(ls "$TM_BACKUP_DIR/$A" | wc -l)" -gt "$before" ] && ok "…after backing it up" || no "update made no backup"
 [ "$(login "$A" "$pwA" a3)" = 200 ] && c "$A" /api/projects -b "$WORK/a3.jar" | grep -q 'Rehearsal course' \
     && ok "the same password and library after the update" || no "library or password lost in the update"
