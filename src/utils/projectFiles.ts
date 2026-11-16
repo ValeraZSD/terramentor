@@ -75,8 +75,12 @@ export async function installedEditionOf(file: File): Promise<CourseUpdatePrevie
     try {
         const preview = await api.inspectCourseUpdate(file);
         return preview.match ? preview : null;
-    } catch {
-        return null;
+    } catch (e: any) {
+        // A file the update door refuses (a whole library, a malformed file) is the
+        // import door's to judge. A server that failed could not say whether the
+        // course is installed, and importing anyway would make the duplicate this avoids.
+        if (typeof e?.status === 'number' && e.status < 500) return null;
+        throw e;
     }
 }
 

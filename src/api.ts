@@ -574,7 +574,7 @@ async function courseUpdateUpload<T>(step: 'inspect' | 'commit', file: File, fie
     if (!res.ok) {
         let msg = `Update failed: ${res.status}`;
         try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
-        throw new Error(msg);
+        throw Object.assign(new Error(msg), { status: res.status });
     }
     return res.json();
 }
