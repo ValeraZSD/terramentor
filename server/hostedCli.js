@@ -15,14 +15,20 @@
 //   node server/hostedCli.js restore <dir>
 //       Puts a backup made by `backup` in place of the library. The copy must
 //       be stopped: the database file is replaced, not written through.
+//       Exit 1: nothing was replaced. Exit 3: it stopped partway.
+//   node server/hostedCli.js restore-state
+//       Exit 0 when no restore of this library is unfinished, 3 when one is
+//       (its marker is there: a failed or killed restore). copy.sh starts a
+//       copy after a failed restore only on 0.
 //
 // Where the library lives is server/paths.js, as for the server itself.
 import { randomInt } from 'node:crypto';
 import {
-    copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, rmSync, statSync,
+    copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
+import { restoreMarkerPath } from './hosted.js';
 import { dataPaths } from './paths.js';
 import { makePrivateDir, makePrivateFile } from './privateFiles.js';
 // The credentials file is opened only by secrets.js; this tool asks it.
@@ -145,6 +151,17 @@ function restoreCommand([dir]) {
         rmSync(incoming, { force: true });
         fail(`could not copy the backup in (${e.message}); the library is untouched`);
     }
+    // The marker goes down before anything is replaced and comes off only
+    // when every part is in place: a restore killed in between leaves it, and
+    // a hosted copy will not start on it (server/hosted.js).
+    const marker = restoreMarkerPath(dbPath);
+    try {
+        writeFileSync(marker, `${new Date().toISOString()}\n`);
+        makePrivateFile(marker);
+    } catch (e) {
+        rmSync(incoming, { force: true });
+        fail(`could not mark the restore as started (${e.message}); the library is untouched`);
+    }
     // Every exit above (1) left the library as it was. From here it is being
     // replaced, and a failure says so with its own code: copy.sh then leaves
     // the copy stopped instead of starting it on half a library.
@@ -165,6 +182,7 @@ function restoreCommand([dir]) {
         const db = new Database(dbPath, { readonly: true, fileMustExist: true });
         projects = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
         db.close();
+        rmSync(marker);
     } catch (e) {
         console.error(`hostedCli: the restore stopped partway (${e.message}); restore again from a backup`);
         process.exit(RESTORE_PARTIAL);
@@ -172,9 +190,19 @@ function restoreCommand([dir]) {
     print(`restore ok: ${projects} project(s)`);
 }
 
+function restoreStateCommand() {
+    if (existsSync(restoreMarkerPath(dataPaths().dbPath))) {
+        print('restore unfinished');
+        process.exit(RESTORE_PARTIAL);
+    }
+    print('no unfinished restore');
+}
+
 const [command, ...args] = process.argv.slice(2);
-const commands = { 'set-password': setPasswordCommand, backup: backupCommand, restore: restoreCommand };
-if (!commands[command]) fail('commands: set-password [--generate] | backup <dir> | restore <dir>');
+const commands = {
+    'set-password': setPasswordCommand, backup: backupCommand, restore: restoreCommand, 'restore-state': restoreStateCommand,
+};
+if (!commands[command]) fail('commands: set-password [--generate] | backup <dir> | restore <dir> | restore-state');
 await commands[command](args);
 // The library's own timers (opened by set-password) must not keep a one-shot alive.
 process.exit(0);

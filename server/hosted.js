@@ -34,6 +34,15 @@ export function isHosted(env = process.env) {
  *  login throttle's pace for as long as a copy may sit unopened. */
 export const MIN_SETUP_TOKEN_LENGTH = 24;
 
+/**
+ * Left beside the library by `hostedCli restore` from before it replaces
+ * anything until every part is in place; while it is there a hosted copy
+ * refuses to start (a killed restore leaves it too).
+ */
+export function restoreMarkerPath(dbPath) {
+    return `${dbPath}.restore-incomplete`;
+}
+
 /** The operator's setup token, or '' when none was given (or not hosted). */
 export function operatorSetupToken(env = process.env) {
     if (!isHosted(env)) return '';
@@ -48,13 +57,17 @@ const isLoopbackBind = (host) => LOOPBACK_BIND.has(host) || /^127(?:\.\d{1,3}){3
  * read by the caller (auth.js), so this stays a pure decision the gates can
  * walk without a library.
  */
-export function hostedStartProblem({ env = process.env, passwordSet = false } = {}) {
+export function hostedStartProblem({ env = process.env, passwordSet = false, restoreIncomplete = false } = {}) {
     // `true` or `yes` would otherwise start an ordinary copy with every rule off.
     const flag = String(env.TERRAMENTOR_HOSTED ?? '').trim();
     if (flag !== '' && flag !== '0' && flag !== '1') {
         return `TERRAMENTOR_HOSTED is "${flag}"; it must be 1 (a hosted copy) or 0.`;
     }
     if (!isHosted(env)) return null;
+    if (restoreIncomplete) {
+        return 'a restore of this library stopped partway, so its database, credentials and files may not belong together. '
+            + 'Restore it again from a backup (hosted/copy.sh restore); the copy starts once one completes.';
+    }
     if (env.AUTH_ALLOW_OPEN_REMOTE === '1') {
         return 'AUTH_ALLOW_OPEN_REMOTE=1 opens the app without a password; a hosted copy never runs open. Remove it.';
     }

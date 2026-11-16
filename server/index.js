@@ -6,7 +6,7 @@
 import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
-import { hostedStartProblem } from './hosted.js';
+import { hostedStartProblem, restoreMarkerPath } from './hosted.js';
 import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
 import { logActivity } from './activityLog.js';
@@ -87,7 +87,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 {
     let passwordSet = false;
     try { passwordSet = isAuthEnabled(); } catch (e) { console.error(`[hosted] Could not read whether a password is set: ${e.message}`); }
-    const problem = hostedStartProblem({ passwordSet });
+    const problem = hostedStartProblem({ passwordSet, restoreIncomplete: fs.existsSync(restoreMarkerPath(DB_PATH)) });
     if (problem) {
         console.error(`[hosted] Refusing to start: ${problem}`);
         process.exit(1);

@@ -277,18 +277,35 @@ try {
 
             // A backup that fails its check: exit 1 means the library was not
             // touched, which is what lets copy.sh start the copy again on it.
+            const dbFile = join(s.dir, 'terramentor.db');
+            const marker = `${dbFile}.restore-incomplete`;
+            const libraryBefore = readFileSync(dbFile);
             const badDir = join(s.dir, 'backup-bad');
             mkdirSync(badDir);
             writeFileSync(join(badDir, 'terramentor.db'), 'not a database');
             const refused = cli(['restore', badDir]);
-            ok('a backup that fails its check is refused (exit 1), the library untouched',
-                refused.status === 1 && existsSync(join(s.dir, 'terramentor.db')) && !existsSync(join(s.dir, 'terramentor.db.restoring')),
+            ok('a backup that fails its check is refused (exit 1), the library byte for byte as it was',
+                refused.status === 1 && readFileSync(dbFile).equals(libraryBefore) && !existsSync(`${dbFile}.restoring`) && !existsSync(marker),
                 `${refused.status} ${refused.stderr}`);
+            const clean = cli(['restore-state']);
+            ok('…and restore-state says no restore is unfinished (exit 0)', clean.status === 0, `${clean.status} ${clean.stdout} ${clean.stderr}`);
+
+            // A restore killed partway leaves its marker (written here as the
+            // kill would leave it): the tool reports it and the copy will not start.
+            writeFileSync(marker, 'killed\n');
+            const unfinished = cli(['restore-state']);
+            ok('an unfinished restore is reported (exit 3)', unfinished.status === 3, `${unfinished.status} ${unfinished.stdout} ${unfinished.stderr}`);
+            const portM = await freePort();
+            const rM = await startServer({ ...s.env, TERRAMENTOR_HOSTED: '1', HOST: '127.0.0.1', PORT: String(portM), ALLOWED_HOSTS: PUBLIC_NAME });
+            ok('a hosted copy refuses to start on a library with an unfinished restore',
+                !rM.listening && rM.code === 1 && /restore of this library stopped partway/.test(rM.out), rM.out.slice(-600));
+            if (rM.listening) await stop(rM.child);
 
             // Empty the library, as a lost volume would be, then restore.
             for (const f of ['terramentor.db', 'terramentor.db-wal', 'terramentor.db-shm', 'terramentor.secrets.json']) rmSync(join(s.dir, f), { force: true });
             const restore = cli(['restore', backupDir]);
             ok('restore puts the library back', restore.status === 0 && /restore ok: 1 project/.test(restore.stdout), `${restore.status} ${restore.stdout} ${restore.stderr}`);
+            ok('…and a completed restore clears the unfinished-restore marker', !existsSync(marker) && cli(['restore-state']).status === 0);
             const port2 = await freePort();
             const r2 = await startServer({ ...s.env, TERRAMENTOR_HOSTED: '1', HOST: '127.0.0.1', PORT: String(port2), ALLOWED_HOSTS: PUBLIC_NAME });
             ok('the restored copy starts', r2.listening, r2.out.slice(-600));
