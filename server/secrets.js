@@ -44,7 +44,7 @@
  * This is the only module that opens the file. `tools/secrets-gates.mjs`
  * holds that, and that no credential is written into the library again.
  */
-import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
+import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, unlinkSync, writeSync, chmodSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { dataPaths } from './paths.js';
@@ -71,6 +71,28 @@ export const MOVED_SETTING_KEYS = [
 /** Where this process keeps them. */
 export function secretsFile() {
     return dataPaths().secretsPath;
+}
+
+/** A hosted copy's backup (hostedCli.js): the file as it is, to `to`, owner-only. False when there is none. */
+export function copyCredentialsTo(to) {
+    try {
+        copyFileSync(secretsFile(), to);
+    } catch (e) {
+        if (e.code === 'ENOENT') return false;
+        throw e;
+    }
+    chmodSync(to, 0o600);
+    return true;
+}
+
+/** A hosted copy's restore: `from` replaces the file whole, copied beside it first. */
+export function replaceCredentialsFrom(from) {
+    const to = secretsFile();
+    const incoming = `${to}.restoring`;
+    copyFileSync(from, incoming);
+    chmodSync(incoming, 0o600);
+    renameSync(incoming, to);
+    cache = null;
 }
 
 let cache = null;   // { path, mtimeMs, size, secrets, unreadable }

@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, originGuard } from './originGuard.js';
+import { hostedGuard, trustProxySetting } from './hosted.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
 import { clientError } from './clientError.js';
@@ -109,8 +110,9 @@ tasks.setTaskObserver(({ phase, id, kind, projectId, ms, origin }) => {
 
 // Trust a loopback proxy only (e.g. `tailscale serve` → localhost). This lets
 // req.secure / X-Forwarded-Proto be honoured for the cookie Secure flag without
-// trusting arbitrary client-supplied forwarding headers.
-app.set('trust proxy', 'loopback');
+// trusting arbitrary client-supplied forwarding headers. A hosted copy also
+// trusts the reverse proxy in its private container network (server/hosted.js).
+app.set('trust proxy', trustProxySetting());
 // First in the chain on purpose: this measures what the CLIENT waited for, so it
 // has to start counting before the body parser and the auth gate. Silent unless
 // a request crosses a second. See server/slowLog.js.
@@ -357,6 +359,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     // (server/devices.js): read once here, before the public auth routes, so
     // the status probe and the gate below answer the same question the same way.
     app.use('/api', identifyRemoteAccess);
+    // A hosted copy refuses what acts on the server rather than the library
+    // (server/hosted.js), the public auth routes included: removing the
+    // password is one of them.
+    app.use('/api', hostedGuard);
     app.use(PUBLIC_JSON_PATHS, publicJson);
     mount(authApi.routes);
 
