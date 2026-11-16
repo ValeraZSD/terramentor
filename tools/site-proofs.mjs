@@ -130,6 +130,17 @@ try {
         if (data) r.write(data);
         r.end();
     });
+    // Not a proof line, a check: a wake during a stop of the same library. The
+    // old process removes its socket as it exits, so the wake must wait for it,
+    // or the new process is left with no socket anyone can reach.
+    {
+        const stopping = pool.stop(a, 'proof');
+        await pool.wake(a);
+        await stopping;
+        const after = await call(a, 'GET', '/api/auth/status').catch((e) => ({ status: e.code }));
+        console.log(`check: a wake during a stop answers on its socket: ${after.status}`);
+        if (after.status !== 200) { failed++; console.log('  ^ FAILED'); }
+    }
     const project = JSON.parse((await call(a, 'POST', '/api/projects', { name: 'Proof course' })).body);
     for (const title of ['First topic', 'Second topic', 'Third topic']) {
         await call(a, 'POST', '/api/nodes', { project_id: project.id, parent_id: null, title, status: 'in_progress' });

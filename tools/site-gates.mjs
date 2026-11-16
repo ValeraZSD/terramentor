@@ -29,8 +29,9 @@ import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import net from 'node:net';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import vm from 'node:vm';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,6 +50,7 @@ const { openSiteDb } = await import('../server/site/siteDb.js');
 const { createAccounts, networkOf, deviceLabel, WRONG, PASSWORD_OFF_AFTER } = await import('../server/site/accounts.js');
 const { createFrontDesk, COOKIE, CLEAR_SITE_DATA } = await import('../server/site/frontDesk.js');
 const { siteStartProblem } = await import('../server/site/index.js');
+const { createLibraryPool } = await import('../server/site/libraries.js');
 
 const scratch = mkdtempSync(join(tmpdir(), 'site-gates-'));
 const CLOSED_MODEL = { AI_PROVIDER: 'openai', AI_BASE_URL: 'http://127.0.0.1:9/v1', AI_MODEL: 'none', SITE_BREACH_CHECK: '0' };
@@ -166,8 +168,29 @@ try {
         db.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?').run(new Date(Date.now() - 31 * 864e5).toISOString(), signed.sessionId);
         ok('a session idle for 31 days is over', accounts.sessionOf(signed.token) === null);
         ok('the list shows the remaining device', accounts.listSessions(made1.accountId).length === 1);
+        ok('a signed-in session is alive', accounts.sessionAlive(made1.sessionId) === true);
         accounts.endAllSessions(made1.accountId);
         ok('sign out everywhere ends every session', accounts.sessionOf(made1.token) === null && accounts.listSessions(made1.accountId).length === 0);
+        ok('and an ended or idle session is not alive', !accounts.sessionAlive(made1.sessionId) && !accounts.sessionAlive(signed.sessionId));
+
+        // The sweep forgets a network a day after its last wrong guess, never an account's count.
+        const day = 24 * 3600e3;
+        const putThrottle = db.prepare('INSERT OR REPLACE INTO throttle (key, fails, last_fail_at) VALUES (?, 3, ?)');
+        putThrottle.run('net:198.18.0.0', Date.now() - day - 60e3);
+        putThrottle.run('net:198.18.1.0', Date.now() - 60e3);
+        putThrottle.run('acct:old@example.org', Date.now() - day - 60e3);
+        accounts.sweepSessions();
+        const keys = new Set(db.prepare('SELECT key FROM throttle').all().map((r) => r.key));
+        ok('the sweep drops a network quiet for a day and keeps a recent one and every account',
+            !keys.has('net:198.18.0.0') && keys.has('net:198.18.1.0') && keys.has('acct:old@example.org'), [...keys].join(' '));
+
+        // No library, no account: the invite link is not spent.
+        const broken = createAccounts(db, { env: CLOSED_MODEL, createLibrary: async () => { throw new Error('no room for a library'); } });
+        const eve = broken.createInvite('eve@example.org');
+        let noRoom = '';
+        try { await broken.acceptInvite(eve.token, good, 'UA'); } catch (e) { noRoom = e.message; }
+        ok('when no library can be made, no account is made and the invite stays good',
+            /no room/.test(noRoom) && !!broken.inviteOf(eve.token) && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('eve@example.org'), noRoom);
         ok('device names', deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile Safari/604.1') === 'Safari on iOS');
         db.close();
     }
@@ -180,6 +203,18 @@ try {
         ok('as root on Linux it starts', siteStartProblem({ SITE_DIR: '/s' }, { platform: 'linux', uid: 0 }) === null);
         ok('separate users are refused off Linux', /Linux only/.test(siteStartProblem({ SITE_DIR: 'x', SITE_SEPARATE: '1' }, { platform: 'win32' }) || ''));
         ok('a typo in SITE_SEPARATE is refused', /must be 1 or 0/.test(siteStartProblem({ SITE_DIR: 'x', SITE_SEPARATE: 'yes' }, { platform: 'linux', uid: 0 }) || ''));
+        ok('reachable beyond loopback, it will not start without SITE_HOSTS',
+            /SITE_HOSTS/.test(siteStartProblem({ SITE_DIR: '/s', HOST: '0.0.0.0' }, { platform: 'linux', uid: 0 }) || '')
+            && siteStartProblem({ SITE_DIR: '/s', HOST: '0.0.0.0', SITE_HOSTS: 'learn.example.org' }, { platform: 'linux', uid: 0 }) === null
+            && siteStartProblem({ SITE_DIR: '/s', HOST: '127.0.0.1' }, { platform: 'linux', uid: 0 }) === null);
+        {
+            const sw = readFileSync(join(repoRoot, 'src', 'sw-template.js'), 'utf8');
+            const m = sw.match(/function isBypassed\(url\) \{[\s\S]*?\r?\n\}\r?\n/);
+            let bypassed = null;
+            if (m) { try { bypassed = vm.runInNewContext(`${m[0]}; isBypassed`, { URL }); } catch { /* checked below */ } }
+            const at = (p) => !!bypassed && bypassed(new URL(`https://learn.example.org${p}`)) === true;
+            ok('the service worker never caches a site page (they name the person)', at('/site') && at('/site/sessions') && at('/site/sign-in') && !at('/sitemap.xml'));
+        }
 
         const siteDir = join(scratch, 'site');
         const lines = [];
@@ -238,6 +273,7 @@ try {
         const firstStartMs = performance.now() - t0;
         const setCookie = String(accepted.headers['set-cookie'] || '');
         ok('accepting the invite signs in and opens the library', accepted.status === 303 && accepted.headers.location === '/', `${accepted.status} ${accepted.text.slice(0, 200)}`);
+        ok('accepting it clears what an earlier person left in this browser', accepted.headers['clear-site-data'] === CLEAR_SITE_DATA);
         ok('the session cookie is __Host-, HttpOnly, Secure, SameSite=Lax, Path=/', setCookie.startsWith(`${COOKIE}=`) && /HttpOnly/.test(setCookie) && /Secure/.test(setCookie) && /SameSite=Lax/.test(setCookie) && /Path=\//.test(setCookie) && !/Domain=/i.test(setCookie), setCookie);
         const cookie = setCookie.split(';')[0];
         const libId = db.prepare('SELECT library_id FROM accounts WHERE email = ?').get('dana@example.org').library_id;
@@ -275,6 +311,7 @@ try {
         const second = await req('POST', '/site/sign-in', { headers: { ...FORM, 'user-agent': 'Mozilla/5.0 (Linux; Android 15) Chrome/140.0 Mobile Safari/537.36' }, body: form({ email: 'dana@example.org', password: 'a long enough pass phrase' }) });
         const cookie2 = String(second.headers['set-cookie'] || '').split(';')[0];
         ok('signing in again gives a second session', second.status === 303 && cookie2 && cookie2 !== cookie);
+        ok('signing in clears what an earlier person left in this browser', second.headers['clear-site-data'] === CLEAR_SITE_DATA, second.headers['clear-site-data']);
         const wrongPw = await req('POST', '/site/sign-in', { headers: FORM, body: form({ email: 'dana@example.org', password: 'not it at all, sorry' }) });
         const unknownPw = await req('POST', '/site/sign-in', { headers: FORM, body: form({ email: 'nobody@example.org', password: 'not it at all, sorry' }) });
         const samePage = (t, email) => t.replace(/nonce="[^"]+"/g, 'nonce').replace(email, 'EMAIL');
@@ -283,9 +320,33 @@ try {
         const list = await req('GET', '/site/sessions', { headers: { cookie } });
         ok('the sessions page lists both devices and marks this one', list.status === 200 && list.text.includes('Android') && list.text.includes('This device'));
         const otherId = JSON.parse((await req('GET', '/site/sessions.json', { headers: { cookie } })).text).sessions.find((s) => !s.current).id;
+        // An answer still open for a session: a request whose body never finishes.
+        const hang = async (c) => {
+            let closed = false;
+            const r = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/api/projects', headers: { host: `localhost:${port}`, cookie: c, origin, 'content-type': 'application/json', 'content-length': '1000' } });
+            r.on('error', () => { closed = true; });
+            r.on('close', () => { closed = true; });
+            r.write('{"name":');
+            const before = desk.openStreams();
+            for (let i = 0; i < 100 && desk.openStreams() === before; i++) await new Promise((x) => setTimeout(x, 20));
+            return { isClosed: () => closed, end: () => r.destroy() };
+        };
+        const waitFor = async (cond) => { for (let i = 0; i < 100 && !cond(); i++) await new Promise((x) => setTimeout(x, 20)); return cond(); };
+        const open2 = await hang(cookie2);
+        ok('an answer in progress is counted for its session', desk.openStreams() === 1, String(desk.openStreams()));
         const ended = await req('POST', `/site/sessions/${otherId}/sign-out`, { headers: { cookie, origin } });
         ok('signing out another device ends only it', ended.status === 303 && (await req('GET', '/api/projects', { headers: { cookie: cookie2 } })).status === 401
             && (await req('GET', '/api/projects', { headers: { cookie } })).status === 200);
+        ok('and closes what was still being sent to it', await waitFor(open2.isClosed) && desk.openStreams() === 0, `closed ${open2.isClosed()}, open ${desk.openStreams()}`);
+        // Ended by the operator's cli.js, outside this process: the next sweep closes it.
+        const third = await req('POST', '/site/sign-in', { headers: FORM, body: form({ email: 'dana@example.org', password: 'a long enough pass phrase' }) });
+        const cookie3 = String(third.headers['set-cookie'] || '').split(';')[0];
+        const open3 = await hang(cookie3);
+        const s3 = desk.accounts.sessionOf(decodeURIComponent(cookie3.slice(cookie3.indexOf('=') + 1)));
+        desk.accounts.endSession(s3?.sessionId, s3?.accountId);
+        ok('a session ended elsewhere keeps its answer until the sweep', desk.openStreams() === 1 && !open3.isClosed());
+        desk.closeEndedStreams();
+        ok('and the sweep closes it', await waitFor(open3.isClosed) && desk.openStreams() === 0, `closed ${open3.isClosed()}, open ${desk.openStreams()}`);
 
         const signOut = await req('POST', '/site/sign-out', { headers: { cookie, origin } });
         ok('signing out clears the browser\'s data for this address', signOut.status === 303 && signOut.headers['clear-site-data'] === CLEAR_SITE_DATA, signOut.headers['clear-site-data']);
@@ -300,6 +361,49 @@ try {
         await desk.pool.sweep(Date.now() + 3600_000);
         ok('an idle one with no task is stopped', !desk.pool.isAwake(libId));
         await desk.close();
+        db.close();
+    }
+
+    // -------------------------------------------------------------------------
+    console.log('--- 4b. the library pool under pressure ---');
+    {
+        const siteDir = join(scratch, 'pool-site');
+        const db = openSiteDb(siteDir);
+        const quiet = { log() {}, error() {}, warn() {} };
+        const base = { db, siteDir, appRoot: repoRoot, env: { ...process.env, ...CLOSED_MODEL }, log: quiet };
+        const pool = createLibraryPool({ ...base, separate: false, maxAwake: 1 });
+        const a = pool.create();
+        const b = pool.create();
+        const both = await Promise.allSettled([pool.wake(a), pool.wake(b)]);
+        ok('two cold wakes with one slot: one starts, the other is told the site is full',
+            both.filter((r) => r.status === 'fulfilled').length === 1 && both.some((r) => r.status === 'rejected' && r.reason?.code === 'FULL'),
+            both.map((r) => r.status + (r.reason ? ` ${r.reason.code || r.reason.message}` : '')).join(', '));
+        ok('and never more than one runs', pool.awakeCount() === 1 && pool.awakeOrStarting() === 1);
+        const awakeId = pool.isAwake(a) ? a : b;
+        ok('a library answering its task list is busy only when a task runs', await pool.isBusy(awakeId) === false);
+        // A stop and a wake of the same library at once: the new process keeps its socket.
+        const stopping = pool.stop(awakeId, 'gate');
+        await pool.wake(awakeId);
+        await stopping;
+        ok('a wake during a stop waits for the old process, and the new one answers', pool.isAwake(awakeId) && (await pool.ask(awakeId, '/api/auth/status')).status === 200);
+        await pool.stopAll();
+
+        // Made with separate users off, started with them on: refused, not run as this user.
+        const separatePool = createLibraryPool({ ...base, separate: true });
+        let refused = '';
+        try { await separatePool.wake(a); } catch (e) { refused = e.message; }
+        ok('a library with no user of its own is not started with separate users on', /without a user of its own/.test(refused) && !separatePool.isAwake(a), refused);
+
+        // A process that cannot start at all ends the wake with its reason.
+        const brokenPool = createLibraryPool({ ...base, separate: false, appRoot: join(scratch, 'no-such-app') });
+        let failed = '';
+        const t0 = performance.now();
+        await Promise.race([
+            brokenPool.wake(a).catch((e) => { failed = e.message; }),
+            new Promise((r) => setTimeout(r, 15000)),
+        ]);
+        ok('a library that cannot be started fails its wake, it does not hang', /stopped while starting/.test(failed) && performance.now() - t0 < 15000, failed || 'still waiting after 15 s');
+        await brokenPool.stopAll();
         db.close();
     }
 
