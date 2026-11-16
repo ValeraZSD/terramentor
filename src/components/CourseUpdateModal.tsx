@@ -10,7 +10,6 @@ import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
 import { Button } from './ui/Button';
-import { importProjectFile } from '../utils/projectFiles';
 import CourseUpdateChanges, { fieldName } from './CourseUpdateChanges';
 
 type Phase = 'preview' | 'applying' | 'done' | 'undoing' | 'undone';
@@ -21,19 +20,16 @@ export default function CourseUpdateModal() {
     const close = useStore(s => s.closeCourseUpdate);
     const loadProjects = useStore(s => s.loadProjects);
     const openProject = useStore(s => s.openProject);
-    const addToast = useStore(s => s.addToast);
 
     const [phase, setPhase] = useState<Phase>('preview');
     const [choices, setChoices] = useState<Record<string, 'mine' | 'file'>>({});
     const [error, setError] = useState<string | null>(null);
-    const [copying, setCopying] = useState(false);
 
     // A new file starts a new preview.
     useEffect(() => {
         setPhase('preview');
         setChoices({});
         setError(null);
-        setCopying(false);
     }, [pending]);
 
     if (!pending) return null;
@@ -44,7 +40,7 @@ export default function CourseUpdateModal() {
     const conflicts = preview.conflicts ?? [];
     const refused = preview.refused === 'older';
     const nothing = !refused && !!summary?.nothing;
-    const busy = phase === 'applying' || phase === 'undoing' || copying;
+    const busy = phase === 'applying' || phase === 'undoing';
 
     const apply = async () => {
         setPhase('applying');
@@ -81,21 +77,6 @@ export default function CourseUpdateModal() {
         if (phase === 'done' || phase === 'undone') openProject(match.projectId);
     };
 
-    // The old way stays one press away: someone may want both editions side by side.
-    const importCopy = async () => {
-        setCopying(true);
-        try {
-            const result = await importProjectFile(file);
-            await loadProjects();
-            close();
-            openProject(result.id);
-            addToast('success', t("Project \"{{name}}\" imported successfully", { name: result.name }));
-        } catch (e: any) {
-            setError(e?.message || String(e));
-            setCopying(false);
-        }
-    };
-
     const footer = phase === 'done' || phase === 'undoing' ? (
         <>
             <Button variant="neutral" busy={phase === 'undoing'} onClick={undo}>{t("Undo update")}</Button>
@@ -104,14 +85,10 @@ export default function CourseUpdateModal() {
     ) : phase === 'undone' ? (
         <Button variant="primary" onClick={finish}>{t("Done")}</Button>
     ) : refused || nothing ? (
-        <>
-            <Button variant="quiet" disabled={busy} onClick={close}>{t("Close")}</Button>
-            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Add as a second course")}</Button>
-        </>
+        <Button variant="primary" onClick={close}>{t("Close")}</Button>
     ) : (
         <>
             <Button variant="quiet" disabled={busy} onClick={close}>{t("Cancel")}</Button>
-            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Add as a second course")}</Button>
             <Button variant="primary" busy={phase === 'applying'} disabled={busy} onClick={apply}>{t("Update course")}</Button>
         </>
     );
