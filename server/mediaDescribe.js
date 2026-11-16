@@ -49,6 +49,54 @@ Rules:
 
 const MAX_DESCRIPTION = 600;
 
+/** Who wrote a description: 'author' (the deck's alt), 'learner' (an edit here), 'vision' (a model). */
+const HUMAN_SOURCES = new Set(['author', 'learner']);
+
+/** Strip what a screen reader would read out as noise, and bound the length. */
+export function cleanDescription(value) {
+    return String(value ?? '')
+        .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, MAX_DESCRIPTION);
+}
+
+/**
+ * The learner's own description of a picture, written over whatever was there.
+ * It is theirs from then on: `described_by = 'learner'`, no model named, and
+ * no sweep or forced re-run replaces it. An empty text clears the description,
+ * which hands the picture back to the sweep.
+ */
+export function setLearnerDescription(hash, value) {
+    const exists = db.prepare(`SELECT 1 FROM media_files WHERE hash = ? AND kind = 'image' LIMIT 1`).get(hash);
+    if (!exists) return { ok: false, reason: 'no such picture' };
+    const clean = cleanDescription(value);
+    if (!clean) {
+        db.prepare('UPDATE media_files SET description = NULL, described_by = NULL, generated_by = NULL WHERE hash = ?').run(hash);
+        return { ok: true, description: null, described_by: null };
+    }
+    db.prepare(`UPDATE media_files SET description = ?, described_by = 'learner', generated_by = NULL WHERE hash = ?`).run(clean, hash);
+    return { ok: true, description: clean, described_by: 'learner' };
+}
+
+/**
+ * Pictures with their descriptions, one row per file, for the review list:
+ * model-written ones first, since those are the ones to check.
+ */
+export function listDescriptions({ projectId = null, offset = 0, limit = 50 } = {}) {
+    const where = projectId ? `WHERE kind = 'image' AND project_id = ?` : `WHERE kind = 'image'`;
+    const args = projectId ? [projectId] : [];
+    const rows = db.prepare(`
+        SELECT hash, MIN(filename) AS filename, MAX(description) AS description,
+               MAX(described_by) AS described_by, MAX(generated_by) AS generated_by, MIN(id) AS first
+        FROM media_files ${where}
+        GROUP BY hash
+        ORDER BY (MAX(described_by) = 'vision') DESC, (MAX(description) IS NULL) DESC, first
+        LIMIT ? OFFSET ?
+    `).all(...args, Math.max(1, Math.min(200, limit | 0)), Math.max(0, offset | 0));
+    return rows.map(({ first, ...r }) => r);
+}
+
 /** Rows still worth describing: images, no description yet. */
 export function pendingDescriptions(projectId = null) {
     const where = projectId
@@ -66,7 +114,8 @@ export function describeStats(projectId = null) {
             SUM(kind = 'image') AS images,
             SUM(kind = 'image' AND description IS NOT NULL AND description != '') AS described,
             SUM(kind = 'image' AND described_by = 'author') AS byAuthor,
-            SUM(kind = 'image' AND described_by = 'vision') AS byVision
+            SUM(kind = 'image' AND described_by = 'vision') AS byVision,
+            SUM(kind = 'image' AND described_by = 'learner') AS byLearner
         FROM media_files ${clause}
     `).get(...args);
     return {
@@ -74,6 +123,7 @@ export function describeStats(projectId = null) {
         described: row?.described ?? 0,
         byAuthor: row?.byAuthor ?? 0,
         byVision: row?.byVision ?? 0,
+        byLearner: row?.byLearner ?? 0,
         pending: (row?.images ?? 0) - (row?.described ?? 0),
     };
 }
@@ -89,7 +139,11 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     const row = db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash);
     if (!row) return { ok: false, reason: 'no such media' };
     if (row.kind !== 'image') return { ok: false, reason: 'only images can be described' };
-    if (row.description && !force) return { ok: true, description: row.description, reason: 'already described' };
+    // A person's words (the deck author's alt, or the learner's correction)
+    // stay, even on a forced re-run: a model never overwrites them.
+    if (row.description && (!force || HUMAN_SOURCES.has(row.described_by))) {
+        return { ok: true, description: row.description, reason: 'already described' };
+    }
 
     let bytes;
     try {

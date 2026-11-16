@@ -6,7 +6,8 @@ import { findStagedMedia } from '../ankiImport.js';
 import fs from 'node:fs';
 import { mediaStorage } from '../vaultStorage.js';
 import {
-    cancelDescribeSweep, describeMedia, describeProgress, describeStats, startDescribeSweep,
+    cancelDescribeSweep, describeMedia, describeProgress, describeStats, listDescriptions,
+    setLearnerDescription, startDescribeSweep,
 } from '../mediaDescribe.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -80,6 +81,25 @@ app.get('/api/media/:hash/info', (req, res) => {
 app.get('/api/media-descriptions/status', (req, res) => {
     const projectId = req.query.projectId ? Number(req.query.projectId) : null;
     res.json({ ...describeStats(projectId), ...describeProgress() });
+});
+
+/** Pictures and their descriptions, model-written first: the list a learner checks. */
+app.get('/api/media-descriptions', (req, res) => {
+    const projectId = req.query.projectId ? Number(req.query.projectId) : null;
+    res.json({
+        items: listDescriptions({ projectId, offset: Number(req.query.offset) || 0, limit: Number(req.query.limit) || 50 }),
+    });
+});
+
+/** The learner's correction. Theirs from then on; an empty text clears it. */
+app.put('/api/media/:hash/description', (req, res) => {
+    const hash = String(req.params.hash || '');
+    if (!MEDIA_HASH_RE.test(hash)) return res.status(400).json({ error: 'Bad media id' });
+    const value = req.body?.description;
+    if (value !== null && typeof value !== 'string') return res.status(400).json({ error: 'description must be text' });
+    const result = setLearnerDescription(hash, value ?? '');
+    if (!result.ok) return res.status(404).json({ error: result.reason });
+    res.json({ description: result.description, described_by: result.described_by });
 });
 
 app.post('/api/media/:hash/describe', wrap(async (req, res) => {

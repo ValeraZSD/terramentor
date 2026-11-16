@@ -1044,9 +1044,32 @@ export interface PlacementAnswerResult {
  * before it becomes two thousand backwards cards.
  */
 /** Progress of the card-image description sweep (server/mediaDescribe.js). */
+/** Who wrote a picture's description: the deck's author, the learner, or a vision model. */
+export type MediaDescriber = 'author' | 'learner' | 'vision';
+
+/** `GET /api/media/:hash/info`. */
+export interface MediaInfo {
+    hash: string;
+    filename: string;
+    kind: 'image' | 'audio' | string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+}
+
+/** One picture in the description review list (`GET /api/media-descriptions`). */
+export interface MediaDescriptionRow {
+    hash: string;
+    filename: string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+    /** The model that wrote it, when one did. */
+    generated_by: string | null;
+}
+
 export interface MediaDescriptionStatus {
     images: number;
     described: number;
+    byLearner?: number;
     /** Written by the deck's author (alt text) — never overwritten by a model. */
     byAuthor: number;
     byVision: number;

@@ -2,6 +2,9 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
 import { useTranslation } from 'react-i18next';
+import { api } from '../api';
+import type { MediaInfo } from '../types';
+import { imageAltText, needsStoredDescription } from './cardImageAlt';
 
 /**
  * The pictures and audio attached to one side of a flashcard.
@@ -77,6 +80,23 @@ export function parseCardMedia(raw: unknown): CardMediaSides {
 }
 
 const srcFor = (hash: string) => `/api/media/${hash}`;
+
+// A file's stored description, looked up once per file per session: a review
+// shows the same picture many times, and the description only changes when the
+// learner edits it (which calls `forgetMediaInfo`).
+const infoCache = new Map<string, Promise<MediaInfo | null>>();
+function storedInfo(hash: string): Promise<MediaInfo | null> {
+    let found = infoCache.get(hash);
+    if (!found) {
+        found = api.mediaInfo(hash).catch(() => null);
+        infoCache.set(hash, found);
+    }
+    return found;
+}
+/** Drop a file's cached description after it was edited, so the next card reads the new one. */
+export function forgetMediaInfo(hash: string) {
+    infoCache.delete(hash);
+}
 
 // ---- playback: one engine per card side --------------------------------------
 
@@ -253,10 +273,16 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
 function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review' | 'preview' }) {
     const { t } = useTranslation();
     const [failed, setFailed] = useState(false);
+    const [info, setInfo] = useState<MediaInfo | null>(null);
+    useEffect(() => {
+        if (!needsStoredDescription(item)) return;
+        let live = true;
+        void storedInfo(item.hash).then(found => { if (live) setInfo(found); });
+        return () => { live = false; };
+    }, [item.hash, item.alt]);
 
-    // No description: not `alt=""` (it is not decorative) but the author's
-    // filename, often the word itself.
-    const alt = item.alt || item.name || 'Card image';
+    // Never `alt=""`: a card picture is content. See imageAltText for the order.
+    const alt = imageAltText(item, info, description => t("AI description: {{description}}", { description }));
 
     if (failed) {
         return (
