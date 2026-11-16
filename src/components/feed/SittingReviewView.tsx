@@ -80,7 +80,8 @@ export default function SittingReviewView({ evidenceId, onBack, onLeave, backLab
     // Counted off the questions shown, so the line agrees with the list under it.
     const right = review.items.filter(i => i.correct).length;
     const wrong = review.items.length - right;
-    const when = new Date(review.at).toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit', hour12: false });
+    // The day too: opened from a topic's evidence, the sitting may be weeks old.
+    const when = new Date(review.at).toLocaleString(uiLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 
     const retake = async () => {
         // The learner's own gate setting, read on the press — never assumed.
