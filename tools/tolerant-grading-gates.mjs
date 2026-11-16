@@ -92,6 +92,7 @@ const TABLE = [
     ['a short word is spelled exactly: een is not één', fill('één'), 'een', false, false],
     ['a four-letter word gets nothing: from is not form', fill('from'), 'form', false, false],
     ['a changed first letter is another word: affect is not effect', fill('effect'), 'affect', false, false],
+    ['a dropped first letter is not a slip: neumonia', fill('pneumonia'), 'neumonia', false, false],
     ['a number is never forgiven: 1984 is not 1985', fill('1985'), '1984', false, false],
     ['a word holding a digit is a code, never forgiven', fill('h2so4x'), 'h2so5x', false, false],
     ['an accent off a five-letter word is a slip', fill('zoals'), 'zoáls', false, true],

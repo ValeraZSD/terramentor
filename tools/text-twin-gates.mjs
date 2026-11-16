@@ -108,6 +108,7 @@ const brief = textTwinFor('widget', 'Title: Projectile\nObjective: See how the a
 check('a widget spec says its title and objective', brief.title === 'Projectile' && same(brief.lines, ['See how the angle changes the range']));
 check('a sketch\'s code is not read out as prose', twinHasBody(textTwinFor('p5', 'function setup() { createCanvas(9, 9); }')) === false);
 check('...in instance mode either', twinHasBody(textTwinFor('p5', 'new p5((s) => {\n  s.setup = () => s.createCanvas(9, 9);\n});')) === false);
+check('...nor a sketch handed to new p5()', twinHasBody(textTwinFor('p5', 'const sketch = (p) => {\n  p.createCanvas(9, 9);\n};\nnew p5(sketch);')) === false);
 check('...nor a widget\'s built page', twinHasBody(textTwinFor('widget', '<html><body><script>draw()</script></body></html>')) === false);
 let threw = false;
 for (const [kind, code] of [['vega', '{not json'], ['plot', 'null'], ['vega', '[]'], ['mermaid', ''], ['animation', '<svg'], ['unknown', 'x']]) {
