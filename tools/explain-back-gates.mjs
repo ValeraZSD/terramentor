@@ -10,8 +10,8 @@
 //      "Check my explanation", not filled;
 //   2. weak on unchanged words: "Read the part again" filled and alone (a
 //      "Check again" that is off until you type read as broken);
-//   3. weak, words rewritten: "Check again" filled, "Read the part again" not,
-//      and the old verdict folds to one grey "Before your edit:" line (a
+//   3. weak, words rewritten: "Check again" filled and alone (three stacked
+//      buttons with the part's own "Continue anyway"), and the old verdict folds to one grey "Before your edit:" line (a
 //      reason left in full read as the mark of the new words);
 //   4. a pass on unchanged words: no check button at all;
 //   5. "Not marked": "Check again" stays without an edit;
@@ -150,13 +150,14 @@ if (ExplainBack) {
     {
         const { host, r, heard } = await mount([WEAK, GOOD]);
         ok('nothing typed: no check button yet (an off button read as broken)', buttons(host).length === 0, JSON.stringify(buttons(host)));
+        ok('nothing typed: the empty box says what to type', !!host.querySelector('textarea')?.getAttribute('placeholder'));
         await setText(host, 'Heavier swings slower.');
         ok('before a verdict: one check button, not filled', JSON.stringify(buttons(host)) === '["Check my explanation"]', JSON.stringify(buttons(host)));
         await press(host, 'Check my explanation');
         ok('weak on unchanged words: "Read the part again" filled and alone', JSON.stringify(buttons(host)) === '["Read the part again*"]', JSON.stringify(buttons(host)));
         ok('weak on unchanged words: a line says how to check again', host.textContent.includes('Change your words to check them again.'));
         await setText(host, 'The length sets the period, not the mass.');
-        ok('weak, rewritten: "Check again" is the filled one', JSON.stringify(buttons(host)) === '["Read the part again","Check again*"]', JSON.stringify(buttons(host)));
+        ok('weak, rewritten: one filled "Check again", nothing beside it', JSON.stringify(buttons(host)) === '["Check again*"]', JSON.stringify(buttons(host)));
         const label = () => [...host.querySelectorAll('p')].find(p => p.textContent.includes('Not there yet'));
         ok('weak, rewritten: the old verdict loses its warning colour', !!label() && !/amber/.test(label().className), label()?.className);
         ok('weak, rewritten: the old verdict says it is about the earlier words', /^Before your edit: Not there yet$/.test(label()?.textContent.trim() ?? ''), label()?.textContent);

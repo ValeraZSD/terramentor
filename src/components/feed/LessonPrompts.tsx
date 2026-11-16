@@ -12,7 +12,7 @@ import { gradeLocally } from '../../utils/grading';
 import { feedRowRef, questionRef } from '../../utils/itemReports';
 import { useItemReports, useReportOn } from '../../utils/itemReportStore';
 import { FeedLessonCard, QuizQuestion } from '../../types';
-import { ArrowDown, ArrowUp, Check, CircleDashed, RefreshCw, HelpCircle, Info } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CircleDashed, HelpCircle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type PreQuestion = NonNullable<FeedLessonCard['preQuestions']>[number];
@@ -212,6 +212,9 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 maxLength={2000}
                 onChange={e => { setText(e.target.value); setFailed(false); }}
                 aria-label={t("Your explanation")}
+                // The empty box says what to do; the check button waits for
+                // the first word rather than standing there switched off.
+                placeholder={t("Type your explanation here")}
                 disabled={busy}
             />
             {/* The verdict sits straight under the words it judges, and every
@@ -261,15 +264,12 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                             </Button>
                         </>
                     ) : weak ? (
-                        <>
-                            <Button key="reread" size="md" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Read the part again")}
-                            </Button>
-                            {/* An icon on both or neither, as every button row. */}
-                            <Button key="check" size="md" variant="primary" busy={busy} onClick={check} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Check again")}
-                            </Button>
-                        </>
+                        // Rewritten, checking is the one step left: "Read the
+                        // part again" beside it, over "Continue anyway", made
+                        // a stack of three. The part is still one scroll up.
+                        <Button key="check" size="md" variant="primary" busy={busy} onClick={check}>
+                            {t("Check again")}
+                        </Button>
                     ) : (
                         <Button size="md" busy={busy} disabled={!text.trim()} onClick={check}>
                             {verdict ? t("Check again") : t("Check my explanation")}
