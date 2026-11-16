@@ -100,16 +100,18 @@ try {
     {
         const key = crypto.randomBytes(32);
         const other = crypto.randomBytes(32);
-        const note = makeNote({ key, libraryId: 'liba', accountId: 7, sessionId: 9 });
-        ok('a fresh note names its account and session', JSON.stringify(readNote(note, { key, libraryId: 'liba' })) === '{"accountId":7,"sessionId":9}');
-        ok('another library refuses it', readNote(note, { key, libraryId: 'libb' }) === null);
-        ok('another key refuses it', readNote(note, { key: other, libraryId: 'liba' }) === null);
-        ok('it expires after 30 s', readNote(note, { key, libraryId: 'liba', now: Date.now() + 31_000 }) === null);
+        // One fixed instant: a pause in the run cannot age a note past its 30 s.
+        const T = Date.parse('2030-01-10T12:00:00Z');
+        const note = makeNote({ key, libraryId: 'liba', accountId: 7, sessionId: 9, now: T });
+        ok('a fresh note names its account and session', JSON.stringify(readNote(note, { key, libraryId: 'liba', now: T + 1000 })) === '{"accountId":7,"sessionId":9}');
+        ok('another library refuses it', readNote(note, { key, libraryId: 'libb', now: T }) === null);
+        ok('another key refuses it', readNote(note, { key: other, libraryId: 'liba', now: T }) === null);
+        ok('it expires after 30 s', readNote(note, { key, libraryId: 'liba', now: T + 31_000 }) === null);
         const forged = note.replace('.7.', '.8.');
-        ok('changing the account breaks it', readNote(forged, { key, libraryId: 'liba' }) === null);
-        const far = makeNote({ key, libraryId: 'liba', accountId: 7, sessionId: 9, ttlMs: 3600_000 });
-        ok('a note claiming a long life is refused', readNote(far, { key, libraryId: 'liba' }) === null);
-        ok('garbage is refused', readNote('v1.a.b', { key, libraryId: 'liba' }) === null && readNote(undefined, { key, libraryId: 'liba' }) === null);
+        ok('changing the account breaks it', readNote(forged, { key, libraryId: 'liba', now: T }) === null);
+        const far = makeNote({ key, libraryId: 'liba', accountId: 7, sessionId: 9, now: T, ttlMs: 3600_000 });
+        ok('a note claiming a long life is refused', readNote(far, { key, libraryId: 'liba', now: T }) === null);
+        ok('garbage is refused', readNote('v1.a.b', { key, libraryId: 'liba', now: T }) === null && readNote(undefined, { key, libraryId: 'liba', now: T }) === null);
     }
 
     // -------------------------------------------------------------------------
@@ -154,16 +156,18 @@ try {
         const signed = await accounts.signIn('ANN@example.org ', good, { ip, ua: 'Mozilla/5.0 (Macintosh; Mac OS X) Firefox/140.0' });
         ok('the right password signs in, address case and spaces aside', signed.ok === true && signed.accountId === made1.accountId);
 
-        // Throttle, per address: five free tries, then growing waits.
-        for (let i = 0; i < 5; i++) await accounts.signIn('carl@example.org', 'wrong wrong wrong', { ip: `198.51.100.${i}` });
-        const sixth = await accounts.signIn('carl@example.org', 'wrong wrong wrong', { ip: '198.51.100.77' });
+        // Throttle, per address: five free tries, then growing waits. Every try at
+        // one fixed instant, so a slow password check cannot outlast the first 1 s wait.
+        const TT = Date.parse('2030-01-10T12:00:00Z');
+        for (let i = 0; i < 5; i++) await accounts.signIn('carl@example.org', 'wrong wrong wrong', { ip: `198.51.100.${i}`, now: TT });
+        const sixth = await accounts.signIn('carl@example.org', 'wrong wrong wrong', { ip: '198.51.100.77', now: TT });
         ok('after five wrong tries for an address the next one waits, from any network', sixth.wait > 0, JSON.stringify(sixth));
         const stamp = db.prepare("SELECT last_fail_at FROM throttle WHERE key = 'acct:carl@example.org'").get().last_fail_at;
         ok('the wait is not a lock: it ends', accounts.throttleState('carl@example.org', '198.51.100.1', stamp + 3000).wait === 0);
         // Per network: an IPv6 /64 is one network.
         ok('an IPv6 address counts by its /64', networkOf('2001:db8:aa:bb:1:2:3:4') === networkOf('2001:db8:aa:bb::ffff') && networkOf('2001:db8:aa:bc::1') !== networkOf('2001:db8:aa:bb::1'));
-        for (let i = 0; i < 20; i++) await accounts.signIn(`spray${i}@example.org`, 'wrong wrong wrong', { ip: `2001:db8:aa:bb::${i + 1}` });
-        const sprayed = await accounts.signIn('fresh@example.org', 'wrong wrong wrong', { ip: '2001:db8:aa:bb::999' });
+        for (let i = 0; i < 20; i++) await accounts.signIn(`spray${i}@example.org`, 'wrong wrong wrong', { ip: `2001:db8:aa:bb::${i + 1}`, now: TT });
+        const sprayed = await accounts.signIn('fresh@example.org', 'wrong wrong wrong', { ip: '2001:db8:aa:bb::999', now: TT });
         ok('twenty wrong tries from one network slow the next address from it', sprayed.wait > 0, JSON.stringify(sprayed));
         // 100 in a row switches the password off, the same for a made-up address.
         db.prepare('INSERT OR REPLACE INTO throttle (key, fails, last_fail_at) VALUES (?, ?, 0)').run('acct:ann@example.org', PASSWORD_OFF_AFTER);
@@ -211,6 +215,13 @@ try {
         try { await broken.acceptInvite(eve.token, good, 'UA'); } catch (e) { noRoom = e.message; }
         ok('when no library can be made, no account is made and the invite stays good',
             /no room/.test(noRoom) && !!broken.inviteOf(eve.token) && !db.prepare('SELECT 1 FROM accounts WHERE email = ?').get('eve@example.org'), noRoom);
+        // A right password whose stored hash is due for stronger settings, with every
+        // check slot taken: the rehash is skipped, the sign-in goes through.
+        {
+            const signInSrc = readFileSync(join(repoRoot, 'server', 'site', 'accounts.js'), 'utf8').split('async function signIn')[1] || '';
+            ok('a busy check queue skips the rehash instead of failing a right sign-in',
+                /try \{ q\.setHash\.run\(await hashPassword\(password\), account\.id\); \} catch \(e\) \{ if \(e\?\.code !== 'AUTH_BUSY'\) throw e; \}/.test(signInSrc));
+        }
         ok('device names', deviceLabel('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile Safari/604.1') === 'Safari on iOS');
         db.close();
     }
@@ -438,6 +449,14 @@ try {
             await sweeping;
             ok('a stream opened while the sweep asked the task list keeps its library running', desk.pool.isAwake(libId));
             desk.pool.streamClosed(libId);
+            // And one that opened and closed meanwhile: the library was just used, so it is not idle.
+            const entry = await desk.pool.wake(libId);
+            entry.lastActive = Date.now() - 24 * 3600e3; // last used a day ago
+            const sweeping2 = desk.pool.sweep(Date.now());
+            desk.pool.streamOpened(libId);
+            desk.pool.streamClosed(libId);
+            await sweeping2;
+            ok('a request that came and went while the sweep asked keeps its library running', desk.pool.isAwake(libId));
         }
 
         // Stopping when idle: not while a request is open.

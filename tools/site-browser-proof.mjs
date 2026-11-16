@@ -49,6 +49,15 @@ delete env.__COMPAT_LAYER;
 const browser = spawn(findBrowser(), ['--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--mute-audio', '--lang=en-US', '--window-size=1280,800', '--edge-skip-compat-layer-relaunch', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank',
     ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])], { stdio: 'ignore', env });
+// Until the proof's own try/finally below takes over, a failure while starting
+// (no DevTools port, no socket, a refused command) still stops the browser and
+// removes its profile, on the way out.
+let handedOver = false;
+process.once('exit', () => {
+    if (handedOver) return;
+    try { browser.kill(); } catch { /* already gone */ }
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); } catch { /* held a moment longer */ }
+});
 
 let wsUrl;
 for (let i = 0; i < 120 && !wsUrl; i++) {
@@ -138,6 +147,7 @@ const PASS1 = 'person one has a long pass phrase';
 const PASS2 = 'person two has another long pass phrase';
 let failed = 0;
 
+handedOver = true;
 try {
     // --- person 1 ----------------------------------------------------------------
     await go(INVITE1);
