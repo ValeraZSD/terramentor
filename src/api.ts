@@ -93,8 +93,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
         }
 
         const body = await res.json();
-        const method = options?.method?.toUpperCase();
-        if (method && method !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
+        noteEvidenceWrite(url, options?.method);
         return body;
     } finally {
         clearTimeout(timeoutId);
@@ -104,10 +103,17 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
 /**
  * Writes that add, void or undo evidence about a topic. A screen that shows
  * the evidence (the topic panel's card) listens for EVIDENCE_CHANGED, so an
- * answer given beside it shows without reopening the topic.
+ * answer given beside it shows without reopening the topic. A placement
+ * probe's finish applies its seeds and a DELETE of the placement withdraws them.
  */
-const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/probe\/\d+\/answer|item-reports)/;
+const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/(probe\/\d+\/(answer|finish)|\d+$)|item-reports)/;
 export const EVIDENCE_CHANGED = 'terramentor:evidence-changed';
+
+/** After a successful write: tell the evidence readers if it was evidence. */
+function noteEvidenceWrite(url: string, method?: string) {
+    const m = method?.toUpperCase();
+    if (m && m !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
+}
 
 /** What the server says after a study-clock flush (server/studyTime.js). */
 export interface StudyTimeFlushResult {
@@ -2499,7 +2505,9 @@ export const api = {
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
-        return res.json();
+        const graded = await res.json();
+        noteEvidenceWrite(`/paper/${feedItemId}/grade`, 'POST');
+        return graded;
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>
