@@ -1,0 +1,43 @@
+# The reverse proxy in front of every hosted copy (docs/HOSTING.md).
+#
+# Caddy terminates HTTPS for every copy's own name (alice.example.org,
+# bob.example.org) and gets each certificate itself. The copies are NOT in this
+# file: `hosted/copy.sh new <name>` starts each one in a network of its own, and
+# writes the generated `networks.yml` beside this file, which joins Caddy to all
+# of them. Two copies never share a network, so one cannot reach the other.
+#
+#   docker compose -f docker-compose.yml -f networks.yml up -d   (copy.sh runs this)
+
+services:
+  caddy:
+    # A release and its digest (the multi-arch index): what runs is what was read.
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    container_name: terramentor-proxy
+    restart: unless-stopped
+    ports:
+      # 80 answers the certificate authority's HTTP challenge and redirects
+      # everything else to HTTPS. A rehearsal moves the ports and binds them to
+      # loopback (hosted/rehearse.sh).
+      - "${TM_BIND_ADDRESS:-0.0.0.0}:${TM_HTTP_PORT:-80}:80"
+      - "${TM_BIND_ADDRESS:-0.0.0.0}:${TM_HTTPS_PORT:-443}:443"
+      - "${TM_BIND_ADDRESS:-0.0.0.0}:${TM_HTTPS_PORT:-443}:443/udp"
+    environment:
+      # `email <ACME_EMAIL>`, or empty: copy.sh builds the line (see Caddyfile).
+      TM_ACME_LINE: "${TM_ACME_LINE:-}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      # Certificates and their keys. Losing this volume only means asking for
+      # new certificates, which the authority rate-limits: keep it.
+      - caddy-data:/data
+      - caddy-config:/config
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caddy-data:
+  caddy-config:

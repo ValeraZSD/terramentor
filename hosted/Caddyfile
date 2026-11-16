@@ -1,0 +1,8 @@
+# One site block per hosted copy, each written by `copy.sh new` into sites/.
+{
+	# `email you@example.org` when ACME_EMAIL is set in hosted/.env, else
+	# nothing (copy.sh passes the whole line: an empty `email` is an error).
+	{$TM_ACME_LINE}
+}
+
+import /etc/caddy/sites/*.caddy
