@@ -4,122 +4,16 @@
 // the file both changed the same thing (theirs kept unless they choose the
 // file's), then the update itself and an undo. Opened by the import doors when
 // the file's course is one the library already holds.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
-import Radio from './ui/Radio';
 import { Button } from './ui/Button';
-import { Explain } from './ui/Disclosure';
 import { importProjectFile } from '../utils/projectFiles';
-import type { CourseUpdateConflict, CourseUpdateItem } from '../types';
+import CourseUpdateChanges, { fieldName } from './CourseUpdateChanges';
 
 type Phase = 'preview' | 'applying' | 'done' | 'undoing' | 'undone';
-
-/** What a changed field is called on screen. */
-function fieldName(t: TFunction, field: string): string {
-    switch (field) {
-        case 'title': return t("Title");
-        case 'description': return t("Overview");
-        case 'is_note': return t("Topic or note");
-        case 'role': return t("Kind of topic");
-        case 'parent': return t("Place in the course");
-        case 'content': return t("Question and answer");
-        case 'front': return t("Front");
-        case 'back': return t("Back");
-        case 'extra': return t("Extra on the back");
-        case 'extra_front': return t("Extra on the front");
-        case 'media': return t("Pictures and audio");
-        case 'url': return t("Link");
-        case 'type': return t("Kind of link");
-        case 'name': return t("Course name");
-        case 'content_language': return t("Course language");
-        case 'learning_language': return t("Language being learned");
-        case 'version': return t("Edition");
-        case 'deleted': return t("You deleted it");
-        default: return field;
-    }
-}
-
-function kindName(t: TFunction, kind: string): string {
-    switch (kind) {
-        case 'node': return t("Topic");
-        case 'question': return t("Question");
-        case 'card': return t("Card");
-        case 'resource': return t("Link");
-        case 'project': return t("Course");
-        default: return kind;
-    }
-}
-
-/** One line of the summary, its items behind it. */
-function SummaryRow({ text, items }: { text: string; items: CourseUpdateItem[] }) {
-    const { t } = useTranslation();
-    if (!items.length) return null;
-    return (
-        <li>
-            <Explain summary={text}>
-                <ul className="space-y-1 text-sm">
-                    {items.map((it, i) => (
-                        <li key={i} className="min-w-0">
-                            <span className="text-slate-500 dark:text-slate-400">{kindName(t, it.kind)}: </span>
-                            <span className="break-words text-slate-800 dark:text-slate-100">{it.label || '—'}</span>
-                            {it.fields?.length ? <span className="text-slate-500 dark:text-slate-400"> ({it.fields.map(f => fieldName(t, f)).join(', ')})</span> : null}
-                            {it.where && <span className="text-slate-500 dark:text-slate-400"> · {it.where}</span>}
-                        </li>
-                    ))}
-                </ul>
-            </Explain>
-        </li>
-    );
-}
-
-/** A value shown in a choice: long text is clamped, nothing is said as such. */
-function Value({ children }: { children: string | null }) {
-    const { t } = useTranslation();
-    return children == null || children === ''
-        ? <span className="italic text-slate-500 dark:text-slate-400">{t("(empty)")}</span>
-        : <span className="line-clamp-3 break-words text-slate-800 dark:text-slate-100">{children}</span>;
-}
-
-function ConflictChoice({ c, choice, onChoose, index }: {
-    c: CourseUpdateConflict; choice: 'mine' | 'file'; onChoose: (v: 'mine' | 'file') => void; index: number;
-}) {
-    const { t } = useTranslation();
-    const name = `course-update-conflict-${index}`;
-    const deleted = c.field === 'deleted';
-    const option = (value: 'mine' | 'file', label: string, body: ReactNode) => (
-        <label className="flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2 can-hover:hover:bg-slate-50 dark:can-hover:hover:bg-slate-700/40">
-            <Radio name={name} value={value} checked={choice === value} onChange={() => onChoose(value)} className="mt-0.5" />
-            <span className="min-w-0 text-sm">
-                <span className="block font-medium text-slate-700 dark:text-slate-200">{label}</span>
-                {body}
-            </span>
-        </label>
-    );
-    return (
-        <fieldset className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-            <legend className="px-1 text-sm">
-                <span className="font-medium text-slate-800 dark:text-slate-100">{c.label || kindName(t, c.kind)}</span>
-                <span className="text-slate-500 dark:text-slate-400"> · {deleted ? kindName(t, c.kind) : fieldName(t, c.field)}</span>
-            </legend>
-            {c.where && <p className="mb-1 px-2 text-xs text-slate-500 dark:text-slate-400">{c.where}</p>}
-            {deleted ? (
-                <>
-                    {option('mine', t("Keep it deleted"), null)}
-                    {option('file', t("Bring it back from the file"), null)}
-                </>
-            ) : (
-                <>
-                    {option('mine', t("Keep mine"), <Value>{c.mine}</Value>)}
-                    {option('file', t("Use the file's"), <Value>{c.file}</Value>)}
-                </>
-            )}
-        </fieldset>
-    );
-}
 
 export default function CourseUpdateModal() {
     const { t } = useTranslation();
@@ -212,12 +106,12 @@ export default function CourseUpdateModal() {
     ) : refused || nothing ? (
         <>
             <Button variant="quiet" disabled={busy} onClick={close}>{t("Close")}</Button>
-            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Import as a separate copy")}</Button>
+            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Add as a second course")}</Button>
         </>
     ) : (
         <>
             <Button variant="quiet" disabled={busy} onClick={close}>{t("Cancel")}</Button>
-            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Import as a separate copy")}</Button>
+            <Button variant="neutral" busy={copying} disabled={busy} onClick={importCopy}>{t("Add as a second course")}</Button>
             <Button variant="primary" busy={phase === 'applying'} disabled={busy} onClick={apply}>{t("Update course")}</Button>
         </>
     );
@@ -229,7 +123,7 @@ export default function CourseUpdateModal() {
     const detailFields = (items?.project ?? []).filter(f => f !== 'version');
 
     return (
-        <Modal isOpen onClose={busy ? () => { } : close} closable={!busy} title={t("Update {{name}}", { name: match.name })} maxWidth="max-w-xl" footer={footer}>
+        <Modal isOpen onClose={busy ? () => { } : close} closable={!busy} title={t("Update {{name}}", { name: match.name })} maxWidth="max-w-3xl" footer={footer}>
             <div className="space-y-4" aria-live="polite">
                 {error && (
                     <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">
@@ -256,37 +150,9 @@ export default function CourseUpdateModal() {
                             {t("This file is a newer edition of a course you already have. Updating it keeps your progress, notes and reviews.")}
                             {editions && <span className="mt-1 block text-sm text-slate-500 dark:text-slate-400">{editions}</span>}
                         </p>
-                        <ul className="space-y-1">
-                            <SummaryRow text={t("{{count}} items changed", { count: summary.changed })} items={items.changed} />
-                            <SummaryRow text={t("{{count}} items added", { count: summary.added })} items={items.added} />
-                            <SummaryRow text={t("{{count}} items moved", { count: summary.moved })} items={items.moved} />
-                            <SummaryRow text={t("{{count}} items removed", { count: summary.removed })} items={items.removed} />
-                            <SummaryRow text={t("{{count}} items the file dropped are kept, because you have progress on them", { count: summary.keptRemoved })} items={items.keptRemoved} />
-                            <SummaryRow text={t("{{count}} items could not be matched and are left as they are", { count: summary.ambiguous })} items={items.ambiguous} />
-                        </ul>
-                        {detailFields.length > 0 && (
-                            <p className="text-sm text-slate-600 dark:text-slate-300">
-                                {t("Course details that change: {{fields}}", { fields: detailFields.map(f => fieldName(t, f)).join(', ') })}
-                            </p>
-                        )}
-                        {(summary.reviewedCardsChanged > 0 || summary.questionsReset > 0) && (
-                            <ul className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
-                                {summary.reviewedCardsChanged > 0 && <li>{t("{{count}} cards you have reviewed get new text; their review history stays.", { count: summary.reviewedCardsChanged })}</li>}
-                                {summary.questionsReset > 0 && <li>{t("{{count}} rewritten questions will count as not asked yet.", { count: summary.questionsReset })}</li>}
-                            </ul>
-                        )}
-                        {conflicts.length > 0 && (
-                            <section className="space-y-2">
-                                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                                    {t("You and the file both changed these")}
-                                </h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">{t("Yours is kept unless you choose the file's.")}</p>
-                                {conflicts.map((c, i) => (
-                                    <ConflictChoice key={c.key} c={c} index={i} choice={choices[c.key] ?? 'mine'}
-                                        onChoose={v => setChoices(prev => ({ ...prev, [c.key]: v }))} />
-                                ))}
-                            </section>
-                        )}
+                        <CourseUpdateChanges key={`${file.name}:${file.size}:${file.lastModified}`} items={items} summary={summary} conflicts={conflicts} choices={choices}
+                            onChoose={(key, v) => setChoices(prev => ({ ...prev, [key]: v }))}
+                            details={detailFields.map(f => fieldName(t, f))} />
                     </>
                 ) : null}
             </div>
