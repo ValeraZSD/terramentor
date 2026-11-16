@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type MouseEvent, useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import QuestionStem from '../QuestionStem';
 import AnswerInput from '../answer/AnswerInput';
@@ -6,12 +6,13 @@ import { answerIsComplete } from '../answer/formats';
 import { Button } from '../ui/Button';
 import { Explain } from '../ui/Disclosure';
 import { TextArea } from '../ui/Field';
+import { cx } from '../ui/vocabulary';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from '../ui/ReportItem';
 import { gradeLocally } from '../../utils/grading';
 import { feedRowRef, questionRef } from '../../utils/itemReports';
 import { useItemReports, useReportOn } from '../../utils/itemReportStore';
 import { FeedLessonCard, QuizQuestion } from '../../types';
-import { ArrowDown, ArrowUp, Check, CircleDashed, HelpCircle, Info } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CircleDashed, RefreshCw, HelpCircle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type PreQuestion = NonNullable<FeedLessonCard['preQuestions']>[number];
@@ -126,25 +127,73 @@ type Verdict = { verdict: 'good' | 'weak' | 'unsure'; reason: string };
  * vetted key, by whoever chose to open it. Rendered only when a model is set
  * up (`card.explainBack`); with none there is nothing to mark with.
  */
-export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onReread: () => void }) {
+export function ExplainBack({ feedItemId, onReread, onVerdict }: {
+    feedItemId: number;
+    onReread: () => void;
+    /** The part's own "continue" stops shouting while the verdict is weak.
+     *  `null` whenever this block unmounts: its verdict goes with it. */
+    onVerdict?: (verdict: Verdict['verdict'] | null) => void;
+}) {
     const { t } = useTranslation();
     const [text, setText] = useState('');
     const [busy, setBusy] = useState(false);
     const [failed, setFailed] = useState(false);
     const [verdict, setVerdict] = useState<Verdict | null>(null);
+    // The text the verdict is about. Once marked, the check button shows only
+    // when the text changes: "Check again" on the same words offered the same
+    // verdict twice. "Not marked" is the exception, where the same words may
+    // well be marked on a second try.
+    const [checked, setChecked] = useState('');
+    const edited = text.trim() !== checked;
+    const canCheck = !verdict || verdict.verdict === 'unsure' || edited;
+    const weak = verdict?.verdict === 'weak';
+    // Each verdict is a new node in the live region below, so the same words
+    // marked the same way twice are still read out.
+    const [round, setRound] = useState(0);
+    // A check pressed from the KEYBOARD (a click with `detail` 0) leaves that
+    // keyboard on nothing: the button is disabled while it marks and gone
+    // after most verdicts. Focus then goes back to the text, once the box is
+    // enabled again, and only if it is still lost: a learner who moved on
+    // while it marked keeps their place. A tap never moves it, or a phone
+    // would raise its keyboard over the verdict.
+    const textRef = useRef<HTMLTextAreaElement>(null);
+    const [refocus, setRefocus] = useState(false);
+    useEffect(() => {
+        if (busy || !refocus) return;
+        setRefocus(false);
+        const at = document.activeElement as HTMLButtonElement | null;
+        if (!at || at === document.body || !at.isConnected || at.disabled) textRef.current?.focus({ preventScroll: true });
+    }, [busy, refocus]);
+    // A verdict that lands after this block is gone (the part reported) is
+    // dropped, and going reports `null`: its verdict went with it.
+    const alive = useRef(true);
+    const report = useRef(onVerdict);
+    useEffect(() => { report.current = onVerdict; });
+    useEffect(() => {
+        alive.current = true;
+        return () => { alive.current = false; report.current?.(null); };
+    }, []);
 
-    const submit = async () => {
-        if (!text.trim() || busy) return;
+    const submit = async (fromKeyboard: boolean) => {
+        const mine = text.trim();
+        if (!mine || busy) return;
         setBusy(true);
         setFailed(false);
         try {
-            setVerdict(await api.explainBack(feedItemId, text.trim()));
+            const v = await api.explainBack(feedItemId, mine);
+            if (!alive.current) return;
+            setVerdict(v);
+            setChecked(mine);
+            setRound(r => r + 1);
+            report.current?.(v.verdict);
         } catch {
+            if (!alive.current) return;
             setFailed(true);
         } finally {
-            setBusy(false);
+            if (alive.current) { setBusy(false); setRefocus(fromKeyboard); }
         }
     };
+    const check = (e: MouseEvent) => void submit(e.detail === 0);
 
     const look = verdict?.verdict === 'good'
         ? { icon: Check, label: t("You have the main idea"), tone: 'text-emerald-700 dark:text-emerald-300' }
@@ -157,43 +206,81 @@ export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onRe
         <Explain className="mt-4" summary={t("Explain it back in your own words")}>
             <p className="mb-2">{t("Say what this part is about and why it works, as you would to a friend. Putting it in your own words is what makes it stay.")}</p>
             <TextArea
+                ref={textRef}
                 rows={3}
                 value={text}
                 maxLength={2000}
-                onChange={e => setText(e.target.value)}
+                onChange={e => { setText(e.target.value); setFailed(false); }}
                 aria-label={t("Your explanation")}
                 disabled={busy}
             />
-            <div className="mt-2 flex flex-wrap items-center justify-end gap-3">
-                {failed && (
-                    <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
-                        {t("It could not be marked just now. Your text is kept; try again.")}
-                    </p>
+            {/* The verdict sits straight under the words it judges, and every
+                button below it shares ONE row on the right, the side the
+                part's own "continue" is on. Mounted from the start: a live
+                region that arrives already holding its text is not reliably
+                announced. */}
+            <div aria-live="polite">
+                {verdict && (
+                    // Rewritten, the verdict is about words no longer in the
+                    // box: it folds to one grey line that says so. A reason
+                    // left in full under new words read as the mark of THEM,
+                    // greyed or not (and greyed, it was hard to read).
+                    <div key={round} className="mt-4">
+                        {/* Folded, hidden from the live region: otherwise the
+                            first keystroke of a rewrite was read out. */}
+                        <p aria-hidden={edited || undefined} className={cx('flex items-center gap-1.5 text-sm font-semibold', edited ? 'text-slate-500 dark:text-slate-400' : look.tone)}>
+                            <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {edited ? t("Before your edit: {{verdict}}", { verdict: look.label }) : look.label}
+                        </p>
+                        {verdict.reason && !edited && <p className="mt-1">{verdict.reason}</p>}
+                    </div>
                 )}
-                <Button size="md" busy={busy} disabled={!text.trim()} onClick={() => void submit()}>
-                    {verdict ? t("Check again") : t("Check my explanation")}
-                </Button>
             </div>
-            {verdict && (
-                <div className="mt-3" aria-live="polite">
-                    <p className={`flex items-center gap-1.5 text-sm font-semibold ${look.tone}`}>
-                        <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
-                        {look.label}
-                    </p>
-                    {verdict.reason && <p className="mt-1 text-sm leading-6">{verdict.reason}</p>}
-                    {verdict.verdict === 'weak' && (
+            {/* Weak, the filled button is the next step: back to the part
+                while the words are unchanged, then checking them once they
+                are rewritten. "Check again" appears only then: a button
+                that is off until you type read as broken, and for the same
+                reason the first check waits for the first word. */}
+            {(weak || (canCheck && !!text.trim())) && (
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    {failed && (
+                        <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
+                            {t("It could not be marked just now. Your text is kept; try again.")}
+                        </p>
+                    )}
+                    {/* Keyed, so each button keeps its own DOM node as the
+                        row changes: unkeyed, a keyboard "Check again" whose
+                        verdict came back weak left focus on the node React
+                        reused for "Read the part again". */}
+                    {weak && (!canCheck || !text.trim()) ? (
                         <>
-                            <div className="mt-2">
-                                <Button size="sm" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
-                                    {t("Read the part again")}
-                                </Button>
-                            </div>
-                            {/* Marked weak, the part itself may be what is wrong. */}
-                            <ReportLink className="mt-2" />
+                            {/* Says where the second check went. */}
+                            <p key="hint" className="mr-auto text-sm">{t("Change your words to check them again.")}</p>
+                            <Button key="reread" size="md" variant="primary" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Read the part again")}
+                            </Button>
                         </>
+                    ) : weak ? (
+                        <>
+                            <Button key="reread" size="md" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Read the part again")}
+                            </Button>
+                            {/* An icon on both or neither, as every button row. */}
+                            <Button key="check" size="md" variant="primary" busy={busy} onClick={check} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
+                                {t("Check again")}
+                            </Button>
+                        </>
+                    ) : (
+                        <Button size="md" busy={busy} disabled={!text.trim()} onClick={check}>
+                            {verdict ? t("Check again") : t("Check my explanation")}
+                        </Button>
                     )}
                 </div>
             )}
+            {/* Marked weak, the part itself may be what is wrong. Last, under
+                the buttons: a rare side road, never between the reason and
+                the next step. */}
+            {weak && <ReportLink className="mt-3" />}
         </Explain>
     );
 }

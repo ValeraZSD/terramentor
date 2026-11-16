@@ -189,6 +189,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     // on only once the save landed, as a question card's does: advancing first
     // scrolled the reader past a lesson that then reopened out of sight.
     const [attemptId] = useState(newAttemptId);
+    const [weakExplain, setWeakExplain] = useState(false);
     const handleContinue = async () => {
         if (read) return;
         const saved = await consumeFeedCard(card.key, {
@@ -315,7 +316,7 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
             )}
 
             {card.explainBack && card.feedItemId != null && !reported && (
-                <ExplainBack feedItemId={card.feedItemId} onReread={reread} />
+                <ExplainBack feedItemId={card.feedItemId} onReread={reread} onVerdict={v => setWeakExplain(v === 'weak')} />
             )}
 
             {reported ? (
@@ -327,9 +328,20 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </p>
             ) : (
                 <div className="mt-5 flex justify-end">
-                    <Button variant="primary" onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
-                        {t("Got it, continue")}
-                    </Button>
+                    {/* Under "Not there yet" a primary "Got it" read as the
+                        right answer to a wrong one: the way on stays, quietly,
+                        and says what it is. Two buttons rather than a variant
+                        prop, so each state's group is read whole by the
+                        button-group check. */}
+                    {weakExplain ? (
+                        <Button onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Continue anyway")}
+                        </Button>
+                    ) : (
+                        <Button variant="primary" onClick={handleContinue} trailing={<ArrowDown className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Got it, continue")}
+                        </Button>
+                    )}
                 </div>
             )}
             </>)}
