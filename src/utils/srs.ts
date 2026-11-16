@@ -55,8 +55,24 @@ import type { TFunction } from 'i18next';
 
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
 
-/** Target probability of recall at the moment a card comes up. */
+/** Target probability of recall at the moment a card comes up, unless the
+ *  card's course sets its own (`desired_retention` on the project row). */
 export const REQUEST_RETENTION = 0.9;
+
+/** The targets a course can pick, each shown with the reviews a day it costs.
+ *  FSRS's own guidance keeps the target between 0.70 and 0.97; past 0.95 the
+ *  workload climbs steeply for little gain, below 0.80 most reviews are lapses. */
+export const RETENTION_CHOICES = [0.8, 0.85, 0.9, 0.95] as const;
+export const MIN_RETENTION = 0.7;
+export const MAX_RETENTION = 0.97;
+
+/** A stored or sent target as the scheduler may use it: two decimals inside
+ *  [MIN_RETENTION, MAX_RETENTION], anything else the default. */
+export function normalRetention(value: unknown): number {
+    const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < MIN_RETENTION || n > MAX_RETENTION) return REQUEST_RETENTION;
+    return Math.round(n * 100) / 100;
+}
 
 /** Legacy SM-2 default, kept only so a pre-FSRS card can be migrated. */
 export const DEFAULT_EASE = 2.5;
@@ -91,13 +107,13 @@ const definition = defineScheduler({ model: FSRS7Model, chrono: dateChrono }).us
     schedulerMaximumIntervalMiddleware, schedulerMonotonicIntervalMiddleware,
 );
 
-function buildScheduler(weights: readonly number[]) {
+function buildScheduler(weights: readonly number[], desiredRetention: number = REQUEST_RETENTION) {
     return definition.create({
         config: {
             weights: [...weights],
             fractionalDays: true,
             enableShortTerm: true,
-            desiredRetention: REQUEST_RETENTION,
+            desiredRetention,
             learningSteps: [...LEARNING_STEPS],
             relearningSteps: [...RELEARNING_STEPS],
             allowModelOverride: false,
@@ -115,6 +131,22 @@ type SchedulerCard = ReturnType<Scheduler['newCard']>;
 let activeW: number[] | null = null;
 let scheduler: Scheduler = buildScheduler(FSRS7_DEFAULT_WEIGHTS);
 let algorithm = new FSRS7Algorithm(FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS);
+/** Schedulers for a course's own target, built on first use with the weights in
+ *  use; emptied whenever the weights change. */
+const byRetention = new Map<number, Scheduler>();
+
+/** The scheduler for one target. The target moves only where a card is due
+ *  next; the memory state a review writes is the same whatever it is. */
+function schedulerFor(retention: number = REQUEST_RETENTION): Scheduler {
+    const r = normalRetention(retention);
+    if (r === REQUEST_RETENTION) return scheduler;
+    let s = byRetention.get(r);
+    if (!s) {
+        s = buildScheduler(activeW ?? FSRS7_DEFAULT_WEIGHTS, r);
+        byRetention.set(r, s);
+    }
+    return s;
+}
 
 /**
  * Switch the scheduler to a fitted parameter vector, or back to the defaults.
@@ -142,6 +174,7 @@ export function configureSrs({ w = null }: { w?: number[] | null } = {}): void {
     }
     activeW = valid;
     scheduler = next;
+    byRetention.clear();
     algorithm = new FSRS7Algorithm(valid ?? FSRS7_DEFAULT_WEIGHTS, FSRS7_MODEL_BOUNDS);
 }
 
@@ -368,8 +401,8 @@ function toSchedulerCard(card: CardSrsState, now: Date): SchedulerCard {
  * reviewed, and `last_interval` stays the integer every reader of it expects. A
  * (re)learning step keeps its exact minutes.
  */
-function review(card: CardSrsState, rating: ReviewRating, now: Date) {
-    const next = scheduler.review({ card: toSchedulerCard(card, now), grade: RATING_MAP[rating], now }).card;
+function review(card: CardSrsState, rating: ReviewRating, now: Date, retention: number) {
+    const next = schedulerFor(retention).review({ card: toSchedulerCard(card, now), grade: RATING_MAP[rating], now }).card;
     const exact = (next.dueAt.getTime() - now.getTime()) / MS_PER_DAY;
     const dayScale = !isInLearning(next.state) && exact >= 1;
     const wholeDays = dayScale ? Math.round(exact) : 0;
@@ -384,13 +417,16 @@ function review(card: CardSrsState, rating: ReviewRating, now: Date) {
  * `intervalDays` is fractional (10 minutes = 0.00694); pass it to `formatInterval`.
  * `learning` says the card comes back within the session — a STATE, not an interval
  * threshold, since a Relearning card can be scheduled a day out.
+ *
+ * `retention` is the card's course target (`retentionOf`); the default is 0.90.
  */
 export function computeNextInterval(
     card: CardSrsState,
     rating: ReviewRating,
     now: Date = new Date(),
+    retention: number = REQUEST_RETENTION,
 ): { intervalDays: number; dueAt: Date; state: number; learning: boolean; stability: number; difficulty: number } {
-    const { next, dueAt } = review(card, rating, now);
+    const { next, dueAt } = review(card, rating, now, retention);
     return {
         intervalDays: Math.max(0, (dueAt.getTime() - now.getTime()) / MS_PER_DAY),
         dueAt,
@@ -406,8 +442,9 @@ export function computeSrsUpdate(
     card: CardSrsState,
     rating: ReviewRating,
     now: Date = new Date(),
+    retention: number = REQUEST_RETENTION,
 ): SrsUpdate {
-    const { next, dueAt, wholeDays } = review(card, rating, now);
+    const { next, dueAt, wholeDays } = review(card, rating, now, retention);
     return {
         rating: RATING_MAP[rating],
         stability: next.stability,
@@ -434,6 +471,83 @@ export function requeueAt(update: SrsUpdate): number | null {
     if (!isInLearning(update.state)) return null;
     const due = Date.parse(update.next_review);
     return Number.isFinite(due) ? due : null;
+}
+
+/** Deterministic random numbers for the forecast (mulberry32): the same cards
+ *  give the same estimate, so a test can pin it. */
+function seededRandom(seed: number): () => number {
+    let s = seed | 0;
+    return () => {
+        s = (s + 0x6D2B79F5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+/** Predicted recall of a reviewed card at `now`: the probability the forecast draws. */
+function recallAt(card: CardSrsState, now: Date): number {
+    const found = memoryStateOf(card);
+    if (!found) return 0;
+    const last = card.last_reviewed ? Date.parse(card.last_reviewed) : NaN;
+    const days = Number.isFinite(last) ? Math.max(0, (now.getTime() - last) / MS_PER_DAY) : 0;
+    return algorithm.curve(days, found.memory).retrievability;
+}
+
+/**
+ * About how many answers a day a set of cards will ask for at one target, if the
+ * learner studies every day: the mean over `days` days of every press (a review,
+ * a lapse's relearning step, a new card's ladder).
+ *
+ * A simulation through this scheduler, not a formula: each day every card due by
+ * its end is answered, recalled with the model's own predicted probability (Good)
+ * or not (Again, then the ladder the same way), and up to `newPerDay` cards never
+ * seen enter in the order given. Averaged over `runs` seeded runs. It is the
+ * model's estimate for an ideal learner; the overdue pile on day one is counted
+ * like any other day, because it is work the learner will face.
+ */
+export function forecastDailyReviews(
+    cards: readonly CardSrsState[],
+    { retention = REQUEST_RETENTION, newPerDay = 0, days = 30, runs = 8, now = new Date() }: {
+        retention?: number; newPerDay?: number; days?: number; runs?: number; now?: Date;
+    } = {},
+): number {
+    const reviewed = isReviewed;   // = has a memory state (`memoryStateOf`), without seeding one
+    // Only what can come up inside the window is simulated: a reviewed card due
+    // after it never does, and no more new cards than the allowance can bring in.
+    const horizon = new Date(now.getTime() + days * MS_PER_DAY).toISOString();
+    const inWindow = cards.filter(c => reviewed(c) && !!c.next_review && c.next_review < horizon);
+    const unseen = cards.filter(c => !reviewed(c)).slice(0, Math.max(0, newPerDay) * days);
+    let presses = 0;
+    for (let run = 0; run < runs; run++) {
+        const rand = seededRandom(1000 + run);
+        const live = inWindow.map(c => ({ ...c }));
+        const fresh = unseen.map(c => ({ ...c }));
+        live.push(...fresh);
+        let nextNew = 0;
+        for (let d = 0; d < days; d++) {
+            const sessionAt = now.getTime() + d * MS_PER_DAY;
+            const dayEnd = new Date(sessionAt + MS_PER_DAY).toISOString();
+            const today = live.filter(c => reviewed(c) && !!c.next_review && c.next_review < dayEnd);
+            for (let k = 0; k < newPerDay && nextNew < fresh.length; k++) today.push(fresh[nextNew++]);
+            for (const card of today) {
+                const last = card.last_reviewed ? Date.parse(card.last_reviewed) : NaN;
+                let at = new Date(Math.max(sessionAt, Number.isFinite(last) ? last : 0));
+                // A new card's first sight is not a recall; it is met and rated Good.
+                // Twelve steps is past any ladder this scheduler runs.
+                for (let step = 0; step < 12; step++) {
+                    const ok = !reviewed(card) || rand() < recallAt(card, at);
+                    const update = computeSrsUpdate(card, ok ? 'good' : 'again', at, retention);
+                    Object.assign(card, update, { review_count: countOf(card.review_count) + 1 });
+                    presses++;
+                    const back = requeueAt(update);
+                    if (back == null) break;
+                    at = new Date(back);
+                }
+            }
+        }
+    }
+    return presses / (runs * days);
 }
 
 /**
@@ -492,10 +606,11 @@ export function retryOrNew(
     unsent: { current: UnsentRating | null },
     card: CardSrsState & { id: number },
     rating: ReviewRating,
+    retention: number = REQUEST_RETENTION,
 ): UnsentRating {
     const last = unsent.current;
     if (last && last.cardId === card.id && last.rating === rating) return last;
-    const update = computeSrsUpdate(card, rating);
+    const update = computeSrsUpdate(card, rating, new Date(), retention);
     const snapshot = srsSnapshot(card as unknown as Record<string, unknown>, update.last_reviewed);
     unsent.current = { cardId: card.id, rating, update, snapshot };
     return unsent.current;

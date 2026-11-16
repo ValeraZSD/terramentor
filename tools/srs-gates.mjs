@@ -486,6 +486,52 @@ console.log('\n--- retention verdict ---');
         retentionVerdict(T + 0.2, 100) === 'ahead' && retentionVerdict(T - 0.2, 100) === 'behind');
 }
 
+// ── A course's own recall target ────────────────────────────────────────────
+{
+    console.log('\nper-course recall target:');
+    const { normalRetention, forecastDailyReviews, RETENTION_CHOICES, MIN_RETENTION, MAX_RETENTION } = srs;
+    configureSrs({ w: null });
+    const mature = {
+        stability: 20, stability_fast: 4, fsrs_difficulty: 5, state: 2, lapses: 0, learning_steps: 0,
+        review_count: 5, last_interval: 20, last_reviewed: '2026-05-12T09:00:00.000Z', next_review: '2026-06-01T09:00:00.000Z',
+    };
+    const at = (r) => tryOr(() => computeSrsUpdate(mature, 'good', NOW, r), null);
+    const u85 = at(0.85), u90 = at(0.9), u95 = at(0.95), uDefault = tryOr(() => computeSrsUpdate(mature, 'good', NOW), null);
+    check('a higher target brings the card back sooner',
+        !!u85 && !!u90 && !!u95 && u95.last_interval < u90.last_interval && u90.last_interval < u85.last_interval,
+        `${u85?.last_interval} / ${u90?.last_interval} / ${u95?.last_interval}`);
+    check('the target moves only the due date: the memory a review writes is the same',
+        !!u85 && !!u95 && u85.stability === u95.stability && u85.stability_fast === u95.stability_fast
+        && u85.fsrs_difficulty === u95.fsrs_difficulty && u85.state === u95.state);
+    check('no target is the standard 0.90, byte for byte',
+        JSON.stringify(uDefault) === JSON.stringify(u90));
+    check('the interval hint and the write agree at a course target',
+        Math.round(tryOr(() => computeNextInterval(mature, 'good', NOW, 0.95).intervalDays, -1)) === u95?.last_interval);
+    check('a target outside 0.70-0.97 (or not a number) reads as the standard',
+        [0.5, 0.99, 1, NaN, null, undefined, 'x', ''].every(v => normalRetention(v) === REQUEST_RETENTION)
+        && normalRetention(MIN_RETENTION) === MIN_RETENTION && normalRetention(MAX_RETENTION) === MAX_RETENTION);
+    check('a stored target reads back as the number it was', normalRetention('0.85') === 0.85 && normalRetention(0.851) === 0.85);
+    check('the offered targets are all ones the scheduler accepts, and include the standard',
+        RETENTION_CHOICES.every(r => normalRetention(r) === r) && RETENTION_CHOICES.includes(REQUEST_RETENTION));
+
+    // Forecast: 30 reviewed cards due over the next fortnight, 40 never seen.
+    const cards = [];
+    for (let i = 0; i < 30; i++) {
+        cards.push({ ...mature, stability: 3 + i, stability_fast: 1, next_review: new Date(NOW.getTime() + (i % 14) * 86_400_000).toISOString(), last_reviewed: new Date(NOW.getTime() - (3 + i) * 86_400_000).toISOString() });
+    }
+    for (let i = 0; i < 40; i++) cards.push({ review_count: 0, last_reviewed: null, next_review: null, stability: null });
+    const f = (r, extra = {}) => tryOr(() => forecastDailyReviews(cards, { retention: r, newPerDay: 5, days: 30, runs: 4, now: NOW, ...extra }), NaN);
+    const f85 = f(0.85), f90 = f(0.9), f95 = f(0.95);
+    check('the forecast asks more of a higher target', f85 < f90 && f90 < f95, `${f85} / ${f90} / ${f95}`);
+    check('the forecast is deterministic (seeded): the same cards give the same number', f(0.9) === f90);
+    check('the forecast does not touch the rows it is given',
+        cards[0].review_count === 5 && cards[40].review_count === 0 && cards[40].stability === null);
+    check('with no new cards and nothing reviewed there is nothing to forecast',
+        tryOr(() => forecastDailyReviews(cards.slice(30), { newPerDay: 0, days: 10, runs: 2, now: NOW }), NaN) === 0);
+    check('every new card met is at least one answer',
+        tryOr(() => forecastDailyReviews(cards.slice(30), { newPerDay: 5, days: 4, runs: 1, now: NOW }), 0) >= 5);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { }
 process.exit(fail ? 1 : 0);
