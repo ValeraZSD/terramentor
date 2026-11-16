@@ -1644,7 +1644,7 @@ export interface SittingReview {
 }
 
 /** The one word for what the app thinks a learner knows about a topic (server/evidenceTrail.js). */
-export type EstimateLevel = 'none' | 'borrowed' | 'proven' | 'fading' | 'practice' | 'close' | 'early';
+export type EstimateLevel = 'none' | 'borrowed' | 'proven' | 'fading' | 'practice' | 'few' | 'close' | 'early';
 
 /** One piece of evidence about a topic, as the trail lists it. */
 export interface EvidenceRow {
@@ -1653,7 +1653,7 @@ export interface EvidenceRow {
     at: string;
     score: number;
     total: number;
-    /** The estimate before and after this row; null for a placement answer. */
+    /** The gate's estimate before and after this row; null for practice and placement. */
     before: number | null;
     after: number | null;
     /** A single feed answer's question, when the bank still holds it. */
@@ -1678,6 +1678,8 @@ export interface EvidenceTrail {
         level: EstimateLevel;
         /** 0..1, what every learner-facing reader prints; null with no estimate. */
         score: number | null;
+        /** What the proving answers alone give; under `score` when practice lifted it. */
+        answersScore: number | null;
         seed: 'placement' | 'transfer' | null;
         ownAnswers: number;
         practiceRight: number;

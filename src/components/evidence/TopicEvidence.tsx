@@ -29,16 +29,22 @@ const LEVEL_WORD: Record<EstimateLevel, string> = {
     proven: k("Proven"),
     fading: k("Proven, fading"),
     practice: k("Known from practice"),
+    few: k("Too early to tell"),
     close: k("Getting there"),
     early: k("Not yet"),
 };
 
-const LEVEL_TONE: Record<EstimateLevel, ProgressTone> = {
+// A deck's only evidence is the learner's own card presses: its practice word
+// claims memory, not knowledge.
+const DECK_PRACTICE_WORD = k("Remembered in practice");
+
+const LEVEL_TONE:Record<EstimateLevel, ProgressTone> = {
     none: 'neutral',
     borrowed: 'neutral',
     proven: 'success',
     fading: 'warning',
     practice: 'accent',
+    few: 'neutral',
     close: 'accent',
     early: 'accent',
 };
@@ -87,8 +93,9 @@ function levelLine(t: (s: string, o?: Record<string, unknown>) => string, trail:
             ? t("Last answered {{date}}. A recall question will bring it back to your feed.", { date: day(estimate.lastEvidenceAt) })
             : t("A recall question will bring it back to your feed.");
         case 'practice': return deck
-            ? t("Your card ratings say you know it.")
+            ? t("These are your own ratings of its cards, not a test.")
             : t("Your cards and drills say you know it. A quiz or the mastery check proves it.");
+        case 'few': return t("A few more answers and the app can tell.");
         case 'close': return deck
             ? t("Keep rating its cards.")
             : t("More right answers, or the mastery check, will prove it.");
@@ -101,6 +108,21 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
     const { t } = useTranslation();
     const day = useDay();
     const { estimate } = trail;
+    // A deck has no proof, only card ratings, and its estimate stops at the
+    // practice ceiling (60%) however well the cards go: it shows the ratings.
+    const deck = trail.projectKind === 'deck';
+    const value = deck
+        ? (estimate.practiceTotal > 0 && estimate.level !== 'none' ? estimate.practiceRight / estimate.practiceTotal : null)
+        : estimate.score;
+    // Too few answers say nothing yet, and a fading topic's number is the one
+    // it had when last answered (it does not decay): neither gets a bar that
+    // reads as "now".
+    const shown = value != null && estimate.level !== 'few';
+    const bar = shown && estimate.level !== 'fading';
+    // Cards and drills lifted the number over what the answers give, and the
+    // trail's steps end at the answers' number: say so, or the two disagree.
+    const lifted = !deck && estimate.level !== 'practice' && estimate.score != null && estimate.answersScore != null
+        && pct(estimate.score) > pct(estimate.answersScore);
     return (
         <div className="space-y-1.5">
             <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
@@ -108,34 +130,60 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
                     <Gauge className="h-4 w-4 shrink-0 text-accent-fg" aria-hidden="true" />
                     {t("What the app thinks you know")}
                 </span>
-                <span className="font-semibold text-slate-900 dark:text-white">{t(LEVEL_WORD[estimate.level])}</span>
+                <span className="font-semibold text-slate-900 dark:text-white">
+                    {t(deck && estimate.level === 'practice' ? DECK_PRACTICE_WORD : LEVEL_WORD[estimate.level])}
+                </span>
             </p>
-            {estimate.score != null && (
+            {shown && value != null && (
                 <div className="space-y-1">
-                    <ProgressBar
-                        value={pct(estimate.score)}
-                        tone={LEVEL_TONE[estimate.level]}
-                        size="sm"
-                        label={t("What the app thinks you know")}
-                    />
+                    {bar && (
+                        // The proof line is drawn on the bar (a deck has none):
+                        // a tick that stands out above and below the track, so
+                        // it reads against the fill and the empty part alike.
+                        <div className="relative py-0.5">
+                            <ProgressBar
+                                value={pct(value)}
+                                tone={LEVEL_TONE[estimate.level]}
+                                size="sm"
+                                label={t("What the app thinks you know")}
+                            />
+                            {!deck && (
+                                <span
+                                    aria-hidden="true"
+                                    className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-sm bg-slate-800 dark:bg-slate-100"
+                                    style={{ left: `${pct(trail.threshold)}%` }}
+                                />
+                            )}
+                        </div>
+                    )}
                     <p className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
-                        {t("{{pct}}% sure you know it", { pct: pct(estimate.score) })}
-                        {trail.projectKind !== 'deck' && <> · {t("proven at {{bar}}%", { bar: pct(trail.threshold) })}</>}
+                        {deck
+                            ? t("Reviews remembered: {{right}} of {{total}}",{ right: estimate.practiceRight, total: estimate.practiceTotal })
+                            : estimate.level === 'fading'
+                                ? t("The app was {{pct}}% sure when you last answered it", { pct: pct(value) })
+                                : t("The app is {{pct}}% sure you know it", { pct: pct(value) })}
+                        {/* The line goes with the bar: a fading topic has none and is already proven. */}
+                        {bar && !deck && <> · {t("{{bar}}% counts as proven", { bar: pct(trail.threshold) })}</>}
                     </p>
+                    {lifted && estimate.answersScore != null && (
+                        <p className="text-xs tabular-nums text-slate-600 dark:text-slate-300">
+                            {t("Your answers alone give {{pct}}%; cards and drills lifted it.", { pct: pct(estimate.answersScore) })}
+                        </p>
+                    )}
                 </div>
             )}
-            <p className="text-xs text-slate-500 dark:text-slate-400">{levelLine(t, trail, day)}</p>
-            {trail.status === 'skipped' && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">{t("You skipped it: closed without proof.")}</p>
-            )}
+            {/* One line: a skipped topic says so instead of what the answers say. */}
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+                {trail.status === 'skipped' ? t("You skipped it: closed without proof.") : levelLine(t, trail, day)}
+            </p>
         </div>
     );
 }
 
 /**
- * What one row did to the estimate, as a step in points, or the head start it
- * set. A step, not "from → to": the number above is the one the gate reads
- * (practice taken out), so an absolute end here could disagree with it.
+ * What one row did to the estimate, from what to what, or the head start it
+ * set. The steps are the gate's replay (practice not counted), so the newest
+ * ends at the number on the card unless cards lifted it, which the card says.
  */
 function Moved({ row }: { row: EvidenceRow }) {
     const { t } = useTranslation();
@@ -143,7 +191,20 @@ function Moved({ row }: { row: EvidenceRow }) {
         return <span className="text-xs text-slate-500 dark:text-slate-400">{t("Set the head start")}</span>;
     }
     if (row.before == null || row.after == null) return null;
-    const step = pct(row.after) - pct(row.before);
+    // The oldest answer on a topic with no head start: there was no estimate
+    // before it (the card says "No evidence yet"), and the model's first step
+    // rises even on a wrong answer, so "raised it" would mislead.
+    if (row.before === 0) {
+        return (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
+                <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {t("Started it at {{pct}}%", { pct: pct(row.after) })}
+            </span>
+        );
+    }
+    const from = pct(row.before);
+    const to = pct(row.after);
+    const step = to - from;
     const Icon = step > 0 ? ArrowUpRight : step < 0 ? ArrowDownRight : ArrowRight;
     const tone = step > 0
         ? 'text-emerald-700 dark:text-emerald-400'
@@ -152,8 +213,8 @@ function Moved({ row }: { row: EvidenceRow }) {
         <span className={`inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium tabular-nums ${tone}`}>
             <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             {step > 0
-                ? t("Raised it {{count}} points", { count: step })
-                : step < 0 ? t("Lowered it {{count}} points", { count: -step }) : t("Did not move it")}
+                ? t("Raised it from {{from}}% to {{to}}%", { from, to })
+                : step < 0 ? t("Lowered it from {{from}}% to {{to}}%", { from, to }) : t("Stayed at {{pct}}%", { pct: to })}
         </span>
     );
 }
@@ -166,14 +227,19 @@ function resultText(t: (s: string, o?: Record<string, unknown>) => string, row: 
         : t("{{score}} of {{total}} right", { score: row.score, total: row.total });
 }
 
-function EvidenceRowItem({ row, onOpen }: { row: EvidenceRow; onOpen: (id: number) => void }) {
+/**
+ * One answer or sitting. On a deck the step and the "practice" tag are left
+ * out: the card above shows ratings, not the estimate they would step, and a
+ * deck has nothing but practice.
+ */
+function EvidenceRowItem({ row, deck, onOpen }: { row: EvidenceRow; deck: boolean; onOpen: (id: number) => void }) {
     const { t } = useTranslation();
     const day = useDay();
     const single = row.type === 'quiz' && row.total === 1;
     const kind = single
         ? (row.recall ? t("Recall question") : t("Feed question"))
         : t(KIND_LABEL[row.type] ?? "Quiz");
-    const practice = row.type === 'flashcard' || row.type === 'drill';
+    const practice = !deck && (row.type === 'flashcard' || row.type === 'drill');
     // Right or wrong only for one graded answer; a card is the learner's press.
     const right = single ? row.score >= 1 : null;
     return (
@@ -189,19 +255,24 @@ function EvidenceRowItem({ row, onOpen }: { row: EvidenceRow; onOpen: (id: numbe
                     >
                         {resultText(t, row)}
                     </span>
-                    {practice && <span className="text-xs text-slate-500 dark:text-slate-400">{t("Practice, not proof")}</span>}
                 </p>
                 {row.question && (
-                    <p className="mt-0.5 line-clamp-2 break-words text-sm text-slate-600 dark:text-slate-300">{row.question}</p>
+                    <p className="mt-0.5 break-words text-sm text-slate-600 dark:text-slate-300">{row.question}</p>
                 )}
                 {row.voided > 0 && (
                     <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                        {t("{{count}} reported question taken out", { count: row.voided })}
+                        {t("{{count}} question you reported was left out of the score", { count: row.voided })}
                     </p>
                 )}
-                <div className="mt-1">
-                    <Moved row={row} />
-                </div>
+                {!deck && (
+                    <div className="mt-1">
+                        {/* Practice has no step in the trail: the slot says
+                            why instead of standing empty. */}
+                        {practice
+                            ? <span className="text-xs text-slate-500 dark:text-slate-400">{t("Practice: not counted as proof")}</span>
+                            : <Moved row={row} />}
+                    </div>
+                )}
                 {row.reviewable && (
                     // Its own line, pulled left by its padding so its icon
                     // lines up with the text above at every width.
@@ -253,11 +324,18 @@ function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; o
                         <History className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
                         {t("Evidence, newest first")}
                     </h3>
+                    {trail.projectKind !== 'deck' && (
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                            {/* True of bktUpdate: under ~10% the learning step
+                                outweighs a wrong answer, hence the bracket. */}
+                            {t("Every answer moves the number: a right one raises it, a wrong one lowers it (at the very start, any answer nudges it up a little). A quiz or a mastery check weighs all its answers at once, so it moves it most.")}
+                        </p>
+                    )}
                     {trail.rows.length === 0 ? (
                         <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("Nothing answered on this topic yet.")}</p>
                     ) : (
                         <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} onOpen={setReviewing} />)}
+                            {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} deck={trail.projectKind === 'deck'} onOpen={setReviewing} />)}
                         </ul>
                     )}
                     {held > trail.rows.length && (
