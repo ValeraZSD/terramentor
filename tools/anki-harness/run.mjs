@@ -94,6 +94,8 @@ await require('esbuild').build({
                     cancelAnkiImport: async () => {},
                     commitAnkiImport: async (opts) => { globalThis.__calls.push(['commit', opts]); return { projectId: 3, name: opts.projectName, imported: 1501, skipped: 0, stages: 30 }; },
                     deleteProject: async () => {},
+                    // A preview picture with no alt looks up its stored description.
+                    mediaInfo: async () => null,
                 };`,
                 loader: 'js',
             }));
