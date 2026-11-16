@@ -46,8 +46,8 @@ chmod 700 "$KEYS"
 
 die() { echo "copy.sh: $*" >&2; exit 1; }
 
-# One command at a time per copy: `new`, `restore`, `remove` and `update` take
-# the copy's lock (a directory: mkdir either makes it or fails, atomically),
+# One command at a time per copy: `new`, `restore`, `remove`, `update` and
+# `backup` (which waits for it) take the copy's lock (a directory: mkdir either makes it or fails, atomically),
 # and the exit handler gives it back and undoes a half-made `new`.
 LOCKS="$HERE/.locks"
 HELD=()
@@ -64,15 +64,18 @@ lock() {
     mkdir "$LOCKS/$1" 2>/dev/null || die "another copy.sh is working on $1 (if none is, a killed run left $LOCKS/$1: remove it)"
     HELD+=("$1")
 }
-# The shared proxy's lock, "_proxy" (a copy's name starts with a letter, so
-# none can share it). Waited for, not refused: applying the proxy takes seconds.
+# Waited for, not refused: the shared proxy's lock, "_proxy" (a copy's name
+# starts with a letter, so none can share it), and a copy's lock for a backup.
+# With "soft", giving up returns 1 instead of ending the run.
 wait_lock() {
     mkdir -p "$LOCKS"
     for _ in $(seq 1 300); do
         if mkdir "$LOCKS/$1" 2>/dev/null; then HELD+=("$1"); return 0; fi
         sleep 1
     done
-    die "waited 5 minutes for $LOCKS/$1 (if no copy.sh runs, a killed run left it: remove it)"
+    local why="waited 5 minutes for $LOCKS/$1 (if no copy.sh runs, a killed run left it: remove it)"
+    if [ "${2:-}" = soft ]; then echo "copy.sh: $why" >&2; return 1; fi
+    die "$why"
 }
 unlock() {
     rmdir "$LOCKS/$1" 2>/dev/null || true
@@ -328,10 +331,18 @@ cmd_backup() {
     [ -n "$what" ] || die "usage: backup <name> | --all"
     if [ "$what" = --all ]; then
         local failed=0 n
-        for n in $(copies); do backup_one "$n" || { echo "copy.sh: backup of $n FAILED" >&2; failed=1; }; done
+        for n in $(copies); do
+            # Another run's lock is never released here: only one this run took.
+            if ! wait_lock "$n" soft; then echo "copy.sh: backup of $n FAILED" >&2; failed=1; continue; fi
+            backup_one "$n" || { echo "copy.sh: backup of $n FAILED" >&2; failed=1; }
+            unlock "$n"
+        done
         return "$failed"
     fi
     valid_name "$what"
+    # The copy's lock: a restore must not change the library between the
+    # database and the credentials this backup reads.
+    wait_lock "$what"
     backup_one "$what"
 }
 
