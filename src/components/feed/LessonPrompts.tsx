@@ -96,7 +96,7 @@ export function PreQuestions({ card, onDone }: { card: FeedLessonCard; onDone: (
                 {t("Before you read")}
             </p>
             <p className="mt-1 mb-4 text-sm text-slate-600 dark:text-slate-400">
-                {t("You may know some of this already. One quick guess; it does not count.")}
+                {t("You may know some of this already. Guess first: trying before you read makes the part stick.")}
             </p>
             {items.map((p, i) => (
                 <PreQuestionItem
@@ -155,7 +155,7 @@ export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onRe
 
     return (
         <Explain className="mt-4" summary={t("Explain it back in your own words")}>
-            <p className="mb-2">{t("Say what this part is about and why it works, as you would to a friend. It is marked against the part and never counts toward mastery.")}</p>
+            <p className="mb-2">{t("Say what this part is about and why it works, as you would to a friend. Putting it in your own words is what makes it stay.")}</p>
             <TextArea
                 rows={3}
                 value={text}
