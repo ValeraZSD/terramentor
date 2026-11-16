@@ -1189,13 +1189,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
                 && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
+                && before.authExposed === !!exposed && before.authSite === !!site) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
