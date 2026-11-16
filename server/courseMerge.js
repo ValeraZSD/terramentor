@@ -188,11 +188,15 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         const b = baseEntities.get(key(u.kind, l.uuid));
         const take = {};
         const baseFields = {};
+        // Under a topic the file could not be matched to, where the item goes is
+        // not known: it stays where it is, and so does its order.
+        const placed = u.parentRef == null || localParentOf(u.parentRef) !== undefined;
         const upFields = { ...u.fields, parent: localParentOf(u.parentRef) ?? null };
         const localFields = { ...l.fields, parent: l.parentUuid ?? null };
         for (const f of ENTITY_FIELDS[u.kind]) {
             if (!(f in upFields) || upFields[f] === undefined && f === 'media') continue;
             const prev = b?.fields?.[f];
+            if (f === 'parent' && !placed) { if (prev) baseFields[f] = prev; continue; }
             const verdict = decide(upFields[f], localFields[f] ?? null, prev);
             const ck = `${u.kind}:${l.uuid}:${f}`;
             let edited = prev?.edited ? 1 : 0;
@@ -205,7 +209,9 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
             }
             baseFields[f] = { hash: fieldHash(upFields[f]), edited };
         }
-        if (ORDERED.has(u.kind)) {
+        if (ORDERED.has(u.kind) && !placed) {
+            if (b?.fields?.position) baseFields.position = b.fields.position;
+        } else if (ORDERED.has(u.kind)) {
             baseFields.position = { hash: fieldHash(u.position ?? null), edited: 0 };
             const prevPos = b?.fields?.position;
             if (!prevPos || prevPos.hash !== baseFields.position.hash) touchedParents.add(`${u.kind}|${upFields.parent}`);
@@ -235,8 +241,9 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
     for (const u of ups) {
         if (matched.has(u.ref) || ambiguous.has(u.ref)) continue;
         const parent = localParentOf(u.parentRef);
-        // A link, question or card whose topic is not coming has nowhere to go.
-        if (u.kind !== 'node' && u.parentRef != null && parent === undefined) { ambiguous.add(u.ref); continue; }
+        // Anything whose topic could not be matched has nowhere to go, and that
+        // holds down the whole branch: inserting it at the top would be a guess.
+        if (u.parentRef != null && parent === undefined) { ambiguous.add(u.ref); continue; }
         const b = u.uuid ? baseEntities.get(key(u.kind, upKey(u))) : null;
         const upFields = { ...u.fields, parent: parent ?? null };
         const baseFields = Object.fromEntries(ENTITY_FIELDS[u.kind].filter(f => upFields[f] !== undefined)
@@ -258,17 +265,47 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         if (ORDERED.has(u.kind)) touchedParents.add(`${u.kind}|${parent ?? null}`);
     }
 
+    // ---- a move that would close a loop ---------------------------------------------------
+    // The learner put A under B and the file puts B under A: each side alone is
+    // a tree, both together are not. The learner's arrangement stands; the
+    // file's move is not taken, and is remembered as theirs to keep.
+    const ownerAfter = (e) => (finalParent.has(e) ? finalParent.get(e) : (e.parentUuid ?? null));
+    const localNodes = new Map(local.entities.filter(e => e.kind === 'node').map(e => [e.uuid, e]));
+    const insertedParent = new Map(ops.filter(o => o.op === 'insert' && o.kind === 'node').map(o => [`new:${o.ref}`, o.parent ?? null]));
+    const parentAfter = (id) => (localNodes.has(id) ? ownerAfter(localNodes.get(id)) : insertedParent.get(id) ?? null);
+    for (const o of ops.filter(x => x.op === 'update' && x.kind === 'node' && 'parent' in x.fields)) {
+        let at = parentAfter(o.uuid);
+        for (let steps = localNodes.size + insertedParent.size; at != null && at !== o.uuid && steps > 0; steps--) at = parentAfter(at);
+        if (at !== o.uuid) continue;
+        const l = localNodes.get(o.uuid);
+        finalParent.set(l, l.parentUuid ?? null);
+        delete o.fields.parent;
+        delete o.before.parent;
+        if (!Object.keys(o.fields).length) ops.splice(ops.indexOf(o), 1);
+        const nb = newBase.find(x => x.kind === 'node' && x.uuid === o.uuid);
+        if (nb?.fields.parent) nb.fields.parent.edited = 1;
+    }
+
     // ---- gone from the file ---------------------------------------------------------------
-    const gone = local.entities.filter(l => !claimed.has(l) && !protectedLocal.has(l) && baseEntities.has(key(l.kind, l.uuid)));
-    const goneSet = new Set(gone);
+    // Under a topic that could not be matched, nothing is known to be gone.
+    const protectedTopics = new Set([...protectedLocal].filter(l => l.kind === 'node').map(l => l.uuid));
+    const underProtected = (e) => {
+        for (let p = e.parentUuid ?? null, steps = localNodes.size; p != null && steps > 0; p = localNodes.get(p)?.parentUuid ?? null, steps--) {
+            if (protectedTopics.has(p)) return true;
+        }
+        return false;
+    };
+    /** A field of it the learner edited: their text, not the author's to delete. */
+    const learnerEdited = (l) => Object.values(baseEntities.get(key(l.kind, l.uuid))?.fields ?? {}).some(f => f?.edited);
+    const gone = local.entities.filter(l => !claimed.has(l) && !protectedLocal.has(l) && baseEntities.has(key(l.kind, l.uuid)) && !underProtected(l));
     const deleting = new Set();
     for (const l of gone) {
+        if (learnerEdited(l)) continue;
         if (l.kind === 'question' || ((l.kind === 'card' || l.kind === 'resource') && !l.hasState)) deleting.add(l);
     }
     // A topic goes only when nothing of the learner's is on it and everything
     // that will still be under it goes too. Children first, until nothing moves.
-    const ownerAfter = (e) => (finalParent.has(e) ? finalParent.get(e) : (e.parentUuid ?? null));
-    const goneNodes = gone.filter(l => l.kind === 'node' && !l.hasState);
+    const goneNodes = gone.filter(l => l.kind === 'node' && !l.hasState && !learnerEdited(l));
     let moved = true;
     while (moved) {
         moved = false;
@@ -316,6 +353,7 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
     // (the learner's own, or kept after the file dropped it) stays right after
     // the sibling it followed here.
     const reorder = [];
+    let reorderedGroups = 0;
     for (const tp of touchedParents) {
         const [kind, rawParent] = tp.split('|');
         const parent = rawParent === 'null' ? null : rawParent;
@@ -338,6 +376,11 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
             result.splice(anchor + 1, 0, o.uuid);
         }
         reorder.push({ kind, parent, children: result });
+        // Did the siblings already here change their order? New and moved-in
+        // ones are counted where they are added or moved.
+        const here = new Set(oldSiblings.map(e => e.uuid));
+        const now = oldSiblings.map(e => e.uuid).filter(x => result.includes(x));
+        if (result.filter(x => here.has(x)).join('\n') !== now.join('\n')) reorderedGroups++;
     }
 
     // ---- what the learner is shown ----------------------------------------------------------
@@ -373,8 +416,10 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
         reviewedCardsChanged: items.reviewedCardsChanged.length,
         questionsReset: updates.filter(o => o.clearAsked).length,
         projectFields: items.project.length,
+        /** Groups of siblings already here whose order the file changes. */
+        reordered: reorderedGroups,
     };
-    summary.nothing = !ops.length && !conflicts.length && !items.project.length && !items.ambiguous.length;
+    summary.nothing = !ops.length && !conflicts.length && !items.project.length && !items.ambiguous.length && !reorderedGroups;
 
     return {
         refused: null,
