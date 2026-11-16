@@ -286,6 +286,8 @@ export interface CourseUpdateSummary {
     reviewedCardsChanged: number;
     questionsReset: number;
     projectFields: number;
+    /** Groups of siblings already in the course whose order the file changes. */
+    reordered: number;
     nothing: boolean;
 }
 

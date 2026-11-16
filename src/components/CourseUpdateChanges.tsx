@@ -74,7 +74,7 @@ function groupTitle(t: TFunction, kind: ChangeKind, count: number): string {
         case 'added': return t("{{count}} items added", { count });
         case 'moved': return t("{{count}} items moved", { count });
         case 'removed': return t("{{count}} items removed", { count });
-        case 'kept': return t("{{count}} kept, because you have progress on them", { count });
+        case 'kept': return t("{{count}} kept, because you studied or edited them", { count });
         case 'unmatched': return t("{{count}} could not be matched and stay as they are", { count });
     }
 }
@@ -336,6 +336,7 @@ export default function CourseUpdateChanges({ items, summary, conflicts, choices
             {details.length > 0 && (
                 <p className={`text-sm ${MUTED}`}>{t("Course details that change: {{fields}}", { fields: details.join(', ') })}</p>
             )}
+            {summary.reordered > 0 && <p className={`text-sm ${MUTED}`}>{t("The order of some topics or links changes.")}</p>}
         </div>
     );
 }

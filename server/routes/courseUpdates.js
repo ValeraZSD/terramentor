@@ -60,6 +60,9 @@ async function readUpload(file, { withMedia = false } = {}) {
             throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
         }
         const { manifest, project, nodes, warnings } = await readBundleCourse(zip);
+        // The import door reads a bundle with no tree as an empty course; here it
+        // would read as every topic removed.
+        if (!Array.isArray(manifest.nodes)) throw new UpdateRefusal('Invalid bundle: manifest.json has no course tree ("nodes").');
         let mediaByName = null;
         if (withMedia) {
             let spent = 0;
@@ -99,8 +102,29 @@ function plan(twin, read, choices = {}) {
     return { local, upstream, base, plan: planCourseUpdate({ upstream, local, base, choices }) };
 }
 
+const SHOWN_FIRST = ['question', 'options', 'items', 'tokens', 'correct_answer', 'explanation'];
+const asText = (v) => (Array.isArray(v) ? v.map(asText).join(' · ') : v && typeof v === 'object' ? JSON.stringify(v) : String(v ?? ''));
 /**
- * A value as the preview shows it: text as it is, a question as what it asks,
+ * A question as lines a learner can compare: what it asks, its choices, its
+ * answer (marked ✓), its explanation, then anything else it carries. Two
+ * questions that differ only in their answer read differently.
+ */
+function questionText(q) {
+    if (!q || typeof q !== 'object') return asText(q);
+    const lines = [];
+    for (const f of SHOWN_FIRST) {
+        if (q[f] == null || q[f] === '') continue;
+        lines.push(f === 'correct_answer' ? `✓ ${asText(q[f])}` : asText(q[f]));
+    }
+    for (const f of Object.keys(q).sort()) {
+        if (SHOWN_FIRST.includes(f) || f === 'type' || q[f] == null || q[f] === '') continue;
+        lines.push(asText(q[f]));
+    }
+    return lines.join('\n');
+}
+
+/**
+ * A value as the preview shows it: text as it is, a question as its lines,
  * a parent as its topic's title, a card's media as its file names.
  */
 function display(field, value, titleOf) {
@@ -111,7 +135,7 @@ function display(field, value, titleOf) {
         const names = [...(value.front || []), ...(value.back || [])];
         return names.length ? names.join(', ') : null;
     }
-    if (field === 'content') return typeof value.question === 'string' ? value.question : JSON.stringify(value).slice(0, 400);
+    if (field === 'content') return questionText(value);
     if (field === 'deleted') return null;
     if (typeof value === 'object') return JSON.stringify(value).slice(0, 400);
     return String(value);

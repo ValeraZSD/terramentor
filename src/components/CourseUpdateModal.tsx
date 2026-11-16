@@ -42,6 +42,12 @@ export default function CourseUpdateModal() {
     const nothing = !refused && !!summary?.nothing;
     const busy = phase === 'applying' || phase === 'undoing';
 
+    // Apply and undo rewrite the course's rows; a course still open shows them only after a reload.
+    const refreshOpenCourse = () => {
+        const s = useStore.getState();
+        if (s.currentProjectId === match.projectId) s.loadProjectData(match.projectId).catch(() => { });
+    };
+
     const apply = async () => {
         setPhase('applying');
         setError(null);
@@ -56,6 +62,7 @@ export default function CourseUpdateModal() {
         // The update is written; a failed list refresh must not offer to apply it again.
         setPhase('done');
         loadProjects().catch(() => { });
+        refreshOpenCourse();
     };
 
     const undo = async () => {
@@ -70,6 +77,7 @@ export default function CourseUpdateModal() {
         }
         setPhase('undone');
         loadProjects().catch(() => { });
+        refreshOpenCourse();
     };
 
     const finish = () => {
