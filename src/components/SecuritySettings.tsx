@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { api } from '../api';
 import { copyText } from '../utils/clipboard';
 import { useTranslation } from 'react-i18next';
-import { Button, IconButton } from './ui/Button';
+import { Button, ButtonLink, IconButton } from './ui/Button';
 import { PasswordInput } from './ui/Field';
 import { GROUP_CAPTION, SettingNote } from './ui/SettingRow';
 import { DEVICES_CHANGED } from './OtherDevices';
@@ -15,6 +15,35 @@ import { DEVICES_CHANGED } from './OtherDevices';
  * use as a `Bearer` token. Backed by the /api/auth/* endpoints.
  */
 export default function SecuritySettings() {
+    const authSite = useStore(s => s.authSite);
+    return authSite ? <SiteAccount /> : <PasswordSecurity />;
+}
+
+/**
+ * A library on a shared site (server/site/): the password, the devices and
+ * signing out belong to the site's front desk, which has its own pages.
+ */
+function SiteAccount() {
+    const { t } = useTranslation();
+    return (
+        <section className="mb-8">
+            <h2 className={`${GROUP_CAPTION} flex items-center gap-2`}>
+                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" aria-hidden="true" />
+                {t("Security")}
+            </h2>
+            <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm">
+                <Block title={t("Your account")} hint={t("Your password and the devices you are signed in on are managed by this website, not inside the app.")}>
+                    <form method="post" action="/site/sign-out" className="flex flex-wrap items-center gap-3">
+                        <ButtonLink href="/site/sessions">{t("Signed-in devices")}</ButtonLink>
+                        <Button type="submit">{t("Sign out")}</Button>
+                    </form>
+                </Block>
+            </div>
+        </section>
+    );
+}
+
+function PasswordSecurity() {
     const { t } = useTranslation();
     const authEnabled = useStore(s => s.authEnabled);
     const loadAuth = useStore(s => s.loadAuth);

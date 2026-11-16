@@ -19,6 +19,16 @@ export function setAuthRequiredHandler(fn: (() => void) | null) {
     onAuthRequired = fn;
 }
 
+/** A library on a shared site is signed into at the site's own page, not the lock screen. */
+export function goToSiteSignIn() {
+    window.location.assign('/site/sign-in');
+}
+
+function authRequired(body: { site?: boolean } | null | undefined) {
+    if (body?.site) goToSiteSignIn();
+    else onAuthRequired?.();
+}
+
 // SSE streams go through the same relative `/api` as everything else. In dev
 // that is the Vite proxy, which carries event streams (vite.config.ts disables
 // the socket timeout on them); in standalone it is the same origin. The old
@@ -81,9 +91,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
                 // Response body is not JSON — fall back to the HTTP status
             }
 
-            if (res.status === 401 && errorData.authRequired && onAuthRequired) {
-                onAuthRequired();
-            }
+            if (res.status === 401 && errorData.authRequired) authRequired(errorData);
 
             const err = new Error(errorMessage) as any;
             err.status = res.status;
@@ -975,7 +983,7 @@ export const api = {
     // `exposed`: no password, and the server is set up to be reachable from
     // other machines (HOST beyond loopback, a listed public name); the app
     // shows a banner until a password is set.
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean }>('/auth/status', { timeout: 4000 }),
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; site?: boolean }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
@@ -1406,7 +1414,7 @@ export const api = {
                     const first = body.attachments[0];
                     return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : first);
                 }
-                if (xhr.status === 401 && body?.authRequired && onAuthRequired) onAuthRequired();
+                if (xhr.status === 401 && body?.authRequired) authRequired(body);
                 // A refused body (too big, too many) is an answer about the file.
                 if (xhr.status === 413 || (xhr.status === 400 && body?.reason)) {
                     return resolve({ ok: false, name, reason: body?.reason || 'too_large', error: body?.error || 'Upload refused' });
