@@ -225,7 +225,11 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         if (!right) return { wrong: true };
         q.throttleClear.run(acctKey);
         unbump(netKey);
-        if (needsRehash(account.password_hash)) q.setHash.run(await hashPassword(password), account.id);
+        // The stronger hash is a nicety: with the checks all busy it waits for a
+        // later sign-in, and this right password still signs in.
+        if (needsRehash(account.password_hash)) {
+            try { q.setHash.run(await hashPassword(password), account.id); } catch (e) { if (e?.code !== 'AUTH_BUSY') throw e; }
+        }
         return { ok: true, accountId: account.id, libraryId: account.library_id, ...startSession(account.id, ua, now) };
     }
 
