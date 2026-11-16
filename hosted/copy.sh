@@ -105,7 +105,7 @@ copies() { docker ps -a --filter label=terramentor.copy --format '{{.Label "terr
 # run already holds it (undo_new after a failed apply) goes straight on.
 PROXY_HELD=""
 proxy_apply() {
-    local mine=""
+    local mine="" n
     if [ -z "$PROXY_HELD" ]; then
         wait_lock _proxy
         PROXY_HELD=1
@@ -256,7 +256,7 @@ run_copy() {
 cmd_update() {
     local what="${1:-}"
     [ -n "$what" ] || die "usage: update <name> | --all"
-    local names
+    local names n
     if [ "$what" = --all ]; then names="$(copies)"; else valid_name "$what"; exists "$what" || die "no copy called $what"; names="$what"; fi
     # A registry image is fetched first; a locally built one is used as it is.
     docker pull -q "$TM_IMAGE" >/dev/null 2>&1 || echo "copy.sh: could not pull $TM_IMAGE; using the local image" >&2
@@ -327,7 +327,7 @@ cmd_backup() {
     local what="${1:-}"
     [ -n "$what" ] || die "usage: backup <name> | --all"
     if [ "$what" = --all ]; then
-        local failed=0
+        local failed=0 n
         for n in $(copies); do backup_one "$n" || { echo "copy.sh: backup of $n FAILED" >&2; failed=1; }; done
         return "$failed"
     fi
