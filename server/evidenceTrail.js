@@ -9,7 +9,7 @@
 import db from './database.js';
 import { checkMasteryEligibility, evidenceMoves } from './mastery.js';
 import { FADING_TOPIC, fadingCutoff } from './fading.js';
-import { feedBankQuestion } from './questionTrust.js';
+import { bankRefOfFeedKey } from './questionTrust.js';
 
 /** Newest first; a topic with more shows how many more there are. */
 export const TRAIL_LIMIT = 100;
@@ -31,14 +31,18 @@ const stmt = (sql) => {
  * and a vetoed or reported question splices the bank (questionTrust.js), so a
  * row with no uuid could show, and flag, a different question.
  */
-function feedQuestion(meta) {
+function feedQuestion(meta, banks) {
     if (meta?.source !== 'feed' || !meta.key || typeof meta.uuid !== 'string' || !meta.uuid) return null;
-    try {
-        const q = feedBankQuestion(meta.key, meta.uuid);
-        return q && typeof q.question === 'string' ? { stem: q.question, uuid: typeof q.uuid === 'string' ? q.uuid : null } : null;
-    } catch {
-        return null;
+    const ref = bankRefOfFeedKey(meta.key);
+    if (!ref) return null;
+    // One read and one parse per bank per request: a trail of 100 feed rows
+    // usually comes from two or three banks.
+    if (!banks.has(ref.quizId)) {
+        const qs = parse(stmt('SELECT questions FROM quizzes WHERE id = ?').get(ref.quizId)?.questions);
+        banks.set(ref.quizId, Array.isArray(qs) ? qs : []);
     }
+    const q = banks.get(ref.quizId).find(x => x && typeof x === 'object' && x.uuid === meta.uuid);
+    return q && typeof q.question === 'string' ? { stem: q.question, uuid: q.uuid } : null;
 }
 
 /**
@@ -102,10 +106,11 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
         LIMIT ?
     `).all(node.id, TRAIL_LIMIT);
 
+    const banks = new Map();
     const rows = raw.map((r) => {
         const meta = parse(r.metadata) ?? {};
         const move = moves.get(r.id) ?? null;
-        const question = r.total === 1 ? feedQuestion(meta) : null;
+        const question = r.total === 1 ? feedQuestion(meta, banks) : null;
         return {
             id: r.id,
             type: r.evidence_type,

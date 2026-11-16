@@ -693,7 +693,11 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
  * What each proving answer did to the estimate the gate reads: evidence id →
  * `{ before, after }`, by the proving-only replay `gateScoreOf` runs, from the
  * seed the row holds now. So the steps end at the number a learner is shown
- * (shown_score) whenever practice did not lift it. Practice rows (cards,
+ * (shown_score) unless practice moved it: cards lifted it (shown_score above
+ * the gate's), or missed practice or a wrong agent claim after the last row
+ * lowered it (gate_score under the last step: the gate takes the stored
+ * estimate when lower, and the trailing claim is not a row). The trail says
+ * which in both cases. Practice rows (cards,
  * drills) and placement rows are not in it: practice does not count toward
  * proof, and a placement answer's contribution is the seed. Reads only; the
  * rates are today's, so a step is what that answer is worth now.
