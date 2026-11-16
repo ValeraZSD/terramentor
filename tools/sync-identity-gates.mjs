@@ -126,6 +126,7 @@ function seed(conn, tag) {
     // Two identical reviews in one millisecond: the collision the derived names must survive.
     for (let i = 0; i < 2; i++) one("INSERT INTO review_log (card_id, reviewed_at, rating, source) VALUES (?, '2026-11-01T10:00:00.000Z', 3, 'app')", c);
     one("INSERT INTO review_log (card_id, reviewed_at, rating, source) VALUES (?, '2026-11-02T10:00:00.000Z', 1, 'app')", c);
+    one("INSERT INTO schedule_events (card_id, kind, schedule, created_at) VALUES (?, 'set', '{\"next_review\":\"2026-11-09\"}', '2026-11-02T11:00:00.000Z')", c);
     const q = one("INSERT INTO quizzes (node_id, title, questions) VALUES (?, 'Q', '[]')", n);
     one("INSERT INTO quiz_attempts (quiz_id, score, total, answers, created_at) VALUES (?, 1, 2, '[]', '2026-11-01 10:00:00')", q);
     one("INSERT INTO question_log (quiz_id, question_index, node_id, surface, correct, asked_at) VALUES (?, 0, ?, 'feed', 1, '2026-11-01T10:00:00.000Z')", q, n);
