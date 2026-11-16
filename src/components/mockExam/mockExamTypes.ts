@@ -21,6 +21,8 @@ export interface ExamPaper {
     passGrade: number | null;
     paperDocumentId: number | null;
     solutionDocumentId: number | null;
+    /** The solution's file kind ('pdf', 'png'...): only a PDF is shown beside the points. */
+    solutionKind: string | null;
     total: number;
     passPoints: number | null;
     parts: ExamPart[];

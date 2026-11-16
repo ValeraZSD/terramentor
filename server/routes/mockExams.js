@@ -51,7 +51,9 @@ app.put('/api/mock-sittings/:id/scores', handle(req => {
     return setPartScore(idOf(req.params.id), idOf(partId), points === null ? null : points);
 }));
 
-app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id), { attemptId: req.body?.attemptId ?? null })));
+app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id), {
+    attemptId: req.body?.attemptId ?? null, fillUnmarked: req.body?.fillUnmarked === true,
+})));
 
 // The course's real exam, described once: on paper, or on screen with its length and pass line.
 app.put('/api/projects/:projectId/exam', handle(req => ({ exam: setExam(idOf(req.params.projectId), req.body || {}) })));

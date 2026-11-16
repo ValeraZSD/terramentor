@@ -20,7 +20,8 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
-import { Panel, Row } from './MockExamView';
+import { Row } from './MockExamView';
+import { Panel } from './Panel';
 import { useDuration } from './mockFormat';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
@@ -437,7 +438,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
             if (!ok) { setBusy(false); return; }
         }
         finishId.current ??= newAttemptId();
-        api.finishMock<CourseMockDetail>(sitting.id, finishId.current)
+        api.finishMock<CourseMockDetail>(sitting.id, { attemptId: finishId.current })
             .then(d => { finishId.current = null; onChange(d); })
             .catch(e => { addToast('error', e.message); setBusy(false); });
     };

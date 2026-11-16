@@ -2267,10 +2267,17 @@ export const api = {
         request<{ duplicate: boolean; answered: number; left: number; later: number }>(`/mock-sittings/${id}/answers`, { method: 'PUT', body: JSON.stringify(save) }),
     mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
+    /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
+    pauseMockOnLeave: (id: number) =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
     markMockPart: (id: number, partId: number, points: number | null) =>
         request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
-    finishMock: <D = MockDetail>(id: number, attemptId?: string) =>
-        request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null }) }),
+    /**
+     * `attemptId`: a course mock's finish, resent on retry, is written once.
+     * `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0").
+     */
+    finishMock: <D = MockDetail>(id: number, { attemptId, fillUnmarked = false }: { attemptId?: string; fillUnmarked?: boolean } = {}) =>
+        request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null, fillUnmarked }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:

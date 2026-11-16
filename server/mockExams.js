@@ -2,10 +2,10 @@
 // then marked by the learner part by part against the paper's worked solution.
 //
 // What a mock is for: an honest measurement across the course and a rehearsal
-// of the exam as it is really taken. It is not proof. A paper gives a topic one
-// to three parts, under the four questions the gate needs
-// (`MIN_GATE_QUESTIONS`), and the marks are the learner's own, so a finished
-// mock is written as 'mock' evidence: practice that moves each tagged topic's
+// of the exam as it is really taken. It is not proof. A paper gives a topic a
+// few parts, graded by the learner against a solution, so a finished mock is
+// written as 'mock' evidence, however many parts a topic has: practice that
+// moves each tagged topic's
 // estimate up or down and never completes, proves or reopens a topic
 // (server/mastery.js). A part left unmarked counts zero in the mock and writes
 // nothing against its topic.
@@ -65,12 +65,21 @@ export function gradeFor({ total, gradeMin, gradeMax }, points) {
 
 /**
  * The fewest points that reach the pass grade, or null with no pass grade.
- * Rounded UP from the exact share: half a point short of the line is short.
+ * A paper passes on its printed grade (one decimal), and points come in
+ * halves, so the line is the fewest half points whose printed grade reaches
+ * the pass grade: 39.5 of 79 prints 5.5 and passes, 39 prints 5.4. The line
+ * and `passed` therefore always agree with the grade on screen.
  */
-export function passPointsFor({ total, gradeMin, gradeMax, passGrade }) {
+export function passPointsFor(shape) {
+    const { total, gradeMin, gradeMax, passGrade } = shape;
     if (passGrade == null || gradeMin == null || gradeMax == null || !(total > 0)) return null;
     const exact = (passGrade - gradeMin) / (gradeMax - gradeMin) * total;
-    return Math.max(0, Math.min(total, Math.ceil(exact - 1e-9)));
+    // Rounding to one decimal moves the line by under a point: start a point
+    // below the exact share and step up a half at a time.
+    for (let pts = Math.max(0, Math.floor(exact * 2) / 2 - 1); pts <= total; pts += 0.5) {
+        if (gradeFor(shape, pts) >= passGrade) return pts;
+    }
+    return total;
 }
 
 // ---- papers ----------------------------------------------------------------
@@ -96,6 +105,9 @@ function paperView(row) {
         passGrade: row.pass_grade,
         paperDocumentId: row.paper_document_id,
         solutionDocumentId: row.solution_document_id,
+        // A PDF opens beside the points; a picture opens in its own tab.
+        solutionKind: row.solution_document_id == null ? null
+            : stmt('SELECT file_type FROM documents WHERE id = ?').get(row.solution_document_id)?.file_type ?? null,
         total,
         passPoints: passPointsFor(shape),
         parts,
@@ -110,11 +122,15 @@ export function getPaper(id) {
 }
 
 const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const MAX_GRADE = 1000;
 const optNumber = (v, name) => {
     if (v === null || v === undefined || v === '') return null;
-    if (!finite(v)) throw bad(`${name} must be a number`);
+    if (!finite(v) || v < 0 || v > MAX_GRADE) throw bad(`${name} must be a number from 0 to ${MAX_GRADE}`);
     return v;
 };
+/** The kinds a browser shows inline, so the paper and its solution open beside the points. */
+const SHOWN_KINDS = ['pdf', 'jpg', 'png', 'webp'];
+const SHOWN_KINDS_SQL = SHOWN_KINDS.map(k => `'${k}'`).join(', ');
 
 /** Checks a paper's description and points table; returns the rows to write. */
 function readPaperInput(projectId, input) {
@@ -132,7 +148,10 @@ function readPaperInput(projectId, input) {
     }
     const doc = (v, name) => {
         if (v == null) return null;
-        if (!Number.isInteger(v) || !stmt('SELECT 1 FROM documents WHERE id = ? AND project_id = ?').get(v, projectId)) {
+        if (!Number.isInteger(v) || !stmt(`
+            SELECT 1 FROM documents WHERE id = ? AND project_id = ? AND file_hash IS NOT NULL
+                AND status IS NOT 'failed' AND file_type IN (${SHOWN_KINDS_SQL})
+        `).get(v, projectId)) {
             throw bad(`The ${name} must be a file of this course`);
         }
         return v;
@@ -154,7 +173,7 @@ function readPaperInput(projectId, input) {
         if (!Number.isInteger(p.points) || p.points < 1 || p.points > MAX_POINTS) throw bad(`Question ${question}${part} needs its points, a whole number of at least 1`);
         let nodeId = null;
         if (p.nodeId != null) {
-            if (!Number.isInteger(p.nodeId) || !stmt('SELECT 1 FROM nodes WHERE id = ? AND project_id = ? AND is_note = 0').get(p.nodeId, projectId)) {
+            if (!Number.isInteger(p.nodeId) || !stmt(`SELECT 1 FROM nodes n WHERE n.id = ? AND n.project_id = ? AND ${WORK_LEAF}`).get(p.nodeId, projectId)) {
                 throw bad(`The topic of question ${question}${part} is not in this course`);
             }
             nodeId = p.nodeId;
@@ -192,6 +211,7 @@ export function deletePaper(id) {
 
 /** Everything the course's mock exam screen opens with. */
 export function listForProject(projectId, { now = Date.now() } = {}) {
+    if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     const papers = stmt("SELECT * FROM exam_papers WHERE project_id = ? AND source = 'paper' ORDER BY created_at, id").all(projectId).map(row => {
         const view = paperView(row);
         const sittings = stmt('SELECT * FROM mock_sittings WHERE paper_id = ? ORDER BY started_at, id').all(row.id)
@@ -206,7 +226,8 @@ export function listForProject(projectId, { now = Date.now() } = {}) {
     `).all(projectId);
     const documents = stmt(`
         SELECT id, title, file_type AS fileType FROM documents
-        WHERE project_id = ? AND file_hash IS NOT NULL AND status IS NOT 'failed' ORDER BY id DESC
+        WHERE project_id = ? AND file_hash IS NOT NULL AND status IS NOT 'failed' AND file_type IN (${SHOWN_KINDS_SQL})
+        ORDER BY id DESC
     `).all(projectId);
     return { papers, topics, documents, course: courseReadiness(projectId), courseSittings: courseSittingsOf(projectId, now) };
 }
@@ -389,13 +410,21 @@ export function sittingDetail(id, { now = Date.now() } = {}) {
  * 'mock' evidence row: its marked parts, a part counting right at half its
  * points or more. Unmarked parts and parts with no topic write nothing. A
  * second finish returns the stored result and writes nothing.
+ *
+ * `fillUnmarked` ("Give them 0") records 0 for every ungraded part in the
+ * same transaction, so a failure half-way leaves no part changed.
  */
-export function finishSitting(id, { now = Date.now(), attemptId = null } = {}) {
+export function finishSitting(id, { now = Date.now(), attemptId = null, fillUnmarked = false } = {}) {
     if (isCourse(requireSitting(id))) return finishCourse(id, { now, attemptId });
     db.transaction(() => {
         const s = requireSitting(id);
         if (s.status === 'done') return;
         if (s.status === 'writing') throw new MockExamError(409, 'Say you are done writing first');
+        if (fillUnmarked) {
+            for (const p of scopeOf(s, getPaper(s.paper_id))) {
+                stmt('INSERT OR IGNORE INTO mock_part_scores (sitting_id, part_id, points) VALUES (?, ?, 0)').run(id, p.id);
+            }
+        }
         const paper = getPaper(s.paper_id);
         const { parts } = resultOf(s, paper);
         const byTopic = new Map();
