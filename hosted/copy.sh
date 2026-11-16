@@ -262,6 +262,9 @@ cmd_update() {
         backup_one "$n" >/dev/null || die "the backup of $n failed; $n was not updated"
         docker rm -f "$(container "$n")" >/dev/null
         run_copy "$n"
+        # Another command applying the proxy while this container was gone
+        # left its network out; apply again (a no-op when nothing changed).
+        proxy_apply
         wait_up "$n"
         echo "updated: $n"
     done

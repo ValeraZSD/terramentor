@@ -140,7 +140,8 @@ running_a && [ "$(login "$A" "$pwA" a4)" = 200 ] && c "$A" /api/projects -b "$WO
 before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
 bash "$COPY" backup "$A" >/dev/null & p1=$!
 bash "$COPY" backup "$A" >/dev/null & p2=$!
-wait "$p1" && wait "$p2" || no "two backups at once failed"
+r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
+[ "$r1" = 0 ] && [ "$r2" = 0 ] || no "two backups at once failed ($r1, $r2)"
 [ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = $((before + 2)) ] && ok "two backups at once keep two archives" || no "two backups at once kept $(ls "$TM_BACKUP_DIR/$A")"
 newest="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | sort | tail -1)"
 TM_BACKUP_KEEP=2 bash "$COPY" backup "$A" >/dev/null
@@ -173,7 +174,8 @@ r1=0; r2=0; r3=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?; wait "$p3" || r3=$?
     && ok "a copy made at the same time as another: both stay behind the proxy" || no "new dave beside erin: $r3 $(sed 's/^password: .*/password: (hidden)/' "$WORK/dave")"
 bash "$COPY" remove erin --yes >/dev/null & p1=$!
 bash "$COPY" remove dave --yes >/dev/null & p2=$!
-wait "$p1" && wait "$p2" || no "two removes at once failed"
+r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
+[ "$r1" = 0 ] && [ "$r2" = 0 ] || no "two removes at once failed ($r1, $r2)"
 for n in erin dave; do
     docker container inspect "tm-$n" >/dev/null 2>&1 || docker network inspect "tm-$n" >/dev/null 2>&1 || docker volume inspect "tm-$n-data" >/dev/null 2>&1 \
         && no "two removes at once left something of $n"
