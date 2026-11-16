@@ -12,9 +12,10 @@
 //      learner's day boundary, the burst filter on reviews, and the two routes.
 //
 // The clock is a PARAMETER: every date below derives from NOW, never from
-// Date.now(), so the suite reads the same at every hour (see the pinned-clock
-// note in gate-assertions-must-not-read-the-clock). The routes read the real
-// clock, so their checks use a date long past and assert shape only.
+// Date.now(). PACE_GATES_NOW picks the DAY (a DST switch, a month end); the hour
+// is always 12:00 UTC, the same date in UTC and in Amsterdam, so one `TODAY`
+// serves both halves. The routes read the real clock, so their checks use a
+// date long past and assert shape only.
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,7 +38,7 @@ const check = (label, cond, extra = '') => {
 const near = (a, b, eps = 1e-6) => typeof a === 'number' && Math.abs(a - b) <= eps;
 const show = (v) => JSON.stringify(v);
 
-const NOW = new Date(process.env.PACE_GATES_NOW || '2026-06-10T12:00:00.000Z');
+const NOW = new Date(`${(process.env.PACE_GATES_NOW || '2026-06-10').slice(0, 10)}T12:00:00.000Z`);
 const NOW_MS = NOW.getTime();
 const DAY_MS = 86_400_000;
 const TODAY = NOW.toISOString().slice(0, 10); // the pure half works in UTC days
@@ -81,6 +82,17 @@ console.log('\n--- the weekly series: 7-day blocks ending yesterday ---');
 
     const none = learnerPace([], { since: null, today: TODAY });
     check('no record at all: no weeks, no pace', none.weeksOfData === 0 && none.recent === null && none.best === null, show(none));
+
+    // Facts from another party: a bad date must not stall or skew the record.
+    const ancient = learnerPace([ago(3)], { since: '1970-01-01', today: TODAY });
+    check('a record "since 1970" reaches back three years at most', ancient.weeksOfData === model.MAX_HISTORY_WEEKS, show(ancient.weeksOfData));
+    const junk = learnerPace(['not a date', '', null, ago(2)], { since: 'soon', today: TODAY });
+    check('a since that is not a date: no weeks (and no endless loop)', junk.weeksOfData === 0, show(junk));
+    const junkDays = learnerPace(['2026-13-45x', ago(2)], { since: ago(14), today: TODAY });
+    check('a completion that is not a date is left out', junkDays.weeks[0].count === 1, show(junkDays.weeks));
+    let threwToday = false;
+    try { learnerPace([], { since: null, today: 'today' }); } catch { threwToday = true; }
+    check('a today that is not a date is refused', threwToday);
 }
 
 console.log('\n--- recency weighting: a week counts half every 4 weeks back ---');
@@ -201,8 +213,13 @@ console.log('\n--- the bands, at their edges ---');
 
     check('no date: no verdict', judgeDate(steady, { open: 4, deadline: null, today: TODAY }).band === 'no_date');
     check('nothing open: done', at(0, 14).band === 'done' && at(0, 14).offers.length === 0);
-    check('the date is today: passed', at(4, 0).band === 'passed', at(4, 0).band);
+    check('the date is today: still a day to study, not passed', at(4, 0).band === 'on_pace' && at(4, 0).daysLeft === 0, show(at(4, 0)));
     check('the date has gone by: passed', at(4, -3).band === 'passed' && at(4, -3).daysLeft === -3, show(at(4, -3)));
+    // A weekly rate over "one day left" would call the last topic of every
+    // course out of reach: under a week, the date is judged as a week's work.
+    check('the last topic, due tomorrow, at 5 a week: on pace', at(1, 1).band === 'on_pace' && at(1, 1).offers.length === 0, show(at(1, 1)));
+    check('3 topics in 3 days at 5 a week: on pace', at(3, 3).band === 'on_pace', show(at(3, 3)));
+    check('10 topics by tomorrow at a best of 5 a week: out of reach, 5 fit', at(10, 1).band === 'out_of_reach' && at(10, 1).fits === 5, show(at(10, 1)));
     check('every band is one of the published set', [at(10, 14), at(11, 14), at(18, 35, paused), at(19, 35, paused), at(0, 14), at(4, 0)]
         .every(v => BANDS.includes(v.band)));
     check('the verdict carries the three numbers a sentence needs', ['needed', 'recent', 'best', 'fits', 'open', 'daysLeft']
@@ -340,12 +357,18 @@ const review = (cardId, ms) => db.prepare(`INSERT INTO review_log (card_id, revi
     review(human1, t0 + 120_000);            // a second review is not a new card
     burst.forEach((c, i) => review(c, t0 + 600_000 + i * 400)); // 0.4 s apart: a script, not a person
     review(human2, t0 + 900_000);
+    // Exactly 2.000 s apart is not a burst (julianday reads it as 1.99999 s).
+    const paced = [card(true), card(true)];
+    review(paced[0], t0 + 1_800_000);
+    review(paced[1], t0 + 1_802_000);
+    // A card whose review count is NULL has not been met.
+    db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, 'q', 'a', NULL, ?)`).run(stage, iso(NOW_MS - DAY_MS));
     const rec = learnerRecord({ timeZone: 'UTC' });
-    check('cards met: first reviews only, bursts under 2 s left out', rec.cardDays.length === 2, show(rec.cardDays));
+    check('cards met: first reviews only, bursts under 2 s left out', rec.cardDays.length === 4, show(rec.cardDays));
 
     const v = projectVerdict(deck, { now: NOW_MS, timeZone: 'UTC' });
     check('a deck is judged in cards', v.unit === 'cards', show(v.unit));
-    check('…its open work is the cards not met yet (6)', v.open === 6, show(v.open));
+    check('…its open work is the cards not met yet (6, and the one with no count)', v.open === 7, show(v.open));
     check('…and never offers the placement check', !v.offers.some(o => o.kind === 'check_known'));
 }
 

@@ -25,7 +25,12 @@ import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
 import { judgeDate, learnerPace } from './paceModel.js';
 
 const BURST_SECONDS = 2;
-const AS_ISO = (col) => `strftime('%Y-%m-%dT%H:%M:%SZ', ${col})`;
+// julianday() carries about a tenth of a millisecond of float error: two rows
+// written exactly 2.000 s apart read as 1.99999 s. A millisecond of slack keeps
+// them apart without letting a real burst through.
+const BURST_SLACK = 0.001;
+const MISSES = new Set(['under_pace', 'tight', 'out_of_reach']);
+const AS_ISO =(col) => `strftime('%Y-%m-%dT%H:%M:%SZ', ${col})`;
 
 let stmts = null;
 // Prepared on first use: today.js and this file sit in an import cycle with
@@ -48,15 +53,22 @@ function statements() {
             )
             SELECT ${AS_ISO('reviewed_at')} AS at FROM r
             WHERE nth = 1
-              AND (prev_jd IS NULL OR (jd - prev_jd) * 86400 >= ${BURST_SECONDS})
-              AND (next_jd IS NULL OR (next_jd - jd) * 86400 >= ${BURST_SECONDS})
+              AND (prev_jd IS NULL OR (jd - prev_jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
+              AND (next_jd IS NULL OR (next_jd - jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
         `),
+        // Where the record begins: three aggregates, no sort, so a screen that
+        // needs only topics never pays for the review log's window query.
         firstCourse: db.prepare(`SELECT MIN(${AS_ISO('created_at')}) AS at FROM projects`),
+        firstClosed: db.prepare(`
+            SELECT ${AS_ISO('MIN(julianday(n.completed_at))')} AS at FROM nodes n
+            WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
+        `),
+        firstReview: db.prepare(`SELECT ${AS_ISO('MIN(julianday(reviewed_at))')} AS at FROM review_log`),
         project: db.prepare('SELECT id, deadline, status FROM projects WHERE id = ?'),
         openTopics: db.prepare(`SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}`),
         unmetCards: db.prepare(`
             SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
-            WHERE n.project_id = ? AND NOT (f.review_count > 0 AND f.last_reviewed IS NOT NULL)
+            WHERE n.project_id = ? AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)
         `),
         // Other courses still asking for time: active, dated after today, with
         // a topic or a card left.
@@ -66,7 +78,7 @@ function statements() {
               AND p.deadline IS NOT NULL AND p.deadline > ?
               AND (EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${OPEN_WORK_LEAF})
                    OR EXISTS (SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
-                              WHERE n.project_id = p.id AND NOT (f.review_count > 0 AND f.last_reviewed IS NOT NULL)))
+                              WHERE n.project_id = p.id AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)))
         `),
     };
     return stmts;
@@ -78,32 +90,46 @@ const toDays = (rows, timeZone) => rows
     .map(ms => localDate(ms, timeZone));
 
 /**
- * The learner's record as local days: when topics were closed, when cards were
- * first met, and the day the record begins (the oldest course, or an older
- * completion brought in with an imported course).
+ * The day the learner's record begins: the oldest course, or an older
+ * completion or review brought in with an imported course.
  */
+export function recordSince({ timeZone = learnerTimeZone() } = {}) {
+    const s = statements();
+    const days = [s.firstCourse.get()?.at, s.firstClosed.get()?.at, s.firstReview.get()?.at]
+        .map(at => Date.parse(at))
+        .filter(Number.isFinite)
+        .map(ms => localDate(ms, timeZone));
+    return days.length ? days.reduce((a, b) => (b < a ? b : a)) : null;
+}
+
+/** The learner's record as local days: when topics were closed, when cards were first met. */
 export function learnerRecord({ timeZone = learnerTimeZone() } = {}) {
     const s = statements();
-    const topicDays = toDays(s.topicsClosed.all(), timeZone);
-    const cardDays = toDays(s.cardsMet.all(), timeZone);
-    const firstCourse = s.firstCourse.get()?.at;
-    const starts = [...topicDays, ...cardDays];
-    if (firstCourse && Number.isFinite(Date.parse(firstCourse))) starts.push(localDate(Date.parse(firstCourse), timeZone));
-    const since = starts.length ? starts.reduce((a, b) => (b < a ? b : a)) : null;
-    return { since, topicDays, cardDays };
+    return {
+        since: recordSince({ timeZone }),
+        topicDays: toDays(s.topicsClosed.all(), timeZone),
+        cardDays: toDays(s.cardsMet.all(), timeZone),
+    };
 }
 
 /**
- * The learner's weeks in both units, read once and shared by every course a
- * screen judges.
+ * The learner's weeks in both units, shared by every course a screen judges.
+ * Each unit is read on first use and kept: a screen with no dated deck never
+ * runs the review log's window query, and one with no date reads nothing.
  */
 export function libraryPace({ now = Date.now(), timeZone = learnerTimeZone() } = {}) {
     const today = studyToday({ now, timeZone });
-    const rec = learnerRecord({ timeZone });
+    const s = statements();
+    let since, topics, cards;
+    const start = () => (since === undefined ? (since = recordSince({ timeZone })) : since);
     return {
         today,
-        topics: learnerPace(rec.topicDays, { since: rec.since, today }),
-        cards: learnerPace(rec.cardDays, { since: rec.since, today }),
+        get topics() {
+            return topics ??= learnerPace(toDays(s.topicsClosed.all(), timeZone), { since: start(), today });
+        },
+        get cards() {
+            return cards ??= learnerPace(toDays(s.cardsMet.all(), timeZone), { since: start(), today });
+        },
     };
 }
 
@@ -131,9 +157,7 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     const cards = projectCountsInCards(project.id);
     const open = cards ? s.unmetCards.get(project.id).c : s.openTopics.get(project.id).c;
     const otherCourses = s.otherCourses.get(project.id, lib.today).c;
-    // The placement check places topics; a deck has none to place.
-    const canCheckKnown = !cards && open > 0 && probeAvailability(project.id).available === true;
-    const verdict = judgeDate(cards ? lib.cards : lib.topics, {
+    const judge = (canCheckKnown) => judgeDate(cards ? lib.cards : lib.topics, {
         open,
         deadline: project.deadline,
         today: lib.today,
@@ -142,5 +166,10 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
         otherCourses,
         ...dateOwnership(),
     });
+    let verdict = judge(false);
+    // The placement check is offered only when the date misses, so it is
+    // asked only then (it walks the course's tree). It places topics; a deck
+    // has none to place.
+    if (!cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) verdict = judge(true);
     return { ...verdict, otherCourses };
 }

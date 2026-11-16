@@ -39,6 +39,13 @@ export const VERDICT_FROM_WEEKS = 2;
 export const RANGE_FROM_WEEKS = 4;
 /** With one week of data it speaks only when the date needs this many times the pace so far. */
 export const EARLY_FACTOR = 2;
+/** The record reaches back at most this many weeks (three years). */
+export const MAX_HISTORY_WEEKS = 156;
+/**
+ * A date closer than this is judged as this many weeks of work: the weekly rate
+ * divided by "one day left" would call the last topic of any course out of reach.
+ */
+export const MIN_HORIZON_WEEKS = 1;
 export const RANGE_LOW = 0.2;
 export const RANGE_HIGH = 0.8;
 const REPLAYS = 2000;
@@ -55,7 +62,8 @@ const EPS = 1e-9;
  * tight        — the date needs more than 60% of the best pace, up to all of it
  * out_of_reach — the date needs more than the best pace ever held
  * done         — nothing open
- * passed       — the date is today or gone, with work open
+ * passed       — the date has gone by, with work open (the deadline day itself
+ *                still counts, as one week's work at least)
  * no_date      — the course has no date
  */
 export const BANDS = ['learning', 'on_pace', 'under_pace', 'tight', 'out_of_reach', 'done', 'passed', 'no_date'];
@@ -71,6 +79,12 @@ export const BANDS = ['learning', 'on_pace', 'under_pace', 'tight', 'out_of_reac
 export const OFFERS = ['fit_subset', 'plan_weekly', 'check_known', 'pause_others', 'move_date'];
 
 const dayNum = (date) => Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
+/** dayNum of a `YYYY-MM-DD` string, or null for anything else. */
+function dayNumOf(date) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const n = dayNum(date);
+    return Number.isFinite(n) ? n : null;
+}
 const dayStr = (n) => new Date(n * DAY_MS).toISOString().slice(0, 10);
 const weightOf = (weeksAgo) => Math.pow(0.5, weeksAgo / HALF_LIFE_WEEKS);
 const round2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
@@ -89,12 +103,17 @@ const round2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
  *   quietWeeks: number }}  weeks newest first
  */
 export function learnerPace(days, { since, today }) {
-    const t = dayNum(today);
-    const first = since ? dayNum(since) : null;
+    const t = dayNumOf(today);
+    if (t == null) throw new TypeError(`learnerPace: today must be YYYY-MM-DD, got ${String(today).slice(0, 20)}`);
+    // The facts may come from another party: a date that is not one is left
+    // out, and the record reaches back at most MAX_HISTORY_WEEKS, so one
+    // completion imported with a 1970 date cannot add fifty years of empty weeks.
+    const sinceNum = dayNumOf(since);
+    const first = sinceNum == null ? null : Math.max(sinceNum, t - MAX_HISTORY_WEEKS * 7);
     const perDay = new Map();
     for (const d of days || []) {
-        const n = dayNum(d);
-        perDay.set(n, (perDay.get(n) || 0) + 1);
+        const n = dayNumOf(d);
+        if (n != null) perDay.set(n, (perDay.get(n) || 0) + 1);
     }
     const weeks = [];
     if (first != null) {
@@ -224,10 +243,14 @@ function finishRanges(pace, open, t) {
 export function judgeDate(pace, {
     open, deadline, today, unit = 'topics', fixed = false, assigned = false, canCheckKnown = false, otherCourses = 0,
 }) {
-    const t = dayNum(today);
+    const t = dayNumOf(today);
+    if (t == null) throw new TypeError(`judgeDate: today must be YYYY-MM-DD, got ${String(today).slice(0, 20)}`);
     const locked = Boolean(fixed || assigned);
-    const daysLeft = deadline ? dayNum(deadline) - t : null;
-    const weeksLeft = daysLeft != null && daysLeft > 0 ? daysLeft / 7 : null;
+    const due = dayNumOf(deadline);
+    const daysLeft = due == null ? null : due - t;
+    // The deadline day is still a day to study on (as `deadlineInfo` in
+    // server/today.js counts it): a date is passed only once it has gone by.
+    const weeksLeft = daysLeft != null && daysLeft >= 0 ? Math.max(daysLeft / 7, MIN_HORIZON_WEEKS) : null;
     const needed = weeksLeft ? open / weeksLeft : null;
     const recent = pace.recent;
     const best = pace.best;
@@ -235,9 +258,9 @@ export function judgeDate(pace, {
 
     let band;
     let early = false;
-    if (!deadline) band = 'no_date';
+    if (due == null) band = 'no_date';
     else if (!(open > 0)) band = 'done';
-    else if (daysLeft <= 0) band = 'passed';
+    else if (daysLeft < 0) band = 'passed';
     else if (pace.weeksOfData < VERDICT_FROM_WEEKS) {
         band = 'learning';
         // One week of data is enough to say "this needs twice what you are
@@ -264,7 +287,7 @@ export function judgeDate(pace, {
         band,
         early,
         open,
-        deadline: deadline || null,
+        deadline: due == null ? null : deadline,
         daysLeft,
         needed: round2(needed),
         recent: round2(recent),
