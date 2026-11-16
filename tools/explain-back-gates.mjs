@@ -6,8 +6,9 @@
 // never a button that marks the same words twice. Mounted in jsdom from the
 // real component, with the marker answered by a stub:
 //
-//   1. before any verdict: no button until the first word, then one
-//      "Check my explanation", not filled;
+//   1. before any verdict: one "Check my explanation", not filled, off
+//      until the first word (hidden, the box promised a check with no
+//      control, and the part's filled "Got it, continue" was all to press);
 //   2. weak on unchanged words: the step is a line ("Change your words…"),
 //      "Read the part again" outlined and alone (a filled one pulled the
 //      thumb to a scroll; a "Check again" that is off read as broken);
@@ -150,7 +151,7 @@ const UNSURE = { verdict: 'unsure', reason: '' };
 if (ExplainBack) {
     {
         const { host, r, heard } = await mount([WEAK, GOOD]);
-        ok('nothing typed: no check button yet (an off button read as broken)', buttons(host).length === 0, JSON.stringify(buttons(host)));
+        ok('nothing typed: the check button shows, off (hidden, the box promised a check with no control)', JSON.stringify(buttons(host)) === '["Check my explanation(off)"]', JSON.stringify(buttons(host)));
         ok('nothing typed: the empty box says what to type', !!host.querySelector('textarea')?.getAttribute('placeholder'));
         await setText(host, 'Heavier swings slower.');
         ok('before a verdict: one check button, not filled', JSON.stringify(buttons(host)) === '["Check my explanation"]', JSON.stringify(buttons(host)));

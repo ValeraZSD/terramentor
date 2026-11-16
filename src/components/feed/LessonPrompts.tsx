@@ -242,16 +242,17 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 )}
             </div>
             {/* Weak, the next step is to rewrite: "Check again" appears,
-                filled, only once the words change. A button that is off
-                until you type read as broken, and for the same reason the
-                first check waits for the first word. */}
+                filled, only once the words change. Before the first check
+                the button shows, off, from the start: hidden, the box
+                promised a check with no control in sight, and the part's
+                filled "Got it, continue" was the only thing to press. */}
             {/* Weak on unchanged words, what to do next is the instruction,
-                on its own line in the ink of a step, not a caption beside a
-                button. */}
+                on its own line, not a caption beside a button. Regular
+                weight: bold, it outweighed the verdict and its reason. */}
             {weak && (!canCheck || !text.trim()) && (
-                <p className="mt-3 text-sm font-medium text-slate-800 dark:text-slate-100">{t("Change your words to check them again.")}</p>
+                <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">{t("Change your words to check them again.")}</p>
             )}
-            {(weak || (canCheck && !!text.trim())) && (
+            {(weak || (canCheck && (!!text.trim() || !verdict))) && (
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                     {failed && (
                         <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
