@@ -69,6 +69,12 @@ check('the correction is stored as the learner\'s, with no model named',
 check('control bytes and runs of space are folded away',
     cleanDescription('a\u0007cat\n\n on   a mat\u0000') === 'a cat on a mat');
 check('a description is bounded at 600 characters', cleanDescription('x'.repeat(5000)).length === 600);
+check('zero-width and direction marks are dropped', cleanDescription('a​cat‮ on⁦ a mat﻿') === 'acat on a mat');
+check('...and the cut never splits a character in two', [...cleanDescription('\u{1F600}'.repeat(700))].length === 600
+    && !/[\ud800-\udbff]$/.test(cleanDescription('a' + '\u{1F600}'.repeat(700))));
+check('a model\'s write lands only where no person has written meanwhile',
+    /UPDATE media_files SET description = \?, described_by = \?, generated_by = \?\s+WHERE hash = \? AND \(description IS NULL OR description = '' OR described_by = 'vision'\)/
+        .test(readFileSync(join(repoRoot, 'server/mediaDescribe.js'), 'utf8')));
 const cleared = setLearnerDescription(BARE, '   ');
 check('an empty text clears it, handing the picture back to the sweep',
     cleared.ok && row(BARE).description === null && row(BARE).described_by === null

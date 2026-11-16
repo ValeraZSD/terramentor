@@ -54,11 +54,14 @@ const HUMAN_SOURCES = new Set(['author', 'learner']);
 
 /** Strip what a screen reader would read out as noise, and bound the length. */
 export function cleanDescription(value) {
-    return String(value ?? '')
+    const text = String(value ?? '')
         .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        // Zero-width and direction marks: invisible, and read out or reorder text.
+        .replace(/[​-‏‪-‮⁦-⁩﻿]+/g, '')
         .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, MAX_DESCRIPTION);
+        .trim();
+    // By characters, so the cut never splits an emoji into half a pair.
+    return [...text].slice(0, MAX_DESCRIPTION).join('').trim();
 }
 
 /**
@@ -84,17 +87,18 @@ export function setLearnerDescription(hash, value) {
  * model-written ones first, since those are the ones to check.
  */
 export function listDescriptions({ projectId = null, offset = 0, limit = 50 } = {}) {
+    // One whole ROW per file (its first), never columns mixed from several:
+    // a file used by two projects has a row each, and an author's text must
+    // not be shown under another row's "written by AI".
     const where = projectId ? `WHERE kind = 'image' AND project_id = ?` : `WHERE kind = 'image'`;
     const args = projectId ? [projectId] : [];
-    const rows = db.prepare(`
-        SELECT hash, MIN(filename) AS filename, MAX(description) AS description,
-               MAX(described_by) AS described_by, MAX(generated_by) AS generated_by, MIN(id) AS first
-        FROM media_files ${where}
-        GROUP BY hash
-        ORDER BY (MAX(described_by) = 'vision') DESC, (MAX(description) IS NULL) DESC, first
+    return db.prepare(`
+        SELECT hash, filename, description, described_by, generated_by
+        FROM media_files
+        WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
+        ORDER BY (described_by IS 'vision') DESC, (description IS NULL) DESC, id
         LIMIT ? OFFSET ?
     `).all(...args, Math.max(1, Math.min(200, limit | 0)), Math.max(0, offset | 0));
-    return rows.map(({ first, ...r }) => r);
 }
 
 /** Rows still worth describing: images, no description yet. */
@@ -176,8 +180,12 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     // `described_by` stays the mechanism the stats query counts; `generated_by`
     // names the model, which is the part a blind learner's screen reader and the
     // tutor are both quoting downstream.
-    db.prepare('UPDATE media_files SET description = ?, described_by = ?, generated_by = ? WHERE hash = ?')
+    // The model took up to 90 s; a person may have written a description in
+    // that time. Their text wins, so the write only lands where none stands.
+    const wrote = db.prepare(`UPDATE media_files SET description = ?, described_by = ?, generated_by = ?
+        WHERE hash = ? AND (description IS NULL OR description = '' OR described_by = 'vision')`)
         .run(clean, 'vision', aiProvenance({ job: 'vision' }), hash);
+    if (wrote.changes === 0) return { ok: true, description: row.description, reason: 'already described' };
     return { ok: true, description: clean };
 }
 

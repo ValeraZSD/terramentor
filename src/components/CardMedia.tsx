@@ -90,6 +90,9 @@ function storedInfo(hash: string): Promise<MediaInfo | null> {
     if (!found) {
         found = api.mediaInfo(hash).catch(() => null);
         infoCache.set(hash, found);
+        // Only a description is kept: a failed lookup, or a picture the sweep
+        // has not reached yet, is asked again by the next card that shows it.
+        void found.then(info => { if (!info?.description) infoCache.delete(hash); });
     }
     return found;
 }

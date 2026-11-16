@@ -15,11 +15,16 @@ import type { MediaDescriptionRow } from '../../types';
  * (`setLearnerDescription` in server/mediaDescribe.js). Model-written rows
  * come first, since those are the ones that need checking.
  */
+/** Rows per request: the server's default page. */
+const PAGE = 50;
+
 export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
     const { t } = useTranslation();
     const showConfirm = useStore(s => s.showConfirm);
     const [rows, setRows] = useState<MediaDescriptionRow[] | null>(null);
     const [failed, setFailed] = useState(false);
+    const [more, setMore] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [drafts, setDrafts] = useState<Record<string, string>>({});
     const askingRef = useRef(false);
 
@@ -30,10 +35,23 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
         setFailed(false);
         setDrafts({});
         api.listMediaDescriptions()
-            .then(r => { if (live) setRows(r.items); })
+            .then(r => { if (live) { setRows(r.items); setMore(r.items.length === PAGE); } })
             .catch(() => { if (live) setFailed(true); });
         return () => { live = false; };
     }, [open]);
+
+    const showMore = async () => {
+        setLoadingMore(true);
+        try {
+            const r = await api.listMediaDescriptions(rows?.length ?? 0);
+            setRows(rs => [...(rs ?? []), ...r.items.filter(n => !rs?.some(o => o.hash === n.hash))]);
+            setMore(r.items.length === PAGE);
+        } catch {
+            setFailed(true);
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
     const dirty = rows?.some(r => r.hash in drafts && drafts[r.hash] !== (r.description ?? '')) ?? false;
 
@@ -85,6 +103,9 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
                             />
                         ))}
                     </ul>
+                )}
+                {rows && more && !failed && (
+                    <Button onClick={() => void showMore()} busy={loadingMore}>{t("Show more pictures")}</Button>
                 )}
             </div>
         </Modal>
