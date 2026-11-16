@@ -253,7 +253,10 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 <p className="mt-3 text-sm text-slate-700 dark:text-slate-200">{t("Change your words to check them again.")}</p>
             )}
             {(weak || (canCheck && (!!text.trim() || !verdict))) && (
-                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                // "Read the part again" sits left, under the line it belongs
+                // to: on the right it stacked on the part's own outlined
+                // "Continue anyway", two equal buttons for opposite moves.
+                <div className={cx('flex flex-wrap items-center gap-2', weak && (!canCheck || !text.trim()) ? 'mt-3 justify-start' : 'mt-4 justify-end')}>
                     {failed && (
                         <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
                             {t("It could not be marked just now. Your text is kept; try again.")}

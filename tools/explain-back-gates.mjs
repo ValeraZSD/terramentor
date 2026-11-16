@@ -158,6 +158,8 @@ if (ExplainBack) {
         await press(host, 'Check my explanation');
         ok('weak on unchanged words: "Read the part again" alone and not filled', JSON.stringify(buttons(host)) === '["Read the part again"]', JSON.stringify(buttons(host)));
         ok('weak on unchanged words: a line says how to check again', host.textContent.includes('Change your words to check them again.'));
+        const rereadRow = [...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Read the part again')?.parentElement;
+        ok('weak on unchanged words: "Read the part again" sits left, under its line, not stacked on "Continue anyway"', /\bjustify-start\b/.test(rereadRow?.className ?? ''), rereadRow?.className);
         await setText(host, 'The length sets the period, not the mass.');
         ok('weak, rewritten: one filled "Check again", nothing beside it', JSON.stringify(buttons(host)) === '["Check again*"]', JSON.stringify(buttons(host)));
         const label = () => [...host.querySelectorAll('p')].find(p => p.textContent.includes('Not there yet'));
