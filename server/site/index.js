@@ -1,0 +1,70 @@
+// Start a site's front desk: `node server/site/index.js`.
+//
+//   SITE_DIR                 the site's folder (site.db, libraries/); required
+//   PORT, HOST               where the front desk listens (3001, 127.0.0.1)
+//   SITE_HOSTS               the names it answers to, comma-separated (any when unset)
+//   SITE_SEPARATE            1 (default on Linux): each library runs as its own user,
+//                            which needs the front desk to run as root. 0 runs them all
+//                            as this user: development on your own machine only
+//   SITE_MAX_AWAKE           libraries running at once (20)
+//   SITE_LIBRARY_HEAP_MB     V8 heap cap per library (256)
+//   SITE_LIBRARY_MEMORY_MB   resident memory past which an idle library is stopped (400)
+//   SITE_IDLE_MINUTES        quiet minutes before a library is stopped (10)
+//   SITE_UID_BASE            first user id given to a library (100000)
+//   SITE_BREACH_CHECK        0 turns off the breached-password check
+//   AI_*                     the model every library uses (as for a hosted copy)
+//
+// docs/HOSTING.md, "Many people at one address", is the operator's guide.
+import '../ownerOnlyUmask.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openSiteDb } from './siteDb.js';
+import { createFrontDesk } from './frontDesk.js';
+
+const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+/** Why this front desk must not start, or null. */
+export function siteStartProblem(env = process.env, { platform = process.platform, uid = process.getuid?.() } = {}) {
+    if (!env.SITE_DIR) return 'SITE_DIR is not set: name the folder this site keeps its accounts and libraries in.';
+    const sep = String(env.SITE_SEPARATE ?? '').trim();
+    if (sep !== '' && sep !== '0' && sep !== '1') return `SITE_SEPARATE is "${sep}"; it must be 1 or 0.`;
+    const separate = sep === '' ? platform === 'linux' : sep === '1';
+    if (separate && platform !== 'linux') return 'SITE_SEPARATE=1 (each library as its own user) works on Linux only. Use SITE_SEPARATE=0 to try a site on this machine.';
+    if (separate && uid !== 0) return 'each library runs as its own user, which needs the front desk to run as root (docker run --user 0). SITE_SEPARATE=0 runs them all as one user, for development only.';
+    const [major, minor] = process.versions.node.split('.').map(Number);
+    if (major < 24 || (major === 24 && minor < 7)) return `Node ${process.versions.node} has no built-in argon2; the front desk needs Node 24.7 or later.`;
+    return null;
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+    const env = process.env;
+    const problem = siteStartProblem(env);
+    if (problem) {
+        console.error(`[site] Refusing to start: ${problem}`);
+        process.exit(1);
+    }
+    const separate = env.SITE_SEPARATE ? env.SITE_SEPARATE === '1' : process.platform === 'linux';
+    if (!separate) console.warn('[site] SITE_SEPARATE=0: every library runs as this user and can read the others. Development only.');
+    const siteDir = path.resolve(env.SITE_DIR);
+    const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+    const desk = createFrontDesk({
+        db: openSiteDb(siteDir), siteDir, appRoot, separate,
+        hosts: String(env.SITE_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
+        maxAwake: num(env.SITE_MAX_AWAKE, 20),
+        heapMb: num(env.SITE_LIBRARY_HEAP_MB, 256),
+        memoryMb: num(env.SITE_LIBRARY_MEMORY_MB, 400),
+        idleMs: num(env.SITE_IDLE_MINUTES, 10) * 60_000,
+        uidBase: num(env.SITE_UID_BASE, 100000),
+    });
+    const port = Number(env.PORT) || 3001;
+    const host = env.HOST || '127.0.0.1';
+    desk.server.listen(port, host, () => console.log(`[site] Front desk listening on ${host}:${port}`));
+    for (const sig of ['SIGINT', 'SIGTERM']) {
+        process.on(sig, () => {
+            console.log(`[site] Shutting down (${sig})`);
+            setTimeout(() => process.exit(0), 8000).unref();
+            desk.close().finally(() => process.exit(0));
+        });
+    }
+}
