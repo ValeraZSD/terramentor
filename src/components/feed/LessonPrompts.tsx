@@ -52,11 +52,12 @@ const refOf = (p: PreQuestion) => feedRowRef(p.feedItemId) ?? questionRef(p.ques
 const answered = (q: QuizQuestion, draft: string) => !!draft.trim() && answerIsComplete(q, draft);
 
 /**
- * A topic met for the first time opens on two or three of its own questions,
- * asked BEFORE the part (the pretesting effect: a guess first makes the
- * reading stick). No verdict and no key here: the part answers them, and the
- * same questions come back after it, where they count. The answers are
- * recorded once and are never evidence (`server/lessonPrompts.js`).
+ * A topic the app thinks the learner may partly know (a head start) opens on
+ * ONE quick-tap question of its own, asked BEFORE the part (the pretesting
+ * effect: a guess first makes the reading stick). A plainly new topic gets
+ * none: a quiz before the text there only discourages. No verdict and no key
+ * here: the part answers it, and the same question comes back after it, where
+ * it counts. Recorded once and never evidence (`server/lessonPrompts.js`).
  *
  * One button: with nothing answered it skips, with answers it goes on. Either
  * way the part opens, a failed save included: these answers count for nothing,
@@ -95,7 +96,7 @@ export function PreQuestions({ card, onDone }: { card: FeedLessonCard; onDone: (
                 {t("Before you read")}
             </p>
             <p className="mt-1 mb-4 text-sm text-slate-600 dark:text-slate-400">
-                {t("Guess if you are not sure. These do not count; the part below answers them.")}
+                {t("You may know some of this already. One quick guess; it does not count.")}
             </p>
             {items.map((p, i) => (
                 <PreQuestionItem

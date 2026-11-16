@@ -1,8 +1,13 @@
 // Two prompts around a lesson that are NOT evidence.
 //
-// Pre-questions: a topic's first part opens with two or three of the topic's
-// own questions, asked before anything is taught. Guessing first and reading
-// after is what makes the reading stick (the pretesting effect), but an answer
+// Pre-questions: a topic's first part opens with ONE of the topic's own
+// questions, a single tap, asked before anything is taught — and only when the
+// app already holds a head start on the topic (a placement or transfer seed,
+// `server/headStart.js`). On material that is plainly new, a quiz before the
+// text reads as a test the learner was set up to fail, and learners who meet
+// prequestions drop out more; where some of it may be known, one quick guess
+// primes the reading at little cost. Guessing first and reading after is what
+// makes the reading stick (the pretesting effect), but an answer
 // given before teaching says nothing about what was learned. So the answers go
 // to `pre_questions` and nowhere else: no `mastery_evidence`, no
 // `question_log`, no `answer_attempts`, and the feed row a pre-question came
@@ -18,19 +23,21 @@
 import db, { NOW_ISO } from './database.js';
 import { ANSWER_FORMATS, hasUsableKey } from './answerFormats.js';
 import { drawFromNode } from './questionLog.js';
+import { headStartFor } from './headStart.js';
 import { AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
 import { readReplyObject } from './jsonRepair.js';
 
-export const PRE_QUESTIONS_MIN = 2;
-export const PRE_QUESTIONS_MAX = 3;
+export const PRE_QUESTIONS_MAX = 1;
+// A tap, never typing: choice and true/false only.
+const TAP_FORMATS = new Set(['multiple_choice', 'true_false']);
 export const PRE_OUTCOMES = new Set(['answered', 'skipped']);
 export const EXPLANATION_MAX = 2000;
 // The part's text the marker reads, figures left out: they are specs, not
 // prose, and a long animation would push the explanation out of a small model.
 const PART_TEXT_MAX = 6000;
 
-/** Graded here, with no model: a pre-question must work with none set up. */
-const gradedLocally = (q) => !!q && ANSWER_FORMATS[q.type]?.grading === 'local' && hasUsableKey(q);
+/** One tap, graded here with no model: a pre-question must work with none set up. */
+const gradedLocally = (q) => !!q && TAP_FORMATS.has(q.type) && ANSWER_FORMATS[q.type]?.grading === 'local' && hasUsableKey(q);
 
 const askedStmt = () => db.prepare('SELECT 1 FROM pre_questions WHERE node_id = ? LIMIT 1');
 
@@ -42,9 +49,11 @@ const askedStmt = () => db.prepare('SELECT 1 FROM pre_questions WHERE node_id = 
  * The topic's own per-part questions first, in part order: each was written
  * from its part and passed the feed's gates, and it is asked again after that
  * part. A topic asked from its bank has none, so its bank tops the list up.
- * Fewer than two is no round at all.
+ * No head start, or one the learner's own answers have already spent: none.
  */
 export function preQuestionsFor(nodeId, readyRows, { exclude = new Set() } = {}) {
+    const head = headStartFor(nodeId);
+    if (!head || head.spent) return null;
     if (askedStmt().get(nodeId)) return null;
     const picks = [];
     for (const row of readyRows) {
@@ -55,13 +64,13 @@ export function preQuestionsFor(nodeId, readyRows, { exclude = new Set() } = {})
         if (gradedLocally(q)) picks.push({ feedItemId: row.id, question: q });
     }
     if (picks.length < PRE_QUESTIONS_MAX) {
-        const drawn = drawFromNode(nodeId, PRE_QUESTIONS_MAX * 3, { exclude }).questions;
+        const drawn = drawFromNode(nodeId, 9, { exclude }).questions;
         for (const d of drawn) {
             if (picks.length >= PRE_QUESTIONS_MAX) break;
             if (gradedLocally(d.question)) picks.push({ feedItemId: null, question: d.question });
         }
     }
-    return picks.length >= PRE_QUESTIONS_MIN ? picks : null;
+    return picks.length ? picks : null;
 }
 
 const REF = /^(fi:[1-9]\d{0,11}|q:[0-9a-f-]{8,64})$/i;
