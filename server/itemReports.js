@@ -31,7 +31,7 @@ export const REPORT_NOTE_MAX = 1000;
 // Where a report was sent from: a closed vocabulary, so it may reach the
 // activity log beside the kind and the reason.
 export const REPORT_SURFACES = new Set([
-    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant',
+    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant', 'mock',
 ]);
 
 // A parked card's next review: past every due query (`next_review <= now`)
@@ -356,7 +356,8 @@ function reportBankQuestion(undo, target) {
     const positions = all.map(h => ({ quizId: h.quizId, index: h.index }));
 
     // Evidence first, while the legacy feed keys still point at their positions.
-    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check') ORDER BY id`).all(target.nodeId);
+    // A mock exam from the course names its questions the same way (server/mockExams.js).
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check', 'mock') ORDER BY id`).all(target.nodeId);
     voidItems(undo, rows, e => uuids.has(e?.u));
     for (const row of rows) {
         if (undo.evidence.some(x => x.before.id === row.id)) continue;
