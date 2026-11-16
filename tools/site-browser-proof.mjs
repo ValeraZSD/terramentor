@@ -43,10 +43,11 @@ function findBrowser() {
 const freePort = () => new Promise((r) => { const s = createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 const port = await freePort();
+const browserPath = findBrowser(); // before the profile exists, so a missing browser leaves nothing behind
 const profile = mkdtempSync(join(tmpdir(), 'site-browser-proof-'));
 const env = { ...process.env };
 delete env.__COMPAT_LAYER;
-const browser = spawn(findBrowser(), ['--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+const browser = spawn(browserPath, ['--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     '--mute-audio', '--lang=en-US', '--window-size=1280,800', '--edge-skip-compat-layer-relaunch', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank',
     ...(process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [])], { stdio: 'ignore', env });
 // Until the proof's own try/finally below takes over, a failure while starting
