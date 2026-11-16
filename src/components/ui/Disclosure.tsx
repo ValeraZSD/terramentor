@@ -21,9 +21,10 @@
  *                      border. Thirty of them closed down a page are thirty
  *                      quiet lines; thirty bordered 40px boxes are a second
  *                      page of noise, which is what a settings page can least
- *                      afford. Open, the body takes a hairline down its left
- *                      edge — that is what says where the opened thing ends,
- *                      and it costs nothing while closed.
+ *                      afford. Open, the body hangs off a guide line under
+ *                      the chevron, never inside a box — the line is what says
+ *                      where the opened thing ends, and it costs nothing while
+ *                      closed.
  *
  *   ExpandableSection  CONTROLS behind a name. An icon, a title, one line of
  *                      what is inside, and the chevron at the far end. This is
@@ -101,15 +102,34 @@ const OPEN_EDGE =
 /** The rule under an opened summary, between it and its body. */
 const BODY_RULE = 'border-t border-slate-300 dark:border-slate-600';
 
-/** The opened prose of an `Explain`: a rule one rung stronger than the hairline
- *  it replaces (1.18:1 to 1.48:1 against the row it opens in), a wash of the
- *  ink colour over whatever it opens on (a fixed rung would be invisible on
- *  the one surface that shares it: `slate-100` on the page, `slate-900` in an
- *  open dark row), and text at reading strength. `slate-500` measured 4.14 to
- *  4.31:1 where an `Explain` stands straight on the page (`slate-100`), under
- *  the 4.5:1 floor. */
-const EXPLAIN_BODY =
-    'details-reveal mt-1 ml-2 rounded-r-lg border-l-2 border-slate-300 bg-slate-900/5 py-2 pl-3 pr-3 text-sm text-slate-600 dark:border-slate-600 dark:bg-white/5 dark:text-slate-300';
+/** The line an opened body hangs off: `Explain` under its chevron, an
+ *  `ExpandableSection` row under its icon. Measured below. */
+const GUIDE_LINE = 'before:absolute before:w-0.5 before:rounded-full before:bg-slate-500/80 dark:before:bg-slate-400/70';
+
+/**
+ * The opened body of an `Explain`: NO box. It is indented to the summary's
+ * text (the 16px chevron plus its 6px gap, in rem so the interface scale
+ * moves both), and a 2px guide line runs under the chevron's centre from the
+ * body's top to its last line. It is the same `GUIDE_LINE` an opened
+ * `ExpandableSection` row hangs its body off, under that row's icon. Inside
+ * another opened body it draws its own line too, one indent further in, the
+ * way an editor's indent guides nest: with only the outer line, nothing said
+ * where the inner body ended and the outer one's next setting began.
+ *
+ * Not a tinted panel: that was a box inside whatever card it opened in, three
+ * deep around a settings form, it cost 24px of a phone's width, and a text box
+ * inside it sat on a third surface. Not nothing either: with no line, nothing
+ * said where the body ENDED and the page began.
+ *
+ * The line is `GUIDE_LINE` (3.2:1 on white, 3.6:1 on `slate-800`); paler
+ * pairs lost where the body ends, the dark theme first. Text
+ * stays `slate-600` / `slate-300`, above 4.5:1 on every surface it opens on.
+ */
+const EXPLAIN_BODY = cx(
+    'details-reveal relative mt-1 mb-2 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300',
+    'before:left-[0.4375rem] before:top-0 before:bottom-0',
+    GUIDE_LINE,
+);
 
 /**
  * Prose behind a name.
@@ -144,14 +164,16 @@ export function Explain({ summary, children, className = '', onToggle, defaultOp
                 // a setting's name without reading as a footnote.
                 className={cx(
                     'flex w-full items-center gap-1.5 rounded -mx-2 px-2 py-1.5 touch:min-h-11',
-                    'text-sm font-medium text-slate-600 hover:text-accent-fg dark:text-slate-300',
+                    // A shade darker than the body it opens: in the body's own
+                    // grey it read as a caption, not as something to press.
+                    'text-sm font-medium text-slate-700 hover:text-accent-fg dark:text-slate-200',
                     SUMMARY_BASE,
                 )}
             >
                 <ChevronRight className={cx('w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400', CHEVRON_TURN)} aria-hidden="true" />
                 <span className="min-w-0">{summary}</span>
             </summary>
-            {/* The hairline is the whole open treatment. It starts under the
+            {/* The guide line is the whole open treatment. It starts under the
                 chevron, so the body reads as hanging off the line that opened
                 it rather than as the next thing on the page. */}
             <div className={EXPLAIN_BODY}>
@@ -222,7 +244,12 @@ export function ExpandableSection({
         >
             <summary
                 className={cx(
-                    'flex flex-wrap items-start gap-3 px-4 py-3 text-left',
+                    // Top-aligned under a description, so the mark and the
+                    // chevron sit on the title's line; with a title alone,
+                    // centred, or a one-line title hung off the top of a
+                    // picture-sized mark (the app icon's).
+                    'flex flex-wrap gap-3 px-4 py-3 text-left',
+                    desc ? 'items-start' : 'items-center',
                     // Open, the body follows this summary and its square top edge
                     // does not cover the summary's own rounded bottom corners, so
                     // the page showed through two corner notches (black on dark).
@@ -240,7 +267,7 @@ export function ExpandableSection({
                     SUMMARY_BASE,
                 )}
             >
-                {lead ?? (Icon && <Icon className="mt-0.5 w-5 h-5 shrink-0 text-accent-fg" aria-hidden="true" />)}
+                {lead ?? (Icon && <Icon className={cx('w-5 h-5 shrink-0 text-accent-fg', !!desc && 'mt-0.5')} aria-hidden="true" />)}
                 <span className="min-w-0 flex-1">
                     <span className="block font-medium text-slate-900 dark:text-white">{title}</span>
                     {desc && <span className="mt-0.5 block text-sm text-slate-500 dark:text-slate-400">{desc}</span>}
@@ -250,11 +277,14 @@ export function ExpandableSection({
                     long answer stay inline and squeeze the description into a
                     ~185px column. */}
                 {aside && (
-                    <span className="order-last basis-full shrink-0 self-center pl-8 text-sm text-slate-500 dark:text-slate-400 sm:order-none sm:basis-auto sm:pl-0">
+                    <span className={cx('order-last basis-full shrink-0 pl-8 text-sm text-slate-500 dark:text-slate-400 sm:order-none sm:basis-auto sm:pl-0', !!desc && 'sm:mt-0.5')}>
                         {aside}
                     </span>
                 )}
-                <ChevronRight className={cx('w-4 h-4 shrink-0 self-center text-slate-500 dark:text-slate-400', CHEVRON_TURN)} aria-hidden="true" />
+                {/* On the TITLE's line, not centred on the block: under a
+                    three-line description a centred chevron sat beside the
+                    description's middle and belonged to neither line. */}
+                <ChevronRight className={cx('w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400', !!desc && 'mt-1', CHEVRON_TURN)} aria-hidden="true" />
             </summary>
             {/* Indented to the title above it, so the body reads as belonging to
                 that section rather than starting a new one; the icon's column is
@@ -278,12 +308,11 @@ export function ExpandableSection({
                         // padding + 10px, less half its own 2px). A flush body's
                         // children pad themselves by 16px, so `pl-8` lands their
                         // text on the same 48px title column as `pl-12` does.
-                        marked && 'relative before:absolute before:left-[1.5625rem] before:top-0 before:bottom-4 before:w-0.5 before:rounded-full before:bg-slate-300 dark:before:bg-slate-600',
+                        marked && cx('relative before:left-[1.5625rem] before:top-0 before:bottom-4', GUIDE_LINE),
                         flushBody
                             ? (marked ? 'pl-8' : '')
                             : cx('pb-4 pt-1 pr-4', marked ? 'pl-12' : 'pl-4'),
-                    )}
-                >
+                    )}                >
                     {children}
                 </div>
             )}

@@ -249,6 +249,13 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 label={tr("Find resources for every topic during creation")}
                             />
                         </div>
+                        {/* Under the switch it explains, not after the next one. */}
+                        <Explain summary={tr("What it costs on a big project")} className="mt-1">
+                            <p>
+                                {tr("While generating a project, the AI can search the web and pick 2–4 links for")}
+                                <em> {tr("every single topic")}</em>{tr(". It is by a wide margin the largest part of creation — a 700-topic curriculum means 700 searches and 700 model calls, before you’ve read a word. With it off, creation skips every one of them and you fetch links from a topic’s Resources list when you actually open it.")}
+                            </p>
+                        </Explain>
                         <div className="mt-3 flex items-center justify-between gap-4">
                             <div className="min-w-0">
                                 <label htmlFor="lesson-reads-links" className="block cursor-pointer font-medium text-slate-900 dark:text-white">
@@ -265,12 +272,6 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 label={tr("Let lessons read their topic’s links")}
                             />
                         </div>
-                        <Explain summary={tr("What it costs on a big project")} className="mt-3">
-                            <p>
-                                {tr("While generating a project, the AI can search the web and pick 2–4 links for")}
-                                <em> {tr("every single topic")}</em>{tr(". It is by a wide margin the largest part of creation — a 700-topic curriculum means 700 searches and 700 model calls, before you’ve read a word. With it off, creation skips every one of them and you fetch links from a topic’s Resources list when you actually open it.")}
-                            </p>
-                        </Explain>
                     </ModelJobRow>
 
                     <ModelJobRow
