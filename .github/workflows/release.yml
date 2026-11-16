@@ -421,7 +421,7 @@ jobs:
       # leaves a published release without its zips or its manifest.
       - id: draft
         if: needs.plan.outputs.publish == 'true'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           draft: true
           tag_name: ${{ needs.plan.outputs.tag }}
