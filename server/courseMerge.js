@@ -216,7 +216,9 @@ export function planCourseUpdate({ upstream, local, base, choices = {} }) {
             if (ORDERED.has(u.kind)) touchedParents.add(`${u.kind}|${l.parentUuid ?? null}`);
         }
         if (Object.keys(take).length) {
-            const op = { op: 'update', kind: u.kind, id: l.id, uuid: l.uuid, fields: take, source: u.source, label: u.label ?? l.label, where: u.where ?? l.where };
+            // Named as the learner's course shows it now, as a conflict is: the
+            // file's title may be one they renamed and would not recognise.
+            const op = { op: 'update', kind: u.kind, id: l.id, uuid: l.uuid, fields: take, source: u.source, label: l.label ?? u.label, where: l.where ?? u.where };
             // A rewritten question is a different question to the learner: its
             // ask-record goes, so it is drawn as never asked. Moving it does the
             // same, because the record is filed under the bank it was asked from.
