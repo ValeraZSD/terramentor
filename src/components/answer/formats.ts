@@ -185,6 +185,69 @@ export function acceptedAnswers(question: Pick<QuizQuestion, 'correct_answer' | 
     return out;
 }
 
+/**
+ * How many letters a word may be off by and still count as a slip, by the
+ * length of the word it should have been. Mirror of `slipBudget` in
+ * `server/answerFormats.js`, which carries the reasoning.
+ */
+export function slipBudget(length: number): number {
+    if (length < 5) return 0;
+    return length < 9 ? 1 : 2;
+}
+
+/** Insert, delete, change or swap two neighbours: one edit each. */
+function editDistance(a: string, b: string): number {
+    const s = [...a];
+    const t = [...b];
+    const d: number[][] = Array.from({ length: s.length + 1 }, (_, i) => [i, ...Array(t.length).fill(0)]);
+    for (let j = 1; j <= t.length; j++) d[0][j] = j;
+    for (let i = 1; i <= s.length; i++) {
+        for (let j = 1; j <= t.length; j++) {
+            const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+            if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return d[s.length][t.length];
+}
+
+const baseLetter = (ch: string) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+
+function isSlipOf(word: string, key: string): boolean {
+    if (word === key) return true;
+    if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    const budget = slipBudget([...key].length);
+    if (budget === 0) return false;
+    if (baseLetter([...word][0] || '') !== baseLetter([...key][0] || '')) return false;
+    return editDistance(word, key) <= budget;
+}
+
+/**
+ * The accepted spelling a typed `fill_in` answer slipped from, or null (also
+ * null for an exact match). Only consulted when the learner switched on
+ * `forgive_spelling`. Mirror of `spellingSlipOf` in `server/answerFormats.js`;
+ * `tolerant-grading-gates.mjs` runs both against one table.
+ */
+export function spellingSlipOf(question: Pick<QuizQuestion, 'type' | 'correct_answer' | 'accept'>, answer: string): string | null {
+    if (question?.type !== 'fill_in') return null;
+    const given = normalizeTyped(answer);
+    if (!given) return null;
+    const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
+    if (written.some(w => normalizeTyped(w) === given)) return null;
+    const words = given.split(' ');
+    for (const w of written) {
+        const key = normalizeTyped(w);
+        if (!key) continue;
+        const keyWords = key.split(' ');
+        if (keyWords.length === words.length && keyWords.every((k, i) => isSlipOf(words[i], k))) {
+            return String(w).trim();
+        }
+    }
+    return null;
+}
+
 /** "3.0 × 10^8", "3.0 x 10**8" — how a physics answer is written outside a programming language. */
 const SCIENTIFIC = /[×x*]\s*10\s*(?:\^|\*\*)?\s*([-+]?\d+)/i;
 

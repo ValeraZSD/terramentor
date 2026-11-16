@@ -178,6 +178,86 @@ export function acceptedAnswers(question) {
     return out;
 }
 
+/**
+ * How many letters a word may be off by and still count as a slip of the hand,
+ * by the length of the word it should have been. Short words get nothing:
+ * among them one letter is usually another word (`een`/`één`, `than`/`then`,
+ * `form`/`from`), so a short word is spelled exactly or it is wrong.
+ */
+export function slipBudget(length) {
+    if (length < 5) return 0;
+    return length < 9 ? 1 : 2;
+}
+
+/**
+ * Edits between two words: insert, delete, change, or swap two neighbours
+ * (`recieve`), each one edit. A letter with a different accent is a changed
+ * letter, so it costs one like any other.
+ */
+function editDistance(a, b) {
+    const s = [...a];
+    const t = [...b];
+    const d = Array.from({ length: s.length + 1 }, (_, i) => [i, ...Array(t.length).fill(0)]);
+    for (let j = 1; j <= t.length; j++) d[0][j] = j;
+    for (let i = 1; i <= s.length; i++) {
+        for (let j = 1; j <= t.length; j++) {
+            const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+            if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+            }
+        }
+    }
+    return d[s.length][t.length];
+}
+
+const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+
+/**
+ * Could the learner have meant `key` and slipped while typing `word`?
+ * Both already normalised. A word holding a digit is a number or a code and
+ * is never forgiven (1984 is not 1985). The first letter must be the same
+ * letter, accent aside: the slips this is for keep it, and a different first
+ * letter is usually a different word (`affect`/`effect`, `accept`/`except`).
+ */
+function isSlipOf(word, key) {
+    if (word === key) return true;
+    if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    const budget = slipBudget([...key].length);
+    if (budget === 0) return false;
+    if (baseLetter([...word][0] || '') !== baseLetter([...key][0] || '')) return false;
+    return editDistance(word, key) <= budget;
+}
+
+/**
+ * The accepted spelling a typed `fill_in` answer slipped from, or null.
+ *
+ * Only for a learner who switched on `forgive_spelling` (dyslexia, dysgraphia,
+ * typing in a second language): the answer is then marked right and the
+ * verdict shows the spelling it should have had. Word by word, the same number
+ * of words as the key, each within `slipBudget` of the key's word. An answer
+ * that matches exactly is not a slip, so this returns null for it. Mirror:
+ * `spellingSlipOf` in `src/components/answer/formats.ts`, run against one
+ * table by `tolerant-grading-gates.mjs`.
+ */
+export function spellingSlipOf(question, answer) {
+    if (question?.type !== 'fill_in') return null;
+    const given = normalizeTyped(answer);
+    if (!given) return null;
+    const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
+    if (written.some(w => normalizeTyped(w) === given)) return null;
+    const words = given.split(' ');
+    for (const w of written) {
+        const key = normalizeTyped(w);
+        if (!key) continue;
+        const keyWords = key.split(' ');
+        if (keyWords.length === words.length && keyWords.every((k, i) => isSlipOf(words[i], k))) {
+            return String(w).trim();
+        }
+    }
+    return null;
+}
+
 /** How many alternative spellings one question may declare. */
 export const MAX_ACCEPTED_ANSWERS = 8;
 
@@ -619,10 +699,11 @@ export const ANSWER_FORMATS = {
             }
             return out;
         },
-        grade(q, answer) {
+        grade(q, answer, { forgiveSpelling = false } = {}) {
             const given = normalizeTyped(answer);
             if (!given) return false;
-            return acceptedAnswers(q).includes(given);
+            if (acceptedAnswers(q).includes(given)) return true;
+            return forgiveSpelling && spellingSlipOf(q, answer) !== null;
         },
     },
 
@@ -931,11 +1012,15 @@ export function normalizeQuestionFormat(raw, { allow, stored = false } = {}) {
     return format.normalize(raw, { stored });
 }
 
-/** Local verdict for a closed format; null when the format needs the checker. */
-export function gradeLocally(question, answer) {
+/**
+ * Local verdict for a closed format; null when the format needs the checker.
+ * `forgiveSpelling` is the learner's `forgive_spelling` setting: it reaches
+ * `fill_in` only (see `spellingSlipOf`).
+ */
+export function gradeLocally(question, answer, options = {}) {
     const format = ANSWER_FORMATS[question?.type];
     if (!format || format.grading !== 'local') return null;
-    return format.grade(question, answer);
+    return format.grade(question, answer, options);
 }
 
 /**

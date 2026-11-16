@@ -180,6 +180,9 @@ export const SETTINGS = {
     // Code answers in Python and JavaScript are run on the learner's device
     // (src/runner/) rather than judged by the model; 'off' hands them back to it.
     code_runner: client('learning', oneOf('on', 'off')),
+    // A typed fill-in answer one or two letters off a long word is marked right,
+    // with the spelling shown (server/answerFormats.js, spellingSlipOf). Off by default.
+    forgive_spelling: client('learning', oneOf('on', 'off')),
     visual_kinds_off: client('learning', (value) => {
         const s = text(1000)(value);
         return /^[a-z0-9_,-]*$/.test(s) ? s : refuse('A comma-separated list of visual kinds');
@@ -285,7 +288,7 @@ export const SETTING_SCOPES = Object.freeze({
         'ui_language', 'number_format', 'week_start_day', 'welcome_done',
         'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
         'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
-        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner',
+        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'forgive_spelling',
         'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision', 'paper_vision', 'deck_new_per_day',
         'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
         'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',

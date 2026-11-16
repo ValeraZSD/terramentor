@@ -4,6 +4,7 @@ import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
+import SpellingNote from '../answer/SpellingNote';
 import { formatOf, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
@@ -133,6 +134,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                                 <AnswerKey question={question} />
                             </div>
                         )}
+                        {result.correct && <SpellingNote question={question} answer={result.answer} className="mt-1.5" />}
                         {result.explanation && (
                             <p className="text-sm leading-6 text-slate-600 dark:text-slate-400 mt-1.5">
                                 <MathText content={result.explanation} />
