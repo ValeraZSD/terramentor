@@ -259,6 +259,58 @@ export function recallOrder(nodeId) {
     return ranked.map(r => r.b);
 }
 
+/** Two misses in a row: one could be a slip, two with no right answer since is a pattern. */
+export const SHAKY_MISSES = 2;
+
+/**
+ * A topic's STILL SHAKY questions: its own, confirmed questions whose newest
+ * graded answers, on any surface, are SHAKY_MISSES or more misses in a row.
+ * A right answer ends the run; an ask with no grade (a whole-row sitting that
+ * named no result) is skipped, not counted either way.
+ *
+ * A pointer for the learner, never evidence: the estimate is BKT's, and this
+ * list changes nothing it reads (see the draw's rule at the top). Only what
+ * the bank still holds and a verifier confirmed: a question reported out is
+ * gone, and a miss of one whose key nobody confirmed says nothing about the
+ * learner. A copy answered in another topic's practice quiz counts by the
+ * uuid it keeps, as in `recallOrder`.
+ *
+ * Returns `{ uuid, stem, misses, last }`, most misses first, then the newest.
+ */
+export function shakyQuestions(nodeId) {
+    const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
+    if (!bank.length) return [];
+    const quizIds = [...new Set(bank.map(b => b.quizId))];
+    const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
+    const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    // Newest first, so a question's run of misses is read from its head.
+    const graded = db.prepare(`
+        SELECT ${LOG_KEY} AS k, correct, asked_at AS at
+        FROM question_log
+        WHERE (quiz_id IN (${quizIds.map(() => '?').join(',')})${byUuid}) AND correct IS NOT NULL
+        ORDER BY asked_at DESC, id DESC
+    `).all(...quizIds, ...uuids);
+    const runs = new Map();
+    for (const r of graded) {
+        let run = runs.get(r.k);
+        if (!run) runs.set(r.k, run = { misses: 0, last: r.at, ended: false });
+        if (run.ended) continue;
+        if (r.correct === 1) run.ended = true;
+        else run.misses++;
+    }
+    const out = [];
+    const listed = new Set();
+    for (const b of bank) {
+        const key = askKey(b);
+        const run = runs.get(key);
+        if (run && run.misses >= SHAKY_MISSES && typeof b.question.question === 'string' && !listed.has(key)) {
+            listed.add(key);
+            out.push({ uuid: b.question.uuid ?? null, stem: b.question.question, misses: run.misses, last: run.last });
+        }
+    }
+    return out.sort((a, b) => (b.misses - a.misses) || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
+}
+
 /** How much of a node's bank has ever been asked. */
 export function askedCount(nodeId) {
     return db.prepare(`

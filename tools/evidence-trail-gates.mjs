@@ -15,6 +15,9 @@
  *   - a single feed answer names its question and the ref the "this is wrong"
  *     flag takes; a sitting with kept answers opens; a reported question is
  *     counted out;
+ *   - still shaky: a question whose newest graded answers, on any surface, are
+ *     two or more misses in a row is listed with its flag; a right answer
+ *     clears it, and a question held back or reported out is never listed;
  *   - reading writes nothing (no mastery row is made for a topic never answered).
  *
  * --root runs the same cases against another checkout's server; on the code
@@ -51,6 +54,7 @@ const { default: db } = await import(S + 'database.js');
 if (!process.env.DB_PATH.startsWith(scratch)) throw new Error('refusing: not the scratch library');
 const { updateMasteryFromAttempt, applySeededPrior, getNodeMastery } = await import(S + 'mastery.js');
 const { recordCardEvidence } = await import(S + 'cardEvidence.js');
+const { logAsked } = await import(S + 'questionLog.js');
 const { createApp } = await import(S + 'app.js');
 
 const course = Number(db.prepare("INSERT INTO projects (name) VALUES ('Optics')").run().lastInsertRowid);
@@ -224,6 +228,63 @@ try {
     check('…and one reported question counted out of it', t.rows[0]?.voided === 1, JSON.stringify(t.rows[0]));
     check('a row without kept answers is not', (await trail(many)).rows.every(r => r.reviewable === false));
     void res;
+
+    console.log('\n--- 7. still shaky: a question missed twice, not right since ---');
+    // The log every surface writes (question_log), read per question: a
+    // question whose newest graded answers are two or more misses in a row.
+    const shakyTopic = addNode(course, 'Total internal reflection');
+    const bankQs = ['Critical angle?', 'Which way does light bend?', 'Fibre optics?', 'Mirage?', 'Held back?', 'Reported?']
+        .map(q => ({ question: q, type: 'multiple_choice', options: ['A', 'B'], correct_answer: 'A' }));
+    const shakyQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(shakyTopic, 'Bank', JSON.stringify(bankQs)).lastInsertRowid);
+    const shakyBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
+    const uuidOf = (i) => shakyBank[i].uuid;
+    const answer = (i, correct, surface = 'feed', quiz = shakyQuiz) => logAsked([{ quizId: quiz, uuid: uuidOf(i), correct }], surface);
+    t = await trail(shakyTopic);
+    check('no answers logged: nothing is shaky (an empty list, not missing)', Array.isArray(t.shaky) && t.shaky.length === 0, JSON.stringify(t.shaky));
+
+    answer(0, false); answer(0, false);                                   // missed twice
+    answer(1, false); answer(1, false); answer(1, true);                  // missed twice, then right
+    answer(2, true); answer(2, false);                                    // missed once, after a right one
+    answer(3, false, 'mastery_check'); answer(3, true, 'feed'); answer(3, false, 'quiz'); answer(3, false, 'recall'); // right between, then two misses on two surfaces
+    answer(0, null, 'quiz');                                              // asked, not graded: changes nothing
+    t = await trail(shakyTopic);
+    const shakyStems = (t.shaky ?? []).map(s => s.question);
+    check('missed twice in a row: shaky', shakyStems.includes('Critical angle?'), JSON.stringify(t.shaky));
+    check('missed twice, then right: not shaky', !shakyStems.includes('Which way does light bend?'), JSON.stringify(shakyStems));
+    check('one miss after a right answer: not shaky', !shakyStems.includes('Fibre optics?'), JSON.stringify(shakyStems));
+    check('two misses since the last right answer, on any surface: shaky', shakyStems.includes('Mirage?'), JSON.stringify(shakyStems));
+    const crit = (t.shaky ?? []).find(s => s.question === 'Critical angle?') ?? {};
+    check('…each names its question for the flag (q:<uuid>) and its misses since the last right answer', crit.ref === `q:${uuidOf(0)}` && crit.misses === 2, JSON.stringify(crit));
+    check('…an ungraded ask does not break the run of misses', crit.misses === 2, JSON.stringify(crit));
+
+    // A copy answered as a review question inside another topic's practice
+    // quiz keeps the uuid, so it is the same question missed.
+    const other = addNode(course, 'Reflection');
+    const otherQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(other, 'Practice', JSON.stringify([
+        { ...shakyBank[2], isGhost: true },
+    ])).lastInsertRowid);
+    answer(2, false, 'quiz', otherQuiz);
+    t = await trail(shakyTopic);
+    check('a second miss as a review question in another topic: shaky here', (t.shaky ?? []).some(s => s.question === 'Fibre optics?'), JSON.stringify(t.shaky));
+    check('…and not shaky on the other topic, which does not own it', ((await trail(other)).shaky ?? []).length === 0, JSON.stringify((await trail(other)).shaky));
+
+    // A question a verifier could not confirm may have a wrong key: a miss of
+    // it says nothing about the learner. One reported out of the bank is gone.
+    answer(4, false); answer(4, false); answer(5, false); answer(5, false);
+    const stamped = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
+    stamped[4].unverified = { reason: 'gate', tries: 1, at: '2026-01-01T00:00:00Z', next: null };
+    stamped.splice(5, 1);
+    db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(stamped), shakyQuiz);
+    t = await trail(shakyTopic);
+    const after = (t.shaky ?? []).map(s => s.question);
+    check('a question no verifier confirmed: not listed', !after.includes('Held back?'), JSON.stringify(after));
+    check('a question gone from the bank (reported): not listed', !after.includes('Reported?'), JSON.stringify(after));
+    check('most misses first', (t.shaky ?? []).every((s, i, a) => i === 0 || a[i - 1].misses >= s.misses), JSON.stringify(t.shaky));
+
+    // Shaky is a pointer, not evidence: listing it moved no estimate.
+    check('reading it wrote nothing: no mastery row for a topic answered only in the log', db.prepare('SELECT COUNT(*) AS c FROM node_mastery WHERE node_id = ?').get(shakyTopic).c === 0);
+    db.prepare("UPDATE nodes SET status = 'skipped' WHERE id = ?").run(shakyTopic);
+    check('a skipped topic lists nothing', ((await trail(shakyTopic)).shaky ?? []).length === 0, JSON.stringify((await trail(shakyTopic)).shaky));
 } finally {
     server.close();
     db.close();

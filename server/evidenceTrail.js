@@ -10,9 +10,12 @@ import db from './database.js';
 import { checkMasteryEligibility, evidenceMoves } from './mastery.js';
 import { FADING_TOPIC, fadingCutoff } from './fading.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
+import { shakyQuestions } from './questionLog.js';
 
 /** Newest first; a topic with more shows how many more there are. */
 export const TRAIL_LIMIT = 100;
+/** The still-shaky questions listed; the count says how many there are. */
+export const SHAKY_LIMIT = 20;
 
 const parse = (text) => {
     if (!text) return null;
@@ -134,6 +137,8 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
     });
 
     const level = levelOf({ record, rows: count > 0, eligibility, fading, deck: node.project_kind === 'deck' });
+    // A skipped topic is closed: what it still gets wrong is beside the point.
+    const shaky = node.status === 'skipped' ? [] : shakyQuestions(node.id);
     return {
         nodeId: node.id,
         title: node.title,
@@ -160,5 +165,14 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
         },
         count,
         rows,
+        // Questions missed twice or more with no right answer since, from the
+        // log every surface writes; each carries the flag's ref, since a
+        // question nobody gets right may be the one that is wrong.
+        shaky: shaky.slice(0, SHAKY_LIMIT).map(s => ({
+            question: s.stem,
+            ref: s.uuid ? `q:${s.uuid}` : null,
+            misses: s.misses,
+        })),
+        shakyCount: shaky.length,
     };
 }
