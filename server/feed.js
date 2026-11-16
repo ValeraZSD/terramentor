@@ -14,6 +14,7 @@ import { IN_DAY, studyDay, studyToday } from './studyDay.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
 import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
+import { preQuestionsFor } from './lessonPrompts.js';
 
 /**
  * Learning-feed composition — the home page's algorithm.
@@ -800,6 +801,12 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         const readBefore = opensTopic && partIndex > 1
                             ? readLessonParts(f.nodeId, partIndex, { withText: false })
                             : [];
+                        // A topic met for the first time opens on a few of its
+                        // own questions, asked before the part is shown and
+                        // never counted (server/lessonPrompts.js).
+                        const preQuestions = opensTopic && partIndex === 1 && consumedLessons === 0
+                            ? preQuestionsFor(f.nodeId, ready, { exclude: heldSaved })
+                            : null;
                         cards.push({
                             key, kind: 'lesson', feedItemId: row.id, ...cardBase(f),
                             partIndex,
@@ -809,6 +816,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                             degraded: false,
                             source: 'generated',
                             ...(readBefore.length ? { readBefore } : {}),
+                            ...(preQuestions ? { preQuestions } : {}),
+                            // The learner may put the part in their own words
+                            // and have it marked: only with a model to mark it.
+                            ...(aiEnabled && aiModelChosen ? { explainBack: true } : {}),
                             // Served after every rewrite still failed a truth
                             // check (feedGen): the card says so rather than
                             // passing for checked. Formatting faults are not

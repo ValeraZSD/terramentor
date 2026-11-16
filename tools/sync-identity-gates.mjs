@@ -142,6 +142,8 @@ function seed(conn, tag) {
     one("INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at) VALUES ('project', ?, 'chat', '{}', '{}', '2026-11-01T10:00:00.000Z')", p);
     one("INSERT INTO item_reports (kind, item_key, node_id, project_id, reason, item, created_at) VALUES ('question', 'q:x', ?, ?, 'wrong', '{}', '2026-11-01T10:00:00.000Z')", n, p);
     one("INSERT INTO mastery_claims (node_id, source, correct, created_at) VALUES (?, 'mcp', 1, '2026-11-01T10:00:00.000Z')", n);
+    one("INSERT INTO pre_questions (node_id, outcome, asked, answered, correct, items, created_at) VALUES (?, 'answered', 2, 2, 1, '[]', '2026-11-01T10:00:00.000Z')", n);
+    one("INSERT INTO explain_backs (node_id, part_index, explanation, verdict, reason, created_at) VALUES (?, 1, 'mine', 'weak', 'why', '2026-11-01T10:00:00.000Z')", n);
     one("INSERT INTO answer_attempts (surface, attempt_id, outcome, created_at) VALUES ('feed', ?, 'right', '2026-11-01 10:00:00')", `att-${tag}`);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T10', 'reading', 600000)", n);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T11', 'cards', 120000)", n);

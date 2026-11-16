@@ -69,6 +69,9 @@ const TABLE_LIST = [
     ['item_reports', { class: 'history', uuid: true, derive: D([['node_id', 'nodes'], ['project_id', 'projects']], 'created_at', ['kind', 'reason']) }],
     ['mastery_claims', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['source']) }],
     ['answer_attempts', { class: 'history', uuid: true, derive: D([], 'created_at', ['surface', 'attempt_id']) }],
+    // Answers that are not evidence (server/lessonPrompts.js).
+    ['pre_questions', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at') }],
+    ['explain_backs', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['part_index']) }],
 
     // ---- counters ----------------------------------------------------------------------
     // Keyed by (topic, hour, activity, device): each device adds to its own row.

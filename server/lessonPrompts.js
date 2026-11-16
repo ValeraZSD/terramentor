@@ -1,0 +1,164 @@
+// Two prompts around a lesson that are NOT evidence.
+//
+// Pre-questions: a topic's first part opens with two or three of the topic's
+// own questions, asked before anything is taught. Guessing first and reading
+// after is what makes the reading stick (the pretesting effect), but an answer
+// given before teaching says nothing about what was learned. So the answers go
+// to `pre_questions` and nowhere else: no `mastery_evidence`, no
+// `question_log`, no `answer_attempts`, and the feed row a pre-question came
+// from stays unread, so the same question is still asked after the part that
+// teaches it, where its answer counts. `tools/prequestion-gates.mjs` pins it.
+//
+// Explain-it-back: after a lesson part, the learner may put the part in their
+// own words; the model marks that against the part's text and says why. It is
+// not evidence either: it is written with the part a scroll away, the prompt
+// has no vetted key (a question no verifier confirmed is practice, never
+// proof), and only the learners who feel sure would answer an optional box.
+// The record is `explain_backs`.
+import db, { NOW_ISO } from './database.js';
+import { ANSWER_FORMATS, hasUsableKey } from './answerFormats.js';
+import { drawFromNode } from './questionLog.js';
+import { AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
+import { readReplyObject } from './jsonRepair.js';
+
+export const PRE_QUESTIONS_MIN = 2;
+export const PRE_QUESTIONS_MAX = 3;
+export const PRE_OUTCOMES = new Set(['answered', 'skipped']);
+export const EXPLANATION_MAX = 2000;
+// The part's text the marker reads, figures left out: they are specs, not
+// prose, and a long animation would push the explanation out of a small model.
+const PART_TEXT_MAX = 6000;
+
+/** Graded here, with no model: a pre-question must work with none set up. */
+const gradedLocally = (q) => !!q && ANSWER_FORMATS[q.type]?.grading === 'local' && hasUsableKey(q);
+
+const askedStmt = () => db.prepare('SELECT 1 FROM pre_questions WHERE node_id = ? LIMIT 1');
+
+/**
+ * The pre-questions for a topic whose first part is about to be served, or
+ * none. `readyRows` are the topic's unread feed rows; `exclude` the bank
+ * entries the page already holds (`quizId:index`).
+ *
+ * The topic's own per-part questions first, in part order: each was written
+ * from its part and passed the feed's gates, and it is asked again after that
+ * part. A topic asked from its bank has none, so its bank tops the list up.
+ * Fewer than two is no round at all.
+ */
+export function preQuestionsFor(nodeId, readyRows, { exclude = new Set() } = {}) {
+    if (askedStmt().get(nodeId)) return null;
+    const picks = [];
+    for (const row of readyRows) {
+        if (picks.length >= PRE_QUESTIONS_MAX) break;
+        if (row.kind !== 'question') continue;
+        let q = null;
+        try { q = JSON.parse(row.content); } catch { continue; }
+        if (gradedLocally(q)) picks.push({ feedItemId: row.id, question: q });
+    }
+    if (picks.length < PRE_QUESTIONS_MAX) {
+        const drawn = drawFromNode(nodeId, PRE_QUESTIONS_MAX * 3, { exclude }).questions;
+        for (const d of drawn) {
+            if (picks.length >= PRE_QUESTIONS_MAX) break;
+            if (gradedLocally(d.question)) picks.push({ feedItemId: null, question: d.question });
+        }
+    }
+    return picks.length >= PRE_QUESTIONS_MIN ? picks : null;
+}
+
+const REF = /^(fi:[1-9]\d{0,11}|q:[0-9a-f-]{8,64})$/i;
+
+/** Does a ref name one of this topic's questions: its feed row, or a bank entry by uuid? */
+function refBelongs(nodeId, ref) {
+    const [kind, id] = [ref.slice(0, ref.indexOf(':')).toLowerCase(), ref.slice(ref.indexOf(':') + 1)];
+    if (kind === 'fi') {
+        return !!db.prepare("SELECT 1 FROM feed_items WHERE id = ? AND node_id = ? AND kind = 'question'").get(Number(id), nodeId);
+    }
+    return !!db.prepare(`
+        SELECT 1 FROM quizzes q JOIN json_each(q.questions) je
+        WHERE q.node_id = ? AND json_extract(je.value, '$.uuid') = ? LIMIT 1
+    `).get(nodeId, id);
+}
+
+/**
+ * Record a topic's pre-question round, once. `items` are refs and whether
+ * each answer matched its key (null: left blank); nothing else is kept, and
+ * nothing here writes evidence. A second record for the topic is a no-op.
+ */
+export function recordPreQuestions(nodeId, { outcome, items }) {
+    if (!PRE_OUTCOMES.has(outcome)) return { error: 'outcome must be answered or skipped' };
+    const list = Array.isArray(items) ? items.slice(0, PRE_QUESTIONS_MAX) : [];
+    const clean = [];
+    for (const it of list) {
+        if (!it || typeof it.ref !== 'string' || !REF.test(it.ref)) return { error: 'each item needs a ref' };
+        // A skipped round answered nothing, whatever the body says.
+        const correct = outcome === 'answered' && typeof it.correct === 'boolean' ? it.correct : null;
+        clean.push({ ref: it.ref, correct });
+    }
+    if (!db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(nodeId)) return { missing: true };
+    // Only this topic's own questions are kept: a ref to anything else is dropped.
+    const kept = clean.filter(it => refBelongs(nodeId, it.ref));
+    return db.transaction(() => {
+        if (askedStmt().get(nodeId)) return { duplicate: true };
+        db.prepare(`
+            INSERT INTO pre_questions (node_id, outcome, asked, answered, correct, items, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ${NOW_ISO})
+        `).run(
+            nodeId, outcome, kept.length,
+            kept.filter(i => i.correct !== null).length,
+            kept.filter(i => i.correct === true).length,
+            JSON.stringify(kept),
+        );
+        return { ok: true };
+    })();
+}
+
+/**
+ * The part's prose for the marker: figures out, capped. A long part loses its
+ * MIDDLE, not its end: the conclusion is what an explanation most often states.
+ */
+export function partProse(markdown) {
+    const text = String(markdown || '')
+        .replace(/```[\s\S]*?(```|$)/g, '[figure]')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    if (text.length <= PART_TEXT_MAX) return text;
+    const tail = Math.floor(PART_TEXT_MAX / 3);
+    return `${text.slice(0, PART_TEXT_MAX - tail)}\n\n[…]\n\n${text.slice(-tail)}`;
+}
+
+/** The marker's reply, or null when it holds no usable verdict. */
+export function parseExplainVerdict(text) {
+    let r;
+    try { r = readReplyObject(text, undefined, (o) => 'verdict' in o); } catch { return null; }
+    const verdict = typeof r?.verdict === 'string' ? r.verdict.trim().toLowerCase() : '';
+    if (!['good', 'weak', 'unsure'].includes(verdict)) return null;
+    const reason = typeof r.reason === 'string' ? r.reason.trim().slice(0, 600) : '';
+    return { verdict, reason };
+}
+
+/**
+ * Mark an explanation of one lesson part against that part's text, as the
+ * server stores it (never text the client sends). Stores the record and
+ * returns `{ verdict, reason }`; a reply with no verdict is `unsure`, said so,
+ * and stored as such. Throws when the model cannot be reached: nothing stored.
+ */
+export async function markExplanation(feedItemId, explanation) {
+    const row = db.prepare(`
+        SELECT fi.id, fi.node_id, fi.content, fi.meta, n.title
+        FROM feed_items fi JOIN nodes n ON n.id = fi.node_id
+        WHERE fi.id = ? AND fi.kind = 'lesson'
+    `).get(feedItemId);
+    if (!row) return { missing: true };
+    let meta = {};
+    try { meta = JSON.parse(row.meta || '{}') || {}; } catch { /* no meta */ }
+    const { system, user } = AI_PROMPTS.explain_back(row.title, meta.partTitle || '', partProse(row.content), explanation);
+    // Low temperature, as every verdict call: "Check again" on the same text
+    // must not flip between good and weak.
+    const reply = await generateResponse(user, system, [], { job: 'checks', temperature: 0.1 });
+    const parsed = parseExplainVerdict(reply)
+        ?? { verdict: 'unsure', reason: 'The marker gave no clear verdict on this one. Compare it with the part yourself.' };
+    db.prepare(`
+        INSERT INTO explain_backs (node_id, part_index, explanation, verdict, reason, generated_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ${NOW_ISO})
+    `).run(row.node_id, Number.isInteger(meta.partIndex) ? meta.partIndex : 1, explanation, parsed.verdict, parsed.reason, aiProvenance({ job: 'checks' }));
+    return parsed;
+}
