@@ -12,7 +12,7 @@ import { gradeLocally } from '../../utils/grading';
 import { feedRowRef, questionRef } from '../../utils/itemReports';
 import { useItemReports, useReportOn } from '../../utils/itemReportStore';
 import { FeedLessonCard, QuizQuestion } from '../../types';
-import { ArrowDown, ArrowUp, Check, CircleDashed, HelpCircle, Info } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, CircleDashed, History, HelpCircle, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 type PreQuestion = NonNullable<FeedLessonCard['preQuestions']>[number];
@@ -214,7 +214,7 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 aria-label={t("Your explanation")}
                 // The empty box says what to do; the check button waits for
                 // the first word rather than standing there switched off.
-                placeholder={t("Type your explanation here")}
+                placeholder={t("Type your explanation, then check it")}
                 disabled={busy}
             />
             {/* The verdict sits straight under the words it judges, and every
@@ -232,18 +232,25 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                         {/* Folded, hidden from the live region: otherwise the
                             first keystroke of a rewrite was read out. */}
                         <p aria-hidden={edited || undefined} className={cx('flex items-center gap-1.5 text-sm font-semibold', edited ? 'text-slate-500 dark:text-slate-400' : look.tone)}>
-                            <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {/* Folded, a clock-back mark: the dashed circle
+                                read as something still being marked. */}
+                            {edited ? <History className="w-4 h-4 shrink-0" aria-hidden="true" /> : <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />}
                             {edited ? t("Before your edit: {{verdict}}", { verdict: look.label }) : look.label}
                         </p>
                         {verdict.reason && !edited && <p className="mt-1">{verdict.reason}</p>}
                     </div>
                 )}
             </div>
-            {/* Weak, the filled button is the next step: back to the part
-                while the words are unchanged, then checking them once they
-                are rewritten. "Check again" appears only then: a button
-                that is off until you type read as broken, and for the same
-                reason the first check waits for the first word. */}
+            {/* Weak, the next step is to rewrite: "Check again" appears,
+                filled, only once the words change. A button that is off
+                until you type read as broken, and for the same reason the
+                first check waits for the first word. */}
+            {/* Weak on unchanged words, what to do next is the instruction,
+                on its own line in the ink of a step, not a caption beside a
+                button. */}
+            {weak && (!canCheck || !text.trim()) && (
+                <p className="mt-3 text-sm font-medium text-slate-800 dark:text-slate-100">{t("Change your words to check them again.")}</p>
+            )}
             {(weak || (canCheck && !!text.trim())) && (
                 <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                     {failed && (
@@ -256,13 +263,12 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                         verdict came back weak left focus on the node React
                         reused for "Read the part again". */}
                     {weak && (!canCheck || !text.trim()) ? (
-                        <>
-                            {/* Says where the second check went. */}
-                            <p key="hint" className="mr-auto text-sm">{t("Change your words to check them again.")}</p>
-                            <Button key="reread" size="md" variant="primary" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
-                                {t("Read the part again")}
-                            </Button>
-                        </>
+                        // The step is the rewrite (the line above says so); a
+                        // filled "Read the part again" pulled the thumb to a
+                        // scroll instead. It stays, outlined, as the way back.
+                        <Button key="reread" size="md" onClick={onReread} icon={<ArrowUp className="w-4 h-4" aria-hidden="true" />}>
+                            {t("Read the part again")}
+                        </Button>
                     ) : weak ? (
                         // Rewritten, checking is the one step left: "Read the
                         // part again" beside it, over "Continue anyway", made
@@ -280,7 +286,9 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
             {/* Marked weak, the part itself may be what is wrong. Last, under
                 the buttons: a rare side road, never between the reason and
                 the next step. */}
-            {weak && <ReportLink className="mt-3" />}
+            {/* Not under a folded verdict: it would report a mark no longer
+                shown. The item's own flag stays at its top-right. */}
+            {weak && !edited && <ReportLink className="mt-3" />}
         </Explain>
     );
 }

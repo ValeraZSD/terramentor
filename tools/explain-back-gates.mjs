@@ -8,8 +8,9 @@
 //
 //   1. before any verdict: no button until the first word, then one
 //      "Check my explanation", not filled;
-//   2. weak on unchanged words: "Read the part again" filled and alone (a
-//      "Check again" that is off until you type read as broken);
+//   2. weak on unchanged words: the step is a line ("Change your words…"),
+//      "Read the part again" outlined and alone (a filled one pulled the
+//      thumb to a scroll; a "Check again" that is off read as broken);
 //   3. weak, words rewritten: "Check again" filled and alone (three stacked
 //      buttons with the part's own "Continue anyway"), and the old verdict folds to one grey "Before your edit:" line (a
 //      reason left in full read as the mark of the new words);
@@ -154,7 +155,7 @@ if (ExplainBack) {
         await setText(host, 'Heavier swings slower.');
         ok('before a verdict: one check button, not filled', JSON.stringify(buttons(host)) === '["Check my explanation"]', JSON.stringify(buttons(host)));
         await press(host, 'Check my explanation');
-        ok('weak on unchanged words: "Read the part again" filled and alone', JSON.stringify(buttons(host)) === '["Read the part again*"]', JSON.stringify(buttons(host)));
+        ok('weak on unchanged words: "Read the part again" alone and not filled', JSON.stringify(buttons(host)) === '["Read the part again"]', JSON.stringify(buttons(host)));
         ok('weak on unchanged words: a line says how to check again', host.textContent.includes('Change your words to check them again.'));
         await setText(host, 'The length sets the period, not the mass.');
         ok('weak, rewritten: one filled "Check again", nothing beside it', JSON.stringify(buttons(host)) === '["Check again*"]', JSON.stringify(buttons(host)));
@@ -164,7 +165,7 @@ if (ExplainBack) {
         ok('weak, rewritten: the old reason folds away (it read as the mark of the new words)', ![...host.querySelectorAll('p')].some(p => p.textContent === WEAK.reason));
         ok('weak, rewritten: the folded line is kept out of the live region (no read-out per keystroke)', label()?.getAttribute('aria-hidden') === 'true', label()?.outerHTML.slice(0, 80));
         await setText(host, '');
-        ok('weak, box emptied: no "Check again" that is off, back to the one filled step', JSON.stringify(buttons(host)) === '["Read the part again*"]', JSON.stringify(buttons(host)));
+        ok('weak, box emptied: no "Check again" that is off, back to the rewrite step', JSON.stringify(buttons(host)) === '["Read the part again"]', JSON.stringify(buttons(host)));
         await setText(host, 'The length sets the period, not the mass.');
         await press(host, 'Check again');
         ok('a pass on unchanged words: no check button', buttons(host).length === 0, JSON.stringify(buttons(host)));
@@ -191,7 +192,7 @@ if (ExplainBack) {
         await press(host, 'Check again', { keyboard: true });
         ok('a keyboard check whose button went off puts focus back in the text', document.activeElement === host.querySelector('textarea'), document.activeElement?.tagName);
         await setText(host, 'Heavier swings slower, I think. ');
-        ok('a whitespace-only edit is not a rewrite', JSON.stringify(buttons(host)) === '["Read the part again*"]', JSON.stringify(buttons(host)));
+        ok('a whitespace-only edit is not a rewrite', JSON.stringify(buttons(host)) === '["Read the part again"]', JSON.stringify(buttons(host)));
         await act(() => r.unmount());
         host.remove();
     }
