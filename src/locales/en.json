@@ -144,7 +144,7 @@
   "{{count}} items unmatched_other": "{{count}} items unmatched",
   "{{count}} items_one": "{{count}} item",
   "{{count}} items_other": "{{count}} items",
-  "{{count}} kept, because you studied or edited them_one": "{{count}} kept, because you studied or edited them",
+  "{{count}} kept, because you studied or edited them_one": "{{count}} kept, because you studied or edited it",
   "{{count}} kept, because you studied or edited them_other": "{{count}} kept, because you studied or edited them",
   "{{count}} links found_one": "{{count}} link found",
   "{{count}} links found_other": "{{count}} links found",
