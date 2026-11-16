@@ -64,6 +64,22 @@ lock() {
     mkdir "$LOCKS/$1" 2>/dev/null || die "another copy.sh is working on $1 (if none is, a killed run left $LOCKS/$1: remove it)"
     HELD+=("$1")
 }
+# The shared proxy's lock, "_proxy" (a copy's name starts with a letter, so
+# none can share it). Waited for, not refused: applying the proxy takes seconds.
+wait_lock() {
+    mkdir -p "$LOCKS"
+    for _ in $(seq 1 300); do
+        if mkdir "$LOCKS/$1" 2>/dev/null; then HELD+=("$1"); return 0; fi
+        sleep 1
+    done
+    die "waited 5 minutes for $LOCKS/$1 (if no copy.sh runs, a killed run left it: remove it)"
+}
+unlock() {
+    rmdir "$LOCKS/$1" 2>/dev/null || true
+    local kept=() l
+    for l in ${HELD[@]+"${HELD[@]}"}; do [ "$l" = "$1" ] || kept+=("$l"); done
+    HELD=(${kept[@]+"${kept[@]}"})
+}
 
 container() { echo "tm-$1"; }
 volume() { echo "tm-$1-data"; }
@@ -82,7 +98,19 @@ copies() { docker ps -a --filter label=terramentor.copy --format '{{.Label "terr
 # Caddy joins every copy's network, and only those: written from the copies
 # that exist, then applied. A changed network list recreates the proxy (a
 # second of downtime for every copy); a changed site list only reloads it.
+#
+# The proxy is shared, so the list it is built from and the `compose up` that
+# applies it happen under one lock for every copy: two commands at once would
+# otherwise each apply a list missing the other's copy. A call made while this
+# run already holds it (undo_new after a failed apply) goes straight on.
+PROXY_HELD=""
 proxy_apply() {
+    local mine=""
+    if [ -z "$PROXY_HELD" ]; then
+        wait_lock _proxy
+        PROXY_HELD=1
+        mine=1
+    fi
     {
         echo "# Written by copy.sh from the copies that exist. Do not edit."
         echo "services:"
@@ -100,6 +128,7 @@ proxy_apply() {
     export TM_ACME_LINE="${ACME_EMAIL:+email $ACME_EMAIL}"
     (cd "$HERE" && docker compose -f docker-compose.yml -f networks.yml up -d --remove-orphans >/dev/null)
     docker exec terramentor-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true
+    if [ -n "$mine" ]; then unlock _proxy; PROXY_HELD=""; fi
 }
 
 # A request through the proxy, as a phone would make it, whatever DNS says yet.
@@ -131,6 +160,7 @@ cmd_new() {
     docker volume inspect "$(volume "$name")" >/dev/null 2>&1 && die "volume $(volume "$name") already exists (a removed copy's data?); remove it or pick another name"
     docker network inspect "$(network "$name")" >/dev/null 2>&1 && die "network $(network "$name") already exists; remove it or pick another name"
     [ -e "$SITES/$name.caddy" ] && die "$SITES/$name.caddy already exists; remove it or pick another name"
+    [ -e "$KEYS/$name.env" ] && die "$KEYS/$name.env already exists (a key kept for $name?); move it or pick another name"
     # A copy half made is undone, so the same name can simply be tried again.
     MADE=()
     UNDO_NEW="$name"
@@ -309,13 +339,15 @@ cmd_restore() {
     listing="$(tar tzf - < "$archive" 2>/dev/null)" || die "$archive is not a readable archive; $name was not touched"
     [ "$(grep -cE '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing")" = 1 ] || die "$archive is not one backup made by copy.sh; $name was not touched"
     docker stop "$(container "$name")" >/dev/null
-    # hostedCli exits 3 once it has started replacing the library, anything
-    # else non-zero with the library as it was (server/hostedCli.js).
+    # hostedCli marks the library before it starts replacing it and clears the
+    # mark only when every part is in place, so even a killed restore leaves
+    # it; the copy itself refuses to start while it is there. A failure is
+    # followed by a start only when `restore-state` confirms there is no mark.
     local rc=0
     docker run --rm -i --network none -v "$(volume "$name")":/data "$TM_IMAGE" sh -c \
         'mkdir -p /tmp/restore && tar xz -C /tmp/restore && node server/hostedCli.js restore /tmp/restore/.backup-*' < "$archive" || rc=$?
-    if [ "$rc" = 3 ]; then
-        die "the restore stopped partway through replacing $name's library; $name is left stopped. Restore it again from this or another backup"
+    if [ "$rc" != 0 ] && ! docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" node server/hostedCli.js restore-state >/dev/null 2>&1; then
+        die "the restore stopped partway through replacing $name's library (exit $rc); $name is left stopped. Restore it again from this or another backup"
     fi
     docker start "$(container "$name")" >/dev/null
     if [ "$rc" != 0 ]; then

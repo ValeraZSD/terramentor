@@ -77,7 +77,13 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh remove <name> [--yes]` | backs the copy up first, then removes it, its volume, network and key |
 
 `new`, `restore`, `update` and `remove` take a lock per copy in
-`hosted/.locks/`, so two operators cannot work on the same copy at once.
+`hosted/.locks/`, so two operators cannot work on the same copy at once, and
+every change to the shared proxy waits for one lock of its own.
+
+A restore marks the library before it replaces anything and clears the mark
+when every part is in place. A restore that stopped partway, even one that
+was killed, leaves the mark, and the copy refuses to start until a restore
+completes (`node server/hostedCli.js restore-state` inside the image reports it).
 
 Each copy runs read-only except for its volume and a temporary folder, with no
 Linux capabilities, `no-new-privileges`, and the limits from `hosted/.env`:

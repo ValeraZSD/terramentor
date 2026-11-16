@@ -22,7 +22,11 @@ export TM_MEMORY="${TM_MEMORY:-768m}"
 # Scratch folders named so the Windows docker and curl of Git Bash read them too.
 scratch_dir() { (cd "$(mktemp -d)" && { pwd -W 2>/dev/null || pwd; }); }
 # A space in the path: the backup tool keeps paths whole (retention included).
-export TM_BACKUP_DIR="${TM_BACKUP_DIR:-$(scratch_dir)/backups here}"
+# The archives hold credentials, so a folder made here is deleted at the end;
+# one the operator named is left alone.
+OWN_BACKUPS=""
+if [ -z "${TM_BACKUP_DIR:-}" ]; then OWN_BACKUPS="$(scratch_dir)"; TM_BACKUP_DIR="$OWN_BACKUPS/backups here"; fi
+export TM_BACKUP_DIR
 # A closed port: nothing here may reach a model.
 export AI_PROVIDER=openai AI_BASE_URL=http://127.0.0.1:9/v1 AI_MODEL=none
 COPY="$HERE/copy.sh"
@@ -41,8 +45,8 @@ if docker container inspect terramentor-proxy >/dev/null 2>&1; then
 fi
 for n in $NAMES; do
     if docker container inspect "tm-$n" >/dev/null 2>&1 || docker volume inspect "tm-$n-data" >/dev/null 2>&1 \
-        || docker network inspect "tm-$n" >/dev/null 2>&1; then
-        echo "rehearse.sh: tm-$n already exists here and the rehearsal would delete it; rehearse on a machine with no copies" >&2
+        || docker network inspect "tm-$n" >/dev/null 2>&1 || [ -e "$HERE/sites/$n.caddy" ] || [ -e "$HERE/copies/$n.env" ]; then
+        echo "rehearse.sh: tm-$n (or its site or key file) already exists here and the rehearsal would delete it; rehearse on a machine with no copies" >&2
         exit 1
     fi
 done
@@ -58,6 +62,8 @@ cleanup() {
     for n in $NAMES; do docker network rm "tm-$n" >/dev/null 2>&1 || true; done
     rm -f "$HERE/networks.yml"
     rm -rf "$WORK"
+    [ -n "$OWN_BACKUPS" ] && rm -rf "$OWN_BACKUPS"
+    return 0
 }
 trap cleanup EXIT
 
@@ -156,12 +162,23 @@ docker network create tm-dave >/dev/null
 if bash "$COPY" new dave >/dev/null 2>&1; then no "a copy was made over an existing network"; fi
 docker network inspect tm-dave >/dev/null 2>&1 && ok "a name whose network exists is refused, and that network is left alone" || no "copy.sh new deleted a network it did not make"
 docker network rm tm-dave >/dev/null
+# Three at once: the same name twice, and another name applying the shared proxy alongside.
 bash "$COPY" new erin > "$WORK/erin1" 2>&1 & p1=$!
 bash "$COPY" new erin > "$WORK/erin2" 2>&1 & p2=$!
-r1=0; r2=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?
+bash "$COPY" new dave > "$WORK/dave" 2>&1 & p3=$!
+r1=0; r2=0; r3=0; wait "$p1" || r1=$?; wait "$p2" || r2=$?; wait "$p3" || r3=$?
 [ $((r1 == 0)) -ne $((r2 == 0)) ] && [ "$(status erin /api/auth/status)" = 200 ] \
     && ok "two 'new erin' at once: one makes it, the other is refused and undoes nothing of it" || no "new erin twice: $r1 $r2 $(cat "$WORK/erin1" "$WORK/erin2" | sed 's/^password: .*/password: (hidden)/')"
-bash "$COPY" remove erin --yes >/dev/null
+[ "$r3" = 0 ] && [ "$(status dave /api/auth/status)" = 200 ] && [ "$(status erin /api/auth/status)" = 200 ] \
+    && ok "a copy made at the same time as another: both stay behind the proxy" || no "new dave beside erin: $r3 $(sed 's/^password: .*/password: (hidden)/' "$WORK/dave")"
+bash "$COPY" remove erin --yes >/dev/null & p1=$!
+bash "$COPY" remove dave --yes >/dev/null & p2=$!
+wait "$p1" && wait "$p2" || no "two removes at once failed"
+for n in erin dave; do
+    docker container inspect "tm-$n" >/dev/null 2>&1 || docker network inspect "tm-$n" >/dev/null 2>&1 || docker volume inspect "tm-$n-data" >/dev/null 2>&1 \
+        && no "two removes at once left something of $n"
+done
+ok "two copies removed at once: nothing of either is left"
 
 echo "--- remove ---"
 out="$(bash "$COPY" remove "$B" --yes)"; echo "$out"
