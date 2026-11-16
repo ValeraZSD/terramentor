@@ -148,6 +148,18 @@ try {
     check('…and that is the shown score unless cards lifted it', t.estimate.score >= t.estimate.answersScore - 1e-9, JSON.stringify(t.estimate));
     check('the shown score is the gate\'s shown_score, a number in 0..1', typeof t.estimate.score === 'number' && t.estimate.score >= 0 && t.estimate.score <= 1);
 
+    // Missed practice the other way: the gate keeps the lower stored estimate,
+    // so the number sits UNDER the newest step, and the card has to say why
+    // (it reads practiceTotal > 0 and score < the newest step).
+    const lowered = addNode(course, 'Concave lenses');
+    for (let i = 0; i < 6; i++) sitting(lowered, 1, 1);
+    sitting(lowered, 2, 5, 'drill'); sitting(lowered, 2, 5, 'drill');
+    t = await trail(lowered);
+    const lastStep = t.rows.find(r => r.after != null)?.after;
+    check('missed drills after good answers: the number sits under the newest step', t.estimate.score != null && lastStep != null && t.estimate.score < lastStep - 0.01, `${t.estimate.score} vs ${lastStep}`);
+    check('…with practice on record to blame', t.estimate.practiceTotal > 0, JSON.stringify(t.estimate));
+    check('…and the trail\'s steps still chain to the newest one', [...t.rows].reverse().filter(r => r.after != null).every((r, i, a) => i === 0 || close(r.before, a[i - 1].after)));
+
     console.log('\n--- 4. proven, then fading ---');
     const proven = addNode(course, 'Mirrors');
     sitting(proven, 5, 5, 'mastery_check'); sitting(proven, 5, 5);

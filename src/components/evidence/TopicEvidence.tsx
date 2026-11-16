@@ -131,8 +131,10 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
     // number, because missed practice lowered it (the gate keeps the lower).
     const steps = chartPoints(trail.rows);
     const lastStep = steps.length ? steps[steps.length - 1].value : null;
-    const lowered = !deck && !lifted && estimate.level !== 'fading' && estimate.score != null
-        && lastStep != null && pct(estimate.score) < pct(lastStep);
+    // Only with practice to blame: without it the gap is the rates drifting
+    // since the score was stored, and "missed practice" would be untrue.
+    const lowered = shown && !deck && !lifted && estimate.level !== 'fading' && estimate.score != null
+        && (estimate.practiceTotal ?? 0) > 0 && lastStep != null && pct(estimate.score) < pct(lastStep);
     return (
         <div className="space-y-1.5">
             {/* The label and the answer on lines of their own: run together
@@ -192,8 +194,9 @@ function EstimateSummary({ trail }: { trail: EvidenceTrail }) {
                 </div>
             )}
             {/* One line: a skipped topic says so instead of what the answers
-                say; a lowered one has said it above (its answers did well). */}
-            {!lowered && (
+                say. "Still learning it" would contradict the lowered line
+                (the answers did well); every other level's line still holds. */}
+            {!(lowered && estimate.level === 'early') && (
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                     {trail.status === 'skipped' ? t("You skipped it: closed without proof.") : levelLine(t, trail, day)}
                 </p>
