@@ -113,13 +113,15 @@ Fallen behind? Two honest options, and no third:
 
 ## Proving it: the mastery gate
 
-Marking a topic complete can be intercepted by the **mastery gate**, which offers a **mastery
-check**: a short quiz on that topic alone.
+A topic's last part ends on a card that offers its **mastery check**: a short quiz on that topic
+alone. Passing it completes the topic.
 
 Three modes, in Settings → Learning → *Proving a topic*:
 
-- **Just track**: completion is never questioned.
-- **Ask me**: you are asked to prove it, but "mark done anyway" is always there.
+- **Just track**: the card offers **Complete topic**, and no check.
+- **Ask me**: until the topic is proven, the check leads and **Mark done without the check** sits
+  beside it. A topic closed that way says *Completed, not proven yet* and keeps the check on offer.
+  Once it is proven, **Complete topic** leads and the check stays beside it.
 - **Require proof** (the default, marked *Recommended*): completion needs proof.
 
 **Skip** is available in every mode. Skipped means *"I moved on without proving it"*: it counts as

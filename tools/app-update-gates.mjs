@@ -440,7 +440,7 @@ check('installState reports it ready', appUpdate.installState({ appRoot: appA, c
     // The newer one's download failed (GitHub down, a manifest 404): the
     // staged copy is still the one Restart can install.
     const asked = [];
-    appUpdate.startDownload({ latest: newer, appRoot: appA, fetchImpl: async (url) => { asked.push(String(url)); throw new TypeError('fetch failed'); }, log: {} });
+    appUpdate.startDownload({ latest: newer, appRoot: appA, current: '1.4.0', fetchImpl: async (url) => { asked.push(String(url)); throw new TypeError('fetch failed'); }, log: {} });
     for (let i = 0; i < 500 && appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase === 'downloading'; i++) await new Promise((r) => setTimeout(r, 10));
     const afterFail = appUpdate.installState({ appRoot: appA, current: '1.4.0', latest: newer });
     check('…nor does one whose download just failed (at its manifest)', [afterFail.phase, afterFail.overtaken].join() === 'ready,' && asked.join() === newer.manifestUrl, `${afterFail.phase},${afterFail.overtaken} asked ${asked.join()}`);
@@ -697,7 +697,7 @@ check('not enough disk space is refused before downloading', await throwsWith(()
         if (init.signal.aborted) return reject(init.signal.reason);
         init.signal.addEventListener('abort', () => reject(init.signal.reason));
     });
-    appUpdate.startDownload({ latest: B.latest, appRoot: appA, fetchImpl: hanging, log: {} });
+    appUpdate.startDownload({ latest: B.latest, appRoot: appA, current: '1.4.0', fetchImpl: hanging, log: {} });
     const during = appUpdate.installState({ appRoot: appA, current: '1.4.0' }).phase;
     const stopped = appUpdate.cancelDownload();
     await new Promise((r) => setTimeout(r, 50));
@@ -1236,7 +1236,7 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     appUpdate.resetForTests();
     served.requests.length = 0;
     following = 'nightly';
-    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, fetchImpl: hangsAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, current: from, fetchImpl: hangsAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     await atPackage();
     const during = state().phase;
     following = 'stable';
@@ -1252,7 +1252,7 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     // Back on Nightly the press finishes it; a switch to Stable after that
     // leaves the panel naming nothing, rather than the nightly it downloaded.
     following = 'nightly';
-    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, fetchImpl: loopback, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, current: from, fetchImpl: loopback, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     for (let i = 0; i < 500 && state().phase === 'downloading'; i++) await new Promise((res) => setTimeout(res, 20));
     const finished = state();
     following = 'stable';
@@ -1266,7 +1266,7 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
     rmSync(upd, { recursive: true, force: true });
     appUpdate.resetForTests();
     following = 'nightly';
-    appUpdate.startDownload({ latest: { ...S.latest, channel: 'nightly', prerelease: false }, appRoot: appA, fetchImpl: hangsAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    appUpdate.startDownload({ latest: { ...S.latest, channel: 'nightly', prerelease: false }, appRoot: appA, current: from, fetchImpl: hangsAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     await atPackage();
     following = 'stable';
     const changed = appUpdate.channelChanged?.({ log: {} });
@@ -1293,7 +1293,7 @@ console.log('\n4. A release staged on one channel, after a switch to the other')
         }
         return loopback(url, init);
     };
-    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, fetchImpl: switchesAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
+    appUpdate.startDownload({ latest: { ...N2.latest, prerelease: true }, appRoot: appA, current: from, fetchImpl: switchesAtPackage, log: {}, releaseKeys: GATE_KEYS, now: STAGE_NOW });
     for (let i = 0; i < 500 && !existsSync(join(upd, 'ready.json')); i++) await new Promise((res) => setTimeout(res, 20));
     await new Promise((res) => setTimeout(res, 50));
     behaviour.ranges = true;

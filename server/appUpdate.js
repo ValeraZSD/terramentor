@@ -609,14 +609,14 @@ async function stageFromZip({ core, asset, ref, appRoot, nextDir, upd, fetchImpl
  * panel reads progress from `installState`. `latest` comes from the stored
  * update check, never from the request.
  */
-export function startDownload({ latest, appRoot = APP_ROOT, fetchImpl, log = console, releaseKeys, now } = {}) {
+export function startDownload({ latest, appRoot = APP_ROOT, current, fetchImpl, log = console, releaseKeys, now } = {}) {
     if (job?.phase === 'downloading') return false;
     const controller = new AbortController();
     job = { version: latest?.version || null, channel: offeredChannel(latest), phase: 'downloading', received: 0, total: 0, mode: null, error: null, controller };
     const mine = job;
     stageUpdate({
-        // `releaseKeys` and `now` are the gates' (see stageUpdate); the routes pass neither.
-        latest, appRoot, fetchImpl, signal: controller.signal, releaseKeys, now,
+        // `current`, `releaseKeys` and `now` are the gates' (see stageUpdate); the routes pass none.
+        latest, appRoot, current, fetchImpl, signal: controller.signal, releaseKeys, now,
         onProgress: ({ step, received, total, mode }) => { Object.assign(mine, { step, received, total, mode }); },
     }).then((ready) => {
         // Stopped after its last network read (Stop download, or a switch to a

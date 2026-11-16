@@ -2158,12 +2158,12 @@ db.prepare("DELETE FROM settings WHERE key = 'inbox_project_id'").run();
 // an integer id means a different project in another copy of the library.
 // Rows still keyed by an id move to the uuid key; one that names no project is
 // dropped, as deleting the project would have done; one whose project has no
-// uuid yet stays under its id for a later start. A uuid key already there
-// is kept: this build wrote it, and only an older build would have written
-// the id key since.
+// uuid yet stays under its id for a later start. When a uuid key is already
+// there the id key wins: this build wrote the uuid key, so an id key beside it
+// was written later, by an older build the library was opened in meanwhile.
 try {
   const project = db.prepare('SELECT uuid FROM projects WHERE id = ?');
-  const keep = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING');
+  const keep = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
   const drop = db.prepare('DELETE FROM settings WHERE key = ?');
   const idKeyed = db.prepare('SELECT key, value FROM settings WHERE key GLOB ? AND key NOT GLOB ?');
   let rekeyed = 0;
