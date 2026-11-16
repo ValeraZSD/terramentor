@@ -284,6 +284,12 @@ export function createFrontDesk({
         void entry;
         // The browser may have gone while the library woke; its close has already fired.
         if (res.destroyed || req.destroyed) return;
+        // Another device may have ended this session while the library woke, when
+        // there was no stream yet for closeStreams to close: nothing is forwarded.
+        if (!accounts.sessionAlive(session.sessionId)) {
+            if (req.url.startsWith('/api/') || (req.method !== 'GET' && req.method !== 'HEAD')) return json(res, 401, { error: 'Sign in again', authRequired: true, site: true });
+            return redirect(res, '/site/sign-in');
+        }
         const headers = { ...req.headers };
         delete headers.cookie;
         delete headers[NOTE_HEADER];
