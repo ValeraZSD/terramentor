@@ -85,6 +85,9 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         sessionAlive: db.prepare('SELECT 1 FROM sessions WHERE id = ? AND expires_at >= ? AND last_seen_at >= ?'),
         unuseInvite: db.prepare('UPDATE invites SET used_at = NULL WHERE id = ?'),
         sweepNetworks: db.prepare("DELETE FROM throttle WHERE key LIKE 'net:%' AND last_fail_at < ?"),
+        // An address no account has: its count matters only while guesses come in.
+        sweepStrangers: db.prepare(`DELETE FROM throttle WHERE key LIKE 'acct:%' AND last_fail_at < ?
+                                    AND substr(key, 6) NOT IN (SELECT email FROM accounts)`),
         throttleGet: db.prepare('SELECT * FROM throttle WHERE key = ?'),
         throttlePut: db.prepare(`INSERT INTO throttle (key, fails, last_fail_at) VALUES (?, ?, ?)
                                  ON CONFLICT(key) DO UPDATE SET fails = excluded.fails, last_fail_at = excluded.last_fail_at`),
@@ -200,11 +203,13 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         const state = throttleState(email, ip, now);
         if (state.passwordOff) return { passwordOff: true };
         if (state.wait > 0) return { wait: state.wait };
-        const acctKey = `acct:${email}`;
+        // Only something shaped like an address gets a count of its own (that also
+        // bounds the key's length); anything else still counts against its network.
+        const acctKey = looksLikeEmail(email) ? `acct:${email}` : null;
         const netKey = `net:${networkOf(ip)}`;
         // Counted before the check, so parallel guesses cannot all slip in
         // under one count.
-        bump(acctKey, now);
+        if (acctKey) bump(acctKey, now);
         bump(netKey, now);
         const account = q.accountByEmail.get(email);
         let right = false;
@@ -213,7 +218,8 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
             else await spendLikeAPasswordCheck(String(password ?? ''));
         } catch (e) {
             if (e?.code !== 'AUTH_BUSY') throw e;
-            unbump(acctKey); unbump(netKey);
+            if (acctKey) unbump(acctKey);
+            unbump(netKey);
             return { busy: true };
         }
         if (!right) return { wrong: true };
@@ -230,9 +236,10 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         endAllSessions: (accountId) => q.endAll.run(accountId).changes,
         /** Sign out every device but this one. */
         endOtherSessions: (accountId, keepId) => q.endOthers.run(accountId, keepId).changes,
-        /** Drop ended sessions, and networks whose last wrong guess is over a day old. */
+        /** Drop ended sessions, and networks and account-less addresses whose last wrong guess is over a day old. */
         sweepSessions: (now = Date.now()) => {
             q.sweepNetworks.run(now - NETWORK_FORGET_MS); // last_fail_at is epoch ms
+            q.sweepStrangers.run(now - NETWORK_FORGET_MS);
             return q.sweepSessions.run(nowIso(now), nowIso(now - SESSION_IDLE_MS)).changes;
         },
         /** Is this session still signed in? False once it was ended, swept or ran out. */

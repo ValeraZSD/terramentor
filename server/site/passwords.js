@@ -36,7 +36,12 @@ async function limited(fn) {
     }
 }
 
+// Runs started, so a check can count the work each path does instead of timing it.
+let runs = 0;
+export const argonRuns = () => runs;
+
 function argon2id(password, salt, p = ARGON2) {
+    runs += 1;
     return limited(() => new Promise((resolve, reject) => {
         crypto.argon2('argon2id', {
             message: Buffer.from(password, 'utf8'), nonce: salt,
