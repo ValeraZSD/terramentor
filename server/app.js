@@ -58,6 +58,7 @@ import * as authoringApi from './routes/authoring.js';
 import * as mediaApi from './routes/media.js';
 import * as ankiApi from './routes/anki.js';
 import * as bundleApi from './routes/bundle.js';
+import * as courseUpdatesApi from './routes/courseUpdates.js';
 import * as scheduleApi from './routes/schedule.js';
 import * as completionApi from './routes/completion.js';
 import * as decksApi from './routes/decks.js';
@@ -478,6 +479,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(mediaApi.routes);
     mount(ankiApi.routes);
     mount(bundleApi.routes);
+    mount(courseUpdatesApi.routes);
     mount(scheduleApi.scheduleRoutes);
     mount(completionApi.routes);
     mount(scheduleApi.scheduleEditRoutes);

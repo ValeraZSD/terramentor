@@ -292,12 +292,20 @@ console.log('\n--- case 2, conflict: a field both sides changed keeps the learne
     if (!OLD) {
         const c = r.inspected?.conflicts?.[0];
         check('2 conflict: the preview shows both versions side by side', [c?.field, c?.mine, c?.file], ['title', 'Lidwoorden (mijn titel)', 'De en het']);
-        // Choosing the file's version for that one item takes it.
-        const again = edition2(tag, (f) => { topic(f, 'Lidwoorden').title = 'De en het'; topic(f, 'Lidwoorden').description = 'Overview A, second edition.'; });
-        const pre = await upload('/api/course-updates/inspect', again);
+        // Choosing the file's version in the preview takes it. (Once an update
+        // kept the learner's version, the same file asks nothing again: that
+        // is case 5. So this is a second course, the choice made up front.)
+        const ctag = 'conflict-choose';
+        const cpid = await install(edition1(ctag));
+        const caId = nodeOf(cpid, 'Lidwoorden').id;
+        await api(`/api/nodes/${caId}`, 'PUT', { title: 'Lidwoorden (mijn titel)' });
+        const cv2 = edition2(ctag, (f) => { topic(f, 'Lidwoorden').title = 'De en het'; });
+        const pre = await upload('/api/course-updates/inspect', cv2);
         const key = pre.body?.conflicts?.[0]?.key;
-        await upload('/api/course-updates/commit', again, { projectId: String(pid), choices: JSON.stringify({ [key]: 'file' }) });
-        check('2 conflict: choosing the file’s version for that item takes it', db.prepare('SELECT title FROM nodes WHERE id = ?').get(a.id).title, 'De en het');
+        await upload('/api/course-updates/commit', cv2, { projectId: String(cpid), choices: JSON.stringify({ [key]: 'file' }) });
+        check('2 conflict: choosing the file’s version for that item takes it', db.prepare('SELECT title FROM nodes WHERE id = ?').get(caId).title, 'De en het');
+        check('2 conflict: ...and a conflict left as it is asks nothing again for the same file',
+            (await upload('/api/course-updates/inspect', v2)).body?.summary?.nothing, true);
     }
 }
 
