@@ -328,6 +328,35 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
     decks.setNewPerDay(projectId, 20);
 }
 
+// ---- the course's recall target ---------------------------------------------
+{
+    const key = () => db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'desired_retention_%'").get().n;
+    eq('a course with no target reads the standard 0.90', decks.getRetention(projectId), 0.9);
+    eq('the deck data carries the target', decks.buildDeckData(projectId, { now: NOW }).desiredRetention, 0.9);
+    eq('a target is stored as given', decks.setRetention(projectId, 0.85), 0.85);
+    eq('and read back', decks.getRetention(projectId), 0.85);
+    check('stored under the project uuid, not its id',
+        db.prepare('SELECT COUNT(*) AS n FROM settings WHERE key = ?').get(
+            'desired_retention_' + db.prepare('SELECT uuid FROM projects WHERE id = ?').get(projectId).uuid).n === 1);
+    eq('a target outside 0.70-0.97 is refused', decks.setRetention(projectId, 0.5), null);
+    eq('and leaves the stored one alone', decks.getRetention(projectId), 0.85);
+    eq('the standard target stores no row at all', (decks.setRetention(projectId, 0.9), key()), 0);
+    const { loadProjectSummaries } = await import('../server/projectSummary.js');
+    decks.setRetention(projectId, 0.95);
+    eq('the project row carries the target every review surface reads',
+        loadProjectSummaries().find(p => p.id === Number(projectId))?.desired_retention, 0.95);
+    const f = decks.retentionForecast(projectId, { now: NOW });
+    check('the forecast offers every choice and the course own target',
+        f.current === 0.95 && [0.8, 0.85, 0.9, 0.95].every(r => f.choices.some(c => c.retention === r)),
+        JSON.stringify(f));
+    check('the forecast prices a higher target at least as high',
+        f.choices.every((c, i) => i === 0 || c.perDay >= f.choices[i - 1].perDay), JSON.stringify(f.choices));
+    eq('the forecast uses the course own allowance', f.newPerDay, decks.getNewPerDay(projectId));
+    check('a second ask on unchanged cards is the same answer',
+        decks.retentionForecast(projectId, { now: NOW }) === f);
+    decks.setRetention(projectId, 0.9);
+}
+
 {
     const q = decks.studyQueue(projectId);
     eq('the queue serves the reviews that are owed', q.reviews.length, 2);

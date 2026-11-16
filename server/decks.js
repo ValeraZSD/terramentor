@@ -32,7 +32,10 @@
 // background job, no new table.
 
 import db, { NOW_ISO } from './database.js';
-import { readProjectSetting, writeProjectSetting } from './projectSettings.js';
+import { clearProjectSetting, readProjectSetting, writeProjectSetting } from './projectSettings.js';
+import {
+    configureSrs, forecastDailyReviews, normalRetention, MAX_RETENTION, MIN_RETENTION, REQUEST_RETENTION, RETENTION_CHOICES,
+} from '../src/utils/srs.ts';
 import { cardState, MATURE_DAYS } from './deckStructure.js';
 import { IN_DAY, dayBounds, studyDay } from './studyDay.js';
 
@@ -94,6 +97,101 @@ export function setNewPerDay(projectId, value) {
     const n = Math.max(0, Math.min(9999, Number.parseInt(value, 10) || 0));
     writeProjectSetting(NEW_PER_DAY_PREFIX, projectId, n);
     return n;
+}
+
+const RETENTION_PREFIX = 'desired_retention_';
+
+/**
+ * The share of this course's cards the learner wants to still know when each
+ * comes up (FSRS's desired retention). Unset = the app-wide 0.90, which is also
+ * what every review surface uses for a course it knows nothing about.
+ */
+export function getRetention(projectId) {
+    return normalRetention(readProjectSetting(RETENTION_PREFIX, projectId));
+}
+
+/**
+ * Store a course's target; null when the value is outside what the scheduler
+ * accepts (nothing written). The default is stored as no row at all, so a
+ * course that never moved it follows the app-wide value if that ever changes.
+ */
+export function setRetention(projectId, value) {
+    const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+    if (!Number.isFinite(n) || n < MIN_RETENTION || n > MAX_RETENTION) return null;
+    const r = normalRetention(n);
+    if (r === REQUEST_RETENTION) clearProjectSetting(RETENTION_PREFIX, projectId);
+    else writeProjectSetting(RETENTION_PREFIX, projectId, r);
+    return r;
+}
+
+/** How far ahead the forecast looks, in days. */
+const FORECAST_DAYS = 30;
+/** Up to this many cards that can come up, the forecast takes 4 runs a target. */
+const FORECAST_RUN_CARDS = 800;
+
+/** One forecast per course, good while its cards, day and allowance are unchanged. */
+const forecastCache = new Map();
+
+/**
+ * About how many answers a day each target in RETENTION_CHOICES (plus the
+ * course's own, if it is another) will ask of this course over the next 30
+ * days, at its daily new-card allowance: what the learner is shown BEFORE a
+ * target is saved, since the target is a trade of reviews for recall.
+ *
+ * The scheduler's own simulation (`forecastDailyReviews`), seeded. It runs on
+ * the request (better-sqlite3 is synchronous anyway), so its cost is bounded:
+ * 4 runs for a course of up to FORECAST_RUN_CARDS cards that can come up, fewer
+ * above it, down to one — the spread of a mean over cards shrinks with their
+ * number, so a big deck needs fewer runs for the same whole-number answer. Kept
+ * per course while its cards, day, allowance, target and weights are unchanged.
+ */
+export function retentionForecast(projectId, { now = new Date() } = {}) {
+    const cards = db.prepare(`
+        SELECT f.id, f.stability, f.stability_fast, f.fsrs_difficulty, f.state, f.lapses, f.learning_steps,
+               f.last_interval, f.ease_factor, f.difficulty, f.review_count, f.last_reviewed, f.next_review
+        FROM flashcards f
+        JOIN nodes n ON n.id = f.node_id
+        LEFT JOIN nodes parent ON parent.id = n.parent_id
+        WHERE n.project_id = ?
+        ORDER BY COALESCE(parent.position, 0), COALESCE(n.position, 0), f.id
+    `).all(projectId);
+    const newPerDay = getNewPerDay(projectId);
+    const current = getRetention(projectId);
+    const choices = [...new Set([...RETENTION_CHOICES, current])].sort((a, b) => a - b);
+    // The learner's fitted weights, when the optimiser accepted a fit: the
+    // same scheduler their reviews run on.
+    const params = readSetting('fsrs_params');
+    let w = null;
+    try { w = JSON.parse(params ?? 'null'); } catch { w = null; }
+    configureSrs({ w: Array.isArray(w) ? w : null });
+    const day = studyDay({ now: now.getTime() }).date;
+    // Any review, reset or edited due date moves one of these sums.
+    let reviews = 0, dueSum = 0, stamp = '';
+    for (const c of cards) {
+        reviews += c.review_count ?? 0;
+        dueSum += c.next_review ? Date.parse(c.next_review) || 0 : 0;
+        if (c.last_reviewed && c.last_reviewed > stamp) stamp = c.last_reviewed;
+    }
+    const key = [projectId, day, cards.length, reviews, dueSum, stamp, newPerDay, current, params ?? ''].join('|');
+    const hit = forecastCache.get(projectId);
+    if (hit?.key === key) return hit.value;
+
+    const horizon = new Date(now.getTime() + FORECAST_DAYS * 86_400_000).toISOString();
+    const reviewedSoon = cards.filter(c => c.next_review && c.next_review < horizon && (c.review_count > 0 || c.last_reviewed || c.stability != null)).length;
+    const unseen = cards.filter(c => !(c.review_count > 0 || c.last_reviewed || c.stability != null)).length;
+    const active = reviewedSoon + Math.min(unseen, newPerDay * FORECAST_DAYS);
+    const runs = Math.max(1, Math.min(4, Math.round(4 * FORECAST_RUN_CARDS / Math.max(1, active))));
+    const value = {
+        current,
+        newPerDay,
+        days: FORECAST_DAYS,
+        choices: choices.map(retention => ({
+            retention,
+            perDay: Math.round(forecastDailyReviews(cards, { retention, newPerDay, days: FORECAST_DAYS, runs, now }) * 10) / 10,
+        })),
+    };
+    forecastCache.set(projectId, { key, value });
+    return value;
 }
 
 /**
@@ -376,6 +474,8 @@ export function buildDeckData(projectId, { forecastDays = 14, now = new Date() }
         forecast: deckForecast(projectId, { days: forecastDays, now }),
         stages,
         matureDays: MATURE_DAYS,
+        // The recall target its cards are scheduled for (not observed recall).
+        desiredRetention: getRetention(projectId),
         // The stage the learner is actually working on: the first that still has
         // cards they have never seen, else the first with anything due. "Where
         // do I carry on from" is the one question a thirty-row ladder must not
