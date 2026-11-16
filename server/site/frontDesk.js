@@ -23,7 +23,7 @@ import net from 'node:net';
 import { createAccounts, WRONG } from './accounts.js';
 import { createLibraryPool } from './libraries.js';
 import { MIN_LENGTH } from './passwords.js';
-import { inviteSpentPage, invitePage, openingPage, problemPage, sessionsPage, signInPage } from './pages.js';
+import { inviteSpentPage, invitePage, openingPage, problemPage, signInPage } from './pages.js';
 import { makeNote, NOTE_HEADER } from '../siteLibrary.js';
 
 export const COOKIE = '__Host-tm_session';
@@ -169,7 +169,7 @@ export function createFrontDesk({
             if (method === 'GET') {
                 if (currentSession(req)) return redirect(res, '/');
                 const { nonce, headers } = nonceHeaders();
-                const info = url.searchParams.has('signed-out') ? 'You are signed out. Nothing of your library is left in this browser.' : '';
+                const info = url.searchParams.has('signed-out') ? 'You have been signed out.' : '';
                 return send(res, 200, signInPage({ nonce, info }), headers);
             }
             if (method === 'POST') {
@@ -180,7 +180,7 @@ export function createFrontDesk({
                 if (result.ok) return redirect(res, '/', { 'Set-Cookie': sessionCookie(result.token), 'Clear-Site-Data': CLEAR_SITE_DATA });
                 const { nonce, headers } = nonceHeaders();
                 const error = result.wait ? `Too many tries. Wait ${result.wait} seconds and try again.`
-                    : result.passwordOff ? 'Signing in with this password is switched off after too many wrong tries. Ask whoever runs this site to switch it back on.'
+                    : result.passwordOff ? 'This account is locked after too many wrong passwords. Ask your administrator to unlock it.'
                         : result.busy ? 'The site is busy. Try again in a moment.'
                             : WRONG;
                 const status = result.wait || result.busy ? 429 : 401;
@@ -189,10 +189,12 @@ export function createFrontDesk({
             }
         }
 
-        const invite = /^\/site\/invite\/([A-Za-z0-9_-]{20,100})$/.exec(pathname);
+        // Any invite address answers as one: a link an email program cut short
+        // says it no longer works, never a bare sign-in page.
+        const invite = /^\/site\/invite\/([^/]*)$/.exec(pathname);
         if (invite) {
             const token = invite[1];
-            const found = accounts.inviteOf(token);
+            const found = /^[A-Za-z0-9_-]{20,100}$/.test(token) ? accounts.inviteOf(token) : null;
             const { nonce, headers } = nonceHeaders();
             if (!found) return send(res, 410, inviteSpentPage({ nonce }), headers);
             if (method === 'GET') return send(res, 200, invitePage({ nonce, token, email: found.email, minLength: MIN_LENGTH }), headers);
@@ -222,11 +224,15 @@ export function createFrontDesk({
             if (session && accounts.endSession(session.sessionId, session.accountId)) closeStreams(session.sessionId);
             return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
         }
-        if (!session) return redirect(res, '/site/sign-in');
-        if (pathname === '/site/sign-out-everywhere' && method === 'POST') {
-            accounts.endAllSessions(session.accountId);
+        // The app asks for JSON (the devices list in its Settings); a page asks for a page.
+        const wantsJson = pathname.endsWith('.json') || /application\/json/.test(String(req.headers.accept || ''));
+        if (!session) return wantsJson ? json(res, 401, { error: 'Sign in again', authRequired: true, site: true }) : redirect(res, '/site/sign-in');
+        // The signed-in devices live in the app: Settings, Devices & security.
+        const DEVICES = '/settings#devices';
+        if (pathname === '/site/sign-out-others' && method === 'POST') {
+            const ended = accounts.endOtherSessions(session.accountId, session.sessionId);
             closeEndedStreams();
-            return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
+            return wantsJson ? json(res, 200, { ended }) : redirect(res, DEVICES);
         }
         const endOne = /^\/site\/sessions\/(\d+)\/sign-out$/.exec(pathname);
         if (endOne && method === 'POST') {
@@ -235,17 +241,14 @@ export function createFrontDesk({
             if (id === session.sessionId) {
                 return redirect(res, '/site/sign-in?signed-out', { 'Set-Cookie': CLEAR_COOKIE, 'Clear-Site-Data': CLEAR_SITE_DATA });
             }
-            return redirect(res, '/site/sessions?ended');
+            return wantsJson ? json(res, 200, { ok: true }) : redirect(res, DEVICES);
         }
-        if (pathname === '/site/sessions' && method === 'GET') {
-            const { nonce, headers } = nonceHeaders();
-            return send(res, 200, sessionsPage({
-                nonce, email: session.email, sessions: accounts.listSessions(session.accountId), currentId: session.sessionId,
-                info: url.searchParams.has('ended') ? 'That device is signed out.' : '',
-            }), headers);
-        }
+        if (pathname === '/site/sessions' && method === 'GET') return redirect(res, DEVICES);
         if (pathname === '/site/sessions.json' && method === 'GET') {
-            return json(res, 200, { sessions: accounts.listSessions(session.accountId).map((s) => ({ ...s, current: s.id === session.sessionId })) });
+            return json(res, 200, {
+                email: session.email,
+                sessions: accounts.listSessions(session.accountId).map((s) => ({ ...s, current: s.id === session.sessionId })),
+            });
         }
         const { nonce, headers } = nonceHeaders();
         return send(res, 404, problemPage({ nonce, title: 'Not found', text: 'There is no page at this address.' }), headers);

@@ -1,5 +1,6 @@
 // The front desk's own pages: sign in, set a password from an invite link,
-// the list of signed-in devices, and the short "opening" page. Server-rendered
+// and the short "opening" page. Signed-in devices live in the app's Settings,
+// which reads them from /site/sessions.json. Server-rendered
 // with no script at all, so they work before any library is awake and give a
 // script nothing to run. They follow the app's lock screen (AuthGate.tsx):
 // one card on a slate page, the accent only on the primary action.
@@ -12,18 +13,20 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // from the one drawing every icon comes from: never a copy of a smaller cut.
 const MARK = appIconSvg({}, 'tile', 64).replace('<svg ', '<svg class="mark" ');
 
+// The app's own neutral grey ramp (src/index.css), so these pages and the app
+// read as one product; text at 7:1 or more and field borders at 3:1 or more
+// in both themes.
 const CSS = `
-:root{color-scheme:light dark;--page:#f1f5f9;--card:#fff;--ink:#0f172a;--body:#334155;--muted:#64748b;--line:#cbd5e1;--field:#fff;
---accent:#0e7490;--accent-ink:#0e7490;--on-accent:#fff;--danger:#b91c1c;--danger-bg:#fef2f2;--ok:#047857;--ok-bg:#ecfdf5;--chip:#e2e8f0}
-@media (prefers-color-scheme:dark){:root{--page:#0f172a;--card:#1e293b;--ink:#fff;--body:#e2e8f0;--muted:#94a3b8;--line:#475569;--field:#0f172a;
---accent-ink:#25e3ff;--danger:#f87171;--danger-bg:#450a0a;--ok:#34d399;--ok-bg:#022c22;--chip:#334155}}
+:root{color-scheme:light dark;--page:#f4f4f4;--card:#fff;--ink:#171717;--body:#404040;--muted:#545454;--line:#6e6e6e;--field:#fff;
+--accent:#155e75;--accent-ink:#155e75;--on-accent:#fff;--danger:#991b1b;--danger-bg:#fef2f2;--ok:#065f46;--ok-bg:#ecfdf5}
+@media (prefers-color-scheme:dark){:root{--page:#171717;--card:#292929;--ink:#fff;--body:#e7e7e7;--muted:#d4d4d4;--line:#808080;--field:#171717;
+--accent-ink:#25e3ff;--danger:#fca5a5;--danger-bg:#450a0a;--ok:#6ee7b7;--ok-bg:#022c22}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html{font-size:100%}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem 1rem;background:var(--page);color:var(--body);
 font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;line-height:1.5}
 main{width:100%;max-width:24rem;background:var(--card);border-radius:1rem;box-shadow:0 20px 25px -5px rgb(0 0 0/.1),0 8px 10px -6px rgb(0 0 0/.1);padding:2rem}
-main.wide{max-width:34rem}
 .head{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:1.25rem}
 .mark{width:3rem;height:3rem;margin-bottom:.75rem}
 h1{margin:0;font-size:1.25rem;font-weight:600;color:var(--ink)}
@@ -36,28 +39,15 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(-
 button,.button{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;height:2.75rem;padding:0 1rem;border-radius:.5rem;font:inherit;font-size:1rem;font-weight:500;cursor:pointer;text-decoration:none;border:1px solid var(--line);background:transparent;color:var(--ink)}
 button.primary{width:100%;border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
 button.primary:hover{filter:brightness(1.1)}
-button.small{height:2rem;padding:0 .75rem;font-size:.875rem}
 .notice{margin:0 0 1rem;padding:.625rem .75rem;border-radius:.5rem;font-size:.875rem}
 .notice.error{background:var(--danger-bg);color:var(--danger)}
 .notice.ok{background:var(--ok-bg);color:var(--ok)}
 .foot{margin:1.25rem 0 0;font-size:.8125rem;color:var(--muted);text-align:center}
 a{color:var(--accent-ink)}
-.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;gap:1rem}
-.top h1{font-size:1.125rem}
-ul.devices{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-ul.devices li{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.875rem 0;border-bottom:1px solid var(--line)}
-.dev{min-width:0}
-.dev strong{display:block;color:var(--ink);font-weight:500}
-.dev>span{display:block;font-size:.8125rem;color:var(--muted)}
-button,.top a{white-space:nowrap}
-.top{flex-wrap:wrap}
-@media (max-width:30rem){body{align-items:flex-start;padding:1rem .75rem}main{padding:1.5rem 1.25rem}}
-.chip{display:inline-block;margin-left:.5rem;padding:0 .5rem;border-radius:999px;background:var(--chip);color:var(--body);font-size:.75rem;font-weight:500;vertical-align:1px}
-.row{display:flex;justify-content:flex-end;margin-top:1.25rem}
-.inline{display:inline;margin:0}
+@media (max-width:30rem){body{align-items:flex-start;padding:1rem .75rem}main{padding:1.5rem 1.25rem}input{height:2.75rem}}
 `;
 
-function page({ title, nonce, body, wide = false, refresh = 0 }) {
+function page({ title, nonce, body, refresh = 0 }) {
     return `<!doctype html>
 <html lang="en">
 <head>
@@ -69,7 +59,7 @@ ${refresh ? `<meta http-equiv="refresh" content="${Number(refresh)}">` : ''}
 <style nonce="${esc(nonce)}">${CSS}</style>
 </head>
 <body>
-<main${wide ? ' class="wide"' : ''}>
+<main>
 ${body}
 </main>
 </body>
@@ -88,7 +78,7 @@ ${notice('error', error)}${notice('ok', info)}
 <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required${email ? ' autofocus' : ''}></div>
 <button class="primary" type="submit">Sign in</button>
 </form>
-<p class="foot">Forgot your password, or no account yet? Ask whoever runs this site.</p>`,
+<p class="foot">Forgot your password or need an account? Ask your administrator.</p>`,
     });
 }
 
@@ -110,37 +100,8 @@ ${notice('error', error)}
 export function inviteSpentPage({ nonce }) {
     return page({
         title: 'Invite link not valid', nonce, body: `
-<div class="head">${MARK}<h1>This link no longer works</h1><p class="sub">An invite link works once and for seven days. Ask whoever sent it for a new one.</p></div>
+<div class="head">${MARK}<h1>This link no longer works</h1><p class="sub">Invite links work once and expire after seven days. Ask your administrator for a new one.</p></div>
 <p class="foot"><a href="/site/sign-in">Sign in</a> if you already have an account.</p>`,
-    });
-}
-
-// The page has no script and the server does not know the reader's time zone,
-// so a day is named by its date and recent use by how long ago it was.
-const day = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
-export function ago(iso, now = Date.now()) {
-    const min = Math.max(0, Math.floor((now - Date.parse(iso)) / 60000));
-    if (min < 2) return 'Active now';
-    if (min < 60) return `Active ${min} minutes ago`;
-    const h = Math.floor(min / 60);
-    if (h < 24) return `Active ${h} ${h === 1 ? 'hour' : 'hours'} ago`;
-    const d = Math.floor(h / 24);
-    return `Active ${d} ${d === 1 ? 'day' : 'days'} ago`;
-}
-
-export function sessionsPage({ nonce, email, sessions, currentId, info = '', now = Date.now() }) {
-    const rows = sessions.map((s) => {
-        const here = s.id === currentId;
-        return `<li><div class="dev"><strong>${esc(s.device || 'Browser')}${here ? '<span class="chip">This device</span>' : ''}</strong>
-<span>${esc(ago(s.last_seen_at, now))}</span><span>Signed in ${esc(day.format(new Date(s.created_at)))}</span></div>
-<form class="inline" method="post" action="${here ? '/site/sign-out' : `/site/sessions/${s.id}/sign-out`}"><button class="small" type="submit">Sign out</button></form></li>`;
-    }).join('\n');
-    return page({
-        title: 'Signed-in devices', nonce, wide: true, body: `
-<div class="top"><div><h1>Signed-in devices</h1><p class="sub">${esc(email)}</p></div><a href="/">Back to your library</a></div>
-${notice('ok', info)}
-<ul class="devices">${rows}</ul>
-<div class="row"><form class="inline" method="post" action="/site/sign-out-everywhere"><button class="small" type="submit">Sign out everywhere</button></form></div>`,
     });
 }
 

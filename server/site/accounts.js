@@ -78,6 +78,7 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         touchSession: db.prepare('UPDATE sessions SET last_seen_at = ? WHERE id = ?'),
         endSession: db.prepare('DELETE FROM sessions WHERE id = ? AND account_id = ?'),
         endAll: db.prepare('DELETE FROM sessions WHERE account_id = ?'),
+        endOthers: db.prepare('DELETE FROM sessions WHERE account_id = ? AND id != ?'),
         listSessions: db.prepare(`SELECT id, device, created_at, last_seen_at FROM sessions WHERE account_id = ?
                                   ORDER BY last_seen_at DESC`),
         sweepSessions: db.prepare('DELETE FROM sessions WHERE expires_at < ? OR last_seen_at < ?'),
@@ -227,6 +228,8 @@ export function createAccounts(db, { createLibrary, env = process.env, breachChe
         listSessions: (accountId) => q.listSessions.all(accountId),
         endSession: (sessionId, accountId) => q.endSession.run(sessionId, accountId).changes === 1,
         endAllSessions: (accountId) => q.endAll.run(accountId).changes,
+        /** Sign out every device but this one. */
+        endOtherSessions: (accountId, keepId) => q.endOthers.run(accountId, keepId).changes,
         /** Drop ended sessions, and networks whose last wrong guess is over a day old. */
         sweepSessions: (now = Date.now()) => {
             q.sweepNetworks.run(now - NETWORK_FORGET_MS); // last_fail_at is epoch ms

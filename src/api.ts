@@ -24,6 +24,24 @@ export function goToSiteSignIn() {
     window.location.assign('/site/sign-in');
 }
 
+/** One signed-in device of a site account (server/site/accounts.js `listSessions`). */
+export interface SiteSession { id: number; device: string; created_at: string; last_seen_at: string; current: boolean }
+
+/** The site's own routes (server/site/frontDesk.js), outside /api: the account's signed-in devices. */
+async function siteRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
+    const res = await fetch(path, { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body?.site) goToSiteSignIn();
+    if (!res.ok) throw new Error(body?.error || `Error ${res.status}`);
+    return body as T;
+}
+
+export const siteApi = {
+    sessions: () => siteRequest<{ email: string; sessions: SiteSession[] }>('/site/sessions.json'),
+    signOutSession: (id: number) => siteRequest<{ ok: boolean }>(`/site/sessions/${id}/sign-out`, 'POST'),
+    signOutOthers: () => siteRequest<{ ended: number }>('/site/sign-out-others', 'POST'),
+};
+
 function authRequired(body: { site?: boolean } | null | undefined) {
     if (body?.site) goToSiteSignIn();
     else onAuthRequired?.();

@@ -247,16 +247,11 @@ try {
         const signInPage = await req('GET', '/site/sign-in');
         ok('the sign-in page is served with a nonce CSP and no-store', signInPage.status === 200 && /style-src 'nonce-/.test(signInPage.headers['content-security-policy']) && signInPage.headers['cache-control'] === 'no-store');
         ok('the sign-in page carries no script', !/<script/i.test(signInPage.text));
-        {
-            const { ago } = await import('../server/site/pages.js');
-            const T = Date.parse('2026-03-10T12:00:00Z');
-            const at = (ms) => new Date(T - ms).toISOString();
-            ok('a device row says how long ago it was used, not a clock time in another zone',
-                ago(at(30e3), T) === 'Active now' && ago(at(5 * 60e3), T) === 'Active 5 minutes ago'
-                && ago(at(3600e3), T) === 'Active 1 hour ago' && ago(at(49 * 3600e3), T) === 'Active 2 days ago',
-                [30e3, 5 * 60e3, 3600e3, 49 * 3600e3].map((m) => ago(at(m), T)).join(' | '));
-        }
+        const outList = await req('GET', '/site/sessions.json', { headers: { accept: 'application/json' } });
+        ok('signed out, the devices list says sign in again, as the site', outList.status === 401 && JSON.parse(outList.text).site === true, outList.text);
 
+        const cut = await req('GET', '/site/invite/abc');
+        ok('an invite link cut short says it no longer works, not a bare sign-in page', cut.status === 410 && cut.text.includes('This link no longer works'), `${cut.status} ${cut.headers.location || ''}`);
         const { token } = desk.accounts.createInvite('dana@example.org');
         const invitePage = await req('GET', `/site/invite/${token}`);
         ok('the invite page names the address', invitePage.status === 200 && invitePage.text.includes('dana@example.org'));
@@ -317,9 +312,14 @@ try {
         const samePage = (t, email) => t.replace(/nonce="[^"]+"/g, 'nonce').replace(email, 'EMAIL');
         ok('a wrong password and an unknown address get the same page', wrongPw.status === 401 && unknownPw.status === 401
             && wrongPw.text.includes(WRONG) && samePage(wrongPw.text, 'dana@example.org') === samePage(unknownPw.text, 'nobody@example.org'));
-        const list = await req('GET', '/site/sessions', { headers: { cookie } });
-        ok('the sessions page lists both devices and marks this one', list.status === 200 && list.text.includes('Android') && list.text.includes('This device'));
-        const otherId = JSON.parse((await req('GET', '/site/sessions.json', { headers: { cookie } })).text).sessions.find((s) => !s.current).id;
+        const oldPage = await req('GET', '/site/sessions', { headers: { cookie } });
+        ok('the old devices address opens the devices in Settings', oldPage.status === 303 && oldPage.headers.location === '/settings#devices', `${oldPage.status} ${oldPage.headers.location}`);
+        const listed = JSON.parse((await req('GET', '/site/sessions.json', { headers: { cookie } })).text);
+        ok('the devices list names both devices and marks this one, and nothing secret',
+            listed.email === 'dana@example.org' && listed.sessions.length === 2
+            && listed.sessions.some((s) => s.current) && listed.sessions.some((s) => /Android/.test(s.device) && !s.current)
+            && listed.sessions.every((s) => Object.keys(s).sort().join() === 'created_at,current,device,id,last_seen_at'), JSON.stringify(listed));
+        const otherId = listed.sessions.find((s) => !s.current).id;
         // An answer still open for a session: a request whose body never finishes.
         const hang = async (c) => {
             let closed = false;
@@ -334,8 +334,8 @@ try {
         const waitFor = async (cond) => { for (let i = 0; i < 100 && !cond(); i++) await new Promise((x) => setTimeout(x, 20)); return cond(); };
         const open2 = await hang(cookie2);
         ok('an answer in progress is counted for its session', desk.openStreams() === 1, String(desk.openStreams()));
-        const ended = await req('POST', `/site/sessions/${otherId}/sign-out`, { headers: { cookie, origin } });
-        ok('signing out another device ends only it', ended.status === 303 && (await req('GET', '/api/projects', { headers: { cookie: cookie2 } })).status === 401
+        const ended = await req('POST', `/site/sessions/${otherId}/sign-out`, { headers: { cookie, origin, accept: 'application/json' } });
+        ok('signing out another device ends only it', ended.status === 200 && JSON.parse(ended.text).ok === true && (await req('GET', '/api/projects', { headers: { cookie: cookie2 } })).status === 401
             && (await req('GET', '/api/projects', { headers: { cookie } })).status === 200);
         ok('and closes what was still being sent to it', await waitFor(open2.isClosed) && desk.openStreams() === 0, `closed ${open2.isClosed()}, open ${desk.openStreams()}`);
         // Ended by the operator's cli.js, outside this process: the next sweep closes it.
@@ -347,6 +347,18 @@ try {
         ok('a session ended elsewhere keeps its answer until the sweep', desk.openStreams() === 1 && !open3.isClosed());
         desk.closeEndedStreams();
         ok('and the sweep closes it', await waitFor(open3.isClosed) && desk.openStreams() === 0, `closed ${open3.isClosed()}, open ${desk.openStreams()}`);
+        // Sign out of all other devices: this one stays signed in.
+        const others = await Promise.all([1, 2].map(() => req('POST', '/site/sign-in', { headers: FORM, body: form({ email: 'dana@example.org', password: 'a long enough pass phrase' }) })));
+        const otherCookies = others.map((r) => String(r.headers['set-cookie'] || '').split(';')[0]);
+        const open4 = await hang(otherCookies[0]);
+        const crossOthers = await req('POST', '/site/sign-out-others', { headers: { cookie, origin: 'https://evil.example', accept: 'application/json' } });
+        ok('signing out the others from another site is refused', crossOthers.status === 403);
+        const allOthers = await req('POST', '/site/sign-out-others', { headers: { cookie, origin, accept: 'application/json' } });
+        const stillIn = (c) => req('GET', '/api/projects', { headers: { cookie: c } }).then((r) => r.status === 200);
+        ok('signing out all other devices ends them and keeps this one',
+            allOthers.status === 200 && JSON.parse(allOthers.text).ended === 2
+            && !(await stillIn(otherCookies[0])) && !(await stillIn(otherCookies[1])) && await stillIn(cookie), allOthers.text);
+        ok('and closes what was still being sent to them', await waitFor(open4.isClosed) && desk.openStreams() === 0);
 
         const signOut = await req('POST', '/site/sign-out', { headers: { cookie, origin } });
         ok('signing out clears the browser\'s data for this address', signOut.status === 303 && signOut.headers['clear-site-data'] === CLEAR_SITE_DATA, signOut.headers['clear-site-data']);

@@ -183,8 +183,9 @@ The link opens a page that asks for a password (at least 15 characters; one foun
 Passwords list is refused, `SITE_BREACH_CHECK=0` turns that check off) and then opens the
 person's new, empty library. `cli.js accounts` lists accounts, `cli.js sign-out <email>` ends
 every session of one, and `cli.js unlock <email>` turns a password back on after 100 wrong
-guesses in a row switched it off. Inside the app, Settings → Devices & security shows "Your
-account" with the person's signed-in devices and a sign-out button. What the front desk
+guesses in a row switched it off. Inside the app, Settings → Devices & security shows the
+account's email with a Sign out button, and every device it is signed in on, each with its own
+Sign out and, with two or more others, "Sign out of all other devices". What the front desk
 stores and how it signs people in is in `SECURITY.md`, "Accounts on a site".
 
 **Settings.**

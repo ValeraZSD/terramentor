@@ -219,17 +219,41 @@ try {
     const leaked = answers.filter((a) => a.body.includes(MARKER));
     const fromSW = answers.filter((a) => a.fromSW && new URL(a.url).pathname.startsWith('/api')).length;
 
-    if (SHOTS) {
-        // A second device for person 2, so the list has more than one row.
-        await evaluate(`fetch('/site/sign-out-everywhere', { method: 'POST' }).catch(() => {})`).catch(() => {});
-        await go(`${BASE}/site/sign-in`);
-        nav = loaded(); await fillAndSubmit({ email: 'person2@example.org', password: PASS2 }); await nav; await quiet();
-        await send('Network.setUserAgentOverride', { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36', acceptLanguage: 'en-US' });
+    // Two more devices for person 2 (a phone and another computer), signed in
+    // without this browser's cookie, so Settings lists three.
+    for (const ua of ['Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15']) {
+        await send('Network.setUserAgentOverride', { userAgent: ua, acceptLanguage: 'en-US' });
         await evaluate(`fetch('/site/sign-in', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'email=person2%40example.org&password=${encodeURIComponent(PASS2)}', redirect: 'manual', credentials: 'omit' })`);
-        await send('Network.setUserAgentOverride', { userAgent: UA, acceptLanguage: 'en-US' });
-        await go(`${BASE}/site/sessions`);
-        await shotsBothThemes('site-sessions');
     }
+    await send('Network.setUserAgentOverride', { userAgent: UA, acceptLanguage: 'en-US' });
+    await evaluate(`fetch('/api/settings/welcome_done', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'true' }) }).then(r => r.status)`);
+    const rows = () => evaluate(`document.querySelectorAll('ul[aria-label="Signed-in devices"] > li').length`);
+    if (SHOTS) {
+        for (const [theme, width, height] of [['light', 1280, 800], ['dark', 1280, 800], ['light', 390, 844], ['dark', 390, 844]]) {
+            await evaluate(`fetch('/api/settings/theme', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: '${theme}' }) })`);
+            await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: width < 600 ? 2 : 1, mobile: width < 600 });
+            await go(`${BASE}/settings#devices`); await quiet(2000);
+            const { data } = await send('Page.captureScreenshot', { format: 'png' });
+            writeFileSync(join(SHOTS, `site-devices-${width < 600 ? 'phone-' : ''}${theme}.png`), Buffer.from(data, 'base64'));
+        }
+        await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    }
+    // Sign out of all other devices, with the app's button and its confirmation.
+    await go(`${BASE}/settings#devices`); await quiet(2000);
+    const listedBefore = await rows();
+    const pressed = await evaluate(`(() => { const b = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Sign out of all other devices'); if (!b) return false; b.click(); return true; })()`);
+    await sleep(500);
+    if (SHOTS) {
+        const { data } = await send('Page.captureScreenshot', { format: 'png' });
+        writeFileSync(join(SHOTS, 'site-devices-confirm.png'), Buffer.from(data, 'base64'));
+    }
+    await evaluate(`(() => { const d = document.querySelector('[role="dialog"], [role="alertdialog"]'); const b = d && [...d.querySelectorAll('button')].find(b => b.textContent.trim() === 'Sign out of all other devices'); if (b) b.click(); return !!b; })()`);
+    await quiet(1500);
+    const listedAfter = await rows();
+    const stillSignedIn = await evaluate(`fetch('/api/projects').then(r => r.status)`);
+    console.log(`proof devices: Settings listed ${listedBefore} signed-in devices; "Sign out of all other devices" ${pressed ? 'pressed' : 'NOT FOUND'}, then ${listedAfter} listed, this device still answers ${stillSignedIn}`);
+    if (!(listedBefore === 3 && pressed && listedAfter === 1 && stillSignedIn === 200)) { failed++; console.log('  ^ FAILED'); }
 
     const line = `d: nothing of person 1 served to person 2: ${leaked.length} of ${answers.length} answers to person 2 held person 1's course `
         + `(${fromSW} API answers came from the service worker; person 2's project list ${p2projects.includes(MARKER) ? 'HAS' : 'lacks'} it; storage ${p2storage.includes(MARKER) ? 'HAS' : 'lacks'} it). `

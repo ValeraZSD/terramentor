@@ -473,7 +473,10 @@ loads it. What it does:
   runs `node server/site/cli.js unlock <email>`) and per network (an IPv4 address or an IPv6 /64; twenty free).
 - **Sessions**: a random 32-byte token in a `__Host-` cookie (`Secure`, `HttpOnly`,
   `SameSite=Lax`, `Path=/`); only its SHA-256 is stored. A session ends after 30 days unused or
-  90 days in all. The devices page lists every session with sign-out for each and for all.
+  90 days in all. Settings → Devices & security lists the account's sessions (device name, last
+  used, signed in; `GET /site/sessions.json`, never the token) and signs out any one of them or all
+  but the current one (`POST /site/sessions/<id>/sign-out`, `POST /site/sign-out-others`, both
+  under the same same-origin check as every other form post).
 - **Signing out clears the browser, and so does signing in.** Both answers carry
   `Clear-Site-Data: "cache", "storage"` (signing in too, for whatever a session that ran out or
   was ended from another device left behind), every answer from a library is sent
