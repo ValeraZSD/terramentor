@@ -77,8 +77,9 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh remove <name> [--yes]` | backs the copy up first, then removes it, its volume, network and key |
 
 `new`, `restore`, `update` and `remove` take a lock per copy in
-`hosted/.locks/`, so two operators cannot work on the same copy at once, and
-every change to the shared proxy waits for one lock of its own.
+`hosted/.locks/`, so two operators cannot work on the same copy at once; a
+backup waits for that lock, so a restore never changes a library while it is
+being read. Every change to the shared proxy waits for one lock of its own.
 
 A restore marks the library before it replaces anything and clears the mark
 when every part is in place. A restore that stopped partway, even one that
