@@ -56,6 +56,15 @@ export function createLibraryPool({
     const socketPath = (id) => (process.platform === 'win32'
         ? `\\\\.\\pipe\\terramentor-site-${pipeTag}-${id}`
         : path.join(libDir(id), 'app.sock'));
+    // A Unix socket's path has a hard limit (107 bytes on Linux, 103 on macOS); past
+    // it every library would fail to listen at its first wake, so say so now.
+    if (process.platform !== 'win32') {
+        const longest = process.platform === 'linux' ? 107 : 103;
+        const sample = socketPath('0'.repeat(32));
+        if (Buffer.byteLength(sample) > longest) {
+            throw new Error(`SITE_DIR is too long: a library's socket would be ${Buffer.byteLength(sample)} bytes (${sample}), past the ${longest} this system allows. Use a shorter folder path.`);
+        }
+    }
 
     /** Make a new, empty library folder and its row. Returns its id. */
     function create() {
@@ -116,9 +125,15 @@ export function createLibraryPool({
         // A library made while separate users were off has no user of its own;
         // started now it would run as the front desk (root) and could read every library.
         if (separate && row.uid == null) throw new Error(`library ${id.slice(0, 8)} was made without a user of its own (SITE_SEPARATE=0) and is not started with separate users on`);
+        // The library's folder is its own, so while it is stopped its process may
+        // have left anything at `tmp`, a link to /etc or to another library among
+        // them. Nothing here follows a link: a plain folder or nothing, else no start.
         const tmp = path.join(libDir(id), 'tmp');
-        fs.mkdirSync(tmp, { recursive: true, mode: 0o700 });
-        if (separate && process.platform !== 'win32') fs.chownSync(tmp, row.uid, row.uid);
+        let tmpStat = null;
+        try { tmpStat = fs.lstatSync(tmp); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+        if (!tmpStat) { fs.mkdirSync(tmp, { mode: 0o700 }); tmpStat = fs.lstatSync(tmp); }
+        if (!tmpStat.isDirectory()) throw new Error(`library ${id.slice(0, 8)}: its tmp is not a plain folder, so it is not started`);
+        if (separate && process.platform !== 'win32') fs.lchownSync(tmp, row.uid, row.uid);
         const started = performance.now();
         const child = spawn(process.execPath, [`--max-old-space-size=${heapMb}`, path.join(appRoot, 'server', 'index.js')], {
             cwd: appRoot,
@@ -206,11 +221,14 @@ export function createLibraryPool({
     async function mayStop(id, entry) {
         return entry.streams === 0 && !(await isBusy(id));
     }
+    // Read again after the await and right before `stop`: a request may have
+    // been handed this library and opened a stream while its task list was asked.
+    const stillIdle = (id, entry) => entry.streams === 0 && awake.get(id) === entry;
 
     async function makeRoom() {
         const idle = [...awake.entries()].sort((a, b) => a[1].lastActive - b[1].lastActive);
         for (const [id, entry] of idle) {
-            if (await mayStop(id, entry)) { await stop(id, 'making room'); return true; }
+            if (await mayStop(id, entry) && stillIdle(id, entry)) { await stop(id, 'making room'); return true; }
         }
         return false;
     }
@@ -236,7 +254,7 @@ export function createLibraryPool({
     async function sweep(now = Date.now()) {
         for (const [id, entry] of [...awake.entries()]) {
             const tooBig = residentMb(entry.pid) > memoryMb;
-            if ((now - entry.lastActive > idleMs || tooBig) && await mayStop(id, entry)) {
+            if ((now - entry.lastActive > idleMs || tooBig) && await mayStop(id, entry) && stillIdle(id, entry)) {
                 await stop(id, tooBig ? 'over its memory cap' : 'idle');
             }
         }
