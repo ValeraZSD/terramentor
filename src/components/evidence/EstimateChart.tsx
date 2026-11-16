@@ -23,12 +23,12 @@ export interface ChartPoint {
     value: number;
 }
 
-/** The rows that moved the estimate, oldest first. */
+/** The rows that moved the estimate, in the order the replay ran them (by id). */
 export function chartPoints(rows: EvidenceRow[]): ChartPoint[] {
     return rows
         .filter(r => r.after != null && r.type !== 'placement')
         .map(r => ({ row: r, at: new Date(r.at).getTime(), value: r.after as number }))
-        .sort((a, b) => a.at - b.at || a.row.id - b.row.id);
+        .sort((a, b) => a.row.id - b.row.id);
 }
 
 const pct = (x: number) => Math.round(x * 100);
@@ -95,9 +95,15 @@ export default function EstimateChart({ points, threshold, day, describe }: {
     const shown = active != null ? points[active] : null;
     const at = active != null ? xy[active] : null;
     // The tooltip sits beside its dot, flipped to the dot's left in the right
-    // half so it never runs off the chart.
+    // half so it never runs off the chart, and below a high dot / above a low
+    // one: a rising line leaves that side empty, so it hides less of the line.
     const tipLeft = at ? (at.x > width / 2 ? undefined : at.x + 12) : undefined;
     const tipRight = at && at.x > width / 2 ? width - at.x + 12 : undefined;
+    const high = at != null && at.y < (top + bottom) / 2;
+    const tipTop = at && high ? at.y + 10 : undefined;
+    const tipBottom = at && !high ? height - at.y + 10 : undefined;
+    // The proof line's name goes on the side of the line the first dot is not on.
+    const labelBelow = first.value >= threshold;
 
     return (
         <figure className="m-0">
@@ -106,16 +112,20 @@ export default function EstimateChart({ points, threshold, day, describe }: {
             </figcaption>
             <div
                 ref={box}
-                className="relative mt-1.5 touch-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent-fg"
+                // pan-y: a finger moving up and down still scrolls the dialog;
+                // across the chart, it moves between the dots.
+                className="relative mt-1.5 touch-pan-y rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent-fg"
                 style={{ height }}
-                role="img"
+                role="group"
                 tabIndex={0}
                 aria-label={t("How sure the app was: {{from}}% on {{start}}, {{to}}% on {{end}}", {
                     from: pct(first.value), start: day(first.row.at), to: pct(last.value), end: day(last.row.at),
                 })}
                 onPointerMove={onMove}
                 onPointerDown={onMove}
-                onPointerLeave={() => setActive(null)}
+                // A lifted finger leaves too: on touch the tapped dot stays
+                // named until the next tap or a tap elsewhere (blur).
+                onPointerLeave={e => { if (e.pointerType === 'mouse') setActive(null); }}
                 onBlur={() => setActive(null)}
                 onKeyDown={onKey}
             >
@@ -149,17 +159,18 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                         {t("{{pct}}%", { pct: pct(v) })}
                     </span>
                 ))}
-                {/* At the left end: the newest dot sits at the right one, and a
-                    topic's line usually starts low. */}
+                {/* At the left end (the newest dot sits at the right one), on
+                    the side of the line the oldest dot leaves free. */}
                 <span aria-hidden="true"
-                    className="absolute -translate-y-full pb-0.5 pl-1 text-2xs text-slate-500 dark:text-slate-400"
+                    className={`absolute pl-1 text-2xs text-slate-500 dark:text-slate-400 ${labelBelow ? 'pt-0.5' : '-translate-y-full pb-0.5'}`}
                     style={{ top: yOf(threshold), left }}>
                     {t("Proven")}
                 </span>
                 {shown && at && (
                     <div
+                        aria-hidden="true"
                         className="pointer-events-none absolute z-10 w-max max-w-[14rem] rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md dark:border-slate-600 dark:bg-slate-900"
-                        style={{ top: Math.max(0, Math.min(at.y - 24, height - 56)), left: tipLeft, right: tipRight }}
+                        style={{ top: tipTop, bottom: tipBottom, left: tipLeft, right: tipRight }}
                     >
                         <p className="text-slate-500 dark:text-slate-400">{day(shown.row.at)} · {describe(shown.row)}</p>
                         <p className="font-medium tabular-nums text-slate-900 dark:text-white">
@@ -168,9 +179,12 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                     </div>
                 )}
             </div>
-            {/* The dot the keyboard is on, read out: role="img" hides the tooltip. */}
+            {/* The dot the keyboard is on, read out once (the tooltip is hidden
+                from screen readers). One sentence, so each language orders it. */}
             <p className="sr-only" aria-live="polite">
-                {shown ? `${day(shown.row.at)}, ${describe(shown.row)}. ${t("After this the app was {{pct}}% sure", { pct: pct(shown.value) })}` : ''}
+                {shown ? t("{{day}}, {{what}}. After this the app was {{pct}}% sure", {
+                    day: day(shown.row.at), what: describe(shown.row), pct: pct(shown.value),
+                }) : ''}
             </p>
             <div aria-hidden="true" className="mt-1 flex justify-between text-2xs tabular-nums text-slate-500 dark:text-slate-400"
                 style={{ paddingLeft: left - pad }}>
