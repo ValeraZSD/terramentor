@@ -25,6 +25,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { nowIso } from './siteDb.js';
 import { makeNote } from '../siteLibrary.js';
+import { sitePaths } from '../paths.js';
 
 /** Environment a library is given from the front desk's own: the model the operator pays for, and the basics. */
 const PASSED_ENV = /^(PATH|LANG|LC_ALL|TZ|NODE_ENV|AI_[A-Z_]+|EMBEDDING_[A-Z_]+|OLLAMA_[A-Z_]+|SYSTEMROOT|WINDIR|TEMP|TMP)$/i;
@@ -34,10 +35,10 @@ export function createLibraryPool({
     maxAwake = 20, heapMb = 256, memoryMb = 400, idleMs = 10 * 60 * 1000,
     uidBase = 100000, allowedHosts = '', env = process.env, log = console,
 }) {
-    const librariesDir = path.join(siteDir, 'libraries');
-    fs.mkdirSync(librariesDir, { recursive: true, mode: 0o711 });
-    if (process.platform !== 'win32') fs.chmodSync(librariesDir, 0o711);
-    const pipeTag = crypto.createHash('sha256').update(path.resolve(siteDir)).digest('hex').slice(0, 8);
+    const layout = sitePaths(siteDir);
+    fs.mkdirSync(layout.libraries, { recursive: true, mode: 0o711 });
+    if (process.platform !== 'win32') fs.chmodSync(layout.libraries, 0o711);
+    const pipeTag = crypto.createHash('sha256').update(layout.root).digest('hex').slice(0, 8);
 
     const q = {
         get: db.prepare('SELECT * FROM libraries WHERE id = ?'),
@@ -46,9 +47,12 @@ export function createLibraryPool({
     };
     const awake = new Map(); // id -> { child, pid, startedAt, lastActive, streams, wakeMs }
     const waking = new Map(); // id -> Promise
+    const stopping = new Map(); // id -> Promise, until the old process has exited
+    const children = new Set(); // every process started and not yet exited, awake or starting
+    let starting = 0; // slots taken by wakes that passed the cap and are starting
     const wakeTimes = [];
 
-    const libDir = (id) => path.join(librariesDir, id);
+    const libDir = layout.library;
     const socketPath = (id) => (process.platform === 'win32'
         ? `\\\\.\\pipe\\terramentor-site-${pipeTag}-${id}`
         : path.join(libDir(id), 'app.sock'));
@@ -95,6 +99,8 @@ export function createLibraryPool({
             ...out,
             HOME: dir,
             DATA_DIR: dir,
+            // Its own temporary folder: /tmp is shared by every library.
+            TMPDIR: path.join(dir, 'tmp'),
             TERRAMENTOR_HOSTED: '1',
             TERRAMENTOR_SITE_LIBRARY: '1',
             SITE_LIBRARY_ID: id,
@@ -107,14 +113,21 @@ export function createLibraryPool({
     async function start(id) {
         const row = q.get.get(id);
         if (!row) throw new Error(`no library ${id}`);
+        // A library made while separate users were off has no user of its own;
+        // started now it would run as the front desk (root) and could read every library.
+        if (separate && row.uid == null) throw new Error(`library ${id.slice(0, 8)} was made without a user of its own (SITE_SEPARATE=0) and is not started with separate users on`);
+        const tmp = path.join(libDir(id), 'tmp');
+        fs.mkdirSync(tmp, { recursive: true, mode: 0o700 });
+        if (separate && process.platform !== 'win32') fs.chownSync(tmp, row.uid, row.uid);
         const started = performance.now();
         const child = spawn(process.execPath, [`--max-old-space-size=${heapMb}`, path.join(appRoot, 'server', 'index.js')], {
             cwd: appRoot,
             env: childEnv(id, row),
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,
-            ...(separate && row.uid != null ? { uid: row.uid, gid: row.uid } : {}),
+            ...(separate ? { uid: row.uid, gid: row.uid } : {}),
         });
+        children.add(child);
         const tag = `[library ${id.slice(0, 8)}]`;
         let tail = '';
         const relay = (chunk) => {
@@ -125,10 +138,14 @@ export function createLibraryPool({
         child.stdout.on('data', relay);
         child.stderr.on('data', relay);
         let exited = null;
-        child.once('exit', (code, signal) => {
-            exited = { code, signal };
+        const ended = (code, signal) => {
+            exited ??= { code, signal };
+            children.delete(child);
             if (awake.get(id)?.child === child) awake.delete(id);
-        });
+        };
+        child.once('exit', ended);
+        // A process that could not be started at all (EAGAIN, EPERM) emits error, not exit.
+        child.once('error', (e) => { tail += `\n${e.message}`; ended(e.code || 'error', null); });
         // First answer: the status probe answers as soon as the app is listening.
         for (;;) {
             if (exited) throw new Error(`the library stopped while starting (${exited.code ?? exited.signal}): ${tail.trim().split('\n').pop() || 'no output'}`);
@@ -150,7 +167,7 @@ export function createLibraryPool({
     async function isBusy(id) {
         try {
             const r = await ask(id, '/api/tasks');
-            if (r.status !== 200) return true;
+            if (r.status !== 200) return false; // a broken library is better restarted than kept
             return JSON.parse(r.body).some((t) => t.status === 'running' || t.status === 'queued');
         } catch {
             return false; // not answering: nothing to protect by keeping it
@@ -165,16 +182,24 @@ export function createLibraryPool({
         } catch { return 0; }
     }
 
-    async function stop(id, why = 'idle') {
+    // A wake of the same library waits for this to finish: the old process
+    // removes its socket as it exits, which would take the new one's with it.
+    function stop(id, why = 'idle') {
+        if (stopping.has(id)) return stopping.get(id);
         const entry = awake.get(id);
-        if (!entry) return;
+        if (!entry) return Promise.resolve();
         awake.delete(id);
         log.log(`[site] Stopping library ${id.slice(0, 8)} (${why})`);
-        const gone = new Promise((r) => entry.child.once('exit', r));
-        entry.child.kill('SIGTERM');
-        const timer = setTimeout(() => entry.child.kill('SIGKILL'), 5000);
-        await gone;
-        clearTimeout(timer);
+        const p = (async () => {
+            const gone = entry.child.exitCode !== null || entry.child.signalCode !== null
+                ? Promise.resolve() : new Promise((r) => entry.child.once('exit', r));
+            entry.child.kill('SIGTERM');
+            const timer = setTimeout(() => entry.child.kill('SIGKILL'), 5000);
+            await gone;
+            clearTimeout(timer);
+        })();
+        stopping.set(id, p);
+        return p.finally(() => stopping.delete(id));
     }
 
     /** May this awake library be stopped now? No open stream and no running task. */
@@ -196,10 +221,13 @@ export function createLibraryPool({
         if (entry) { entry.lastActive = Date.now(); return entry; }
         if (waking.has(id)) return waking.get(id);
         const p = (async () => {
-            if (awake.size >= maxAwake && !(await makeRoom())) {
-                throw Object.assign(new Error('every library slot is in use'), { code: 'FULL' });
+            if (stopping.has(id)) await stopping.get(id);
+            // Starting wakes hold a slot too, so a burst of cold requests cannot pass the cap.
+            while (awake.size + starting >= maxAwake) {
+                if (!(await makeRoom())) throw Object.assign(new Error('every library slot is in use'), { code: 'FULL' });
             }
-            return start(id);
+            starting += 1;
+            try { return await start(id); } finally { starting -= 1; }
         })();
         waking.set(id, p);
         try { return await p; } finally { waking.delete(id); }
@@ -223,7 +251,16 @@ export function createLibraryPool({
         touch: (id) => { const e = awake.get(id); if (e) e.lastActive = Date.now(); },
         streamOpened: (id) => { const e = awake.get(id); if (e) e.streams += 1; },
         streamClosed: (id) => { const e = awake.get(id); if (e) { e.streams = Math.max(0, e.streams - 1); e.lastActive = Date.now(); } },
-        stopAll: () => Promise.all([...awake.keys()].map((id) => stop(id, 'shutting down'))),
+        stopAll: async () => {
+            await Promise.all([...awake.keys()].map((id) => stop(id, 'shutting down')));
+            // And any still starting.
+            await Promise.all([...children].map((c) => new Promise((r) => {
+                if (c.exitCode !== null || c.signalCode !== null) return r();
+                c.once('exit', r);
+                c.kill('SIGKILL');
+            })));
+        },
+        awakeOrStarting: () => awake.size + starting,
         uidOf: (id) => q.get.get(id)?.uid ?? null,
     };
 }

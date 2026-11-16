@@ -3,7 +3,7 @@
 // whom. It never holds learning content: that stays in each library's folder.
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
-import path from 'node:path';
+import { sitePaths } from '../paths.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS libraries (
@@ -51,11 +51,11 @@ CREATE TABLE IF NOT EXISTS throttle (
  * not list it (0711), and the database itself is 0600.
  */
 export function openSiteDb(siteDir) {
-    fs.mkdirSync(siteDir, { recursive: true, mode: 0o711 });
+    const { root, db: file } = sitePaths(siteDir);
+    fs.mkdirSync(root, { recursive: true, mode: 0o711 });
     // Set outright: the front desk runs under a 077 umask (ownerOnlyUmask.js),
     // which would leave the folder closed to the libraries inside it.
-    if (process.platform !== 'win32') fs.chmodSync(siteDir, 0o711);
-    const file = path.join(siteDir, 'site.db');
+    if (process.platform !== 'win32') fs.chmodSync(root, 0o711);
     const db = new Database(file);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
