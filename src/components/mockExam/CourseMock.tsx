@@ -25,7 +25,7 @@ import { Panel } from './Panel';
 import { useDuration } from './mockFormat';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
-import { ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
+import { EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
 import type { CourseMockDetail, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
 
 /**
@@ -215,6 +215,17 @@ function RealExamDialog({ projectId, exam, onClose, onSaved }: {
 
 interface PendingSave { answer?: string; later?: boolean; attemptId: string }
 
+/** The question a mock was left on, for this tab only: storage that refuses is no loss. */
+function readPlace(key: string): string | null {
+    try { return window.sessionStorage.getItem(key); } catch { return null; }
+}
+function writePlace(key: string, value: string) {
+    try { window.sessionStorage.setItem(key, value); } catch { /* private mode: open on the first unanswered */ }
+}
+
+/** Refusals no retry can change: a bad request, a mock gone or finished, an answer too long. */
+const PERMANENT = new Set([400, 404, 409, 413, 422]);
+
 /** A pause on leaving, scheduled per mock and cancelled when the screen mounts again at once. */
 const PENDING_PAUSE = new Map<number, number>();
 
@@ -250,9 +261,10 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
                 // The server said no for good (a finished mock, an answer too
                 // long): sending it again would never succeed and would hold
                 // Finish forever. Say so and let it go. A lost connection, a
-                // timeout or a busy server stay queued and are tried again.
+                // timeout, a busy server or a sign-in that lapsed (401, 403)
+                // stay queued and are tried again.
                 const status = e?.status ?? 0;
-                if (status >= 400 && status < 500 && status !== 408 && status !== 429) {
+                if (PERMANENT.has(status)) {
                     if (pending.current.get(partId) === p) pending.current.delete(partId);
                     refusedRef.current(e?.message || '');
                     return true;
@@ -299,10 +311,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
     useEffect(() => {
         const leave = () => {
             for (const [partId, p] of pending.current) {
-                void fetch(`/api/mock-sittings/${sittingId}/answers`, {
-                    method: 'PUT', keepalive: true, headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ partId, ...p }),
-                }).catch(() => {});
+                api.saveMockAnswer(sittingId, { partId, ...p }, true).catch(() => {});
             }
         };
         window.addEventListener('pagehide', leave);
@@ -326,13 +335,22 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const questions = course.questions;
     const timed = sitting.timeAllowed > 0;
 
-    const [index, setIndex] = useState(() => Math.max(0, questions.findIndex(q => q.answer == null)));
+    // Coming back opens the question the learner was on in this tab; on
+    // another device, or a first open, the first one not answered yet.
+    const placeKey = `mock-place:${sitting.id}`;
+    const [index, setIndex] = useState(() => {
+        const kept = Number(readPlace(placeKey));
+        if (Number.isInteger(kept) && kept >= 0 && kept < questions.length) return kept;
+        return Math.max(0, questions.findIndex(q => q.answer == null));
+    });
+    useEffect(() => { writePlace(placeKey, String(index)); }, [placeKey, index]);
     const [answers, setAnswers] = useState<Record<number, string>>(() => Object.fromEntries(questions.map(q => [q.partId, q.answer ?? ''])));
     const [later, setLater] = useState<Record<number, boolean>>(() => Object.fromEntries(questions.map(q => [q.partId, q.later])));
     const [progress, setProgress] = useState({ answered: course.answered, left: course.left, later: course.later });
     const [listOpen, setListOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [leaving, setLeaving] = useState(false);
+    const [finishing, setFinishing] = useState(false);
     const finishId = useRef<string | null>(null);
     const { queue, flush, unsaved } = useAnswerSaver(sitting.id, setProgress,
         message => addToast('error', message || t("That answer could not be saved.")));
@@ -350,16 +368,17 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const physicalKeys = usePhysicalKeyboard();
     const [typing, setTyping] = useState(false);
 
-    // The clock, counted on from the server's last reading (as on a past paper).
-    const base = useRef({ elapsed: sitting.elapsed, at: Date.now() });
-    useEffect(() => { base.current = { elapsed: sitting.elapsed, at: Date.now() }; }, [sitting.elapsed, sitting.running]);
+    // The clock, counted on from the server's last reading (as on a past
+    // paper), taken in the render that first sees it: a Resume never counts
+    // the paused minutes for a frame.
+    const base = useMemo(() => ({ elapsed: sitting.elapsed, at: Date.now() }), [sitting]);
     const [, tick] = useState(0);
     useEffect(() => {
         if (!sitting.running || !timed) return;
         const id = window.setInterval(() => tick(n => n + 1), 1000);
         return () => window.clearInterval(id);
     }, [sitting.running, timed]);
-    const elapsed = base.current.elapsed + (sitting.running ? Math.floor((Date.now() - base.current.at) / 1000) : 0);
+    const elapsed = base.elapsed + (sitting.running ? Math.floor((Date.now() - base.at) / 1000) : 0);
     const timeUp = timed && elapsed >= sitting.timeAllowed;
 
     // Leaving stops the clock; the mock waits in the list with Resume. The
@@ -370,12 +389,16 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const sid = sitting.id;
     const changeRef = useRef(onChange);
     changeRef.current = onChange;
+    // A mock with no clock is resumed by the screen itself, once per arrival.
+    const resumed = useRef(false);
     useEffect(() => {
         window.clearTimeout(PENDING_PAUSE.get(sid));
         PENDING_PAUSE.delete(sid);
-        const leave = () => { void fetch(`/api/mock-sittings/${sid}/pause`, { method: 'POST', keepalive: true }).catch(() => {}); };
+        const leave = () => { api.pauseMockOnLeave(sid).catch(() => {}); };
         const back = (e: PageTransitionEvent) => {
-            if (e.persisted) api.getMock(sid).then(d => changeRef.current(d as CourseMockDetail)).catch(() => {});
+            if (!e.persisted) return;
+            resumed.current = false;
+            api.getMock(sid).then(d => changeRef.current(d as CourseMockDetail)).catch(() => {});
         };
         window.addEventListener('pagehide', leave);
         window.addEventListener('pageshow', back);
@@ -395,7 +418,6 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     }, [sitting.id, detail, onChange, addToast]);
 
     // Coming back to a mock with no clock: nothing to resume by hand.
-    const resumed = useRef(false);
     useEffect(() => {
         if (!timed && !sitting.running && !resumed.current) { resumed.current = true; void clockAct('resume'); }
     }, [timed, sitting.running, clockAct]);
@@ -437,10 +459,13 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
             });
             if (!ok) { setBusy(false); return; }
         }
+        // From here a keystroke would land after the hand-in and be refused:
+        // the answer field rests until the finish is written or fails.
+        setFinishing(true);
         finishId.current ??= newAttemptId();
         api.finishMock<CourseMockDetail>(sitting.id, { attemptId: finishId.current })
             .then(d => { finishId.current = null; onChange(d); })
-            .catch(e => { addToast('error', e.message); setBusy(false); });
+            .catch(e => { addToast('error', e.message); setBusy(false); setFinishing(false); });
     };
 
     const paused = timed && !sitting.running;
@@ -455,9 +480,15 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         onLeave();
     };
 
+    // The last five minutes are told by weight, not alarm: real exam apps
+    // bring the clock forward then, so the learner plans the end.
+    const left = sitting.timeAllowed - elapsed;
+    const clock = timeUp
+        ? t("Time is up")
+        : <span className={left <= 300 ? 'font-semibold text-amber-800 dark:text-amber-300' : ''}>{t("{{time}} left", { time: duration(left + 59) })}</span>;
     const status = [
         t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
-        timed ? (timeUp ? t("Time is up") : t("{{time}} left", { time: duration(sitting.timeAllowed - elapsed + 59) })) : null,
+        timed ? clock : null,
         unsaved > 0 ? t("saving…") : null,
     ].filter(Boolean)
         // Each part stays whole: at a large text size the line breaks between
@@ -467,7 +498,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
             : <span key={i} className="whitespace-nowrap">{part}</span>);
 
     const pauseButton = timed && !paused && !timeUp
-        ? (width > 0 && width < 34 * rem
+        ? (width > 0 && width < EXAM_BAR_TINY * rem
             ? <IconButton size="md" label={t("Pause")} icon={<Pause className="w-5 h-5" />} busy={busy} onClick={() => void clockAct('pause')} />
             : <Button size="sm" busy={busy} icon={<Pause className="w-4 h-4" aria-hidden="true" />} onClick={() => void clockAct('pause')}>{t("Pause")}</Button>)
         : null;
@@ -528,7 +559,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                 onFocus={e => setTyping(isTextEntry(e.target))} onBlur={() => setTyping(false)}>
                 {timeUp && (
                     <div role="status" className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                        {t("Time is up. On the real exam you would hand in now. You can still answer: those answers are kept apart from the score.")}
+                        {t("Time is up. Your score is what you answered in time. You can keep answering to practise: those answers are shown apart.")}
                     </div>
                 )}
                 <Panel>
@@ -541,7 +572,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                             </p>
                             <Button variant="quiet" size="sm" aria-pressed={!!later[q.partId]} onClick={toggleLater} className="-ml-2.5 whitespace-nowrap"
                                 icon={<span aria-hidden="true" className={`w-2.5 h-2.5 rounded-full border-2 border-amber-500 ${later[q.partId] ? 'bg-amber-500' : ''}`} />}>
-                                {t("Come back to this")}
+                                {later[q.partId] ? t("Marked to come back to") : t("Come back to this")}
                             </Button>
                         </div>
                         <ReportItem key={q.partId} itemRef={q.ref} surface="mock" hideKey
@@ -551,7 +582,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
                         <QuestionStem content={q.question.question} surface="mock" media={q.question.media} mediaSize="review" />
                     </div>
                     <div className="mt-4">
-                        <AnswerInput key={q.partId} question={q.question} value={answers[q.partId] ?? ''}
+                        <AnswerInput key={q.partId} question={q.question} value={answers[q.partId] ?? ''} disabled={finishing || leaving}
                             onChange={v => change(q.partId, v)} onCommit={v => change(q.partId, v, true)} />
                         {formatOf(q.question).hint && (
                             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{t(formatOf(q.question).hint!)}</p>

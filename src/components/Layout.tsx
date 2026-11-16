@@ -100,7 +100,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     // ask about, and a modal that hides it makes you close the answer to look at
     // the question. Narrow screens have no room for two columns, so there it
     // stays an overlay.
-    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen;
+    // An exam hides the assistant, so nothing makes room for it then.
+    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen && !examFocus;
 
     const resizeAssistant = (px: number) => {
         setAssistantWidth(px);

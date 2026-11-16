@@ -63,7 +63,6 @@ export default function Workspace() {
     // While a mock is answered, the tabs and the course tree step aside like
     // the app header (mockExam/ExamFrame): an exam screen holds the exam only.
     const examFocus = useStore(s => s.examFocus);
-    const sideNav = !studyView && !examFocus;
 
     // Close the nav drawer whenever a node is selected (the detail overlay takes
     // over) or when we leave mobile.
@@ -361,10 +360,10 @@ export default function Workspace() {
             {/* Main content area */}
             <div className="flex-1 flex overflow-hidden">
                 {/* Sidebar: inline on desktop, off-canvas drawer on mobile —
-                    and absent on Study either way (see `studyView`). */}
-                {!isMobile && sideNav && <Sidebar />}
+                    and absent on Study and during an exam either way. */}
+                {!isMobile && !studyView && !examFocus && <Sidebar />}
 
-                {isMobile && sideNav && (
+                {isMobile && !studyView && !examFocus && (
                     <>
                         <div
                             className={`fixed inset-0 bg-black/50 z-30 transition-opacity ${navDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}

@@ -37,7 +37,7 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
     }
     if (detail && !isCourseDetail(detail) && detail.sitting.status === 'writing') {
         return (
-            <ExamFrame title={t("Mock exam")} onLeave={onClose}>
+            <ExamFrame title={t("Mock exam")} leaveLabel={t("Back")} onLeave={onClose}>
                 <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
                     <ClockScreen detail={detail} onChange={setDetail} reload={refresh} />
                 </div>

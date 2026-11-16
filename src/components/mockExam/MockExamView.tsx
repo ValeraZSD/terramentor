@@ -42,9 +42,10 @@ export default function MockExamView({ projectId }: { projectId: number }) {
 
     // Closing the tab or the app pauses every running clock, whether the
     // learner is on its clock screen or back on this list; it waits there with
-    // Resume. Going back to the list inside the app does not pause: the time
-    // runs on as it would at the exam. The server ignores a pause once the
-    // writing is over.
+    // Resume. Going Back from a past paper's clock inside the app does not
+    // pause: the time runs on as it would at the exam (a course mock pauses
+    // when its screen closes, CourseMock.tsx). The server ignores a pause once
+    // the writing is over.
     const running = useRef<number[]>([]);
     useEffect(() => {
         running.current = [

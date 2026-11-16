@@ -36,7 +36,7 @@
  * no wall clock (every clock case passes its own `now`). The draw shuffles;
  * the cases assert properties every shuffle must keep.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -170,7 +170,7 @@ try {
     await block('2. nothing of the key leaves while the mock is open', async () => {
         const r = await call('GET', `/api/mock-sittings/${first}`);
         check('no key, accepted answers or explanation in the open mock',
-            r.status === 200 && !/correct_answer|"accept"|explanation|"correct"/.test(r.text), r.text.slice(0, 200));
+            r.status === 200 && !/correct_answer|"accept"|explanation|"correct"|tolerance/.test(r.text), r.text.slice(0, 200));
         check('each of the 10 questions carries its report ref', (r.body?.course?.questions ?? []).length === 10 && r.body.course.questions.every(q => /^q:/.test(q.ref)));
         check('and no result yet', r.status === 200 && r.body?.sitting?.status === 'writing' && r.body?.result == null);
 
@@ -187,6 +187,13 @@ try {
             filed.status >= 200 && filed.status < 300 && typeof filed.body?.report?.item?.question === 'string'
                 && filed.body.report.item.correct_answer === undefined && filed.body.report.item.explanation === undefined, filed.text.slice(0, 200));
         if (filed.body?.report?.id) await call('DELETE', `/api/item-reports/${filed.body.report.id}`);
+
+        // The assistant's page context: a client that claims the item was
+        // graded (or its key shown) still gets no key for an open mock's question.
+        const { buildPageContext } = await import(S + 'pageContext.js');
+        const pc = buildPageContext({ view: 'exam', items: [{ ref: ref0, answer: 'Beta', correct: true, keyShown: true, current: true }] }).text;
+        check('the assistant is not handed an open mock question\'s key, whatever the screen claims',
+            pc.includes(`[${ref0}]`) && !/Answer key: (?!not on their screen)|Explanation stored with it/.test(pc), pc.slice(-900));
 
         const paperId = db.prepare('SELECT paper_id FROM mock_sittings WHERE id = ?').get(first)?.paper_id;
         const before = db.prepare('SELECT COUNT(*) n FROM mock_sittings WHERE paper_id = ?').get(paperId).n;
@@ -337,6 +344,7 @@ try {
         const ready = mock.courseReadiness(course);
         check('an on-screen exam turns the clock on by default', ready?.clockOn === true && ready?.exam?.questions === 10, JSON.stringify(ready));
 
+        db.prepare("UPDATE nodes SET status = 'in_progress' WHERE id = ?").run(optics);
         const same = mock.drawCourseMock(course, { size: 10, minutes: 15, now: T0 });
         const sd = mock.sittingDetail(same.sitting.id, { now: T0 });
         for (const q of sd.course.questions) mock.saveAnswer(same.sitting.id, { partId: q.partId, answer: 'Beta', attemptId: `p${q.partId}`, now: T0 + 1000 });
@@ -345,11 +353,18 @@ try {
             r1?.right === 10 && r1?.passRight === 7 && r1?.passed === true && r1?.notGrade === false, JSON.stringify({ r: r1?.right, p: r1?.passRight, ok: r1?.passed, ng: r1?.notGrade }));
         // A full mock row on one topic is what a real check would pass on
         // (MIN_GATE_QUESTIONS right): the gate still must not read it.
+        // The draw shuffles, so which of Waves and Optics gets four is chance;
+        // with at most 2 from Heat one of them always does (8 of 10 between
+        // two). Both are made "in progress" first, so either is the case.
         const sameUuid = db.prepare('SELECT uuid FROM mock_sittings WHERE id = ?').get(same.sitting.id)?.uuid;
-        const wavesRow = allRowsOf(waves).find(x => JSON.parse(x.metadata || '{}').sitting === sameUuid);
-        check('Waves got a mock row of 4 or more, every one right', wavesRow && wavesRow.total >= 4 && wavesRow.score === wavesRow.total, JSON.stringify(wavesRow));
-        check('and is still not ready for its check: a mock is practice, never proof', checkMasteryEligibility(waves).eligible === false && statusOf(waves) === 'in_progress',
-            JSON.stringify(checkMasteryEligibility(waves)));
+        const rowOf = (id) => allRowsOf(id).find(x => JSON.parse(x.metadata || '{}').sitting === sameUuid);
+        const full = [waves, optics].find(id => (rowOf(id)?.total ?? 0) >= 4);
+        const fullRow = full && rowOf(full);
+        check('one topic got a mock row of 4 or more, every one right', fullRow && fullRow.score === fullRow.total,
+            JSON.stringify({ waves: rowOf(waves), optics: rowOf(optics) }));
+        check('and is still not ready for its check: a mock is practice, never proof', full != null && checkMasteryEligibility(full).eligible === false && statusOf(full) === 'in_progress',
+            JSON.stringify(full && checkMasteryEligibility(full)));
+        db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(optics);
 
         const short = mock.drawCourseMock(course, { size: 4, minutes: 6, now: T0 });
         const rowsBefore = allMockRows();
@@ -379,6 +394,20 @@ try {
         const left = ['exam_papers', 'exam_paper_parts', 'mock_sittings', 'mock_part_scores']
             .map(t => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n).reduce((a, b) => a + b, 0);
         check('deleting the course deletes its drawn sets, mocks and answers', left === 0, String(left));
+    });
+
+    await block('8. the screen keeps answers through a lapsed sign-in and hides what the exam hides', async () => {
+        const src = (p) => readFileSync(join(ROOT, p), 'utf8');
+        const course = src('src/components/mockExam/CourseMock.tsx');
+        const permanent = course.match(/const PERMANENT = new Set\(\[([^\]]*)\]\)/)?.[1]?.split(',').map(s => Number(s.trim())) ?? [];
+        check('an answer the server refused with 401 or 403 stays queued (a sign-in that lapsed), 409 is let go',
+            permanent.includes(409) && !permanent.includes(401) && !permanent.includes(403), JSON.stringify(permanent));
+        check('the answer field rests while the mock is handed in',
+            /<AnswerInput[^>]*disabled=\{finishing/.test(course));
+        check('the docked assistant makes no room while an exam holds the window',
+            /assistantDocked = [^;]*&& !examFocus/.test(src('src/components/Layout.tsx')));
+        check('a past paper\'s way out says Back, not Save and leave',
+            /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(src('src/components/mockExam/MockSittingScreen.tsx')));
     });
 } finally {
     server.close();

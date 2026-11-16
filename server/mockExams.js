@@ -457,8 +457,12 @@ export function finishSitting(id, { now = Date.now(), attemptId = null, fillUnma
 // needs the AI and is left out, and said so), only from the topics studied so
 // far, never-asked first, spread across topics by turns, never one twice.
 //
-// While it is open nothing of the key leaves: no answer key, accepted
-// answers or explanation, and a save says nothing about right or wrong. Each
+// While it is open the mock's own routes send nothing of the key (no answer
+// key, accepted answers or explanation), and neither do a report's preview
+// or the assistant's page context; a save says nothing about right or wrong.
+// The quizzes the questions are drawn from keep their keys on the quiz
+// routes, as every quiz does: this guards the screen, not a crafted request
+// on the learner's own machine. Each
 // save is written once per attempt id (`recordOnce`), and accepted whatever
 // the clock says: past the time allowed it is kept as extra time, and the
 // result is the in-time one.
@@ -468,8 +472,6 @@ export function finishSitting(id, { now = Date.now(), attemptId = null, fillUnma
 // unanswered question writes nothing. Each row names its questions
 // (`items`), so a question reported later is taken out of it again.
 
-/** Lengths the set-up offers; any length up to MAX_DRAW is accepted. */
-export const MOCK_SIZES = [10, 20, 40];
 /** With no exam described, a mock is 20 questions with no clock. */
 export const DEFAULT_DRAW = 20;
 const MAX_DRAW = 200;
