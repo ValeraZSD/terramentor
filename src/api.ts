@@ -5,7 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite } from './types';
+import type { LessonWrite, RetentionForecast } from './types';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
 
 const BASE = '/api';
@@ -1148,6 +1148,17 @@ export const api = {
             method: 'PUT',
             body: JSON.stringify({ newPerDay }),
         }),
+
+    /** The course's recall target (0.7-0.97); 0.9 stores no row. */
+    setDeckRetention: (projectId: number, retention: number) =>
+        request<{ newPerDay: number; retention: number }>(`/projects/${projectId}/deck/settings`, {
+            method: 'PUT',
+            body: JSON.stringify({ retention }),
+        }),
+
+    /** Answers a day each recall target would ask of this course; a simulation, no model. */
+    getRetentionForecast: (projectId: number) =>
+        request<RetentionForecast>(`/projects/${projectId}/deck/retention-forecast`),
 
     /** Whether this project's topics may be taught (lessons, checkpoints). Off
      *  by default for an import — see server/nodeRole.js. */

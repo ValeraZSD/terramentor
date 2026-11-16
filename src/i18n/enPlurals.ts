@@ -240,6 +240,8 @@ const enPlurals: Record<string, string> = {
     "A sitting of {{n}} from this topic's {{bank}} questions, the ones you have not been asked first_other": "A sitting of {{n}} from this topic's {{bank}} questions, the ones you have not been asked first",
     "A topic counts as proven at {{threshold}}% estimated mastery, or {{pass}}% on one mastery check. A proven topic starts fading after {{days}} days._one": "A topic counts as proven at {{threshold}}% estimated mastery, or {{pass}}% on one mastery check. A proven topic starts fading after {{days}} day.",
     "A topic counts as proven at {{threshold}}% estimated mastery, or {{pass}}% on one mastery check. A proven topic starts fading after {{days}} days._other": "A topic counts as proven at {{threshold}}% estimated mastery, or {{pass}}% on one mastery check. A proven topic starts fading after {{days}} days.",
+    "about {{fmt}} reviews a day_one": "about {{fmt}} review a day",
+    "about {{fmt}} reviews a day_other": "about {{fmt}} reviews a day",
     "Accepted: held-out log-loss {{fmt}} → {{fmt2}} over {{valReviews}} reviews ({{steps}} steps, {{value}} s)._one": "Accepted: held-out log-loss {{fmt}} → {{fmt2}} over {{valReviews}} review ({{steps}} steps, {{value}} s).",
     "Accepted: held-out log-loss {{fmt}} → {{fmt2}} over {{valReviews}} reviews ({{steps}} steps, {{value}} s)._other": "Accepted: held-out log-loss {{fmt}} → {{fmt2}} over {{valReviews}} reviews ({{steps}} steps, {{value}} s).",
     "Accepted: held-out loss {{fmt}} → {{fmt2}} over {{valAttempts}} attempts._one": "Accepted: held-out loss {{fmt}} → {{fmt2}} over {{valAttempts}} attempt.",
