@@ -19,6 +19,7 @@ import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { scheduleSearchWords } from '../searchWords.js';
+import { invalidateProjectLanguage } from '../language.js';
 import { assertZipSafe } from '../extract.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
@@ -189,8 +190,11 @@ app.post('/api/course-updates/commit', UPLOAD_GUARD, updateUpload.single('file')
         }
         const p = plan(twin, read, choices);
         if (p.plan.refused) return res.status(409).json(preview(twin, read, p));
+        // A file that changes nothing writes nothing, so the last real update keeps its undo.
+        if (p.plan.summary.nothing) return res.json({ projectId: twin.id, summary: p.plan.summary, undo: undoAvailable(twin.id) });
         const started = Date.now();
         const { touchedNodes } = applyCourseUpdate(twin.id, p.plan, { mediaByName: read.mediaByName });
+        invalidateProjectLanguage(twin.id);
         scheduleNodeSync();
         scheduleSearchWords();
         const s = p.plan.summary;
@@ -228,7 +232,9 @@ app.get('/api/course-updates/:projectId/undo', (req, res) => {
 app.post('/api/course-updates/:projectId/undo', (req, res) => {
     const id = projectParam(req, res);
     if (id == null) return;
-    if (!undoLastUpdate(id)) return res.status(409).json({ error: 'There is no update of this course to undo.' });
+    const done = undoLastUpdate(id);
+    if (!done.ok) return res.status(409).json({ error: done.reason ?? 'There is no update of this course to undo.' });
+    invalidateProjectLanguage(id);
     scheduleNodeSync();
     scheduleSearchWords();
     logActivity({ area: 'project', event: 'project.update_undone', projectId: id });

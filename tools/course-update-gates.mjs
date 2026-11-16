@@ -434,6 +434,12 @@ if (!OLD) {
     const cardC1 = db.prepare("SELECT id, uuid FROM flashcards WHERE node_id = ? AND front = 'de krant'").get(a.id);
     await api(`/api/ai/flashcards/${cardC1.id}`, 'PUT', { rating: 3, state: 2, review_count: 1 });
     check('a REVIEW of a card is not an edit of its text', [flagOf('card', cardC1.uuid, 'front'), flagOf('card', cardC1.uuid, 'back')], [0, 0]);
+    const { applyAssistantEdit } = await import(B + 'assistantEdits.js');
+    const b = nodeOf(pid, 'Meervoud');
+    applyAssistantEdit({ kind: 'topic', targetId: b.id, changes: { title: 'Meervoud (via de assistent)' }, expect: { title: 'Meervoud' } });
+    const projectUuid = db.prepare('SELECT uuid FROM projects WHERE id = ?').get(pid).uuid;
+    applyAssistantEdit({ kind: 'project', targetId: pid, changes: { name: `Course ${tag} renamed` }, expect: { name: `Course ${tag}` } });
+    check('a rename through the assistant is the learner’s edit too', [flagOf('node', b.uuid, 'title'), flagOf('project', projectUuid, 'name')], [1, 1]);
 
     console.log('\n--- undo: the last update of a course can be taken back ---');
     const utag = 'undo';
@@ -457,6 +463,42 @@ if (!OLD) {
     check('...the mastery the learner earned is untouched', masteryOn(nodeOf(upid, 'Lidwoorden')?.id), 0.8);
     check('...and the same file can be applied again afterwards', (await upload('/api/course-updates/inspect', v2)).body?.summary?.changed > 0, true);
     check('an undo is offered once', (await api(`/api/course-updates/${upid}/undo`)).body?.available, false);
+
+    console.log('\n--- undo takes back only what the update wrote ---');
+    await update(upid, v2);
+    const again = await upload('/api/course-updates/commit', v2, { projectId: String(upid), choices: '{}' });
+    check('committing the same file again writes nothing', [again.status, again.body?.summary?.nothing], [200, true]);
+    await api(`/api/course-updates/${upid}/undo`, 'POST');
+    check('...and the undo still goes back to the edition before the real update', fingerprint(upid), before);
+    await update(upid, v2);
+    // The learner adds a topic of their own after the update.
+    db.prepare("INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, ?, 'Mijn eigen onderwerp', 9)").run(upid, nodeOf(upid, 'Unit 1').id);
+    check('once the course changed after the update, no undo is offered', (await api(`/api/course-updates/${upid}/undo`)).body?.available, false);
+    const late = await api(`/api/course-updates/${upid}/undo`, 'POST');
+    check('...an undo asked anyway is refused and says why', [late.status, /changed since the update/.test(late.body?.error || '')], [409, true]);
+    check('...and the learner’s own topic is still there', !!nodeOf(upid, 'Mijn eigen onderwerp'), true);
+
+    const ptag = 'undo-progress';
+    const ppid = await install(edition1(ptag));
+    await update(ppid, edition2(ptag, (f) => { unit1(f).push({ title: 'Werkwoorden', uuid: u(ptag, 'C'), description: 'Overview C.' }); }));
+    const added = nodeOf(ppid, 'Werkwoorden');
+    db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, created_at) VALUES (?, 'quiz', 1, 1, '2026-11-12T10:00:00.000Z')").run(added.id);
+    const lost = await api(`/api/course-updates/${ppid}/undo`, 'POST');
+    check('a topic the update added and the learner has since studied blocks the undo', [lost.status, evidenceOn(nodeOf(ppid, 'Werkwoorden')?.id)], [409, 1]);
+
+    console.log('\n--- a new link lands where the file puts it ---');
+    const ltag = 'links';
+    const link = (title, name) => ({ title, url: `https://example.org/${name}`, type: 'link', uuid: u(ltag, name) });
+    const withLinks = (f) => { topic(f, 'Lidwoorden').resources = [link('Eerste', 'L1'), link('Tweede', 'L2')]; };
+    const lv1 = edition1(ltag);
+    withLinks(lv1);
+    const lpid = await install(lv1);
+    await update(lpid, edition2(ltag, (f) => {
+        withLinks(f);
+        topic(f, 'Lidwoorden').resources.splice(1, 0, link('Nieuw', 'LN'));
+    }));
+    const order = db.prepare('SELECT title FROM resources WHERE node_id = ? ORDER BY position, id').all(nodeOf(lpid, 'Lidwoorden').id).map(r => r.title);
+    check('the new link sits between the two it came between in the file', order, ['Eerste', 'Nieuw', 'Tweede']);
 
     console.log('\n--- an unknown course is not an update ---');
     const stranger = await upload('/api/course-updates/inspect', edition1('never-installed'));

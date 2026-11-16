@@ -2,6 +2,7 @@
 // change is decided by the pure planner (courseMerge.js); this reads the three
 // snapshots it compares, writes what it decided in one transaction, records
 // the new base, and keeps what the update changed so it can be taken back.
+import { createHash } from 'node:crypto';
 import db, { NOW_ISO } from './database.js';
 import { ENTITY_FIELDS, KINDS, PROJECT_FIELDS, fieldHash } from './courseMerge.js';
 import { importedQuestion, portableQuestion } from './questionTrust.js';
@@ -249,16 +250,65 @@ function takeUndoSnapshot(projectId) {
     };
 }
 
-export function undoAvailable(projectId) {
-    const row = prep('SELECT undo_at, version FROM course_upstream WHERE project_id = ? AND undo IS NOT NULL').get(projectId);
-    return row ? { available: true, at: row.undo_at, version: row.version } : { available: false };
+// What the course's author-owned rows look like now. Recorded right after an
+// update: the undo puts back only what that update wrote, so it is refused once
+// anything here moved since (a topic, card or link added, an edit, a rename).
+function courseFingerprint(projectId) {
+    const h = createHash('sha256');
+    h.update(JSON.stringify(prep('SELECT name, description, content_language, learning_language, version FROM projects WHERE id = ?').get(projectId)));
+    for (const t of Object.keys(scopeSql)) {
+        for (const r of prep(`${scopeSql[t]} ORDER BY id`).all(projectId)) h.update(JSON.stringify([t, r.id, ...RESTORE[t].map(c => r[c] ?? null)]));
+    }
+    return h.digest('hex');
 }
 
-/** Put the course back as it was before its last update. */
-export function undoLastUpdate(projectId) {
-    const row = prep('SELECT undo FROM course_upstream WHERE project_id = ? AND undo IS NOT NULL').get(projectId);
+const UNDO_REFUSED = {
+    changed: 'The course has changed since the update, so the update can no longer be undone.',
+    progress: 'You have studied something the update added; undoing it would delete that progress.',
+};
+
+// Why this undo would take more than the update wrote, or null when it is safe.
+function undoBlocker(projectId, snap) {
+    if (!snap.after || courseFingerprint(projectId) !== snap.after) return 'changed';
+    const had = new Set(snap.rows.nodes.map(r => r.id));
+    for (const n of prep(scopeSql.nodes).all(projectId)) {
+        if (had.has(n.id)) continue;
+        if (n.status !== 'not_started') return 'progress';
+        if (prep(`SELECT 1 FROM node_mastery WHERE node_id = ?
+            UNION ALL SELECT 1 FROM mastery_evidence WHERE node_id = ?
+            UNION ALL SELECT 1 FROM study_time WHERE node_id = ? LIMIT 1`).get(n.id, n.id, n.id)) return 'progress';
+    }
+    const hadCards = new Set(snap.rows.flashcards.map(r => r.id));
+    for (const c of prep(scopeSql.flashcards).all(projectId)) {
+        if (hadCards.has(c.id)) continue;
+        if (c.review_count > 0 || prep('SELECT 1 FROM review_log WHERE card_id = ? LIMIT 1').get(c.id)) return 'progress';
+    }
+    return null;
+}
+
+const undoSnapshot = (projectId) => {
+    const row = prep('SELECT undo, undo_at, version FROM course_upstream WHERE project_id = ? AND undo IS NOT NULL').get(projectId);
     const snap = row ? safeParse(row.undo) : null;
-    if (!snap) return false;
+    return snap ? { snap, at: row.undo_at, version: row.version } : null;
+};
+
+export function undoAvailable(projectId) {
+    const u = undoSnapshot(projectId);
+    if (!u) return { available: false };
+    const blocked = undoBlocker(projectId, u.snap);
+    return blocked ? { available: false, reason: UNDO_REFUSED[blocked] } : { available: true, at: u.at, version: u.version };
+}
+
+/**
+ * Put the course back as it was before its last update.
+ * @returns {{ ok: true } | { ok: false, reason: string | null }}  reason null: no update to undo
+ */
+export function undoLastUpdate(projectId) {
+    const u = undoSnapshot(projectId);
+    if (!u) return { ok: false, reason: null };
+    const { snap } = u;
+    const blocked = undoBlocker(projectId, snap);
+    if (blocked) return { ok: false, reason: UNDO_REFUSED[blocked] };
     db.transaction(() => {
         // A topic re-inserted before its parent is back: checked at commit.
         db.pragma('defer_foreign_keys = ON');
@@ -300,7 +350,7 @@ export function undoLastUpdate(projectId) {
             prep('DELETE FROM course_upstream WHERE project_id = ?').run(projectId);
         }
     })();
-    return true;
+    return { ok: true };
 }
 
 // ---- applying a plan --------------------------------------------------------------------
@@ -319,6 +369,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         const undo = takeUndoSnapshot(projectId);
         const nodeIdByUuid = new Map(prep('SELECT id, uuid FROM nodes WHERE project_id = ?').all(projectId).map(r => [r.uuid, r.id]));
         const insertedUuid = new Map();   // `new:<ref>` -> the uuid the row got
+        const insertedResource = new Map();   // the same, for links
         const resolveNode = (ref) => {
             if (ref == null) return null;
             if (String(ref).startsWith('new:')) {
@@ -345,6 +396,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             }
             return Object.keys(out).length ? JSON.stringify(out) : null;
         };
+        const namesMedia = (media) => ['front', 'back'].some(side => (media?.[side] || []).length > 0);
 
         // The course header. `version` is the author's and nobody edits it.
         const pf = plan.project || {};
@@ -435,11 +487,13 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const sets = [];
             const vals = [];
             for (const [f, v] of Object.entries(o.fields)) {
-                if (f === 'parent') { sets.push('node_id = ?'); vals.push(resolveNode(v)); continue; }
+                if (f === 'parent') { const to = resolveNode(v); if (to != null) { sets.push('node_id = ?'); vals.push(to); } continue; }
                 if (f === 'media') {
                     // Names the file's bytes did not bring cannot be stored; the card keeps what it has.
                     if (!mediaByName) continue;
-                    sets.push('media = ?'); vals.push(resolveMedia(v)); continue;
+                    const stored = resolveMedia(v);
+                    if (stored == null && namesMedia(v)) continue;
+                    sets.push('media = ?'); vals.push(stored); continue;
                 }
                 sets.push(`${f} = ?`); vals.push(v);
             }
@@ -462,10 +516,11 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const sets = [];
             const vals = [];
             for (const [f, v] of Object.entries(o.fields)) {
-                if (f === 'parent') { sets.push('node_id = ?'); vals.push(resolveNode(v)); continue; }
+                // A topic the plan could not place (no match, not inserted): the link stays where it is.
+                if (f === 'parent') { const to = resolveNode(v); if (to != null) { sets.push('node_id = ?'); vals.push(to); } continue; }
                 sets.push(`${f} = ?`); vals.push(v);
             }
-            prep(`UPDATE resources SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
+            if (sets.length) prep(`UPDATE resources SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
         }
         for (const o of byKind('insert', 'resource')) {
             const nodeId = resolveNode(o.parent);
@@ -474,6 +529,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const id = prep('INSERT INTO resources (node_id, title, url, type, completed, position, uuid) VALUES (?, ?, ?, ?, 0, ?, ?)')
                 .run(nodeId, r.title, r.url ?? null, r.type || 'link', o.position, claimUuid('resources', o.uuid)).lastInsertRowid;
             const uuid = prep('SELECT uuid FROM resources WHERE id = ?').get(id).uuid;
+            insertedResource.set(`new:${o.ref}`, uuid);
             writeBase('resource', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });
         }
         for (const o of byKind('delete', 'resource')) prep('DELETE FROM resources WHERE id = ?').run(o.id);
@@ -486,9 +542,8 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const table = r.kind === 'node' ? 'nodes' : 'resources';
             const idOf = r.kind === 'node'
                 ? (u) => resolveNode(u)
-                : (u) => prep('SELECT id FROM resources WHERE uuid = ?').get(String(u).startsWith('new:') ? '' : u)?.id;
+                : (u) => prep('SELECT id FROM resources WHERE uuid = ?').get(String(u).startsWith('new:') ? insertedResource.get(u) ?? '' : u)?.id;
             const ids = r.children.map(idOf).filter(id => id != null);
-            // New links were inserted at their file position already.
             ids.forEach((id, i) => prep(`UPDATE ${table} SET position = ? WHERE id = ?`).run(i, id));
         }
 
@@ -499,6 +554,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         }
         for (const b of plan.newBase) writeBase(b.kind, b.uuid, b.fields);
         putUpstreamStmt().run(projectId, plan.exportedAt, pf.version ?? prep('SELECT version FROM projects WHERE id = ?').get(projectId).version);
+        undo.after = courseFingerprint(projectId);
         prep(`UPDATE course_upstream SET undo = ?, undo_at = ${NOW_ISO} WHERE project_id = ?`).run(JSON.stringify(undo), projectId);
 
         // Practice written from the old text is stale: unconsumed feed rows on a
