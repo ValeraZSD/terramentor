@@ -138,7 +138,13 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
 
     const level = levelOf({ record, rows: count > 0, eligibility, fading, deck: node.project_kind === 'deck' });
     // A skipped topic is closed: what it still gets wrong is beside the point.
-    const shaky = node.status === 'skipped' ? [] : shakyQuestions(node.id);
+    // A pointer, not the estimate: a read that fails leaves the list empty
+    // rather than taking the whole card down.
+    let shaky = [];
+    if (node.status !== 'skipped') {
+        try { shaky = shakyQuestions(node.id); }
+        catch (e) { console.warn('[evidence] still-shaky read failed:', e?.message); }
+    }
     return {
         nodeId: node.id,
         title: node.title,

@@ -242,11 +242,10 @@ try {
     t = await trail(shakyTopic);
     check('no answers logged: nothing is shaky (an empty list, not missing)', Array.isArray(t.shaky) && t.shaky.length === 0, JSON.stringify(t.shaky));
 
-    answer(0, false); answer(0, false);                                   // missed twice
+    answer(0, false); answer(0, null, 'quiz'); answer(0, false);          // missed twice, an ungraded ask between
     answer(1, false); answer(1, false); answer(1, true);                  // missed twice, then right
     answer(2, true); answer(2, false);                                    // missed once, after a right one
     answer(3, false, 'mastery_check'); answer(3, true, 'feed'); answer(3, false, 'quiz'); answer(3, false, 'recall'); // right between, then two misses on two surfaces
-    answer(0, null, 'quiz');                                              // asked, not graded: changes nothing
     t = await trail(shakyTopic);
     const shakyStems = (t.shaky ?? []).map(s => s.question);
     check('missed twice in a row: shaky', shakyStems.includes('Critical angle?'), JSON.stringify(t.shaky));
@@ -255,7 +254,25 @@ try {
     check('two misses since the last right answer, on any surface: shaky', shakyStems.includes('Mirage?'), JSON.stringify(shakyStems));
     const crit = (t.shaky ?? []).find(s => s.question === 'Critical angle?') ?? {};
     check('…each names its question for the flag (q:<uuid>) and its misses since the last right answer', crit.ref === `q:${uuidOf(0)}` && crit.misses === 2, JSON.stringify(crit));
-    check('…an ungraded ask does not break the run of misses', crit.misses === 2, JSON.stringify(crit));
+    check('…an ungraded ask between two misses neither breaks the run nor adds to it', crit.misses === 2, JSON.stringify(crit));
+    check('the count is the list\'s length', t.shakyCount === (t.shaky ?? []).length && t.shakyCount === 2, JSON.stringify({ count: t.shakyCount, n: t.shaky?.length }));
+
+    // The run is read by WHEN it was answered: a right answer written later
+    // (a higher id) but dated before the misses does not end it.
+    answer(3, true);
+    db.prepare("UPDATE question_log SET asked_at = '2000-01-01T00:00:00.000Z' WHERE id = (SELECT MAX(id) FROM question_log)").run();
+    t = await trail(shakyTopic);
+    check('a right answer dated before the misses: still shaky', (t.shaky ?? []).some(s => s.question === 'Mirage?'), JSON.stringify(t.shaky));
+
+    answer(0, false);
+    t = await trail(shakyTopic);
+    check('most misses first: three misses ahead of two', t.shaky?.[0]?.question === 'Critical angle?' && t.shaky[0].misses === 3 && t.shaky[1]?.misses === 2, JSON.stringify(t.shaky));
+
+    // One question held in two of the topic's rows (a bank row and a saved
+    // practice quiz) is listed once.
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(shakyTopic, 'Practice', JSON.stringify([shakyBank[0]]));
+    t = await trail(shakyTopic);
+    check('a question in two of its rows: listed once', (t.shaky ?? []).filter(s => s.question === 'Critical angle?').length === 1 && t.shakyCount === 2, JSON.stringify(t.shaky));
 
     // A copy answered as a review question inside another topic's practice
     // quiz keeps the uuid, so it is the same question missed.
@@ -267,6 +284,9 @@ try {
     t = await trail(shakyTopic);
     check('a second miss as a review question in another topic: shaky here', (t.shaky ?? []).some(s => s.question === 'Fibre optics?'), JSON.stringify(t.shaky));
     check('…and not shaky on the other topic, which does not own it', ((await trail(other)).shaky ?? []).length === 0, JSON.stringify((await trail(other)).shaky));
+    answer(2, true, 'quiz', otherQuiz);
+    t = await trail(shakyTopic);
+    check('…and a right answer to that copy clears it', !(t.shaky ?? []).some(s => s.question === 'Fibre optics?'), JSON.stringify(t.shaky));
 
     // A question a verifier could not confirm may have a wrong key: a miss of
     // it says nothing about the learner. One reported out of the bank is gone.
@@ -283,6 +303,16 @@ try {
 
     // Shaky is a pointer, not evidence: listing it moved no estimate.
     check('reading it wrote nothing: no mastery row for a topic answered only in the log', db.prepare('SELECT COUNT(*) AS c FROM node_mastery WHERE node_id = ?').get(shakyTopic).c === 0);
+    // A long list is cut; the count still says how many.
+    const wide = addNode(course, 'Interference');
+    const wideQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(wide, 'Bank', JSON.stringify(
+        Array.from({ length: 21 }, (_, i) => ({ question: `Fringe ${i}?`, type: 'multiple_choice', options: ['A', 'B'], correct_answer: 'A' })),
+    )).lastInsertRowid);
+    const wideBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(wideQuiz).questions);
+    for (const q of wideBank) logAsked([{ quizId: wideQuiz, uuid: q.uuid, correct: false }, { quizId: wideQuiz, uuid: q.uuid, correct: false }], 'quiz');
+    t = await trail(wide);
+    check('21 shaky questions: 20 listed, the count says 21', t.shaky?.length === 20 && t.shakyCount === 21, JSON.stringify({ n: t.shaky?.length, count: t.shakyCount }));
+
     db.prepare("UPDATE nodes SET status = 'skipped' WHERE id = ?").run(shakyTopic);
     check('a skipped topic lists nothing', ((await trail(shakyTopic)).shaky ?? []).length === 0, JSON.stringify((await trail(shakyTopic)).shaky));
 } finally {
