@@ -118,7 +118,13 @@ function display(field, value, titleOf) {
 }
 
 const PREVIEW_TEXT_MAX = 1200;
-const clip = (s) => (s == null ? null : s.length > PREVIEW_TEXT_MAX ? `${s.slice(0, PREVIEW_TEXT_MAX)}…` : s);
+const PREVIEW_DIFFS = 200;
+/** Cut at a whole character, never inside a surrogate pair. */
+const clip = (s) => {
+    if (s == null) return null;
+    const chars = Array.from(s);
+    return chars.length > PREVIEW_TEXT_MAX ? `${chars.slice(0, PREVIEW_TEXT_MAX).join('')}…` : s;
+};
 
 function preview(twin, read, p) {
     const titles = new Map();
@@ -138,16 +144,31 @@ function preview(twin, read, p) {
         items: r.items ? {
             ...r.items,
             // Before and after as the learner reads them, long text cut to what a preview shows.
-            changed: r.items.changed.map(it => ({
-                ...it,
-                diff: (it.diff || []).map(d => ({ field: d.field, from: clip(display(d.field, d.from, titleOf)), to: clip(display(d.field, d.to, titleOf)) })),
-            })),
-            moved: r.items.moved.map(it => ({ ...it, to: it.to && 'title' in it.to ? it.to.title : titleOf(it.to?.uuid ?? null) })),
+            // Only the first PREVIEW_DIFFS carry their texts, so a big edition stays a small answer.
+            changed: r.items.changed.map((it, i) => {
+                const { diff, ...rest } = it;
+                if (i >= PREVIEW_DIFFS) return rest;
+                return {
+                    ...rest,
+                    diff: (diff || [])
+                        .map(d => ({ field: d.field, from: clip(display(d.field, d.from, titleOf)), to: clip(display(d.field, d.to, titleOf)) }))
+                        // Two values that read the same (cut at the same place, say) show no change.
+                        .filter(d => d.from !== d.to),
+                };
+            }),
+            // Where it goes: null is the top of the course; a place that cannot be named is left out.
+            moved: r.items.moved.map(it => {
+                const { to, ...rest } = it;
+                const named = !to ? undefined
+                    : 'title' in to ? to.title ?? undefined
+                        : to.uuid == null ? null : titleOf(to.uuid) ?? undefined;
+                return named === undefined ? rest : { ...rest, to: named };
+            }),
         } : null,
         conflicts: (r.conflicts || []).map(c => ({
             key: c.key, kind: c.kind, field: c.field, label: c.label ?? null, where: c.where ?? null,
-            mine: display(c.field, c.mine, titleOf),
-            file: c.field === 'deleted' ? null : display(c.field, c.file, titleOf),
+            mine: clip(display(c.field, c.mine, titleOf)),
+            file: c.field === 'deleted' ? null : clip(display(c.field, c.file, titleOf)),
             unknownBase: !!c.unknownBase,
         })),
         warnings: read.warnings,

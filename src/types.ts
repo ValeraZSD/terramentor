@@ -256,9 +256,9 @@ export interface CourseUpdateItem {
     where: string | null;
     /** For a changed item: which of its fields the file changes. */
     fields?: string[];
-    /** For a changed item: each changed field as the learner reads it now and after. */
+    /** For a changed item: each changed field as the learner reads it now and after (the first 200 items only). */
     diff?: { field: string; from: string | null; to: string | null }[];
-    /** For a moved item: the topic it moves under (null: the top of the course). */
+    /** For a moved item: the topic it moves under (null: the top of the course; absent: a place the preview cannot name). */
     to?: string | null;
 }
 
