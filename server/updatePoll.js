@@ -68,15 +68,17 @@ function heardLatest() {
 async function runUpdateCheck() {
     const channel = currentChannel();
     const result = await fetchLatestRelease(undefined, { channel });
+    // Switched while this one was in flight: its answer is to a question
+    // nobody is asking any more, and writing it would overwrite the new
+    // channel's (or leave the panel blank until tomorrow). Nor does it count
+    // for the schedule: a success here would push the new channel's retry
+    // four hours out.
+    if (currentChannel() !== channel) return readUpdateState();
     // Every check counts for the schedule, a press of Check now included, so a
     // pressed check is not followed by a scheduled one a minute later.
     const at = Date.now();
     schedule.lastAttemptAt = at;
     if (result.ok) { schedule.lastSuccessAt = at; schedule.failures = 0; } else schedule.failures++;
-    // Switched while this one was in flight: its answer is to a question
-    // nobody is asking any more, and writing it would overwrite the new
-    // channel's (or leave the panel blank until tomorrow).
-    if (currentChannel() !== channel) return readUpdateState();
     if (result.ok) {
         heard = { raw: result.latest ? JSON.stringify(result.latest) : '', channel };
         setSettingValue('update_latest', heard.raw);
@@ -155,7 +157,12 @@ async function setUpdateChannel(channel, { checkNow = true } = {}) {
     setSettingValue('update_last_check', '');
     setSettingValue('update_last_error', '');
     setSettingValue('update_answer_channel', next);
-    return checkNow ? startUpdatePoll({ checkNow: true }) : readUpdateState();
+    if (checkNow) return startUpdatePoll({ checkNow: true });
+    // Not now (the caller's one-a-minute limit), but the new channel has no
+    // answer at all: the poll's next look, within the minute, asks for it
+    // instead of the panel saying "not checked" for hours.
+    schedule.lastAttemptAt = 0;
+    return readUpdateState();
 }
 
 /**

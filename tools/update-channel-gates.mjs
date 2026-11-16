@@ -300,6 +300,30 @@ try {
         setSettingValue('update_check', 'off');
     }
 
+    // A channel switch and the schedule: an answer overtaken by the switch does
+    // not count, and a switch the one-a-minute limit held back leaves the next
+    // look due, so the new channel is not blank for hours.
+    console.log('\n--- a channel switch and the schedule ---');
+    {
+        const before = globalThis.fetch;
+        const set0 = { lastAttemptAt: 111, lastSuccessAt: 0, failures: 1, lastTickAt: 0 };
+        updateScheduleForTest.set(set0);
+        setSettingValue('update_channel', 'stable');
+        globalThis.fetch = async () => {
+            setSettingValue('update_channel', 'nightly');   // switched while this one is on the wire
+            return { status: 200, ok: true, headers: new Headers(), json: async () => ({ tag_name: 'v99.0.0' }) };
+        };
+        await runUpdateCheck();
+        const after = updateScheduleForTest.get();
+        check('a check overtaken by a channel switch leaves the schedule alone',
+            [after.lastAttemptAt, after.failures], [set0.lastAttemptAt, set0.failures]);
+        globalThis.fetch = before;
+        updateScheduleForTest.set({ lastAttemptAt: Date.now(), lastSuccessAt: Date.now(), failures: 0 });
+        await setUpdateChannel('stable', { checkNow: false });
+        check('a switch held back by the minute limit makes the next look due',
+            checkIsDue({ now: Date.now(), ...updateScheduleForTest.get() }), true);
+    }
+
     // Asking every few hours stays light: an unchanged list comes back as an
     // empty 304, answered from the last full body.
     console.log('\n--- an unchanged answer costs a 304 ---');

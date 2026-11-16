@@ -73,7 +73,7 @@ app.put('/api/updates/auto', wrap(async (req, res) => {
     }
     // The poll's own first tick IS this answer: one request, as SECURITY.md
     // promises, and a failed one (switched on while offline) gets the same
-    // ten-minute retry a failed startup check does.
+    // retries (10, 30, 60 minutes) a failed startup check does.
     res.json(withInstall(req, await startUpdatePoll({ checkNow: true })));
 }));
 
