@@ -1235,6 +1235,10 @@ section('ChoiceInput lays out from measured widths');
                 b.onLoad({ filter: /.*/, namespace: 'choice' }, (a) => ({ contents: readFileSync(a.path, 'utf8'), loader: 'tsx', resolveDir: join(repoRoot, 'src/components/answer') }));
                 b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub-math' }));
                 b.onLoad({ filter: /.*/, namespace: 'stub-math' }, () => ({ contents: "import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }", loader: 'js', resolveDir: repoRoot }));
+                // The store reaches the whole app (down to the chart renderers);
+                // ChoiceInput reads one preference from it.
+                b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub-store' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({ contents: "const state = { a11y: { confirmAnswers: false } }; export const useStore = (sel) => sel(state);", loader: 'js' }));
             },
         }],
     });
