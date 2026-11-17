@@ -116,6 +116,31 @@ check('the card\'s lookup reads the new description', info.description === 'A br
 const list = await (await call('/api/media-descriptions')).json();
 check('the list route serves the review rows', Array.isArray(list.items) && list.items.length === 4);
 
+section('the file itself');
+// A clip must answer a byte-range request: Safari will not play or seek one
+// that is answered whole, and a shared cache must not keep the learner's files.
+const { mediaStorage } = await import(S('vaultStorage.js'));
+const SONG = mediaStorage.put(Buffer.from('0123456789abcdef')).hash;
+db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'klank.mp3', 'audio/mpeg', 'audio', 16)").run(projectId, SONG);
+const whole = await call(`/api/media/${SONG}`);
+check('a clip is served whole with its type, and says it can be read in ranges',
+    whole.status === 200 && whole.headers.get('content-type') === 'audio/mpeg' && whole.headers.get('accept-ranges') === 'bytes'
+    && (await whole.text()) === '0123456789abcdef', JSON.stringify([...whole.headers]));
+const ranged = await call(`/api/media/${SONG}`, { headers: { Range: 'bytes=2-5' } });
+check('a byte-range request is answered with 206 and just those bytes',
+    ranged.status === 206 && ranged.headers.get('content-range') === 'bytes 2-5/16' && (await ranged.text()) === '2345',
+    `${ranged.status} ${ranged.headers.get('content-range')}`);
+const cacheControl = whole.headers.get('cache-control') || '';
+check('the file is cached by the browser for good but never by a shared cache',
+    /^private,/.test(cacheControl) && /immutable/.test(cacheControl) && !/public/.test(cacheControl), cacheControl);
+check('a file the store lost is a 404 that is not cached', await (async () => {
+    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, 'weg.mp3', 'audio/mpeg', 'audio', 1)").run(projectId, hash('8'));
+    const lost = await call(`/api/media/${hash('8')}`);
+    return lost.status === 404 && !/immutable/.test(lost.headers.get('cache-control') || '');
+})());
+check('the route does not hand-pipe a stream (it would keep the file open when the client leaves)',
+    !/\.pipe\(res\)/.test(readFileSync(join(repoRoot, 'server/routes/media.js'), 'utf8')));
+
 section('the next page, after a correction');
 // Four model-written rows, read two at a time. Correcting one on the first
 // page moves it to the end of the server's order; the next page is asked for
@@ -129,6 +154,36 @@ const seen = new Set([...first, ...next.items].map(r => r.hash));
 const vision = [hash('f'), hash('1'), hash('2'), hash('3')];
 check('...the next page holds the two model-written rows not yet shown', vision.every(h => seen.has(h)), JSON.stringify(next.items.map(r => r.filename)));
 await new Promise(ok => app.close(ok));
+
+section('one picture in two projects');
+// The same bytes imported into a second project is a second ROW, but one
+// picture: the counts, the sweep's list and the review list must agree on one.
+const before = describeStats();
+const projectTwo = db.prepare("INSERT INTO projects (name) VALUES ('Pictures again')").run().lastInsertRowid;
+const TWICE = hash('7');
+addFile(TWICE, 'tweemaal.png', 'image');
+db.prepare('INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, ?, ?, 1)').run(projectTwo, TWICE, 'tweemaal.png', 'image/png', 'image');
+const after = describeStats();
+check('the counts see one more picture, not two', after.images === before.images + 1 && after.pending === before.pending + 1, JSON.stringify({ before, after }));
+check('the sweep is handed the picture once', pendingDescriptions().filter(p => p.hash === TWICE).length === 1);
+check('...as the review list shows it once', listDescriptions({ limit: 200 }).filter(r => r.hash === TWICE).length === 1);
+check('a project\'s own counts are unchanged', describeStats(projectTwo).images === 1 && describeStats(projectId).images === before.images + 1);
+
+section('two presses of Describe');
+// Both requests reach the sweep before the first has finished asking whether a
+// vision model exists. Only one may start; the other is told it is running.
+db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('paper_vision', 'never')").run();
+const { startDescribeSweep, describeProgress } = await import(S('mediaDescribe.js'));
+const [firstPress, secondPress] = await Promise.all([startDescribeSweep(), startDescribeSweep()]);
+check('the second press is refused as already running, not let through beside the first',
+    [firstPress, secondPress].filter(r => r.reason === 'already running').length === 1, JSON.stringify([firstPress, secondPress]));
+check('a refused sweep leaves nothing marked as running', describeProgress().running === false);
+const thirdPress = await startDescribeSweep();
+check('...so a later press is answered on its merits', thirdPress.started === false && thirdPress.reason !== 'already running', JSON.stringify(thirdPress));
+
+section('what a model\'s description goes through');
+check('a model\'s reply is cleaned like a learner\'s: marks dropped, cut by characters',
+    /const clean = cleanDescription\(text\)/.test(readFileSync(join(repoRoot, 'server/mediaDescribe.js'), 'utf8')));
 
 section('what the card says');
 const outfile = join(scratch, 'alt.mjs');
