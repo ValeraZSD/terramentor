@@ -178,7 +178,8 @@ export default function CardsPanel({
         editing: editingLimit,
         draft: limitDraft,
         onDraft: setLimitDraft,
-        onEdit: () => setEditingLimit(true),
+        // Focus goes back to the target button only straight after its own editor.
+        onEdit: () => { setRetentionReturn(false); setEditingLimit(true); },
         onSave: saveLimit,
         onCancel: () => { setEditingLimit(false); setLimitDraft(String(deck.newPerDay)); },
     };
@@ -186,6 +187,8 @@ export default function CardsPanel({
     // much of what it has met it should still know. One opens at a time.
     const dials = editingRetention ? (
         <RetentionEditor
+            // A switch of course remounts it: its draft never saves to the next course.
+            key={projectId}
             projectId={projectId}
             value={deck.desiredRetention}
             onDone={saved => { setEditingRetention(false); setRetentionReturn(true); if (saved) void load({ silent: true }); }}
