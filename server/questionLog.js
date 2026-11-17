@@ -14,9 +14,10 @@
 // whether a topic is proven is BKT's, and a bank that re-asked misses would be
 // a second scheduler quietly disagreeing with it.
 //
-// The one reader that weighs right and wrong is a RECALL (`recallOrder`): it
-// does not decide whether a topic is proven, only which question best asks
-// whether a fading one stuck.
+// Two readers weigh right and wrong, and neither decides whether a topic is
+// proven: a RECALL (`recallOrder`) picks which question best asks whether a
+// fading one stuck, and `shakyQuestions` lists the ones missed lately for the
+// learner to look at (a pointer, not a draw).
 //
 // Ghost (review) questions embedded in a saved practice quiz belong to OTHER
 // topics and are never drawn here.
@@ -281,6 +282,73 @@ export function recallOrder(nodeId) {
         || (x.last < y.last ? -1 : x.last > y.last ? 1 : 0)
         || (x.position - y.position));
     return ranked.map(r => r.b);
+}
+
+/** Two misses in a row: one could be a slip, two with no right answer since is a pattern. */
+export const SHAKY_MISSES = 2;
+
+/**
+ * A topic's STILL SHAKY questions: its own, confirmed questions whose newest
+ * graded answers, on any surface, are SHAKY_MISSES or more misses in a row.
+ * A right answer ends the run; an ask with no grade (a whole-row sitting that
+ * named no result) is skipped, not counted either way.
+ *
+ * A pointer for the learner, never evidence: the estimate is BKT's, and this
+ * list changes nothing it reads (see the draw's rule at the top). Only what
+ * the bank still holds and no verifier holds back (no `unverified` stamp): a
+ * question reported out is gone, and a miss of one whose key nobody confirmed
+ * says nothing about the learner. Once a verifier confirms it, only the
+ * answers from then on count (`verifiedAt`, as in questionTrust.js).
+ *
+ * A copy answered in another topic's practice quiz counts by the uuid it
+ * keeps, as in `recallOrder`, but only from this course: a second import of
+ * the same course carries the same uuids, and its answers are another
+ * course's.
+ *
+ * Returns `{ uuid, stem, misses, last }`, most misses first, then the newest.
+ */
+export function shakyQuestions(nodeId) {
+    const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
+    if (!bank.length) return [];
+    const quizIds = [...new Set(bank.map(b => b.quizId))];
+    const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
+    const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    // Newest first, so a question's run of misses is read from its head. A row
+    // whose quiz sits in another course is that course's answer; one whose
+    // quiz was deleted since still counts.
+    const graded = db.prepare(`
+        SELECT ${LOG_KEY} AS k, correct, asked_at AS at
+        FROM question_log
+        WHERE (quiz_id IN (${quizIds.map(() => '?').join(',')})${byUuid}) AND correct IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM quizzes q JOIN nodes n ON n.id = q.node_id
+              WHERE q.id = question_log.quiz_id
+                AND n.project_id IS NOT (SELECT project_id FROM nodes WHERE id = ?))
+        ORDER BY asked_at DESC, id DESC
+    `).all(...quizIds, ...uuids, nodeId);
+    // Confirmed after it was asked: the answers before that stay uncounted.
+    const since = new Map(bank.filter(b => typeof b.question.verifiedAt === 'string').map(b => [askKey(b), b.question.verifiedAt]));
+    const runs = new Map();
+    for (const r of graded) {
+        const from = since.get(r.k);
+        if (from && r.at < from) continue;
+        let run = runs.get(r.k);
+        if (!run) runs.set(r.k, run = { misses: 0, last: r.at, ended: false });
+        if (run.ended) continue;
+        if (r.correct === 1) run.ended = true;
+        else run.misses++;
+    }
+    const out = [];
+    const listed = new Set();
+    for (const b of bank) {
+        const key = askKey(b);
+        const run = runs.get(key);
+        if (run && run.misses >= SHAKY_MISSES && typeof b.question.question === 'string' && !listed.has(key)) {
+            listed.add(key);
+            out.push({ uuid: b.question.uuid ?? null, stem: b.question.question, misses: run.misses, last: run.last });
+        }
+    }
+    return out.sort((a, b) => (b.misses - a.misses) || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0));
 }
 
 /** How much of a node's bank has ever been asked. */

@@ -1438,6 +1438,16 @@ try {
 } catch (e) {
   console.error('[Migration] uuid identity migration failed (non-fatal):', e.message);
 }
+// A question is looked up by its uuid across quizzes (a copy answered in
+// another topic's practice quiz): the recall pick and the still-shaky list,
+// which every topic panel reads. Its own try, so a failure in the migration
+// above does not leave every panel read without it. Not idx_question_log_uuid:
+// that name is the sync migration's UNIQUE index on the row's own uuid.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_question_uuid ON question_log(question_uuid)');
+} catch (e) {
+  console.error('[Migration] question_log question_uuid index failed (non-fatal):', e.message);
+}
 
 // One-time orphan cleanup. Databases created before foreign-key enforcement
 // was enabled may contain rows whose parent was deleted without cascading

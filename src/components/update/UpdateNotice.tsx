@@ -49,12 +49,12 @@ export default function UpdateNotice() {
             <Strip>
                 <RefreshCw className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />
                 <div className="min-w-0 flex-1 basis-64">
-                    <p className="font-medium">{t("Check for new versions once a day?")}</p>
-                    <p className="text-slate-600 dark:text-slate-300">{t("Once a day Terramentor can look up whether a newer version is out, and tell you. Nothing about you or your library is sent, and nothing is installed without you. You can change this in Settings.")}</p>
+                    <p className="font-medium">{t("Check for new versions automatically?")}</p>
+                    <p className="text-slate-600 dark:text-slate-300">{t("Every few hours Terramentor can look up whether a newer version is out, and tell you. Nothing about you or your library is sent, and nothing is installed without you. You can change this in Settings.")}</p>
                 </div>
                 <div className="flex gap-2 shrink-0 ml-auto">
                     <Button size="sm" variant="neutral" onClick={() => setAuto(false)}>{t("Not now")}</Button>
-                    <Button size="sm" variant="primary" onClick={() => setAuto(true)}>{t("Check daily")}</Button>
+                    <Button size="sm" variant="primary" onClick={() => setAuto(true)}>{t("Check automatically")}</Button>
                 </div>
             </Strip>
         );
