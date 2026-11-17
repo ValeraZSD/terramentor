@@ -107,6 +107,11 @@ export function loadInstanceKey(dir, { platform = process.platform } = {}) {
             if (theirs) return theirs;
             // Nothing there holds a key (a write cut off by an old crash, or no
             // file at all): put ours in whole, then answer with what the file says.
+            // `rename` replaces whatever is there, so on these two paths only (a
+            // leftover empty file, a disk without hard links) two processes
+            // starting at the very same moment can still end with different
+            // keys. That fails safe: the later proof fails and a second server
+            // is started, never a wrong one trusted.
             renameSync(tmp, path);
             mine = readInstanceKeyFile(path);
         }

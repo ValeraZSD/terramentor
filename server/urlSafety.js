@@ -32,6 +32,12 @@ export const SAFE_URL_PROTOCOLS = ['http:', 'https:'];
 const HOST_WITH_PORT = /^[^/\s:?#]+:\d+(?:[/?#]|$)/;
 
 /**
+ * Schemes that can be followed by digits only ("tel:112", "sms:555", "javascript:1"),
+ * which HOST_WITH_PORT would take for a host and a port. They keep their own refusal.
+ */
+const NON_WEB_SCHEMES = ['javascript:', 'data:', 'mailto:', 'tel:', 'sms:', 'file:', 'ftp:', 'blob:', 'vbscript:', 'about:', 'urn:'];
+
+/**
  * @param {unknown} value
  * @returns {{ok: true, url: string} | {ok: false, reason: string}}
  *   `ok` with an empty string means "no URL", which is a valid resource.
@@ -49,10 +55,12 @@ export function sanitizeUrl(value) {
     // never reaches here to be prefixed into something harmless-looking.
     // "example.com:8080/page" is the one scheme-less shape that DOES parse the
     // first time, with the host standing in as the scheme (`example.com:`). A
-    // digits-only tail after the colon is what marks it a port: no scheme is
-    // followed by digits and then a path, and "javascript:alert(1)" is not.
+    // digits-only tail after the colon is what marks it a port, unless the name
+    // is one of the schemes that take a number ("tel:112"), which stay refused.
     let normalized = raw;
-    if (!url || (!SAFE_URL_PROTOCOLS.includes(url.protocol) && HOST_WITH_PORT.test(raw))) {
+    const hostWithPort = url && !SAFE_URL_PROTOCOLS.includes(url.protocol)
+        && !NON_WEB_SCHEMES.includes(url.protocol) && HOST_WITH_PORT.test(raw);
+    if (!url || hostWithPort) {
         const prefixed = parse(`https://${raw}`);
         if (!prefixed) return { ok: false, reason: 'not a valid URL' };
         url = prefixed;

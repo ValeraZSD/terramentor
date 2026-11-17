@@ -330,8 +330,11 @@ console.log('\n--- is that server ours? ---');
     // So the real name is only ever given to a file that is already whole (a
     // `link` or a `rename`), never opened for writing in place.
     const keySrc = readFileSync(join(repoRoot, 'server', 'instanceKey.js'), 'utf8');
+    // Every call that opens or writes a file in there targets the temporary name;
+    // only `linkSync` and `renameSync` ever give a file the real one.
+    const writers = [...keySrc.matchAll(/\b(?:openSync|writeFileSync|appendFileSync|createWriteStream)\(\s*([^,)\s]+)/g)].map((m) => m[1]);
     ok('the key file is published whole, never opened for writing under its own name',
-        /linkSync\(/.test(keySrc) && !/openSync\(path\b/.test(keySrc));
+        /linkSync\(/.test(keySrc) && writers.length > 0 && writers.every((target) => target === 'tmp'), writers.join(', '));
     // Several processes starting on one new library at once all end with the one key.
     const raceDir = mkdtempSync(join(tmpdir(), 'desktop-key-race-'));
     const keyUrl = pathToFileURL(join(repoRoot, 'server', 'instanceKey.js')).href;

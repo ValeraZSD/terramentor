@@ -113,6 +113,9 @@ for (const [name, url] of [
     ['javascript: that starts with a digit', 'javascript:1;alert(1)'],
     ['data: scheme with a payload', 'data:text/html,<script>alert(1)</script>'],
     ['mailto:', 'mailto:x'],
+    ['javascript: followed by digits only', 'javascript:1'],
+    ['a phone link', 'tel:112'],
+    ['an sms link with a path-like tail', 'sms:555/1'],
 ]) check(name + ' is still refused beside the port rule', sanitizeUrl(url).ok, false);
 check('an over-long URL is rejected', sanitizeUrl('https://e.com/' + 'a'.repeat(MAX_URL_LENGTH)).ok, false);
 check('the https:// fallback cannot rescue javascript:',
