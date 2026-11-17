@@ -1,8 +1,69 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import ColorField, { ACCENT_COLORS, THEME_TINTS } from '../ui/ColorField';
+import SegmentedControl from '../ui/SegmentedControl';
 import { tintSwatch } from '../../utils/themeRamp';
+import { AppIconColour, AppIconShape, IconPreview } from './AppIconPanel';
+
+type Target = 'page' | 'accent' | 'icon';
+
+/** A colour's chip inside a segment: the same inset edge as a palette chip, so
+ *  white on a white track and black on a black one still have an outline. A
+ *  SQUARE, like the chips below it: a round white one beside a word read as an
+ *  unticked radio button. 16px, the size the icon's own preview is drawn at. */
+function Dot({ hex }: { hex: string }) {
+    return (
+        <span
+            aria-hidden="true"
+            className="w-4 h-4 rounded shrink-0 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.18)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.25)]"
+            style={{ background: hex }}
+        />
+    );
+}
+
+/**
+ * Settings → General → Appearance → Colours: the page, the accent and the app
+ * icon's tile, chosen in ONE palette.
+ *
+ * They were three palettes, two open and one inside a disclosure, which spent
+ * about 330px of the card on 48 chips and still hid the third. The three are
+ * already one family — the same sixteen names in the same slots, each at its
+ * own rung (`palette-order-gates.mjs`) — so one palette with a switch above it
+ * offers exactly what the three did. The switch carries each target's current
+ * colour, so all three values stay visible while only one is being changed.
+ *
+ * The switch starts on the page every time the screen opens; which target was
+ * last edited is not worth a stored setting.
+ */
+export function ColourChooser() {
+    const { t: tr } = useTranslation();
+    const [target, setTarget] = useState<Target>('page');
+    const theme = useStore(s => s.theme);
+    const themeTint = useStore(s => s.themeTint);
+    const accentColor = useStore(s => s.accentColor);
+    const appIcon = useStore(s => s.appIcon);
+    return (
+        <div className="w-full">
+            <SegmentedControl
+                label={tr("Colours")}
+                value={target}
+                onChange={setTarget}
+                options={[
+                    { value: 'page', label: <span className="inline-flex items-center gap-2"><Dot hex={tintSwatch(theme, themeTint)} />{tr("Page")}</span> },
+                    { value: 'accent', label: <span className="inline-flex items-center gap-2"><Dot hex={accentColor} />{tr("Accent")}</span> },
+                    { value: 'icon', label: <span className="inline-flex items-center gap-2"><IconPreview icon={appIcon} size={16} variant="tile" />{tr("App icon")}</span> },
+                ]}
+            />
+            {/* `key`: each target's half-typed value is its own. */}
+            <div className="mt-4" key={target}>
+                {target === 'page' && <ThemeTintField />}
+                {target === 'accent' && <AccentField />}
+                {target === 'icon' && <><AppIconColour /><AppIconShape /></>}
+            </div>
+        </div>
+    );
+}
 
 /**
  * The tint palette alone; the row it sits in supplies its name and its line.
@@ -42,10 +103,17 @@ export function ThemeTintField() {
     );
 }
 
-/** The accent palette alone — its name and its one line come from the
- *  `SettingRow` that holds it, like every other setting on the page. */
+/** The accent palette alone; its name comes from the switch above it. */
 export function AccentField() {
+    const { t: tr } = useTranslation();
     const accentColor = useStore(s => s.accentColor);
     const setAccentColor = useStore(s => s.setAccentColor);
-    return <ColorField value={accentColor} onChange={setAccentColor} colors={ACCENT_COLORS} />;
+    return (
+        <ColorField
+            value={accentColor}
+            onChange={setAccentColor}
+            colors={ACCENT_COLORS}
+            hint={tr("Projects keep their own colour.")}
+        />
+    );
 }

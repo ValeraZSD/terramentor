@@ -103,6 +103,23 @@ ok('all three rows are the one ColorField',
     && /<ColorField/.test(ICON),
     'a hand-written swatch grid beside two ColorFields is how one of them becomes the bad one');
 
+// AND ONE PLACE TO CHOOSE THEM. The three palettes were three rows, two open
+// and the icon's behind a disclosure; they are one row now, a switch over one
+// palette (`ColourChooser`). Settings mounts that row and none of the three
+// fields on its own, so a fourth colour row cannot grow back beside it.
+{
+    const chooser = read('src/components/settings/ColourFields.tsx');
+    const general = read('src/components/settings/GeneralSettings.tsx');
+    ok('the Colours row switches one palette between the three targets',
+        /export function ColourChooser/.test(chooser)
+        && /<ThemeTintField \/>/.test(chooser) && /<AccentField \/>/.test(chooser) && /<AppIconColour \/>/.test(chooser),
+        'ColourChooser must draw the page, the accent and the icon tile');
+    ok('Appearance mounts the chooser and no palette of its own',
+        /<ColourChooser \/>/.test(general)
+        && !/<(ThemeTintField|AccentField|AppIconColour|AppIconPanel|ColorField)\b/.test(general),
+        'a second colour row on the Appearance card');
+}
+
 // ---------------------------------------------------------------------------
 // AND THE WORDS FOR THEM. The assistant can be asked for an accent by name, and
 // the model is handed that list of names in its prompt. Both are mirrors of
