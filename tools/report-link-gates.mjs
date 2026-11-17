@@ -305,6 +305,39 @@ if (ReportItem && ReportLink && ReportScope && useItemReports) {
     await m.unmount();
 } else ok('the link exists', false);
 
+section('3c. cancelled while the report is in flight: the late answer takes nothing');
+if (ReportItem && ReportScope && useItemReports) {
+    // Cancel stays live while "Report" is busy. The request cannot be taken
+    // back, so it lands after the dialog is gone: the report is stored (it
+    // was filed) but the host is not told and focus stays where the learner
+    // went, instead of jumping onto Undo.
+    const ref = 'q:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    let land;
+    globalThis.__api = {
+        itemReportTarget: () => Promise.resolve({ item: null, kind: 'question', canRewrite: false, report: null }),
+        reportItem: () => new Promise(res => { land = () => res({ report: reportOf(ref) }); }),
+    };
+    const told = [];
+    const m = await mount(h(ReportScope, null,
+        h('input', { 'data-elsewhere': '' }),
+        h(ReportItem, { itemRef: ref, surface: 'quiz', listed: true, onReported: (r) => told.push(r.ref) })));
+    await act(() => m.host.querySelector('button[aria-label="This is wrong"]')?.click());
+    await settle();
+    await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Report')?.click());
+    await settle();
+    await act(() => [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent.trim() === 'Cancel')?.click());
+    await settle();
+    const elsewhere = m.host.querySelector('input');
+    elsewhere.focus();
+    await act(() => land?.());
+    await settle();
+    ok('the dialog was cancelled before the answer: no dialog, the host is not told', dialogs() === 0 && told.length === 0, `dialogs ${dialogs()}, told ${JSON.stringify(told)}`);
+    ok('…focus stays where the learner went, not on Undo', doc.activeElement === elsewhere, doc.activeElement?.outerHTML?.slice(0, 80));
+    await setReport(ref, null);
+    globalThis.__api = undefined;
+    await m.unmount();
+} else ok('the flag exists', false);
+
 // ---------------------------------------------------------------------------
 section('4a. the feed question: under "Not quite" only');
 if (InlineQuestion && ReportItem) {
