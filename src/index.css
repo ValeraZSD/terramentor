@@ -524,6 +524,12 @@ html[data-larger-ui] [data-checkbox] > input {
   button[data-segment]:where(:not(:focus-visible)) {
     outline-style: none;
   }
+  /* A row's or card's title button is the keyboard's way into a row the
+     pointer opens anywhere: framed, it read as a separate box inside the
+     card. It is framed only when focused or when it is the open one. */
+  button[data-row="title"]:not([aria-current]):where(:not(:focus-visible)) {
+    outline-style: none;
+  }
   /* The track's fill is dropped too, so a segmented row gets one frame
      round it; wrapped into chips, each chip gets its own. */
   [data-segmented="track"] {

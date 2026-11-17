@@ -264,7 +264,19 @@ const MEASURE = `(() => {
             }
         }
     }
-    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text, mins, probe, cut, examined: { controls, text: seen.size } };
+    // A row's or card's title button is framed only when it is the open one
+    // (or focused): framed at rest, every title read as a box in its card.
+    const titles = { all: 0, framed: [] };
+    if (matchMedia('(forced-colors: active)').matches) {
+        for (const el of document.querySelectorAll('button[data-row="title"]')) {
+            if (!shown(el)) continue;
+            titles.all++;
+            if (el.hasAttribute('aria-current') || el === document.activeElement) continue;
+            const cs = getComputedStyle(el);
+            if (cs.outlineStyle !== 'none' && (parseFloat(cs.outlineWidth) || 0) > 0) titles.framed.push(name(el));
+        }
+    }
+    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text, mins, probe, cut, titles, examined: { controls, text: seen.size } };
 })()`;
 
 // Three known controls put on every page, so the counts cannot pass by
@@ -328,6 +340,9 @@ for (const [state, m] of Object.entries(seen)) {
     check(`${state}: the page ${on ? 'carries' : 'does not carry'} data-larger-ui`, m.attr === on);
     // A screen that never rendered would pass every count below with nothing in it.
     if (state.includes(' contrast ')) check(`${state}: every control's high-contrast frame is whole`, m.cut.length === 0, list(m.cut, (x) => `${x.sides} cut  "${x.name}"  ${x.where}  (by ${x.by})`));
+    // The topic screen holds tree, outline and card titles, so it cannot pass with none.
+    if (state.includes(' contrast ')) check(`${state}: only the open title wears a high-contrast frame (${m.titles.all} titles)`,
+        m.titles.framed.length === 0 && (!state.startsWith('topic ') || m.titles.all >= 5), list(m.titles.framed, (x) => `framed at rest  "${x}"`));
     check(`${state}: the screen rendered (${m.examined.controls} controls, ${m.examined.text} text runs)`, m.examined.controls >= 5 && m.examined.text >= 5);
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
