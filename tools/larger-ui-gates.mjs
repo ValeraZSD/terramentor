@@ -283,6 +283,33 @@ const PROBE = `(() => {
 })()`;
 const UNPROBE = `document.querySelector('[data-gate-probe]')?.remove()`;
 
+// The rows of the course tree and the outline: where each title's first
+// letter starts, per depth, and what stands first in the row.
+const ROWS = `(() => {
+    const firstLetter = (el) => {
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.textContent.trim() ? 1 : 3 });
+        const t = w.nextNode();
+        if (!t) return null;
+        const i = t.textContent.search(/\\S/);
+        const r = document.createRange();
+        r.setStart(t, i); r.setEnd(t, i + 1);
+        return r.getClientRects()[0]?.left ?? null;
+    };
+    const rows = [];
+    for (const [list, sel] of [['tree', '[data-sidebar-row]'], ['outline', '[data-tree-item-id]']]) {
+        for (const row of document.querySelectorAll(sel)) {
+            const b = row.getBoundingClientRect();
+            const title = row.querySelector('[data-row="title"]');
+            if (b.width < 1 || !title || row.dataset.depth == null) continue;
+            const first = row.firstElementChild;
+            rows.push({ list, depth: +row.dataset.depth, x: Math.round((firstLetter(title) ?? NaN) - b.left),
+                text: title.textContent.trim().slice(0, 30),
+                first: first?.hasAttribute('data-row-fold') || first?.hasAttribute('data-fold-spacer') ? 'column' : first?.hasAttribute('data-drag-handle') ? 'grip' : (first?.tagName ?? 'none').toLowerCase() });
+        }
+    }
+    return rows;
+})()`;
+
 const AXE_TARGETS = `(async () => {
     if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
     const r = await window.axe.run(document, { runOnly: { type: 'rule', values: ['target-size'] }, resultTypes: ['violations'] });
@@ -294,10 +321,28 @@ const scratch = mkdtempSync(join(tmpdir(), 'larger-ui-gates-'));
 if (shots) mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 try {
-    const { prepare } = await import(pathToFileURL(FIXTURE).href);
+    const { prepare: course } = await import(pathToFileURL(FIXTURE).href);
+    // A topic with a topic under it, beside topics without: a row with a fold
+    // chevron and a row with a status mark at one depth, in the tree and in a
+    // card. Added at the end of the first chapter: the topics the screens
+    // study from stay leaves.
+    const prepare = async (ctx) => {
+        const ids = await course(ctx);
+        const nodes = (await ctx.api.get(`/api/projects/${ids.project}/nodes`)).json ?? [];
+        const chapter = nodes.find((n) => n.parent_id == null);
+        if (!chapter) throw new Error('larger-ui-gates: the course has no chapter');
+        const add = async (parent_id, title) => {
+            const r = await ctx.api.post('/api/nodes', { project_id: ids.project, parent_id, title });
+            if (r.status >= 300) throw new Error(`larger-ui-gates: add ${title}: ${r.status} ${JSON.stringify(r.json)}`);
+            return r.json.id;
+        };
+        await add(await add(chapter.id, 'Kinds of telescope mount'), 'Equatorial mounts');
+        return ids;
+    };
     await visit('fixture', scratch, [{ states: Object.keys(states) }], SIZES.desktop, browserPath, async (_entry, state, page) => {
         await page.evaluate(PROBE);
         const m = await page.evaluate(MEASURE);
+        m.rows = /^(outline|topic) /.test(state) ? await page.evaluate(ROWS) : null;
         m.axe = state.endsWith(' on') ? await page.evaluate(AXE_TARGETS) : [];
         seen[state] = m;
         await page.evaluate(UNPROBE);
@@ -329,6 +374,29 @@ for (const [state, m] of Object.entries(seen)) {
     // A screen that never rendered would pass every count below with nothing in it.
     if (state.includes(' contrast ')) check(`${state}: every control's high-contrast frame is whole`, m.cut.length === 0, list(m.cut, (x) => `${x.sides} cut  "${x.name}"  ${x.where}  (by ${x.by})`));
     check(`${state}: the screen rendered (${m.examined.controls} controls, ${m.examined.text} text runs)`, m.examined.controls >= 5 && m.examined.text >= 5);
+    if (m.rows) {
+        // A title starts at one x per depth, whatever stands before it (a fold
+        // chevron or a status mark): with the switch on, a topic's 20px spacer
+        // beside a 44px chevron put two titles of one level 28px apart.
+        const lists = [...new Set(m.rows.map((r) => r.list))];
+        const spread = [];
+        for (const name of lists) for (const depth of new Set(m.rows.filter((r) => r.list === name).map((r) => r.depth))) {
+            const at = m.rows.filter((r) => r.list === name && r.depth === depth);
+            const xs = at.map((r) => r.x);
+            if (Math.max(...xs) - Math.min(...xs) > 1 || xs.some(Number.isNaN)) spread.push(`${name} depth ${depth}: ${at.map((r) => `${r.x}px "${r.text}"`).join(', ')}`);
+        }
+        const nested = m.rows.filter((r) => r.list === 'outline' && r.depth > 0).length;
+        check(`${state}: the outline shows a nested topic and the course tree is measured (${m.rows.length} rows)`,
+            nested > 0 && (state.includes(' phone ') || m.rows.some((r) => r.list === 'tree')));
+        check(`${state}: titles at one depth start at one x`, spread.length === 0, list(spread, (x) => x));
+        // With a mouse the grip only shows under the pointer: before the
+        // column it was a blank slot in front of every title. On a touch
+        // screen it shows, and is the first thing in the row.
+        const want = state.includes(' phone ') ? 'grip' : 'column';
+        const wrong = m.rows.filter((r) => r.first !== want);
+        check(`${state}: every row starts with its ${want === 'grip' ? 'drag grip' : 'fold chevron or status mark'}`, wrong.length === 0,
+            list(wrong, (r) => `${r.list} "${r.text}" starts with ${r.first}`));
+    }
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
         !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));
