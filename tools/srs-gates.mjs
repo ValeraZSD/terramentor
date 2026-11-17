@@ -538,6 +538,35 @@ console.log('\n--- retention verdict ---');
     const fromStart = tryOr(() => forecastDailyReviews(lateCards, { newPerDay: 0, days: 1, runs: 2, now: NOW }), NaN);
     const fromDue = tryOr(() => forecastDailyReviews(lateCards, { newPerDay: 0, days: 1, runs: 2, now: dueLater }), NaN);
     check('a card due later in the day is not answered before it is due', fromStart === fromDue, `${fromStart} vs ${fromDue}`);
+
+    // Red on 2af46e9b: a reviewed card with no due date was never answered.
+    const noDue = Array.from({ length: 10 }, () => ({ ...mature, next_review: null }));
+    check('a reviewed card with no due date is due now',
+        tryOr(() => forecastDailyReviews(noDue, { newPerDay: 0, days: 5, runs: 1, now: NOW }), 0) >= 10 / 5);
+
+    // Red on 2af46e9b: `maxCards` bounds the work. Each card the simulation
+    // takes is copied once a run; a copy reads `lapses`, which no filter does.
+    let copies = 0;
+    const counted = (c) => {
+        const row = { ...c };
+        Object.defineProperty(row, 'lapses', { enumerable: true, get() { copies++; return 0; } });
+        return row;
+    };
+    const many = [];
+    for (let i = 0; i < 400; i++) {
+        many.push({ ...mature, stability: 3 + (i % 30), next_review: new Date(NOW.getTime() + (i % 20) * 86_400_000).toISOString(),
+            last_reviewed: new Date(NOW.getTime() - (3 + (i % 30)) * 86_400_000).toISOString() });
+    }
+    for (let i = 0; i < 200; i++) many.push({ review_count: 0, last_reviewed: null, next_review: null, stability: null });
+    const opts = { newPerDay: 10, days: 30, runs: 2, now: NOW };
+    const whole = tryOr(() => forecastDailyReviews(many, opts), NaN);
+    copies = 0;
+    const sampled = tryOr(() => forecastDailyReviews(many.map(counted), { ...opts, maxCards: 150 }), NaN);
+    check('past maxCards only a sample of that size is simulated', copies > 0 && copies <= 150 * 2, `${copies} copies`);
+    check('and the sample\'s answer stays within 10% of the whole set\'s',
+        Math.abs(sampled - whole) / whole < 0.1, `${sampled} vs ${whole}`);
+    check('under maxCards nothing is sampled: the same number as without it',
+        tryOr(() => forecastDailyReviews(many, { ...opts, maxCards: 10_000 }), NaN) === whole);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

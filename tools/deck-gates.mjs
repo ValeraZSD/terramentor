@@ -330,7 +330,8 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
 
 // ---- the course's recall target ---------------------------------------------
 {
-    const key = () => db.prepare("SELECT COUNT(*) AS n FROM settings WHERE key LIKE 'desired_retention_%'").get().n;
+    const ownKey = 'desired_retention_' + db.prepare('SELECT uuid FROM projects WHERE id = ?').get(projectId).uuid;
+    const key = () => db.prepare('SELECT COUNT(*) AS n FROM settings WHERE key = ?').get(ownKey).n;
     eq('a course with no target reads the standard 0.90', decks.getRetention(projectId), 0.9);
     eq('the deck data carries the target', decks.buildDeckData(projectId, { now: NOW }).desiredRetention, 0.9);
     eq('a target is stored as given', decks.setRetention(projectId, 0.85), 0.85);
@@ -349,8 +350,8 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
     check('the forecast offers every choice and the course own target',
         f.current === 0.95 && [0.8, 0.85, 0.9, 0.95].every(r => f.choices.some(c => c.retention === r)),
         JSON.stringify(f));
-    check('the forecast prices a higher target at least as high',
-        f.choices.every((c, i) => i === 0 || c.perDay >= f.choices[i - 1].perDay), JSON.stringify(f.choices));
+    check('the forecast prices a higher target higher',
+        f.choices.every((c, i) => i === 0 || c.perDay > f.choices[i - 1].perDay), JSON.stringify(f.choices));
     eq('the forecast uses the course own allowance', f.newPerDay, decks.getNewPerDay(projectId));
     check('a second ask on unchanged cards is the same answer',
         decks.retentionForecast(projectId, { now: NOW }) === f);
@@ -361,7 +362,90 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
     check('a memory-state write alone is not answered from the cache',
         decks.retentionForecast(projectId, { now: NOW }) !== f);
     db.prepare('UPDATE flashcards SET stability = ? WHERE id = ?').run(memCard.stability, memCard.id);
+
+    // Red on 2af46e9b: the saved target was part of the cache key, so saving
+    // one already offered threw away numbers that had not changed.
+    decks.setRetention(projectId, 0.85);
+    const f85 = decks.retentionForecast(projectId, { now: NOW });
+    decks.setRetention(projectId, 0.8);
+    const f80 = decks.retentionForecast(projectId, { now: NOW });
+    check('saving a target already offered is answered from the cache, with the new target',
+        f80.choices === f85.choices && f80.current === 0.8 && f85.current === 0.85, JSON.stringify([f85.current, f80.current]));
+
+    // A stored target that is not one of the four is offered too, priced in its place.
+    decks.setRetention(projectId, 0.92);
+    const f92 = decks.retentionForecast(projectId, { now: NOW });
+    const at = (r) => f92.choices.find(c => c.retention === r)?.perDay;
+    check('a target outside the four is a fifth choice, priced between its neighbours',
+        f92.choices.length === 5 && at(0.9) < at(0.92) && at(0.92) < at(0.95), JSON.stringify(f92.choices));
     decks.setRetention(projectId, 0.9);
+}
+
+// ---- the recall-target forecast: cards it must count, and its cost -----------
+{
+    const course = (name) => {
+        const pid = Number(db.prepare("INSERT INTO projects (name, kind, position) VALUES (?, 'deck', 9)").run(name).lastInsertRowid);
+        const node = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(pid, 'All').lastInsertRowid);
+        return { pid, node };
+    };
+    const memoryCard = db.prepare(`
+        INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, next_review, stability, stability_fast, fsrs_difficulty, state, last_interval)
+        VALUES (?, 'q', 'a', ?, ?, ?, ?, ?, 5, 2, ?)`);
+
+    // Red on 2af46e9b: a reviewed card with no due date (an older client's write
+    // of the memory state alone) was in no day of the forecast, though the queue
+    // serves it as due.
+    const noDue = course('Forecast: reviewed, no due date');
+    for (let i = 0; i < 20; i++) memoryCard.run(noDue.node, 3, iso(-5), null, 4, 1, 4);
+    decks.setNewPerDay(noDue.pid, 0);
+    const fNoDue = decks.retentionForecast(noDue.pid, { now: NOW });
+    check('a reviewed card with no due date counts as due now', fNoDue.choices.every(c => c.perDay > 0), JSON.stringify(fNoDue.choices));
+
+    // Red on 2af46e9b: past the sample size every card was simulated, so one ask
+    // on a big import held the server for seconds that grew with the deck.
+    const big = course('Forecast: past the sample size');
+    const n = deckApi.FORECAST_MAX_CARDS ?? 3200;
+    const insertMany = db.transaction(() => {
+        for (let i = 0; i < n + 400; i++) memoryCard.run(big.node, 5, iso(-(3 + (i % 30))), iso(i % 25), 3 + (i % 30), 1, 10);
+    });
+    insertMany();
+    decks.setNewPerDay(big.pid, 0);
+    const { forecastDailyReviews } = await import('../src/utils/srs.ts');
+    const rows = db.prepare(`
+        SELECT f.id, f.stability, f.stability_fast, f.fsrs_difficulty, f.state, f.lapses, f.learning_steps,
+               f.last_interval, f.ease_factor, f.difficulty, f.review_count, f.last_reviewed, f.next_review
+        FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id`).all(big.pid);
+    const whole = Math.round(forecastDailyReviews(rows, { retention: 0.9, newPerDay: 0, days: 30, runs: 1, now: NOW }) * 10) / 10;
+    const sampled = decks.retentionForecast(big.pid, { now: NOW }).choices.find(c => c.retention === 0.9)?.perDay;
+    check('a course past the sample size is forecast from a sample, within 5% of the whole',
+        sampled !== whole && Math.abs(sampled - whole) / whole < 0.05, `sampled ${sampled}, whole ${whole}`);
+}
+
+// ---- the routes: PUT and GET over HTTP ----------------------------------------
+{
+    const { createServer } = await import('node:http');
+    const { createApp } = await import('../server/app.js');
+    const server = createServer(createApp());
+    const port = await new Promise(ok => server.listen(0, '127.0.0.1', () => ok(server.address().port)));
+    const call = async (method, path, body) => {
+        const r = await fetch(`http://127.0.0.1:${port}${path}`, {
+            method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    const settings = `/api/projects/${projectId}/deck/settings`;
+    const bad = await call('PUT', settings, { retention: 0.5 });
+    eq('PUT: a target outside 0.70-0.97 is a 400', bad.status, 400);
+    eq('PUT: a target that is not a number is a 400', (await call('PUT', settings, { retention: 'high' })).status, 400);
+    eq('PUT: and nothing was stored', decks.getRetention(projectId), 0.9);
+    const ok = await call('PUT', settings, { retention: 0.8 });
+    check('PUT: a target is saved and answered', ok.status === 200 && ok.json?.retention === 0.8, JSON.stringify(ok));
+    const got = await call('GET', `/api/projects/${projectId}/deck/retention-forecast`);
+    check('GET: the forecast names the saved target and prices every choice',
+        got.status === 200 && got.json?.current === 0.8 && got.json?.choices?.length === 4, JSON.stringify(got));
+    eq('GET: an unknown course is a 404', (await call('GET', '/api/projects/999999/deck/retention-forecast')).status, 404);
+    await call('PUT', settings, { retention: 0.9 });
+    await new Promise(ok => server.close(ok));
 }
 
 {

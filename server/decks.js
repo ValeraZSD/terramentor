@@ -128,6 +128,10 @@ export function setRetention(projectId, value) {
 const FORECAST_DAYS = 30;
 /** Up to this many cards that can come up, the forecast takes 4 runs a target. */
 const FORECAST_RUN_CARDS = 800;
+/** Past this many, it simulates an even sample of them, so one ask costs the same
+ *  on a 50,000-card import as on a 3,200-card course (five targets in about
+ *  1.3 s on a desktop, against 3.4 s for 10,000 cards unsampled). */
+export const FORECAST_MAX_CARDS = 4 * FORECAST_RUN_CARDS;
 
 /** One forecast per course, good while its cards, day and allowance are unchanged. */
 const forecastCache = new Map();
@@ -139,11 +143,12 @@ const forecastCache = new Map();
  * target is saved, since the target is a trade of reviews for recall.
  *
  * The scheduler's own simulation (`forecastDailyReviews`), seeded. It runs on
- * the request (better-sqlite3 is synchronous anyway), so its cost is bounded:
- * 4 runs for a course of up to FORECAST_RUN_CARDS cards that can come up, fewer
- * above it, down to one — the spread of a mean over cards shrinks with their
- * number, so a big deck needs fewer runs for the same whole-number answer. Kept
- * per course while its cards, day, allowance, target and weights are unchanged.
+ * the request (better-sqlite3 is synchronous anyway), so its cost is bounded
+ * per course, not per card: 4 runs for up to FORECAST_RUN_CARDS cards that can
+ * come up, fewer above it, down to one (the spread of a mean over cards shrinks
+ * with their number), and past FORECAST_MAX_CARDS one run over an even sample of
+ * that many. Kept per course while its cards, day, allowance and weights are
+ * unchanged; reading the rows for that check is the only per-card cost left.
  */
 export function retentionForecast(projectId, { now = new Date() } = {}) {
     const cards = db.prepare(`
@@ -174,13 +179,17 @@ export function retentionForecast(projectId, { now = new Date() } = {}) {
         if (c.last_reviewed && c.last_reviewed > stamp) stamp = c.last_reviewed;
         memory += `${c.id}:${c.stability}:${c.stability_fast}:${c.fsrs_difficulty}|`;
     }
-    const key = [projectId, day, cards.length, reviews, dueSum, stamp, memory, newPerDay, current, params ?? ''].join('|');
+    // The choices, not the saved target: a save that picks one already offered
+    // leaves every number as it was.
+    const key = [projectId, day, cards.length, reviews, dueSum, stamp, memory, newPerDay, choices.join(','), params ?? ''].join('|');
     const hit = forecastCache.get(projectId);
-    if (hit?.key === key) return hit.value;
+    if (hit?.key === key) return hit.value.current === current ? hit.value : { ...hit.value, current };
 
     const horizon = new Date(now.getTime() + FORECAST_DAYS * 86_400_000).toISOString();
-    const reviewedSoon = cards.filter(c => c.next_review && c.next_review < horizon && (c.review_count > 0 || c.last_reviewed || c.stability != null)).length;
-    const unseen = cards.filter(c => !(c.review_count > 0 || c.last_reviewed || c.stability != null)).length;
+    const isReviewed = c => c.review_count > 0 || c.last_reviewed || c.stability != null;
+    // A reviewed card with no due date is due now (the queue serves it so).
+    const reviewedSoon = cards.filter(c => isReviewed(c) && (!c.next_review || c.next_review < horizon)).length;
+    const unseen = cards.filter(c => !isReviewed(c)).length;
     const active = reviewedSoon + Math.min(unseen, newPerDay * FORECAST_DAYS);
     const runs = Math.max(1, Math.min(4, Math.round(4 * FORECAST_RUN_CARDS / Math.max(1, active))));
     const value = {
@@ -189,7 +198,9 @@ export function retentionForecast(projectId, { now = new Date() } = {}) {
         days: FORECAST_DAYS,
         choices: choices.map(retention => ({
             retention,
-            perDay: Math.round(forecastDailyReviews(cards, { retention, newPerDay, days: FORECAST_DAYS, runs, now }) * 10) / 10,
+            perDay: Math.round(forecastDailyReviews(cards, {
+                retention, newPerDay, days: FORECAST_DAYS, runs, now, maxCards: FORECAST_MAX_CARDS,
+            }) * 10) / 10,
         })),
     };
     forecastCache.set(projectId, { key, value });

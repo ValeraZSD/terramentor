@@ -418,7 +418,7 @@ function review(card: CardSrsState, rating: ReviewRating, now: Date, retention: 
  * `learning` says the card comes back within the session — a STATE, not an interval
  * threshold, since a Relearning card can be scheduled a day out.
  *
- * `retention` is the card's course target (`retentionOf`); the default is 0.90.
+ * `retention` is the card's course target (`useProjectRetention`); the default is 0.90.
  */
 export function computeNextInterval(
     card: CardSrsState,
@@ -504,32 +504,56 @@ function recallAt(card: CardSrsState, now: Date): number {
  * or not (Again, then the ladder the same way), and up to `newPerDay` cards never
  * seen enter in the order given. Averaged over `runs` seeded runs. It is the
  * model's estimate for an ideal learner; the overdue pile on day one is counted
- * like any other day, because it is work the learner will face.
+ * like any other day, because it is work the learner will face. A reviewed card
+ * with no due date is due now, as the review queue serves it.
+ *
+ * `maxCards` bounds the work: above it, an evenly spread sample of the reviewed
+ * cards and of the new cards' intake is simulated, and each group's presses are
+ * scaled back up by its own share. Cards never act on each other here, so the
+ * sample's mean is the whole set's; only its spread grows.
  */
 export function forecastDailyReviews(
     cards: readonly CardSrsState[],
-    { retention = REQUEST_RETENTION, newPerDay = 0, days = 30, runs = 8, now = new Date() }: {
-        retention?: number; newPerDay?: number; days?: number; runs?: number; now?: Date;
+    { retention = REQUEST_RETENTION, newPerDay = 0, days = 30, runs = 8, now = new Date(), maxCards = Infinity }: {
+        retention?: number; newPerDay?: number; days?: number; runs?: number; now?: Date; maxCards?: number;
     } = {},
 ): number {
     const reviewed = isReviewed;   // = has a memory state (`memoryStateOf`), without seeding one
+    const dueBy = (c: CardSrsState, at: string) => !c.next_review || c.next_review < at;
     // Only what can come up inside the window is simulated: a reviewed card due
     // after it never does, and no more new cards than the allowance can bring in.
     const horizon = new Date(now.getTime() + days * MS_PER_DAY).toISOString();
-    const inWindow = cards.filter(c => reviewed(c) && !!c.next_review && c.next_review < horizon);
+    const inWindow = cards.filter(c => reviewed(c) && dueBy(c, horizon));
     const unseen = cards.filter(c => !reviewed(c)).slice(0, Math.max(0, newPerDay) * days);
-    let presses = 0;
+    // The day each new card enters: in the order given, up to the allowance a day.
+    const intake = Math.max(1, Math.ceil(newPerDay));
+    const total = inWindow.length + unseen.length;
+    const scale = total > maxCards ? Math.max(1, maxCards) / total : 1;
+    const spread = <T,>(list: readonly T[]) => {
+        if (scale === 1 || list.length === 0) return list.map((item, i) => ({ item, i }));
+        const m = Math.max(1, Math.round(list.length * scale));
+        return Array.from({ length: m }, (_, j) => {
+            const i = Math.floor(((j + 0.5) * list.length) / m);
+            return { item: list[i], i };
+        });
+    };
+    const oldPicked = spread(inWindow);
+    const newPicked = spread(unseen);
+    const oldShare = inWindow.length ? oldPicked.length / inWindow.length : 1;
+    const newShare = unseen.length ? newPicked.length / unseen.length : 1;
+    let oldPresses = 0, newPresses = 0;
     for (let run = 0; run < runs; run++) {
         const rand = seededRandom(1000 + run);
-        const live = inWindow.map(c => ({ ...c }));
-        const fresh = unseen.map(c => ({ ...c }));
-        live.push(...fresh);
+        const live = oldPicked.map(({ item }) => ({ ...item }));
+        const fresh = newPicked.map(({ item, i }) => ({ card: { ...item }, day: Math.floor(i / intake) }));
+        const isFresh = new Set<CardSrsState>(fresh.map(f => f.card));
+        live.push(...fresh.map(f => f.card));
         let nextNew = 0;
         for (let d = 0; d < days; d++) {
             const sessionAt = now.getTime() + d * MS_PER_DAY;
             const dayEnd = new Date(sessionAt + MS_PER_DAY).toISOString();
-            const today = live.filter(c => reviewed(c) && !!c.next_review && c.next_review < dayEnd);
-            for (let k = 0; k < newPerDay && nextNew < fresh.length; k++) today.push(fresh[nextNew++]);
+            const today = live.filter(c => reviewed(c) && dueBy(c, dayEnd));
+            while (nextNew < fresh.length && fresh[nextNew].day <= d) today.push(fresh[nextNew++].card);
             for (const card of today) {
                 const last = card.last_reviewed ? Date.parse(card.last_reviewed) : NaN;
                 // Never before it falls due: a card due at 20:00 is not answered at 09:00.
@@ -541,7 +565,8 @@ export function forecastDailyReviews(
                     const ok = !reviewed(card) || rand() < recallAt(card, at);
                     const update = computeSrsUpdate(card, ok ? 'good' : 'again', at, retention);
                     Object.assign(card, update, { review_count: countOf(card.review_count) + 1 });
-                    presses++;
+                    if (isFresh.has(card)) newPresses++;
+                    else oldPresses++;
                     const back = requeueAt(update);
                     if (back == null) break;
                     at = new Date(back);
@@ -549,7 +574,7 @@ export function forecastDailyReviews(
             }
         }
     }
-    return presses / (runs * days);
+    return (oldPresses / oldShare + newPresses / newShare) / (runs * days);
 }
 
 /**
