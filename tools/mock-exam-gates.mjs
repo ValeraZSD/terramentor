@@ -32,7 +32,7 @@
  * Deterministic: a scratch library, no model, no network, no wall clock (the
  * clock cases pass their own `now`).
  */
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -393,6 +393,13 @@ try {
         const left = ['exam_papers', 'exam_paper_parts', 'mock_sittings', 'mock_part_scores']
             .map(t => db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n).reduce((a, b) => a + b, 0);
         check('deleting the course deletes its papers, mocks and marks', left === 0, String(left));
+    });
+
+    await block('9. the running clock keeps its hours and minutes on one line', async () => {
+        const screen = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'MockSittingScreen.tsx'), 'utf8');
+        check('the time is drawn apart from "left", unbroken and sized to the card',
+            /<ClockLeft text=\{t\("\{\{time\}\} left", \{ time: CLOCK_SLOT \}\)\}/.test(screen)
+                && /className="whitespace-nowrap[^"]*cqi[^"]*">\{time\}</.test(screen));
     });
 } finally {
     server.close();
