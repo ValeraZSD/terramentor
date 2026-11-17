@@ -7,7 +7,7 @@ import QuizView from './QuizView';
 import {
     Brain, CheckCircle2, Zap, RefreshCw, Loader2,
     MessageSquare, BarChart3, Play, RotateCcw,
-    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History
+    Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History, Timer
 } from 'lucide-react';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
 import { useElementWidth } from '../hooks/useElementWidth';
@@ -296,6 +296,12 @@ export default function StudyDashboard() {
                     onClick={() => openAssistant(
                         `How am I doing in "${project.name}"? What should I focus on next, and what should I drop?`
                     )}
+                />
+                <ToolRow
+                    icon={Timer}
+                    title={tr("Mock exam")}
+                    hint={tr("Write a past paper with the exam clock, then mark it against the worked solution")}
+                    onClick={() => setWorkspaceView('exam')}
                 />
                 <ToolRow
                     icon={Layers}
