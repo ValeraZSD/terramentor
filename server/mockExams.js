@@ -26,7 +26,7 @@
 import db from './database.js';
 import { ATTEMPT_ID_ERROR, readAttemptId, recordOnce, updateMasteryFromAttempt } from './mastery.js';
 import { WORK_LEAF } from './today.js';
-import { bankOf, logAsked, orderForAsking } from './questionLog.js';
+import { banksOfProject, logAsked, orderForAsking } from './questionLog.js';
 import { isUnverified } from './questionTrust.js';
 import { ANSWER_FORMATS, gradeLocally } from './answerFormats.js';
 
@@ -483,7 +483,8 @@ const safeParse = (t) => { try { return JSON.parse(t); } catch { return null; } 
 const refOf = (q) => (q && typeof q.uuid === 'string' && q.uuid ? `q:${q.uuid}` : null);
 /** The app grades it by itself; a written answer goes to the AI and is not drawn. */
 const checksAlone = (q) => ANSWER_FORMATS[q?.type]?.grading === 'local';
-const STUDIED = `(n.status IN ('in_progress', 'completed') OR EXISTS (SELECT 1 FROM mastery_evidence e WHERE e.node_id = n.id))`;
+// A placement answer is given BEFORE a topic is studied, so it starts nothing.
+const STUDIED = `(n.status IN ('in_progress', 'completed') OR EXISTS (SELECT 1 FROM mastery_evidence e WHERE e.node_id = n.id AND e.evidence_type <> 'placement'))`;
 // A report stands until undone, or until the learner's own edit (server/itemReports.js).
 const STANDING_REPORT = `undone_at IS NULL AND (rewrite IS NULL OR json_extract(rewrite, '$.state') IS NOT 'edited')`;
 
@@ -543,13 +544,15 @@ export function setExam(projectId, input) {
 function courseBanks(projectId) {
     const topics = stmt(`SELECT n.id, n.title, ${STUDIED} AS studied FROM nodes n WHERE n.project_id = ? AND ${WORK_LEAF} ORDER BY n.position, n.id`).all(projectId);
     const studied = topics.filter(t => t.studied);
+    // One read for the whole course: the mock list asks for this on every open.
+    const byTopic = banksOfProject(projectId);
     const seen = new Set();
     let written = 0;
     let held = 0;
     const banks = [];
     for (const topic of studied) {
         const ready = [];
-        for (const b of bankOf(topic.id)) {
+        for (const b of byTopic.get(topic.id) ?? []) {
             if (isUnverified(b.question)) { held++; continue; }
             if (!checksAlone(b.question)) { written++; continue; }
             const key = b.question.uuid || `${b.quizId}:${b.index}`;
@@ -592,22 +595,29 @@ function askedKeys(entries) {
 
 /**
  * Start a mock of `size` questions from the course, with a clock of `minutes`
- * or none (null). Never-asked questions first, by turns across the topics so
- * no topic takes more than one more than another while it still has
- * questions; then the ones asked before, the same way. The order on screen is
- * mixed. Fewer ready than asked: the mock is what there is, and says so.
+ * or none (null). Never-asked questions come before any asked one, even where
+ * that leaves the spread uneven: among the never-asked, topics take turns, so
+ * none takes more than one more than another while it still has never-asked
+ * questions; the asked ones then fill what is left the same way. So with 10
+ * never-asked in one topic and only asked ones in another, a draw of 10 is all
+ * from the first. The order on screen is mixed. Fewer ready than asked: the
+ * mock is what there is, and says so.
  */
 export function drawCourseMock(projectId, { size, minutes = null, now = Date.now() } = {}) {
     if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     if (!Number.isInteger(size) || size < 1 || size > MAX_DRAW) throw bad(`A mock asks 1 to ${MAX_DRAW} questions`);
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) throw bad('The clock is a whole number of minutes, at least 1');
     const { banks } = courseBanks(projectId);
-    const asked = askedKeys(banks.flatMap(b => b.ready));
+    const all = banks.flatMap(b => b.ready);
+    const asked = askedKeys(all);
     const keyOf = (b) => b.question.uuid || `${b.quizId}:${b.index}`;
-    const queues = shuffle(banks.map(b => {
-        const list = orderForAsking(b.ready);
-        return { fresh: list.filter(x => !asked.has(keyOf(x))), seen: list.filter(x => asked.has(keyOf(x))) };
-    }));
+    // One ordering for the whole course, then split by topic: the order
+    // within a topic is the same as ordering each topic's bank alone.
+    const ordered = new Map(banks.map(b => [b.topic.id, []]));
+    for (const x of orderForAsking(all)) ordered.get(x.nodeId).push(x);
+    const queues = shuffle([...ordered.values()].map(list => (
+        { fresh: list.filter(x => !asked.has(keyOf(x))), seen: list.filter(x => asked.has(keyOf(x))) }
+    )));
     const picked = [];
     for (const tier of ['fresh', 'seen']) {
         let more = true;
@@ -738,7 +748,9 @@ function courseResult(s, rows, paper) {
     const notAnswered = counted.filter(r => r.inTimeAnswer == null).length;
     const changedLate = counted.some(r => (r.answer ?? null) !== (r.inTimeAnswer ?? null));
     const total = counted.length;
-    const passRight = paper.pass_right ?? null;
+    // The pass line belongs to the real exam's length: a reported question
+    // shortens the mock, and then it is no longer that exam.
+    const passRight = total === rows.length ? paper.pass_right ?? null : null;
 
     const byTopic = new Map();
     for (const r of counted) {
@@ -753,7 +765,7 @@ function courseResult(s, rows, paper) {
         .sort((a, b) => (b.total - b.right) - (a.total - a.right) || a.right / a.total - b.right / b.total);
 
     const groupOf = (r) => (r.answer == null ? 'none' : r.right ? 'right' : r.later ? 'wrong_later' : 'wrong');
-    const review = counted.map((r, i) => ({
+    const review = counted.map(r => ({
         partId: r.id, n: r.position + 1, ref: refOf(r.q), nodeId: r.nodeId, topic: r.topic,
         question: r.q, answer: r.answer, correct: r.right, later: r.later, group: groupOf(r),
     })).sort((a, b) => REVIEW_ORDER.indexOf(a.group) - REVIEW_ORDER.indexOf(b.group) || a.n - b.n);

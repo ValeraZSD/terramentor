@@ -71,6 +71,30 @@ export function bankOf(nodeId) {
     return out;
 }
 
+let projectBanks = null;
+
+/**
+ * `bankOf` for every topic of a course in one read: node id -> its bank, same
+ * tagging and order. For a caller that would otherwise read topic by topic.
+ */
+export function banksOfProject(projectId) {
+    projectBanks ??= db.prepare(`
+        SELECT q.id, q.node_id, q.questions FROM quizzes q JOIN nodes n ON n.id = q.node_id
+        WHERE n.project_id = ? ORDER BY q.node_id, q.id
+    `);
+    const out = new Map();
+    for (const row of projectBanks.all(projectId)) {
+        const qs = safeParse(row.questions);
+        if (!Array.isArray(qs)) continue;
+        const bank = out.get(row.node_id) ?? [];
+        qs.forEach((q, index) => {
+            if (servable(q)) bank.push({ quizId: row.id, index, question: q });
+        });
+        out.set(row.node_id, bank);
+    }
+    return out;
+}
+
 /** One quiz row's own questions, same tagging. */
 export function bankOfQuiz(quizId) {
     const row = db.prepare('SELECT id, node_id, questions FROM quizzes WHERE id = ?').get(quizId);
