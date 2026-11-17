@@ -76,7 +76,7 @@ export default function PaceIndicator({ full }: { full: boolean }) {
         ? paceHeadline(paceStatus, 0, t)
         : offsetDays === 0
         // Behind by under half a day still carries the amber of "behind": the
-        // server flags it past 5 points of drift whatever the window, so say
+        // server flags it past 5 points of drift on a short window, so say
         // the same words the tooltip does instead of "On plan" in amber.
         ? (paceStatus === 'falling_behind' || paceStatus === 'critical'
             ? paceHeadline(paceStatus, 0, t)

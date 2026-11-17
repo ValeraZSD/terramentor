@@ -125,9 +125,9 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
             ? t("On track")
             : days === 0
                 ? paceHeadline(p.paceStatus, 0, t)
-            : p.paceStatus === 'ahead'
-                ? t("{{n}} days ahead", { count: days, n: num(days) })
-                : t("{{n}} days behind", { count: days, n: num(days) });
+                : p.paceStatus === 'ahead'
+                    ? t("{{n}} days ahead", { count: days, n: num(days) })
+                    : t("{{n}} days behind", { count: days, n: num(days) });
         return { label, tone: PACE_TONE[p.paceStatus] || PACE_TONE.on_track, why };
     })();
 

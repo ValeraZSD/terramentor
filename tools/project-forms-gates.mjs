@@ -93,14 +93,29 @@ section('the schedule dialog starts from the project it opens on');
     await open(1);
     check('a dated project opens with its deadline and its study days', dates().length === 2 && dates()[1].value === '2027-02-01' && days() === 2,
         `deadline ${dates()[1]?.value}, ${days()} days on`);
+    check('...and its start date', dates()[0]?.value === '2026-11-01', `start "${dates()[0]?.value}"`);
 
     await open(1, [{ ...dated, start_date: null, deadline: null, study_days: null }, undated]);
     check('after the schedule is removed, the dialog opens with an empty deadline', dates()[1]?.value === '', `deadline "${dates()[1]?.value}"`);
+    check('...and not the removed start date', !!dates()[0]?.value && dates()[0].value !== '2026-11-01', `start "${dates()[0]?.value}"`);
     check('...and the default study days (Mon-Fri), not the removed ones', days() === 5, `${days()} days on`);
 
-    await open(1);
+    await open(1, [dated, undated]);
     await open(2);
     check('an unscheduled second project does not show the first one\'s deadline', dates()[1]?.value === '', `deadline "${dates()[1]?.value}"`);
+    check('...nor its start date', !!dates()[0]?.value && dates()[0].value !== '2026-11-01', `start "${dates()[0]?.value}"`);
+
+    // A project the store does not hold yet (a refetch in flight): the dialog
+    // opens on the defaults, not on the project before it, then fills in.
+    await open(1, [dated, undated]);
+    await open(3);
+    check('a project the store does not hold yet opens on the defaults, not the last project\'s',
+        dates()[1]?.value === '' && !!dates()[0]?.value && dates()[0].value !== '2026-11-01' && days() === 5,
+        `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
+    const maths = { id: 3, name: 'Maths', kind: 'curriculum', start_date: '2026-12-01', deadline: '2027-03-01', study_days: '[6]' };
+    await g.act(async () => { g.useStore.setState({ projects: [dated, undated, maths] }); await settle(); });
+    check('...and fills in when the project arrives', dates()[1]?.value === '2027-03-01' && dates()[0]?.value === '2026-12-01' && days() === 1,
+        `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
     w.close();
 }
 
@@ -190,6 +205,13 @@ section('a pace under half a day behind is not "On plan" in amber');
     const text = host.textContent;
     check('the compact pill does not say "On plan"', !/On plan/.test(text), text);
     check('...it says the same words as its tooltip', /Slightly behind schedule/.test(text) && host.querySelector('[title]')?.getAttribute('title') === 'Slightly behind schedule', text);
+    // Critical needs more drift than that, so a window short enough that it
+    // still rounds to under half a day.
+    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'critical', expectedProgress: 60, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-03', drift: 20, totalDays: 2 } }); await settle(); });
+    check('critical, under half a day: the same words, not "On plan"', !/On plan/.test(host.textContent) && /Slightly behind schedule/.test(host.textContent), host.textContent);
+    // Ahead by under half a day is on plan, and still says so.
+    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'ahead', expectedProgress: 34, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-08', drift: -6, totalDays: 7 } }); await settle(); });
+    check('ahead, under half a day: still "On plan"', /On plan/.test(host.textContent), host.textContent);
     w.close();
 }
 

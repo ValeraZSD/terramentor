@@ -267,7 +267,7 @@ section('"The deadline is before the start." waits for a whole year');
 
 section('a drift too small to be a day is not "0 days behind"');
 {
-    // The server calls it falling behind past 5 points of drift whatever the
+    // The server calls it falling behind past 5 points of drift on a short
     // window; 6 points of a 7-day window is 0.42 of a day, which rounds to 0.
     const tiny = { ...row, pace: { ...row.pace, paceStatus: 'falling_behind', drift: 6, totalDays: 7 } };
     const s = await show({ r: tiny });
