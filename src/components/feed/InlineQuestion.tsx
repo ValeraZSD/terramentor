@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useArrivalFocus } from '../../hooks/useArrivalFocus';
 import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
@@ -69,15 +70,12 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
 
     // The verdict is said once, and focus that was on the Check button (gone
     // with the verdict) lands on the verdict instead of the top of the page.
-    const verdictRef = useRef<HTMLDivElement>(null);
-    const verdict = result && !reportedNote
-        ? (result.correct ? t("Correct") : result.unsure ? t("Not marked") : t("Not quite"))
-        : '';
-    useEffect(() => {
-        if (!verdict) return;
-        const active = document.activeElement;
-        if (!active || active === document.body) verdictRef.current?.focus({ preventScroll: true });
-    }, [verdict]);
+    // Only a verdict given while the card is on screen: one it mounts with
+    // (a reload, a card scrolled back) neither speaks nor takes focus.
+    const shown = result && !reportedNote ? (result.correct ? 'correct' : result.unsure ? 'unsure' : 'wrong') : '';
+    const { ref: verdictRef, arrived } = useArrivalFocus<HTMLDivElement>(shown);
+    const verdict = !arrived ? ''
+        : shown === 'correct' ? t("Correct") : shown === 'unsure' ? t("Not marked") : shown === 'wrong' ? t("Not quite") : '';
 
     return (
         // One item: the flag at the stem and the line under a wrong verdict

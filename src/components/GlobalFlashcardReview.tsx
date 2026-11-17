@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../hooks/usePortalAccent';
+import { focusIsLost } from '../utils/a11y';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { api } from '../api';
@@ -282,12 +283,13 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     // Focus follows the session for a keyboard: the flip takes away the Reveal
     // button that held it, so it moves to the ratings; a rating brings the next
     // card's Reveal button. Only from where the session left it (the ratings,
-    // or nowhere), never out of a control the learner moved to.
+    // nowhere, or the session surface, which takes focus as it opens),
+    // never out of a control the learner moved to.
     const revealRef = useRef<HTMLButtonElement>(null);
     const ratingsRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const active = document.activeElement;
-        const lost = !active || active === document.body;
+        const lost = focusIsLost(active);
         if (queue.flipped) { if (lost) ratingsRef.current?.focus(); }
         else if (lost || ratingsRef.current?.contains(active)) revealRef.current?.focus();
     }, [queue.flipped, currentCard?.id]);
