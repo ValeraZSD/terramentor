@@ -36,6 +36,7 @@ import { sanitizeUrl } from './urlSafety.js';
 import { scheduleNodeSync } from './nodeEmbeddings.js';
 import { courseRenamed } from './searchWords.js';
 import { logActivity } from './activityLog.js';
+import { markLearnerEdit } from './courseUpdate.js';
 import { aiProvenance } from './ai.js';
 import { persistDocument } from './stagedDocuments.js';
 import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
@@ -44,6 +45,13 @@ import { documentChunkIds, freeDocumentAssets } from './documentAssets.js';
 export const LINK_TITLE_MAX = 200;
 
 const nowIso = () => new Date().toISOString();
+
+// An edit made through the assistant is the learner's, the same as one made in
+// the editor: a later course update that also changes the field asks first.
+const learnerEdited = (kind, table, id, field) => {
+    const uuid = db.prepare(`SELECT uuid FROM ${table} WHERE id = ?`).get(id)?.uuid;
+    markLearnerEdit(kind, uuid, [field]);
+};
 
 /** An error the route turns into a status: 400 a value no rule accepts, 404 a
  *  target that does not exist, 409 a preview that is out of date. */
@@ -77,13 +85,13 @@ const KINDS = {
                 words: true,
                 normalize: projectName,
                 get: (row) => row.name ?? '',
-                write: (id, v) => { db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(v, id); courseRenamed(id); },
+                write: (id, v) => { db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(v, id); courseRenamed(id); learnerEdited('project', 'projects', id, 'name'); },
             },
             description: {
                 words: true,
                 normalize: projectDescription,
                 get: (row) => row.description ?? '',
-                write: (id, v) => { db.prepare('UPDATE projects SET description = ? WHERE id = ?').run(v, id); courseRenamed(id); },
+                write: (id, v) => { db.prepare('UPDATE projects SET description = ? WHERE id = ?').run(v, id); courseRenamed(id); learnerEdited('project', 'projects', id, 'description'); },
             },
             icon: {
                 normalize: projectIconName,
@@ -129,7 +137,7 @@ const KINDS = {
             title: {
                 normalize: topicTitle,
                 get: (row) => row.title ?? '',
-                write: (id, v) => db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run(v, id),
+                write: (id, v) => { db.prepare('UPDATE nodes SET title = ? WHERE id = ?').run(v, id); learnerEdited('node', 'nodes', id, 'title'); },
             },
         },
         // A topic's vector is built from its title (curriculumLabel.js).

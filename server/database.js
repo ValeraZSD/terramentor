@@ -2215,6 +2215,34 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mastery_claims_node ON mastery_claims(node_id);
 `);
+// Updating an installed course from a newer file (server/courseUpdate.js).
+// `course_base`: per author-owned field of each item the file installed, the
+// hash of the value it held at the last install or update, and whether a person
+// has edited it since (set only by the edit routes). `course_upstream`: which
+// file the course was last synced from, and what the last update changed, so
+// it can be taken back. Both hang on the project and go with it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS course_base (
+    project_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    uuid TEXT NOT NULL,
+    field TEXT NOT NULL,
+    base_hash TEXT NOT NULL,
+    edited INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, kind, uuid, field),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_course_base_item ON course_base(kind, uuid);
+  CREATE TABLE IF NOT EXISTS course_upstream (
+    project_id INTEGER PRIMARY KEY,
+    exported_at TEXT,
+    version TEXT,
+    synced_at TEXT NOT NULL,
+    undo TEXT,
+    undo_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+`);
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');

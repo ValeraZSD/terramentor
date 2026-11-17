@@ -380,7 +380,7 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
     const graded = result.grade != null;
     // Evidence was written only for graded parts that name a topic (server/mockExams.js finishSitting).
     const practised = result.parts.some(p => p.nodeId != null && p.earned != null);
-    const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin, { decimals: 0 }) : '';
+    const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin) : '';
 
     return (
         <div className="space-y-4">
@@ -415,7 +415,9 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                 )}
                 {result.passed != null && result.passPoints != null && (
                     <p className="mt-4 text-sm text-slate-700 dark:text-slate-200">
-                        {result.passed
+                        {result.earned === result.passPoints
+                            ? t("That is exactly the pass line.")
+                            : result.passed
                             ? t("That is {{points}} points above the pass line.", { count: result.earned - result.passPoints, points: fmt(result.earned - result.passPoints) })
                             : t("That is {{points}} points short of the pass line.", { count: result.passPoints - result.earned, points: fmt(result.passPoints - result.earned) })}
                         {' '}{t("One paper, graded by you: a guide, not a forecast.")}

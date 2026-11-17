@@ -8,6 +8,7 @@ import { Select } from '../ui/Select';
 import Stepper from '../ui/Stepper';
 import { api } from '../../api';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
+import { useStore } from '../../store';
 import type { MockExamList } from './mockExamTypes';
 
 interface PartDraft { key: number; question: string; part: string; points: number; nodeId: number | null }
@@ -70,7 +71,23 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             .finally(() => setBusy(false));
     };
 
-    const docSelect = (id: string, value: number | null, set: (v: number | null) => void) => (
+    // A points table can be long work: Escape, the backdrop or Cancel asks before it is thrown away.
+    const showConfirm = useStore(s => s.showConfirm);
+    const [start] = useState(() => JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts }));
+    const changed = JSON.stringify({ title, minutes, gradeMin, gradeMax, passGrade, paperDoc, solutionDoc, parts }) !== start;
+    const leave = async () => {
+        if (busy) return;
+        if (changed && !(await showConfirm({
+            title: t("Discard your changes?"),
+            message: t("The paper you typed in will not be added."),
+            confirmLabel: t("Discard"),
+            cancelLabel: t("Keep editing"),
+            variant: 'warning',
+        }))) return;
+        onClose();
+    };
+
+    const docSelect =(id: string, value: number | null, set: (v: number | null) => void) => (
         <Select id={id} value={value == null ? '' : String(value)} onChange={v => set(v === '' ? null : Number(v))}>
             <option value="">{t("None")}</option>
             {documents.map(d => <option key={d.id} value={String(d.id)}>{d.title}</option>)}
@@ -80,12 +97,12 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     return (
         <Modal
             isOpen
-            onClose={onClose}
+            onClose={leave}
             title={t("Add a past paper")}
             maxWidth="max-w-2xl"
             footer={(
                 <>
-                    <Button onClick={onClose}>{t("Cancel")}</Button>
+                    <Button onClick={leave}>{t("Cancel")}</Button>
                     <Button variant="primary" busy={busy} disabled={!title.trim()} onClick={save}>{t("Add the paper")}</Button>
                 </>
             )}

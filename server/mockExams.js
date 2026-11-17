@@ -11,7 +11,7 @@
 // nothing against its topic.
 //
 // The grade is the paper's own: a linear formula printed on its cover
-// (CCVX: grade = points / 79 * 9 + 1) and a pass grade, shown as the points it
+// (for example: grade = points / 79 * 9 + 1) and a pass grade, shown as the points it
 // takes. A single question has a points total and no grade: the formula is
 // for the whole paper.
 //
