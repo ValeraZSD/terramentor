@@ -713,11 +713,6 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             </li>
                         ))}
                     </ul>
-                    {/* Answers are recorded as practice per topic; a mock never completes or reopens a
-                        topic (the mastery check decides that), so the line says what the learner gains. */}
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each answer now shows in its topic as practice.")}
-                    </p>
                     {weakest && (
                         <PractiseWeakest projectId={detail.paper.projectId} nodeId={weakest.id}
                             line={t("Most missed: {{topic}}, {{right}} of {{total}} right.", { topic: weakest.title, right: fmt(weakest.right), total: fmt(weakest.total) })} />

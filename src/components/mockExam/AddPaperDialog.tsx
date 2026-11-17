@@ -102,8 +102,14 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             maxWidth="max-w-2xl"
             footer={(
                 <>
-                    <Button onClick={onClose}>{t("Cancel")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!title.trim() || mismatch || printedBad || uploading > 0} onClick={save}>{t("Add the paper")}</Button>
+                    {!title.trim() && (
+                        <span className="min-w-[12rem] flex-1 text-sm text-slate-500 dark:text-slate-400">{t("Give the paper a name to add it.")}</span>
+                    )}
+                    {/* One group, so a narrow footer wraps both buttons under the line, never one of them. */}
+                    <div className="ml-auto flex gap-2">
+                        <Button onClick={onClose}>{t("Cancel")}</Button>
+                        <Button variant="primary" busy={busy} disabled={!title.trim() || mismatch || printedBad || uploading > 0} onClick={save}>{t("Add the paper")}</Button>
+                    </div>
                 </>
             )}
         >

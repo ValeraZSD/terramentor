@@ -215,8 +215,8 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                                 {t("You were away from this screen for {{time}}. If you stopped writing (a call, say), take that time off the clock.", { time: duration(awayOff) })}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                                <Button size="sm" busy={busy} onClick={() => takeOff(awayOff)}>{t("Take {{time}} off", { time: duration(awayOff) })}</Button>
-                                <Button size="sm" variant="quiet" onClick={() => setAway(null)}>{t("I kept writing")}</Button>
+                                <Button busy={busy} onClick={() => takeOff(awayOff)}>{t("Take {{time}} off", { time: duration(awayOff) })}</Button>
+                                <Button variant="quiet" onClick={() => setAway(null)}>{t("I kept writing")}</Button>
                             </div>
                         </div>
                     )}
@@ -456,8 +456,6 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
     const { sitting, paper, result } = detail;
     const date = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }).format(new Date(sitting.startedAt)), [sitting.startedAt]);
     const graded = result.grade != null;
-    // Evidence was written only for graded parts that name a topic (server/mockExams.js finishSitting).
-    const practised = result.parts.some(p => p.nodeId != null && p.earned != null);
     const span = paper.gradeMax != null && paper.gradeMin != null ? fmt(paper.gradeMax - paper.gradeMin, { decimals: 0 }) : '';
 
     return (
@@ -518,13 +516,6 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                         </li>
                     ))}
                 </ul>
-                {/* The paper is recorded as practice per topic; it never closes a topic (a self-graded
-                    paper is not proof), so the line says what the learner gains, not what is withheld. */}
-                {practised && (
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each topic above now shows this paper as practice.")}
-                    </p>
-                )}
                 {result.weakest && (
                     <PractiseWeakest projectId={paper.projectId} nodeId={result.weakest.id}
                         line={t("Most points lost: {{topic}}, {{lost}} of {{points}}.", {
