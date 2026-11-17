@@ -35,7 +35,12 @@ export interface ComposerFile {
 export interface Refusal { name: string; reason: RefusalReason | 'heic_unreadable' | 'duplicate' }
 
 let seq = 0;
-const sameFile = (a: { name: string; size: number }, b: { name: string; size: number }) => a.name === b.name && a.size === b.size;
+const sameFile = (a: { name: string; size: number; lastModified?: number }, b: { name: string; size: number; lastModified?: number }) =>
+    a.name === b.name && a.size === b.size && (a.lastModified === undefined || b.lastModified === undefined || a.lastModified === b.lastModified);
+// What a chip stands for is the file as picked: its own name and size become
+// the redrawn picture's (a photo is redrawn as a smaller JPEG, a HEIC is
+// renamed), which the same photo picked again would never match.
+const pickedAs = (h: ComposerFile) => h.file ?? h;
 
 export function useComposerAttachments() {
     const [files, setFiles] = useState<ComposerFile[]>([]);
@@ -51,6 +56,14 @@ export function useComposerAttachments() {
         setFiles(prev => prev.map(f => (f.key === key ? { ...f, ...change } : f)));
     }, []);
 
+    // A chip leaves for good: its picture's object URL goes with it, or the
+    // browser holds the file until the page closes (the unmount sweep below
+    // only sees the chips still in the list).
+    const dropChips = useCallback((keys: string[]) => {
+        for (const f of filesRef.current) if (keys.includes(f.key) && f.preview) URL.revokeObjectURL(f.preview);
+        setFiles(prev => prev.filter(f => !keys.includes(f.key)));
+    }, []);
+
     const upload = useCallback(async (key: string, file: File) => {
         const controller = new AbortController();
         controllers.current.set(key, controller);
@@ -59,16 +72,18 @@ export function useComposerAttachments() {
             let name = file.name;
             if (isPicture(file) || isHeicFile(file)) {
                 const ready = await prepareImage(file);
+                // Removed while it was being prepared: the chip is gone, so no refusal for it.
+                if (controller.signal.aborted) return;
                 if (!ready) {
                     // The browser cannot draw it: a HEIC photo outside Safari.
-                    setFiles(prev => prev.filter(f => f.key !== key));
+                    dropChips([key]);
                     setRefusals(prev => [...prev, { name: file.name, reason: 'heic_unreadable' }]);
                     return;
                 }
                 blob = ready.blob;
                 name = ready.name;
                 if (blob.size > ATTACH_MAX_BYTES) {
-                    setFiles(prev => prev.filter(f => f.key !== key));
+                    dropChips([key]);
                     setRefusals(prev => [...prev, { name: file.name, reason: 'too_large' }]);
                     return;
                 }
@@ -91,7 +106,7 @@ export function useComposerAttachments() {
         } finally {
             controllers.current.delete(key);
         }
-    }, [patch]);
+    }, [patch, dropChips]);
 
     /** Take picked, dropped or pasted files. */
     const add = useCallback((list: FileList | File[] | null | undefined) => {
@@ -102,15 +117,15 @@ export function useComposerAttachments() {
         // The same file picked again is the one already here — unless that one
         // failed, which the new pick replaces.
         const held = filesRef.current;
-        const again = picked.filter(f => held.some(h => h.state !== 'failed' && sameFile(h, f)));
-        const replaced = held.filter(h => h.state === 'failed' && picked.some(f => sameFile(h, f))).map(h => h.key);
+        const again = picked.filter(f => held.some(h => h.state !== 'failed' && sameFile(pickedAs(h), f)));
+        const replaced = held.filter(h => h.state === 'failed' && picked.some(f => sameFile(pickedAs(h), f))).map(h => h.key);
         const wanted = picked.filter(f => !again.includes(f));
         // A failed chip does not count against the cap: it is not going anywhere.
         const counted = held.filter(h => h.state !== 'failed').length;
         const { accepted, refused } = preflightFiles(wanted, counted, { convertHeic: true });
         // Said, not skipped in silence: a pick that seems to do nothing reads as broken.
         setRefusals([...again.map(f => ({ name: f.name, reason: 'duplicate' as const })), ...refused]);
-        if (replaced.length) setFiles(prev => prev.filter(f => !replaced.includes(f.key)));
+        if (replaced.length) dropChips(replaced);
         if (!accepted.length) return;
         const fresh: ComposerFile[] = accepted.map(f => {
             const picture = isPicture(f) || isHeicFile(f);
@@ -130,7 +145,7 @@ export function useComposerAttachments() {
         });
         setFiles(prev => [...prev, ...fresh]);
         fresh.forEach((c, i) => { void upload(c.key, accepted[i]); });
-    }, [upload]);
+    }, [upload, dropChips]);
 
     /** A failed upload's Try again: the same file, uploaded once more. */
     const retry = useCallback((key: string) => {

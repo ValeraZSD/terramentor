@@ -44,7 +44,11 @@
 //      after a day; the original is served by what its bytes are, inline only
 //      for a picture; the activity log names no file;
 //   8. the client half: what the composer refuses before uploading, the
-//      `[[img:…]]` marker parser, the ```save block, and Copy.
+//      `[[img:…]]` marker parser, the ```save block, and Copy;
+//   9. the composer's chips, mounted in jsdom: the same photo picked twice is
+//      one chip (its redrawn size is not the file's), a chip that leaves
+//      gives its picture's object URL back, and a picture that cannot load
+//      says its name.
 
 import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -633,6 +637,180 @@ ok('a save block: the file, the place, the title, a description over several lin
     && blocks.saves[0].title === 'Worksheet 3' && /Question 3 reads/.test(blocks.saves[0].description), JSON.stringify(blocks.saves));
 ok('a whole course is a place; an Inbox or a place that is none proposes nothing', blocks.saves.length === 2 && blocks.saves[1].to.kind === 'course' && blocks.saves[1].to.projectId === 3, JSON.stringify(blocks.saves));
 ok('no fence source is left in the text', !blocks.body.includes('```') && blocks.body.includes('I can keep it'));
+
+// ---- 9. the composer's chips and a picture that cannot load -----------------------
+console.log('\n9. the composer: the same photo twice, a dropped chip frees its picture, a missing picture says its name');
+{
+    const { JSDOM } = require('jsdom');
+    const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    globalThis.window = window;
+    globalThis.document = window.document;
+    Object.defineProperty(globalThis, 'navigator', { value: window.navigator, configurable: true });
+    for (const k of ['HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'MutationObserver']) if (window[k]) globalThis[k] = window[k];
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    // Every object URL made and every one given back, in order.
+    const urls = { made: [], revoked: [] };
+    const realCreate = URL.createObjectURL, realRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = () => { const u = `blob:chip/${urls.made.length}`; urls.made.push(u); return u; };
+    URL.revokeObjectURL = u => { urls.revoked.push(u); };
+
+    const stubs = {
+        'react-i18next': 'export const useTranslation = () => ({ t: (k, o) => (o ? k.replace(/\\{\\{(\\w+)\\}\\}/g, (_, n) => o[n]) : k) });',
+        'api': "export const api = { uploadAttachment: (...a) => globalThis.__chip.upload(...a), discardAttachment: async () => ({ removed: true }), attachmentFileUrl: id => '/files/' + id };",
+        'attachImage': 'export const prepareImage = f => globalThis.__chip.prepare(f);',
+        'viewer': 'export default function ImageViewer() { return null; }',
+    };
+    const stubPlugin = {
+        name: 'stubs',
+        setup(b) {
+            b.onResolve({ filter: /^react-i18next$/ }, () => ({ path: 'react-i18next', namespace: 'stub' }));
+            b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+            b.onResolve({ filter: /\/attachImage$/ }, () => ({ path: 'attachImage', namespace: 'stub' }));
+            b.onResolve({ filter: /^\.\/ImageViewer$/ }, () => ({ path: 'viewer', namespace: 'stub' }));
+            b.onLoad({ filter: /.*/, namespace: 'stub' }, a => ({ contents: stubs[a.path], loader: 'js', resolveDir: repoRoot }));
+        },
+    };
+    const cacheDir = join(repoRoot, 'node_modules', '.cache', 'chat-attachments-gates');
+    const bundle = join(cacheDir, 'chips.cjs');
+    await esbuild.build({
+        stdin: {
+            contents: "export { useComposerAttachments } from './src/hooks/useComposerAttachments.ts'; export { default as AttachmentFigure } from './src/components/attachments/AttachmentFigure.tsx';",
+            resolveDir: repoRoot, loader: 'ts',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: bundle, jsx: 'automatic', packages: 'external', logLevel: 'silent',
+        plugins: [stubPlugin],
+    });
+    const React = require('react');
+    const { createRoot } = require('react-dom/client');
+    const { useComposerAttachments, AttachmentFigure } = require(bundle);
+    const act = fn => React.act(fn);
+    const settle = (ms = 25) => act(async () => { await new Promise(r => setTimeout(r, ms)); });
+    const until = async cond => { for (let i = 0; i < 40 && !cond(); i++) await settle(); return cond(); };
+
+    let uploads = 0;
+    const answers = { upload: () => ({ ok: true, id: ++uploads, kind: 'image', modelSees: true }), prepare: null };
+    globalThis.__chip = {
+        upload: async () => answers.upload(),
+        prepare: async f => answers.prepare(f),
+    };
+    // A redrawn photo: the same picture, smaller, as the composer makes it.
+    const redrawn = async f => ({ blob: new Blob([new Uint8Array(100)]), name: f.name });
+    const photo = (name = 'photo.jpg', size = 3000, lastModified = 1000) => new File([new Uint8Array(size)], name, { type: 'image/jpeg', lastModified });
+
+    async function mount() {
+        let hook;
+        const Probe = () => { hook = useComposerAttachments(); return null; };
+        const host = document.createElement('div'); document.body.append(host);
+        const root = createRoot(host);
+        act(() => root.render(React.createElement(Probe)));
+        return { hook: () => hook, done: () => { act(() => root.unmount()); host.remove(); } };
+    }
+
+    // F: the same photo picked again is the one already here, though the chip
+    // now holds the redrawn picture's size, not the file's.
+    {
+        answers.prepare = redrawn;
+        const m = await mount();
+        await act(async () => m.hook().add([photo()]));
+        await until(() => m.hook().files[0]?.state === 'ready');
+        ok('a picked photo\'s chip holds the redrawn picture (the precondition of the next check)', m.hook().files[0]?.size === 100, JSON.stringify(m.hook().files.map(f => [f.name, f.size, f.state])));
+        await act(async () => m.hook().add([photo()]));
+        ok('the same photo picked again is "already attached", not a second chip',
+            m.hook().files.length === 1 && m.hook().refusals.length === 1 && m.hook().refusals[0].reason === 'duplicate',
+            JSON.stringify({ chips: m.hook().files.length, refusals: m.hook().refusals }));
+        await act(async () => m.hook().add([photo('photo.jpg', 3000, 2000)]));
+        await until(() => m.hook().files.length === 2);
+        ok('a different file that shares the name and size is a new chip', m.hook().files.length === 2, String(m.hook().files.length));
+        m.done();
+    }
+    {
+        // A HEIC photo is renamed to .jpg by the redraw; picked again it is still the same file.
+        answers.prepare = async f => ({ blob: new Blob([new Uint8Array(100)]), name: f.name.replace(/\.heic$/i, '.jpg') });
+        const m = await mount();
+        const heic = () => new File([new Uint8Array(3000)], 'IMG_1.HEIC', { type: 'image/heic', lastModified: 5 });
+        await act(async () => m.hook().add([heic()]));
+        await until(() => m.hook().files[0]?.state === 'ready');
+        await act(async () => m.hook().add([heic()]));
+        ok('a HEIC photo picked again is "already attached" although its chip was renamed .jpg',
+            m.hook().files.length === 1 && m.hook().files[0].name === 'IMG_1.jpg' && m.hook().refusals[0]?.reason === 'duplicate',
+            JSON.stringify({ chips: m.hook().files.map(f => f.name), refusals: m.hook().refusals }));
+        m.done();
+    }
+
+    // F: a chip that leaves gives its picture's object URL back.
+    {
+        const m = await mount();
+        urls.made.length = 0; urls.revoked.length = 0;
+        answers.prepare = async f => ({ blob: { size: client.ATTACH_MAX_BYTES + 1 }, name: f.name });
+        await act(async () => m.hook().add([photo('big.jpg')]));
+        await until(() => m.hook().refusals.length > 0);
+        ok('a picture still too big after the redraw is refused, and its chip is gone',
+            m.hook().files.length === 0 && m.hook().refusals[0]?.reason === 'too_large', JSON.stringify(m.hook().refusals));
+        ok('and the chip\'s object URL is given back', urls.made.length === 1 && urls.revoked.includes(urls.made[0]), JSON.stringify(urls));
+        m.done();
+    }
+    {
+        const m = await mount();
+        urls.made.length = 0; urls.revoked.length = 0;
+        answers.prepare = async () => null;
+        await act(async () => m.hook().add([photo('odd.jpg')]));
+        await until(() => m.hook().refusals.length > 0);
+        ok('a picture the browser cannot draw is refused with its reason, and its object URL is given back',
+            m.hook().files.length === 0 && m.hook().refusals[0]?.reason === 'heic_unreadable' && urls.made.length === 1 && urls.revoked.includes(urls.made[0]),
+            JSON.stringify({ refusals: m.hook().refusals, urls }));
+        m.done();
+    }
+    {
+        // A failed chip is replaced by the same file picked again: its picture goes with it.
+        const m = await mount();
+        urls.made.length = 0; urls.revoked.length = 0;
+        answers.prepare = async f => ({ blob: f, name: f.name });
+        answers.upload = () => ({ ok: false, error: 'The server said no.' });
+        await act(async () => m.hook().add([photo('retry.png', 500, 7)]));
+        await until(() => m.hook().files[0]?.state === 'failed');
+        const first = urls.made[0];
+        answers.upload = () => ({ ok: true, id: ++uploads, kind: 'image', modelSees: true });
+        await act(async () => m.hook().add([photo('retry.png', 500, 7)]));
+        await until(() => m.hook().files.length === 1 && m.hook().files[0].state === 'ready');
+        ok('picking a failed file again replaces its chip and gives the old picture\'s object URL back',
+            m.hook().files.length === 1 && urls.revoked.includes(first) && !urls.revoked.includes(urls.made[urls.made.length - 1]),
+            JSON.stringify({ chips: m.hook().files.length, urls }));
+        m.done();
+    }
+    {
+        // Removed while it was still being redrawn: the chip is already gone, so no refusal for it.
+        const m = await mount();
+        let release;
+        answers.prepare = () => new Promise(r => { release = r; });
+        await act(async () => m.hook().add([photo('gone.jpg')]));
+        const key = m.hook().files[0].key;
+        await act(async () => m.hook().remove(key));
+        await act(async () => release({ blob: { size: client.ATTACH_MAX_BYTES + 1 }, name: 'gone.jpg' }));
+        await settle();
+        ok('a chip removed while it was being redrawn leaves no refusal behind', m.hook().files.length === 0 && m.hook().refusals.length === 0, JSON.stringify(m.hook().refusals));
+        m.done();
+    }
+    answers.upload = () => ({ ok: true, id: ++uploads, kind: 'image', modelSees: true });
+
+    // F: a picture the answer points into whose file is gone says which one it was.
+    {
+        const host = document.createElement('div'); document.body.append(host);
+        const root = createRoot(host);
+        const attachment = { id: 12, kind: 'image', name: 'worksheet.png', width: 200, height: 100 };
+        act(() => root.render(React.createElement(AttachmentFigure, { marker: { attachmentId: 12, box: null, label: null }, attachment })));
+        const img = host.querySelector('img');
+        await act(async () => { img.dispatchEvent(new window.Event('error')); });
+        const button = host.querySelector('button');
+        ok('a picture whose file cannot be loaded shows its name where the picture was, inside the button', !host.querySelector('img') && button?.textContent === 'worksheet.png',
+            JSON.stringify(button?.textContent));
+        act(() => root.unmount()); host.remove();
+    }
+
+    URL.createObjectURL = realCreate; URL.revokeObjectURL = realRevoke;
+    rmSync(cacheDir, { recursive: true, force: true });
+}
 
 try { db.close(); } catch { /* closed */ }
 rmSync(scratch, { recursive: true, force: true });
