@@ -52,6 +52,16 @@ export function useComposerAttachments() {
     const filesRef = useRef(files);
     filesRef.current = files;
 
+    // Every live object URL by chip key, filled when the chip is made: what a
+    // chip gives back never depends on the list having rendered it yet.
+    const previews = useRef(new Map<string, string>());
+    const revokePreview = useCallback((key: string) => {
+        const url = previews.current.get(key);
+        if (!url) return;
+        URL.revokeObjectURL(url);
+        previews.current.delete(key);
+    }, []);
+
     const patch = useCallback((key: string, change: Partial<ComposerFile>) => {
         setFiles(prev => prev.map(f => (f.key === key ? { ...f, ...change } : f)));
     }, []);
@@ -60,9 +70,9 @@ export function useComposerAttachments() {
     // browser holds the file until the page closes (the unmount sweep below
     // only sees the chips still in the list).
     const dropChips = useCallback((keys: string[]) => {
-        for (const f of filesRef.current) if (keys.includes(f.key) && f.preview) URL.revokeObjectURL(f.preview);
+        keys.forEach(revokePreview);
         setFiles(prev => prev.filter(f => !keys.includes(f.key)));
-    }, []);
+    }, [revokePreview]);
 
     const upload = useCallback(async (key: string, file: File) => {
         const controller = new AbortController();
@@ -129,12 +139,15 @@ export function useComposerAttachments() {
         if (!accepted.length) return;
         const fresh: ComposerFile[] = accepted.map(f => {
             const picture = isPicture(f) || isHeicFile(f);
+            const key = `att-${Date.now()}-${++seq}`;
+            // HEIC: most browsers cannot draw it; the chip shows an icon.
+            const preview = picture && !isHeicFile(f) ? URL.createObjectURL(f) : null;
+            if (preview) previews.current.set(key, preview);
             return {
-                key: `att-${Date.now()}-${++seq}`,
+                key,
                 name: f.name,
                 kind: picture ? 'image' : 'document',
-                // HEIC: most browsers cannot draw it; the chip shows an icon.
-                preview: picture && !isHeicFile(f) ? URL.createObjectURL(f) : null,
+                preview,
                 size: f.size,
                 state: picture ? 'preparing' : 'uploading',
                 progress: 0,
@@ -159,10 +172,10 @@ export function useComposerAttachments() {
     const remove = useCallback((key: string) => {
         const f = filesRef.current.find(x => x.key === key);
         controllers.current.get(key)?.abort();
-        if (f?.preview) URL.revokeObjectURL(f.preview);
+        revokePreview(key);
         if (f?.server && !f.server.sent) void api.discardAttachment(f.server.id).catch(() => { });
         setFiles(prev => prev.filter(x => x.key !== key));
-    }, []);
+    }, [revokePreview]);
 
     /**
      * The message was sent: the chips leave the composer, the files stay on the
@@ -173,12 +186,12 @@ export function useComposerAttachments() {
         const sent = filesRef.current.filter(f => f.state === 'ready');
         for (const f of filesRef.current) {
             if (f.state !== 'ready') { controllers.current.get(f.key)?.abort(); if (f.server) void api.discardAttachment(f.server.id).catch(() => { }); }
-            if (f.preview) URL.revokeObjectURL(f.preview);
+            revokePreview(f.key);
         }
         setFiles([]);
         setRefusals([]);
         return sent.map(f => ({ ...f, preview: null }));
-    }, []);
+    }, [revokePreview]);
 
     /** A turn that produced nothing: its files come back to the composer. */
     const restore = useCallback((back: ComposerFile[], missing: number[] = []) => {
@@ -194,7 +207,7 @@ export function useComposerAttachments() {
     const dismissRefusals = useCallback(() => setRefusals([]), []);
 
     // Object URLs live as long as their chip; whatever is left goes on unmount.
-    useEffect(() => () => { filesRef.current.forEach(f => f.preview && URL.revokeObjectURL(f.preview)); }, []);
+    useEffect(() => () => { [...previews.current.keys()].forEach(revokePreview); }, [revokePreview]);
 
     const uploading = files.filter(f => f.state === 'preparing' || f.state === 'uploading');
     const failed = files.filter(f => f.state === 'failed');

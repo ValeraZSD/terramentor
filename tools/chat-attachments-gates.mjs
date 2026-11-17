@@ -50,7 +50,7 @@
 //      gives its picture's object URL back, and a picture that cannot load
 //      says its name.
 
-import { mkdtempSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, request as httpRequest } from 'node:http';
@@ -672,8 +672,19 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
             b.onLoad({ filter: /.*/, namespace: 'stub' }, a => ({ contents: stubs[a.path], loader: 'js', resolveDir: repoRoot }));
         },
     };
-    const cacheDir = join(repoRoot, 'node_modules', '.cache', 'chat-attachments-gates');
+    // A folder of this run's own, under the repo so the bundle finds `react`
+    // from there: another checkout running the gate shares node_modules and
+    // must never read or delete this run's bundle. Cleaned up when the process
+    // ends too, so a throw below leaves neither it nor the stubs behind.
+    const cacheRoot = join(repoRoot, 'node_modules', '.cache');
+    mkdirSync(cacheRoot, { recursive: true });
+    const cacheDir = mkdtempSync(join(cacheRoot, 'chat-attachments-gates-'));
     const bundle = join(cacheDir, 'chips.cjs');
+    const cleanup = () => {
+        URL.createObjectURL = realCreate; URL.revokeObjectURL = realRevoke;
+        rmSync(cacheDir, { recursive: true, force: true });
+    };
+    process.once('exit', cleanup);
     await esbuild.build({
         stdin: {
             contents: "export { useComposerAttachments } from './src/hooks/useComposerAttachments.ts'; export { default as AttachmentFigure } from './src/components/attachments/AttachmentFigure.tsx';",
@@ -722,7 +733,22 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
             JSON.stringify({ chips: m.hook().files.length, refusals: m.hook().refusals }));
         await act(async () => m.hook().add([photo('photo.jpg', 3000, 2000)]));
         await until(() => m.hook().files.length === 2);
-        ok('a different file that shares the name and size is a new chip', m.hook().files.length === 2, String(m.hook().files.length));
+        ok('control (holds before and after): a redrawn photo\'s lookalike with another date is a new chip', m.hook().files.length === 2, String(m.hook().files.length));
+        m.done();
+    }
+    {
+        // A picture kept as it is (a small PNG) has the file's own size, so only the
+        // date can tell two files that share a name and size apart.
+        answers.prepare = async f => ({ blob: f, name: f.name });
+        const m = await mount();
+        const png = (lastModified) => new File([new Uint8Array(500)], 'shot.png', { type: 'image/png', lastModified });
+        await act(async () => m.hook().add([png(7)]));
+        await until(() => m.hook().files[0]?.state === 'ready');
+        await act(async () => m.hook().add([png(7)]));
+        ok('the same unchanged file picked again is "already attached"', m.hook().files.length === 1 && m.hook().refusals[0]?.reason === 'duplicate');
+        await act(async () => m.hook().add([png(8)]));
+        await until(() => m.hook().files.length === 2);
+        ok('a different file that shares the name and size, and differs only in its date, is a new chip', m.hook().files.length === 2, String(m.hook().files.length));
         m.done();
     }
     {
@@ -731,10 +757,10 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
         const m = await mount();
         const heic = () => new File([new Uint8Array(3000)], 'IMG_1.HEIC', { type: 'image/heic', lastModified: 5 });
         await act(async () => m.hook().add([heic()]));
-        await until(() => m.hook().files[0]?.state === 'ready');
+        const ready = await until(() => m.hook().files[0]?.state === 'ready');
         await act(async () => m.hook().add([heic()]));
         ok('a HEIC photo picked again is "already attached" although its chip was renamed .jpg',
-            m.hook().files.length === 1 && m.hook().files[0].name === 'IMG_1.jpg' && m.hook().refusals[0]?.reason === 'duplicate',
+            ready && m.hook().files.length === 1 && m.hook().files[0].name === 'IMG_1.jpg' && m.hook().refusals[0]?.reason === 'duplicate',
             JSON.stringify({ chips: m.hook().files.map(f => f.name), refusals: m.hook().refusals }));
         m.done();
     }
@@ -763,6 +789,22 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
         m.done();
     }
     {
+        // `add` called from outside a React event (a document-level paste or drop
+        // handler): the redraw can answer before the chip has rendered, and the
+        // picture must still be given back.
+        const m = await mount();
+        urls.made.length = 0; urls.revoked.length = 0;
+        answers.prepare = async () => null;
+        const quiet = console.error; console.error = () => { };
+        try {
+            m.hook().add([photo('early.jpg')]);
+            await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+        } finally { console.error = quiet; }
+        ok('a chip dropped before it had rendered still gives its picture\'s object URL back',
+            m.hook().files.length === 0 && urls.made.length === 1 && urls.revoked.includes(urls.made[0]), JSON.stringify({ chips: m.hook().files.length, urls }));
+        m.done();
+    }
+    {
         // A failed chip is replaced by the same file picked again: its picture goes with it.
         const m = await mount();
         urls.made.length = 0; urls.revoked.length = 0;
@@ -782,14 +824,15 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
     {
         // Removed while it was still being redrawn: the chip is already gone, so no refusal for it.
         const m = await mount();
-        let release;
-        answers.prepare = () => new Promise(r => { release = r; });
+        let release, released = false;
+        answers.prepare = () => new Promise(r => { release = v => { released = true; r(v); }; });
         await act(async () => m.hook().add([photo('gone.jpg')]));
         const key = m.hook().files[0].key;
         await act(async () => m.hook().remove(key));
         await act(async () => release({ blob: { size: client.ATTACH_MAX_BYTES + 1 }, name: 'gone.jpg' }));
         await settle();
-        ok('a chip removed while it was being redrawn leaves no refusal behind', m.hook().files.length === 0 && m.hook().refusals.length === 0, JSON.stringify(m.hook().refusals));
+        ok('a chip removed while it was being redrawn leaves no refusal behind (the redraw did finish)',
+            released && m.hook().files.length === 0 && m.hook().refusals.length === 0, JSON.stringify(m.hook().refusals));
         m.done();
     }
     answers.upload = () => ({ ok: true, id: ++uploads, kind: 'image', modelSees: true });
@@ -808,8 +851,7 @@ console.log('\n9. the composer: the same photo twice, a dropped chip frees its p
         act(() => root.unmount()); host.remove();
     }
 
-    URL.createObjectURL = realCreate; URL.revokeObjectURL = realRevoke;
-    rmSync(cacheDir, { recursive: true, force: true });
+    cleanup();
 }
 
 try { db.close(); } catch { /* closed */ }
