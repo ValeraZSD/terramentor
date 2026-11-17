@@ -193,7 +193,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
 
                         <div className="mt-4 flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Check daily")}</p>
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Check automatically")}</p>
                                 {/* Six lines of it stood open on a phone, under a
                                     switch whose label already says what it does.
                                     "Off by default" beside a switch that was ON
@@ -203,11 +203,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                         call": background AI jobs and resource
                                         hunting reach out unattended too
                                         (SECURITY.md lists them all). */}
-                                    {tr("Asks GitHub once a day, sending only the version. Nothing is downloaded until you ask.")}
+                                    {tr("Asks GitHub every few hours, sending only the version. Nothing is downloaded until you ask.")}
                                 </SettingNote>
                             </div>
                             <Switch
-                                label={tr("Check for updates daily")}
+                                label={tr("Check for updates automatically")}
                                 checked={!!updateStatus?.enabled}
                                 disabled={!canPress}
                                 onChange={next => setAutoUpdateCheck(next)}

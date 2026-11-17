@@ -43,6 +43,16 @@ export interface DeckData {
     stages: DeckStage[];
     matureDays: number;
     currentStageId: number | null;
+    /** The recall target its cards are scheduled for (`getRetention`), not observed recall. */
+    desiredRetention: number;
+}
+
+/** GET /api/projects/:id/deck/retention-forecast: answers a day each target would ask for. */
+export interface RetentionForecast {
+    current: number;
+    newPerDay: number;
+    days: number;
+    choices: { retention: number; perDay: number }[];
 }
 
 export interface Project {
@@ -108,6 +118,9 @@ export interface Project {
      *  default for an import, on for anything authored here, and the learner's
      *  to change (PUT /api/projects/:id/teaching). */
     teaches?: boolean;
+    /** The share of its cards the learner wants to still know when each comes
+     *  up (FSRS desired retention); 0.9 unless the course set its own. */
+    desired_retention?: number;
     /** Total cards, and how many have ever been studied. Progress is this ratio
      *  for a project that is not being taught: its nodes are never hand-marked
      *  complete, so the leaf-status counters read 0% forever. */
@@ -1113,10 +1126,35 @@ export interface PlacementAnswerResult {
  * mistake positional field-picking can make — a reversed front/back — catchable
  * before it becomes two thousand backwards cards.
  */
+/** Who wrote a picture's description: the deck's author, the learner, or a vision model. */
+export type MediaDescriber = 'author' | 'learner' | 'vision';
+
+/** `GET /api/media/:hash/info`. */
+export interface MediaInfo {
+    hash: string;
+    filename: string;
+    kind: 'image' | 'audio' | string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+}
+
+/** One picture in the description review list (`GET /api/media-descriptions`). */
+export interface MediaDescriptionRow {
+    hash: string;
+    filename: string;
+    description: string | null;
+    described_by: MediaDescriber | null;
+    /** The model that wrote it, when one did. */
+    generated_by: string | null;
+    /** Its place in the list's order, as it was read: the next page starts after it. */
+    cursor: string;
+}
+
 /** Progress of the card-image description sweep (server/mediaDescribe.js). */
 export interface MediaDescriptionStatus {
     images: number;
     described: number;
+    byLearner?: number;
     /** Written by the deck's author (alt text) — never overwritten by a model. */
     byAuthor: number;
     byVision: number;
@@ -1760,6 +1798,19 @@ export interface EvidenceTrail {
     };
     count: number;
     rows: EvidenceRow[];
+    /** Questions missed twice or more in a row with no right answer since, most misses first.
+     *  Absent from a server older than the client. */
+    shaky?: ShakyQuestion[];
+    /** All of them; `shaky` lists the first SHAKY_LIMIT. */
+    shakyCount?: number;
+}
+
+export interface ShakyQuestion {
+    question: string;
+    /** The "this is wrong" flag's ref (`q:<uuid>`), or null for a question with no uuid. */
+    ref: string | null;
+    /** Misses since the last right answer. */
+    misses: number;
 }
 
 export interface AskedQuestion {

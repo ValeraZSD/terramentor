@@ -12,13 +12,15 @@ import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { uiLocale } from '../../utils/locale';
 import { Panel } from './Panel';
 import { useDuration } from './mockFormat';
-import type { MockDetail } from './mockExamTypes';
+import { CourseMockScreen, CourseResultScreen } from './CourseMock';
+import { ExamFrame } from './ExamFrame';
+import { isCourseDetail, type CourseMockDetail, type MockDetail } from './mockExamTypes';
 
 /** One mock, whichever moment it is at: writing, marking or done. */
 export default function MockSittingScreen({ sittingId, onClose }: { sittingId: number; onClose: () => void }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const [detail, setDetail] = useState<MockDetail | null>(null);
+    const [detail, setDetail] = useState<MockDetail | CourseMockDetail | null>(null);
 
     const load = useCallback(() => {
         api.getMock(sittingId).then(setDetail).catch(e => { addToast('error', e.message); onClose(); });
@@ -27,6 +29,21 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
     // A re-read when the page shows again: a failure (a phone waking with no
     // signal) keeps the screen and its last reading; only the first load closes.
     const refresh = useCallback(() => { api.getMock(sittingId).then(setDetail).catch(() => {}); }, [sittingId]);
+
+    // While the exam itself runs it holds the whole window (ExamFrame): the
+    // course mock's questions, and the past paper's clock on the desk.
+    if (detail && isCourseDetail(detail) && detail.sitting.status !== 'done') {
+        return <CourseMockScreen detail={detail} onChange={setDetail} onLeave={onClose} />;
+    }
+    if (detail && !isCourseDetail(detail) && detail.sitting.status === 'writing') {
+        return (
+            <ExamFrame title={t("Mock exam")} leaveLabel={t("Back")} onLeave={onClose}>
+                <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
+                    <ClockScreen detail={detail} onChange={setDetail} reload={refresh} />
+                </div>
+            </ExamFrame>
+        );
+    }
 
     return (
         <div className="flex-1 overflow-auto">
@@ -37,9 +54,14 @@ export default function MockSittingScreen({ sittingId, onClose }: { sittingId: n
                     </Button>
                 </div>
                 {!detail && <Panel><div className="h-40" aria-busy="true" /></Panel>}
-                {detail?.sitting.status === 'writing' && <ClockScreen detail={detail} onChange={setDetail} reload={refresh} />}
-                {detail?.sitting.status === 'marking' && <MarkingScreen detail={detail} onChange={setDetail} />}
-                {detail?.sitting.status === 'done' && <ResultScreen detail={detail} onDone={onClose} />}
+                {detail && isCourseDetail(detail) ? (
+                    <CourseResultScreen detail={detail} onDone={onClose} />
+                ) : (
+                    <>
+                        {detail?.sitting.status === 'marking' && <MarkingScreen detail={detail} onChange={setDetail} />}
+                        {detail?.sitting.status === 'done' && <ResultScreen detail={detail} onDone={onClose} />}
+                    </>
+                )}
             </div>
         </div>
     );
@@ -69,6 +91,7 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
     const elapsed = base.elapsed + (sitting.running ? Math.floor((Date.now() - base.at) / 1000) : 0);
     const left = sitting.timeAllowed - elapsed;
     const timeUp = left <= 0;
+    const paused = !sitting.running && !timeUp;
 
     // The screen stays on while the clock runs: the device is the clock on the
     // desk. The browser drops the lock when the tab is hidden, so it is asked
@@ -170,13 +193,15 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
                 )}
             </div>
 
+            {/* Paused, the way on is Resume: finishing is then the quiet one,
+                so a learner coming back does not end the paper by reflex. */}
             <div className="flex flex-wrap justify-end gap-2">
                 {!timeUp && (
-                    <Button busy={busy} onClick={() => act(sitting.running ? 'pause' : 'resume')}>
+                    <Button variant={paused ? 'primary' : 'neutral'} busy={busy} onClick={() => act(sitting.running ? 'pause' : 'resume')}>
                         {sitting.running ? t("Pause") : t("Resume")}
                     </Button>
                 )}
-                <Button variant="primary" busy={busy} onClick={() => act('stop')}>{t("I am done")}</Button>
+                <Button variant={paused ? 'neutral' : 'primary'} busy={busy} onClick={() => act('stop')}>{t("Finish writing")}</Button>
             </div>
         </Panel>
     );
@@ -241,7 +266,7 @@ function MarkingScreen({ detail, onChange }: { detail: MockDetail; onChange: (d:
         let held: MockDetail;
         try {
             await chain.current;
-            held = await api.getMock(sitting.id);
+            held = await api.getMock(sitting.id) as MockDetail;
         } catch (e) {
             addToast('error', (e as Error).message);
             setFinishing(false);
@@ -269,7 +294,7 @@ function MarkingScreen({ detail, onChange }: { detail: MockDetail; onChange: (d:
         setFinishing(true);
         try {
             // "Give them 0" and the finish are one write on the server.
-            onChange(await api.finishMock(sitting.id, ungraded > 0));
+            onChange(await api.finishMock(sitting.id, { fillUnmarked: ungraded > 0 }));
         } catch (e) {
             addToast('error', (e as Error).message);
             setFinishing(false);
