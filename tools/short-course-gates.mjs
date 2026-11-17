@@ -410,6 +410,55 @@ const r2 = await read('http://localhost/admin');
 ok('an address on this machine is refused by netSafety, never fetched', r.ok === false && r.reason === 'refused' && r2.ok === false && r2.reason === 'refused', [r, r2]);
 reader.setReaderFetchForTest(fakeFetch);
 
+// A page's code, its encoding, its inline icons and a certificate that fails.
+section('3b. a code block keeps its comments, a page is read in its own charset, an icon closes itself, a bad certificate is not "retry"');
+{
+    const CODE_PAGE = `<html><head><title>Loops in Rust explained</title></head><body><article><h1>Loops</h1><p>${prose(6)}</p>`
+        + '<div class="code-toolbar"><pre class="language-rust"><code class="language-rust"><span class="token keyword">for</span> i <span class="token keyword">in</span> 0..3 { <span class="token comment">// KEEP_PRISM_COMMENT</span> }</code></pre>'
+        + '<div class="toolbar"><span>PRISM_COPY_LABEL</span></div></div>'
+        + `<p>${prose(3, 2)}</p>`
+        + '<pre><code class="hljs language-python"><span class="hljs-comment"># KEEP_HLJS_COMMENT</span>\nprint("KEEP_HLJS_CODE")</code></pre>'
+        + `<div class="comments">COMMENTS_SECTION_TEXT</div><div class="toolbar">PAGE_TOOLBAR_TEXT</div></article></body></html>`;
+    const code = reader.mainText(CODE_PAGE).text;
+    ok('a code block in its highlighter\'s toolbar wrapper is kept whole', code.includes('for i in 0..3'), code.slice(0, 600));
+    ok('the comments a highlighter marks inside the code are kept', ['KEEP_PRISM_COMMENT', 'KEEP_HLJS_COMMENT', 'KEEP_HLJS_CODE'].every(s => code.includes(s)), code.slice(0, 600));
+    ok('…while the page\'s own comments section and toolbar are still left out', !/COMMENTS_SECTION_TEXT|PAGE_TOOLBAR_TEXT/.test(code), code.slice(-300));
+
+    // A self-closed svg has no </svg: the walk must not look for one.
+    const iconAlone = reader.mainText(`<html><body><p>${SENTENCES[0]}</p><svg class="icon" viewBox="0 0 1 1" /><p>AFTER_THE_ICON ${SENTENCES[1]}</p></body></html>`).text;
+    ok('a self-closed <svg /> with no later </svg> does not drop the rest of the page', iconAlone.includes('AFTER_THE_ICON'), iconAlone);
+    const iconPair = reader.mainText(`<html><body><p>${SENTENCES[0]}</p><svg viewBox="0 0 1 1"/><p>BETWEEN_THE_ICONS ${SENTENCES[1]}</p><svg><path d="M0 0"/></svg><math display="inline" /><p>AFTER_THE_MATH ${SENTENCES[2]}</p></body></html>`).text;
+    ok('…nor the text between it and the next icon', iconPair.includes('BETWEEN_THE_ICONS') && iconPair.includes('AFTER_THE_MATH') && !/M0 0/.test(iconPair), iconPair);
+
+    // Bytes in windows-1251 (А-я are 0xC0-0xFF), as an old regional site serves them.
+    const enc = (s) => Buffer.from([...s].map((ch) => { const c = ch.charCodeAt(0); return c >= 0x410 && c <= 0x44f ? c - 0x410 + 0xc0 : c; }));
+    const RU = 'Индексные фонды снижают расходы инвестора на комиссии.';
+    const served = (body, type) => async () => new Response(body, { status: 200, headers: { 'content-type': type } });
+    const readWith = async (fn) => { reader.setReaderFetchForTest(fn); try { return await read('https://old.example/page'); } finally { reader.setReaderFetchForTest(fakeFetch); } };
+    const withMeta = (meta) => `<html><head>${meta}<title>Фонды</title></head><body><article><p>${RU}</p></article></body></html>`;
+    const viaHeader = await readWith(served(enc(withMeta('')), 'text/html; charset=windows-1251'));
+    ok('a page whose Content-Type names windows-1251 is read in it', viaHeader.ok && viaHeader.text.includes(RU) && !viaHeader.text.includes('�'), viaHeader.text || viaHeader.reason);
+    const viaMeta = await readWith(served(enc(withMeta('<meta charset="windows-1251">')), 'text/html'));
+    ok('…one that says so in <meta charset> is too', viaMeta.ok && viaMeta.text.includes(RU) && viaMeta.title === 'Фонды', viaMeta.text || viaMeta.reason);
+    const viaEquiv = await readWith(served(enc(withMeta('<meta http-equiv="Content-Type" content="text/html; charset=windows-1251">')), 'text/html'));
+    ok('…and one that says so in <meta http-equiv>', viaEquiv.ok && viaEquiv.text.includes(RU), viaEquiv.text || viaEquiv.reason);
+    const mislabelled = await readWith(served(enc(`<!doctype html>${withMeta('<meta charset="windows-1251">')}`), 'application/octet-stream'));
+    ok('…and a page served under another type reads its meta too', mislabelled.ok && mislabelled.text.includes(RU), mislabelled.text || mislabelled.reason);
+    const bogus = await readWith(served(Buffer.from(withMeta('<meta charset="no-such-charset">'), 'utf8'), 'text/html; charset=no-such-charset'));
+    ok('an unknown charset label reads as UTF-8 and the page still comes back', bogus.ok && bogus.text.includes(RU), bogus.text || bogus.reason);
+    const plainUtf8 = await readWith(served(Buffer.from(withMeta(''), 'utf8'), 'text/html'));
+    ok('a page that names no charset is UTF-8', plainUtf8.ok && plainUtf8.text.includes(RU), plainUtf8.text || plainUtf8.reason);
+
+    // A certificate that fails fails the same way on every try.
+    const tlsFail = (code) => async () => { throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('tls'), { code }) }); };
+    for (const tlsCode of ['CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'ERR_TLS_CERT_ALTNAME_INVALID', 'SELF_SIGNED_CERT_IN_CHAIN']) {
+        const bad = await readWith(tlsFail(tlsCode));
+        ok(`${tlsCode} offers the saved-page route, not "try again"`, bad.ok === false && bad.reason === 'blocked' && bad.fix === 'file', bad);
+    }
+    const reset = await readWith(tlsFail('ECONNRESET'));
+    ok('a dropped connection is still "try again"', reset.ok === false && reset.reason === 'network' && reset.fix === 'retry', reset);
+}
+
 // ---- 4. a PDF link ----------------------------------------------------------------------
 section('4. a PDF link goes through the file path');
 r = await read('https://files.example/guide.pdf');
