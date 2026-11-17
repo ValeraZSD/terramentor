@@ -134,7 +134,8 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                 onKeyDown={onActivateKey(() => !locked && setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
-                aria-label={flipped ? t("Show question") : t("Reveal answer")}
+                // Named by the card's own words: a label would replace them.
+                aria-pressed={flipped}
                 className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${locked ? '' : 'cursor-pointer'} ${flipped
                     ? 'border-accent/40'
                     : 'border-slate-200 dark:border-slate-600'}`}
