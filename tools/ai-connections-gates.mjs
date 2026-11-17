@@ -328,7 +328,8 @@ check('native tools are refused with a reason that names tools (the assistant fa
     /tool/i.test(cw.toResponsesRequest({ messages: [], tools: [{ type: 'function', function: { name: 'x' } }] }).refuse || ''));
 
 const planEffort = (effort) => cw.toResponsesRequest({ model: 'plan-model', reasoning: { effort }, messages: [{ role: 'user', content: 'x' }] }).req.reasoning;
-check('a level the Responses API does not name (a `max` chosen on a Claude connection) is not sent', planEffort('max') === undefined && planEffort('xhigh') === undefined);
+check('a level the Responses API does not name (a `max` chosen on a Claude connection) is sent as `high`, never as itself and never dropped',
+    eq(planEffort('max'), { effort: 'high' }) && eq(planEffort('xhigh'), { effort: 'high' }) && planEffort('bogus') === undefined);
 check('...a level it names is', eq(planEffort('medium'), { effort: 'medium' }) && eq(planEffort('minimal'), { effort: 'minimal' }));
 
 // A signed-in plan connection, token not yet due for refresh.

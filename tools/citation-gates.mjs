@@ -94,8 +94,17 @@ const bracketLine = splitSourcesTail(resolveCitations('A. [[src:1]]', BRACKET).t
 check('a title holding a backslash and a bracket stays one link to the real page',
     bracketLine.length === 1 && bracketLine[0].kind === 'web' && bracketLine[0].href === 'https://real.example/page', JSON.stringify(bracketLine));
 // The server finds a cited document by its title as the line wrote it.
+const BACKSLASH = [{ n: 1, title: 'a\\b' }, { n: 2, title: 'C:\\x', url: 'https://real.example/c' }];
+const slashOnce = resolveCitations('A. [[src:1]] B. [[src:2]]', BACKSLASH);
+const slashTwice = resolveCitations(slashOnce.text, BACKSLASH);
 check('a document title holding a backslash is written the same way on every pass',
-    resolveCitations('A. [[src:1]]', [{ n: 1, title: 'a\\b' }]).text.endsWith('Sources: a\\\\b'));
+    slashOnce.text.includes('Sources: a\\\\b · [C:\\\\x](https://real.example/c)') && slashTwice.text === slashOnce.text, JSON.stringify(slashTwice.text));
+// A line written before backslashes were escaped does not match what is written
+// now, so a re-save drops it rather than keep a line whose old escape could
+// close its own link.
+const LEGACY = 'A.\n\n---\nSources: a\\b';
+check('a stored line written with the older, unescaped backslash is dropped on a re-save, not kept',
+    resolveCitations(LEGACY, BACKSLASH).text === 'A.', JSON.stringify(resolveCitations(LEGACY, BACKSLASH).text));
 // ...and the reader shows the title as it was, one backslash.
 const slashLine = splitSourcesTail(resolveCitations('A. [[src:1]] B. [[src:2]]', [{ n: 1, title: 'a\\b' }, { n: 2, title: 'C:\\x', url: 'https://real.example/c' }]).text).sources;
 check('a title holding a backslash is shown with one backslash, not two',
