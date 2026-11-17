@@ -955,12 +955,26 @@ const { readSettable, settingKeysIn, settingsBefore, assistantSettingsBlock } = 
 const fromRows = (rows) => (key, fallback) => (key in rows ? rows[key] : fallback);
 const empty = readSettable(fromRows({}));
 check('an empty library reads as the defaults, each a value the marker accepts',
-    empty.theme === 'light' && empty.theme_tint === 'none' && empty.ui_scale === 100
+    empty.theme === 'system' && empty.theme_tint === 'none' && empty.ui_scale === 100
     && empty.week_start_day === 'monday' && empty.ui_language === 'auto' && empty.number_format === 'auto'
     && /^#[0-9a-f]{6}$/i.test(empty.accent_color), JSON.stringify(empty));
 const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', week_start_day: '0', ui_scale: '125' }));
 check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.week_start_day === 'sunday' && set.ui_scale === 125, JSON.stringify(set));
 check('a legacy named theme reads as its mode', readSettable(fromRows({ theme: 'black' })).theme === 'dark' && readSettable(fromRows({ theme: 'warm' })).theme === 'light');
+check('an empty library reads the accessibility rows as the app shows them',
+    empty.contrast === 'system' && empty.motion === 'system' && empty.letter_spacing === 'normal'
+    && empty.read_aloud === 'off' && empty.card_audio_autoplay === 'on' && empty.key_shortcuts === 'on'
+    && empty.speech_rate === 100 && empty.confirm_answers === 'off', JSON.stringify(empty));
+const a11ySet = readSettable(fromRows({ motion: 'reduce', line_spacing: 'widest', read_aloud: 'true', card_audio_autoplay: 'false', key_shortcuts: 'false', speech_rate: '140' }));
+check('stored accessibility rows are read back as marker values',
+    a11ySet.motion === 'reduce' && a11ySet.line_spacing === 'widest' && a11ySet.read_aloud === 'on'
+    && a11ySet.card_audio_autoplay === 'off' && a11ySet.key_shortcuts === 'off' && a11ySet.speech_rate === 140, JSON.stringify(a11ySet));
+check('every presentation row Settings → Accessibility writes is one the assistant may set',
+    ['contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'speech_rate',
+        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts'].every(k => k in empty));
+check('the drill time limit is a learning row, not offered', !('drill_time_scale' in empty));
+check('aliases for the accessibility rows are recorded under their row',
+    settingKeysIn('[[set:reduce motion:on]] [[set:shortcuts:off]] [[set:read_aloud:on]]').join(',') === 'motion,key_shortcuts,read_aloud');
 check('the keys a message set are found, aliases and all, once each',
     settingKeysIn('Done.\n[[set:theme:dark]]\n[[set:page colour:black]]\n[[set:theme:light]]').join(',') === 'theme,theme_tint');
 check('a key off the whitelist is not recorded', settingKeysIn('[[set:mastery_gate_mode:off]]').length === 0);

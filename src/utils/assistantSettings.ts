@@ -1,4 +1,5 @@
-import { THEME_IDS, MIN_UI_SCALE, MAX_UI_SCALE, type Theme } from '../store';
+import { THEME_CHOICES, MIN_UI_SCALE, MAX_UI_SCALE, type ThemeChoice } from '../store';
+import { MIN_SPEECH_RATE, MAX_SPEECH_RATE } from './accessibility';
 import i18n, { LANGUAGES, isSupportedLanguage, k } from '../i18n';
 import { weekdayName } from './locale';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
@@ -40,7 +41,48 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
  * where a person chooses them on purpose.
  */
 
-export type SettingKey = 'theme' | 'theme_tint' | 'accent_color' | 'ui_scale' | 'week_start_day' | 'ui_language' | 'number_format';
+// Spelled out, not built from the tables below: tools/settings-registry-gates.mjs
+// reads this line to check every key is a client ui row.
+export type SettingKey = 'theme' | 'theme_tint' | 'accent_color' | 'ui_scale' | 'week_start_day' | 'ui_language' | 'number_format'
+    | 'contrast' | 'motion' | 'letter_spacing' | 'word_spacing' | 'line_spacing'
+    | 'reading_line' | 'read_aloud' | 'card_audio_autoplay' | 'confirm_answers' | 'key_shortcuts' | 'speech_rate';
+
+/**
+ * The accessibility rows (Settings → Accessibility), each a short list of
+ * words: presentation only, visible the moment it lands, and one tap back —
+ * the same two properties as the rest of this list. The drill time limit is
+ * not here: it is a learning row (what a drill serves), set in Settings.
+ */
+const CHOICE_SETTINGS = {
+    contrast: { name: k("Contrast"), values: { system: k("System"), standard: k("Standard"), more: k("Higher") } },
+    motion: { name: k("Motion"), values: { system: k("System"), full: k("Full"), reduce: k("Reduced") } },
+    letter_spacing: { name: k("Letter spacing"), values: { normal: k("Normal"), wider: k("Wider"), widest: k("Widest") } },
+    word_spacing: { name: k("Word spacing"), values: { normal: k("Normal"), wider: k("Wider"), widest: k("Widest") } },
+    line_spacing: { name: k("Line spacing"), values: { normal: k("Normal"), wider: k("Wider"), widest: k("Widest") } },
+} as const satisfies Partial<Record<SettingKey, { name: string; values: Record<string, string> }>>;
+type ChoiceKey = keyof typeof CHOICE_SETTINGS;
+
+/** The on/off rows. The value is `on` or `off`, which is also what Undo restores. */
+const SWITCH_SETTINGS = {
+    reading_line: k("Reading line"),
+    read_aloud: k("Read aloud"),
+    card_audio_autoplay: k("Play card sounds by themselves"),
+    confirm_answers: k("Confirm before grading"),
+    key_shortcuts: k("Single-key shortcuts"),
+} as const satisfies Partial<Record<SettingKey, string>>;
+type SwitchKey = keyof typeof SWITCH_SETTINGS;
+
+/** Other words for a value, tried in order against the key's own list. */
+const CHOICE_ALIASES: Record<string, string[]> = {
+    default: ['system', 'normal'], auto: ['system'], automatic: ['system'],
+    normal: ['normal', 'standard'], standard: ['standard', 'normal'], high: ['more'], higher: ['more'],
+    reduced: ['reduce'], less: ['reduce'], none: ['reduce'],
+};
+const ON_WORDS = ['on', 'true', 'yes', '1', 'enabled'];
+const OFF_WORDS = ['off', 'false', 'no', '0', 'disabled'];
+
+const isChoiceKey = (key: string): key is ChoiceKey => Object.prototype.hasOwnProperty.call(CHOICE_SETTINGS, key);
+const isSwitchKey = (key: string): key is SwitchKey => Object.prototype.hasOwnProperty.call(SWITCH_SETTINGS, key);
 
 export interface SettingChange {
     key: SettingKey;
@@ -72,8 +114,8 @@ const ACCENT_NAMES: Record<string, string> = {
     emerald: '#047857', teal: '#0f766e', ink: '#0f172a', paper: '#64748b',
 };
 
-const THEME_LABELS: Record<Theme, string> = {
-    light: k("Light"), dark: k("Dark"),
+const THEME_LABELS: Record<ThemeChoice, string> = {
+    system: k("Match your system"), light: k("Light"), dark: k("Dark"),
 };
 
 /**
@@ -107,9 +149,41 @@ export function validateSettingChange(rawKey: string, rawValue: string): Setting
     if (!value) return null;
 
     if (key === 'theme') {
-        const t = value.toLowerCase() as Theme;
-        if (!THEME_IDS.includes(t)) return null;
+        const v = value.toLowerCase();
+        const t = (v === 'auto' || v === 'automatic' ? 'system' : v) as ThemeChoice;
+        if (!THEME_CHOICES.includes(t)) return null;
         return { key: 'theme', value: t, label: i18n.t("Theme → {{name}}", { name: i18n.t(THEME_LABELS[t]) }) };
+    }
+
+    const alias = key === 'reduce_motion' ? 'motion'
+        : key === 'shortcuts' ? 'key_shortcuts' : key === 'reading_speed' || key === 'speech_speed' ? 'speech_rate' : key;
+    if (isChoiceKey(alias)) {
+        const values: Record<string, string> = CHOICE_SETTINGS[alias].values;
+        const v = value.toLowerCase().replace(/\s+/g, ' ');
+        // "reduce_motion: on" is the one switch-shaped way to name a choice.
+        const word = alias === 'motion' && key === 'reduce_motion'
+            ? (ON_WORDS.includes(v) ? 'reduce' : OFF_WORDS.includes(v) ? 'full' : v)
+            : v;
+        const stored = word in values ? word : CHOICE_ALIASES[word]?.find(c => c in values);
+        if (!stored) return null;
+        return {
+            key: alias, value: stored,
+            label: i18n.t("{{setting}} → {{value}}", { setting: i18n.t(CHOICE_SETTINGS[alias].name), value: i18n.t(values[stored]) }),
+        };
+    }
+    if (isSwitchKey(alias)) {
+        const v = value.toLowerCase();
+        const on = ON_WORDS.includes(v) ? true : OFF_WORDS.includes(v) ? false : null;
+        if (on === null) return null;
+        return {
+            key: alias, value: on ? 'on' : 'off',
+            label: i18n.t("{{setting}} → {{value}}", { setting: i18n.t(SWITCH_SETTINGS[alias]), value: on ? i18n.t("On") : i18n.t("Off") }),
+        };
+    }
+    if (alias === 'speech_rate') {
+        const n = Math.round(Number(value.replace('%', '')));
+        if (!Number.isFinite(n) || n < MIN_SPEECH_RATE || n > MAX_SPEECH_RATE) return null;
+        return { key: 'speech_rate', value: n, label: i18n.t("Reading speed → {{percent}}%", { percent: n }) };
     }
 
     if (key === 'theme_tint' || key === 'page_colour' || key === 'page_color' || key === 'tint') {
