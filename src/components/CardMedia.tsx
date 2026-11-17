@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
+import { api } from '../api';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -250,13 +251,38 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
     );
 }
 
+/**
+ * The stored description of a picture, fetched once per file per page load.
+ * A file with none gives '' and is not asked again; a
+ * description written later reaches the card after a reload.
+ */
+const descriptions = new Map<string, Promise<string>>();
+function useStoredDescription(hash: string | null): string {
+    const [text, setText] = useState('');
+    useEffect(() => {
+        if (!hash) { setText(''); return; }
+        let live = true;
+        let pending = descriptions.get(hash);
+        if (!pending) {
+            // A failed read is forgotten, so the next card showing the file asks again.
+            pending = api.getMediaInfo(hash).then(r => (r.description ?? '').trim(), () => { descriptions.delete(hash); return ''; });
+            descriptions.set(hash, pending);
+        }
+        void pending.then(d => { if (live) setText(d); });
+        return () => { live = false; };
+    }, [hash]);
+    return text;
+}
+
 function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review' | 'preview' }) {
     const { t } = useTranslation();
     const [failed, setFailed] = useState(false);
 
-    // No description: not `alt=""` (it is not decorative) but the author's
-    // filename, often the word itself.
-    const alt = item.alt || item.name || 'Card image';
+    // The deck's own alt first; else the description stored for the file
+    // (server/mediaDescribe.js); else not `alt=""` (it is not decorative) but
+    // the author's filename, often the word itself.
+    const described = useStoredDescription(item.alt ? null : item.hash);
+    const alt = item.alt || described || item.name || 'Card image';
 
     if (failed) {
         return (

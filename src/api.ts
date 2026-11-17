@@ -2565,6 +2565,10 @@ export const api = {
     cancelMediaDescriptions: () =>
         request<{ ok: boolean }>('/media-descriptions/cancel', { method: 'POST' }),
 
+    /** What is stored about one file; `description` is the alt a deck did not give. */
+    getMediaInfo: (hash: string) =>
+        request<{ hash: string; filename: string | null; description: string | null }>(`/media/${encodeURIComponent(hash)}/info`),
+
     describeMedia: (hash: string, force = false) =>
         request<{ ok: boolean; description: string }>(`/media/${hash}/describe`, {
             method: 'POST', body: JSON.stringify({ force }),
