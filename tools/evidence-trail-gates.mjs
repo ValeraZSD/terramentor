@@ -224,6 +224,11 @@ try {
     applySeededPrior(placementLarger, 'placement', 0.52, []);
     t = await trail(placementLarger);
     check('…and a larger placement seed is still named placement', t.estimate.seed === 'placement', JSON.stringify(t.estimate));
+    const tiedSeeds = addNode(course, 'Prisms');
+    applySeededPrior(tiedSeeds, 'placement', 0.4, []);
+    applySeededPrior(tiedSeeds, 'transfer', 0.4, []);
+    t = await trail(tiedSeeds);
+    check('…and equal seeds are named transfer', t.estimate.seed === 'transfer', JSON.stringify(t.estimate));
 
     const deckTopic = addNode(deck, 'Hiragana');
     const cards = Array.from({ length: 4 }, (_, i) => Number(db.prepare('INSERT INTO flashcards (node_id, front, back) VALUES (?, ?, ?)').run(deckTopic, `f${i}`, `b${i}`).lastInsertRowid));

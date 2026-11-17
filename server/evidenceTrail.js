@@ -17,7 +17,7 @@ import { shakyQuestions } from './questionLog.js';
  * by MAX (`applySeededPrior`), so the larger one is the one in the number; a
  * tie goes to transfer, as in `headStartOf` (server/headStart.js).
  */
-function seedOf(record) {
+function seedNameOf(record) {
     const placement = record?.placement_prior;
     const transfer = record?.transferred_prior;
     if (placement == null) return transfer == null ? null : 'transfer';
@@ -171,7 +171,7 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
             // What the proving answers alone give (the trail's steps end
             // here); under `score` when cards or drills lifted the number.
             answersScore: eligibility && level !== 'none' ? eligibility.gate_score : null,
-            seed: seedOf(record),
+            seed: seedNameOf(record),
             ownAnswers: eligibility?.own_answers ?? 0,
             practiceRight: eligibility?.practice_right ?? 0,
             practiceTotal: eligibility?.practice_total ?? 0,
