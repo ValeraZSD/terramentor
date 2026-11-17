@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, ReactNode } from 'react';
 import { cx, FOCUS_RING } from './vocabulary';
+import { useSettingHint } from './settingHint';
 
 export interface Segment<T extends string | number> {
     value: T;
@@ -75,6 +76,7 @@ export function SegmentedControl<T extends string | number>({
     track = true, block = false, onPage = false, className,
 }: Props<T>) {
     const vertical = orientation === 'vertical';
+    const rowHint = useSettingHint();
     const ref = useRef<HTMLDivElement>(null);
     const [wrapped, setWrapped] = useState(false);
 
@@ -189,6 +191,7 @@ export function SegmentedControl<T extends string | number>({
             ref={ref}
             role="radiogroup"
             aria-label={label}
+            aria-describedby={rowHint}
             aria-orientation={orientation}
             onKeyDown={onKeyDown}
             className={cx(
