@@ -731,7 +731,14 @@ function normalizeResources(resources, at, warnings) {
             else warnings.add(`Invalid uuid at ${where} — a new one was minted.`);
         }
 
-        out.push({ title: str(resource.title, LIMITS.title), url, type, completed: resource.completed ? 1 : 0, uuid });
+        // Only true/1 is completed, as is_note is read: the string "false" is
+        // truthy, and read loosely it imported a link as already done.
+        const completed = resource.completed === true || resource.completed === 1 ? 1 : 0;
+        const flag = resource.completed;
+        if (!completed && flag != null && flag !== false && flag !== 0 && flag !== '' && flag !== 'false' && flag !== '0') {
+            warnings.add(`completed "${String(flag).slice(0, 20)}" at ${where} is not true or false — imported as not completed.`);
+        }
+        out.push({ title: str(resource.title, LIMITS.title), url, type, completed, uuid });
     }
     return out;
 }
