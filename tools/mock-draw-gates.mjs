@@ -406,6 +406,8 @@ try {
             /<AnswerInput[^>]*disabled=\{finishing/.test(course));
         check('the docked assistant makes no room while an exam holds the window',
             /assistantDocked = [^;]*&& !examFocus/.test(src('src/components/Layout.tsx')));
+        check('the background-task bar stays out of an exam (it comes back after)',
+            /\{!examFocus && <TaskDock \/>\}/.test(src('src/components/Layout.tsx')));
         const paperSrc = src('src/components/mockExam/MockSittingScreen.tsx');
         check('a past paper\'s way out says Back, not Save and leave',
             /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(paperSrc));

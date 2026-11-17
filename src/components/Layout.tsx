@@ -577,8 +577,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             <CompletionSummary />
 
             {/* Global background-AI task bar (replaces the old single-purpose
-                floating creation card — creation is one chip among the rest). */}
-            <TaskDock />
+                floating creation card — creation is one chip among the rest).
+                Kept out of an exam; the tasks run on and show again after. */}
+            {!examFocus && <TaskDock />}
 
             {/* Every AI project creation's screen, and the reattach after a
                 reload — at the root, because a run is reached from the dock on
