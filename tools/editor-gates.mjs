@@ -72,7 +72,7 @@ const stubs = {
     'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: {}, subs: new Set() };
+        g.__st = { state: { a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } }, subs: new Set() };
         g.__setState = (patch) => { g.__st.state = { ...g.__st.state, ...patch }; g.__st.subs.forEach(f => f()); };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },

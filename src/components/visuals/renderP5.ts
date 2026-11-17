@@ -8,6 +8,7 @@ import { showInSandbox } from './sandboxFrame';
 import p5Source from 'p5/lib/p5.min.js?raw';
 import i18n from '../../i18n';
 import { reportFrameActivity } from '../../utils/frameActivity';
+import { motionReduced } from '../../utils/accessibility';
 
 // Tier B of the animation system: the model emits a p5.js
 // sketch (global-mode setup()/draw()) in a ```p5 fence and it runs live in a
@@ -255,7 +256,7 @@ ${geomGuard}
                     reported = true;
                     var r = c.getBoundingClientRect();
                     send('ok', { w: Math.round(r.width), h: Math.round(r.height) });
-                    if (matchMedia('(prefers-reduced-motion: reduce)').matches && window.noLoop) {
+                    if (${motionReduced() ? 'true' : 'false'} && window.noLoop) {
                         window.noLoop();
                         var p = overlay('▶ tap to play', false);
                         p.addEventListener('click', function () { p.remove(); window.loop(); });

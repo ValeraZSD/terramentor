@@ -391,6 +391,119 @@ input[type="password"]::-ms-clear {
   }
 }
 
+/* SETTINGS → ACCESSIBILITY. The attributes on <html> are written by
+   src/utils/accessibility.ts (and replayed by public/theme-boot.js before the
+   first paint), already resolved against the system's own preference. */
+
+/* Reduce motion: every animation and transition ends at once, a library's
+   included. 0.01ms rather than none, so the animationend/transitionend a
+   component waits for still arrives. The drop flash is spared: it does not
+   move, and it is the only sign of where a dragged item landed
+   (drop-flash-gates.mjs). */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *:not(.drop-flash)::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
+   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em), and
+   tools/axe-gates.mjs scans every screen at it for clipped text. On every
+   element, because a class that sets its own tracking or leading would
+   otherwise keep it. Formulas and drawings are left alone: KaTeX places the
+   parts of a fraction or a root by its own line height, and a diagram sizes
+   its label boxes to the text, so spacing there breaks them, not reads better. */
+html[data-letter-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.06em !important; }
+html[data-letter-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.12em !important; }
+html[data-word-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.08em !important; }
+html[data-word-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.16em !important; }
+html[data-line-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.5 !important; }
+html[data-line-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.8 !important; }
+html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
+
+/* Forced colours (Windows High Contrast) drop every background, so a choice
+   marked only by a fill (the open section, the chosen segment, a switch that
+   is on) vanishes. Each gets an outline in the system's highlight colour. */
+@media (forced-colors: active) {
+  /* Tailwind's `outline-none` is a TRANSPARENT 2px outline 2px out, which
+     forced colours paint solid: at rest a bordered control wore a second
+     frame beside its border, and two segments 2px apart drew overlapping
+     ones. At rest it is 1px and flush with the edge: a quiet button keeps
+     the only frame it has in this mode, a bordered one reads as one solid
+     edge. Keyboard focus keeps the full outline (the ring is a box-shadow,
+     which forced colours drop). Segments sit in their row's frame and wear
+     none. First in the block, so the state outlines below still win. */
+  .outline-none:where(:not(:focus-visible)) {
+    outline-width: 1px;
+    outline-offset: 0;
+  }
+  /* A region that only takes focus from code (a dialog, the rating row) is
+     not a control: no frame at rest, or the rating buttons sat in a square box. */
+  .outline-none:where(:not(:focus-visible, button, a, summary, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="combobox"])) {
+    outline-style: none;
+  }
+  button[data-segment]:where(:not(:focus-visible)) {
+    outline-style: none;
+  }
+  /* The track's fill is dropped too, so a segmented row gets one frame
+     round it; wrapped into chips, each chip gets its own. */
+  [data-segmented="track"] {
+    border: 1px solid ButtonText;
+  }
+  [data-segmented="chips"] > button[data-segment] {
+    border: 1px solid ButtonText;
+  }
+  [aria-current="page"],
+  [aria-current="true"],
+  [aria-pressed="true"],
+  [role="tab"][aria-selected="true"],
+  [role="radio"][aria-checked="true"],
+  [role="option"][aria-selected="true"] {
+    /* Straddles the edge (1px out, 1px in), so its outer edge meets the
+       at-rest 1px frame of the controls beside it: same size, thicker line.
+       At -2px the current page's button drew a box 2px smaller. */
+    outline: 2px solid Highlight;
+    outline-offset: -1px;
+  }
+  /* A chosen segment or an armed rating is filled, not only outlined: a thin
+     outline beside the system's thick button borders read as the unchosen one.
+     Only those two, by their own markers: `forced-color-adjust` inherits, so on
+     anything that can hold content (a flipped card is aria-pressed too) the
+     author's white plate stays while the text turns HighlightText.
+     `button` lifts it over a `hover:bg-*` utility (two classes' weight, later
+     in the file), which kept the rating's pale fill under white text while
+     the pointer still rested on it after the first press. */
+  button[data-segment][aria-checked="true"],
+  button[data-rating][data-armed] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  button[data-segment][aria-checked="true"] *,
+  button[data-rating][data-armed] * {
+    color: HighlightText;
+  }
+  [role="switch"] {
+    border: 1px solid ButtonText;
+  }
+  [role="switch"] > span:last-child {
+    forced-color-adjust: none;
+    background: ButtonText;
+  }
+  [role="switch"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  [role="switch"][aria-checked="true"] > span:last-child {
+    background: HighlightText;
+  }
+}
+
 @keyframes glow-breathe {
   0%, 100% {
     box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);
@@ -415,10 +528,8 @@ input[type="password"]::-ms-clear {
   animation: toast-blip 0.4s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-toast-blip {
-    animation: none;
-  }
+html[data-motion="reduce"] .animate-toast-blip {
+  animation: none;
 }
 
 @keyframes scale-in {
@@ -457,10 +568,8 @@ input[type="password"]::-ms-clear {
   animation: confetti-fall 2s cubic-bezier(0.3, 0.1, 0.5, 1) forwards;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-confetti-fall {
-    display: none;
-  }
+html[data-motion="reduce"] .animate-confetti-fall {
+  display: none;
 }
 
 @keyframes slide-up {
@@ -502,10 +611,8 @@ details[open] > .details-reveal {
   animation: details-reveal 0.18s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  details[open] > .details-reveal {
-    animation: none;
-  }
+html[data-motion="reduce"] details[open] > .details-reveal {
+  animation: none;
 }
 
 /* The notes "tap/click to edit" hint is a static strip under the content in
@@ -920,11 +1027,9 @@ pre:has(> .visual-block) {
     vb-part-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
     vb-edge-draw-back 560ms cubic-bezier(0.3, 0, 0.35, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vb-arrive,
-  .visual-block-stage.vb-arrive [data-vb-arrive] {
-    animation: none;
-  }
+html[data-motion="reduce"] .visual-block-stage.vb-arrive,
+html[data-motion="reduce"] .visual-block-stage.vb-arrive [data-vb-arrive] {
+  animation: none;
 }
 
 /* Settings → Visuals: a switched-off kind's sample is greyed and dimmed, and
@@ -1005,12 +1110,10 @@ pre:has(> .visual-block) {
 .visual-block-stage.vb-arrive.vk-flat > * {
   transition: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vk-dissolve > * { animation: none; }
-  /* The mute is a state, not a motion: under reduced motion it arrives at once
-     rather than fading, which the dissolve above already does. */
-  .vk-sample > * { transition: none; }
-}
+html[data-motion="reduce"] .visual-block-stage.vk-dissolve > * { animation: none; }
+/* The mute is a state, not a motion: under reduced motion it arrives at once
+   rather than fading, which the dissolve above already does. */
+html[data-motion="reduce"] .vk-sample > * { transition: none; }
 
 /* A drill has no parts to arrive — its sample is a launcher button — so its
    card tips and rights itself instead. The class is taken off again when the
@@ -1024,9 +1127,7 @@ pre:has(> .visual-block) {
 .vk-tilt {
   animation: vk-tilt 760ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vk-tilt { animation: none; }
-}
+html[data-motion="reduce"] .vk-tilt { animation: none; }
 
 /*
  * While rendering, Mermaid appends a temporary, full-size <div id="dvisual-mermaid-N">

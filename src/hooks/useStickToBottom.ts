@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { motionReduced } from '../utils/accessibility';
 
 /**
  * "Follow the stream, unless the reader is reading" — the scroll behaviour every
@@ -36,7 +37,7 @@ export function useStickToBottom<T extends HTMLElement>(active = true) {
     const scrollToBottom = useCallback((smooth = false) => {
         const el = ref.current;
         if (!el) return;
-        el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+        el.scrollTo({ top: el.scrollHeight, behavior: smooth && !motionReduced() ? 'smooth' : 'auto' });
         // Remember where we just put it, so the downward scroll event this
         // causes is not mistaken for the reader moving.
         lastTopRef.current = el.scrollTop;

@@ -122,7 +122,7 @@ export default function ProgressBar({
                 })}
         >
             <div
-                className={cx('h-full shrink-0 transition-[width] motion-reduce:transition-none',!flush && 'rounded-full', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
+                className={cx('h-full shrink-0 transition-[width] motion-off:transition-none',!flush && 'rounded-full', motion === 'linear' ? 'duration-100 ease-linear' : 'duration-300', PROGRESS_FILL[tone])}
                 style={{ width: `${Math.max(minVisible, (v / safeMax) * 100)}%` }}
             />
         </ProgressTrack>

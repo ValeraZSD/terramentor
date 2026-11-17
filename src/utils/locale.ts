@@ -12,6 +12,18 @@ import { currentLocale } from '../i18n';
 /** The BCP-47 tag for `Intl`, from the interface language. */
 export const uiLocale = (): string => currentLocale();
 
+/** "Icon, Colour and Name", in the interface's language. `Intl.ListFormat` is
+ *  ES2021 and the project's `lib` is ES2020, hence the narrow cast. */
+export function listFormat(items: string[]): string {
+    const ListFormat = (Intl as unknown as {
+        ListFormat?: new (locale: string, options: { style: string; type: string }) => { format(list: string[]): string };
+    }).ListFormat;
+    try {
+        if (ListFormat) return new ListFormat(uiLocale(), { style: 'long', type: 'conjunction' }).format(items);
+    } catch { /* an unknown locale: the plain join */ }
+    return items.join(', ');
+}
+
 /**
  * Month and weekday names in the INTERFACE language.
  *

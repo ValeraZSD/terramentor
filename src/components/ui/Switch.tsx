@@ -1,4 +1,5 @@
 import { cx, FOCUS_RING } from './vocabulary';
+import { useSettingHint } from './settingHint';
 
 interface Props {
     checked: boolean;
@@ -23,6 +24,7 @@ interface Props {
  * on the panel. The hit area is padded back up to 44px on touch.
  */
 export default function Switch({ checked, onChange, label, disabled, id, describedBy, className }: Props) {
+    const rowHint = useSettingHint();
     return (
         <button
             id={id}
@@ -30,7 +32,7 @@ export default function Switch({ checked, onChange, label, disabled, id, describ
             role="switch"
             aria-checked={checked}
             aria-label={label}
-            aria-describedby={describedBy}
+            aria-describedby={describedBy ?? rowHint}
             disabled={disabled}
             onClick={() => onChange(!checked)}
             className={cx(

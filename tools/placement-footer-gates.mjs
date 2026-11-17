@@ -65,7 +65,7 @@ const stubs = {
     'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: { addToast() { }, theme: 'light', searchProviders: [], projects: [], currentProjectId: null, loadProjectData() { } }, subs: new Set() };
+        g.__st = { state: { addToast() { }, a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true }, theme: 'light', searchProviders: [], projects: [], currentProjectId: null, loadProjectData() { } }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
             () => sel(g.__st.state));

@@ -156,8 +156,12 @@ export function readCollection(path) {
         // Card rows carry the deck, the scheduling and the deck's ORDER: on a NEW
         // card (type 0) `due` is its position in the new-card queue, the author's
         // intended sequence; on a graduated card it is a due date.
+        // `odid`/`odue` name the deck and order a card in a filtered deck came from;
+        // a hand-built `cards` table may lack them, and that is a collection without any.
+        const cardColumns = new Set(handle.prepare("SELECT name FROM pragma_table_info('cards')").all().map(r => r.name));
+        const loan = ['odid', 'odue'].map(col => (cardColumns.has(col) ? col : `0 AS ${col}`)).join(', ');
         const cardRows = handle.prepare(`
-            SELECT id, nid, did, ord, ivl, factor, reps, lapses, due, type
+            SELECT id, nid, did, ord, ivl, factor, reps, lapses, due, type, ${loan}
             FROM cards ORDER BY nid, ord
         `).all();
         const noteRows = handle.prepare('SELECT id, mid, flds, tags FROM notes').all();

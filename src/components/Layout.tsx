@@ -455,7 +455,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
                 under its status bar the bar's colour runs up behind the clock and
                 its row starts below it, the same 56px as the assistant's header. */}
-            <header ref={headerRef} className={`h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 ${examFocus ? 'hidden' : 'flex'} items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0`}>
+            <header ref={headerRef} className={`h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 ${examFocus ? 'hidden' : 'flex'} items-center gap-2 safe-px-2 sm:safe-px-4 shrink-0`}>
                 <div ref={leftRef} className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
@@ -550,7 +550,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-on:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
