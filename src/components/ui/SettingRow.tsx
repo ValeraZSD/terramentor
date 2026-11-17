@@ -182,7 +182,7 @@ function useStacksWhenTight(enabled: boolean) {
 }
 
 export function SettingRow({ id, label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
-    /** Lets `/settings#tab/<target>` scroll to and flash this row (`settingTargetId`). */
+    /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
     id?: string;
     label: React.ReactNode;
     hint?: React.ReactNode;
