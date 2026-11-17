@@ -75,8 +75,18 @@ export async function previewFrame(svg: SVGSVGElement, width: number, t = 0): Pr
  * now that rendered as a perfectly good still picture with pause and replay
  * buttons under it. Returns null when the probe itself could not run (an
  * image that will not decode), so a probe failure never blocks a render.
+ *
+ * Only SMIL can be shifted in time: a CSS `@keyframes` animation, which the
+ * sanitizer accepts, is drawn at its time zero in every frame. So a scene
+ * with no SMIL is not probed (null), and identical frames in a scene that
+ * also has CSS animation prove nothing (null, not false).
  */
 export async function probeMotion(svg: SVGSVGElement, loopSeconds: number): Promise<boolean | null> {
+    const hasSmil = svg.querySelector('animate, animateTransform, animateMotion, set') != null;
+    if (!hasSmil) return null;
+    const css = Array.from(svg.querySelectorAll('style')).map(s => s.textContent ?? '').join('\n')
+        + Array.from(svg.querySelectorAll('[style]')).map(e => e.getAttribute('style') ?? '').join('\n');
+    const hasCss = /@keyframes|animation(-name)?\s*:/.test(css);
     try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -95,7 +105,7 @@ export async function probeMotion(svg: SVGSVGElement, loopSeconds: number): Prom
                 if (Math.abs(data[i] - first[i]) + Math.abs(data[i + 1] - first[i + 1]) + Math.abs(data[i + 2] - first[i + 2]) + Math.abs(data[i + 3] - first[i + 3]) > 24) return true;
             }
         }
-        return false;
+        return hasCss ? null : false;
     } catch {
         return null;
     }

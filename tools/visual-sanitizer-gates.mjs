@@ -243,6 +243,36 @@ section('SVG animation — a relative font size in a stylesheet is left alone');
     check('and still counted as the smallest label', svgAnim.smallestLabelUnits(parse('.a{font-size:8px}')) === 8);
 }
 
+section('SVG animation — a scene that moves by CSS keyframes is not called still');
+{
+    // Only SMIL `begin` can be shifted to sample a frame; a CSS animation is
+    // drawn at its time zero in every sample. Identical frames from a CSS-only
+    // scene sent a working animation to the repair loop as "nothing moves".
+    // Every sample here rasterizes to the same pixels, as it would in a browser.
+    const { probeMotion } = await bundle('../src/components/visuals/svgFrames.ts', 'svg-frames.mjs');
+    const savedImage = globalThis.Image;
+    const proto = dom.window.HTMLCanvasElement.prototype;
+    const savedGetContext = proto.getContext;
+    globalThis.Image = class { set src(_) { setTimeout(() => this.onload?.(), 0); } };
+    proto.getContext = () => ({
+        clearRect() {}, drawImage() {},
+        getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(7) }),
+    });
+    try {
+        const parse = (inner) => new DOMParser().parseFromString(
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300">${inner}</svg>`, 'image/svg+xml').documentElement;
+        const cssOnly = parse('<style>@keyframes spin { to { transform: rotate(360deg) } } .w { animation: spin 2s infinite }</style><rect class="w" width="50" height="50"/>');
+        check('a scene with only CSS keyframes is not judged still', await probeMotion(cssOnly, 2) === null);
+        const both = parse('<style>@keyframes spin { to { transform: rotate(360deg) } } .w { animation: spin 2s infinite }</style><rect class="w" width="50" height="50"/><circle r="5"><animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite"/></circle>');
+        check('identical frames in a scene that also has CSS animation prove nothing', await probeMotion(both, 2) === null);
+        const smil = parse('<circle r="5"><animate attributeName="cx" values="10;50;10" dur="2s" repeatCount="indefinite"/></circle>');
+        check('identical frames of a SMIL-only scene are still caught as still', await probeMotion(smil, 2) === false);
+    } finally {
+        globalThis.Image = savedImage;
+        proto.getContext = savedGetContext;
+    }
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
