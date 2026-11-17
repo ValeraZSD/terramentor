@@ -721,6 +721,34 @@ console.log('\n--- the note flag is read strictly ---');
         r.warnings.filter(w => /is_note .* imported as a topic/.test(w)).length, 5);
 }
 
+// A resource's completed flag follows the same rule: the string "false" is
+// truthy and read loosely it imported a link as already done.
+console.log('\n--- a resource’s completed flag is read strictly ---');
+{
+    const flags = [true, 1, false, 0, null, '', 'false', '0', 'true', 'yes', 2];
+    const r = normalizeImportTree([{ title: 'T', resources: flags.map((completed, i) => ({ title: `R${i}`, completed })) }]);
+    check('only true and 1 import as completed', r.nodes[0].resources.map(x => x.completed), [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    // Same as is_note: only a missing flag, false, 0 and '' are silent.
+    const warned = r.warnings.filter(w => /completed .* imported as not completed/.test(w));
+    check('...any other value is warned about, as is_note\'s are', warned.length, 5);
+    check('...and the warning says what the flag must be', warned.some(w => /^completed "true" at .* must be the boolean true or 1 /.test(w)), true);
+}
+
+// Learner text goes into the brief as written. A string replacement reads "$$",
+// "$&" and "$'" as patterns, and a second pass would scan text just inserted.
+console.log('\n--- learner text reaches the brief unchanged ---');
+{
+    const subject = 'Special variables: $$ and $? then $& and $` and $\' end';
+    const outline = buildOutlineBrief({ subject });
+    check('the outline brief keeps "$" patterns in the subject as written', outline.includes(`- **Subject:** ${subject}`), true);
+    check('...and leaves no placeholder behind', outline.includes('{{BRIEF}}'), false);
+    const material = buildMaterialBrief({ project: { name: 'Shell $& course', description: '{{LEAVES}} $$' }, phaseTitle: 'P', leaves: ['Special variables: $$ and $?', 'Tail $\''] });
+    check('the material brief keeps "$" patterns in titles as written',
+        material.includes('1. Special variables: $$ and $?') && material.includes('2. Tail $\'') && material.includes('Shell $& course'), true);
+    check('...and a placeholder typed by the learner is not filled a second time',
+        material.includes('{{LEAVES}} $$') && material.split('Special variables: $$ and $?').length === 2, true);
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the database handle is still open on Windows; swept by the OS */ }
 
 console.log(`\n${pass} passed, ${fail} failed`);

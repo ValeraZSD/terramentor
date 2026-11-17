@@ -644,6 +644,50 @@ if (!OLD) {
         [movedUndo.status, nodeOf(mpid, 'Lidwoorden')?.parent_id, evidenceOn(nodeOf(mpid, 'Lidwoorden')?.id), cardsOf(nodeOf(mpid, 'Lidwoorden')?.id).find(c => c.front === 'de krant')?.review_count, !!nodeOf(mpid, 'Unit 3')],
         [200, studied.parent_id, 1, 3, false]);
 
+    console.log('\n--- a conflict whose file side moves a topic under one the update adds names that topic ---');
+    const nptag = 'conflict-new-parent';
+    const nppid = await install(edition1(nptag));
+    const moveTarget = nodeOf(nppid, 'Unit 2');
+    // The learner moves a topic to Unit 2; the file moves the same topic under a section it adds.
+    await api(`/api/nodes/${nodeOf(nppid, 'Verkleinwoord').id}/move`, 'PUT', { parent_id: moveTarget.id });
+    const toNew = edition2(nptag, (f) => {
+        const [moved] = unit1(f).splice(unit1(f).findIndex(n => n.title === 'Verkleinwoord'), 1);
+        f.nodes.push({ title: 'Unit 3', uuid: u(nptag, 'U3'), children: [moved] });
+    });
+    const parentConflict = (await upload('/api/course-updates/inspect', toNew)).body?.conflicts?.find(c => c.field === 'parent');
+    check('the conflict shows where the file would put the topic, by the new section’s title', [parentConflict?.mine, parentConflict?.file], ['Unit 2', 'Unit 3']);
+
+    console.log('\n--- an update that brings card pictures stores them as the course’s media ---');
+    const mtag2 = 'update-media';
+    const mpid2 = await install(edition1(mtag2));
+    const png = (fill) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(100, fill)]);
+    const pngOld = png(3), pngNew = png(4);
+    const hashOf = (b) => createHash('sha256').update(b).digest('hex');
+    const mediaZip = new JSZip();
+    mediaZip.file('manifest.json', JSON.stringify(edition2(mtag2, (f) => {
+        // One card gains a picture, and a card the update adds brings its own.
+        topic(f, 'Lidwoorden').flashcards[0].media = { front: [{ name: 'krant.png', kind: 'image' }] };
+        unit1(f).push({ title: 'Werkwoorden', uuid: u(mtag2, 'C'), description: 'Overview C.',
+            flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(mtag2, 'C3'), media: { back: [{ name: 'lopen.png', kind: 'image' }] } }] });
+    })));
+    mediaZip.file('media/krant.png', pngOld);
+    mediaZip.file('media/lopen.png', pngNew);
+    const mediaCommit = await upload('/api/course-updates/commit', await mediaZip.generateAsync({ type: 'nodebuffer' }),
+        { projectId: String(mpid2), choices: '{}' });
+    const mediaRows = db.prepare('SELECT hash, filename, mime, kind, size FROM media_files WHERE project_id = ? ORDER BY filename').all(mpid2);
+    check('commit: the update succeeded', mediaCommit.status, 200);
+    check('commit: both pictures (a changed card, an added card) have a media_files row on the course',
+        mediaRows.map(r => [r.filename, r.hash, r.mime, r.kind, r.size]),
+        [['krant.png', hashOf(pngOld), 'image/png', 'image', pngOld.length], ['lopen.png', hashOf(pngNew), 'image/png', 'image', pngNew.length]]);
+    const cardMedia = (front) => JSON.parse(db.prepare('SELECT f.media FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? AND f.front = ?').get(mpid2, front)?.media || 'null');
+    check('commit: the cards name those same hashes',
+        [cardMedia('de krant')?.front?.[0]?.hash, cardMedia('lopen')?.back?.[0]?.hash], [hashOf(pngOld), hashOf(pngNew)]);
+    check('commit: the picture is served', (await call(`/api/media/${hashOf(pngOld)}`)).status, 200);
+    const { sweepOrphanMedia } = await import(B + 'ankiImport.js');
+    sweepOrphanMedia();
+    check('commit: the orphan sweep keeps both pictures (the changed card’s and the added card’s)',
+        [(await call(`/api/media/${hashOf(pngOld)}`)).status, (await call(`/api/media/${hashOf(pngNew)}`)).status], [200, 200]);
+
     console.log('\n--- a bundle’s card media reads as file names in the preview ---');
     const mdtag = 'bundle-media';
     await install(edition1(mdtag));
