@@ -4,6 +4,7 @@
  *
  *   node tools/axe-gates.mjs                 check every screen against tools/axe-allowlist.json
  *   node tools/axe-gates.mjs --accept        lower the allowlist to what the screens show now
+ *   node tools/axe-gates.mjs --accept --bootstrap   write it even where it rises (a new list; say why)
  *   node tools/axe-gates.mjs --only home     only the screens whose name contains "home"
  *   node tools/axe-gates.mjs --browser <p>   a Chromium-based browser (default: Edge or Chrome)
  *
@@ -23,15 +24,23 @@
  * The allowlist only goes down. Each screen and rule may have at most the
  * number of failing elements it lists; one more fails the gate, and so does
  * one fewer, so the number is lowered in the same commit as the fix
- * (`--accept` writes the lower numbers and refuses to raise any). A new
- * screen starts with none allowed.
+ * (`--accept` writes the lower numbers and refuses to raise any, an empty
+ * list included; `--bootstrap` alone writes a rise). A new screen starts with
+ * none allowed.
  *
  * Before anything is trusted, axe is shown one deliberately broken button and
  * must report it: a scan that silently found nothing (axe not injected, a
- * page that never loaded) would otherwise read as a clean screen.
+ * page that never loaded) would otherwise read as a clean screen. And each
+ * screen is scanned only once it shows what it draws when loaded
+ * (`READY` in tools/lib/axeScreens.mjs) and no error page: a skeleton or an
+ * error boundary has few controls and would pass.
  *
- * The browser half needs Edge or Chrome. Without one it is SKIPPED locally and
- * fails in CI.
+ * axe's "incomplete" results (it could not decide, mostly contrast over an
+ * image or a gradient) are counted and printed, not gated.
+ *
+ * Windows only: a CI runner on another system skips the whole suite (the
+ * counts are taken with Windows fonts). On Windows it needs Edge or Chrome:
+ * without one it is SKIPPED locally and fails in CI.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -51,6 +60,7 @@ const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
 const accept = flag('--accept');
+const bootstrap = flag('--bootstrap');
 const only = value('--only');
 
 let pass = 0, fail = 0;
@@ -72,6 +82,7 @@ if (process.env.CI && process.platform !== 'win32') {
 }
 
 const { visit, findBrowser, removeScratch, STATES, byText } = await import(pathToFileURL(join(ROOT, 'tools', 'docs-shots.mjs')).href);
+const { readyFor, BROKEN, acceptAllowlist } = await import(pathToFileURL(join(ROOT, 'tools', 'lib', 'axeScreens.mjs')).href);
 
 let browserPath;
 try {
@@ -171,6 +182,8 @@ if (!wanted.length) {
     console.log(`  FAIL  --only ${only} names no screen (screens: ${Object.keys(SCREENS).join(', ')})\n0 passed, 1 failed`);
     process.exit(1);
 }
+const unready = Object.keys(SCREENS).filter((s) => !readyFor(s));
+check('every screen names what it draws once loaded (READY)', !unready.length, unready.map((s) => `        ${s}`).join('\n'));
 const states = {};
 for (const screen of wanted) {
     for (const v of VARIANTS) {
@@ -180,6 +193,11 @@ for (const screen of wanted) {
             await page.send('Emulation.setTouchEmulationEnabled', v.viewport === 'phone' ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
             await page.setting('theme', v.theme);
             await SCREENS[screen](page, ctx);
+            // Drawn, not a skeleton: a wait here means the data came late, so
+            // the screen gets a moment to settle after it.
+            const t = Date.now();
+            await page.waitFor(readyFor(screen) ?? 'false', `${screen} drawn (READY)`);
+            if (Date.now() - t > 300) await sleep(800);
         };
     }
 }
@@ -190,8 +208,11 @@ for (const screen of wanted) {
 
 const RUN_AXE = `(async () => {
     if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
-    const r = await window.axe.run(document, { runOnly: { type: 'tag', values: ${JSON.stringify(TAGS)} }, resultTypes: ['violations'] });
-    return r.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target.join(' '), html: n.html.slice(0, 600), why: (n.failureSummary || '').split('\\n').slice(1, 3).join(' ').trim() })) }));
+    const r = await window.axe.run(document, { runOnly: { type: 'tag', values: ${JSON.stringify(TAGS)} }, resultTypes: ['violations', 'incomplete'] });
+    return {
+        violations: r.violations.map((v) => ({ id: v.id, impact: v.impact, nodes: v.nodes.map((n) => ({ target: n.target.join(' '), html: n.html.slice(0, 600), why: (n.failureSummary || '').split('\\n').slice(1, 3).join(' ').trim() })) })),
+        incomplete: r.incomplete.map((v) => ({ id: v.id, targets: v.nodes.map((n) => n.target.join(' ')) })),
+    };
 })()`;
 
 /** axe must see a button with no name: proof the scan runs at all. */
@@ -206,6 +227,8 @@ const SELF_TEST = `(async () => {
 })()`;
 
 const seen = {};
+const undecided = {};
+const broken = [];
 let selfTested = false;
 const scratch = mkdtempSync(join(tmpdir(), 'axe-gates-'));
 const t0 = Date.now();
@@ -215,7 +238,10 @@ try {
         const variant = state.split(' ')[1];
         const dark = await page.evaluate(`document.documentElement.classList.contains('dark')`);
         if (dark !== variant.startsWith('dark')) throw new Error(`${state}: the page drew ${dark ? 'dark' : 'light'}`);
-        seen[state] = await page.evaluate(RUN_AXE);
+        if (await page.evaluate(BROKEN)) broken.push(state);
+        const result = await page.evaluate(RUN_AXE);
+        seen[state] = result.violations;
+        undecided[state] = result.incomplete;
         if (!selfTested) { selfTested = true; check('axe reports a button with no name (the scan really runs)', await page.evaluate(SELF_TEST)); }
     }, prepare, states);
 } finally {
@@ -245,21 +271,25 @@ for (const violations of Object.values(seen)) for (const v of violations) for (c
 const raw = Object.values(seen).flat().reduce((a, v) => a + v.nodes.length, 0);
 console.log(`\n${Object.keys(seen).length} scans in ${seconds} s: ${unique.size} unique rule+element failures (${Object.entries(byImpact).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}), ${raw} in all`);
 
+// What axe could not decide (needs a person): counted, not gated.
+const undecidedByRule = {};
+for (const results of Object.values(undecided)) for (const r of results) for (const t of r.targets) {
+    (undecidedByRule[r.id] ??= new Set()).add(t);
+}
+const undecidedTotal = Object.values(undecidedByRule).reduce((a, s) => a + s.size, 0);
+console.log(`axe could not decide ${undecidedTotal} unique rule+element pair(s)${undecidedTotal ? `: ${Object.entries(undecidedByRule).sort(([, a], [, b]) => b.size - a.size).map(([id, s]) => `${id} ${s.size}`).join(', ')}` : ''}`);
+
 if (accept) {
-    const raised = [];
-    const next = { ...allowed };
-    for (const state of Object.keys(seen)) {
-        const now = counts[state];
-        const before = allowed[state] ?? {};
-        for (const [rule, n] of Object.entries(now)) if (n > (before[rule] ?? 0)) raised.push(`${state} ${rule}: ${before[rule] ?? 0} -> ${n}`);
-        if (Object.keys(now).length) next[state] = Object.fromEntries(Object.entries(now).sort());
-        else delete next[state];
-    }
-    if (raised.length && Object.keys(allowed).length) {
-        console.log(`\nrefusing to raise the allowlist:\n  ${raised.join('\n  ')}\nfix these, or edit tools/axe-allowlist.json by hand and say why in the commit`);
+    if (broken.length) {
+        console.log(`\nnot writing the allowlist: ${broken.length} screen(s) drew an error page:\n  ${broken.join('\n  ')}`);
         process.exit(1);
     }
-    const sorted = Object.fromEntries(Object.entries(next).sort(([a], [b]) => a.localeCompare(b)));
+    const result = acceptAllowlist(allowed, counts, { bootstrap });
+    if (result.refused) {
+        console.log(`\nrefusing to raise the allowlist:\n  ${result.refused.join('\n  ')}\nfix these, or run with --bootstrap and say why in the commit`);
+        process.exit(1);
+    }
+    const sorted = result.allowed;
     writeFileSync(ALLOWLIST, `${JSON.stringify({ about: file.about ?? 'Failing elements allowed per screen and axe rule. Numbers only go down: see tools/axe-gates.mjs.', allowed: sorted }, null, 2)}\n`);
     console.log(`wrote ${Object.values(sorted).reduce((a, r) => a + Object.values(r).reduce((x, y) => x + y, 0), 0)} allowed element(s) on ${Object.keys(sorted).length} screen(s)`);
     process.exit(0);
@@ -279,6 +309,7 @@ for (const state of Object.keys(seen).sort()) {
     check(`${state}: the allowlist is no higher than the screen`, !better.length,
         better.map(([rule, n]) => `        ${rule}: ${now[rule] ?? 0} now, ${n} allowed; lower it (node tools/axe-gates.mjs --accept)`).join('\n'));
 }
+check('no screen drew an error page in place of itself', !broken.length, broken.map((s) => `        ${s}`).join('\n'));
 if (!only) {
     const stale = Object.keys(allowed).filter((s) => !(s in seen));
     check('every allowlisted screen is still scanned', !stale.length, stale.map((s) => `        ${s}`).join('\n'));

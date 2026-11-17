@@ -306,6 +306,15 @@ const gridCatch = grid.slice(grid.indexOf('} catch'));
 check('Projects grid: the drop keeps the start its flash was given', grid.includes('const flash = flashAfterDrop(`project:${draggedId}`);'));
 check('Projects grid: a refused write ends that flash only, first',
     /^\} catch[^{]*\{\s*(\/\/[^\n]*\n\s*)*endDropFlashIf\(`project:\$\{draggedId\}`, flash\);/.test(gridCatch), gridCatch.slice(0, 120));
+// The menu's Move earlier / later flashes the card as a drop does, and a
+// refused write must end that flash too, or the card stays lit after the
+// order springs back.
+const swapFrom = grid.indexOf('const swapProjects = async');
+const swapBody = swapFrom < 0 ? '' : grid.slice(swapFrom, swapFrom + grid.slice(swapFrom).search(/\r?\n {4}\};\r?\n/));
+const swapCatch = swapBody.slice(swapBody.indexOf('} catch'));
+check('Projects grid, menu move: the move keeps the start its flash was given', swapBody.includes('const flash = flashAfterDrop(`project:${id}`);'), swapBody.slice(0, 160));
+check('Projects grid, menu move: a refused write ends that flash only, first',
+    /^\} catch[^{]*\{\s*(\/\/[^\n]*\n\s*)*endDropFlashIf\(`project:\$\{id\}`, flash\);/.test(swapCatch), swapCatch.slice(0, 120));
 check('each surface asks once per path, no more (two on the board; two on the projects grid, a drop and a menu move; one in the sidebar)',
     (board.match(/flashAfterDrop\(/g) ?? []).length === 2
     && (sidebar.match(/flashAfterDrop\(/g) ?? []).length === 1
