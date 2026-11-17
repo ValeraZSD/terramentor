@@ -85,10 +85,14 @@ export default function EstimateChart({ points, threshold, day, describe }: {
         const y = clientY - rect.top;
         const dx = (i: number) => Math.abs(xy[i].x - x);
         const dy = (i: number) => Math.abs(xy[i].y - y);
-        let best = 0;
-        for (let i = 1; i < xy.length; i++) {
-            const gap = dx(i) - dx(best);
-            if (gap < -0.5 || (Math.abs(gap) <= 0.5 && dy(i) <= dy(best))) best = i;
+        // Two passes, so the half-pixel band is measured from the nearest
+        // time itself and cannot creep from dot to dot.
+        let closest = Infinity;
+        for (let i = 0; i < xy.length; i++) closest = Math.min(closest, dx(i));
+        let best = -1;
+        for (let i = 0; i < xy.length; i++) {
+            if (dx(i) - closest > 0.5) continue;
+            if (best < 0 || dy(i) <= dy(best)) best = i;
         }
         return best;
     };
