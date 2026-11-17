@@ -148,7 +148,7 @@ const SCREENS = {
         await page.go(`/project/${ctx.ids.project}/dashboard`, null);
         await page.waitFor(study, 'the cards owed');
         await page.press(study, 'Study the cards owed');
-        await page.waitFor(`document.querySelector('[data-review-card]')`, 'a card');
+        await page.waitFor(`document.querySelector('[data-owns-keyboard]')`, 'the review session');
         await sleep(800);
     },
     'card-answer': async (page, ctx) => {
