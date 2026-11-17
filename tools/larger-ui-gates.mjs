@@ -155,7 +155,7 @@ for (const screen of wanted) for (const viewport of Object.keys(SIZES)) for (con
 
 const MEASURE = `(() => {
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    const minTarget = 2.75 * rem - 0.5;   // half a pixel for subpixel layout
+    const minTarget = Math.max(2.75 * rem, 44) - 0.5;   // half a pixel for subpixel layout
     const minText = 0.875 * rem - 0.05;
     const name = (el) => (el.getAttribute('aria-label') || el.textContent || el.getAttribute('title') || el.tagName).trim().replace(/\\s+/g, ' ').slice(0, 40);
     const where = (el) => {
@@ -165,10 +165,11 @@ const MEASURE = `(() => {
         }
         return parts.join(' > ');
     };
-    const shown = (el) => {
+    // aria-hidden text is still painted, so the text count keeps it.
+    const shown = (el, painted = false) => {
         const r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1) return false;
-        if (el.closest('[inert], [aria-hidden="true"], .sr-only')) return false;
+        if (el.closest(painted ? '.sr-only' : '[inert], [aria-hidden="true"], .sr-only')) return false;
         const cs = getComputedStyle(el);
         return cs.visibility !== 'hidden' && cs.display !== 'none';
     };
@@ -183,13 +184,28 @@ const MEASURE = `(() => {
     };
     const CONTROLS = 'button, select, summary, a[href], input:not([type="hidden"]), textarea, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"], [role="slider"]';
     const targets = [];
+    const probe = {};
+    // Each control's own minimum, by place and name: the floor replaces it,
+    // so a control that asked for more than the floor must keep asking.
+    // (Its rendered height is no use here: a stretched flex item follows its
+    // neighbours, and they change as text grows.)
+    const px = (v) => v.endsWith('px') ? parseFloat(v) : 0;
+    const mins = {};
+    let controls = 0;
     for (const el of document.querySelectorAll(CONTROLS)) {
-        if (el.matches('p a, blockquote a, .prose a, [data-prose] a')) continue;
+        // A link in running text, as the CSS rule spares it; a chip drawn in
+        // an answer sits under .not-prose and is measured like any control.
+        if (el.matches(':is(p, blockquote, .prose) a') && !el.closest('.not-prose')) continue;
         // A control inside another control is pressed through its parent.
         if (el.parentElement && el.parentElement.closest(CONTROLS) && !el.matches('input[type="checkbox"], input[type="radio"]')) continue;
         if (!shown(el) && !el.matches('input[type="checkbox"], input[type="radio"]')) continue;
         if (el.matches('input[type="checkbox"], input[type="radio"]') && (el.closest('[inert], [aria-hidden="true"]') || !el.getClientRects().length)) continue;
+        controls++;
+        const key = where(el) + ' | ' + name(el);
+        const cs = getComputedStyle(el);
+        mins[key] = key in mins ? null : [px(cs.minHeight), px(cs.minWidth)];
         const a = area(el);
+        if (el.closest('[data-gate-probe]')) { probe[el.dataset.probe] = { small: a.w < minTarget || a.h < minTarget, minH: px(getComputedStyle(el).minHeight) }; continue; }
         if (a.w < minTarget || a.h < minTarget) targets.push({ name: name(el), size: Math.round(a.w) + 'x' + Math.round(a.h), where: where(el) });
     }
     const text = [];
@@ -201,12 +217,29 @@ const MEASURE = `(() => {
         if (!el || seen.has(el)) continue;
         seen.add(el);
         if (el.closest('svg, .katex, sup, sub, script, style, noscript, template')) continue;
-        if (!shown(el)) continue;
+        if (!shown(el, true)) continue;
         const size = parseFloat(getComputedStyle(el).fontSize);
+        if (el.closest('[data-gate-probe]')) { if (el.dataset.probe === 'text') probe.text = { small: size < minText }; continue; }
         if (size < minText) text.push({ text: n.nodeValue.trim().slice(0, 40), size: (size / rem).toFixed(3) + 'rem', where: where(el) });
     }
-    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text };
+    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text, mins, probe, examined: { controls, text: seen.size } };
 })()`;
+
+// Three known controls put on every page, so the counts cannot pass by
+// measuring nothing: a 20px button and a label in the smallest size (the
+// measurement must see both with the setting off, and the setting must grow
+// both), and a button that asks for 64px (the floor must not take it away).
+// Off-screen, so no screenshot shows them; removed before the shot anyway.
+const PROBE = `(() => {
+    const box = document.createElement('div');
+    box.setAttribute('data-gate-probe', '');
+    box.style.cssText = 'position:fixed;left:-400px;top:0;width:300px';
+    box.innerHTML = '<button type="button" data-probe="small" class="w-5 h-5 p-0">x</button>'
+        + '<span data-probe="text" class="text-3xs">probe</span>'
+        + '<button type="button" data-probe="tall" class="min-h-16 w-full">tall</button>';
+    document.body.appendChild(box);
+})()`;
+const UNPROBE = `document.querySelector('[data-gate-probe]')?.remove()`;
 
 const AXE_TARGETS = `(async () => {
     if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
@@ -221,9 +254,11 @@ const t0 = Date.now();
 try {
     const { prepare } = await import(pathToFileURL(FIXTURE).href);
     await visit('fixture', scratch, [{ states: Object.keys(states) }], SIZES.desktop, browserPath, async (_entry, state, page) => {
+        await page.evaluate(PROBE);
         const m = await page.evaluate(MEASURE);
         m.axe = state.endsWith(' on') ? await page.evaluate(AXE_TARGETS) : [];
         seen[state] = m;
+        await page.evaluate(UNPROBE);
         if (shots) writeFileSync(join(shots, `${state.replace(/ /g, '_')}.png`), await page.png());
     }, prepare, states);
 } finally {
@@ -249,7 +284,17 @@ const list = (items, fmt) => items.slice(0, 6).map((x) => `        ${fmt(x)}`).j
 for (const [state, m] of Object.entries(seen)) {
     const on = state.endsWith(' on');
     check(`${state}: the page ${on ? 'carries' : 'does not carry'} data-larger-ui`, m.attr === on);
+    // A screen that never rendered would pass every count below with nothing in it.
+    check(`${state}: the screen rendered (${m.examined.controls} controls, ${m.examined.text} text runs)`, m.examined.controls >= 5 && m.examined.text >= 5);
+    const p = m.probe;
+    check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
+        !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));
     if (!on) continue;
+    check(`${state}: a button that asks for 64px keeps it`, p.tall?.minH >= 63.5, JSON.stringify(p.tall));
+    const off = seen[state.replace(/ on$/, ' off')];
+    const shrunk = off ? Object.entries(m.mins).filter(([k, v]) => v && off.mins[k] && (off.mins[k][0] - v[0] > 0.5 || off.mins[k][1] - v[1] > 0.5))
+        .map(([k, v]) => `min ${off.mins[k].map(Math.round).join('x')} -> ${v.map(Math.round).join('x')}  ${k}`) : [];
+    check(`${state}: no control asks for less than it did with the setting off`, shrunk.length === 0, list(shrunk, (x) => x));
     check(`${state}: no control under 44px`, m.targets.length === 0, list(m.targets, (x) => `${x.size}  "${x.name}"  ${x.where}`));
     check(`${state}: no text under 14px`, m.text.length === 0, list(m.text, (x) => `${x.size}  "${x.text}"  ${x.where}`));
     check(`${state}: axe target-size finds nothing`, m.axe.length === 0, list(m.axe, (x) => x));

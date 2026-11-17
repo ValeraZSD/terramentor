@@ -43,7 +43,7 @@ export interface A11yPrefs {
     cardAudioAutoplay: boolean;
     /** A press on an answer or a rating selects it; a second press confirms. */
     confirmAnswers: boolean;
-    /** No text under the body size, and every control at least 44px each way. */
+    /** No text under the body size (code keeps its own), and every control at least 44px each way. */
     largerUi: boolean;
 }
 

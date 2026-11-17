@@ -161,7 +161,7 @@ export const SETTINGS = {
     card_audio_autoplay: client('ui', bool),
     // A press on an answer or a rating selects it; a second press confirms.
     confirm_answers: client('ui', bool),
-    // No text under the body size, every control at least 44px each way.
+    // No text under the body size (code keeps its own), every control at least 44px each way.
     larger_ui: client('ui', bool),
     // The bounds the store clamps the drag to (store.ts setSidebarWidth / setDetailPanelWidth).
     sidebarWidth: client('ui', int(200, 600)),

@@ -106,6 +106,6 @@ for (const script of targets) {
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
 process.stdout.write(
     `\n${targets.length - failed}/${targets.length} suites passed, ` +
-        `~${totalAssertions} assertions, ${seconds}s${quick ? ' (--quick: harnesses skipped)' : ''}\n`,
+        `~${totalAssertions} assertions, ${seconds}s${quick ? ' (--quick: harnesses and browser scans skipped)' : ''}\n`,
 );
 process.exit(failed === 0 ? 0 : 1);
