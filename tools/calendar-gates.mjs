@@ -696,8 +696,9 @@ console.log('\n--- the navigator sits with the name it changes; keys ---');
         /const owner = roomy && chipsNameOwner \?/.test(view));
     check('a chip that runs several days says which days, and its course on a line of its own',
         /\{span && <span[^>]*>\{span\}<\/span>\}/.test(view) && /\{owner && <span[^>]*break-words[^>]*>\{owner\}<\/span>\}/.test(view));
-    const settings = src('src/components/settings/GeneralSettings.tsx');
-    check('Settings → Keyboard shortcuts lists the calendar\'s keys',
+    // The shortcut list lives in Settings → Accessibility (moved from General).
+    const settings = src('src/components/settings/AccessibilitySettings.tsx');
+    check('Settings → Accessibility → Keyboard shortcuts lists the calendar\'s keys',
         ['prev', 'next', 'today', 'month', 'week', 'day'].every(k => settings.includes(`CALENDAR_KEYCAPS.${k}`)));
 }
 

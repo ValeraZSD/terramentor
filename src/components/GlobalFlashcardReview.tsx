@@ -30,6 +30,8 @@ import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
 import { ContentLang } from '../utils/contentLang';
+import ReadAloudButton from './ui/ReadAloudButton';
+import { useConfirmPress } from '../hooks/useConfirmPress';
 
 interface EnrichedFlashcard extends Flashcard {
     node_title?: string;
@@ -288,6 +290,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     // nowhere, or the session surface, which takes focus as it opens),
     // never out of a control the learner moved to.
     const revealRef = useRef<HTMLButtonElement>(null);
+    const cardTextRef = useRef<HTMLDivElement>(null);
+    const readAloud = useStore(s => s.a11y.readAloud);
     const ratingsRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const active = document.activeElement;
@@ -414,13 +418,14 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
         if (ref && useItemReports.getState().byRef[ref]) void useItemReports.getState().refresh([ref]);
     }, []);
 
+    const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
     useFlashcardKeys({
         // The editor owns the keyboard while it is open, or typing a card's
         // answer would flip the card under the dialog and rate it "1".
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => handleRate(RATING_ORDER[i]),
+        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
         onUndo: handleUndo,
     });
 
@@ -776,10 +781,12 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         button or Space. The flag sits over its top-right corner
                         as a sibling, and the chip row leaves it the room. */}
                     <div className="relative flex-1 min-h-0 flex flex-col">
-                    <div className="absolute right-1.5 top-1 z-10 sm:right-3 sm:top-2.5">
+                    <div className="absolute right-1.5 top-1 z-10 flex items-center gap-1 sm:right-3 sm:top-2.5">
+                        <ReadAloudButton key={`${currentCard.id}-${queue.flipped}`} target={cardTextRef} size="md" />
                         <ReportItem key={currentCard.id} itemRef={currentRef} surface="review" hideKey={!queue.flipped} />
                     </div>
                     <div
+                        ref={cardTextRef}
                         data-review-card
                         onClick={() => queue.setFlipped(!queue.flipped)}
                         className="cursor-pointer select-none flex-1 min-h-0 flex flex-col rounded-2xl"
@@ -793,7 +800,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div className="flex shrink-0 items-center justify-between gap-2 pl-3 pr-12 pt-2.5 sm:pl-5 sm:pr-14 sm:pt-4">
+                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 pl-3 pt-2.5 sm:pl-5 sm:pt-4 ${readAloud ? 'pr-24 sm:pr-28' : 'pr-12 sm:pr-14'}`}>
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>
@@ -892,7 +899,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                     key={rating}
                                     rating={rating}
                                     when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
-                                    onClick={() => handleRate(rating)}
+                                    onClick={() => confirmRate.press(rating, () => handleRate(rating))}
+                                    armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                     disabled={!queue.flipped || saving}
                                     tabIndex={queue.flipped ? 0 : -1}
                                     // The digit is a KEYCAP, not a rank — it

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
+import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { storedInfo as keptInfo, forgetStoredInfo } from '../utils/mediaDescriptions';
@@ -135,13 +136,16 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
         el.play().catch(() => setPlaying(null));
     };
 
+    // Settings → Accessibility can turn the opening sequence off: sound that
+    // starts by itself talks over a screen reader. Every clip keeps its button.
+    const autoAllowed = useStore(s => s.a11y.cardAudioAutoplay);
     useEffect(() => {
-        if (autoPlay && items.length) play(0, { chain: true });
+        if (autoPlay && autoAllowed && items.length) play(0, { chain: true });
         else stopAll();
         return stopAll;
         // Re-runs when the side changes (a new set of hashes), never on re-render.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key, autoPlay]);
+    }, [key, autoPlay, autoAllowed]);
 
     const engine = useMemo<AudioEngine>(() => ({
         items,

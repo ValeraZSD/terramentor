@@ -401,7 +401,7 @@ const htmlComponents: Components = {
                 size={16}
                 aria-hidden
                 className="mt-1 shrink-0 text-slate-500 transition-transform duration-200 [details[open]>summary>&]:rotate-90 dark:text-slate-400
-                           motion-reduce:transition-none"
+                           motion-off:transition-none"
             />
             {children}
         </summary>

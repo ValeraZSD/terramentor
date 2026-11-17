@@ -3,6 +3,8 @@ import { useTapGuard } from '../hooks/useTapGuard';
 import { MOD_KEY, usePhysicalKeyboard, usePointerVerb } from '../utils/platform';
 import Markdown from './Markdown';
 import { Button } from './ui/Button';
+import ReadAloudButton from './ui/ReadAloudButton';
+import ReadingLine from './ui/ReadingLine';
 import { useStore } from '../store';
 import {
     X, Check, PenLine, FileText, RotateCcw,
@@ -64,6 +66,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
     // for the old one must not say "Saved" over the new one.
     const saveSeq = useRef(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const readRef = useRef<HTMLDivElement>(null);
     const showConfirm = useStore(s => s.showConfirm);
     const hasKeyboard = usePhysicalKeyboard();
     const pointerVerb = usePointerVerb();
@@ -257,6 +260,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                                 {tr("Saved")}
                             </span>
                         )}
+                        {hasContent && <ReadAloudButton target={readRef} />}
                         <Button
                             size="sm"
                             variant="quiet"
@@ -289,7 +293,8 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                     {hasContent ? (
                         <>
                             <div className="p-4 max-h-[22.5rem] overflow-y-auto overscroll-contain custom-scrollbar select-text">
-                                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2">
+                                <ReadingLine>
+                                <div ref={readRef} className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2">
                                     <Markdown
                                         content={localValue}
                                         nodeId={nodeId}
@@ -298,6 +303,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                                         onRepaired={handleRepaired}
                                     />
                                 </div>
+                                </ReadingLine>
                             </div>
                             {/* The edit hint is a STRIP UNDER the content, not a
                                 floating pill over it. As an overlay it sat at 0.75

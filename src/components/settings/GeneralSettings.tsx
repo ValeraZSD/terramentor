@@ -1,5 +1,4 @@
 import { useTranslation } from 'react-i18next';
-import { MOD_KEY, usePhysicalKeyboard } from '../../utils/platform';
 import { useStore, MIN_UI_SCALE, MAX_UI_SCALE, DEFAULT_UI_SCALE, UI_SCALE_STEP } from '../../store';
 import { RotateCcw } from 'lucide-react';
 import { IconButton } from '../ui/Button';
@@ -7,19 +6,17 @@ import { Select } from '../ui/Field';
 import SegmentedControl from '../ui/SegmentedControl';
 import Stepper from '../ui/Stepper';
 import Slider from '../ui/Slider';
-import Switch from '../ui/Switch';
-import { SettingGroup, SettingRow, GROUP_CAPTION } from '../ui/SettingRow';
+import { SettingGroup, SettingRow } from '../ui/SettingRow';
 import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
 import { ColourChooser } from './ColourFields';
-import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
+import { settingTargetId } from '../../utils/settingTarget';
 
 // Theme picker data lives beside ThemeCards in AppearanceControls.tsx, shared
 // with the welcome screen.
 
-/** Settings → General: appearance, language and region, and the keyboard
- *  shortcuts. */
+/** Settings → General: appearance, language and region. */
 export default function GeneralSettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     // Theme, the colours and UI language are their own components (ThemeCards,
@@ -30,9 +27,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
     const setWeekStartDay = useStore(s => s.setWeekStartDay);
     const numberFormat = useStore(s => s.numberFormat);
     const setNumberFormat = useStore(s => s.setNumberFormat);
-    const hasKeyboard = usePhysicalKeyboard();
-    const keyShortcuts = useStore(s => s.keyShortcuts);
-    const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
 
     return (
         <>
@@ -63,6 +57,7 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         most common reason to open Settings at all and it
                         must not wait below the colour swatches. */}
                     <SettingRow
+                        id={settingTargetId('text-size')}
                         label={tr("Text & interface size")}
                         block
                         control={
@@ -187,46 +182,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                     />
                 </SettingGroup>
             </section>
-
-            {/* KEYBOARD SHORTCUTS — only where there are keys to press.
-                Input capability is not a width breakpoint: this is a
-                whole section of unusable instructions on a phone. */}
-            {hasKeyboard && (
-            <section className={active ? 'mb-8' : 'hidden'}>
-                <h2 className={GROUP_CAPTION}>{tr("Keyboard shortcuts")}</h2>
-                <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-700">
-                        <div className="min-w-0">
-                            <p id="key-shortcuts-label" className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Single-key shortcuts")}</p>
-                            <p id="key-shortcuts-hint" className="text-xs text-slate-600 dark:text-slate-300">{tr("Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.", { key: MOD_KEY })}</p>
-                        </div>
-                        <Switch checked={keyShortcuts} onChange={on => void setKeyShortcuts(on)} label={tr("Single-key shortcuts")} describedBy="key-shortcuts-hint" />
-                    </div>
-                    {/* Keycaps follow the platform (⌘ on Apple, Ctrl elsewhere) — the
-                        handlers always accepted both. Listed in full: the assistant
-                        key existed but was documented nowhere. */}
-                    <ul className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
-                        {[
-                            [tr("Open search"), `${MOD_KEY} + K`],
-                            [tr("Open the assistant"), 'A'],
-                            [tr("Cards: show the answer"), tr("Space")],
-                            [tr("Cards: rate Again, Hard, Good or Easy"), '1 2 3 4'],
-                            [tr("Cards: take back the last rating"), `Z  ·  ${MOD_KEY} + Z`],
-                            [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
-                            [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
-                            [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
-                            [tr("Save notes while editing"), `${MOD_KEY} + Enter`],
-                            [tr("Close panels and modals"), 'Esc'],
-                        ].map(([label, combo]) => (
-                            <li key={label} className="flex items-center justify-between gap-3">
-                                <span>{label}</span>
-                                <kbd className="bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded text-xs whitespace-nowrap">{combo}</kbd>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </section>
-            )}
         </>
     );
 }

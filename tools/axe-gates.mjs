@@ -171,6 +171,7 @@ const SCREENS = {
     },
     assistant: STATES['topic-assistant'],
     'settings-general': go('/settings', 'Settings'),
+    'settings-accessibility': settings('Accessibility'),
     'settings-learning': settings('Learning'),
     'settings-models': settings('AI & Models'),
     'settings-web': settings('Web & research'),

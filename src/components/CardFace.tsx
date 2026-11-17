@@ -156,7 +156,10 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
         <CardAudioProvider items={sideAudio} autoPlay={autoPlay}>
         <div lang={lang} className={`flex w-full min-w-0 flex-col items-center text-center ${review ? 'gap-4' : 'gap-3'}`}>
             {/* The question — on the front as the prompt, on the back as the
-                thing the answer belongs to. */}
+                thing the answer belongs to. On the back, Read aloud skips it
+                and reads only the answer (as Anki and Quizlet do): the learner
+                heard the question a moment ago. `contents` keeps the gap. */}
+            <div data-read-skip={flipped || undefined} className="contents">
             <p className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
                 <span>
                     {rubyWord
@@ -171,6 +174,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
             </p>
 
             {contextRows}
+            </div>
 
             {flipped && (
                 <>
