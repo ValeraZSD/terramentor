@@ -108,6 +108,11 @@ check('a choice question that grades on its press asks twice', /confirmAnswers/.
     const drill = read('src/components/drills/DrillPlayer.tsx');
     check('a drill option that grades on its press asks twice', /useConfirmPress</.test(drill) && /pick\.press\(/.test(drill));
 }
+// A shaky click that lands twice is one press: the second, within
+// DOUBLE_PRESS_MS of the first, neither grades nor re-arms.
+check('a double click does not select and grade at once',
+    /Date\.now\(\) - armedAt\.current < DOUBLE_PRESS_MS\) return/.test(read('src/hooks/useConfirmPress.ts'))
+    && /Date\.now\(\) - chosenAt\.current < DOUBLE_PRESS_MS\) return/.test(read('src/components/answer/ChoiceInput.tsx')));
 // An armed rating is announced: the state change on the focused button is
 // what a screen reader reads, the changed second line alone is not.
 check('an armed rating says so to a screen reader', /aria-pressed=\{armed/.test(read('src/components/flashcards/RatingButton.tsx')));

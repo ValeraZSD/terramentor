@@ -164,6 +164,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                         <Button
                             variant="neutral"
                             onClick={() => navigate('/settings#general/text-size')}
+                            aria-label={tr("Open text size in General")}
                             icon={<ArrowRight className="w-4 h-4" aria-hidden="true" />}
                         >
                             {tr("Open")}

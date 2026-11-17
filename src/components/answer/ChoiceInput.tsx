@@ -8,6 +8,7 @@ import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { choiceColumns } from './choiceLayout';
 import { useStore } from '../../store';
+import { DOUBLE_PRESS_MS } from '../../hooks/useConfirmPress';
 import { usePointerVerb } from '../../utils/platform';
 
 const norm = (s: string) => s.toLowerCase().trim();
@@ -112,10 +113,14 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
     // grade at once, the first press only selects and the second, on the same
     // answer, grades. Where there is a Check button already, nothing changes.
     const confirm = useStore(s => s.a11y.confirmAnswers) && !!onCommit;
+    // When the shown answer was selected: a second press sooner than
+    // DOUBLE_PRESS_MS is the same shaky click landing twice.
+    const chosenAt = useRef(0);
     const choose = (option: string) => {
         if (disabled || result) return;
         onChange(option);
-        if (confirm && value !== option) return;
+        if (confirm && value !== option) { chosenAt.current = Date.now(); return; }
+        if (confirm && Date.now() - chosenAt.current < DOUBLE_PRESS_MS) return;
         onCommit?.(option);
     };
 
