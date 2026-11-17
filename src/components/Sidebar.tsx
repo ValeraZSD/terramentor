@@ -17,13 +17,14 @@ import { useDropFlash } from '../hooks/useDropFlash';
 import { useDragA11y, useDragKeyboard, nodeTitle } from '../hooks/useDragA11y';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
+import { useCanHover } from '../utils/platform';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import HeadStartMark from './HeadStartMark';
 import { IconButton } from './ui/Button';
 
-// Visual indent per depth level (px). Kept separate from the engine's default
-// so the drop-line lands exactly under the rows.
+// How far the pointer moves (px) to nest a dragged row one level deeper or
+// shallower. The drawn indent is `--row-indent-tree` (index.css).
 const SIDEBAR_INDENT = 16;
 
 interface SidebarRowProps {
@@ -124,6 +125,23 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         return 'text-slate-500 dark:text-slate-400';
     };
 
+    // With a mouse the grip shows only under the pointer, so it waits at the
+    // row's END: at the start it was a blank slot before every title. On a
+    // touch screen it always shows, and stays at the start, away from the
+    // row's other controls at the end.
+    const canHover = useCanHover();
+    const handle = (
+        <button data-drag-handle
+            {...attributes}
+            {...listeners}
+            onClick={e => e.stopPropagation()}
+            aria-label={t("Drag to reorder")}
+            className={`p-0.5 shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-none ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
+        >
+            <GripVertical className="w-3 h-3" />
+        </button>
+    );
+
     const rootBg = isRoot && !held
         ? { backgroundColor: isSelected ? hexToRgba(projectColor, 0.3) : hexToRgba(projectColor, 0.15) }
         : {};
@@ -133,6 +151,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
             <div
                 data-node-id={node.id}
                 data-sidebar-row
+                data-depth={shownDepth}
                 // A click target for the pointer, not a control: as a button
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
@@ -142,21 +161,17 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
                 style={{
-                    paddingLeft: `${shownDepth * SIDEBAR_INDENT + 8}px`,
+                    paddingLeft: `calc(${shownDepth} * var(--row-indent-tree) + 0.5rem)`,
                     ...rootBg,
                     ...flash?.style,
                 }}
             >
-                <button data-drag-handle
-                    {...attributes}
-                    {...listeners}
-                    onClick={e => e.stopPropagation()}
-                    aria-label={t("Drag to reorder")}
-                    className={`p-0.5 cursor-grab active:cursor-grabbing transition-opacity touch-none ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
-                >
-                    <GripVertical className="w-3 h-3" />
-                </button>
+                {!canHover && handle}
 
+                {/* One column before the title: the fold chevron on a row with
+                    rows under it, the topic's own status mark on one without.
+                    Each level is indented by that column and its gap, so a
+                    row's column sits under the title of the row it belongs to. */}
                 {hasChildren ? (
                     <button data-row-fold
                         onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
@@ -165,39 +180,24 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded shrink-0"
                     >
                         {isExpanded
-                            ? <ChevronDown className="w-4 h-4 text-slate-400" />
-                            : <ChevronRight className="w-4 h-4 text-slate-400" />
+                            ? <ChevronDown data-row-chevron className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                            : <ChevronRight data-row-chevron className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                         }
                     </button>
                 ) : (
-                    <span data-fold-spacer className="w-5 shrink-0" />
+                    <span data-fold-spacer className="w-5 shrink-0 flex items-center justify-center">
+                        {!isRoot && !untaught && <span data-row-status aria-hidden="true">{getStatusIcon()}</span>}
+                    </span>
                 )}
 
                 {isRoot && (
                     <div
+                        data-course-badge
                         className="w-5 h-5 rounded flex items-center justify-center shrink-0"
                         style={{ backgroundColor: projectColor }}
                     >
                         <FolderOpen className="w-3 h-3 text-white" />
                     </div>
-                )}
-
-                {/* A topic with notes under it shows its percentage, but a
-                    ready one shows the shield: the notes are its material,
-                    not parts of it to finish. Hidden from the title's name, so
-                    a voice user does not have to say the percentage. Beside the
-                    title button, not in it, as in the outline (TreeItemRow):
-                    in high contrast the title's frame then holds the title alone. */}
-                {!isRoot && !untaught && (
-                    <span data-row-status className="shrink-0" aria-hidden="true">
-                        {hasChildren && !node.is_note && !readyToProve ? (
-                            <span className={`text-xs font-medium ${getStatusColor()}`}>
-                                {node.progress?.percentage || 0}%
-                            </span>
-                        ) : (
-                            getStatusIcon()
-                        )}
-                    </span>
                 )}
 
                 <button data-row="title"
@@ -212,18 +212,34 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         {node.title}
                     </span>
 
-                    {isRoot && !isNote && !untaught && (
-                        // The course row is tinted with the course colour, where
-                        // the status greys fall under 4.5:1.
-                        <span className="text-xs ml-auto font-medium text-slate-700 dark:text-slate-200" aria-hidden="true">
-                            {node.progress?.percentage || 0}%
-                        </span>
-                    )}
-
                     {showOverdue && isRoot && (
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
                     )}
                 </button>
+                {/* What a row with rows under it has done, at the row's end, the
+                    chapter's and a topic's in one column. A topic with notes
+                    under it shows its percentage, but a ready one shows the
+                    shield: the notes are its material, not parts of it to
+                    finish. Hidden from the title's name, so a voice user does
+                    not have to say the percentage; outside the title button, so
+                    in high contrast its frame holds the title alone. */}
+                {(isRoot ? !isNote : hasChildren) && !untaught && (
+                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">
+                        {isRoot ? (
+                            // The chapter row is tinted with the course colour,
+                            // where the status greys fall under 4.5:1.
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                                {node.progress?.percentage || 0}%
+                            </span>
+                        ) : !node.is_note && !readyToProve ? (
+                            <span className={`text-xs font-medium ${getStatusColor()}`}>
+                                {node.progress?.percentage || 0}%
+                            </span>
+                        ) : (
+                            getStatusIcon()
+                        )}
+                    </span>
+                )}
                 {isLeaf && !isNote && <HeadStartMark node={{ head_start: node.head_start, status: effectiveNodeStatus }} />}
                 {/* -my-0.5: the badge may overhang its padding, never make the row taller than it lands */}
                 {held && projectedDepth !== null && (
@@ -238,6 +254,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         )}
                     </span>
                 )}
+                {canHover && handle}
             </div>
         </div>
     );

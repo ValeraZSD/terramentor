@@ -471,8 +471,8 @@ html[data-larger-ui] :is(
    a title and nothing to tell two rows apart. The tree row keeps a little
    padding so wrapped titles in neighbouring rows do not run together; a
    topic's spacer takes the fold button's width, so it still sits under its
-   chapter; and the course tree is at least 17.5rem wide, since two 44px
-   buttons stand before every title. */
+   chapter; and the course tree is at least 17.5rem wide, since a 44px
+   column (and a chapter's badge) stands before every title. */
 html[data-larger-ui] [data-larger-wraps] {
   white-space: normal;
   overflow-wrap: break-word;
@@ -485,6 +485,15 @@ html[data-larger-ui] [data-fold-spacer] {
 }
 html[data-larger-ui] [data-course-sidebar] {
   min-width: 17.5rem;
+}
+/* One level of the course tree and the outline: the row's first column
+   (fold chevron or status mark) and the gap after it at normal size, so a
+   topic's title starts under its chapter's. The same step with the larger
+   setting, where the column is 44px: a step that wide left a third level
+   one word per line. */
+:root {
+  --row-indent-tree: 1.5rem;
+  --row-indent-outline: 1.625rem;
 }
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
@@ -537,6 +546,17 @@ html[data-larger-ui] [data-checkbox] > input {
      rail's own px-* utility still wins. */
   :where(.rail-scroll) {
     padding: 1px;
+  }
+  /* A drawing keeps its own colours here, so the tree's grey chevrons stayed
+     faint, and a chapter's badge, a white folder on the course colour, lost
+     its fill and showed nothing. Both take the text colour; the badge gets a
+     frame, so a chapter still reads as one. */
+  [data-row-chevron],
+  [data-course-badge] > svg {
+    color: CanvasText;
+  }
+  [data-course-badge] {
+    border: 1px solid CanvasText;
   }
   [aria-current="page"],
   [aria-current="true"],
