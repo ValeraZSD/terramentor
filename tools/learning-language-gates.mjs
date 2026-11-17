@@ -220,6 +220,11 @@ for (const [name, description, want] of [
     ['Staatsexamen NT2 programma II', '', 'nl'],
     ['A Frequency Dictionary of Dutch', '', 'nl'],
     ['Dutch dictionary', '', 'nl'],
+    // An acronym that is also a technical word still counts beside a language.
+    ['FCE English', '', 'en'],
+    ['Cambridge CAE English', '', 'en'],
+    ['TCF Français', '', 'fr'],
+    ['Français TCF', '', 'fr'],
 ]) {
     check(`"${name || description}" -> ${want}`, named(name, description) === want, `got ${named(name, description)}`);
 }

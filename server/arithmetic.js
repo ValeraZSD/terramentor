@@ -36,7 +36,7 @@ function normalizeMath(text) {
         .replace(/\\lambda/g, 'λ')
         // Each Greek letter is its own quantity, so each keeps its own symbol:
         // folding them into one would read "θ = 2φ" as "γ = 2γ".
-        .replace(/\\(alpha|beta|gamma|delta|theta|phi|omega|mu|nu|rho|sigma|tau)\b/g, (_, name) => GREEK[name])
+        .replace(/\\(alpha|beta|gamma|delta|theta|phi|omega|mu|nu|rho|sigma|tau)(?![A-Za-z])/g, (_, name) => GREEK[name])
         // EVERY remaining macro becomes a BREAK, never whitespace. Deleting them
         // is what welds two separate equations into one false chain: "$L =
         // \lambda_1/4 \implies \lambda_1 = 4L$" is two correct statements, and
