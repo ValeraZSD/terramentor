@@ -24,6 +24,7 @@ import { findNode, getNodePath } from '../../utils/tree';
 import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
 import { ContentLang } from '../../utils/contentLang';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * The home page: a vertical learning feed, read like a book.
@@ -194,7 +195,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         if (!next) return;
         const el = cardRefs.current.get(next.key);
         if (!el) return;
-        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const reduced = motionReduced();
         el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
         el.focus({ preventScroll: true });
     }, []);

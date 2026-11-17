@@ -6,7 +6,7 @@ import {
     readPieces, templateParts, bankHolds, servedInKeyOrder, assemblyAgrees, ASSEMBLE_LIMITS,
 } from './answerFormats.js';
 import {
-    canonicalOption, sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
+    canonicalOption, sameOption, sameOptionCased, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, symmetricAboutStem } from './questionOptions.js';
 import {
     SCRIPTS, getNodeLanguage, closerPatterns, nativeScripts, driftedToEnglish,
 } from './language.js';
@@ -493,7 +493,7 @@ export function questionDefects(question, nodeId = null) {
         if (options.length < 2) problems.push('a multiple-choice question needs at least two options');
         for (let i = 0; i < options.length; i++) {
             for (let j = i + 1; j < options.length; j++) {
-                if (sameOption(options[i], options[j])) {
+                if (sameOptionCased(options[i], options[j])) {
                     problems.push(`options ${i + 1} and ${j + 1} are the same value written two ways ("${String(options[i]).slice(0, 40)}" / "${String(options[j]).slice(0, 40)}")`);
                 }
             }

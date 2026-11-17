@@ -1,4 +1,6 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
+import { useStore } from '../store';
+import ReadAloudButton from './ui/ReadAloudButton';
 import MathText from './MathText';
 import Markdown from './Markdown';
 import CardMedia, { parseMediaList, type CardMediaRef } from './CardMedia';
@@ -79,6 +81,8 @@ const QuestionStem = memo(({ content, className = '', nodeId, surface, onRepaire
     // Validated here rather than trusted: this list reaches an `<img src>` and
     // it was written by whatever imported the course.
     const pictures = useMemo(() => parseMediaList(media), [media]);
+    const readAloud = useStore(s => s.a11y.readAloud);
+    const wordsRef = useRef<HTMLDivElement>(null);
 
     const words = hasVisual(content)
         ? (
@@ -92,8 +96,7 @@ const QuestionStem = memo(({ content, className = '', nodeId, surface, onRepaire
         )
         : <MathText content={content} className={className} lines />;
 
-    if (!pictures.length) return words;
-    return (
+    const stem = !pictures.length ? words : (
         <div className="flex flex-col gap-3">
             {words}
             {/* The picture is BELOW the question, not above it: the words say
@@ -101,6 +104,15 @@ const QuestionStem = memo(({ content, className = '', nodeId, surface, onRepaire
                 to hold it in mind with no question to hold it for. Same order
                 as a flashcard, which is the surface these came from. */}
             <CardMedia media={pictures} size={mediaSize} />
+        </div>
+    );
+    // Read aloud (Settings → Accessibility) sits after the question's words;
+    // with it off the stem is exactly what it was.
+    if (!readAloud) return stem;
+    return (
+        <div className="flex items-start gap-1.5">
+            <div ref={wordsRef} className="min-w-0 flex-1">{stem}</div>
+            <ReadAloudButton target={wordsRef} className="-mt-1" />
         </div>
     );
 });
