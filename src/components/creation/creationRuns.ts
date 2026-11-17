@@ -24,7 +24,7 @@ import i18n from '../../i18n';
 import { useStore } from '../../store';
 import {
     type LiveNode, addCategories, addElements, addSubElements, markSubElementDone,
-    markAllCreated, markCategoryGenerating, markElementGenerating, markAllRemainingCancelled, markStoppedAsFailed,
+    markAllCreated, markCategoryGenerating, markElementGenerating, markStoppedAsCancelled, markStoppedAsFailed,
     buildLiveTreeFromDB, resumeTreeFromDB,
 } from './liveTree';
 import { type LogEntry, eventToLogEntry } from './creationLog';
@@ -247,7 +247,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
                 tree = markAllCreated(tree);
                 break;
             case 'cancelled':
-                tree = markAllRemainingCancelled(tree);
+                tree = markStoppedAsCancelled(tree);
                 break;
         }
         if (tree !== run.tree) next.tree = tree;
@@ -275,7 +275,7 @@ function settle(key: string, status: 'complete' | 'cancelled' | 'error', error: 
         status,
         finishedAt: run.finishedAt ?? Date.now(),
         error: error ?? run.error,
-        tree: status === 'complete' ? markAllCreated(run.tree) : status === 'cancelled' ? markAllRemainingCancelled(run.tree) : markStoppedAsFailed(run.tree),
+        tree: status === 'complete' ? markAllCreated(run.tree) : status === 'cancelled' ? markStoppedAsCancelled(run.tree) : markStoppedAsFailed(run.tree),
         log: settleLog(run.log, status === 'complete' ? 'success' : status === 'cancelled' ? 'warning' : 'error'),
         queuePosition: null,
     }));
@@ -349,7 +349,7 @@ async function consume(key: string, open: Stream) {
             if (run && isRunLive(run)) settle(key, 'cancelled');
             return;
         }
-        settle(key, 'error', e?.message || 'Unknown AI creation error');
+        settle(key, 'error', e?.message || i18n.t("Something went wrong"));
     } finally {
         controllers.delete(key);
     }
@@ -588,19 +588,31 @@ function stopPolling() {
 }
 
 let reattached = false;
+let reattaching = false;
+let reattachFailures = 0;
+/** The app can open before the server answers (a desktop launch, a reload
+ *  while it restarts): a failed first read is asked again a few times. */
+const REATTACH_RETRY_MS = 2000;
+const REATTACH_MAX_FAILURES = 5;
 /**
  * Once per page: pick up every run the server is still working on (and any this
  * browser was watching that settled while it reloaded), so each has a chip, a
- * screen and a live ETA again.
+ * screen and a live ETA again. Done only once the server has answered.
  */
 export async function reattachCreationRuns() {
-    if (reattached) return;
-    reattached = true;
+    if (reattached || reattaching) return;
+    reattaching = true;
     try { localStorage.removeItem('ai-creation-progress'); } catch { /* the single-run store this replaced */ }
     let generations: Snapshot[];
     try {
         ({ generations } = await api.getCreationStatus());
-    } catch { return; }
+    } catch {
+        reattaching = false;
+        if (++reattachFailures < REATTACH_MAX_FAILURES) window.setTimeout(() => { void reattachCreationRuns(); }, REATTACH_RETRY_MS);
+        return;
+    }
+    reattached = true;
+    reattaching = false;
     const saved = readSavedLogs();
     const known = new Set(Object.values(useCreationRuns.getState().runs).map(r => r.runId));
     for (const g of generations) {
