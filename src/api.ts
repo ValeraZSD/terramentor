@@ -2498,6 +2498,14 @@ export const api = {
     retryLessonWrite: (nodeId: number) =>
         request<{ lessonWrite: LessonWrite | null }>(`/feed/nodes/${nodeId}/lesson/retry`, { method: 'POST' }),
 
+    // A topic's questions asked before its first part: recorded once, never evidence.
+    recordPreQuestions: (nodeId: number, body: { outcome: 'answered' | 'skipped'; items: { ref: string; correct: boolean | null }[] }) =>
+        request<{ ok: true; duplicate?: true }>(`/feed/nodes/${nodeId}/pre-questions`, { method: 'POST', body: JSON.stringify(body) }),
+
+    // The learner's own account of a lesson part, marked against the part.
+    explainBack: (feedItemId: number, text: string) =>
+        request<{ verdict: 'good' | 'weak' | 'unsure'; reason: string }>(`/feed/lessons/${feedItemId}/explain`, { method: 'POST', body: JSON.stringify({ text }) }),
+
     // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
     // the learner answers the topic above it).
     getCheckpointFacts: (nodeId: number) =>
