@@ -31,7 +31,17 @@ function useElementSide(ref: RefObject<HTMLElement | null>, side: 'width' | 'hei
     useLayoutEffect(() => {
         const el = ref.current;
         if (!el) return;
-        const measure = () => setSize(side === 'width' ? el.clientWidth : el.clientHeight);
+        // The content box, the same quantity the observer reports
+        // (`contentRect`): `clientWidth` alone includes the padding, so a padded
+        // element read 32px wider after a window resize than after an observer
+        // callback, and a threshold flipped on the wrong side.
+        const measure = () => {
+            const cs = getComputedStyle(el);
+            const pad = side === 'width'
+                ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+                : (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+            setSize(Math.max(0, (side === 'width' ? el.clientWidth : el.clientHeight) - pad));
+        };
         measure();
 
         // Both, because neither alone is enough. `resize` misses the cases that

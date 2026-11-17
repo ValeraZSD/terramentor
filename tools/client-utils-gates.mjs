@@ -44,7 +44,7 @@ const section = (name) => console.log(`\n${name}`);
 
 const g = globalThis;
 const GLOBALS = ['window', 'document', 'HTMLElement', 'Element', 'Node', 'MutationObserver',
-    'ResizeObserver', 'localStorage', 'IS_REACT_ACT_ENVIRONMENT'];
+    'ResizeObserver', 'localStorage', 'IS_REACT_ACT_ENVIRONMENT', 'getComputedStyle'];
 const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
 const setGlobals = (values) => {
     for (const [k, value] of Object.entries(values)) {
@@ -152,6 +152,53 @@ try {
         fire('touchmove', 120, 100);
         fire('touchmove', 70, 100);
         check('a cancel at the start offset does not freeze the carousel', at() === 'translateX(-330px)', at());
+        unmount();
+    }
+    restoreGlobals();
+
+    // -----------------------------------------------------------------------
+    section('an element\'s measured width is one quantity, whichever event measured it');
+    {
+        const { window } = newDom();
+        const doc = window.document;
+        // jsdom lays nothing out: 332px including 16px padding on each side.
+        Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 332 });
+        let observed = null;
+        setGlobals({
+            window, document: doc, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
+            MutationObserver: window.MutationObserver, IS_REACT_ACT_ENVIRONMENT: true,
+            getComputedStyle: window.getComputedStyle.bind(window),
+            ResizeObserver: class { constructor(cb) { observed = cb; } observe() {} disconnect() {} },
+        });
+        const probe = await bundle('width', {
+            stdin: {
+                contents: `
+                    import * as React from 'react';
+                    import { createRoot } from 'react-dom/client';
+                    import { useElementWidth } from './src/hooks/useElementWidth';
+                    export function mount(el, seen) {
+                        const root = createRoot(el);
+                        function Probe() {
+                            const ref = React.useRef(null);
+                            const w = useElementWidth(ref);
+                            seen.push(w);
+                            return React.createElement('div', { ref, style: { padding: '0 16px' } });
+                        }
+                        React.act(() => root.render(React.createElement(Probe)));
+                        return () => React.act(() => root.unmount());
+                    }
+                    export const act = (fn) => React.act(fn);`,
+                resolveDir: repo, loader: 'tsx',
+            },
+        });
+        const host = doc.createElement('div');
+        doc.body.append(host);
+        const seen = [];
+        const unmount = probe.mount(host, seen);
+        check('the first measure is the content width, as the observer reports it', seen.at(-1) === 300, String(seen.at(-1)));
+        probe.act(() => observed([{ contentRect: { width: 300, height: 0 } }]));
+        probe.act(() => window.dispatchEvent(new window.Event('resize')));
+        check('a window resize after an observer callback does not add the padding back', seen.at(-1) === 300, seen.join(','));
         unmount();
     }
     restoreGlobals();
