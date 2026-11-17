@@ -983,6 +983,11 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             curr().querySelectorAll('[data-date]').length > 0
             && [...curr().querySelectorAll('[data-date]')].every(c => c.querySelector('button[data-day-open]')),
             `${curr().querySelectorAll('button[data-day-open]').length} of ${curr().querySelectorAll('[data-date]').length}`);
+        // A button's own line box sat the number ~4px lower than the span it
+        // replaced, and its ring touched the digits: a flex box with side padding.
+        check('month: the day number keeps its place and its ring clears the digits',
+            /\binline-flex\b/.test(dayNumber('2026-11-10')?.className ?? '') && /\bpx-0\.5\b/.test(dayNumber('2026-11-10')?.className ?? ''),
+            dayNumber('2026-11-10')?.className);
         await click(dayNumber('2026-11-10'), 'a day number in the month');
         check('month: pressing the day number opens that day as a week',
             radio('Week')?.getAttribute('aria-checked') === 'true' && !!curr().querySelector('[data-date="2026-11-10"]'),

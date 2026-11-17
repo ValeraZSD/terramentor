@@ -683,7 +683,11 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                 data-day-open
                                 title={tr("Open this day")}
                                 onClick={e => { e.stopPropagation(); openDay(day.date); }}
-                                className={`self-start mb-1 shrink-0 ${FOCUS_RING}`}
+                                /* A flex box, so the number sits where the old span did
+                                   (a button's own line box pushed it ~4px down), and a
+                                   little side padding, cancelled by the margin, so the
+                                   focus ring clears the digits. */
+                                className={`self-start mb-1 shrink-0 inline-flex -mx-0.5 px-0.5 rounded ${FOCUS_RING}`}
                             >
                                 <span className={`text-xs font-semibold ${day.isToday
                                     ? 'bg-accent text-white w-5 h-5 rounded-full inline-flex items-center justify-center leading-none'
