@@ -12,6 +12,19 @@ import { FADING_TOPIC, fadingCutoff } from './fading.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
 import { shakyQuestions } from './questionLog.js';
 
+/**
+ * Which seed the estimate started from. Both can be stored, and they combine
+ * by MAX (`applySeededPrior`), so the larger one is the one in the number; a
+ * tie goes to transfer, as in `headStartOf` (server/headStart.js).
+ */
+function seedNameOf(record) {
+    const placement = record?.placement_prior;
+    const transfer = record?.transferred_prior;
+    if (placement == null) return transfer == null ? null : 'transfer';
+    if (transfer == null) return 'placement';
+    return Number(transfer) >= Number(placement) ? 'transfer' : 'placement';
+}
+
 /** Newest first; a topic with more shows how many more there are. */
 export const TRAIL_LIMIT = 100;
 /** The still-shaky questions listed; the count says how many there are. */
@@ -158,7 +171,7 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
             // What the proving answers alone give (the trail's steps end
             // here); under `score` when cards or drills lifted the number.
             answersScore: eligibility && level !== 'none' ? eligibility.gate_score : null,
-            seed: record?.placement_prior != null ? 'placement' : record?.transferred_prior != null ? 'transfer' : null,
+            seed: seedNameOf(record),
             ownAnswers: eligibility?.own_answers ?? 0,
             practiceRight: eligibility?.practice_right ?? 0,
             practiceTotal: eligibility?.practice_total ?? 0,

@@ -12,7 +12,19 @@
 //   cards  — a card's FIRST review, unless that review sits within 2 seconds of
 //            the review before or after it. Rows that close together are a
 //            script or a test run, not a person: on one real library 474 of 667
-//            review rows were under 2 s apart.
+//            review rows were under 2 s apart. An in-app first row that found
+//            the card already past New (`state_before` > 0: a card imported
+//            with a review count but no history) was met before this library
+//            kept a log, so it is not a card met that day. A row with no
+//            `state_before` at all (written before the column existed) is
+//            unknown, not past New, so it counts; decks.js and feed.js ask the
+//            stricter `= 0` because they pick out today's new cards.
+//
+// Each unit's record begins on its own day: topics at the oldest course with a
+// topic (or an older completion), cards at the oldest card (or an older
+// review). A learner with a deck since January and a course since last week
+// has one week of topic data, not forty-five empty ones. The card record reads
+// the cards that still exist: deleting a deck's oldest cards moves it forward.
 //
 // Days are the learner's (server/studyDay.js): a topic closed at 23:30 UTC on a
 // Monday was closed on Tuesday in Amsterdam, and lands in Tuesday's week.
@@ -44,7 +56,7 @@ function statements() {
         `),
         cardsMet: db.prepare(`
             WITH r AS (
-                SELECT rl.reviewed_at, julianday(rl.reviewed_at) AS jd,
+                SELECT rl.reviewed_at, rl.source, rl.state_before, julianday(rl.reviewed_at) AS jd,
                        LAG(julianday(rl.reviewed_at)) OVER w AS prev_jd,
                        LEAD(julianday(rl.reviewed_at)) OVER w AS next_jd,
                        ROW_NUMBER() OVER (PARTITION BY rl.card_id ORDER BY julianday(rl.reviewed_at), rl.id) AS nth
@@ -53,12 +65,18 @@ function statements() {
             )
             SELECT ${AS_ISO('reviewed_at')} AS at FROM r
             WHERE nth = 1
+              AND (source <> 'app' OR COALESCE(state_before, 0) = 0)
               AND (prev_jd IS NULL OR (jd - prev_jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
               AND (next_jd IS NULL OR (next_jd - jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
         `),
-        // Where the record begins: three aggregates, no sort, so a screen that
-        // needs only topics never pays for the review log's window query.
-        firstCourse: db.prepare(`SELECT MIN(${AS_ISO('created_at')}) AS at FROM projects`),
+        // Where each unit's record begins: single aggregates (one correlated
+        // EXISTS per project for topics), so a screen that needs only topics
+        // never pays for the review log's window query.
+        firstTopicCourse: db.prepare(`
+            SELECT MIN(${AS_ISO('p.created_at')}) AS at FROM projects p
+            WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${WORK_LEAF})
+        `),
+        firstCard: db.prepare(`SELECT ${AS_ISO('MIN(julianday(created_at))')} AS at FROM flashcards`),
         firstClosed: db.prepare(`
             SELECT ${AS_ISO('MIN(julianday(n.completed_at))')} AS at FROM nodes n
             WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
@@ -90,12 +108,16 @@ const toDays = (rows, timeZone) => rows
     .map(ms => localDate(ms, timeZone));
 
 /**
- * The day the learner's record begins: the oldest course, or an older
- * completion or review brought in with an imported course.
+ * The day the learner's record in one unit begins. Topics: the oldest course
+ * with a topic, or an older completion brought in with an imported course.
+ * Cards: the oldest card, or an older review brought in with its history.
  */
-export function recordSince({ timeZone = learnerTimeZone() } = {}) {
+export function recordSince(unit, { timeZone = learnerTimeZone() } = {}) {
     const s = statements();
-    const days = [s.firstCourse.get()?.at, s.firstClosed.get()?.at, s.firstReview.get()?.at]
+    const sources = unit === 'cards'
+        ? [s.firstCard.get()?.at, s.firstReview.get()?.at]
+        : [s.firstTopicCourse.get()?.at, s.firstClosed.get()?.at];
+    const days = sources
         .map(at => Date.parse(at))
         .filter(Number.isFinite)
         .map(ms => localDate(ms, timeZone));
@@ -106,7 +128,8 @@ export function recordSince({ timeZone = learnerTimeZone() } = {}) {
 export function learnerRecord({ timeZone = learnerTimeZone() } = {}) {
     const s = statements();
     return {
-        since: recordSince({ timeZone }),
+        topicsSince: recordSince('topics', { timeZone }),
+        cardsSince: recordSince('cards', { timeZone }),
         topicDays: toDays(s.topicsClosed.all(), timeZone),
         cardDays: toDays(s.cardsMet.all(), timeZone),
     };
@@ -120,15 +143,14 @@ export function learnerRecord({ timeZone = learnerTimeZone() } = {}) {
 export function libraryPace({ now = Date.now(), timeZone = learnerTimeZone() } = {}) {
     const today = studyToday({ now, timeZone });
     const s = statements();
-    let since, topics, cards;
-    const start = () => (since === undefined ? (since = recordSince({ timeZone })) : since);
+    let topics, cards;
     return {
         today,
         get topics() {
-            return topics ??= learnerPace(toDays(s.topicsClosed.all(), timeZone), { since: start(), today });
+            return topics ??= learnerPace(toDays(s.topicsClosed.all(), timeZone), { since: recordSince('topics', { timeZone }), today });
         },
         get cards() {
-            return cards ??= learnerPace(toDays(s.cardsMet.all(), timeZone), { since: start(), today });
+            return cards ??= learnerPace(toDays(s.cardsMet.all(), timeZone), { since: recordSince('cards', { timeZone }), today });
         },
     };
 }

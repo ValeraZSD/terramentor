@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// palette-order-gates.mjs — three colour rows on one card, and they are the
-// same sixteen colours read at three rungs.
+// palette-order-gates.mjs — three palettes behind one switch on one card, and
+// they are the same sixteen colours read at three rungs.
 //
-// Settings → Appearance asks three colour questions in a column: what colour
-// the PAGE is, what the ACCENT is, and what the app ICON's tile is. Each had
-// its own list, written at its own time, in its own order — so a reader moving
-// down the card found amber in the eleventh slot, then the twelfth, then not at
-// all, and three grids that plainly were not the same family.
+// Settings → Appearance asks three colour questions behind one switch: what
+// colour the PAGE is, what the ACCENT is, and what the app ICON's tile is. Each
+// had its own list, written at its own time, in its own order — so a reader
+// switching between them found amber in the eleventh slot, then the twelfth,
+// then not at all, and three grids that plainly were not the same family.
 //
 // The fix is not a shared constant (they are genuinely different colours: a
 // tint is a pastel, an accent carries white label text at 700, a tile is read
@@ -102,6 +102,33 @@ ok('all three rows are the one ColorField',
     && /colors=\{ACCENT_COLORS\}/.test(read('src/components/settings/ColourFields.tsx'))
     && /<ColorField/.test(ICON),
     'a hand-written swatch grid beside two ColorFields is how one of them becomes the bad one');
+
+// AND ONE PLACE TO CHOOSE THEM. The three palettes were three rows, two open
+// and the icon's behind a disclosure; they are one row now, a switch over one
+// palette (`ColourChooser`). Settings mounts that row and none of the three
+// fields on its own, so a fourth colour row cannot grow back beside it.
+{
+    const chooserFile = read('src/components/settings/ColourFields.tsx');
+    // The function's own body, up to the next top-level declaration: a field
+    // named in a comment or in another component must not satisfy this.
+    const chooser = (chooserFile.match(/export function ColourChooser\(\)[\s\S]*?\r?\n\}\r?\n/) || [''])[0]
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const general = read('src/components/settings/GeneralSettings.tsx')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+    ok('the Colours row switches one palette between the three targets',
+        /<SegmentedControl\b/.test(chooser)
+        && /target === 'page' && <ThemeTintField \/>/.test(chooser)
+        && /target === 'accent' && <AccentField \/>/.test(chooser)
+        && /target === 'icon' && <><AppIconColour \/><AppIconShape \/><\/>/.test(chooser),
+        'ColourChooser must draw ONE of the page, accent and icon palettes, chosen by its switch, and the icon\'s cut and corners with its palette');
+    ok('the chooser draws no palette outside the switch',
+        (chooser.match(/<(ThemeTintField|AccentField|AppIconColour|ColorField)\b/g) || []).length === 3,
+        'a fourth palette in ColourChooser, drawn whatever the switch says');
+    ok('Appearance mounts the chooser and no palette of its own',
+        /<ColourChooser \/>/.test(general)
+        && !/<(ThemeTintField|AccentField|AppIconColour|AppIconPanel|ColorField)\b/.test(general),
+        'a second colour row on the Appearance card');
+}
 
 // ---------------------------------------------------------------------------
 // AND THE WORDS FOR THEM. The assistant can be asked for an accent by name, and

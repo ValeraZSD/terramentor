@@ -10,7 +10,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery';
 /**
  * CHOOSING A COLOUR, ONCE.
  *
- * One control serves both the project dialog and Settings' accent row. A second
+ * One control serves both the project dialog and Settings' Colours row. A second
  * copy would lack the tick on the chosen swatch, the value field and the focus
  * ring, and might use a selection ring with `ring-offset-white / dark:ring-offset-
  * slate-800`, which is the offset trap `vocabulary.ts` exists to name (the gap
@@ -86,8 +86,9 @@ export const PROJECT_COLORS = [
  *
  * **ONE ORDER, THREE LADDERS.** This list, `THEME_TINTS` and the app icon's
  * `ICON_BACKGROUNDS` are the same sixteen NAMES in the same sixteen positions —
- * fourteen hues round the wheel, then the achromatic pair — so a reader moving
- * down the Appearance card finds the same colour in the same place three times.
+ * fourteen hues round the wheel, then the achromatic pair — so a reader switching
+ * the Appearance card's Colours row between page, accent and icon finds the same
+ * colour in the same place each time.
  * What differs is the RUNG each palette is drawn at, because the three are asked
  * to do different jobs: an accent is a fill that carries white text (700), a
  * theme tint is a whole page (a pastel, or its dark mirror), an icon tile is
@@ -237,8 +238,8 @@ const CHIP_TOUCH_REM = 2.75; // the 44px floor, as ever
 /**
  * …and the CEILING, because in the wide shape the chips take the slack.
  *
- * Eight fixed squares leave a 736px settings card 180-odd px short of full,
- * three times over — once per colour row on the Appearance card. So the chips
+ * Eight fixed squares leave a 736px settings card 180-odd px short of full
+ * (the Appearance card's Colours row). So the chips
  * grow into it (`minmax(floor, 1fr)`, square by `aspect-square`, so the block
  * gets taller as it gets wider) and stop at this size, which is where they land
  * on that card: 736 − the pipette, the value group and the gaps, over eight.

@@ -203,7 +203,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                 onKeyDown={onActivateKey(() => queue.setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
-                aria-label={t("Flip flashcard")}
+                // Named by the card's own words, not "Flip flashcard": a label
+                // replaces the content, and the content is the card.
+                aria-pressed={queue.flipped}
                 className="flex-1 min-h-[12.5rem] cursor-pointer select-none rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
             >
                 {/* One surface in the theme's colour on both sides — accent is

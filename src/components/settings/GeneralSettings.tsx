@@ -7,11 +7,11 @@ import { Select } from '../ui/Field';
 import SegmentedControl from '../ui/SegmentedControl';
 import Stepper from '../ui/Stepper';
 import Slider from '../ui/Slider';
+import Switch from '../ui/Switch';
 import { SettingGroup, SettingRow, GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
-import AppIconPanel from './AppIconPanel';
-import { ThemeTintField, AccentField } from './ColourFields';
+import { ColourChooser } from './ColourFields';
 import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
 
@@ -22,8 +22,8 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/nu
  *  shortcuts. */
 export default function GeneralSettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
-    // Theme, tint, accent and UI language are their own components (ThemeCards,
-    // ThemeTintField, AccentField, LanguageRow), which read the store themselves.
+    // Theme, the colours and UI language are their own components (ThemeCards,
+    // ColourChooser, LanguageRow), which read the store themselves.
     const uiScale = useStore(s => s.uiScale);
     const setUiScale = useStore(s => s.setUiScale);
     const weekStartDay = useStore(s => s.weekStartDay);
@@ -31,19 +31,20 @@ export default function GeneralSettings({ active }: { active: boolean }) {
     const numberFormat = useStore(s => s.numberFormat);
     const setNumberFormat = useStore(s => s.setNumberFormat);
     const hasKeyboard = usePhysicalKeyboard();
+    const keyShortcuts = useStore(s => s.keyShortcuts);
+    const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
 
     return (
         <>
-            {/* APPEARANCE — four settings, four rows, no paragraphs.
-                What each control does is visible the moment it is
-                used: the theme repaints the page, the accent
-                repaints this card, the size resizes the words you
-                are reading. A sentence explaining any of that is a
-                sentence describing what the reader can already see.
-                The app icon is the exception, because it is the one
-                appearance choice whose effect is somewhere else —
-                so it keeps its line, and its caveats sit closed
-                inside its own disclosure (AppIconPanel). */}
+            {/* APPEARANCE — three rows, no paragraphs. What each
+                control does is visible the moment it is used: the
+                theme repaints the page, the accent repaints this
+                card, the size resizes the words you are reading. A
+                sentence explaining any of that is a sentence
+                describing what the reader can already see. The app
+                icon is the exception, because it is the one choice
+                whose effect is somewhere else — so it keeps its
+                line, under the palette while the icon is chosen. */}
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup title={tr("Appearance")}>
                     <SettingRow label={tr("Theme")} block control={<ThemeCards />} />
@@ -98,27 +99,15 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             </div>
                         }
                     />
-                    {/* …and what colour it is. The theme answers
-                        light or dark; this answers the other half,
-                        which a fixed set of themes can only ever
-                        answer for you. */}
+                    {/* …and what colour it is: the page, the accent and
+                        the app's own icon, in one palette with a switch
+                        (ColourChooser). The theme answers light or dark;
+                        this answers the other half. */}
                     <SettingRow
-                        label={tr("Page colour")}
+                        label={tr("Colours")}
                         block
-                        control={<ThemeTintField />}
+                        control={<ColourChooser />}
                     />
-                    <SettingRow
-                        label={tr("Accent colour")}
-                        hint={tr("Projects keep their own colour.")}
-                        block
-                        control={<AccentField />}
-                    />
-                    {/* THE APP'S OWN ICON — the tab, and what an install
-                        puts on a home screen. It sits with the theme and
-                        the accent because it is the same question, and it
-                        is a disclosure because it is three controls and a
-                        caveat for a picture most readers never change. */}
-                    <AppIconPanel />
                 </SettingGroup>
             </section>
 
@@ -206,6 +195,13 @@ export default function GeneralSettings({ active }: { active: boolean }) {
             <section className={active ? 'mb-8' : 'hidden'}>
                 <h2 className={GROUP_CAPTION}>{tr("Keyboard shortcuts")}</h2>
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-700">
+                        <div className="min-w-0">
+                            <p id="key-shortcuts-label" className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Single-key shortcuts")}</p>
+                            <p id="key-shortcuts-hint" className="text-xs text-slate-600 dark:text-slate-300">{tr("Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.", { key: MOD_KEY })}</p>
+                        </div>
+                        <Switch checked={keyShortcuts} onChange={on => void setKeyShortcuts(on)} label={tr("Single-key shortcuts")} describedBy="key-shortcuts-hint" />
+                    </div>
                     {/* Keycaps follow the platform (⌘ on Apple, Ctrl elsewhere) — the
                         handlers always accepted both. Listed in full: the assistant
                         key existed but was documented nowhere. */}
@@ -213,6 +209,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         {[
                             [tr("Open search"), `${MOD_KEY} + K`],
                             [tr("Open the assistant"), 'A'],
+                            [tr("Cards: show the answer"), tr("Space")],
+                            [tr("Cards: rate Again, Hard, Good or Easy"), '1 2 3 4'],
+                            [tr("Cards: take back the last rating"), `Z  ·  ${MOD_KEY} + Z`],
                             [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
                             [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
                             [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
