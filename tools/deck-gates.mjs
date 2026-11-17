@@ -354,6 +354,13 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
     eq('the forecast uses the course own allowance', f.newPerDay, decks.getNewPerDay(projectId));
     check('a second ask on unchanged cards is the same answer',
         decks.retentionForecast(projectId, { now: NOW }) === f);
+    // A write of the memory state alone (an older client's `stability` without
+    // a review) moves no count or date, yet changes the forecast's input.
+    const memCard = db.prepare('SELECT f.id, f.stability FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id LIMIT 1').get(projectId);
+    db.prepare('UPDATE flashcards SET stability = ? WHERE id = ?').run((memCard.stability ?? 1) + 7, memCard.id);
+    check('a memory-state write alone is not answered from the cache',
+        decks.retentionForecast(projectId, { now: NOW }) !== f);
+    db.prepare('UPDATE flashcards SET stability = ? WHERE id = ?').run(memCard.stability, memCard.id);
     decks.setRetention(projectId, 0.9);
 }
 

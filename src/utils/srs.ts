@@ -532,7 +532,9 @@ export function forecastDailyReviews(
             for (let k = 0; k < newPerDay && nextNew < fresh.length; k++) today.push(fresh[nextNew++]);
             for (const card of today) {
                 const last = card.last_reviewed ? Date.parse(card.last_reviewed) : NaN;
-                let at = new Date(Math.max(sessionAt, Number.isFinite(last) ? last : 0));
+                // Never before it falls due: a card due at 20:00 is not answered at 09:00.
+                const due = card.next_review ? Date.parse(card.next_review) : NaN;
+                let at = new Date(Math.max(sessionAt, Number.isFinite(last) ? last : 0, Number.isFinite(due) ? due : 0));
                 // A new card's first sight is not a recall; it is met and rated Good.
                 // Twelve steps is past any ladder this scheduler runs.
                 for (let step = 0; step < 12; step++) {

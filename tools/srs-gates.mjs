@@ -530,6 +530,14 @@ console.log('\n--- retention verdict ---');
         tryOr(() => forecastDailyReviews(cards.slice(30), { newPerDay: 0, days: 10, runs: 2, now: NOW }), NaN) === 0);
     check('every new card met is at least one answer',
         tryOr(() => forecastDailyReviews(cards.slice(30), { newPerDay: 5, days: 4, runs: 1, now: NOW }), 0) >= 5);
+    // A card due late in the day is answered when it falls due, not at the
+    // session's start: the same day seen from its due time gives the same count.
+    const dueLater = new Date(NOW.getTime() + 11 * 3_600_000);
+    const lateCards = Array.from({ length: 200 }, () => ({ ...mature, stability: 0.5, stability_fast: 0.2,
+        last_reviewed: new Date(NOW.getTime() - 86_400_000).toISOString(), next_review: dueLater.toISOString() }));
+    const fromStart = tryOr(() => forecastDailyReviews(lateCards, { newPerDay: 0, days: 1, runs: 2, now: NOW }), NaN);
+    const fromDue = tryOr(() => forecastDailyReviews(lateCards, { newPerDay: 0, days: 1, runs: 2, now: dueLater }), NaN);
+    check('a card due later in the day is not answered before it is due', fromStart === fromDue, `${fromStart} vs ${fromDue}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

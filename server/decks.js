@@ -165,14 +165,16 @@ export function retentionForecast(projectId, { now = new Date() } = {}) {
     try { w = JSON.parse(params ?? 'null'); } catch { w = null; }
     configureSrs({ w: Array.isArray(w) ? w : null });
     const day = studyDay({ now: now.getTime() }).date;
-    // Any review, reset or edited due date moves one of these sums.
-    let reviews = 0, dueSum = 0, stamp = '';
+    // Any review, reset or edited due date moves one of these sums; a write of
+    // the memory state alone (no review) moves only `memory`.
+    let reviews = 0, dueSum = 0, stamp = '', memory = '';
     for (const c of cards) {
         reviews += c.review_count ?? 0;
         dueSum += c.next_review ? Date.parse(c.next_review) || 0 : 0;
         if (c.last_reviewed && c.last_reviewed > stamp) stamp = c.last_reviewed;
+        memory += `${c.id}:${c.stability}:${c.stability_fast}:${c.fsrs_difficulty}|`;
     }
-    const key = [projectId, day, cards.length, reviews, dueSum, stamp, newPerDay, current, params ?? ''].join('|');
+    const key = [projectId, day, cards.length, reviews, dueSum, stamp, memory, newPerDay, current, params ?? ''].join('|');
     const hit = forecastCache.get(projectId);
     if (hit?.key === key) return hit.value;
 
