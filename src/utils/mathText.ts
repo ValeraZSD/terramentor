@@ -256,6 +256,14 @@ function rewriteTextBody(cmd: string, body: string): string {
     };
     while (i < body.length) {
         const ch = body[i];
+        if (ch === '\\' && i + 1 < body.length) {
+            // `\_` and `\^` are the literal characters, valid in text mode as
+            // they stand; splitting after the backslash would leave `\}` and an
+            // unclosed group.
+            buf += body.slice(i, i + 2);
+            i += 2;
+            continue;
+        }
         if (ch !== '^' && ch !== '_') {
             buf += ch;
             i += 1;
@@ -443,7 +451,9 @@ const UNIT = new RegExp(
 export function bindUnitsToMath(input: string): string {
     if (!input || !input.includes('$')) return input;
     return input.replace(
-        /(\$[^\n$]+?\$)[ \t]+([^\s,.;:)\]]+)/g,
+        // The opening dollar must not be escaped: `\$` is a literal dollar in
+        // prose, never the start of a formula.
+        /((?<!\\)\$[^\n$]+?\$)[ \t]+([^\s,.;:)\]]+)/g,
         // U+00A0 written as an escape on purpose — a literal one here is
         // invisible in a diff and indistinguishable from the bug it fixes.
         (whole, math: string, next: string) => (UNIT.test(next) ? `${math}\u00A0${next}` : whole),
@@ -558,7 +568,7 @@ export function bindMathPunctuation(input: string): string {
     if (!input || !input.includes('$')) return input;
     // U+2060 written as an escape for the same reason as the NBSP above — a
     // literal zero-width character in source is invisible in a diff.
-    return input.replace(/(\$[^\n$]+?\$)(?=[,.;:!?)\]])/g, '$1\u2060');
+    return input.replace(/((?<!\\)\$[^\n$]+?\$)(?=[,.;:!?)\]])/g, '$1\u2060');
 }
 
 // --- Markdown entry point ----------------------------------------------------
@@ -584,7 +594,7 @@ export function fixMarkdownMathTypography(content: string): string {
         .map((segment, i) => {
             if (i % 2 === 1) return segment; // fenced code/visual block — leave as-is
             const commas = promoteDisplayMath(keepDollarsInMath(segment)).replace(
-                /\$\$[\s\S]+?\$\$|\$[^\n$]+?\$/g,
+                /(?<!\\)(?:\$\$[\s\S]+?\$\$|\$[^\n$]+?\$)/g,
                 mathSpan => mathSpan.replace(/(\d),(\d)/g, '$1{,}$2'),
             );
             return bindMathPunctuation(bindUnitsToMath(commas));
@@ -603,10 +613,12 @@ export function sanitizeMathText(input: string): string {
     if (!input || (!input.includes('\\') && !input.includes('$'))) return input;
 
     const delimited = keepDollarsInMath(normalizeDelimiters(input));
-    // Pass 1: delimit bare equations found in the prose spans.
-    const wrapped = joinSegments(
+    // Pass 1: delimit bare equations found in the prose spans. An undelimited
+    // money formula ("\$5 \times 3 = \$15") only gets its `$…$` here, so the
+    // escaped dollars inside it are rewritten again afterwards.
+    const wrapped = keepDollarsInMath(joinSegments(
         segment(delimited).map(s => (s.math ? s : { ...s, text: wrapBareLatex(s.text) })),
-    );
+    ));
     // Pass 2: fix text-mode scripts and display-only environments inside math
     // spans (including ones pass 1 just created).
     return joinSegments(

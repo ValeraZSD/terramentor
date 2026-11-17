@@ -85,6 +85,9 @@ function needsParens(s: string): boolean {
 
 function script(body: string, table: Record<string, string>, mark: string): string {
     const flat = flattenMath(body);
+    // `^\circ` is how degrees are written; the ring operator has no
+    // superscript form, so it would print as a caret and a ring.
+    if (mark === '^' && (flat === '∘' || flat === '°')) return '°';
     const chars = Array.from(flat);
     if (chars.length && chars.every(c => table[c])) return chars.map(c => table[c]).join('');
     return chars.length > 1 ? `${mark}(${flat})` : `${mark}${flat}`;
@@ -157,16 +160,24 @@ export function flattenMath(src: string): string {
  */
 export function toPlainText(input: string): string {
     let s = String(input ?? '');
+    // A dollar sign that survives as text (`\$` in a formula or in prose) is
+    // held as a placeholder until every span is read, so it is never taken for
+    // a delimiter by a later pass.
+    const DOLLAR = String.fromCharCode(0xe000);
+    const flat = (m: string) => flattenMath(m).replace(/\$/g, DOLLAR);
     // Display and inline math, in both delimiter styles. `$$` first so a
     // display span is not read as two empty inline spans around a body.
-    s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_, m) => ` ${flattenMath(m)} `);
-    s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => ` ${flattenMath(m)} `);
-    s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => flattenMath(m));
-    s = s.replace(/\$([^$\n]+?)\$/g, (_, m) => flattenMath(m));
+    // A span opens at an unescaped dollar, and `\$` inside it is part of its
+    // body: `$\$20{,}000$` is one span, "Pay \$20 or \$30" holds none.
+    s = s.replace(/(?<!\\)\$\$([\s\S]+?)\$\$/g, (_, m) => ` ${flat(m)} `);
+    s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => ` ${flat(m)} `);
+    s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => flat(m));
+    s = s.replace(/(?<!\\)\$((?:\\.|[^$\\\n])+?)\$/g, (_, m) => flat(m));
+    s = s.replace(/\\\$/g, DOLLAR);
     // Light markdown.
     s = s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1');
     s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?=[^*\w]|$)/g, '$1$2');
     s = s.replace(/`([^`]+)`/g, '$1');
     s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
-    return s.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
+    return s.replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim().replace(new RegExp(DOLLAR, 'g'), '$$');
 }
