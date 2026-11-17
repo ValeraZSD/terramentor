@@ -180,6 +180,14 @@ function readPaperInput(projectId, input) {
         }
         return { question, part, points: p.points, nodeId };
     });
+    // The total printed on the paper's cover, when given, catches a mistyped
+    // row: the parts must add up to it. It is a check, not stored.
+    if (input.printedTotal != null) {
+        const printed = input.printedTotal;
+        if (!Number.isInteger(printed) || printed < 1 || printed > MAX_POINTS * MAX_PARTS) throw bad('The total printed on the paper must be a whole number of points');
+        const sum = parts.reduce((a, p) => a + p.points, 0);
+        if (sum !== printed) throw bad(`The parts add up to ${sum} points, but the paper prints ${printed}`);
+    }
     return { title, minutes, gradeMin, gradeMax, passGrade, paperDocumentId, solutionDocumentId, parts };
 }
 
@@ -314,6 +322,25 @@ export function resumeSitting(id, { now = Date.now() } = {}) {
     return getSitting(id, { now });
 }
 
+/**
+ * Take time spent away off a running clock (a phone call, the screen put
+ * away): the clock counts as if paused `seconds` ago and resumed now, in one
+ * write. Never further back than the clock's last start, so time banked
+ * before a pause is never taken off.
+ */
+export function takeAwayTimeOff(id, seconds, { now = Date.now() } = {}) {
+    const s = requireSitting(id);
+    // Only a paper written at the desk: on a course mock the screen is the
+    // exam, so time away from it is not time the learner can vouch for.
+    if (isCourse(s)) throw bad('Time away is taken off a past paper only');
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400) throw bad('The time away must be a whole number of seconds, from 1 to a day');
+    if (s.status === 'writing' && s.running_since) {
+        const from = Math.max(Date.parse(s.running_since), now - seconds * 1000);
+        stmt('UPDATE mock_sittings SET elapsed = ?, running_since = ? WHERE id = ?').run(elapsedOf(s, from), iso(now), id);
+    }
+    return getSitting(id, { now });
+}
+
 /** "Finish writing" (or the learner hands in after time up): the clock stops and marking opens. */
 export function stopWriting(id, { now = Date.now() } = {}) {
     const s = requireSitting(id);
@@ -386,6 +413,20 @@ function resultOf(s, paper) {
     const questions = [...byQ.values()].map(q => ({ ...q, lost: q.points - q.earned }));
     questions.sort((a, b) => b.lost - a.lost);
 
+    // The topic that lost the most points (an unmarked part lost all of
+    // its), the one the result offers to practise; ties go to the smaller
+    // share kept, then the paper's order. Parts with no topic are never offered.
+    const byTopic = new Map();
+    for (const p of parts) {
+        if (p.nodeId == null) continue;
+        const t = byTopic.get(p.nodeId) ?? { id: p.nodeId, title: p.topic, points: 0, lost: 0 };
+        t.points += p.points;
+        t.lost += p.points - (p.earned ?? 0);
+        byTopic.set(p.nodeId, t);
+    }
+    const weakest = [...byTopic.values()].filter(t => t.lost > 0)
+        .sort((a, b) => b.lost - a.lost || b.lost / b.points - a.lost / a.points)[0] ?? null;
+
     return {
         earned,
         total,
@@ -395,6 +436,7 @@ function resultOf(s, paper) {
         passed: passPoints == null ? null : earned >= passPoints,
         parts,
         questions,
+        weakest,
     };
 }
 
