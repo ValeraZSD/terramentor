@@ -161,6 +161,8 @@ export const SETTINGS = {
     card_audio_autoplay: client('ui', bool),
     // A press on an answer or a rating selects it; a second press confirms.
     confirm_answers: client('ui', bool),
+    // No text under the body size, every control at least 44px each way.
+    larger_ui: client('ui', bool),
     // The bounds the store clamps the drag to (store.ts setSidebarWidth / setDetailPanelWidth).
     sidebarWidth: client('ui', int(200, 600)),
     detailPanelWidth: client('ui', int(300, 600)),
@@ -302,7 +304,7 @@ export const SETTING_SCOPES = Object.freeze({
         'ui_language', 'number_format', 'week_start_day', 'key_shortcuts', 'welcome_done',
         // What a person needs to use the app at all travels with them.
         'motion', 'contrast', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
-        'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers',
+        'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'larger_ui',
         'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
         'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
         'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner',

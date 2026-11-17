@@ -178,6 +178,11 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                         </Button>
                     }
                 />
+                <SettingRow
+                    label={tr("Larger text and buttons")}
+                    hint={tr("Small labels grow to the size of normal text, and every button gets bigger so it is easier to hit.")}
+                    control={<Switch checked={a11y.largerUi} onChange={on => void setA11y('largerUi', on)} label={tr("Larger text and buttons")} />}
+                />
                 {([
                     ['letterSpacing', tr("Letter spacing"), tr("Space between the letters of a word.")],
                     ['wordSpacing', tr("Word spacing"), tr("Space between words.")],

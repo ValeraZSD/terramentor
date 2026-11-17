@@ -43,9 +43,16 @@ export default {
             // body text. A bare size with no line-height,
             // exactly what the arbitrary class set, so 100% renders unchanged.
             // `typography-gates.mjs` refuses a px font size in a class name.
+            //
+            // The three sizes under body text read a variable first: Settings →
+            // Accessibility → "Larger text and buttons" raises all three to the
+            // body size in one place (index.css, `html[data-larger-ui]`), every
+            // `sm:`/`touch:` variant of them included. Unset, each is its old
+            // size, so the default app renders unchanged.
             fontSize: {
-                '2xs': '0.6875rem', // 11px at 100%
-                '3xs': '0.625rem',  // 10px at 100%
+                xs: ['var(--text-xs, 0.75rem)', { lineHeight: 'var(--text-xs-leading, 1rem)' }], // 12px at 100%
+                '2xs': 'var(--text-2xs, 0.6875rem)', // 11px at 100%
+                '3xs': 'var(--text-3xs, 0.625rem)',  // 10px at 100%
             },
             animation: {
                 'glow-pulse': 'glow-pulse 2s ease-in-out infinite',

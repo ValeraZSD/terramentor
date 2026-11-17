@@ -159,7 +159,7 @@ takes('theme', 'dark'); takes('theme', 'system'); refuses('theme', 'purple');
 takes('contrast', 'more'); takes('contrast', 'system'); refuses('contrast', 'high');
 takes('motion', 'reduce'); takes('motion', 'full'); refuses('motion', 'off');
 for (const k of ['letter_spacing', 'word_spacing', 'line_spacing']) { takes(k, 'widest'); refuses(k, '2em'); }
-for (const k of ['reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers']) { takes(k, 'true'); takes(k, 'false'); refuses(k, 'on'); }
+for (const k of ['reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers', 'larger_ui']) { takes(k, 'true'); takes(k, 'false'); refuses(k, 'on'); }
 takes('speech_rate', '140'); refuses('speech_rate', '20'); refuses('speech_rate', '300');
 takes('drill_time_scale', 'off');
 takes('theme_tint', '#1e293b'); refuses('theme_tint', 'red; background: url(x)');

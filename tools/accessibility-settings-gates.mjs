@@ -88,7 +88,7 @@ section('5. every row is registered, and the first paint replays it');
 const schema = read('server/settingsSchema.js');
 const access = read('src/utils/accessibility.ts');
 const rows = [...(/A11Y_KEYS = \{([^}]*)\}/.exec(access)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
-check(`the section's rows are named in one table (${rows.length})`, rows.length === 10, rows.join(', '));
+check(`the section's rows are named in one table (${rows.length})`, rows.length === 11, rows.join(', '));
 const notUi = rows.filter(r => !new RegExp(`\\b${r}: client\\('ui',`).test(schema));
 check('each is a client ui row of the registry', notUi.length === 0, notUi.join(', '));
 const scope = /library:\s*\[([\s\S]*?)\]/.exec(schema)?.[1] ?? '';
@@ -202,6 +202,36 @@ section('7. read aloud and motion follow the reader, not the page around them');
     const spacing = [...css.matchAll(/^html\[data-(letter|word|line)-spacing="(wider|widest)"\] body \*(.*)\{/gm)];
     const bare = spacing.filter(m => !m[3].startsWith(':not(.katex, .katex *, svg, svg *)')).map(m => `${m[1]} ${m[2]}`);
     check(`text spacing leaves formulas and drawings alone (${spacing.length} rules)`, spacing.length === 6 && bare.length === 0, bare.join(', '));
+}
+
+section('8. larger text and buttons: one switch, two floors');
+{
+    // What it does on screen is measured in a browser (larger-ui-gates.mjs);
+    // these are the wires a browser run cannot tell apart from luck.
+    const access = code(read('src/utils/accessibility.ts'));
+    check('one row, larger_ui, off by default', /largerUi: 'larger_ui'/.test(access) && /largerUi: false/.test(access) && /settings\.larger_ui === 'true'/.test(access));
+    check('it lands as data-larger-ui on <html>', /setAttribute\('data-larger-ui'/.test(access) && /removeAttribute\('data-larger-ui'\)/.test(access));
+    check('the first paint replays it', /largerUi: prefs\.largerUi/.test(access) && /a\.largerUi === true\) root\.setAttribute\('data-larger-ui'/.test(read('public/theme-boot.js')));
+    // The small sizes read a variable, so every variant (sm:, touch:) follows
+    // one rule; written per class, `sm:text-xs` would have kept 12px.
+    check('the three small sizes read a variable with their old size as the fallback',
+        /xs: \['var\(--text-xs, 0\.75rem\)'/.test(tw) && /'2xs': 'var\(--text-2xs, 0\.6875rem\)'/.test(tw) && /'3xs': 'var\(--text-3xs, 0\.625rem\)'/.test(tw));
+    const root = /html\[data-larger-ui\] \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    const vars = ['--text-xs', '--text-2xs', '--text-3xs'].map(v => new RegExp(`${v}:\\s*([0-9.]+)rem`).exec(root)?.[1]);
+    check('the switch raises all three to the body size, in rem', vars.every(v => Number(v) >= 0.875), vars.join(', '));
+    const targets = /html\[data-larger-ui\] :is\(([^)]*(?:\([^)]*\)[^)]*)*)\):not\(([^{]*)\)\s*\{([^}]*)\}/.exec(css);
+    check('every control kind is held to 44px each way',
+        !!targets && ['button', 'select', 'summary', 'a[href]', 'input', '[role="button"]', '[role="tab"]', '[role="option"]'].every(s => targets[1].includes(s))
+        && /min-height:\s*2\.75rem/.test(targets[3]) && /min-width:\s*2\.75rem/.test(targets[3]), targets?.[1]?.replace(/\s+/g, ' '));
+    check('a link inside running text is left its line (WCAG 2.5.5)', !!targets && /:is\(p, blockquote, \.prose[^)]*\) a/.test(targets[2]));
+    check('a switch keeps its track; its target already spills to 44px',
+        !!targets && /\[role="switch"\]/.test(targets[2]) && /absolute -inset-x-1\.5 -inset-y-2\.5/.test(read('src/components/ui/Switch.tsx')));
+    check('a tickbox keeps its box; its input spills to 44px round it',
+        /<span data-checkbox className=/.test(read('src/components/Checkbox.tsx'))
+        && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: min\(0px, calc\(\(100% - 2\.75rem\) \/ 2\)\);\s*width: auto;\s*height: auto;/.test(css));
+    check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
+    check('the row is in the Reading group, after Text size',
+        /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

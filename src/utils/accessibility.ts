@@ -7,6 +7,7 @@
  *   data-contrast="more|standard"  the surface ramp (store.ts applyThemeToDom)
  *   data-letter-spacing / data-word-spacing / data-line-spacing
  *                                  "wider" or "widest" (index.css)
+ *   data-larger-ui                 present when small text and controls grow (index.css)
  * "Follow the system" is resolved HERE, from the media query, so the rest of
  * the app reads one attribute and never a media query of its own: a reader who
  * turned motion back on in the app must get motion even when the system asks
@@ -42,6 +43,8 @@ export interface A11yPrefs {
     cardAudioAutoplay: boolean;
     /** A press on an answer or a rating selects it; a second press confirms. */
     confirmAnswers: boolean;
+    /** No text under the body size, and every control at least 44px each way. */
+    largerUi: boolean;
 }
 
 /** The settings row behind each field (server/settingsSchema.js). */
@@ -56,6 +59,7 @@ export const A11Y_KEYS = {
     speechRate: 'speech_rate',
     cardAudioAutoplay: 'card_audio_autoplay',
     confirmAnswers: 'confirm_answers',
+    largerUi: 'larger_ui',
 } as const satisfies Record<keyof A11yPrefs, string>;
 
 export const MOTION_PREFS: readonly MotionPref[] = ['system', 'full', 'reduce'];
@@ -76,6 +80,7 @@ export const DEFAULT_A11Y: A11yPrefs = {
     speechRate: 100,
     cardAudioAutoplay: true,
     confirmAnswers: false,
+    largerUi: false,
 };
 
 const pick = <T extends string>(allowed: readonly T[], value: unknown, fallback: T): T =>
@@ -101,6 +106,7 @@ export function readA11yPrefs(settings: Record<string, string | null | undefined
         speechRate: settings.speech_rate == null || settings.speech_rate === '' ? DEFAULT_A11Y.speechRate : clampSpeechRate(settings.speech_rate),
         cardAudioAutoplay: settings.card_audio_autoplay !== 'false',
         confirmAnswers: settings.confirm_answers === 'true',
+        largerUi: settings.larger_ui === 'true',
     };
 }
 
@@ -161,6 +167,7 @@ interface A11yCache {
     // first press on a rating must not grade.
     cardAudioAutoplay?: boolean;
     confirmAnswers?: boolean;
+    largerUi?: boolean;
 }
 
 /** Put the visual preferences on `<html>`. Contrast is painted by the theme
@@ -181,6 +188,8 @@ export function applyA11yToDom(prefs: A11yPrefs): void {
         if (level === 'normal') root.removeAttribute(attr);
         else root.setAttribute(attr, level);
     }
+    if (prefs.largerUi) root.setAttribute('data-larger-ui', '');
+    else root.removeAttribute('data-larger-ui');
     try {
         const cache: A11yCache = {
             motion: prefs.motion,
@@ -189,6 +198,7 @@ export function applyA11yToDom(prefs: A11yPrefs): void {
             lineSpacing: prefs.lineSpacing,
             cardAudioAutoplay: prefs.cardAudioAutoplay,
             confirmAnswers: prefs.confirmAnswers,
+            largerUi: prefs.largerUi,
         };
         localStorage.setItem(A11Y_STORAGE_KEY, JSON.stringify(cache));
     } catch { /* private mode: the cache is an optimisation */ }
@@ -207,6 +217,7 @@ export function cachedA11yPrefs(): A11yPrefs {
             lineSpacing: pick(SPACING_LEVELS, c.lineSpacing, 'normal'),
             cardAudioAutoplay: typeof c.cardAudioAutoplay === 'boolean' ? c.cardAudioAutoplay : DEFAULT_A11Y.cardAudioAutoplay,
             confirmAnswers: typeof c.confirmAnswers === 'boolean' ? c.confirmAnswers : DEFAULT_A11Y.confirmAnswers,
+            largerUi: c.largerUi === true,
         };
     } catch {
         return { ...DEFAULT_A11Y };

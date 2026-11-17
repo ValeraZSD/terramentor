@@ -971,7 +971,7 @@ check('stored accessibility rows are read back as marker values',
     && a11ySet.card_audio_autoplay === 'off' && a11ySet.key_shortcuts === 'off' && a11ySet.speech_rate === 140, JSON.stringify(a11ySet));
 check('every presentation row Settings → Accessibility writes is one the assistant may set',
     ['contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'speech_rate',
-        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts'].every(k => k in empty));
+        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts', 'larger_ui'].every(k => k in empty));
 check('the drill time limit is a learning row, not offered', !('drill_time_scale' in empty));
 check('aliases for the accessibility rows are recorded under their row',
     settingKeysIn('[[set:reduce motion:on]] [[set:shortcuts:off]] [[set:read_aloud:on]]').join(',') === 'motion,key_shortcuts,read_aloud');

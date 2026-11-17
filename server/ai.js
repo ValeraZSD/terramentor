@@ -4118,6 +4118,7 @@ The keys you may set, and ONLY these:
 - speech_rate — a whole percent from 50 to 200 (how fast read aloud speaks)
 - card_audio_autoplay — on | off  (whether a card's sound plays by itself)
 - confirm_answers — on | off  (a first press selects an answer or rating, a second grades it)
+- larger_ui — on | off  (small labels grow to normal text size and every button gets bigger, easier to hit; "bigger text" alone means ui_scale)
 - key_shortcuts — on | off  (single-key shortcuts; shortcuts with Ctrl or Cmd keep working)
 At most 3 per message, one per key. Anything else — how the scheduler works, the mastery gate, the AI model or endpoint, the daily card limits, security, and above all whether you may search the web — you cannot change and must not pretend to: say plainly that it lives in Settings and name the section, because those decide what the app MEASURES about the learner, or what leaves their machine, and are theirs to set deliberately. Never emit a marker the learner did not ask for, and never emit one for a key or value not on this list (it does nothing).${settingsBlock ? `
 ${settingsBlock}` : ''}

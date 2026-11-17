@@ -426,6 +426,39 @@ html[data-line-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { line-
 html[data-line-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.8 !important; }
 html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
 
+/* Larger text and buttons. Two floors, one switch:
+   - TEXT: nothing under the body size (0.875rem, 14px at 100%). The three
+     small sizes read these variables (tailwind.config.js), so every variant of
+     them follows; in rem, so the interface size still scales it.
+   - TARGETS: every control at least 2.75rem (44px at 100%) each way, WCAG
+     2.5.5. A control may be bigger, never smaller. A link inside running
+     text is exempt, as 2.5.5 allows: growing it would tear its line open.
+     A switch keeps its track; its target already spills to 44px round it
+     (ui/Switch.tsx). A native tickbox is pressed through its label. */
+html[data-larger-ui] {
+  --text-xs: 0.875rem;
+  --text-xs-leading: 1.25rem;
+  --text-2xs: 0.875rem;
+  --text-3xs: 0.875rem;
+}
+html[data-larger-ui] :is(
+  button, select, summary, a[href],
+  input:not([type="hidden"], [type="checkbox"], [type="radio"]),
+  [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"],
+  [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"]
+):not(.sr-only, [role="switch"], :is(p, blockquote, .prose, [data-prose]) a) {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+/* The tickbox (Checkbox.tsx) keeps its 18px box; its invisible input spills
+   to 44px round it, as the switch's target does, so a row whose label is one
+   short line is still a 44px target. Never smaller than the box itself. */
+html[data-larger-ui] [data-checkbox] > input {
+  inset: min(0px, calc((100% - 2.75rem) / 2));
+  width: auto;
+  height: auto;
+}
+
 /* Forced colours (Windows High Contrast) drop every background, so a choice
    marked only by a fill (the open section, the chosen segment, a switch that
    is on) vanishes. Each gets an outline in the system's highlight colour. */
@@ -490,6 +523,11 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
   }
   [role="switch"] {
     border: 1px solid ButtonText;
+  }
+  /* The target that spills round the track (ui/Switch.tsx) is placed from
+     inside the border, so the border's 1px is added back: still 44px. */
+  [role="switch"] > span:first-child {
+    inset: calc(-0.625rem - 1px) calc(-0.375rem - 1px);
   }
   [role="switch"] > span:last-child {
     forced-color-adjust: none;
