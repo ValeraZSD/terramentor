@@ -12,7 +12,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import ProgressBar from '../ui/ProgressBar';
 import Switch from '../ui/Switch';
 import Radio from '../ui/Radio';
-import { Explain, ExpandableSection } from '../ui/Disclosure';
+import { ExpandableSection } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { SectionHeader, Panel, Collapse } from './SettingsParts';
@@ -249,13 +249,6 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 label={tr("Find resources for every topic during creation")}
                             />
                         </div>
-                        {/* Under the switch it explains, not after the next one. */}
-                        <Explain summary={tr("What it costs on a big project")} className="mt-1">
-                            <p>
-                                {tr("While generating a project, the AI can search the web and pick 2–4 links for")}
-                                <em> {tr("every single topic")}</em>{tr(". It is by a wide margin the largest part of creation — a 700-topic curriculum means 700 searches and 700 model calls, before you’ve read a word. With it off, creation skips every one of them and you fetch links from a topic’s Resources list when you actually open it.")}
-                            </p>
-                        </Explain>
                         <div className="mt-3 flex items-center justify-between gap-4">
                             <div className="min-w-0">
                                 <label htmlFor="lesson-reads-links" className="block cursor-pointer font-medium text-slate-900 dark:text-white">
@@ -333,12 +326,6 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 </div>
                             )}
                         </div>
-                        <Explain summary={tr("Which PDFs are affected")} className="mt-3">
-                            <p>
-                                {tr("Some PDFs (Word/LaTeX exports of exams & worksheets) store their formulas in fonts with no text mapping, so an equation like")}{' '}<code>x(t) = 1 − t²</code> {tr("is extracted as an empty")}
-                                <code> ( )</code>{tr(". When a vault PDF is detected like this, the affected pages are re-read from the rendered image in the background — a vision model transcribes them to clean Markdown + LaTeX, and OCR is the offline fallback. Clean PDFs are untouched.")}
-                            </p>
-                        </Explain>
                     </ModelJobRow>
 
                     <ModelJobRow
@@ -373,11 +360,6 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
                             {tr("Names are kept per region and survive a model change — switching this only affects regions that have no name yet. You can rename any region by hand on the Atlas page.")}
                         </p>
-                        <Explain summary={tr("Why a small model is better")} className="mt-3">
-                            <p>
-                                {tr("The atlas groups your topics into regions and names each one. Without a model it uses the most central topic’s own title, which names a whole discipline after one lesson inside it — “Force and Motion” printed across all of physics. A model reads every title in the region and writes a name that covers them. This is a short noun phrase, not a conversation: a small, fast instruct model does it better than a large reasoning one, which spends its budget deliberating and times out.")}
-                            </p>
-                        </Explain>
                     </ModelJobRow>
 
                     <ModelJobRow
@@ -443,11 +425,6 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                 )}
                             </>
                         )}
-                        <Explain summary={tr("Descriptions already in the deck")} className="mt-3">
-                            <p>
-                                {tr("A card whose question is a photograph reads to the AI as a card with no question, and to a screen reader as a filename. One description fixes both. Pictures that arrived with a description written by the deck’s own author keep it — a model never overwrites those. The rest need a vision model, and this runs in the background at your pace.")}
-                            </p>
-                        </Explain>
                     </ModelJobRow>
 
                     <ModelJobRow
