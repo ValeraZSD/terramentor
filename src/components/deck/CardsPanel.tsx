@@ -12,6 +12,7 @@ import { TextInput } from '../ui/Field';
 import DeckBar from './DeckBar';
 import DeckForecast from './DeckForecast';
 import DeckStages from './DeckStages';
+import { RetentionButton, RetentionEditor } from './RetentionTarget';
 import { fmt } from './deckPalette';
 import { useTranslation } from 'react-i18next';
 
@@ -82,6 +83,13 @@ export default function CardsPanel({
     const [loading, setLoading] = useState(true);
     const [session, setSession] = useState<{ stage: DeckStage | null; ahead?: boolean } | null>(null);
     const [editingLimit, setEditingLimit] = useState(false);
+    const [editingRetention, setEditingRetention] = useState(false);
+    // Closed the target editor: focus goes back to its button, once. The flag
+    // is spent on the commit that mounted the button, or a later remount (the
+    // row moves between the owed and the done-for-today blocks when a session
+    // ends) would take focus from wherever the learner is by then.
+    const [retentionReturn, setRetentionReturn] = useState(false);
+    useEffect(() => { if (retentionReturn) setRetentionReturn(false); }, [retentionReturn]);
     const [limitDraft, setLimitDraft] = useState('20');
     const autoStarted = useRef(false);
     // Loads can overlap (a session ends while the page around it refreshes):
@@ -174,10 +182,33 @@ export default function CardsPanel({
         editing: editingLimit,
         draft: limitDraft,
         onDraft: setLimitDraft,
-        onEdit: () => setEditingLimit(true),
+        // Focus goes back to the target button only straight after its own editor.
+        onEdit: () => { setRetentionReturn(false); setEditingLimit(true); },
         onSave: saveLimit,
         onCancel: () => { setEditingLimit(false); setLimitDraft(String(deck.newPerDay)); },
     };
+    // The course's two dials share one row: how many new cards a day, and how
+    // much of what it has met it should still know. One opens at a time.
+    const dials = editingRetention ? (
+        <RetentionEditor
+            // A switch of course remounts it: its draft never saves to the next course.
+            key={projectId}
+            projectId={projectId}
+            value={deck.desiredRetention}
+            onDone={saved => { setEditingRetention(false); setRetentionReturn(true); if (saved) void load({ silent: true }); }}
+        />
+    ) : (
+        <NewLimit
+            {...newLimitProps}
+            trailing={(
+                <RetentionButton
+                    value={deck.desiredRetention}
+                    focusOnMount={retentionReturn}
+                    onEdit={() => { setEditingLimit(false); setEditingRetention(true); }}
+                />
+            )}
+        />
+    );
 
     const sessionView = session && (
         <GlobalFlashcardReview
@@ -248,7 +279,7 @@ export default function CardsPanel({
                     <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-700">
                         <DeckForecast forecast={deck.forecast} />
                     </div>
-                    <NewLimit {...newLimitProps} />
+                    {dials}
                 </DashboardSection>
             </>
         );
@@ -293,12 +324,12 @@ export default function CardsPanel({
                         {/* The limit is stated where its consequence is,
                             not buried in Settings: "20 new today" is only
                             meaningful next to the number it produced. */}
-                        <NewLimit {...newLimitProps} />
+                        {dials}
                     </>
                 ) : (
                     <div>
                         {nothingOwed}
-                        <NewLimit {...newLimitProps} />
+                        {dials}
                     </div>
                 )}
             </DashboardSection>
@@ -369,7 +400,7 @@ function Count({ n, label, tone, small = false }: { n: number; label: string; to
  * terrifying, so it is not hidden in Settings behind three taps: it sits under
  * the number it produced, states what it did today, and takes one tap to change.
  */
-function NewLimit({ deck, editing, draft, onDraft, onEdit, onSave, onCancel }: {
+function NewLimit({ deck, editing, draft, onDraft, onEdit, onSave, onCancel, trailing }: {
     deck: DeckData;
     editing: boolean;
     draft: string;
@@ -377,6 +408,8 @@ function NewLimit({ deck, editing, draft, onDraft, onEdit, onSave, onCancel }: {
     onEdit: () => void;
     onSave: () => void;
     onCancel: () => void;
+    /** The row's other dial (the recall target), shown at rest only. */
+    trailing?: React.ReactNode;
 }) {
     const { t } = useTranslation();
     if (editing) {
@@ -428,6 +461,7 @@ function NewLimit({ deck, editing, draft, onDraft, onEdit, onSave, onCancel }: {
                     {t("· {{fmt}} met today", { fmt: fmt(deck.introducedToday) })}
                 </span>
             )}
+            {trailing}
         </div>
     );
 }

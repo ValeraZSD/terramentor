@@ -2,7 +2,7 @@ import { api } from '../api';
 import { QuizQuestion } from '../types';
 import { useStore } from '../store';
 import {
-    formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers,
+    formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers, spellingSlipOf,
     readPieces, arrangementsOf, foldPiece,
 } from '../components/answer/formats';
 import { testsToGradeBy, runnableLanguage } from '../runner/languages';
@@ -56,7 +56,11 @@ const norm = (s: string) => s.toLowerCase().trim();
  * because the client grades the feed and the quiz while the server grades the
  * placement probe, and the same answer must earn the same verdict on both.
  */
-export function gradeLocally(question: QuizQuestion, answer: string): boolean | null {
+export function gradeLocally(
+    question: QuizQuestion,
+    answer: string,
+    { forgiveSpelling = useStore.getState().forgiveSpelling }: { forgiveSpelling?: boolean } = {},
+): boolean | null {
     if (formatOf(question).grading !== 'local') return null;
     if (question.type === 'sequence') {
         const given = parseSequence(answer);
@@ -77,7 +81,9 @@ export function gradeLocally(question: QuizQuestion, answer: string): boolean | 
         const given = normalizeTyped(answer);
         // An empty box is not an accidental match against an empty key: a key
         // with nothing gradeable in it never survives normalisation.
-        return !!given && acceptedAnswers(question).includes(given);
+        if (!given) return false;
+        if (acceptedAnswers(question).includes(given)) return true;
+        return !!forgiveSpelling && spellingSlipOf(question, answer) !== null;
     }
     if (question.type === 'numeric') {
         const given = parseNumber(answer);

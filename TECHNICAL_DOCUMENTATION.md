@@ -954,7 +954,7 @@ and a route an earlier one answers first.
 | Visuals | `/ai/repair-visual`, `/ai/widget/compile`, `/ai/visual/author`, `/ai/visual/caption`, `/ai/visual/build-failed`, `/visual-feedback` (+ `/export`) |
 | Authoring | `/authoring/outline-brief`, `/projects/:projectId/authoring/phases\|material-brief\|material` |
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |
-| Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media-descriptions/run\|status\|cancel` |
+| Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media/:hash/description` (PUT), `/media-descriptions` (`?after=<cursor>`), `/media-descriptions/run\|status\|cancel` |
 | Semantic | `/embeddings/status\|settings\|reindex`, `/node-embeddings/status\|reindex`, `/nodes/:id/similar`, `/nodes/:id/transfer`, `/nodes/search-semantic`, `/atlas`, `/atlas/regions/:signature/name` |
 | Agents (the MCP server, `docs/MCP.md`) | `/agent/state`, `/agent/find`, `/agent/due`, `/agent/topic`, `/agent/mastery` (reads, plain text for a model plus the figures), `/agent/claims` (POST a claim); `/agent/check/*` (`where`, `start`, `questions`, `submit`, `completion`, `completed`) and `/agent/review/*` (`where`, `start`, `next`, `reveal`, `rate`, `undo`), the mastery check and card review an MCP host draws, each call after `start` naming its sitting token |
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |

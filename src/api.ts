@@ -5,8 +5,8 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite } from './types';
-import type { ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting } from './components/mockExam/mockExamTypes';
+import type { LessonWrite, RetentionForecast } from './types';
+import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
@@ -1196,6 +1196,17 @@ export const api = {
             body: JSON.stringify({ newPerDay }),
         }),
 
+    /** The course's recall target (0.7-0.97); 0.9 stores no row. */
+    setDeckRetention: (projectId: number, retention: number) =>
+        request<{ newPerDay: number; retention: number }>(`/projects/${projectId}/deck/settings`, {
+            method: 'PUT',
+            body: JSON.stringify({ retention }),
+        }),
+
+    /** Answers a day each recall target would ask of this course; a simulation, no model. */
+    getRetentionForecast: (projectId: number) =>
+        request<RetentionForecast>(`/projects/${projectId}/deck/retention-forecast`),
+
     /** Whether this project's topics may be taught (lessons, checkpoints). Off
      *  by default for an import — see server/nodeRole.js. */
     setProjectTeaching: (projectId: number, teaches: boolean) =>
@@ -2302,7 +2313,18 @@ export const api = {
     deleteExamPaper: (paperId: number) => request<{ ok: true }>(`/mock-exams/papers/${paperId}`, { method: 'DELETE' }),
     startMock: (paperId: number, question: string | null) =>
         request<{ sitting: MockSitting }>(`/mock-exams/papers/${paperId}/sittings`, { method: 'POST', body: JSON.stringify({ question }) }),
-    getMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}`),
+    getMock: (id: number) => request<MockDetail | CourseMockDetail>(`/mock-sittings/${id}`),
+    // A mock from the course's own questions, answered on screen.
+    setRealExam: (projectId: number, exam: Partial<RealExam>) =>
+        request<{ exam: RealExam | null }>(`/projects/${projectId}/exam`, { method: 'PUT', body: JSON.stringify(exam) }),
+    drawMock: (projectId: number, size: number, minutes: number | null) =>
+        request<{ sitting: MockSitting; asked: number; drawn: number; short: boolean }>(`/projects/${projectId}/mock-exams/draw`, { method: 'POST', body: JSON.stringify({ size, minutes }) }),
+    /**
+     * One save, written once per `attemptId` (resent unchanged on a retry).
+     * `keepalive`: the save sent as the page goes away outlives the page.
+     */
+    saveMockAnswer: (id: number, save: { partId: number; answer?: string; later?: boolean; attemptId: string }, keepalive = false) =>
+        request<{ duplicate: boolean; answered: number; left: number; later: number }>(`/mock-sittings/${id}/answers`, { method: 'PUT', body: JSON.stringify(save), keepalive }),
     mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
     /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
@@ -2310,9 +2332,12 @@ export const api = {
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
     markMockPart: (id: number, partId: number, points: number | null) =>
         request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
-    /** `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0"). */
-    finishMock: (id: number, fillUnmarked = false) =>
-        request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ fillUnmarked }) }),
+    /**
+     * `attemptId`: a course mock's finish, resent on retry, is written once.
+     * `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0").
+     */
+    finishMock: <D = MockDetail>(id: number, { attemptId, fillUnmarked = false }: { attemptId?: string; fillUnmarked?: boolean } = {}) =>
+        request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null, fillUnmarked }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:
@@ -2645,6 +2670,19 @@ export const api = {
 
     cancelMediaDescriptions: () =>
         request<{ ok: boolean }>('/media-descriptions/cancel', { method: 'POST' }),
+
+    /** What is known about one card file: the description a screen reader reads instead. */
+    mediaInfo: (hash: string) =>
+        request<import('./types').MediaInfo>(`/media/${hash}/info`),
+
+    /** `after`: the `cursor` of the last row shown, for the next page. */
+    listMediaDescriptions: (after?: string) =>
+        request<{ items: import('./types').MediaDescriptionRow[] }>(`/media-descriptions${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+
+    setMediaDescription: (hash: string, description: string) =>
+        request<{ description: string | null; described_by: import('./types').MediaDescriber | null }>(`/media/${hash}/description`, {
+            method: 'PUT', body: JSON.stringify({ description }),
+        }),
 
     describeMedia: (hash: string, force = false) =>
         request<{ ok: boolean; description: string }>(`/media/${hash}/describe`, {

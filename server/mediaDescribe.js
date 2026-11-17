@@ -49,6 +49,80 @@ Rules:
 
 const MAX_DESCRIPTION = 600;
 
+/** Who wrote a description: 'author' (the deck's alt), 'learner' (an edit here), 'vision' (a model). */
+const HUMAN_SOURCES = new Set(['author', 'learner']);
+
+/** Strip what a screen reader would read out as noise, and bound the length. */
+export function cleanDescription(value) {
+    const text = String(value ?? '')
+        .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+        // Zero-width and direction marks: invisible, and read out or reorder text.
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\u061C]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    // By characters, so the cut never splits an emoji into half a pair.
+    return [...text].slice(0, MAX_DESCRIPTION).join('').trim();
+}
+
+/**
+ * The learner's own description of a picture, written over whatever was there.
+ * It is theirs from then on: `described_by = 'learner'`, no model named, and
+ * no sweep or forced re-run replaces it. An empty text clears the description,
+ * which hands the picture back to the sweep.
+ */
+export function setLearnerDescription(hash, value) {
+    const exists = db.prepare(`SELECT 1 FROM media_files WHERE hash = ? AND kind = 'image' LIMIT 1`).get(hash);
+    if (!exists) return { ok: false, reason: 'no such picture' };
+    const clean = cleanDescription(value);
+    if (!clean) {
+        db.prepare('UPDATE media_files SET description = NULL, described_by = NULL, generated_by = NULL WHERE hash = ?').run(hash);
+        return { ok: true, description: null, described_by: null };
+    }
+    db.prepare(`UPDATE media_files SET description = ?, described_by = 'learner', generated_by = NULL WHERE hash = ?`).run(clean, hash);
+    return { ok: true, description: clean, described_by: 'learner' };
+}
+
+/**
+ * Pictures with their descriptions, one row per file, for the review list:
+ * model-written ones first, since those are the ones to check.
+ *
+ * Each row carries `cursor`, its place in that order; the next page asks for
+ * the rows `after` the last one shown. Not an offset: a description the
+ * learner corrects moves from the model-written rows to the end, and every row
+ * behind it would move up one, past an offset, and never be shown.
+ */
+export function listDescriptions({ projectId = null, offset = 0, limit = 50, after = null } = {}) {
+    // One whole ROW per file (its first), never columns mixed from several:
+    // a file used by two projects has a row each, and an author's text must
+    // not be shown under another row's "written by AI".
+    const where = projectId ? `WHERE kind = 'image' AND project_id = ?` : `WHERE kind = 'image'`;
+    const args = projectId ? [projectId] : [];
+    const at = /^([01])\.([01])\.(\d+)$/.exec(String(after ?? ''));
+    const past = at ? 'WHERE v < ? OR (v = ? AND (e < ? OR (e = ? AND id > ?)))' : '';
+    const pastArgs = at ? [+at[1], +at[1], +at[2], +at[2], +at[3]] : [];
+    return listDescriptionsStmt(where, past).all(
+        ...args, ...pastArgs, Math.max(1, Math.min(200, limit | 0)), at ? 0 : Math.max(0, offset | 0),
+    ).map(({ v, e, id, ...row }) => ({ ...row, cursor: `${v}.${e}.${id}` }));
+}
+
+const listStatements = new Map();
+function listDescriptionsStmt(where, past) {
+    const key = `${where}|${past}`;
+    if (!listStatements.has(key)) {
+        listStatements.set(key, db.prepare(`
+            SELECT * FROM (
+                SELECT id, hash, filename, description, described_by, generated_by,
+                       (described_by IS 'vision') AS v, (description IS NULL) AS e
+                FROM media_files
+                WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
+            ) ${past}
+            ORDER BY v DESC, e DESC, id
+            LIMIT ? OFFSET ?
+        `));
+    }
+    return listStatements.get(key);
+}
+
 /** Rows still worth describing: images, no description yet. */
 export function pendingDescriptions(projectId = null) {
     const where = projectId
@@ -66,7 +140,8 @@ export function describeStats(projectId = null) {
             SUM(kind = 'image') AS images,
             SUM(kind = 'image' AND description IS NOT NULL AND description != '') AS described,
             SUM(kind = 'image' AND described_by = 'author') AS byAuthor,
-            SUM(kind = 'image' AND described_by = 'vision') AS byVision
+            SUM(kind = 'image' AND described_by = 'vision') AS byVision,
+            SUM(kind = 'image' AND described_by = 'learner') AS byLearner
         FROM media_files ${clause}
     `).get(...args);
     return {
@@ -74,6 +149,7 @@ export function describeStats(projectId = null) {
         described: row?.described ?? 0,
         byAuthor: row?.byAuthor ?? 0,
         byVision: row?.byVision ?? 0,
+        byLearner: row?.byLearner ?? 0,
         pending: (row?.images ?? 0) - (row?.described ?? 0),
     };
 }
@@ -89,7 +165,11 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     const row = db.prepare('SELECT hash, kind, mime, filename, description, described_by FROM media_files WHERE hash = ? LIMIT 1').get(hash);
     if (!row) return { ok: false, reason: 'no such media' };
     if (row.kind !== 'image') return { ok: false, reason: 'only images can be described' };
-    if (row.description && !force) return { ok: true, description: row.description, reason: 'already described' };
+    // A person's words (the deck author's alt, or the learner's correction)
+    // stay, even on a forced re-run: a model never overwrites them.
+    if (row.description && (!force || HUMAN_SOURCES.has(row.described_by))) {
+        return { ok: true, description: row.description, reason: 'already described' };
+    }
 
     let bytes;
     try {
@@ -122,8 +202,16 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     // `described_by` stays the mechanism the stats query counts; `generated_by`
     // names the model, which is the part a blind learner's screen reader and the
     // tutor are both quoting downstream.
-    db.prepare('UPDATE media_files SET description = ?, described_by = ?, generated_by = ? WHERE hash = ?')
+    // The model took up to 90 s; a person may have written a description in
+    // that time. Their text wins, so the write only lands where none stands.
+    const wrote = db.prepare(`UPDATE media_files SET description = ?, described_by = ?, generated_by = ?
+        WHERE hash = ? AND (description IS NULL OR description = '' OR described_by = 'vision')`)
         .run(clean, 'vision', aiProvenance({ job: 'vision' }), hash);
+    if (wrote.changes === 0) {
+        // The text that won, not the one read before the model was asked.
+        const now = db.prepare('SELECT description FROM media_files WHERE hash = ? LIMIT 1').get(hash);
+        return { ok: true, description: now?.description ?? null, reason: 'already described' };
+    }
     return { ok: true, description: clean };
 }
 
