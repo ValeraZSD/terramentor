@@ -440,15 +440,21 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
     outline-offset: -2px;
   }
   /* A chosen segment or an armed rating is filled, not only outlined: a thin
-     outline beside the system's thick button borders read as the unchosen one. */
-  [aria-pressed="true"],
-  [role="radio"][aria-checked="true"] {
+     outline beside the system's thick button borders read as the unchosen one.
+     Only those two, by their own markers: `forced-color-adjust` inherits, so on
+     anything that can hold content (a flipped card is aria-pressed too) the
+     author's white plate stays while the text turns HighlightText.
+     `button` lifts it over a `hover:bg-*` utility (two classes' weight, later
+     in the file), which kept the rating's pale fill under white text while
+     the pointer still rested on it after the first press. */
+  button[data-segment][aria-checked="true"],
+  button[data-rating][data-armed] {
     forced-color-adjust: none;
     background: Highlight;
     color: HighlightText;
   }
-  [aria-pressed="true"] *,
-  [role="radio"][aria-checked="true"] * {
+  button[data-segment][aria-checked="true"] *,
+  button[data-rating][data-armed] * {
     color: HighlightText;
   }
   [role="switch"] {

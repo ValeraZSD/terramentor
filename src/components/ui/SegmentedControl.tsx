@@ -226,6 +226,7 @@ export function SegmentedControl<T extends string | number>({
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        data-segment
                         data-selected={selected}
                         tabIndex={selected ? 0 : -1}
                         disabled={o.disabled}
