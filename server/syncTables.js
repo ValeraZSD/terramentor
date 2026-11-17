@@ -53,6 +53,9 @@ const TABLE_LIST = [
     ['node_sources', { class: 'content', uuid: true, derive: D([['node_id', 'nodes'], ['document_id', 'documents']], null, ['page_from', 'page_to', 'char_from', 'char_to']) }],
     // A probe's questions and answers are rewritten while it runs (placement.js).
     ['placement_probes', { class: 'content', uuid: true, derive: D([['project_id', 'projects']], 'created_at') }],
+    // A past paper the learner added, and its points table (server/mockExams.js).
+    ['exam_papers', { class: 'content', uuid: true, derive: D([['project_id', 'projects']], 'created_at') }],
+    ['exam_paper_parts', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], null, ['question', 'part']) }],
 
     // ---- history ---------------------------------------------------------------------
     ['review_log', { class: 'history', uuid: true, derive: D([['card_id', 'flashcards']], 'reviewed_at', ['rating', 'source', 'external_id']) }],
@@ -72,6 +75,9 @@ const TABLE_LIST = [
     // Answers that are not evidence (server/lessonPrompts.js).
     ['pre_questions', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at') }],
     ['explain_backs', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['part_index']) }],
+    // One go at a past paper, and the points the learner gave each part.
+    ['mock_sittings', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
+    ['mock_part_scores', { class: 'content', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],
 
     // ---- counters ----------------------------------------------------------------------
     // Keyed by (topic, hour, activity, device): each device adds to its own row.
