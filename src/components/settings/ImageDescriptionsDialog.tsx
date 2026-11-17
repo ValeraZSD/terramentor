@@ -9,6 +9,9 @@ import { forgetMediaInfo } from '../CardMedia';
 import { useAutoGrow } from '../../hooks/useAutoGrow';
 import type { MediaDescriptionRow } from '../../types';
 
+/** Rows per request: the server's default page. */
+const PAGE = 50;
+
 /**
  * Every card picture beside the words a screen reader says for it, so a
  * model's description can be checked against the picture and corrected.
@@ -16,9 +19,6 @@ import type { MediaDescriptionRow } from '../../types';
  * (`setLearnerDescription` in server/mediaDescribe.js). Model-written rows
  * come first, since those are the ones that need checking.
  */
-/** Rows per request: the server's default page. */
-const PAGE = 50;
-
 export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
     const { t } = useTranslation();
     const showConfirm = useStore(s => s.showConfirm);
@@ -28,6 +28,10 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
     const [loadingMore, setLoadingMore] = useState(false);
     const [drafts, setDrafts] = useState<Record<string, string>>({});
     const askingRef = useRef(false);
+    // Where the last page read ended, as the server ordered it then. A save
+    // moves a row in the server's order, so the next page is asked for by
+    // place, never by how many rows are shown.
+    const cursorRef = useRef<string | undefined>(undefined);
 
     useEffect(() => {
         if (!open) return;
@@ -35,8 +39,14 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
         setRows(null);
         setFailed(false);
         setDrafts({});
+        cursorRef.current = undefined;
         api.listMediaDescriptions()
-            .then(r => { if (live) { setRows(r.items); setMore(r.items.length === PAGE); } })
+            .then(r => {
+                if (!live) return;
+                setRows(r.items);
+                setMore(r.items.length === PAGE);
+                cursorRef.current = r.items[r.items.length - 1]?.cursor;
+            })
             .catch(() => { if (live) setFailed(true); });
         return () => { live = false; };
     }, [open]);
@@ -44,7 +54,8 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
     const showMore = async () => {
         setLoadingMore(true);
         try {
-            const r = await api.listMediaDescriptions(rows?.length ?? 0);
+            const r = await api.listMediaDescriptions(cursorRef.current);
+            if (r.items.length) cursorRef.current = r.items[r.items.length - 1].cursor;
             setRows(rs => [...(rs ?? []), ...r.items.filter(n => !rs?.some(o => o.hash === n.hash))]);
             setMore(r.items.length === PAGE);
         } catch {

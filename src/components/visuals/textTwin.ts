@@ -12,6 +12,7 @@
  * Pinned by `tools/text-twin-gates.mjs`.
  */
 import { normalizeTitle } from './chartTitle';
+import { evalFreeDsv } from './vegaDsv';
 
 export interface TextTwin {
     /** The visual's own title, '' when it has none. */
@@ -41,16 +42,19 @@ function parseJson(code: string): Record<string, any> | null {
     }
 }
 
-/** Rows written as delimited text (`"values": "a,b\n1,2"`). */
-function rowsFromText(text: string, type: string | undefined): Record<string, string>[] {
-    const sep = type === 'tsv' ? '\t' : ',';
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (lines.length < 2) return [];
-    const head = lines[0].split(sep).map(s => s.trim());
-    return lines.slice(1).map(line => {
-        const parts = line.split(sep);
-        return Object.fromEntries(head.map((h, i) => [h, (parts[i] ?? '').trim()]));
-    });
+/**
+ * Rows written as delimited text (`"values": "a,b\n1,2"`), read by the same
+ * reader the chart is drawn with (vegaDsv.ts), so quoted cells, a `dsv`
+ * delimiter and a `header` come out as the drawing has them.
+ */
+function rowsFromText(text: string, format: Record<string, any> | undefined): Record<string, string>[] {
+    const type = format?.type;
+    const read = type === 'tsv' ? evalFreeDsv.tsv : type === 'dsv' ? evalFreeDsv.dsv : evalFreeDsv.csv;
+    try {
+        return [...read(text, format)];
+    } catch {
+        return [];
+    }
 }
 
 function dataRows(spec: Record<string, any>): Record<string, unknown>[] {
@@ -61,7 +65,7 @@ function dataRows(spec: Record<string, any>): Record<string, unknown>[] {
             return values.filter(v => v && typeof v === 'object' && !Array.isArray(v));
         }
         if (typeof values === 'string') {
-            const rows = rowsFromText(values, data?.format?.type);
+            const rows = rowsFromText(values, data?.format);
             if (rows.length) return rows;
         }
     }
@@ -135,8 +139,9 @@ function parseNode(token: string): { id: string; label?: string } {
 }
 // Every arrow mermaid draws between two nodes, with the label it can carry
 // either between dashes (`-- yes -->`, also unspaced `--yes-->`) or after it
-// in pipes (`-->|yes|`).
-const ARROW_RE = /\s*(?:--\s*([^-|>\s][^|>]*?)\s*-->|-\.\s*([^.|>\s][^|>]*?)\s*\.->|==\s*([^=|>\s][^|>]*?)\s*==>|<?-->|<?-\.->|<?==>|---|--o|--x|-\.-|===)(?:\|([^|]*)\|)?\s*/g;
+// in pipes (`-->|yes|`). Each line may be drawn longer (`--->`, `====>`,
+// `----`), which mermaid draws as a longer link between the same two nodes.
+const ARROW_RE = /\s*(?:--\s*([^-|>\s][^|>]*?)\s*-{2,}>|-\.\s*([^.|>\s][^|>]*?)\s*\.+->|==\s*([^=|>\s][^|>]*?)\s*={2,}>|<?-{2,}>|<?-\.+->|<?={2,}>|-{3,}|--o|--x|-\.+-|={3,})(?:\|([^|]*)\|)?\s*/g;
 const SKIP_RE = /^(style\s|classDef\s|class\s|linkStyle\s|click\s|subgraph\b|end$|direction\s)/;
 
 function mermaidTwin(code: string): TextTwin {

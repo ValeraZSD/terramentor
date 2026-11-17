@@ -209,22 +209,29 @@ export function slipBudget(length: number): number {
 
 /** Insert, delete, change or swap two neighbours: one edit each. */
 function editDistance(a: string, b: string): number {
+    // Only an accent may change in place, and a drop or an add may not follow
+    // straight on from another (a drop beside an add is a changed letter:
+    // hypothesis/hypotheses). See the server side.
     const s = [...a];
     const t = [...b];
-    const d: number[][] = Array.from({ length: s.length + 1 }, (_, i) => [i, ...Array(t.length).fill(0)]);
-    for (let j = 1; j <= t.length; j++) d[0][j] = j;
-    for (let i = 1; i <= s.length; i++) {
-        for (let j = 1; j <= t.length; j++) {
-            // Only an accent may change in place: a letter changed into
-            // another is not a slip (chlorine/chloride). See the server side.
-            const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
-            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-            if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
-                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    const grid = (): number[][] => Array.from({ length: s.length + 1 }, () => Array(t.length + 1).fill(Infinity));
+    const kept = grid();
+    const indel = grid();
+    kept[0][0] = 0;
+    for (let i = 0; i <= s.length; i++) {
+        for (let j = 0; j <= t.length; j++) {
+            if (i > 0 && j > 0) {
+                const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
+                kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 1][j - 1], indel[i - 1][j - 1]) + cost);
+                if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                    kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 2][j - 2], indel[i - 2][j - 2]) + 1);
+                }
             }
+            if (i > 0) indel[i][j] = Math.min(indel[i][j], kept[i - 1][j] + 1);
+            if (j > 0) indel[i][j] = Math.min(indel[i][j], kept[i][j - 1] + 1);
         }
     }
-    return d[s.length][t.length];
+    return Math.min(kept[s.length][t.length], indel[s.length][t.length]);
 }
 
 const baseLetter = (ch: string) => ch.normalize('NFD').replace(/\p{M}+/gu, '');

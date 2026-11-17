@@ -53,6 +53,12 @@ check('every column any row has, in first-seen order', same(bars.table?.columns,
 check('every row, a missing cell left empty', same(bars.table?.rows, [['2000', '15.9', ''], ['2010', '16.6', ''], ['2020', '17.4', 'census']]));
 const csv = textTwinFor('vega', JSON.stringify({ data: { values: 'fruit,count\napple,3\npear,5', format: { type: 'csv' } }, mark: 'bar' }));
 check('rows written as CSV text are read too', same(csv.table?.rows, [['apple', '3'], ['pear', '5']]));
+// Read as the chart is drawn (vegaDsv.ts): a quoted cell holds its comma, and a
+// `dsv` chart splits on its own delimiter.
+const quoted = textTwinFor('vega', JSON.stringify({ data: { values: 'name,note\nA,"x, y"', format: { type: 'csv' } }, mark: 'bar' }));
+check('a quoted CSV cell keeps its comma', same(quoted.table?.rows, [['A', 'x, y']]), JSON.stringify(quoted.table));
+const semi = textTwinFor('vega', JSON.stringify({ data: { values: 'land;pop\nNL;18', format: { type: 'dsv', delimiter: ';' } }, mark: 'bar' }));
+check('a dsv chart is split on its own delimiter', same(semi.table?.columns, ['land', 'pop']) && same(semi.table?.rows, [['NL', '18']]), JSON.stringify(semi.table));
 const layered = textTwinFor('vega', JSON.stringify({ layer: [{ data: { values: [{ t: 1, v: 2 }] }, mark: 'line' }] }));
 check('a layered chart\'s data is found in its layer', same(layered.table?.columns, ['t', 'v']));
 const long = textTwinFor('vega', JSON.stringify({ data: { values: Array.from({ length: 120 }, (_, i) => ({ i })) } }));
@@ -79,6 +85,8 @@ check('labels, not ids; the arrow label in brackets; `&` fans out; styling skipp
 ]), JSON.stringify(flow.lines));
 check('a chain of arrows is every link in it',
     same(textTwinFor('mermaid', 'graph LR\n  A --> B --> C').lines, ['A → B', 'B → C']));
+const longer = textTwinFor('mermaid', 'flowchart LR\n  A[Start] ---> B[End]\n  B -- done ---> C[Stop]\n  C ====> D[Out]').lines;
+check('a longer arrow (--->, ====>) is the same link, its label kept', same(longer, ['Start → End', 'End → Stop (done)', 'Stop → Out']), JSON.stringify(longer));
 check('a state diagram\'s start and its colon labels',
     same(textTwinFor('mermaid', 'stateDiagram-v2\n  [*] --> Idle\n  Idle --> Busy : job arrives').lines, ['start/end → Idle', 'Idle → Busy (job arrives)']));
 check('a sequence diagram\'s messages',

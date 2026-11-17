@@ -57,7 +57,7 @@ export function cleanDescription(value) {
     const text = String(value ?? '')
         .replace(/[\u0000-\u001f\u007f]+/g, ' ')
         // Zero-width and direction marks: invisible, and read out or reorder text.
-        .replace(/[​-‏‪-‮⁦-⁩﻿]+/g, '')
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\u061C]+/g, '')
         .replace(/\s+/g, ' ')
         .trim();
     // By characters, so the cut never splits an emoji into half a pair.
@@ -85,20 +85,42 @@ export function setLearnerDescription(hash, value) {
 /**
  * Pictures with their descriptions, one row per file, for the review list:
  * model-written ones first, since those are the ones to check.
+ *
+ * Each row carries `cursor`, its place in that order; the next page asks for
+ * the rows `after` the last one shown. Not an offset: a description the
+ * learner corrects moves from the model-written rows to the end, and every row
+ * behind it would move up one, past an offset, and never be shown.
  */
-export function listDescriptions({ projectId = null, offset = 0, limit = 50 } = {}) {
+export function listDescriptions({ projectId = null, offset = 0, limit = 50, after = null } = {}) {
     // One whole ROW per file (its first), never columns mixed from several:
     // a file used by two projects has a row each, and an author's text must
     // not be shown under another row's "written by AI".
     const where = projectId ? `WHERE kind = 'image' AND project_id = ?` : `WHERE kind = 'image'`;
     const args = projectId ? [projectId] : [];
-    return db.prepare(`
-        SELECT hash, filename, description, described_by, generated_by
-        FROM media_files
-        WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
-        ORDER BY (described_by IS 'vision') DESC, (description IS NULL) DESC, id
-        LIMIT ? OFFSET ?
-    `).all(...args, Math.max(1, Math.min(200, limit | 0)), Math.max(0, offset | 0));
+    const at = /^([01])\.([01])\.(\d+)$/.exec(String(after ?? ''));
+    const past = at ? 'WHERE v < ? OR (v = ? AND (e < ? OR (e = ? AND id > ?)))' : '';
+    const pastArgs = at ? [+at[1], +at[1], +at[2], +at[2], +at[3]] : [];
+    return listDescriptionsStmt(where, past).all(
+        ...args, ...pastArgs, Math.max(1, Math.min(200, limit | 0)), at ? 0 : Math.max(0, offset | 0),
+    ).map(({ v, e, id, ...row }) => ({ ...row, cursor: `${v}.${e}.${id}` }));
+}
+
+const listStatements = new Map();
+function listDescriptionsStmt(where, past) {
+    const key = `${where}|${past}`;
+    if (!listStatements.has(key)) {
+        listStatements.set(key, db.prepare(`
+            SELECT * FROM (
+                SELECT id, hash, filename, description, described_by, generated_by,
+                       (described_by IS 'vision') AS v, (description IS NULL) AS e
+                FROM media_files
+                WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
+            ) ${past}
+            ORDER BY v DESC, e DESC, id
+            LIMIT ? OFFSET ?
+        `));
+    }
+    return listStatements.get(key);
 }
 
 /** Rows still worth describing: images, no description yet. */
@@ -185,7 +207,11 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
     const wrote = db.prepare(`UPDATE media_files SET description = ?, described_by = ?, generated_by = ?
         WHERE hash = ? AND (description IS NULL OR description = '' OR described_by = 'vision')`)
         .run(clean, 'vision', aiProvenance({ job: 'vision' }), hash);
-    if (wrote.changes === 0) return { ok: true, description: row.description, reason: 'already described' };
+    if (wrote.changes === 0) {
+        // The text that won, not the one read before the model was asked.
+        const now = db.prepare('SELECT description FROM media_files WHERE hash = ? LIMIT 1').get(hash);
+        return { ok: true, description: now?.description ?? null, reason: 'already described' };
+    }
     return { ok: true, description: clean };
 }
 

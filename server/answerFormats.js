@@ -190,28 +190,42 @@ export function slipBudget(length) {
 }
 
 /**
- * Edits between two words: insert, delete, change, or swap two neighbours
- * (`recieve`), each one edit. A letter with a different accent is a changed
- * letter, so it costs one like any other.
+ * Edits between two words: a letter dropped or added, an accent changed, or
+ * two neighbours swapped (`recieve`), each one edit.
+ *
+ * A letter changed into ANOTHER letter is never a slip: that is how chlorine
+ * becomes chloride and alkane alkene. Pricing that change out is not enough
+ * on its own, since a letter dropped next to one added is the same change by
+ * another route (hypothesis/hypotheses, nucleotide/nucleoside). So a drop or
+ * an add may not follow straight on from another one: two of them side by
+ * side is a changed letter, or a run of letters gone (anaerobic/aerobic).
+ * Slips with a kept letter between them stay forgiven (photossyntesis).
+ *
+ * `d[k][i][j]`: the cheapest alignment of the first i and j letters whose last
+ * step was a drop or an add (k = 1) or not (k = 0). Mirror:
+ * `editDistance` in `src/components/answer/formats.ts`.
  */
 function editDistance(a, b) {
     const s = [...a];
     const t = [...b];
-    const d = Array.from({ length: s.length + 1 }, (_, i) => [i, ...Array(t.length).fill(0)]);
-    for (let j = 1; j <= t.length; j++) d[0][j] = j;
-    for (let i = 1; i <= s.length; i++) {
-        for (let j = 1; j <= t.length; j++) {
-            // A letter changed into ANOTHER letter is never a slip: that is
-            // how chlorine becomes chloride and alkane alkene. Only an accent
-            // may change in place.
-            const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
-            d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
-            if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
-                d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    const grid = () => Array.from({ length: s.length + 1 }, () => Array(t.length + 1).fill(Infinity));
+    const kept = grid();
+    const indel = grid();
+    kept[0][0] = 0;
+    for (let i = 0; i <= s.length; i++) {
+        for (let j = 0; j <= t.length; j++) {
+            if (i > 0 && j > 0) {
+                const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
+                kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 1][j - 1], indel[i - 1][j - 1]) + cost);
+                if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                    kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 2][j - 2], indel[i - 2][j - 2]) + 1);
+                }
             }
+            if (i > 0) indel[i][j] = Math.min(indel[i][j], kept[i - 1][j] + 1);
+            if (j > 0) indel[i][j] = Math.min(indel[i][j], kept[i][j - 1] + 1);
         }
     }
-    return d[s.length][t.length];
+    return Math.min(kept[s.length][t.length], indel[s.length][t.length]);
 }
 
 const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');

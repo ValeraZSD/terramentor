@@ -2650,8 +2650,9 @@ export const api = {
     mediaInfo: (hash: string) =>
         request<import('./types').MediaInfo>(`/media/${hash}/info`),
 
-    listMediaDescriptions: (offset = 0) =>
-        request<{ items: import('./types').MediaDescriptionRow[] }>(`/media-descriptions?offset=${offset}`),
+    /** `after`: the `cursor` of the last row shown, for the next page. */
+    listMediaDescriptions: (after?: string) =>
+        request<{ items: import('./types').MediaDescriptionRow[] }>(`/media-descriptions${after ? `?after=${encodeURIComponent(after)}` : ''}`),
 
     setMediaDescription: (hash: string, description: string) =>
         request<{ description: string | null; described_by: import('./types').MediaDescriber | null }>(`/media/${hash}/description`, {

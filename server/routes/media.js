@@ -87,7 +87,10 @@ app.get('/api/media-descriptions/status', (req, res) => {
 app.get('/api/media-descriptions', (req, res) => {
     const projectId = req.query.projectId ? Number(req.query.projectId) : null;
     res.json({
-        items: listDescriptions({ projectId, offset: Number(req.query.offset) || 0, limit: Number(req.query.limit) || 50 }),
+        items: listDescriptions({
+            projectId, offset: Number(req.query.offset) || 0, limit: Number(req.query.limit) || 50,
+            after: typeof req.query.after === 'string' ? req.query.after : null,
+        }),
     });
 });
 

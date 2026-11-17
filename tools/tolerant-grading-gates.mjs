@@ -44,11 +44,12 @@ const section = (name) => console.log(`\n${name}`);
 const server = await import(pathToFileURL(join(repoRoot, 'server/answerFormats.js')).href);
 
 // The client grader reads the setting from the store by default; the stub
-// answers OFF, which is also what a learner who never touched it has.
+// answers OFF, which is also what a learner who never touched it has, until a
+// check below turns it on (globalThis.__forgiveSpelling).
 const stub = join(scratch, 'stub.js');
 writeFileSync(stub, 'export const api = new Proxy({}, { get: () => () => { throw new Error("no network in a gate"); } });\nexport const k = (s) => s;\nexport default {};\n');
 const storeStub = join(scratch, 'store-stub.js');
-writeFileSync(storeStub, 'export const useStore = { getState: () => ({ codeRunner: false, forgiveSpelling: false }) };\n');
+writeFileSync(storeStub, 'export const useStore = { getState: () => ({ codeRunner: false, forgiveSpelling: globalThis.__forgiveSpelling === true }) };\n');
 const outfile = join(scratch, 'grading.mjs');
 await esbuild.build({
     entryPoints: [join(repoRoot, 'src/utils/grading.ts')],
@@ -84,6 +85,14 @@ const TABLE = [
     ['...alkane is not alkene', fill('alkane'), 'alkene', false, false],
     ['...hypothermia is not hyperthermia', fill('hypothermia'), 'hyperthermia', false, false],
     ['...exothermic is not endothermic', fill('exothermic'), 'endothermic', false, false],
+    // Nine letters and up have two edits to spend: a letter dropped beside one
+    // added is still a changed letter, and two dropped side by side a run gone.
+    ['...hypothesis is not hypotheses (a drop beside an add)', fill('hypothesis'), 'hypotheses', false, false],
+    ['...nucleotide is not nucleoside', fill('nucleotide'), 'nucleoside', false, false],
+    ['...phosphate is not phosphite', fill('phosphate'), 'phosphite', false, false],
+    ['...absorption is not adsorption', fill('absorption'), 'adsorption', false, false],
+    ['...anaerobic is not aerobic (two letters gone side by side)', fill('anaerobic'), 'aerobic', false, false],
+    ['two slips with a kept letter between them still count (necessarry)', fill('unnecessary'), 'unecessarry', false, true],
     ['a different ending is a different form: gebruik is not gebruikt', fill('gebruik'), 'gebruikt', false, false],
     ['...sulfate is not sulfates', fill('sulfate'), 'sulfates', false, false],
     ['...mitochondrion is not mitochondria', fill('mitochondrion'), 'mitochondria', false, false],
@@ -147,9 +156,20 @@ check('the client lists it as a key a screen may write', read('src/settingKeys.t
 const store = read('src/store.ts');
 check('the store starts with it OFF and reads it as on only when stored on',
     /forgiveSpelling: false,/.test(store) && store.includes("settings.forgive_spelling === 'on'"));
-check('the client grader reads the store by default', read('src/utils/grading.ts').includes('useStore.getState().forgiveSpelling'));
-check("an agent's sitting is graded under the same setting",
-    read('server/agentSittings.js').includes("gradeLocally(q, answer, { forgiveSpelling: getSetting('forgive_spelling', 'off') === 'on' })"));
+{
+    // Called with no option, as the answer screens call it: the store decides.
+    const q = fill('photosynthesis');
+    globalThis.__forgiveSpelling = true;
+    const on = client.gradeLocally(q, 'photosynthsis');
+    globalThis.__forgiveSpelling = false;
+    const off = client.gradeLocally(q, 'photosynthsis');
+    check('the client grader follows the store when not told: a slip is right with it on, wrong with it off', on === true && off === false, `on ${on}, off ${off}`);
+}
+const sittings = read('server/agentSittings.js');
+check("an agent's sitting is graded under the same setting, read once per sitting",
+    sittings.includes("const forgiveSpelling = getSetting('forgive_spelling', 'off') === 'on';")
+    && sittings.includes('gradeLocally(q, answer, { forgiveSpelling })')
+    && /gradeOne\(d\.question, answers\[i\], \{ form: s\.form, forgiveSpelling \}\)/.test(sittings));
 check('Settings → Learning has the switch', read('src/components/settings/LearningSettings.tsx').includes('setting-forgive-spelling'));
 check('the line under a fill-in box says slips are forgiven only while they are',
     /forgiven/.test(clientFormats.answerHint(fill('x'), true)) && /Spelling counts/.test(clientFormats.answerHint(fill('x'), false))

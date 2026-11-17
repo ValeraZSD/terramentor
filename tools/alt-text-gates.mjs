@@ -69,7 +69,7 @@ check('the correction is stored as the learner\'s, with no model named',
 check('control bytes and runs of space are folded away',
     cleanDescription('a\u0007cat\n\n on   a mat\u0000') === 'a cat on a mat');
 check('a description is bounded at 600 characters', cleanDescription('x'.repeat(5000)).length === 600);
-check('zero-width and direction marks are dropped', cleanDescription('a​cat‮ on⁦ a mat﻿') === 'acat on a mat');
+check('zero-width and direction marks are dropped', cleanDescription('a\u200Bcat\u202E on\u2066 a mat\uFEFF\u2060') === 'acat on a mat');
 check('...and the cut never splits a character in two', [...cleanDescription('\u{1F600}'.repeat(700))].length === 600
     && !/[\ud800-\udbff]$/.test(cleanDescription('a' + '\u{1F600}'.repeat(700))));
 check('a model\'s write lands only where no person has written meanwhile',
@@ -115,6 +115,19 @@ const info = await (await call(`/api/media/${AUTHOR}/info`)).json();
 check('the card\'s lookup reads the new description', info.description === 'A brown dog on a red rug' && info.described_by === 'learner');
 const list = await (await call('/api/media-descriptions')).json();
 check('the list route serves the review rows', Array.isArray(list.items) && list.items.length === 4);
+
+section('the next page, after a correction');
+// Four model-written rows, read two at a time. Correcting one on the first
+// page moves it to the end of the server's order; the next page is asked for
+// by place, so the row that moved up into its slot is still shown.
+for (const c of ['1', '2', '3']) addFile(hash(c), `v${c}.png`, 'image', `Picture ${c}`, 'vision', 'test-model');
+const first = listDescriptions({ limit: 2 });
+check('the first page is two model-written rows', first.length === 2 && first.every(r => r.described_by === 'vision'), JSON.stringify(first));
+setLearnerDescription(first[0].hash, 'Corrected by the learner');
+const next = await (await call(`/api/media-descriptions?limit=2&after=${encodeURIComponent(first[1].cursor)}`)).json();
+const seen = new Set([...first, ...next.items].map(r => r.hash));
+const vision = [hash('f'), hash('1'), hash('2'), hash('3')];
+check('...the next page holds the two model-written rows not yet shown', vision.every(h => seen.has(h)), JSON.stringify(next.items.map(r => r.filename)));
 await new Promise(ok => app.close(ok));
 
 section('what the card says');

@@ -178,10 +178,10 @@ const defaultAnswer = (q) => (q.type === 'sequence' ? JSON.stringify(Array.isArr
  * order it shows; a form has no such order, so an ordering left blank there
  * is blank, and the agent is told so rather than shown an order nobody gave.
  */
-async function gradeOne(q, raw, { form = false } = {}) {
+async function gradeOne(q, raw, { form = false, forgiveSpelling = false } = {}) {
     const answer = typeof raw === 'string' && raw.trim() ? raw.slice(0, ANSWER_CHARS) : (form ? '' : defaultAnswer(q));
     if (!answer.trim()) return { correct: false, answer, explanation: text(q.explanation) };
-    const local = gradeLocally(q, answer, { forgiveSpelling: getSetting('forgive_spelling', 'off') === 'on' });
+    const local = gradeLocally(q, answer, { forgiveSpelling });
     if (local !== null) return { correct: local, answer, explanation: text(q.explanation) };
     try {
         const res = await checkAnswerWithAI(q.question, String(q.correct_answer ?? ''), answer, {
@@ -307,7 +307,9 @@ export async function submitCheck(token, answers) {
             // checker calls meets a provider's rate limit, and a fallback
             // verdict there counts a right answer as wrong.
             const graded = [];
-            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form }));
+            // Read once: one sitting is graded under one setting.
+            const forgiveSpelling = getSetting('forgive_spelling', 'off') === 'on';
+            for (const [i, d] of s.questions.entries()) graded.push(await gradeOne(d.question, answers[i], { form: s.form, forgiveSpelling }));
             const score = graded.filter(g => g.correct).length;
             const total = s.questions.length;
             const asked = s.questions.map((d, i) => ({

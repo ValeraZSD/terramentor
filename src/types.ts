@@ -1113,7 +1113,6 @@ export interface PlacementAnswerResult {
  * mistake positional field-picking can make — a reversed front/back — catchable
  * before it becomes two thousand backwards cards.
  */
-/** Progress of the card-image description sweep (server/mediaDescribe.js). */
 /** Who wrote a picture's description: the deck's author, the learner, or a vision model. */
 export type MediaDescriber = 'author' | 'learner' | 'vision';
 
@@ -1134,8 +1133,11 @@ export interface MediaDescriptionRow {
     described_by: MediaDescriber | null;
     /** The model that wrote it, when one did. */
     generated_by: string | null;
+    /** Its place in the list's order, as it was read: the next page starts after it. */
+    cursor: string;
 }
 
+/** Progress of the card-image description sweep (server/mediaDescribe.js). */
 export interface MediaDescriptionStatus {
     images: number;
     described: number;
