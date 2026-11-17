@@ -23,6 +23,7 @@ import { k } from '../../i18n';
 import { Row } from './MockExamView';
 import { Panel } from './Panel';
 import { useDuration } from './mockFormat';
+import { openingPlace, saveState } from './courseMockState';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
 import { EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
@@ -241,6 +242,9 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
     const inflight = useRef(new Map<number, Promise<boolean>>());
     const timers = useRef(new Map<number, number>());
     const [unsaved, setUnsaved] = useState(0);
+    // Sends that failed in a row and will be tried again: the save line says
+    // "not saved" once there are a few (no connection), not "saving…" forever.
+    const [failedInARow, setFailedInARow] = useState(0);
     const savedRef = useRef(onSaved);
     savedRef.current = onSaved;
     const refusedRef = useRef(onRefused);
@@ -254,6 +258,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
         const trip = api.saveMockAnswer(sittingId, { partId, ...p })
             .then(r => {
                 if (pending.current.get(partId) === p) pending.current.delete(partId);
+                setFailedInARow(0);
                 savedRef.current(r);
                 return true;
             })
@@ -269,6 +274,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
                     refusedRef.current(e?.message || '');
                     return true;
                 }
+                setFailedInARow(n => n + 1);
                 return false;
             })
             .finally(() => {
@@ -318,7 +324,7 @@ function useAnswerSaver(sittingId: number, onSaved: (progress: { answered: numbe
         return () => { window.removeEventListener('pagehide', leave); leave(); };
     }, [sittingId]);
 
-    return { queue, flush, unsaved };
+    return { queue, flush, unsaved, saving: saveState(unsaved, failedInARow) };
 }
 
 export function CourseMockScreen({ detail, onChange, onLeave }: {
@@ -338,11 +344,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     // Coming back opens the question the learner was on in this tab; on
     // another device, or a first open, the first one not answered yet.
     const placeKey = `mock-place:${sitting.id}`;
-    const [index, setIndex] = useState(() => {
-        const kept = Number(readPlace(placeKey));
-        if (Number.isInteger(kept) && kept >= 0 && kept < questions.length) return kept;
-        return Math.max(0, questions.findIndex(q => q.answer == null));
-    });
+    const [index, setIndex] = useState(() => openingPlace(readPlace(placeKey), questions.map(q => q.answer != null)));
     useEffect(() => { writePlace(placeKey, String(index)); }, [placeKey, index]);
     const [answers, setAnswers] = useState<Record<number, string>>(() => Object.fromEntries(questions.map(q => [q.partId, q.answer ?? ''])));
     const [later, setLater] = useState<Record<number, boolean>>(() => Object.fromEntries(questions.map(q => [q.partId, q.later])));
@@ -352,7 +354,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const [leaving, setLeaving] = useState(false);
     const [finishing, setFinishing] = useState(false);
     const finishId = useRef<string | null>(null);
-    const { queue, flush, unsaved } = useAnswerSaver(sitting.id, setProgress,
+    const { queue, flush, saving } = useAnswerSaver(sitting.id, setProgress,
         message => addToast('error', message || t("That answer could not be saved.")));
 
     // Measured on the frame's root, the one element every state shares, so a
@@ -489,7 +491,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     const status = [
         t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
         timed ? clock : null,
-        unsaved > 0 ? t("saving…") : null,
+        saving === 'stuck' ? t("not saved yet, check the connection") : saving === 'saving' ? t("saving…") : null,
     ].filter(Boolean)
         // Each part stays whole: at a large text size the line breaks between
         // the count and the clock, never inside either.

@@ -1773,6 +1773,7 @@
   "Not proven yet ({{round}}% of {{round2}}% needed)": "まだ証明されていません（{{round2}}% 必要に対し {{round}}%）",
   "Not quite": "もう少しです",
   "Not reported": "情報なし",
+  "not saved yet, check the connection": "まだ保存されていません。接続を確認してください",
   "Not saved. Your text is still here.": "保存されていません。入力した文章はそのまま残っています。",
   "not scheduled": "未スケジュール",
   "Not started": "未着手",

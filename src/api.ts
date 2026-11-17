@@ -2308,8 +2308,10 @@ export const api = {
         request<{ exam: RealExam | null }>(`/projects/${projectId}/exam`, { method: 'PUT', body: JSON.stringify(exam) }),
     drawMock: (projectId: number, size: number, minutes: number | null) =>
         request<{ sitting: MockSitting; asked: number; drawn: number; short: boolean }>(`/projects/${projectId}/mock-exams/draw`, { method: 'POST', body: JSON.stringify({ size, minutes }) }),
-    /** One save, written once per `attemptId` (resent unchanged on a retry). */
-    /** `keepalive`: the save sent as the page goes away outlives the page. */
+    /**
+     * One save, written once per `attemptId` (resent unchanged on a retry).
+     * `keepalive`: the save sent as the page goes away outlives the page.
+     */
     saveMockAnswer: (id: number, save: { partId: number; answer?: string; later?: boolean; attemptId: string }, keepalive = false) =>
         request<{ duplicate: boolean; answered: number; left: number; later: number }>(`/mock-sittings/${id}/answers`, { method: 'PUT', body: JSON.stringify(save), keepalive }),
     mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
