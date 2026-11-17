@@ -150,9 +150,12 @@ export default function CompletionSummary() {
 
     const fileAsCompleted = async () => {
         setFiling(true);
-        await updateProject(project.id, { status: 'completed' });
+        const filed = await updateProject(project.id, { status: 'completed' });
         setFiling(false);
-        closeCompletion();
+        // A failed write already toasted. Closing would mark this screen seen and
+        // leave the project Active, and a screen that is shown once never offers
+        // itself again: stay open so the press can be repeated.
+        if (filed) closeCompletion();
     };
 
     return createPortal((
@@ -384,6 +387,7 @@ function ActivityBars({ buckets, bucketDays, label }: {
     bucketDays: number;
     label: (start: string, count: number) => string;
 }) {
+    const { t } = useTranslation();
     const peak = Math.max(1, ...buckets.map(b => b.count));
     // A three-day project is three bars, and three bars stretched across 330px
     // are three slabs — the chart stops reading as a chart. Past this count they
@@ -396,7 +400,7 @@ function ActivityBars({ buckets, bucketDays, label }: {
             className={`flex items-stretch gap-[3px] ${narrow ? 'justify-center' : ''}`}
             style={{ height: '4.25rem' }}
             role="group"
-            aria-label={String(bucketDays)}
+            aria-label={t("{{count}} days", { count: bucketDays })}
         >
             {buckets.map(bucket => {
                 const description = label(bucket.start, bucket.count);

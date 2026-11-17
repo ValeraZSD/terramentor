@@ -776,7 +776,8 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
     const LATE = [101, 102, 103, 104, 105];
     // LOCAL noon: `todayStr()` reads local getters, and UTC noon is already
     // the 5th in UTC+12 to +14.
-    const NOW = new Date(2026, 10, 4, 12).getTime();
+    // `let`: one check moves the clock past midnight with the view still open.
+    let NOW = new Date(2026, 10, 4, 12).getTime();
 
     // The store and the API, replaced. The view reads both through these two
     // module paths and nothing else here.
@@ -970,6 +971,23 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             `drawn: ${monthIds.filter(id => LATE.includes(id))}`);
         check('month: today\'s cell holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
             group('overdue')?.textContent ?? 'none');
+        // A cell holding task chips and late groups is not itself a button: a
+        // button role flattens the real buttons inside it for a screen reader and
+        // doubles every Tab stop. The cell stays a pointer target and its day
+        // number is the button.
+        check('month: no cell is role="button", and no button sits inside one',
+            !curr().querySelector('[role="button"]') && [...curr().querySelectorAll('button')].every(b => !b.closest('[role="button"]')),
+            `${curr().querySelectorAll('[role="button"]').length} role=button elements`);
+        const dayNumber = (date) => curr().querySelector(`[data-date="${date}"] button[data-day-open]`);
+        check('month: every cell\'s day number is a real button',
+            curr().querySelectorAll('[data-date]').length > 0
+            && [...curr().querySelectorAll('[data-date]')].every(c => c.querySelector('button[data-day-open]')),
+            `${curr().querySelectorAll('button[data-day-open]').length} of ${curr().querySelectorAll('[data-date]').length}`);
+        await click(dayNumber('2026-11-10'), 'a day number in the month');
+        check('month: pressing the day number opens that day as a week',
+            radio('Week')?.getAttribute('aria-checked') === 'true' && !!curr().querySelector('[data-date="2026-11-10"]'),
+            `week: ${radio('Week')?.getAttribute('aria-checked')}`);
+        await click(radio('Month'));
         // The cell itself opens its day as a WEEK on a desktop: the group's
         // press must not reach it.
         await click(group('overdue'), 'an overdue group on today (month)');
@@ -1104,6 +1122,16 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         check('selecting a late topic brings back today, its group ringed',
             /\bring-accent\b/.test(g2sel?.className ?? ''), g2sel ? g2sel.className : 'today not on screen');
         await view.act(async () => { view.useStore.setState({ selectedNodeId: null }); }); await settle();
+        // Left open across midnight: the ring moves to the new day with the next
+        // render, as the overdue group already does, without the learner paging.
+        const marked = (date) => /bg-accent\/\[0\.07\]/.test(host2.querySelector(`[data-panel="curr"] [data-date="${date}"]`)?.className ?? '');
+        check('before midnight the 4th is the marked day', marked('2026-11-04') && !marked('2026-11-05'),
+            `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
+        NOW = new Date(2026, 10, 5, 0, 5).getTime();
+        await view.act(async () => { view.useStore.setState({ tree: [...view.useStore.getState().tree] }); }); await settle();
+        check('after midnight the marked day moves to the 5th, in the same open view',
+            marked('2026-11-05') && !marked('2026-11-04'), `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
+        NOW = new Date(2026, 10, 4, 12).getTime();
         unmount2(); host2.remove();
 
         // -- an empty library ---------------------------------------------------------

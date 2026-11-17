@@ -27,6 +27,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { api, newAttemptId } from '../api';
 import { onFrameActivity } from '../utils/frameActivity';
+import { todayStr } from '../utils/tree';
 import {
     createStudyClock, sumForDay,
     type StudyEntry, type StudyLayer, type StudyTarget,
@@ -85,6 +86,10 @@ function arrive() {
  */
 function flush({ keepalive = false, ask = false } = {}): Promise<void> {
     if (sending) return sending.done;
+    // The server's total is for the day it last named. A page left open past
+    // midnight with nothing counted yet has nothing to send, so it would keep
+    // showing yesterday's total as today's; ask, and the answer names the new day.
+    if (today && today.date !== todayStr()) ask = true;
     let batch = unsent;
     if (!batch) {
         const entries = clock.take();

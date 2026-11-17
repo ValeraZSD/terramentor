@@ -18,7 +18,7 @@
  *
  *   node tools/completion-gates.mjs
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -467,6 +467,29 @@ for (const [name, patch] of Object.entries(POSTER_CASES)) {
         }
         check(`${name}: the tick on the badge is actually visible`, seen.size >= 3, `${seen.size} colours in the badge`);
     }
+}
+
+/* ── the screen's own wiring ─────────────────────────────────────────────── */
+section('the screen');
+
+{
+    const screen = readFileSync(join(repoRoot, 'src/components/completion/CompletionSummary.tsx'), 'utf8');
+
+    // Filing the project is a write that can fail (the server restarting, a
+    // hosted copy offline). `updateProject` toasts and returns false; closing
+    // anyway marked a screen that is only ever shown once as seen and left the
+    // project Active.
+    const filing = /const fileAsCompleted = async \(\) => \{[\s\S]*?\n {4}\};/.exec(screen)?.[0] ?? '';
+    check('the filing handler exists', filing !== '');
+    check('"Move it to Completed" reads the write\'s result',
+        /(=|\()\s*await updateProject\(/.test(filing), filing);
+    check('…and closes the screen only when the write succeeded',
+        /if \(\w+\) closeCompletion\(\)/.test(filing) && !/^\s*closeCompletion\(\);/m.test(filing), filing);
+
+    // The activity chart is a group; a bare bucket size ("7") is no name.
+    const group = /role="group"\s+aria-label=\{([^\n]*)\}/.exec(screen)?.[1] ?? '';
+    check('the activity chart\'s group is named in words, not by its bare bucket size',
+        group !== '' && !/^String\(/.test(group) && /^t\(/.test(group), group);
 }
 
 /* ── done ────────────────────────────────────────────────────────────────── */
