@@ -178,6 +178,19 @@ const settled = KNOWN_OFFENDERS.filter(p => !offenders.includes(p));
 check('the known-offender list names nothing that is already fixed',
     settled.length === 0, settled.join(', '));
 
+// ---------------------------------------------------------------------------
+section('a decimal the reader sees follows their number style');
+
+// `.toFixed()` always writes a point, so a learner who chose "1.234,5" (or reads
+// German or Russian) still saw "2.3s". `num(x, { decimals })` writes the
+// separator they asked for.
+{
+    const src = readFileSync(join(repoRoot, 'src/components/settings/ActivityLogPanel.tsx'), 'utf8');
+    check('the activity log writes no decimal with toFixed', !/\.toFixed\(/.test(src));
+    check('its seconds go through num() and a translated unit',
+        /t\("\{\{seconds\}\}s",\s*\{\s*seconds:\s*num\(e\.ms \/ 1000,\s*\{\s*decimals:\s*1\s*\}\)/.test(src));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 process.exit(fail ? 1 : 0);

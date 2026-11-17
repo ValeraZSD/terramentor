@@ -86,17 +86,27 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     };
 
     const saveGateNumber = async (key: 'mastery_threshold' | 'mastery_check_pass' | 'mastery_check_size' | 'decay_days', raw: string) => {
+        // The clamped number goes back into the field: the sentence above it and
+        // the stored value must say what the field says. An empty or unreadable
+        // field takes the default the server would use, not 0 (which it reads as
+        // "unset" anyway).
+        const whole = (lo: number, hi: number, fallback: number) => {
+            const typed = parseInt(raw, 10);
+            return Math.max(lo, Math.min(hi, Number.isFinite(typed) ? typed : fallback));
+        };
         let value: string;
         if (key === 'decay_days') {
-            const n = Math.max(1, Math.min(365, parseInt(raw, 10) || 14));
+            const n = whole(1, 365, 14);
             value = String(n);
+            setDecayDays(value);
         } else if (key === 'mastery_check_size') {
-            const n = Math.max(4, Math.min(30, parseInt(raw, 10) || 10));
+            const n = whole(4, 30, 10);
             value = String(n);
             setCheckSize(value);
         } else {
-            const pct = Math.max(0, Math.min(100, parseInt(raw, 10) || 0));
+            const pct = whole(0, 100, key === 'mastery_threshold' ? 85 : 80);
             value = String(pct / 100);
+            (key === 'mastery_threshold' ? setMasteryThreshold : setCheckPass)(String(pct));
         }
         try {
             await api.setSetting(key, value);

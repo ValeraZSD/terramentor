@@ -67,7 +67,7 @@ mkdirSync(join(root, 'node_modules', '.cache'), { recursive: true });
 const scratch = mkdtempSync(join(root, 'node_modules', '.cache', 'settings-behaviour-'));
 const out = join(scratch, 'bundle.cjs');
 const baseDir = join(scratch, 'base');
-const FILES = ['ui/SettingRow', 'ui/Switch', 'OtherDevices'];
+const FILES = ['ui/SettingRow', 'ui/Switch', 'OtherDevices', 'settings/FeedSettingsPanel', 'settings/LearningSettings'];
 if (BASE) {
     for (const f of FILES) {
         mkdirSync(dirname(join(baseDir, `${f}.tsx`)), { recursive: true });
@@ -115,7 +115,9 @@ await esbuild.build({
         contents: `
             export { SettingRow } from '${from('ui/SettingRow')}';
             export { default as Switch } from '${from('ui/Switch')}';
-            export { default as OtherDevices } from '${from('OtherDevices')}';`,
+            export { default as OtherDevices } from '${from('OtherDevices')}';
+            export { default as FeedSettingsPanel } from '${from('settings/FeedSettingsPanel')}';
+            export { default as LearningSettings } from '${from('settings/LearningSettings')}';`,
         resolveDir: root,
         loader: 'tsx',
     },
@@ -128,7 +130,7 @@ await esbuild.build({
 });
 const React = require('react');
 const { createRoot } = require('react-dom/client');
-const { SettingRow, Switch, OtherDevices } = require(out);
+const { SettingRow, Switch, OtherDevices, FeedSettingsPanel, LearningSettings } = require(out);
 rmSync(scratch, { recursive: true, force: true });
 const h = React.createElement;
 const act = (fn) => React.act(fn);
@@ -313,6 +315,61 @@ section('a switch whose save fails goes where the stored value is, whatever orde
         await one(true, (v) => { shown = v; }, async () => { }).catch(() => { rejected = true; });
         check('one press taken: stays ON, and the caller hears no error', shown === true && !rejected);
     }
+}
+
+// ---------------------------------------------------------------------------
+section('a stored 0 in the feed settings is shown as 0, not as the default');
+{
+    globalThis.__api = {
+        getSettings: async () => ({ feed_recall_per_batch: '0', feed_due_per_day: '0', feed_new_per_project: '0', feed_focus_total: '8' }),
+        setSetting: async () => { },
+    };
+    globalThis.__setState({ addToast() { } });
+    await mounted('FeedSettingsPanel', () => h(FeedSettingsPanel, { active: true }), async (el) => {
+        await flush();
+        const field = (key) => el.querySelector(`#feed-${key}`)?.value;
+        check('control: a stored 8 is shown as 8', field('feed_focus_total') === '8', field('feed_focus_total'));
+        check('"Recall questions per batch" stored as 0 reads 0 (0 turns it off)', field('feed_recall_per_batch') === '0', field('feed_recall_per_batch'));
+        check('"Due per day" stored as 0 reads 0', field('feed_due_per_day') === '0', field('feed_due_per_day'));
+        check('"New per project" stored as 0 reads 0', field('feed_new_per_project') === '0', field('feed_new_per_project'));
+    });
+}
+
+// ---------------------------------------------------------------------------
+section('a mastery number that was clamped or left empty goes back into its field');
+{
+    const saved = [];
+    globalThis.__api = { setSetting: async (k, v) => { saved.push([k, v]); } };
+    globalThis.__setState({ addToast() { } });
+    const type = async (input, value) => {
+        await act(async () => {
+            Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value);
+            input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        });
+        await act(async () => { input.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true })); });
+        await flush();
+    };
+    await mounted('LearningSettings', () => h(LearningSettings, { active: true, snapshot: { ok: true, values: {} } }), async (el) => {
+        await flush();
+        const byLabel = (re) => [...el.querySelectorAll('label')].find((l) => re.test(l.textContent))?.querySelector('input');
+        const threshold = byLabel(/Mastery estimate to pass/);
+        const pass = byLabel(/Mastery check score to pass/);
+        const decay = byLabel(/Days before a proven topic fades/);
+        if (!threshold || !pass || !decay) { check('the four mastery fields are found', false); return; }
+        const sentence = () => [...el.querySelectorAll('p')].find((p) => /counts as proven/.test(p.textContent))?.textContent ?? '';
+
+        await type(threshold, '150');
+        check('150% is saved as 100% and the field says 100', saved.some(([k, v]) => k === 'mastery_threshold' && v === '1') && threshold.value === '100', threshold.value);
+        await type(decay, '999');
+        check('999 days is saved as 365 and the field says 365', saved.some(([k, v]) => k === 'decay_days' && v === '365') && decay.value === '365', decay.value);
+        check('…and so does the sentence above it', /fading after 365 days/.test(sentence()), sentence());
+        saved.length = 0;
+        await type(threshold, '');
+        check('an empty percentage is saved as the default 85%, not 0', saved.some(([k, v]) => k === 'mastery_threshold' && v === '0.85'), JSON.stringify(saved));
+        check('…and the field says 85', threshold.value === '85', threshold.value);
+        await type(pass, '');
+        check('an empty pass score is saved as the default 80%', saved.some(([k, v]) => k === 'mastery_check_pass' && v === '0.8') && pass.value === '80', `${JSON.stringify(saved)} ${pass.value}`);
+    });
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
