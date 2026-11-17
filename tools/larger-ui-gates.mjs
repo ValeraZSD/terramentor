@@ -1,0 +1,260 @@
+#!/usr/bin/env node
+/**
+ * Settings → Accessibility → "Larger text and buttons", measured in a browser.
+ *
+ *   node tools/larger-ui-gates.mjs                 every screen, setting off and on
+ *   node tools/larger-ui-gates.mjs --only card     only the screens whose name contains "card"
+ *   node tools/larger-ui-gates.mjs --shots <dir>   also save a picture of every state
+ *   node tools/larger-ui-gates.mjs --looks         add dark and Windows High Contrast states
+ *   node tools/larger-ui-gates.mjs --browser <p>   a Chromium-based browser (default: Edge or Chrome)
+ *
+ * The invented course from tools/docs-fixture.mjs, built and served the way
+ * tools/axe-gates.mjs does it. Each screen is opened at desktop and phone width
+ * with the setting off and then on, and two things are counted on it:
+ *
+ *   small targets  every control (button, link, field, select, tab, option,
+ *                  tickbox...) whose pressable area is under 2.75rem (44px at
+ *                  100%) in either direction. The area is the control and
+ *                  whatever it holds that takes the pointer, so a switch whose
+ *                  target spills round its track counts at its real size, and
+ *                  a tickbox counts with its label. A link inside running text
+ *                  is exempt (WCAG 2.5.5).
+ *   small text     every element showing text under 0.875rem (14px at 100%).
+ *                  Formulas, drawings (SVG) and super/subscripts are exempt:
+ *                  their size is part of what they say.
+ *
+ * With the setting on, both must be zero, and axe's own target-size rule must
+ * find nothing. With it off the counts are printed: they are what the setting
+ * changes, and a count of zero there means the measurement saw nothing, which
+ * fails the run.
+ *
+ * Without Edge or Chrome it is SKIPPED locally and fails in CI. Like axe-gates,
+ * it counts on Windows: another system's fonts lay lines out differently.
+ */
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const FIXTURE = join(ROOT, 'tools', 'docs-fixture.mjs');
+const require = createRequire(import.meta.url);
+const AXE_SOURCE = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
+
+const args = process.argv.slice(2);
+const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const only = value('--only');
+const shots = value('--shots');
+const looks = args.includes('--looks');
+
+let pass = 0, fail = 0;
+const check = (label, cond, extra = '') => {
+    if (cond) { pass++; console.log(`  ok    ${label}`); }
+    else { fail++; console.log(`  FAIL  ${label}${extra ? `\n${extra}` : ''}`); }
+};
+
+delete process.env.__COMPAT_LAYER;
+
+if (process.env.CI && process.platform !== 'win32') {
+    console.log(`SKIPPED: the sizes are counted on Windows; this CI runner is ${process.platform}`);
+    process.exit(0);
+}
+
+const { visit, findBrowser, removeScratch, STATES, byText } = await import(pathToFileURL(join(ROOT, 'tools', 'docs-shots.mjs')).href);
+
+let browserPath;
+try {
+    browserPath = findBrowser(value('--browser'));
+} catch {
+    if (process.env.CI) { console.log('  FAIL  no Edge or Chrome to run the screens in'); console.log('0 passed, 1 failed'); process.exit(1); }
+    console.log('SKIPPED: no Edge or Chrome found (pass --browser <path>)');
+    process.exit(0);
+}
+
+// dist/, built from the sources being checked (as axe-gates does).
+function newest(path) {
+    if (!existsSync(path)) return 0;
+    const st = statSync(path);
+    if (!st.isDirectory()) return st.mtimeMs;
+    let most = 0;
+    for (const name of readdirSync(path)) most = Math.max(most, newest(join(path, name)));
+    return most;
+}
+const built = existsSync(join(ROOT, 'dist', 'index.html')) ? statSync(join(ROOT, 'dist', 'index.html')).mtimeMs : 0;
+const sources = Math.max(...['src', 'public', 'index.html', 'vite.config.ts', 'tailwind.config.js', 'postcss.config.js'].map((p) => newest(join(ROOT, p))));
+if (sources > built) {
+    console.log(built ? 'dist/ is older than the sources: building it' : 'no dist/: building it');
+    const run = spawnSync(process.execPath, [join(ROOT, 'node_modules', 'vite', 'bin', 'vite.js'), 'build', '--logLevel', 'warn'], { cwd: ROOT, stdio: 'inherit' });
+    if (run.status !== 0) { console.log('  FAIL  vite build'); console.log('0 passed, 1 failed'); process.exit(1); }
+}
+
+// ---------------------------------------------------------------------------
+// The screens: settings, a review session, the feed, the course, a dialog.
+// ---------------------------------------------------------------------------
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const go = (path, needle = null, wait = 1200) => async (page, ctx) => {
+    await page.go(typeof path === 'function' ? path(ctx.ids) : path, needle);
+    await sleep(wait);
+};
+const cardFront = async (page, ctx) => {
+    const study = byText('button', '/^Study [\\d.,\\s]+ cards?$/');
+    await page.go(`/project/${ctx.ids.project}/dashboard`, null);
+    await page.waitFor(study, 'the cards owed');
+    await page.press(study, 'Study the cards owed');
+    await page.waitFor(`document.querySelector('[data-owns-keyboard]')`, 'the review session');
+    await sleep(800);
+};
+const SCREENS = {
+    'settings-accessibility': async (page) => {
+        await page.go('/settings', 'Settings');
+        const tab = byText('button', '/^Accessibility/');
+        await page.waitFor(tab, 'Accessibility');
+        await page.press(tab, 'Accessibility');
+        await sleep(1000);
+    },
+    'card-front': cardFront,
+    'card-answer': async (page, ctx) => {
+        await cardFront(page, ctx);
+        await page.press(byText('button', '/^Reveal answer/'), 'Reveal answer');
+        await sleep(800);
+    },
+    home: go('/', null, 2000),
+    'course-dashboard': go((ids) => `/project/${ids.project}/dashboard`, 'Dashboard', 1800),
+    outline: go((ids) => `/project/${ids.project}/tree`),
+    topic: go((ids) => `/project/${ids.project}/tree/${ids.study}`, 'Details'),
+    'new-course': STATES['new-course'],
+};
+
+const SIZES = { desktop: { width: 1280, height: 800, scale: 1 }, phone: { width: 390, height: 844, scale: 1 } };
+const LOOKS = looks ? ['light', 'dark', 'contrast'] : ['light'];
+const wanted = Object.keys(SCREENS).filter((s) => !only || s.includes(only));
+if (!wanted.length) {
+    console.log(`  FAIL  --only ${only} names no screen (screens: ${Object.keys(SCREENS).join(', ')})\n0 passed, 1 failed`);
+    process.exit(1);
+}
+
+const states = {};
+for (const screen of wanted) for (const viewport of Object.keys(SIZES)) for (const look of LOOKS) for (const mode of ['off', 'on']) {
+    states[`${screen} ${viewport} ${look} ${mode}`] = async (page, ctx) => {
+        const { width, height } = SIZES[viewport];
+        await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+        await page.send('Emulation.setTouchEmulationEnabled', viewport === 'phone' ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
+        await page.send('Emulation.setEmulatedMedia', { features: [{ name: 'forced-colors', value: look === 'contrast' ? 'active' : 'none' }] });
+        await page.setting('theme', look === 'dark' ? 'dark' : 'light');
+        await page.setting('larger_ui', mode === 'on' ? 'true' : 'false');
+        await SCREENS[screen](page, ctx);
+    };
+}
+
+// ---------------------------------------------------------------------------
+// The measurement, in the page.
+// ---------------------------------------------------------------------------
+
+const MEASURE = `(() => {
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const minTarget = 2.75 * rem - 0.5;   // half a pixel for subpixel layout
+    const minText = 0.875 * rem - 0.05;
+    const name = (el) => (el.getAttribute('aria-label') || el.textContent || el.getAttribute('title') || el.tagName).trim().replace(/\\s+/g, ' ').slice(0, 40);
+    const where = (el) => {
+        const parts = [];
+        for (let e = el; e && e !== document.body && parts.length < 3; e = e.parentElement) {
+            parts.unshift(e.tagName.toLowerCase() + (e.getAttribute('role') ? '[role=' + e.getAttribute('role') + ']' : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : ''));
+        }
+        return parts.join(' > ');
+    };
+    const shown = (el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) return false;
+        if (el.closest('[inert], [aria-hidden="true"], .sr-only')) return false;
+        const cs = getComputedStyle(el);
+        return cs.visibility !== 'hidden' && cs.display !== 'none';
+    };
+    // The pressable area: the control, and what it holds that takes the pointer.
+    const area = (el) => {
+        let r = el.getBoundingClientRect();
+        let [l, t, rt, b] = [r.left, r.top, r.right, r.bottom];
+        const grow = (x) => { const q = x.getBoundingClientRect(); if (q.width < 1 || q.height < 1) return; l = Math.min(l, q.left); t = Math.min(t, q.top); rt = Math.max(rt, q.right); b = Math.max(b, q.bottom); };
+        for (const c of el.querySelectorAll('*')) if (getComputedStyle(c).pointerEvents !== 'none') grow(c);
+        if (el.matches('input[type="checkbox"], input[type="radio"]')) for (const label of el.labels || []) grow(label);
+        return { w: rt - l, h: b - t };
+    };
+    const CONTROLS = 'button, select, summary, a[href], input:not([type="hidden"]), textarea, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"], [role="slider"]';
+    const targets = [];
+    for (const el of document.querySelectorAll(CONTROLS)) {
+        if (el.matches('p a, blockquote a, .prose a, [data-prose] a')) continue;
+        // A control inside another control is pressed through its parent.
+        if (el.parentElement && el.parentElement.closest(CONTROLS) && !el.matches('input[type="checkbox"], input[type="radio"]')) continue;
+        if (!shown(el) && !el.matches('input[type="checkbox"], input[type="radio"]')) continue;
+        if (el.matches('input[type="checkbox"], input[type="radio"]') && (el.closest('[inert], [aria-hidden="true"]') || !el.getClientRects().length)) continue;
+        const a = area(el);
+        if (a.w < minTarget || a.h < minTarget) targets.push({ name: name(el), size: Math.round(a.w) + 'x' + Math.round(a.h), where: where(el) });
+    }
+    const text = [];
+    const seen = new Set();
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (!n.nodeValue.trim()) continue;
+        const el = n.parentElement;
+        if (!el || seen.has(el)) continue;
+        seen.add(el);
+        if (el.closest('svg, .katex, sup, sub, script, style, noscript, template')) continue;
+        if (!shown(el)) continue;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (size < minText) text.push({ text: n.nodeValue.trim().slice(0, 40), size: (size / rem).toFixed(3) + 'rem', where: where(el) });
+    }
+    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text };
+})()`;
+
+const AXE_TARGETS = `(async () => {
+    if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
+    const r = await window.axe.run(document, { runOnly: { type: 'rule', values: ['target-size'] }, resultTypes: ['violations'] });
+    return r.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' ')));
+})()`;
+
+const seen = {};
+const scratch = mkdtempSync(join(tmpdir(), 'larger-ui-gates-'));
+if (shots) mkdirSync(shots, { recursive: true });
+const t0 = Date.now();
+try {
+    const { prepare } = await import(pathToFileURL(FIXTURE).href);
+    await visit('fixture', scratch, [{ states: Object.keys(states) }], SIZES.desktop, browserPath, async (_entry, state, page) => {
+        const m = await page.evaluate(MEASURE);
+        m.axe = state.endsWith(' on') ? await page.evaluate(AXE_TARGETS) : [];
+        seen[state] = m;
+        if (shots) writeFileSync(join(shots, `${state.replace(/ /g, '_')}.png`), await page.png());
+    }, prepare, states);
+} finally {
+    removeScratch(scratch);
+}
+console.log(`\n${Object.keys(seen).length} states in ${((Date.now() - t0) / 1000).toFixed(0)} s\n`);
+
+// ---------------------------------------------------------------------------
+// The counts, off -> on, and the checks.
+// ---------------------------------------------------------------------------
+
+const rows = [];
+let offTargets = 0, offText = 0, onTargets = 0, onText = 0;
+for (const screen of wanted) for (const viewport of Object.keys(SIZES)) for (const look of LOOKS) {
+    const off = seen[`${screen} ${viewport} ${look} off`], on = seen[`${screen} ${viewport} ${look} on`];
+    if (!off || !on) continue;
+    rows.push(`  ${`${screen} ${viewport}${look === 'light' ? '' : ` ${look}`}`.padEnd(36)} targets ${String(off.targets.length).padStart(3)} -> ${String(on.targets.length).padEnd(3)}  text ${String(off.text.length).padStart(3)} -> ${on.text.length}`);
+    if (look === 'light') { offTargets += off.targets.length; offText += off.text.length; onTargets += on.targets.length; onText += on.text.length; }
+}
+console.log(`small targets and small text, setting off -> on:\n${rows.join('\n')}\n  ${'all screens (light)'.padEnd(36)} targets ${String(offTargets).padStart(3)} -> ${String(onTargets).padEnd(3)}  text ${String(offText).padStart(3)} -> ${onText}\n`);
+
+const list = (items, fmt) => items.slice(0, 6).map((x) => `        ${fmt(x)}`).join('\n') + (items.length > 6 ? `\n        ...and ${items.length - 6} more` : '');
+for (const [state, m] of Object.entries(seen)) {
+    const on = state.endsWith(' on');
+    check(`${state}: the page ${on ? 'carries' : 'does not carry'} data-larger-ui`, m.attr === on);
+    if (!on) continue;
+    check(`${state}: no control under 44px`, m.targets.length === 0, list(m.targets, (x) => `${x.size}  "${x.name}"  ${x.where}`));
+    check(`${state}: no text under 14px`, m.text.length === 0, list(m.text, (x) => `${x.size}  "${x.text}"  ${x.where}`));
+    check(`${state}: axe target-size finds nothing`, m.axe.length === 0, list(m.axe, (x) => x));
+}
+check('with the setting off the measurement sees small controls and text (it really measures)', offTargets > 0 && offText > 0, `targets ${offTargets}, text ${offText}`);
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
