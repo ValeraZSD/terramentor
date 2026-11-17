@@ -166,6 +166,10 @@ section('7. read aloud and motion follow the reader, not the page around them');
     // The course text's `lang` sits INSIDE the target; up from it is only <html lang>.
     check('read aloud takes the language from inside the text first',
         /el\.matches\('\[lang\]'\) \? el : el\.querySelector\('\[lang\]'\) \?\? el\.closest\('\[lang\]'\)/.test(btn));
+    // On a card's back the question copy is skipped: the learner heard it a
+    // moment ago, so the back reads only the answer (Anki, Quizlet).
+    check('a flipped card reads only the answer',
+        /<div data-read-skip=\{flipped \|\| undefined\} className="contents">\s*<p[\s\S]*?<CardText content=\{front\} \/>[\s\S]*?\{contextRows\}\s*<\/div>/.test(read('src/components/CardFace.tsx')));
     // After the voices wait the setting is read again: switched off meanwhile,
     // the button is gone and nothing on screen could stop the voice.
     const afterWait = code(btn).split('await voicesReady()')[1] ?? '';
