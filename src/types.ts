@@ -1706,6 +1706,55 @@ export interface SittingReview {
     items: SittingReviewItem[];
 }
 
+/** The one word for what the app thinks a learner knows about a topic (server/evidenceTrail.js). */
+export type EstimateLevel = 'none' | 'borrowed' | 'proven' | 'fading' | 'practice' | 'few' | 'close' | 'early';
+
+/** One piece of evidence about a topic, as the trail lists it. */
+export interface EvidenceRow {
+    id: number;
+    type: 'quiz' | 'flashcard' | 'mastery_check' | 'drill' | 'paper' | 'placement' | string;
+    at: string;
+    score: number;
+    total: number;
+    /** The gate's estimate before and after this row; null for practice and placement. */
+    before: number | null;
+    after: number | null;
+    /** A single feed answer's question, when the bank still holds it. */
+    question: string | null;
+    /** That question's ref for the "this is wrong" flag. */
+    ref: string | null;
+    recall: boolean;
+    /** A check or quiz whose answers were kept: it opens (GET /api/today/sittings/:id). */
+    reviewable: boolean;
+    /** Questions a report took out of this row. */
+    voided: number;
+}
+
+/** GET /api/nodes/:nodeId/evidence */
+export interface EvidenceTrail {
+    nodeId: number;
+    title: string;
+    status: string;
+    projectKind: 'curriculum' | 'deck';
+    threshold: number;
+    estimate: {
+        level: EstimateLevel;
+        /** 0..1, what every learner-facing reader prints; null with no estimate. */
+        score: number | null;
+        /** What the proving answers alone give; under `score` when practice lifted it. */
+        answersScore: number | null;
+        seed: 'placement' | 'transfer' | null;
+        ownAnswers: number;
+        practiceRight: number;
+        practiceTotal: number;
+        /** Proven by a passed sitting while the estimate is under the bar. */
+        byCheck: boolean;
+        lastEvidenceAt: string | null;
+    };
+    count: number;
+    rows: EvidenceRow[];
+}
+
 export interface AskedQuestion {
     quizId?: number;
     index: number;

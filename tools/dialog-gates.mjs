@@ -54,7 +54,9 @@ section('the workspace rail keeps a name for every control at every width');
     check('the schedule button keeps its name too',
         /sr-only sm:not-sr-only[^>]*>\{hasSchedule \? tr\("Edit Schedule"\)/.test(ws));
     check('the tab you are on says so: aria-current="page" (routes, not a half tab pattern)',
-        /aria-current=\{workspaceView === tab\.key \? 'page' : undefined\}/.test(ws));
+        // A screen opened from a tab (the mock exam, from the Dashboard) keeps
+        // that tab current through `tabView`.
+        /aria-current=\{(?:workspaceView|tabView) === tab\.key \? 'page' : undefined\}/.test(ws));
     check('and it does not claim role="tab" without the keys and panels that owes',
         !/role="tab(list)?"/.test(ws));
     check('the rail is a labelled nav', /<nav ref=\{tabRailRef\} aria-label=/.test(ws));

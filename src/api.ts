@@ -6,7 +6,8 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
+import type { ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting } from './components/mockExam/mockExamTypes';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
 
@@ -92,10 +93,27 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             throw err;
         }
 
-        return res.json();
+        const body = await res.json();
+        noteEvidenceWrite(url, options?.method);
+        return body;
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+/**
+ * Writes that add, void or undo evidence about a topic. A screen that shows
+ * the evidence (the topic panel's card) listens for EVIDENCE_CHANGED, so an
+ * answer given beside it shows without reopening the topic. A placement
+ * probe's finish applies its seeds and a DELETE of the placement withdraws them.
+ */
+const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/(probe\/\d+\/(answer|finish)|\d+$)|item-reports)/;
+export const EVIDENCE_CHANGED = 'terramentor:evidence-changed';
+
+/** After a successful write: tell the evidence readers if it was evidence. */
+function noteEvidenceWrite(url: string, method?: string) {
+    const m = method?.toUpperCase();
+    if (m && m !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
 }
 
 /** What the server says after a study-clock flush (server/studyTime.js). */
@@ -2277,6 +2295,26 @@ export const api = {
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
 
+    // MOCK EXAMS: past papers sat by hand and marked by the learner (server/mockExams.js).
+    getMockExams: (projectId: number) => request<MockExamList>(`/projects/${projectId}/mock-exams`),
+    addExamPaper: (projectId: number, paper: ExamPaperInput) =>
+        request<{ paper: ExamPaper }>(`/projects/${projectId}/mock-exams`, { method: 'POST', body: JSON.stringify(paper) }),
+    deleteExamPaper: (paperId: number) => request<{ ok: true }>(`/mock-exams/papers/${paperId}`, { method: 'DELETE' }),
+    startMock: (paperId: number, question: string | null) =>
+        request<{ sitting: MockSitting }>(`/mock-exams/papers/${paperId}/sittings`, { method: 'POST', body: JSON.stringify({ question }) }),
+    getMock: (id: number) => request<MockDetail>(`/mock-sittings/${id}`),
+    mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
+    /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
+    pauseMockOnLeave: (id: number) =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
+    markMockPart: (id: number, partId: number, points: number | null) =>
+        request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
+    /** `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0"). */
+    finishMock: (id: number, fillUnmarked = false) =>
+        request<MockDetail>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ fillUnmarked }) }),
+    discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
+
     // The documents an answer's Sources line names, entry by entry (null id:
     // no document of that title is in the library now).
     citedDocuments: (entries: string[]) => {
@@ -2399,6 +2437,10 @@ export const api = {
     getProjectMastery: (projectId: number) =>
         request<any[]>(`/projects/${projectId}/mastery`),
 
+    /** What the app thinks the learner knows about one topic, and the evidence behind it. */
+    getEvidenceTrail: (nodeId: number) =>
+        request<EvidenceTrail>(`/nodes/${nodeId}/evidence`),
+
     submitMasteryCheck: (projectId: number, nodeId: number, score: number, total: number, questions?: any[], asked?: AskedQuestion[], attemptId?: string, review?: SittingReviewItem[]) =>
         request<any>(`/projects/${projectId}/mastery/mastery-check`, {
             method: 'POST',
@@ -2513,7 +2555,9 @@ export const api = {
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
-        return res.json();
+        const graded = await res.json();
+        noteEvidenceWrite(`/paper/${feedItemId}/grade`, 'POST');
+        return graded;
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>
