@@ -369,3 +369,11 @@ export function hasUsableKey(q: Partial<QuizQuestion> | null | undefined): boole
             return false;
     }
 }
+
+/** Enter in a one-line answer field submits it, unless an input method is mid-composition. */
+export function submitOnEnter(onSubmit: (() => void) | undefined) {
+    if (!onSubmit) return undefined;
+    return (e: import('react').KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); }
+    };
+}

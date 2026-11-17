@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
@@ -67,6 +67,18 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     const submittable = answerIsComplete(question, answer);
     const submit = () => grade(answer);
 
+    // The verdict is said once, and focus that was on the Check button (gone
+    // with the verdict) lands on the verdict instead of the top of the page.
+    const verdictRef = useRef<HTMLDivElement>(null);
+    const verdict = result && !reportedNote
+        ? (result.correct ? t("Correct") : result.unsure ? t("Not marked") : t("Not quite"))
+        : '';
+    useEffect(() => {
+        if (!verdict) return;
+        const active = document.activeElement;
+        if (!active || active === document.body) verdictRef.current?.focus({ preventScroll: true });
+    }, [verdict]);
+
     return (
         // One item: the flag at the stem and the line under a wrong verdict
         // open the same dialog.
@@ -92,6 +104,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                         value={draft}
                         onChange={setDraft}
                         onCommit={format.commitsOnSelect ? grade : undefined}
+                        onSubmit={() => { if (submittable) void submit(); }}
                         disabled={checking}
                         result={result}
                     />
@@ -116,8 +129,9 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                     belongs together" and collectively saying nothing. One coloured
                     rule down the left carries the verdict just as loudly and leaves
                     the content room to have structure of its own. */}
+                <p className="sr-only" role="status">{verdict}</p>
                 {result && !reportedNote && (
-                    <div className={`mt-4 pl-3 sm:pl-4 border-l-2 ${result.correct
+                    <div ref={verdictRef} tabIndex={-1} className={`mt-4 pl-3 sm:pl-4 border-l-2 outline-none ${result.correct
                         ? 'border-emerald-500 dark:border-emerald-500'
                         : 'border-red-400 dark:border-red-500'}`}
                     >
