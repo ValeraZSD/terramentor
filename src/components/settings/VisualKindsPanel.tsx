@@ -696,8 +696,12 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
             // Absent is on (server/ai.js getVisualTier): 'auto' is the opt-out.
             setAnyModel(s.visual_tier !== 'auto' && s.visual_tier !== 'basic');
             setLoaded(true);
-        } catch { /* the switches stay locked; the next visit to the tab asks again */ }
-    }, []);
+        } catch (e: any) {
+            // The switches stay locked (greyed); say why. The next visit to
+            // the tab asks again.
+            addToast('error', tr("Could not load this view"), e?.message);
+        }
+    }, [addToast, tr]);
     useEffect(() => { if (active && !loaded) void load(); }, [active, loaded, load]);
 
     const toggle = (kind: Kind) => {

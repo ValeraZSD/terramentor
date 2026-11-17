@@ -381,6 +381,7 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
             const switches = [...el.querySelectorAll('[role="switch"]')];
             check('control: the eight cards and the any-model switch are drawn', switches.length === 9, String(switches.length));
             check('while the saved list is unread no switch is live', switches.every((s) => s.disabled), switches.filter((s) => !s.disabled).map((s) => s.id).join(', '));
+            check('…and the failed read says so, instead of greyed cards with no reason', __toasts.length === 1 && __toasts[0][0] === 'error', JSON.stringify(__toasts));
             await act(async () => { kindSwitch(el, 'p5')?.click(); });
             await settle();
             check('…and a press on a card writes nothing over the saved list', sets.length === 0, JSON.stringify(sets));
