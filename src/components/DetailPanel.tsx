@@ -11,6 +11,7 @@ import ResourceList from './ResourceList';
 import MarkdownNotes from './MarkdownNotes';
 import StudyTools from './StudyTools';
 import { TopicStudyTime } from './studyTime/StudyTime';
+import TopicEvidence from './evidence/TopicEvidence';
 import StatusBadge from './StatusBadge';
 import ExternalSearchButton from './ExternalSearchButton';
 import { FileText, Circle, Clock, CheckCircle, MinusCircle, MessageSquare, Brain, BookOpen, Layers, X, Calendar, AlertTriangle, Play, PenLine, ShieldCheck } from 'lucide-react';
@@ -455,6 +456,13 @@ export default function DetailPanel() {
                             has taken, by the study clock. A note is material
                             read as part of its topic, so its time is the topic's. */}
                         {!isNote && selectedNodeId != null && <TopicStudyTime nodeId={selectedNodeId} />}
+
+                        {/* What the app thinks you know about this topic, and
+                            the answers that say so. Work leaves only: a section's
+                            knowledge is its topics'. */}
+                        {isLeaf && !isNote && selectedNodeId != null && (
+                            <TopicEvidence nodeId={selectedNodeId} refreshKey={node.status} />
+                        )}
 
                         {/* Schedule Info Card */}
                         {hasSchedule && (
