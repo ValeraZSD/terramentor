@@ -224,7 +224,7 @@ export default function SearchProvidersPanel() {
                                             six times over. The template is one hover away. */}
                                         {host && (
                                             <span
-                                                className="block text-xs text-slate-500 dark:text-slate-400 mt-1 truncate"
+                                                className="block text-xs text-slate-600 dark:text-slate-300 mt-1 truncate"
                                                 title={provider.urlTemplate}
                                             >
                                                 {host}

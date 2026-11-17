@@ -69,7 +69,6 @@ export function ThemeCards() {
                         type="button"
                         onClick={() => setTheme(id)}
                         aria-pressed={selected}
-                        aria-label={tr("{{label}} theme", { label: tr(label) })}
                         // The selected card is always the CURRENT mode's, so its mark
                         // is the accent as solved for this page (`accent-fg`), never
                         // the solid: the solid is only ever darkened, and a near-black
@@ -80,9 +79,14 @@ export function ThemeCards() {
                     >
                         {/* Sized for a card that spans half the row: at 10px
                             type a card that wide is mostly empty paper. */}
+                        {/* The button is named by the mode's name row below, the
+                            words it shows. The example above it is a picture of
+                            the mode, so hidden from that name: "Cell biology, 3
+                            of 8 topics" is not a word a voice user would say to
+                            choose a theme. */}
                         <div className="p-3 space-y-2.5" style={{ backgroundColor: p.page }}>
                             {/* Rendered example — the same content in both, styled per mode. */}
-                            <div className="rounded-lg border p-3 space-y-2" style={{ backgroundColor: p.surface, borderColor: p.border }}>
+                            <div className="rounded-lg border p-3 space-y-2" style={{ backgroundColor: p.surface, borderColor: p.border }} aria-hidden="true">
                                 <div className="flex items-center gap-2">
                                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }} />
                                     <span className="text-sm font-semibold leading-none" style={{ color: p.text }}>{tr("Cell biology")}</span>

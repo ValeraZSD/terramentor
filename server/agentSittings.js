@@ -39,7 +39,7 @@ import { missedOf, missedText, shownAnswer, shownKey } from './checkFeedback.js'
 import { checkAnswerWithAI } from './ai.js';
 import { MIN_GATE_QUESTIONS, recordOnce } from './mastery.js';
 import { recordMasteryCheck } from './masteryCheck.js';
-import { globalStudyQueue, studyQueue } from './decks.js';
+import { getRetention, globalStudyQueue, studyQueue } from './decks.js';
 import { ambiguousProjectText, findProject } from './projectState.js';
 import { writeCard } from './cardWrite.js';
 import { noTopicText, topicFor } from './agentReads.js';
@@ -424,7 +424,7 @@ function cardFront(card, presentationId) {
 // prepared on first use and kept, never at import.
 let cardRowStatement = null;
 const cardRow = (id) => (cardRowStatement ??= db.prepare(`
-    SELECT f.*, n.title AS node_title, p.name AS project_name
+    SELECT f.*, n.title AS node_title, n.project_id, p.name AS project_name
     FROM flashcards f JOIN nodes n ON n.id = f.node_id JOIN projects p ON p.id = n.project_id
     WHERE f.id = ?
 `)).get(id);
@@ -541,7 +541,8 @@ export function reviewReveal(token, presentationId) {
     s.current.revealed = true;
     configureScheduler();
     const now = new Date();
-    const intervals = Object.fromEntries(RATINGS.map(r => [r, formatInterval(computeNextInterval(card, r, now).intervalDays)]));
+    const retention = getRetention(card.project_id);
+    const intervals = Object.fromEntries(RATINGS.map(r => [r, formatInterval(computeNextInterval(card, r, now, retention).intervalDays)]));
     return {
         kind: 'review', ...reviewCounts(s),
         card: { ...cardFront(card, presentationId), back: plain(card.back), ...(card.extra ? { extra: plain(card.extra) } : {}) },
@@ -563,7 +564,7 @@ export function reviewRate(token, presentationId, rating) {
     if (!s.current.revealed) throw new SittingError(409, 'Show the answer before rating the card.');
     configureScheduler();
     const now = new Date();
-    const update = computeSrsUpdate(card, rating, now);
+    const update = computeSrsUpdate(card, rating, now, getRetention(card.project_id));
     const { duplicate, outcome } = recordOnce('agent_review', presentationId, () => {
         const written = writeCard(card.id, update);
         if (written.status !== 200) throw new SittingError(written.status, written.json?.error || 'The rating was not saved.');

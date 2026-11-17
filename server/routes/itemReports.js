@@ -8,7 +8,7 @@ import db from '../database.js';
 import * as tasks from '../tasks.js';
 import {
     ReportError, fileReport, getReport, learnerFaultText, listReports, parseRef, resolveTarget,
-    rewriteSource, setRewrite, undoReport,
+    rewriteSource, setRewrite, undoReport, withoutOpenMockKey,
 } from '../itemReports.js';
 import { generateMaterial } from '../studyMaterial.js';
 import { getAISettings } from '../ai.js';
@@ -76,7 +76,7 @@ app.get('/api/item-reports/target', (req, res) => {
         const [existing] = listReports({ refs: [target.ref], limit: 1 });
         res.json({
             ref: target.ref, kind: target.kind, nodeId: target.nodeId, projectId: target.projectId,
-            item: target.item, report: existing || null,
+            item: withoutOpenMockKey(target.ref, target.item), report: existing || null,
             // What the dialog may offer before the report is filed: a new
             // version of what a model wrote, the editor for the learner's own card.
             canRewrite: rewriteOffered(target.kind, target.modelWritten),
