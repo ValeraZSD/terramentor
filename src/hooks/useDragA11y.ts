@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyboardSensor, useSensor, type Announcements, type ScreenReaderInstructions, type UniqueIdentifier } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -22,6 +22,30 @@ export const resourceTitle = (id: UniqueIdentifier) => useStore.getState().resou
  *   const sensors = useSensors(useSensor(MouseSensor), keyboard);
  *   <DndContext accessibility={useDragA11y(nodeTitle)} …>
  */
+/**
+ * Whether the card grid (`data-card-grid`) holding this element shows cards
+ * side by side. A menu's "Move earlier / later" then moves a card left or
+ * right, and its arrows must say so; in one column (a phone) they point up and
+ * down. Tracks the grid's own columns, so a panel opening beside it counts.
+ */
+export function useSidewaysInGrid(ref: RefObject<HTMLElement | null>): boolean {
+    const [sideways, setSideways] = useState(false);
+    useLayoutEffect(() => {
+        const grid = ref.current?.closest<HTMLElement>('[data-card-grid]');
+        if (!grid) return;
+        const measure = () => setSideways(getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length > 1);
+        measure();
+        window.addEventListener('resize', measure);
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+        ro?.observe(grid);
+        return () => {
+            window.removeEventListener('resize', measure);
+            ro?.disconnect();
+        };
+    }, [ref]);
+    return sideways;
+}
+
 export function useDragKeyboard() {
     return useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates });
 }

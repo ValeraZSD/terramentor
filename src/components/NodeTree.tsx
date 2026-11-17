@@ -291,7 +291,7 @@ export default function NodeTree() {
                     {/* Static strategy: cards don't reflow while dragging — a single
                         gutter bar on the side the card lands shows the drop, so nothing jumps. */}
                     <SortableContext items={ids} strategy={() => null}>
-                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]">
+                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]" data-card-grid="">
                             {tree.map(node => (
                                 <CategoryCard
                                     key={node.id}
