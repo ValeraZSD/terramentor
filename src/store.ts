@@ -402,6 +402,11 @@ async function saveSetting<T>(
 let taskFeedStarted = false;
 /** Download presses whose answer has not come back (see refreshUpdates). */
 let downloadPressesInFlight = 0;
+/** Changes to the update toggle or channel not answered yet, and a count of
+ *  every one started: a background re-read sent before a change, or answered
+ *  while one is on the wire, carries the state from before it (refreshUpdates). */
+let updateWritesInFlight = 0;
+let updateWritesStarted = 0;
 
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
@@ -1494,32 +1499,43 @@ export const useStore = create<AppState>((set, get) => ({
         // even though turning it ON performs a check before it answers.
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, enabled } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setAutoUpdateCheck(enabled) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update setting'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
     refreshUpdates: async () => {
+        const startedBefore = updateWritesStarted;
         try {
             const status = await api.getUpdates();
             // While a Download press is still asking GitHub for the newest
             // release, the server has not started anything yet; its "available"
             // would flip the button back from "Preparing" under the press.
-            if (downloadPressesInFlight === 0) set({ updateStatus: status });
+            // Likewise a toggle or channel change: until it is answered, the
+            // read would put the old setting back under the person's hand.
+            if (downloadPressesInFlight === 0 && updateWritesInFlight === 0 && updateWritesStarted === startedBefore) {
+                set({ updateStatus: status });
+            }
         } catch { /* the next poll tries again */ }
     },
 
     setUpdateChannel: async (channel: UpdateChannel) => {
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, channel } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setUpdateChannel(channel) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update channel'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
