@@ -14,6 +14,8 @@
  */
 
 let speakingId: string | null = null;
+/** Counts utterances, so a late end event of an old one is ignored. */
+let generation = 0;
 const listeners = new Set<() => void>();
 const notify = () => { for (const l of listeners) l(); };
 
@@ -64,6 +66,7 @@ export function voicesReady(): Promise<void> {
 
 export function stopSpeaking(): void {
     if (!speechAvailable()) return;
+    generation++;
     window.speechSynthesis.cancel();
     if (speakingId !== null) { speakingId = null; notify(); }
 }
@@ -83,7 +86,12 @@ export function speak(id: string, text: string, lang: string, ratePct: number): 
     u.voice = voice;
     u.lang = voice.lang;
     u.rate = Math.max(0.5, Math.min(2, ratePct / 100));
-    const done = () => { if (speakingId === id) { speakingId = null; notify(); } };
+    // The cancel above ends the previous utterance with an error event that
+    // arrives AFTER this one has started, often from the same button: only the
+    // newest utterance may clear the speaker, or the button shows "Read aloud"
+    // over audible speech.
+    const mine = ++generation;
+    const done = () => { if (mine === generation && speakingId === id) { speakingId = null; notify(); } };
     u.onend = done;
     u.onerror = done;
     speakingId = id;

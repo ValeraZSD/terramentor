@@ -1,4 +1,4 @@
-import { useEffect, useId, useSyncExternalStore, type RefObject } from 'react';
+import { useEffect, useId, useRef, useSyncExternalStore, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square, Volume2 } from 'lucide-react';
 import { IconButton } from './Button';
@@ -33,21 +33,37 @@ export default function ReadAloudButton({ target, find, lang, size = 'sm', class
     const addToast = useStore(s => s.addToast);
     const id = useId();
     const speaking = useSyncExternalStore(subscribeSpeaking, currentSpeaker) === id;
+    // A press waiting for the voice list (up to 1.5 s on a first use): a
+    // second press then is ignored rather than starting a second reading, and
+    // a button gone by the time the voices arrive starts nothing.
+    const pending = useRef(false);
+    const mounted = useRef(true);
 
     // Whatever this button started ends with it: the card moved on, the
-    // question changed, the panel closed.
-    useEffect(() => () => { if (currentSpeaker() === id) stopSpeaking(); }, [id]);
+    // question changed, the panel closed, or read aloud was turned off.
+    useEffect(() => {
+        mounted.current = true;
+        return () => { mounted.current = false; if (currentSpeaker() === id) stopSpeaking(); };
+    }, [id]);
+    useEffect(() => { if (!on && currentSpeaker() === id) stopSpeaking(); }, [on, id]);
 
     if (!on || !speechAvailable()) return null;
 
     const press = async (button: HTMLButtonElement) => {
         if (speaking) { stopSpeaking(); return; }
+        if (pending.current) return;
         const el = target?.current ?? find?.(button) ?? null;
         if (!el) return;
         const text = speakableText(el);
         if (!text) return;
-        const language = el.closest('[lang]')?.getAttribute('lang') || lang || document.documentElement.lang || 'en';
-        await voicesReady();
+        // The course text's own root carries `lang` and sits INSIDE the
+        // target, so look in before looking up: up from the target is only
+        // <html lang>, the interface's language.
+        const holder = el.matches('[lang]') ? el : el.querySelector('[lang]') ?? el.closest('[lang]');
+        const language = holder?.getAttribute('lang') || lang || document.documentElement.lang || 'en';
+        pending.current = true;
+        try { await voicesReady(); } finally { pending.current = false; }
+        if (!mounted.current) return;
         const result = speak(id, text, language, rate);
         if (result === 'no-voice') {
             addToast('info', t("This computer has no {{language}} voice installed. Add one in your system's speech settings, then reload the app.", { language: languageName(language) }));

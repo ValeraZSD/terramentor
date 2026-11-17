@@ -45,6 +45,7 @@ import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import ReadAloudButton from './ui/ReadAloudButton';
+import { speechAvailable } from '../utils/readAloud';
 
 interface Props {
     open: boolean;
@@ -296,7 +297,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const feedFocusItemId = useStore(s => s.feedFocusItemId);
     const openProjectNode = useStore(s => s.openProjectNode);
     const addToast = useStore(s => s.addToast);
-    const readAloudOn = useStore(s => s.a11y.readAloud);
+    // The speaker button draws only when the browser can speak too, and the
+    // Copy button's edge follows whether it did.
+    const readAloudOn = useStore(s => s.a11y.readAloud) && speechAvailable();
     const consumeAssistantPrefill = useStore(s => s.consumeAssistantPrefill);
     // The live background-task list (the TaskDock's own feed).
     const aiTasks = useStore(s => s.aiTasks);
