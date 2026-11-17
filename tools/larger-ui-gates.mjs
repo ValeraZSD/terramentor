@@ -306,6 +306,7 @@ const ROWS = `(() => {
             rows.push({ list, depth: +row.dataset.depth, x: Math.round((firstLetter(title) ?? NaN) - b.left),
                 col: col ? Math.round(col.getBoundingClientRect().left - b.left) : NaN,
                 box: Math.round(title.getBoundingClientRect().left - b.left),
+                grip: Math.round(row.querySelector('[data-drag-handle]')?.getBoundingClientRect().width ?? 0),
                 text: title.textContent.trim().slice(0, 30),
                 first: first?.hasAttribute('data-row-fold') || first?.hasAttribute('data-fold-spacer') ? 'column' : first?.hasAttribute('data-drag-handle') ? 'grip' : (first?.tagName ?? 'none').toLowerCase() });
         }
@@ -407,11 +408,16 @@ for (const [state, m] of Object.entries(seen)) {
         }
         // With a mouse the grip only shows under the pointer: before the
         // column it was a blank slot in front of every title. On a touch
-        // screen it shows, and is the first thing in the row.
-        const want = state.includes(' phone ') ? 'grip' : 'column';
-        const wrong = m.rows.filter((r) => r.first !== want);
-        check(`${state}: every row starts with its ${want === 'grip' ? 'drag grip' : 'fold chevron or status mark'}`, wrong.length === 0,
+        // screen the row itself takes the press-and-hold, and a 44px grip
+        // there stood 44px of gap between the edge and the column.
+        const wrong = m.rows.filter((r) => r.first !== 'column');
+        check(`${state}: every row starts with its fold chevron or status mark`, wrong.length === 0,
             list(wrong, (r) => `${r.list} "${r.text}" starts with ${r.first}`));
+        if (state.includes(' phone ')) {
+            const shown = m.rows.filter((r) => r.grip > 1);
+            check(`${state}: on a touch screen no row shows a grip until it is focused`, shown.length === 0,
+                list(shown, (r) => `${r.list} "${r.text}" grip ${r.grip}px wide`));
+        }
     }
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,

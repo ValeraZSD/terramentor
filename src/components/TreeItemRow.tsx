@@ -137,8 +137,12 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
     const displayDepth = held ? projectedDepth ?? item.depth : item.depth;
     // With a mouse the grip shows only under the pointer, so it waits at the
     // row's end beside the ⋮: at the start it was a blank slot before every
-    // title. On a touch screen it always shows, and stays at the start, away
-    // from the ⋮ it could be pressed for.
+    // title. On a touch screen the whole row takes the press-and-hold
+    // (`touchDrag`), and the grip stays for a keyboard only: a 44px grip
+    // beside the 44px column left a wide gap before every title.
+    const touchDrag = hoverCapable ? {} : {
+        onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
+    };
     const handle = (
         <button data-drag-handle
             type="button"
@@ -146,7 +150,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
             {...listeners}
             onClick={(e) => e.stopPropagation()}
             aria-label={t("Drag to reorder")}
-            className={`p-0.5 shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-pan-y ${held ? 'text-accent' : `text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 ${rowControls}`}`}
+            className={`shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-pan-y ${hoverCapable ? 'p-0.5' : 'sr-only focus-visible:not-sr-only focus-visible:p-0.5'} ${held ? 'text-accent' : `text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 ${rowControls}`}`}
         >
             <GripVertical className="w-3.5 h-3.5" />
         </button>
@@ -168,11 +172,13 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
         </button>
     );
 
+
     return (
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, ...flash?.style, paddingLeft: `calc(${displayDepth} * var(--row-indent-outline))` }}
+                style={{ ...style, ...flash?.style, paddingLeft: `calc(${displayDepth} * var(--row-indent-outline) + var(--row-outline-start))` }}
+                {...touchDrag}
                 data-depth={displayDepth}
                 data-tree-item-id={node.id}
                 data-node-id={node.id}
@@ -182,7 +188,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                 // a button role holding the drag, expand, status and ⋮ buttons
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${flash?.className ?? ''} ${held
+                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${hoverCapable ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent
                         ? 'drop-target -outline-offset-2 bg-accent/10'
@@ -191,7 +197,6 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                             : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`
                     }`}
             >
-                {!hoverCapable && handle}
                 {/* One column before the title, as in the course tree: the fold
                     chevron on a row with rows under it, the status mark on one
                     without. Each level is indented by the column and its gap. */}
@@ -241,7 +246,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                 {hasChildren && (isLeaf ? statusButton : (
                     <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">{getStatusIcon()}</span>
                 ))}
-                {hoverCapable && handle}
+                {handle}
                 {/* Held, the ⋮ keeps only its height (the row's, on a phone too) and gives its width to the title. */}
                 <div className={`flex items-center transition-opacity ${held ? 'invisible w-0 overflow-hidden' : rowControls}`}>
                     <DropdownMenu

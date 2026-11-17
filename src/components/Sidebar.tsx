@@ -128,16 +128,20 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
 
     // With a mouse the grip shows only under the pointer, so it waits at the
     // row's END: at the start it was a blank slot before every title. On a
-    // touch screen it always shows, and stays at the start, away from the
-    // row's other controls at the end.
+    // touch screen the whole row takes the press-and-hold (`touchDrag`), and
+    // the grip stays for a keyboard only: a 44px grip beside the 44px column
+    // left a wide gap before every title.
     const canHover = useCanHover();
+    const touchDrag = canHover ? {} : {
+        onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
+    };
     const handle = (
         <button data-drag-handle
             {...attributes}
             {...listeners}
             onClick={e => e.stopPropagation()}
             aria-label={t("Drag to reorder")}
-            className={`p-0.5 shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-none ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
+            className={`shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-none ${canHover ? 'p-0.5' : 'sr-only focus-visible:not-sr-only focus-visible:p-0.5'} ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
         >
             <GripVertical className="w-3 h-3" />
         </button>
@@ -157,7 +161,8 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
+                {...touchDrag}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${canHover ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
@@ -167,8 +172,6 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     ...flash?.style,
                 }}
             >
-                {!canHover && handle}
-
                 {/* One column before the title: the fold chevron on a row with
                     rows under it, the topic's own status mark on one without.
                     Each level is indented by that column and its gap, so a
@@ -255,7 +258,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         )}
                     </span>
                 )}
-                {canHover && handle}
+                {handle}
             </div>
         </div>
     );
