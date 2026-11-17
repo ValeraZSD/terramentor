@@ -642,24 +642,8 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
     );
 }
 
-/** Whether the reader has asked for less movement, following the setting while
- *  the panel is open (it can change from the system's own settings). */
-function useLessMotion(): boolean {
-    const [less, setLess] = useState(reducedMotion);
-    useEffect(() => {
-        let query: MediaQueryList;
-        try { query = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { return; }
-        const follow = () => setLess(reducedMotion());
-        follow();
-        query.addEventListener?.('change', follow);
-        return () => query.removeEventListener?.('change', follow);
-    }, []);
-    return less;
-}
-
 export default function VisualKindsPanel({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
-    const lessMotion = useLessMotion();
     const theme = useStore(s => themeKeyOf(s.theme, s.themeTint));
     const accentColor = useStore(s => s.accentColor);
     // Rebuilt when the language changes — the words are INSIDE the pictures, so
@@ -815,7 +799,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                         >
                             <span className="block pointer-events-none">
                                 {spec.sample == null
-                                    ? <WidgetMock muted={!enabled} play={active && enabled && !lessMotion} reveal={reveal.widget ?? 0} />
+                                    ? <WidgetMock muted={!enabled} play={active && enabled && !reducedMotion()} reveal={reveal.widget ?? 0} />
                                     : spec.id === 'drill'
                                         ? <DrillMock code={spec.sample} muted={!enabled} reveal={reveal.drill ?? 0} />
                                         : <Sample kind={spec.id} code={spec.sample} muted={!enabled} reveal={reveal[spec.id] ?? 0} />}

@@ -464,21 +464,6 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
             await settle();
             check('a reader who asked for less movement gets no running widget demo', rafCalls === 0, `${rafCalls} frame request(s)`);
         });
-        // The setting changes while the panel is open: the demo stops without a re-mount.
-        const followers = new Set();
-        window.matchMedia = () => ({ addEventListener: (_t, f) => followers.add(f), removeEventListener: (_t, f) => followers.delete(f) });
-        globalThis.__reduced = false;
-        await mounted('VisualKindsPanel (motion setting changes)', () => h(VisualKindsPanel, { active: true }), async () => {
-            await settle();
-            check('control: the panel listens for the motion setting', followers.size === 1, String(followers.size));
-            globalThis.__reduced = true;
-            await act(async () => { followers.forEach((f) => f()); });
-            await settle();
-            const frozen = rafCalls;
-            await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
-            check('turning less movement on while the panel is open stops the widget demo', rafCalls === frozen, `${rafCalls - frozen} frame request(s) after the change`);
-        });
-        delete window.matchMedia;
     } finally {
         globalThis.requestAnimationFrame = realRaf;
         globalThis.__reduced = false;
