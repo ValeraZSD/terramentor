@@ -464,12 +464,12 @@ export function extractToolTail(text, tools = []) {
  * reading token by token: emitted tool lines would have to be un-said once the
  * lookups run. So every chunk is screened before it is shown — the last line is
  * held whenever it could still become a call (it starts like a tool name, or
- * could be growing into one), and released the moment a following line makes it
- * ordinary prose. At stream end the held block either parses as lookups (the
- * caller runs them and continues from `head`) or is flushed as the content it
- * turned out to be. The cost is one line of latency on any line that begins
- * like a tool call; the benefit is that scaffolding is never on the screen and
- * never in the stored text.
+ * could be growing into one), and released the moment its own text rules that
+ * out (`couldBecomeCall`) or a following line makes it ordinary prose. At
+ * stream end the held block either parses as lookups (the caller runs them and
+ * continues from `head`) or is flushed as the content it turned out to be. The
+ * cost is a wait only on a line that still looks like a tool call; the benefit
+ * is that scaffolding is never on the screen and never in the stored text.
  *
  * @param {{tools: object[], onChunk: (text: string) => void}} opts
  * @returns {{feed(chunk: string): void, end(): {tailCalls: object[], tailLength: number}}}
@@ -495,7 +495,8 @@ export function createTailGuard({ tools = [], onChunk }) {
         // Past the colon anything may follow, until the argument is longer than
         // parseCallLine takes: its trailing quote, dot, bracket and space never
         // count, so only what can no longer be trimmed away rules it out.
-        const arg = m[2].replace(/^\s+/, '').replace(/^["“'`]+/, '').replace(/[\s)"”'`.]+$/, '');
+        // (parseCallLine also trims what a leading quote was holding apart.)
+        const arg = m[2].replace(/^\s+/, '').replace(/^["“'`]+/, '').replace(/^\s+/, '').replace(/[\s)"”'`.]+$/, '');
         return arg.length <= 200;
     };
     const byName = new Map(tools.map(t => [t.name, t]));
@@ -570,17 +571,23 @@ const PLACEHOLDER_QUERIES = new Set([
  *  one-letter query is noise; fewer where a tool says so (an id). */
 const argFloor = (tool) => tool?.minArg ?? 2;
 
+const placeholderForm = (arg) => String(arg ?? '').toLowerCase().replace(/^[\s"'`<[{(]+|[\s"'`>\]})]+$/g, '').replace(/[.…]+$/g, '').trim();
+
 export function isPlaceholderQuery(arg) {
-    const s = String(arg ?? '').toLowerCase().replace(/^[\s"'`<[{(]+|[\s"'`>\]})]+$/g, '').replace(/[.…]+$/g, '').trim();
-    return PLACEHOLDER_QUERIES.has(s);
+    return PLACEHOLDER_QUERIES.has(placeholderForm(arg));
 }
 
+/** The placeholder words a learner could also have named something: a library
+ *  tool's argument is their own name for a course or deck, so these are real there. */
+const NAMEABLE = new Set(['search', 'text', 'example', 'test', 'todo', 'input']);
+
 /**
- * Only a web search has a schema word to echo back. A library tool's argument
- * is the learner's own name for something, and a course or deck called "Test",
- * "Example" or "Input" is a real thing to look up.
+ * A web search has every schema word to echo back; a library tool only the ones
+ * that are never a name ("query", "<query>", "string", "null", "n/a"), because a
+ * course or deck called "Test", "Example" or "Input" is a real thing to look up.
  */
-const isPlaceholderArg = (tool, arg) => tool?.name === searchWebTool.name && isPlaceholderQuery(arg);
+const isPlaceholderArg = (tool, arg) => isPlaceholderQuery(arg)
+    && (tool?.name === searchWebTool.name || !NAMEABLE.has(placeholderForm(arg)));
 
 export function parseToolCalls(text, tools) {
     const byName = new Map(tools.map(t => [t.name, t]));

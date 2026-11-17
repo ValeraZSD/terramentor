@@ -465,7 +465,7 @@ section('a partial last line streams unless it could still become a lookup line'
         streamed(`search_web: ${'long prose '.repeat(30)}`).out.startsWith('search_web: long prose'));
     check('a run of call-shaped lines is released the moment prose starts after it',
         streamed('Answer.\nsearch_web: maybe\nHello').out === 'Answer.\nsearch_web: maybe\nHello');
-    check('a held request is still never shown, however finely the stream is cut', (() => {
+    check('control (holds before and after): a held request is still never shown, however finely the stream is cut', (() => {
         const text = 'The answer.\n\nIt has two parts.\nsearch_web: ai news september 2026\nfind_in_library: driving theory';
         for (const size of [1, 2, 5, 11]) {
             let out = '';
@@ -476,7 +476,24 @@ section('a partial last line streams unless it could still become a lookup line'
         }
         return true;
     })());
-    check('and the same cut stream of plain prose arrives whole', (() => {
+    // No continuation of a line the guard let through may parse as a request:
+    // once shown it cannot be taken back. Checked on every prefix of lines that
+    // sit on the 200-character, quote, bracket and dot edges of parseCallLine.
+    const edge = (open, n, close = '') => `${open}${'x'.repeat(n)}${close}`;
+    const corpus = [
+        'search_web: ai news', '- search_web(ai news)', '2. Find_In_Library: "driving theory".',
+        edge('search_web: ', 200), edge('search_web: ', 201), edge('search_web: "', 200, '".'), edge('search_web: (', 200, ')'),
+        edge('search_web: "     ', 198, '"'), edge("search_web: '   ", 200, ')'), 'search_web is the tool', 'send_email: hi',
+    ];
+    const shownEarly = [];
+    for (const line of corpus) {
+        const isCall = extractToolTail(line, tailTools).calls.length > 0;
+        for (let n = 1; n <= line.length && isCall; n++) {
+            if (streamed(line.slice(0, n)).out !== '') { shownEarly.push(`${n} of ${line.slice(0, 30)}`); break; }
+        }
+    }
+    check('no prefix of a line that is a request is ever shown', shownEarly.length === 0, JSON.stringify(shownEarly));
+    check('control (holds before and after): the same cut stream of plain prose arrives whole', (() => {
         const text = 'search is a word\nsearch_web: with a tail that prose follows\nand then more prose, 1. two\nread';
         for (const size of [1, 3, 7]) {
             let out = '';
@@ -501,7 +518,7 @@ section('a lookup line repeated in one reply runs once');
     check('the lookup ran once', runs === 1, `runs=${runs}`);
     check('it has one row, and the row is finished (nothing spins for ever)',
         rows.length === 1 && rows[0].state === 'done' && rows[0].summary === '2 pages', JSON.stringify(rows));
-    check('the result split stays one entry per requested call', perCall.length === 2 && perCall[1].summary === '2 pages', JSON.stringify(perCall));
+    check('control (holds before and after): the result split stays one entry per requested call', perCall.length === 2 && perCall[1].summary === '2 pages', JSON.stringify(perCall));
     const twice = extractToolTail('Answer.\nsearch_web: rust 2026\nsearch_web: rust 2026', tailTools);
     const late = [];
     await runToolCalls({ wanted: twice.calls, tools: [tool('search_web', async () => ({ items: [], count: 0 }))], calls: late, items: [], context: [] });
@@ -1044,8 +1061,12 @@ check('a library lookup for a course called Test is a call',
     parseToolCalls('find_in_library: Test\nproject_state: Example\nlist_documents: Input', BOTH).map(c => `${c.tool}:${c.arg}`).join('|')
     === 'find_in_library:Test|project_state:Example|list_documents:Input',
     JSON.stringify(parseToolCalls('find_in_library: Test\nproject_state: Example', BOTH)));
-check('the same word as a web search is still refused',
+check('control (holds before and after): the same word as a web search is still refused',
     parseToolCalls('search_web: test', BOTH).length === 0);
+// A schema word that is never a name is refused for every tool, not only the web search.
+check('a library lookup for an echoed schema word is not a call',
+    parseToolCalls('find_in_library: query\nfind_in_library: <query>\nlist_documents: string\nproject_state: null\nfind_in_library: n/a', BOTH).length === 0,
+    JSON.stringify(parseToolCalls('find_in_library: query\nfind_in_library: <query>\nlist_documents: string\nproject_state: null\nfind_in_library: n/a', BOTH)));
 check('the native rule says a setting change needs no lookup',
     /change a setting[^.]*needs? no lookup/i.test(nativeToolRule(chatTools({ web: true }))));
 
