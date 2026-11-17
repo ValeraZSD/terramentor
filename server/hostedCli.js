@@ -100,6 +100,18 @@ function linkTree(from, to) {
     }
 }
 
+/**
+ * How many courses a library file holds. This tool opens the file raw, without
+ * the migrations, so a library no newer build has opened yet (or a backup of
+ * one) has no `live_projects` view; it has no deleted rows either.
+ */
+function countProjects(file) {
+    const hasView = file.prepare("SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = 'live_projects'").get();
+    return hasView
+        ? file.prepare('SELECT COUNT(*) AS n FROM live_projects projects').get().n
+        : file.prepare('SELECT COUNT(*) AS n FROM projects /* with deleted */').get().n;
+}
+
 async function backupCommand([dir]) {
     if (!dir) fail('usage: backup <dir>');
     if (existsSync(dir)) fail(`${dir} already exists`);
@@ -124,7 +136,7 @@ async function backupCommand([dir]) {
     try {
         const ok = check.pragma('quick_check', { simple: true });
         if (ok !== 'ok') fail(`the copy failed its check: ${ok}`);
-        projects = check.prepare('SELECT COUNT(*) AS n FROM live_projects projects').get().n;
+        projects = countProjects(check);
     } finally {
         check.close();
     }
@@ -183,7 +195,7 @@ function restoreCommand([dir]) {
             rmSync(aside, { recursive: true, force: true });
         }
         const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-        projects = db.prepare('SELECT COUNT(*) AS n FROM live_projects projects').get().n;
+        projects = countProjects(db);
         db.close();
         rmSync(marker);
     } catch (e) {
