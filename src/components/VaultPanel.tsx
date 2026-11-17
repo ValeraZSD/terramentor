@@ -26,8 +26,10 @@ function extOf(name: string): string {
 function humanSize(bytes?: number | null): string {
     if (bytes === undefined || bytes === null) return '';
     if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    // Through num(), like humanChars below: toFixed() always writes a point,
+    // whatever separator the reader chose.
+    if (bytes < 1024 * 1024) return `${num(bytes / 1024, { decimals: 0 })} KB`;
+    return `${num(bytes / 1024 / 1024, { decimals: 1 })} MB`;
 }
 
 // Compact "12,340 chars" for the amount of text extracted from a file.
@@ -365,7 +367,7 @@ export default function VaultPanel({
                                                         : doc.recovery_status === 'recovered'
                                                             ? (() => {
                                                                 const { method, recovered, cancelled } = recoveryDetail(doc.recovery_meta);
-                                                                return <span className="text-emerald-500" title={`${tr("Recovered formulas on {{count}} pages via {{method}}", { count: recovered, method: method === 'vision' ? tr("a vision model") : method === 'mixed' ? tr("a vision model and OCR") : 'OCR' })}${cancelled ? tr(" — stopped early, some pages were not re-read") : ''}`}> {tr("· math recovered")}{method === 'ocr' ? tr("(OCR)") : ''}{cancelled ? tr("(partial)") : ''}</span>;
+                                                                return <span className="text-emerald-500" title={`${tr("Recovered formulas on {{count}} pages via {{method}}", { count: recovered, method: method === 'vision' ? tr("a vision model") : method === 'mixed' ? tr("a vision model and OCR") : 'OCR' })}${cancelled ? tr(" — stopped early, some pages were not re-read") : ''}`}> {tr("· math recovered")}{method === 'ocr' ? ` ${tr("(OCR)")}` : ''}{cancelled ? ` ${tr("(partial)")}` : ''}</span>;
                                                             })()
                                                         : doc.recovery_status === 'failed'
                                                             ? (() => {

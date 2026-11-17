@@ -256,6 +256,12 @@ section('The spec a model writes still parses');
     check('the parsed items are a closed set', closedOptionSet(spec.items)?.length === 2);
     check('grading is insensitive to case and stray punctuation',
         answersMatch('receding', 'Receding.') && !answersMatch('Receding', 'Approaching'));
+    // A decimal point or comma inside a number is the number: a numeric drill's
+    // distractor 35 must not pass for the answer 3.5.
+    check('a number is not graded equal to the same digits without their decimal mark',
+        !answersMatch('35', '3.5') && !answersMatch('981', '9.81') && !answersMatch('12', '1,2') && !answersMatch('1,5', '15'));
+    check('a number still matches itself, with a full stop or case ignored around it',
+        answersMatch('3.5', '3.5.') && answersMatch(' (9.81) ', '9.81') && answersMatch('1,2', '1,2'));
 }
 
 section('The bar under the counter — a timed drill\'s bar is its clock, and only its clock');

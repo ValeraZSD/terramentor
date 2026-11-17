@@ -280,7 +280,10 @@ export function drillTimeSummary(base: number | null, mode: DrillMode, scale: Dr
 
 /** Loose equality for grading typed/selected answers: case + surrounding punctuation insensitive. */
 export function answersMatch(a: string, b: string): boolean {
-    const norm = (s: string) => s.toLowerCase().trim().replace(/[.,!?;:'"()]/g, '').replace(/\s+/g, ' ');
+    // A point or comma BETWEEN two digits is part of the number: dropping it
+    // made 3.5 and 35 (or 9.81 and 981) the same answer, so a wrong option that
+    // was only a distractor graded as correct.
+    const norm = (s: string) => s.toLowerCase().trim().replace(/(?<!\d)[.,]|[.,](?!\d)|[!?;:'"()]/g, '').replace(/\s+/g, ' ');
     return norm(a) === norm(b);
 }
 

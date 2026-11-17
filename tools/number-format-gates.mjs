@@ -178,6 +178,24 @@ const settled = KNOWN_OFFENDERS.filter(p => !offenders.includes(p));
 check('the known-offender list names nothing that is already fixed',
     settled.length === 0, settled.join(', '));
 
+section('The vault list writes a file size with the reader\'s separator');
+{
+    // `humanSize` is private to VaultPanel, so its source is lifted out and run
+    // with the real `formatNumber` standing in for `num`.
+    const panel = readFileSync(join(repoRoot, 'src/components/VaultPanel.tsx'), 'utf8');
+    const body = /function humanSize\([\s\S]*?\n\}/.exec(panel)?.[0];
+    check('VaultPanel has a humanSize to lift', !!body);
+    if (body) {
+        const js = esbuild.transformSync(body, { loader: 'ts' }).code;
+        const sizeWith = (style) => new Function('num', `${js}\nreturn humanSize;`)(
+            (v, o) => fmt.formatNumber(v, style, o));
+        check('1.5 MB is written 1,5 MB under a comma-decimal style', sizeWith('1.234,5')(1572864) === '1,5 MB', sizeWith('1.234,5')(1572864));
+        check('and 1.5 MB under a point-decimal style', sizeWith('1,234.5')(1572864) === '1.5 MB', sizeWith('1,234.5')(1572864));
+        check('a size under a megabyte is whole kilobytes', sizeWith('1.234,5')(900 * 1024) === '900 KB', sizeWith('1.234,5')(900 * 1024));
+        check('under a kilobyte it is bytes', sizeWith('1.234,5')(512) === '512 B');
+    }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 process.exit(fail ? 1 : 0);

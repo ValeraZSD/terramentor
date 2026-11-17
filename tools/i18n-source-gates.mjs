@@ -387,6 +387,23 @@ for (const [file, src] of read) {
 }
 check('every label built into an object is a translation key, not a literal', builtLabels);
 
+// --- 10. a translated suffix keeps its space --------------------------------
+// The vault's "· math recovered" badge adds "(OCR)" and "(partial)" after the
+// word. Written as `{tr("· math recovered")}{… ? tr("(OCR)") : ''}` the three
+// pieces print as "· math recovered(OCR)(partial)": JSX drops the whitespace
+// between expressions, so each suffix has to carry its own leading space.
+const SUFFIX_AFTER_BADGE = /tr\("· math recovered"\)\}([^<]*)<\/span>/;
+const glueSuffixes = (src) => {
+    const run = SUFFIX_AFTER_BADGE.exec(src)?.[1] ?? '';
+    // A suffix is spaced when it sits in a template that opens with a space, or
+    // after a `{' '}`.
+    return [...run.matchAll(/(.{0,6})tr\("(\([^"]*\))"\)/g)]
+        .filter((m) => !/(`\s\$\{|\{' '\})$/.test(m[1]))
+        .map((m) => m[2]);
+};
+check('each suffix on the math-recovered badge has a space before it',
+    glueSuffixes(readFileSync(join(srcDir, 'components', 'VaultPanel.tsx'), 'utf8')));
+
 // The rules are only worth having if they FIRE. Each is re-run against the exact
 // source shape it was written for, so a rule that silently stopped matching is a
 // failure here rather than a clean run that checks nothing.
