@@ -16,6 +16,7 @@ import { animationLoopSeconds } from './svgLabelFit';
 import { useTranslation } from 'react-i18next';
 import { k } from '../../i18n';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 
 /**
  * "Save" on a visual: the drawing as a file — a GIF for an animation, a PNG
@@ -54,6 +55,7 @@ const WIDTHS = [
 
 export default function ExportVisualModal({ open, onClose, kind, code, stage, palette }: Props) {
     const { t: tr } = useTranslation();
+    const num = useNumberFormat();
     const target = useMemo(() => (open ? findExportable(stage) : null), [open, stage]);
     const animated = !!(target instanceof SVGSVGElement && target.querySelector('animate, animateTransform, animateMotion, set'));
     const loopSeconds = useMemo(() => (animated && target instanceof SVGSVGElement ? animationLoopSeconds(target) : 0), [animated, target]);
@@ -67,9 +69,15 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     const [note, setNote] = useState<string | null>(null);
     const previewRef = useRef<HTMLCanvasElement>(null);
     const abortRef = useRef<AbortController | null>(null);
+    // Which "Draft with AI" request may still write into the fields: a reply
+    // that comes back after the dialog was closed or reopened belongs to a
+    // draft nobody is waiting for.
+    const draftRun = useRef(0);
 
     // Reset per opening, and seed the words from the brief when there is one.
     useEffect(() => {
+        draftRun.current++;
+        setDrafting(false);
         if (!open) return;
         const seeded = captionFromBrief(code);
         setText(seeded ?? { title: '', caption: '' });
@@ -82,9 +90,18 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     // Tab kept inside, the counted scroll lock, and Escape only while this is
     // the topmost dialog — claimed, so the dialog or page under it (a visual
     // lives inside lessons, drills and other dialogs) does not act on it too.
+    //
+    // Escape goes the same way as the Close button: while a file is being made
+    // it stops the encode and leaves the dialog open, otherwise it closes. A
+    // dialog that vanished mid-encode would stay mounted in its parent and the
+    // download would still arrive.
+    const cancel = () => {
+        if (busy) { abortRef.current?.abort(); return; }
+        onClose();
+    };
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(open, dialogRef, {
-        onEscape: (e) => { e.preventDefault(); e.stopPropagation(); onClose(); },
+        onEscape: (e) => { e.preventDefault(); e.stopPropagation(); cancel(); },
     });
 
     // A live preview of the first frame, so the card is seen before it is saved.
@@ -122,15 +139,20 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
     const fpsShown = Math.round(100 / gifDelayCs(DEFAULT_GIF_FPS));
 
     const draft = async () => {
+        const run = ++draftRun.current;
         setDrafting(true);
         setNote(null);
         try {
             const res = await api.captionVisual(kind, code);
-            setText({ title: res.title || text.title, caption: res.caption || text.caption });
+            if (run !== draftRun.current) return;
+            // Read the fields as they are NOW: the reply may land after the
+            // learner typed into them.
+            setText(t => ({ title: res.title || t.title, caption: res.caption || t.caption }));
         } catch (e) {
+            if (run !== draftRun.current) return;
             setNote(e instanceof Error ? e.message : tr("The AI could not draft a caption."));
         } finally {
-            setDrafting(false);
+            if (run === draftRun.current) setDrafting(false);
         }
     };
 
@@ -157,17 +179,17 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                 setNote(`Saved ${base}.png.`);
             }
         } catch (e) {
-            if (!controller.signal.aborted) setNote(e instanceof Error ? e.message : tr("The file could not be made."));
+            // The encoder's own messages are English fragments for the
+            // console; the dialog says it in the reader's language.
+            if (!controller.signal.aborted) {
+                console.warn('Saving the picture failed:', e);
+                setNote(tr("The file could not be made."));
+            }
         } finally {
             if (abortRef.current === controller) abortRef.current = null;
             setBusy(false);
             setProgress(null);
         }
-    };
-
-    const cancel = () => {
-        if (busy) { abortRef.current?.abort(); return; }
-        onClose();
     };
 
     return createPortal(
@@ -245,7 +267,7 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                                 </label>
                                 {animated && (
                                     <span className="text-sm text-slate-500 dark:text-slate-400">
-                                        {tr("One loop, {{loopSeconds}} s at {{fps}} fps · {{frames}} frames", { count: frames, loopSeconds: loopSeconds.toFixed(loopSeconds % 1 ? 1 : 0), fps: fpsShown, frames })}
+                                        {tr("One loop, {{loopSeconds}} s at {{fps}} fps · {{frames}} frames", { count: frames, loopSeconds: num(loopSeconds, { decimals: loopSeconds % 1 ? 1 : 0 }), fps: fpsShown, frames })}
                                     </span>
                                 )}
                             </div>

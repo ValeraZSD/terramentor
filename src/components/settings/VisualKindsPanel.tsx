@@ -654,7 +654,17 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     const addToast = useStore(s => s.addToast);
     const [off, setOff] = useState<Set<Kind>>(new Set());
     const [anyModel, setAnyModel] = useState(true);
+    // Until the saved list has been read the switches are not real: they all
+    // show ON over an empty list, and a press would write that list minus one
+    // kind over everything the learner had switched off.
     const [loaded, setLoaded] = useState(false);
+    // What the switches show right now (read by a press, which may come before
+    // React has re-rendered), and what the last write that took left stored.
+    const offNow = useRef<Set<Kind>>(new Set());
+    const offStored = useRef<Set<Kind>>(new Set());
+    const pendingWrites = useRef(0);
+    // Writes go one after another, so the last press is the last one stored.
+    const writes = useRef<Promise<void>>(Promise.resolve());
     // Bumped when a kind is switched ON, which is what tells its sample to play
     // its arrival again. Off is not an event: the card greys out and that is all.
     const [reveal, setReveal] = useState<Partial<Record<Kind, number>>>({});
@@ -681,30 +691,47 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
             // read it as those two switches so an old choice survives verbatim.
             if (s.visual_tier === 'basic') { set.add('p5'); set.add('widget'); }
             setOff(set);
+            offNow.current = set;
+            offStored.current = set;
             // Absent is on (server/ai.js getVisualTier): 'auto' is the opt-out.
             setAnyModel(s.visual_tier !== 'auto' && s.visual_tier !== 'basic');
             setLoaded(true);
-        } catch { /* the panel keeps its defaults */ }
+        } catch { /* the switches stay locked; the next visit to the tab asks again */ }
     }, []);
     useEffect(() => { if (active && !loaded) void load(); }, [active, loaded, load]);
 
-    const toggle = async (kind: Kind) => {
-        const next = new Set(off);
+    const toggle = (kind: Kind) => {
+        if (!loaded) return;
+        const next = new Set(offNow.current);
         if (next.has(kind)) {
             next.delete(kind);
             setReveal(r => ({ ...r, [kind]: (r[kind] ?? 0) + 1 }));
         } else {
             next.add(kind);
         }
+        offNow.current = next;
         setOff(next);
-        try {
-            await api.setSetting('visual_kinds_off', [...next].join(','));
-            // A switched-off "basic" tier would keep p5/widget off whatever the
-            // switches say; the kinds list is the truth now.
-            if (!anyModel) await api.setSetting('visual_tier', 'auto');
-        } catch (e: any) {
-            addToast('error', tr("Failed to save"), e.message);
-        }
+        const list = [...next].join(',');
+        pendingWrites.current++;
+        writes.current = writes.current.then(async () => {
+            try {
+                await api.setSetting('visual_kinds_off', list);
+                offStored.current = next;
+                // A switched-off "basic" tier would keep p5/widget off whatever the
+                // switches say; the kinds list is the truth now.
+                if (!anyModel) await api.setSetting('visual_tier', 'auto');
+            } catch (e: any) {
+                addToast('error', tr("Failed to save"), e.message);
+            } finally {
+                // Once the last answer is in, the cards show what is stored: a
+                // refused save never leaves a card switched the way nothing
+                // was written.
+                if (--pendingWrites.current === 0) {
+                    offNow.current = offStored.current;
+                    setOff(offStored.current);
+                }
+            }
+        });
     };
 
     const anyModelSaver = useRef(switchSaver()).current;
@@ -757,7 +784,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                         >
                             <span className="block pointer-events-none">
                                 {spec.sample == null
-                                    ? <WidgetMock muted={!enabled} play={active && enabled} reveal={reveal.widget ?? 0} />
+                                    ? <WidgetMock muted={!enabled} play={active && enabled && !reducedMotion()} reveal={reveal.widget ?? 0} />
                                     : spec.id === 'drill'
                                         ? <DrillMock code={spec.sample} muted={!enabled} reveal={reveal.drill ?? 0} />
                                         : <Sample kind={spec.id} code={spec.sample} muted={!enabled} reveal={reveal[spec.id] ?? 0} />}
@@ -767,7 +794,8 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                                     id={`visual-kind-${spec.id}`}
                                     role="switch"
                                     checked={enabled}
-                                    onChange={() => void toggle(spec.id)}
+                                    disabled={!loaded}
+                                    onChange={() => toggle(spec.id)}
                                     className="mt-1"
                                 />
                                 <span className="min-w-0">
@@ -816,6 +844,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                     id="visual-any-model"
                     describedBy="visual-any-model-why"
                     checked={anyModel}
+                    disabled={!loaded}
                     onChange={v => void toggleAnyModel(v)}
                     label={tr("Offer simulations and widgets to any model")}
                 />

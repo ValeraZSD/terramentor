@@ -12,7 +12,7 @@ import { api } from '../../api';
 import i18n from '../../i18n';
 import { num } from '../../utils/numberFormat';
 import { reportFrameActivity } from '../../utils/frameActivity';
-import { VisualUndrawnError, isUndrawnError, declinedReason } from './resolveBrief';
+import { VisualUndrawnError, isUndrawnError, isConnectionFailure, declinedReason } from './resolveBrief';
 
 // Interactive widgets — the Gemini "generative UI" two-agent split,
 // local-first. The ```widget fence holds a small functional SPEC (Title /
@@ -245,7 +245,11 @@ async function compileVerified(
         } catch (e) {
             if (isUndrawnError(e)) throw e;
             // Aborts and user-cancelled builds are final — never burn a retry on them.
-            if (isAbort(e) || (e as { cancelled?: boolean })?.cancelled || attempt === 1) throw e;
+            // So is a dropped connection: the build may have finished on the
+            // server meanwhile, and a fix pass built against the network's
+            // message would be a second paid build (it skips the cache). The
+            // shell resumes the render when the connection is back.
+            if (isAbort(e) || (e as { cancelled?: boolean })?.cancelled || isConnectionFailure(e) || attempt === 1) throw e;
             lastError = e instanceof Error ? e.message : String(e);
             opts = { error: lastError };
             ctx.onProgress?.(i18n.t("Build failed — asking the builder to fix it…"));
@@ -390,6 +394,13 @@ function mountWidget(
             const { html: fresh } = await api.compileWidget(
                 spec, { force: true, origin: ctx.origin }, progressReporter(m => { status.textContent = m; }), ctx.signal,
             );
+            // Every other path runs a build in the hidden probe before it is
+            // shown. A rebuild that throws when it runs must not take the
+            // place of the widget that works: it fails here, and the old frame
+            // stays on screen with the reason beside the button.
+            status.textContent = i18n.t("Verifying the widget…");
+            const probeToken = Math.random().toString(36).slice(2);
+            await probeWidget(buildWidgetDoc(fresh, probeToken, { probe: true, palette: currentPalette() }), probeToken);
             status.textContent = '';
             live.off?.();
             live.off = null;

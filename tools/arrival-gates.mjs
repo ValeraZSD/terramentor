@@ -618,6 +618,21 @@ console.log('\n--- a molecule GROWS from one atom, and each label arrives with i
             check('benzene: the ring grows both ways round at once — six bonds, three starts', starts.size === 3, [...starts].join(' '));
         }
     }
+    // The shell draws into a detached element and moves only its CHILDREN into
+    // the stage, so the layout of several molecules (centred, wrapped, spaced)
+    // has to be on a child of the element, not on the element.
+    {
+        const host = await draw('CC(=O)Oc1ccccc1C(=O)O\nc1ccccc1');
+        const svgs = Array.from(host.querySelectorAll('svg'));
+        const row = svgs[0]?.parentElement;
+        check('control: two molecules are drawn', svgs.length === 2, String(svgs.length));
+        check('the molecules sit in a row of their own that centres, wraps and spaces them',
+            !!row && row !== host && row.style.display === 'flex' && row.style.flexWrap === 'wrap' && row.style.justifyContent === 'center' && row.style.gap === '8px',
+            row ? `${row.tagName} display=${row.style.display}` : 'no parent');
+        check('…and both are in that one row', svgs.every(s => s.parentElement === row));
+        check('…so moving the children out of the element keeps the layout, and the element itself carries none',
+            host.style.display === '' && host.firstElementChild === row);
+    }
     // The connectivity check above is only a check on `back` if some bond
     // actually runs against its line's x1→x2; a set where none does would
     // pass it with the reversal broken.

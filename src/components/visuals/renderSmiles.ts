@@ -60,10 +60,15 @@ const renderSmiles: VisualRenderer = async (el, code, ctx) => {
     const perRow = Math.min(lines.length, 2);
     const size = Math.min(Math.max(Math.floor(ctx.width / perRow) - 24, 200), 340);
 
-    el.style.display = 'flex';
-    el.style.flexWrap = 'wrap';
-    el.style.gap = '8px';
-    el.style.justifyContent = 'center';
+    // The layout sits on a row of its own, not on `el`: the shell renders into a
+    // detached element and moves only its CHILDREN into the stage, so styles set
+    // on `el` itself never reach the screen.
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.flexWrap = 'wrap';
+    row.style.gap = '8px';
+    row.style.justifyContent = 'center';
+    el.appendChild(row);
 
     const drawer = new SmilesDrawer.SvgDrawer({
         width: size,
@@ -87,7 +92,7 @@ const renderSmiles: VisualRenderer = async (el, code, ctx) => {
         drawer.draw(tree, svg, 'app');
         const graph = moleculeGraph(drawer);
         if (graph) svg.setAttribute(MOLECULE_ATTR, JSON.stringify(graph));
-        el.appendChild(svg);
+        row.appendChild(svg);
     }
 };
 
