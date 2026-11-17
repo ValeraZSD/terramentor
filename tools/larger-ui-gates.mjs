@@ -302,7 +302,10 @@ const ROWS = `(() => {
             const title = row.querySelector('[data-row="title"]');
             if (b.width < 1 || !title || row.dataset.depth == null) continue;
             const first = row.firstElementChild;
+            const col = row.querySelector(':scope > [data-row-fold], :scope > [data-fold-spacer]');
             rows.push({ list, depth: +row.dataset.depth, x: Math.round((firstLetter(title) ?? NaN) - b.left),
+                col: col ? Math.round(col.getBoundingClientRect().left - b.left) : NaN,
+                box: Math.round(title.getBoundingClientRect().left - b.left),
                 text: title.textContent.trim().slice(0, 30),
                 first: first?.hasAttribute('data-row-fold') || first?.hasAttribute('data-fold-spacer') ? 'column' : first?.hasAttribute('data-drag-handle') ? 'grip' : (first?.tagName ?? 'none').toLowerCase() });
         }
@@ -389,6 +392,19 @@ for (const [state, m] of Object.entries(seen)) {
         check(`${state}: the outline shows a nested topic and the course tree is measured (${m.rows.length} rows)`,
             nested > 0 && (state.includes(' phone ') || m.rows.some((r) => r.list === 'tree')));
         check(`${state}: titles at one depth start at one x`, spread.length === 0, list(spread, (x) => x));
+        // Each level steps in by the column and its gap, so a sub-topic's
+        // chevron or mark stands under its parent's title. A chapter's title
+        // follows its badge, so the tree starts this at depth 2. With the
+        // switch on the step stays the same and the 44px column overhangs it.
+        if (!on) {
+            const misplaced = [];
+            for (const r of m.rows) {
+                if (r.depth < (r.list === 'tree' ? 2 : 1)) continue;
+                const parent = m.rows.find((p) => p.list === r.list && p.depth === r.depth - 1);
+                if (parent && !(Math.abs(r.col - parent.box) <= 1)) misplaced.push(`${r.list} "${r.text}" column at ${r.col}px, parent's title at ${parent.box}px`);
+            }
+            check(`${state}: a sub-topic's column stands under its parent's title`, misplaced.length === 0, list(misplaced, (x) => x));
+        }
         // With a mouse the grip only shows under the pointer: before the
         // column it was a blank slot in front of every title. On a touch
         // screen it shows, and is the first thing in the row.

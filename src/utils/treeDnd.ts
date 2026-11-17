@@ -20,7 +20,8 @@ import { TreeNode } from '../types';
  * which is unambiguous and live — unlike guessing "inside" from a stale pointer.
  */
 
-export const INDENTATION_WIDTH = 20;
+// The outline's drawn indent, `--row-indent-outline` (1.375rem in index.css).
+export const INDENTATION_WIDTH = 22;
 
 export interface FlatItem {
     id: number;

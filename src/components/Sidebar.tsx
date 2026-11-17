@@ -24,8 +24,9 @@ import HeadStartMark from './HeadStartMark';
 import { IconButton } from './ui/Button';
 
 // How far the pointer moves (px) to nest a dragged row one level deeper or
-// shallower. The drawn indent is `--row-indent-tree` (index.css).
-const SIDEBAR_INDENT = 16;
+// shallower: the drawn indent, `--row-indent-tree` (1.5rem in index.css), so
+// a row lands under the pointer.
+const SIDEBAR_INDENT = 24;
 
 interface SidebarRowProps {
     item: FlatItem;

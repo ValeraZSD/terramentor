@@ -283,7 +283,15 @@ section('8. larger text and buttons: one switch, two floors');
     check('a topic still sits under its chapter: the spacer is as wide as the fold button, in the tree and the outline',
         [sidebar, outlineRow].every((src) => /<span data-fold-spacer className="w-5 shrink-0/.test(src))
         && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
-    check('the course tree is wide enough for two 44px buttons and a title',
+    // A drag nests one level per drawn indent: a smaller pointer step put the
+    // row 8px (tree) or 6px (outline) ahead of the pointer per level.
+    const remOf = (name) => +((css.match(new RegExp(`--${name}: ([\\d.]+)rem;`)) ?? [])[1] ?? NaN);
+    const pxOf = (src, name) => +((src.match(new RegExp(`const ${name} = (\\d+);`)) ?? [])[1] ?? NaN);
+    check('a drag steps one level per drawn indent, in the tree and the outline',
+        pxOf(sidebar, 'SIDEBAR_INDENT') === remOf('row-indent-tree') * 16
+        && pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH') === remOf('row-indent-outline') * 16,
+        `${pxOf(sidebar, 'SIDEBAR_INDENT')} / ${remOf('row-indent-tree')}rem, ${pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH')} / ${remOf('row-indent-outline')}rem`);
+    check('the course tree is wide enough for a 44px column, a title and a grip',
         /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: 17\.5rem;/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',

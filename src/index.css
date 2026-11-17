@@ -488,12 +488,12 @@ html[data-larger-ui] [data-course-sidebar] {
 }
 /* One level of the course tree and the outline: the row's first column
    (fold chevron or status mark) and the gap after it at normal size, so a
-   topic's title starts under its chapter's. The same step with the larger
-   setting, where the column is 44px: a step that wide left a third level
-   one word per line. */
+   sub-topic's column stands under its parent's title button. The same step
+   with the larger setting, where the column is 44px: a step that wide left
+   a third level one word per line. */
 :root {
   --row-indent-tree: 1.5rem;
-  --row-indent-outline: 1.625rem;
+  --row-indent-outline: 1.375rem;
 }
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
