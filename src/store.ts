@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint } from './types';
+import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
 import { api } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -693,6 +693,12 @@ interface AppState {
     closeAnkiImport: () => void;
     consumeAnkiImportFile: () => File | null;
 
+    /** A course file whose course is already in the library, and what it
+     *  would change there: the update preview is open while this is set. */
+    courseUpdate: { file: File; preview: CourseUpdatePreview } | null;
+    openCourseUpdate: (file: File, preview: CourseUpdatePreview) => void;
+    closeCourseUpdate: () => void;
+
     /** The placement probe (server/placement.js). Mounted at the app root like
      *  the mastery gate, and for the same reason: it is offered from the project
      *  dashboard but must be openable from anywhere without navigating. */
@@ -1002,6 +1008,9 @@ export const useStore = create<AppState>((set, get) => ({
         if (pending) set({ ankiImportFile: null });
         return pending;
     },
+    courseUpdate: null,
+    openCourseUpdate: (file, preview) => set({ courseUpdate: { file, preview } }),
+    closeCourseUpdate: () => set({ courseUpdate: null }),
 
     placement: { isOpen: false, projectId: null, projectName: '' },
     openPlacement: (projectId, projectName) => set({ placement: { isOpen: true, projectId, projectName } }),

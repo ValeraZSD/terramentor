@@ -1,5 +1,5 @@
 import { api } from '../api';
-import type { ImportResult } from '../types';
+import type { CourseUpdatePreview, ImportResult } from '../types';
 import { todayStr } from './tree';
 
 /**
@@ -61,6 +61,27 @@ export async function exportProjectToFile(projectId: number, c: ExportChoices): 
     const filename = jsonFileName(data.project.name);
     downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), filename);
     return { filename };
+}
+
+/**
+ * What a course file would change in the copy of its course the library
+ * already holds, or null when it holds none (or the file is not one course:
+ * a whole library, an unreadable file). Every import door asks this first, so
+ * a newer edition updates the course instead of making a second copy; null
+ * sends the file on to the importer, which reports its own errors.
+ */
+export async function installedEditionOf(file: File): Promise<CourseUpdatePreview | null> {
+    if (!/\.(json|studyvault|zip)$/i.test(file.name)) return null;
+    try {
+        const preview = await api.inspectCourseUpdate(file);
+        return preview.match ? preview : null;
+    } catch (e: any) {
+        // A file the update door refuses (a whole library, a malformed file) is the
+        // import door's to judge. A server that failed could not say whether the
+        // course is installed, and importing anyway would make the duplicate this avoids.
+        if (typeof e?.status === 'number' && e.status < 500) return null;
+        throw e;
+    }
 }
 
 /** Import a `.studyvault` (a course or a whole library) or a `.json` file
