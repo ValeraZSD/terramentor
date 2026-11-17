@@ -93,6 +93,10 @@ const loaders = discoverLoaders();
 
 const loaded = new Set<string>([DEFAULT_LANGUAGE]);
 
+/** Which `setUiLanguage` call is the newest; an older one that finishes later
+ *  must not apply. */
+let latestRequest = 0;
+
 async function ensureLoaded(code: string): Promise<void> {
     if (loaded.has(code)) return;
     const load = loaders[`../locales/${code}.json`];
@@ -146,10 +150,20 @@ void i18next.use(initReactI18next).init({
  */
 export async function setUiLanguage(code: string): Promise<void> {
     const lang = isSupportedLanguage(code) ? code : DEFAULT_LANGUAGE;
+    const request = ++latestRequest;
     await ensureLoaded(lang);
-    await i18next.changeLanguage(lang);
-    applyToDocument(lang);
-    cacheLanguage(lang);
+    // Two picks can overlap on a slow connection and their chunks arrive in any
+    // order. Only the newest pick may apply, or the older one lands last and the
+    // screen stays in a language the reader has already moved on from.
+    if (request !== latestRequest) return;
+    // A chunk that failed to load leaves English text, so everything else
+    // (`<html lang>`, the `Intl` formats) says English too rather than a language
+    // the words are not in. It is not cached: the next load tries the chunk again.
+    const shown = loaded.has(lang) ? lang : DEFAULT_LANGUAGE;
+    await i18next.changeLanguage(shown);
+    if (request !== latestRequest) return;
+    applyToDocument(shown);
+    if (shown === lang) cacheLanguage(lang);
 }
 
 /** Resolve a stored preference (`auto` or a code) to the language to show. */

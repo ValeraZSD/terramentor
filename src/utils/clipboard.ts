@@ -26,8 +26,13 @@ export async function copyText(text: string): Promise<boolean> {
         }
     }
 
+    // `select()` moves focus onto the temporary field, and removing the field
+    // drops it to <body>: a keyboard user who pressed Copy would end up outside
+    // the dialog they were in. Remember where it was and put it back.
+    const previous = document.activeElement;
+    let area: HTMLTextAreaElement | null = null;
     try {
-        const area = document.createElement('textarea');
+        area = document.createElement('textarea');
         area.value = text;
         // Off-screen but focusable, and readOnly so a phone doesn't raise the
         // keyboard for the split second it is in the document.
@@ -51,10 +56,14 @@ export async function copyText(text: string): Promise<boolean> {
         area.select();
         area.setSelectionRange(0, text.length);
 
-        const ok = document.execCommand('copy');
-        document.body.removeChild(area);
-        return ok;
+        return document.execCommand('copy');
     } catch {
         return false;
+    } finally {
+        // In a `finally`: a throwing `execCommand` must not leave the field in the page.
+        area?.remove();
+        if (previous instanceof HTMLElement && previous !== document.body && previous.isConnected) {
+            previous.focus({ preventScroll: true });
+        }
     }
 }

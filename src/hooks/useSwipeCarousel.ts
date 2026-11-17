@@ -28,6 +28,7 @@ export interface SwipeCarousel {
         onTouchStart: (e: React.TouchEvent) => void;
         onTouchMove: (e: React.TouchEvent) => void;
         onTouchEnd: () => void;
+        onTouchCancel: () => void;
     };
     /** Style for each of the three panel wrappers. */
     panelStyle: React.CSSProperties;
@@ -81,6 +82,20 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
         else { setAnimating(true); setDragX(0); }   // snap back
     };
 
+    // The browser can take a touch away mid-drag (an edge back-swipe, a
+    // notification pulled down, a system gesture) and then `touchend` never
+    // comes. Without this the track stays where the finger left it, half-way
+    // across the viewport, and a tap does not move it. A cancelled drag is not a
+    // swipe, so it always returns, however far it had gone.
+    const onTouchCancel = () => {
+        const t = touch.current;
+        const wasDragging = t.active && t.locked === 'h';
+        t.active = false;
+        // At offset 0 nothing would move, so no transition would end to clear
+        // `animating`, and the next touch would be ignored.
+        if (wasDragging && dragX !== 0) { setAnimating(true); setDragX(0); }
+    };
+
     const onTransitionEnd = (e: React.TransitionEvent) => {
         // transitionend bubbles — ignore a child's colour transition and react
         // only to the track's own transform finishing.
@@ -105,6 +120,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
             onTouchStart,
             onTouchMove,
             onTouchEnd,
+            onTouchCancel,
         },
         panelStyle: { width: trackW || undefined },
     };
