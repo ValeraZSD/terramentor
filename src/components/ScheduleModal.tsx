@@ -128,14 +128,20 @@ export default function ScheduleModal() {
         if (!showScheduleModal) return;
         const p = projects.find(pr => pr.id === scheduleModalProjectId);
         if (!p) return;
-        if (p.start_date) setStartDate(p.start_date);
-        if (p.deadline) setDeadline(p.deadline);
+        // Every field is set, with its default for a project that has no value:
+        // this dialog stays mounted, so a field left alone would keep what the
+        // last project (or a schedule since removed) had put there.
+        setStartDate(p.start_date || todayStr());
+        setDeadline(p.deadline || '');
+        let days = [1, 2, 3, 4, 5];
         if (p.study_days) {
             try {
                 const parsed = JSON.parse(p.study_days);
-                if (Array.isArray(parsed) && parsed.length > 0) setStudyDays(parsed);
+                if (Array.isArray(parsed) && parsed.length > 0) days = parsed;
             } catch { }
         }
+        setStudyDays(days);
+        setError('');
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showScheduleModal, scheduleModalProjectId]);
 

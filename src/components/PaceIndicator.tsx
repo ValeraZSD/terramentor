@@ -75,7 +75,12 @@ export default function PaceIndicator({ full }: { full: boolean }) {
     const offsetLabel = paceStatus === 'on_track'
         ? paceHeadline(paceStatus, 0, t)
         : offsetDays === 0
-        ? t("On plan")
+        // Behind by under half a day still carries the amber of "behind": the
+        // server flags it past 5 points of drift whatever the window, so say
+        // the same words the tooltip does instead of "On plan" in amber.
+        ? (paceStatus === 'falling_behind' || paceStatus === 'critical'
+            ? paceHeadline(paceStatus, 0, t)
+            : t("On plan"))
         : offsetDays > 0
             ? t("{{n}}d ahead", { n: offsetDays })
             : t("{{daysBehind}}d behind", { daysBehind: -offsetDays });
