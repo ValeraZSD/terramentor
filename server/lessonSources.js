@@ -76,7 +76,7 @@ const COURSE_DOCS = '(d.project_id = ? OR d.node_id IN (SELECT id FROM live_node
 export function courseHasDocumentText(projectId) {
     if (projectId == null) return false;
     return !!db.prepare(`
-        SELECT 1 FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
+        SELECT 1 FROM document_chunks dc JOIN live_documents d ON d.id = dc.document_id
         WHERE ${COURSE_DOCS} LIMIT 1
     `).get(projectId, projectId);
 }
@@ -101,7 +101,7 @@ function keywordPassages(projectId, query, limit) {
             SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.id AS document_id, d.title AS doc_title
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
-            JOIN documents d ON d.id = dc.document_id
+            JOIN live_documents d ON d.id = dc.document_id
             WHERE documents_fts MATCH ? AND ${COURSE_DOCS}
             ORDER BY rank LIMIT ?
         `).all(match, projectId, projectId, limit);
@@ -157,7 +157,7 @@ export function sourceRangesOf(nodeId) {
 // written part by part, so the last few documents' placements are kept.
 const placementCache = new Map();
 const once = (sql) => { let stmt; return () => (stmt ??= db.prepare(sql)); };
-const docContentStmt = once('SELECT content FROM documents WHERE id = ?');
+const docContentStmt = once('SELECT content FROM live_documents documents WHERE id = ?');
 const chunkIdsStmt = once('SELECT id FROM document_chunks WHERE document_id = ? ORDER BY chunk_index');
 function placedChunks(documentId) {
     const doc = docContentStmt().get(documentId);
@@ -215,7 +215,7 @@ function passagesByChunkIds(ids) {
     if (!ids.length) return [];
     return db.prepare(`
         SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.id AS document_id, d.title AS doc_title
-        FROM document_chunks dc JOIN documents d ON d.id = dc.document_id
+        FROM document_chunks dc JOIN live_documents d ON d.id = dc.document_id
         WHERE dc.id IN (${ids.map(() => '?').join(',')})
     `).all(...ids).sort((a, b) => ids.indexOf(a.chunk_id) - ids.indexOf(b.chunk_id));
 }
@@ -228,7 +228,7 @@ function keywordPassagesIn(query, ids, limit) {
             SELECT dc.id AS chunk_id, dc.content, dc.chunk_index, d.id AS document_id, d.title AS doc_title
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
-            JOIN documents d ON d.id = dc.document_id
+            JOIN live_documents d ON d.id = dc.document_id
             WHERE documents_fts MATCH ? AND dc.id IN (${ids.map(() => '?').join(',')})
             ORDER BY rank LIMIT ?
         `).all(match, ...ids, limit);

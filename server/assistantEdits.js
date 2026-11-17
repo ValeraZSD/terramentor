@@ -349,7 +349,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
     if (att.kind === 'image' && !words) {
         throw new EditError(400, 'A picture is saved with words saying what it shows, so it can be found again.', { fields: ['description'] });
     }
-    const same = db.prepare('SELECT id FROM documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
+    const same = db.prepare('SELECT id FROM live_documents documents WHERE file_hash = ? AND project_id = ? AND node_id IS ?').get(att.file_hash, pid, nid);
     // Where it already is goes back with it, so the preview can still Open it.
     if (same) return { existed: true, documentId: same.id, projectId: pid, nodeId: nid };
     const text = att.kind === 'image' ? words : (words ? `${words}\n\n${att.content}` : att.content);
@@ -373,7 +373,7 @@ export function saveAssistantAttachment({ attachmentId, conversationId = null, p
  */
 function undoAttachment(rec) {
     const after = JSON.parse(rec.after);
-    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents WHERE id = ?').get(after.documentId);
+    const doc = db.prepare('SELECT id, file_hash, title, project_id, node_id FROM documents /* with deleted */ WHERE id = ?').get(after.documentId);
     const unchanged = doc && doc.title === after.title && doc.project_id === after.projectId && (doc.node_id ?? null) === (after.nodeId ?? null);
     const chunkIds = unchanged ? documentChunkIds([doc]) : [];
     db.transaction(() => {
@@ -418,7 +418,7 @@ export function editBySource(source) {
     // row otherwise, and document ids are AUTOINCREMENT (never reused), so a
     // row by that id still there is the kept one.
     if (rec.kind === 'attachment' && rec.undone_at) {
-        const doc = db.prepare('SELECT project_id, node_id FROM documents WHERE id = ?').get(JSON.parse(rec.after).documentId);
+        const doc = db.prepare('SELECT project_id, node_id FROM documents /* with deleted */ WHERE id = ?').get(JSON.parse(rec.after).documentId);
         if (doc) Object.assign(edit, { kept: ['attachment'], current: { projectId: doc.project_id, nodeId: doc.node_id ?? null } });
     }
     return edit;

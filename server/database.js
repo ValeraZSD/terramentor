@@ -2251,6 +2251,31 @@ db.transaction(() => {
       CREATE VIEW IF NOT EXISTS live_${table} AS SELECT * FROM ${table} WHERE deleted_at IS NULL;
     `);
   }
+  // A file has no mark of its own: it is deleted while the course or topic it
+  // is attached to is, and back when that comes back.
+  db.exec(`
+    CREATE VIEW IF NOT EXISTS live_documents AS SELECT * FROM documents d
+      WHERE NOT EXISTS (SELECT 1 FROM nodes n WHERE n.id = d.node_id AND n.deleted_at IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = d.project_id AND p.deleted_at IS NOT NULL);
+  `);
+  // Nothing new goes under a deleted row: a card written by a job that ends
+  // after its topic was deleted would be live with no live parent, and no
+  // Restore would know it. A row that arrives already deleted is allowed. The
+  // message is what a job that ran into this reports.
+  for (const table of ['resources', 'flashcards', 'quizzes']) {
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS ${table}_parent_live BEFORE INSERT ON ${table}
+        WHEN NEW.deleted_at IS NULL AND EXISTS (SELECT 1 FROM nodes WHERE id = NEW.node_id AND deleted_at IS NOT NULL)
+        BEGIN SELECT RAISE(ABORT, 'The topic this belongs to was deleted.'); END;
+    `);
+  }
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS nodes_parent_live BEFORE INSERT ON nodes
+      WHEN NEW.deleted_at IS NULL AND (
+        EXISTS (SELECT 1 FROM nodes WHERE id = NEW.parent_id AND deleted_at IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM projects WHERE id = NEW.project_id AND deleted_at IS NOT NULL))
+      BEGIN SELECT RAISE(ABORT, 'The topic or course this belongs to was deleted.'); END;
+  `);
 })();
 
 // The schema is now current for this build. Recorded LAST, after every CREATE

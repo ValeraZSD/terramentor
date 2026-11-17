@@ -143,7 +143,7 @@ function buildBundleZip(projectId, { includeNotes = false, includeProgress = fal
 
     // A document whose upload failed has no text and no original: in a shared
     // course it would arrive as a broken row on someone else's machine.
-    const docs = db.prepare(`SELECT * FROM documents
+    const docs = db.prepare(`SELECT * FROM live_documents documents
         WHERE (project_id = ? OR node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?))
           AND COALESCE(status, 'ready') != 'failed'`).all(projectId, projectId);
 

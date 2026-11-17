@@ -670,7 +670,7 @@ export function retryShortCourse(projectId, { origin = { surface: 'projects' } }
     if (p.ai_generating || tasks.findActive({ kind: 'short_course', projectId: p.id })) throw new ShortCourseError(409, 'It is being written now.');
     if (db.prepare('SELECT 1 FROM live_nodes nodes WHERE project_id = ? AND is_note = 0 LIMIT 1').get(p.id)) throw new ShortCourseError(409, 'It already has its topics.');
     if (!aiReady()) throw new ShortCourseError(409, 'No AI is connected.', { reason: 'no_ai' });
-    const docs = db.prepare('SELECT id, title, content, file_type, original_filename, page_count FROM documents WHERE project_id = ? ORDER BY id').all(p.id);
+    const docs = db.prepare('SELECT id, title, content, file_type, original_filename, page_count FROM live_documents documents WHERE project_id = ? ORDER BY id').all(p.id);
     let src = null;
     let documentIdOf = () => null;
     // The chapters picked when it was made: only those are written again.

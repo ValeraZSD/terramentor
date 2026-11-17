@@ -320,7 +320,7 @@ export function queueRecovery(documentId, { force = false } = {}) {
 export function resumePendingRecovery() {
     let rows;
     try {
-        rows = db.prepare("SELECT id FROM documents WHERE recovery_status IN ('pending', 'running')").all();
+        rows = db.prepare("SELECT id FROM documents /* with deleted */ WHERE recovery_status IN ('pending', 'running')").all();
     } catch { return; }
     if (!rows.length) return;
 
@@ -336,7 +336,7 @@ export function resumePendingRecovery() {
 
 async function runRecovery(documentId, { force }) {
     const doc = db.prepare(
-        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM documents WHERE id = ?'
+        'SELECT id, title, file_type, file_hash, project_id, node_id, recovery_status FROM documents /* with deleted */ WHERE id = ?'
     ).get(documentId);
     if (!doc || doc.file_type !== 'pdf' || !doc.file_hash) return;
     if (!force && doc.recovery_status && doc.recovery_status !== 'pending') return;

@@ -37,6 +37,8 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 let pass = 0, fail = 0;
@@ -49,7 +51,11 @@ const ok = (name, cond, detail = '') => {
 console.log('--- the read filter: every read of the five tables skips deleted rows ---');
 
 export const CONTENT_TABLES = ['projects', 'nodes', 'resources', 'flashcards', 'quizzes'];
-const T = CONTENT_TABLES.join('|');
+// A file attached to a course or topic has no mark of its own: it is deleted
+// while its course or topic is, so its reads go through `live_documents` too.
+// Removing a file outright stays an ordinary delete.
+const READ_FILTERED = [...CONTENT_TABLES, 'documents'];
+const T = READ_FILTERED.join('|');
 // The modules allowed to name the tables directly: the migrations, and the one
 // module whose job is the deleted rows.
 const EXEMPT = new Set(['server/database.js', 'server/softDelete.js']);
@@ -75,7 +81,7 @@ export function unfilteredIn(src) {
         const re = new RegExp(`\\b(DELETE\\s+FROM|FROM|JOIN)\\s+(?:main\\.)?["\`\\[]?(${T})\\b(?!\\s*\\()`, 'g');
         let m;
         while ((m = re.exec(line))) {
-            if (/^DELETE/.test(m[1])) deletes.push(`${i + 1}: ${line.trim()}`);
+            if (/^DELETE/.test(m[1])) { if (CONTENT_TABLES.includes(m[2])) deletes.push(`${i + 1}: ${line.trim()}`); }
             else if (!line.includes(WITH_DELETED)) reads.push(`${i + 1}: ${line.trim()}`);
         }
     });
@@ -103,8 +109,9 @@ ok('no module but softDelete.js deletes a content row outright', hardDeletes.len
         "db.prepare('DELETE FROM quizzes WHERE id = ?')",
         'db.prepare(\'SELECT * FROM "projects" WHERE id = ?\')',
         "db.prepare('SELECT * FROM main.resources')",
+        '    JOIN documents d ON d.id = dc.document_id',
     ].join('\n'));
-    ok('control: a bare, a quoted and a qualified read, a bare join and a hard delete are each reported', bad.reads.length === 4 && bad.deletes.length === 1,
+    ok('control: a bare, a quoted and a qualified read, two bare joins and a hard delete are each reported', bad.reads.length === 5 && bad.deletes.length === 1,
         JSON.stringify(bad));
     const good = unfilteredIn([
         "db.prepare('SELECT * FROM live_nodes WHERE id = ?')",
@@ -113,8 +120,10 @@ ok('no module but softDelete.js deletes a content row outright', hardDeletes.len
         "db.prepare('SELECT * FROM nodes_fts WHERE nodes_fts MATCH ?')",
         "db.prepare('INSERT INTO nodes (title) VALUES (?)')",
         'FOREIGN KEY (node_id) REFERENCES nodes(id)',
+        "db.prepare('SELECT d.title FROM documents_fts fts JOIN live_documents d ON d.id = fts.rowid')",
+        "db.prepare('DELETE FROM documents WHERE id = ?')",
     ].join('\n'));
-    ok('control: a view, a marked read, prose, another table, a write and a key are not', good.reads.length === 0 && good.deletes.length === 0,
+    ok('control: a view, a marked read, prose, another table, a write, a key and a file delete are not', good.reads.length === 0 && good.deletes.length === 0,
         JSON.stringify(good));
 }
 
@@ -144,8 +153,8 @@ ok('every content table has deleted_at and deleted_by',
     CONTENT_TABLES.every(t => cols(t).includes('deleted_at') && cols(t).includes('deleted_by')),
     CONTENT_TABLES.filter(t => !cols(t).includes('deleted_at') || !cols(t).includes('deleted_by')).join(', '));
 const views = db.prepare("SELECT name FROM sqlite_master WHERE type = 'view'").pluck().all();
-ok('every content table has its live_ view', CONTENT_TABLES.every(t => views.includes(`live_${t}`)),
-    CONTENT_TABLES.filter(t => !views.includes(`live_${t}`)).join(', '));
+ok('every content table, and documents, has its live_ view', READ_FILTERED.every(t => views.includes(`live_${t}`)),
+    READ_FILTERED.filter(t => !views.includes(`live_${t}`)).join(', '));
 ok('the schedule-event log exists', cols('schedule_events').length > 0);
 
 if (!SD || fail > 0 && !views.includes('live_nodes')) {
@@ -171,6 +180,12 @@ const quiz = (n, title) => ins('INSERT INTO quizzes (node_id, title, questions) 
     JSON.stringify([{ type: 'mcq', question: `${title} question`, options: ['a', 'b'], answer: 0 }]));
 const link = (n, title) => ins("INSERT INTO resources (node_id, title, url) VALUES (?, ?, 'https://example.org/')", n, title);
 const review = (c) => ins(`INSERT INTO review_log (card_id, rating, reviewed_at, source) VALUES (?, 3, '2026-01-02T00:00:00.000Z', 'app')`, c);
+// A file with one searchable chunk, attached to a course or to a topic.
+const file = (p, n, title) => {
+    const d = ins("INSERT INTO documents (project_id, node_id, title, content, status) VALUES (?, ?, ?, ?, 'ready')", p, n, title, `${title} text`);
+    ins('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, 0, ?)', d, `${title} text`);
+    return d;
+};
 
 // The course that stays, with one of everything deleted inside it.
 const keep = project('Keep course');
@@ -181,6 +196,8 @@ const kQuiz = quiz(kTopic, 'Keep bank');
 link(kTopic, 'Keep link');
 const gTopic = node(keep, kPhase, `${GHOST} topic`);
 const gTopicCard = card(gTopic, `${GHOST} topic card`);
+const gTopicFile = file(keep, gTopic, `${GHOST} topic file`);
+file(keep, kTopic, 'Keep file');
 const gCard = card(kTopic, `${GHOST} card`);
 review(gCard);
 const gQuiz = quiz(kTopic, `${GHOST} bank`);
@@ -195,6 +212,8 @@ quiz(gLeaf, `${GHOST} leaf bank`);
 link(gLeaf, `${GHOST} leaf link`);
 const gAlone = node(ghost, gPhase, `${GHOST} alone`);
 card(gAlone, `${GHOST} alone card`);
+const gCourseFile = file(ghost, null, `${GHOST} course file`);
+file(ghost, gLeaf, `${GHOST} leaf file`);
 
 const { createApp } = await import(B + 'app.js');
 const server = createServer(createApp());
@@ -252,6 +271,7 @@ const gets = [...new Set(routesOf(stackOf(createApp())).filter(r => r.method ===
 const SKIP = /\/(events|stream|watch)\b|\/tasks\/[^/]+\/stream|\/updates?\b|\/ollama|\/models\b|^\/api\/deleted\b/;
 const fill = (path, ids) => path.replace(/:(\w+)\??/g, (_, p) => {
     const k = p.toLowerCase();
+    if (k === 'id' && path.startsWith('/api/documents/')) return ids.doc;
     if (/project/.test(k)) return ids.project;
     if (/card|flashcard/.test(k)) return ids.card;
     if (/quiz/.test(k)) return ids.quiz;
@@ -259,10 +279,31 @@ const fill = (path, ids) => path.replace(/:(\w+)\??/g, (_, p) => {
     if (k === 'uuid') return ids.uuid;
     return ids.node;
 });
-const liveIds = { project: keep, node: kTopic, card: kCard, quiz: kQuiz, link: 1, uuid: raw('nodes', kTopic).uuid };
-const deadIds = { project: ghost, node: gTopic, card: gCard, quiz: gQuiz, link: gLink, uuid: raw('nodes', gTopic).uuid };
+const keepFile = db.prepare("SELECT id FROM documents WHERE title = 'Keep file'").pluck().get();
+const liveIds = { project: keep, node: kTopic, card: kCard, quiz: kQuiz, link: 1, doc: keepFile, uuid: raw('nodes', kTopic).uuid };
+const deadIds = { project: ghost, node: gTopic, card: gCard, quiz: gQuiz, link: gLink, doc: gCourseFile, uuid: raw('nodes', gTopic).uuid };
 const shows = [], timedOut = [];
 let asked = 0;
+// The searches, asked for the deleted rows' own words (a file of a deleted
+// course or topic is found by its text, not by an id).
+for (const url of [`/api/search?q=${GHOST}`, `/api/search/suggest?q=${GHOST}`, `/api/search?q=${GHOST}&projectId=${ghost}`,
+    `/api/documents/${gTopicFile}/text`]) {
+    const r = await call('GET', url, null, 5000);
+    asked++;
+    if (r.text.includes(GHOST)) shows.push(`${url} (${r.status})`);
+}
+ok('control: search finds a live file by its text', (await call('GET', '/api/search?q=Keep')).text.includes('Keep file'));
+// A Sources line naming a file: its answer echoes the entry, so the test is
+// whether a file is found for it.
+const cited = async (title) => (await call('GET', `/api/documents/cited?entry=${encodeURIComponent(title)}`)).json?.[0]?.id ?? null;
+ok('a Sources line naming a deleted course\'s or topic\'s file opens nothing',
+    await cited(`${GHOST} course file`) === null && await cited(`${GHOST} topic file`) === null);
+ok('control: …and one naming a live file opens it', await cited('Keep file') === keepFile);
+{
+    const all = await call('GET', '/api/documents');
+    ok('the file list shows the live file and none of a deleted course or topic',
+        all.text.includes('Keep file') && !all.text.includes(GHOST), all.text.slice(0, 300));
+}
 for (const path of gets) {
     if (SKIP.test(path)) continue;
     for (const ids of [liveIds, deadIds]) {
@@ -343,6 +384,44 @@ await call('PUT', `/api/ai/flashcards/${free}`, { undo_review: true, undo_of: st
 ok('a rating taken back is an event naming the review',
     events(free).includes('undo') && db.prepare("SELECT review_uuid FROM schedule_events WHERE card_id = ? AND kind = 'undo'").pluck().get(free) === reviewUuid);
 ok('every event has a uuid and a time', db.prepare('SELECT COUNT(*) FROM schedule_events WHERE uuid IS NULL OR created_at IS NULL').pluck().get() === 0);
+
+// ============================================================================
+console.log('\n--- nothing new goes under a deleted row ---');
+{
+    const refused = (fn) => { try { fn(); return false; } catch (e) { return /was deleted/.test(e.message); } };
+    const lateCourse = project('Late course');
+    const deadTopic = node(lateCourse, null, 'Late topic');
+    SD.softDelete('projects', lateCourse);
+    const dead = deadTopic;
+    ok('a card, a bank or a link written under a deleted topic is refused',
+        refused(() => card(dead, 'Late card')) && refused(() => quiz(dead, 'Late bank')) && refused(() => link(dead, 'Late link')));
+    ok('a topic written into a deleted course, or under a deleted topic, is refused',
+        refused(() => node(lateCourse, null, 'Late sibling'))
+        && refused(() => node(keep, dead, 'Late subtopic')));
+    ok('control: a card under a live topic is written', !refused(() => card(kTopic, 'On time card')));
+    const before = db.prepare('SELECT COUNT(*) FROM flashcards WHERE node_id = ? /* with deleted */').pluck().get(dead);
+    ins("INSERT INTO flashcards (node_id, front, back, deleted_at, deleted_by) VALUES (?, 'Arrives deleted', 'x', '2026-01-03T00:00:00.000Z', 'app')", dead);
+    ok('a row that arrives already deleted is allowed', db.prepare('SELECT COUNT(*) FROM flashcards WHERE node_id = ? /* with deleted */').pluck().get(dead) === before + 1);
+}
+
+// ============================================================================
+console.log('\n--- the operator\'s tool on a library from before soft delete ---');
+{
+    // hostedCli opens the file raw, without the migrations: a library no newer
+    // build has opened yet has no live_ views.
+    const dir = mkdtempSync(join(tmpdir(), 'soft-delete-cli-'));
+    const oldDb = join(dir, 'old.db');
+    const Database = createRequire(join(repoRoot, 'package.json'))('better-sqlite3');
+    const o = new Database(oldDb);
+    o.exec("CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT); INSERT INTO projects (name) VALUES ('a'), ('b');");
+    o.close();
+    const env = { ...process.env, DB_PATH: oldDb, VAULT_ROOT: join(dir, 'vault') };
+    const cli = (...args) => spawnSync(process.execPath, [join(repoRoot, 'server', 'hostedCli.js'), ...args], { cwd: repoRoot, env, encoding: 'utf8', timeout: 60_000 });
+    const backup = cli('backup', join(dir, 'b1'));
+    ok('a backup of it succeeds and counts its courses', backup.status === 0 && /backup ok: 2 project/.test(backup.stdout), `${backup.status} ${backup.stdout} ${backup.stderr}`);
+    const restored = cli('restore', join(dir, 'b1'));
+    ok('…and so does a restore of that backup', restored.status === 0, `${restored.status} ${restored.stdout} ${restored.stderr}`);
+}
 
 server.close();
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -124,7 +124,7 @@ function removeUnfinishedNotice(projectId) {
         WHERE project_id = ? AND is_note = 1 AND parent_id IS NULL AND title = ?
           AND COALESCE(notes, '') = COALESCE(description, '')
           AND NOT EXISTS (SELECT 1 FROM live_nodes c WHERE c.parent_id = nodes.id)
-          AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.node_id = nodes.id)
+          AND NOT EXISTS (SELECT 1 FROM documents /* with deleted */ d WHERE d.node_id = nodes.id)
     `).pluck().all(projectId, NOTICE_TITLE);
     for (const id of notices) softDelete('nodes', id, { by: BY_APP });
 }

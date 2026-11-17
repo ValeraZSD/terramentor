@@ -2090,14 +2090,14 @@ function keywordSearch(query, { nodeId = null, projectId = null } = {}, limit = 
         const ftsSql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM documents_fts fts
             JOIN document_chunks dc ON dc.id = fts.rowid
-            JOIN documents d ON d.id = dc.document_id
+            JOIN live_documents d ON d.id = dc.document_id
             WHERE documents_fts MATCH ?${scope}
             ORDER BY rank LIMIT ?`;
         return db.prepare(ftsSql).all(query, ...scopeParams, limit);
     } catch {
         const sql = `SELECT dc.id AS chunk_id, dc.content, d.title as doc_title, dc.chunk_index, dc.document_id
             FROM document_chunks dc
-            JOIN documents d ON d.id = dc.document_id
+            JOIN live_documents d ON d.id = dc.document_id
             WHERE dc.content LIKE ?${scope}
             LIMIT ?`;
         return db.prepare(sql).all(`%${query}%`, ...scopeParams, limit);

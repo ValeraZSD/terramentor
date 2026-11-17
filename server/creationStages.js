@@ -320,7 +320,7 @@ export function outlineGapsError(gaps) {
 export function projectSources(projectId, { beforeOutline = false } = {}) {
     const docs = db.prepare(`
         SELECT d.id, d.title, d.content, d.file_type, d.page_count, d.original_filename
-        FROM documents d
+        FROM live_documents d
         WHERE d.project_id = ? AND d.node_id IS NULL
           AND (? OR EXISTS (SELECT 1 FROM node_sources s WHERE s.document_id = d.id))
         ORDER BY d.id LIMIT 100

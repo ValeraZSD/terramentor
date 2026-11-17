@@ -105,7 +105,7 @@ export function restore(table, id, { app = false } = {}) {
         let restored = db.prepare(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`).run(id).changes;
         const mark = markOf(table, row);
         for (const t of CONTENT_TABLES) {
-            restored += db.prepare(`UPDATE ${t} SET deleted_at = NULL, deleted_by = NULL WHERE deleted_by = ?`).run(mark).changes;
+            restored += db.prepare(`UPDATE ${t} SET deleted_at = NULL, deleted_by = NULL WHERE deleted_by = ? AND deleted_at IS NOT NULL`).run(mark).changes;
         }
         return { restored, row };
     })();
@@ -148,6 +148,13 @@ export function purge(table, id) {
  */
 export function listDeleted() {
     const out = [];
+    // How many rows each mark took, over all five tables: one grouped read each.
+    const tookBy = new Map();
+    for (const t of CONTENT_TABLES) {
+        for (const { mark, n } of db.prepare(`SELECT deleted_by AS mark, COUNT(*) AS n FROM ${t} WHERE deleted_at IS NOT NULL AND deleted_by IS NOT NULL GROUP BY deleted_by`).all()) {
+            tookBy.set(mark, (tookBy.get(mark) ?? 0) + n);
+        }
+    }
     for (const table of CONTENT_TABLES) {
         const rows = db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_by IS NULL`).all();
         for (const row of rows) {
@@ -156,8 +163,7 @@ export function listDeleted() {
             const projectId = table === 'projects' ? row.id
                 : table === 'nodes' ? row.project_id
                     : db.prepare('SELECT project_id FROM nodes WHERE id = ?').pluck().get(row.node_id);
-            const mark = markOf(table, row);
-            const took = CONTENT_TABLES.reduce((n, t) => n + db.prepare(`SELECT COUNT(*) FROM ${t} WHERE deleted_by = ?`).pluck().get(mark), 0);
+            const took = tookBy.get(markOf(table, row)) ?? 0;
             out.push({
                 table, id: row.id, uuid: row.uuid,
                 // What the screen calls it: a deck is a project too, a note a node.

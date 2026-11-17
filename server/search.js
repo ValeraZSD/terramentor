@@ -450,7 +450,7 @@ function searchDocuments(tokens, projectId, limit) {
                        dc.content as snippet
                 FROM documents_fts fts
                 JOIN document_chunks dc ON dc.id = fts.rowid
-                JOIN documents d ON d.id = dc.document_id
+                JOIN live_documents d ON d.id = dc.document_id
                 WHERE documents_fts MATCH ?
                   AND d.project_id = ?
                 ORDER BY rank
@@ -462,7 +462,7 @@ function searchDocuments(tokens, projectId, limit) {
                        dc.content as snippet
                 FROM documents_fts fts
                 JOIN document_chunks dc ON dc.id = fts.rowid
-                JOIN documents d ON d.id = dc.document_id
+                JOIN live_documents d ON d.id = dc.document_id
                 WHERE documents_fts MATCH ?
                 ORDER BY rank
                 LIMIT ?
@@ -475,7 +475,7 @@ function searchDocuments(tokens, projectId, limit) {
             rows = db.prepare(`
                 SELECT d.id, d.title, d.node_id, d.project_id,
                        SUBSTR(d.content, 1, 200) as snippet
-                FROM documents d
+                FROM live_documents d
                 WHERE d.project_id = ?
                   AND (d.title LIKE ? OR d.content LIKE ?)
                 LIMIT ?
@@ -484,7 +484,7 @@ function searchDocuments(tokens, projectId, limit) {
             rows = db.prepare(`
                 SELECT d.id, d.title, d.node_id, d.project_id,
                        SUBSTR(d.content, 1, 200) as snippet
-                FROM documents d
+                FROM live_documents d
                 WHERE d.title LIKE ? OR d.content LIKE ?
                 LIMIT ?
             `).all(likeQuery, likeQuery, limit);
