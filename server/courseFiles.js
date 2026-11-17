@@ -176,10 +176,12 @@ const projectMediaNames = (projectId) => {
  * database.js's AFTER INSERT trigger mint a fresh one, because a second copy on
  * the SAME machine is a genuinely different project row.
  */
+const uuidTaken = new Map();
 const claimUuid = (table, uuid) => {
     if (!uuid) return null;
-    const taken = db.prepare(`SELECT 1 FROM ${table} WHERE uuid = ?`).get(uuid);
-    return taken ? null : uuid;
+    let taken = uuidTaken.get(table);
+    if (!taken) { taken = db.prepare(`SELECT 1 FROM ${table} WHERE uuid = ?`); uuidTaken.set(table, taken); }
+    return taken.get(uuid) ? null : uuid;
 };
 
 /**
