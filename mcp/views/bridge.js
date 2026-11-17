@@ -188,12 +188,21 @@ const TM = (() => {
     }
 
     const app = document.getElementById('app');
+    // The first screen that has a landing place (data-autofocus) is read when
+    // it appears, though nothing in the view held focus yet, as long as the
+    // frame itself has the keyboard.
+    let landed = false;
     function mount(...children) {
         const had = document.activeElement && app.contains(document.activeElement) ? document.activeElement : null;
         const keep = had ? had.dataset.focus : null;
         app.replaceChildren();
         append(app, children);
-        if (!had) return;
+        const first = !landed && !!app.querySelector('[data-autofocus]');
+        if (first) landed = true;
+        // Focus moves only while this view's document has it: a screen that
+        // lands while the learner types in the host's own composer, first
+        // screen included, never pulls the keyboard out of it.
+        if (!document.hasFocus() || (!first && !had)) return;
         // The same control again after a re-render keeps the keyboard where it was.
         let again = keep ? app.querySelector(`[data-focus="${CSS.escape(keep)}"]`) : null;
         // A button the new screen disables (Previous on the first question, Up

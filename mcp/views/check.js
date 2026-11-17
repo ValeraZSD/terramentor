@@ -190,19 +190,20 @@
         counter = h('span', { class: 'muted' }, t('{{answeredCount}}/{{length}} answered', { answeredCount: answeredCount(), length: total }));
         const bar = h('div', { class: 'bar', role: 'progressbar', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }), 'aria-valuemin': 0, 'aria-valuemax': total, 'aria-valuenow': state.index + 1 }, h('div', { class: 'bar-fill' }));
         bar.firstChild.style.setProperty('width', `${((state.index + 1) / total) * 100}%`);
-        const go = (d) => { state.index += d; render(); };
+        // A new question is read from its own block: focus on Next again would say only "Next".
+        const go = (d) => { state.index += d; render(); document.querySelector('.question')?.focus(); };
         return [
             header(),
             h('div', { class: 'meta-row' }, h('span', {}, t('Question {{n}} of {{total}}', { n: state.index + 1, total })), counter),
             bar,
-            h('section', { class: 'question', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }) },
+            h('section', { class: 'question', tabindex: -1, 'data-autofocus': '', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }) },
                 h('p', { class: 'stem' }, q.question),
                 input(q, state.answers[state.index])),
             h('footer', { class: 'actions' },
                 h('button', { type: 'button', class: 'button', disabled: state.index === 0, 'data-focus': 'previous', onClick: () => go(-1) }, t('Previous')),
                 last
-                    // The same key as Next: it is where Next was, so focus stays on it.
-                    ? h('button', { type: 'button', class: 'button primary', 'data-focus': 'next', disabled: state.busy, onClick: submit }, t('Submit mastery check'))
+                    // Its own key: focus never follows Next onto it, so a held Enter cannot submit.
+                    ? h('button', { type: 'button', class: 'button primary', 'data-focus': 'submit', disabled: state.busy, onClick: submit }, t('Submit mastery check'))
                     : h('button', { type: 'button', class: 'button', 'data-focus': 'next', onClick: () => go(1) }, t('Next'))),
         ];
     }
@@ -318,20 +319,23 @@
     }
 
     function render() {
-        const error = state.error ? h('p', { class: 'notice notice-error', role: 'alert' }, state.error) : null;
+        const error = state.error ? h('p', { class: 'notice notice-error', role: 'alert', tabindex: -1 }, state.error) : null;
         state.error = '';
         switch (state.phase) {
             case 'waiting':
             case 'loading':
                 return mount(h('p', { class: 'muted loading' }, t('Loading…')));
             case 'message':
-                return mount(header(), h('p', { class: 'notice' }, state.message || ''));
+                return mount(header(), h('p', { class: 'notice', tabindex: -1, 'data-autofocus': '' }, state.message || ''));
             case 'grading':
                 return mount(header(), h('p', { class: 'muted loading', tabindex: -1, 'data-autofocus': '' }, t('Checking every answer…')));
             case 'result':
-                return mount(...resultScreen(), error);
+                mount(...resultScreen(), error);
+                break;
             default:
-                return mount(...answering(), error);
+                mount(...answering(), error);
         }
+        // After a failed Submit or Complete the learner is at the notice, not at the first control.
+        if (error) error.focus();
     }
 })();

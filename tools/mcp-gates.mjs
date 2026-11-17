@@ -906,7 +906,7 @@ function post(port, body, headers = {}) {
  * update. `sent` holds every message the view sent; `until` waits on a test;
  * `press` clicks the control named by its data-focus.
  */
-async function driveView(html, toolResult, callTool) {
+async function driveView(html, toolResult, callTool, { frameFocused } = {}) {
     const sent = [];
     let win = null;
     const answer = (data) => win.dispatchEvent(new win.MessageEvent('message', { data, source: win }));
@@ -926,6 +926,10 @@ async function driveView(html, toolResult, callTool) {
                 }
             };
             w.ResizeObserver = class { observe() {} disconnect() {} };
+            // Whether the view's frame holds the keyboard (the learner clicked or
+            // tabbed into it) or the host's own page does; jsdom alone says no
+            // until something inside is focused.
+            if (frameFocused !== undefined) w.document.hasFocus = () => frameFocused;
         },
     });
     const until = async (test, tries = 500) => { for (let i = 0; i < tries && !test(); i++) await new Promise(r => setTimeout(r, 10)); return !!test(); };
@@ -1166,7 +1170,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
             }
             if (i < shownCount - 1) await press('next');
         }
-        await press('next'); // on the last question the primary button is Submit, under Next's key
+        await press('submit');
         await until(() => calls('check_submit').length > 0 && contexts().length > 0);
         const submitted = calls('check_submit')[0]?.params?.arguments || {};
         ok('the view\'s Submit sends check_submit with its sitting and each answer as its input encodes it (an untouched ordering as served, the rest null)',
@@ -1488,10 +1492,11 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         return answerWith({});
     };
     const stubOpen = { result: { _meta: { 'terramentor/sitting': 'stub-review-sitting' } } };
-    const reviewKeys = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview);
+    const reviewKeys = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview, { frameFocused: true });
     try {
         const { window: win, doc, until, calls } = reviewKeys;
         await until(() => doc.querySelector('.card-front'));
+        ok('the first card is where focus lands when it appears, while the frame has the keyboard', doc.activeElement?.classList.contains('card'), doc.activeElement?.outerHTML.slice(0, 80));
         ok('the view is not one live region: its screen is rebuilt on every rating and would be read out whole each time',
             !doc.getElementById('app').hasAttribute('aria-live'), doc.getElementById('app').outerHTML.slice(0, 80));
         ok('the review\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
@@ -1522,10 +1527,12 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         }
         return answerWith({});
     };
-    const checkKeys = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-check-sitting' } } }, stubCheck);
+    const checkKeys = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-check-sitting' } } }, stubCheck, { frameFocused: true });
     try {
-        const { doc, until } = checkKeys;
+        const { doc, until, calls } = checkKeys;
         await until(() => doc.querySelector('.sequence'));
+        ok('the first question is where focus lands when it appears, while the frame has the keyboard',
+            doc.activeElement?.classList.contains('question'), doc.activeElement?.outerHTML.slice(0, 120));
         ok('the check\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
         const step = (i, label) => doc.querySelectorAll('.step')[i].querySelector(`[aria-label="${label}"]`);
         step(1, 'Move up').focus();
@@ -1534,24 +1541,34 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         step(2, 'Move up').focus();
         step(2, 'Move up').click();
         step(1, 'Move up').click();
-        ok('a step moved to the end of the order passes focus to its other button, not the page',
+        ok('a step moved to the top of the order passes focus to its other button, not the page',
             doc.activeElement === step(0, 'Move down'), doc.activeElement?.outerHTML.slice(0, 120));
+        step(0, 'Move down').click();
+        step(1, 'Move down').click();
+        ok('a step moved to the bottom of the order passes focus to its other button, not the page',
+            doc.activeElement === step(2, 'Move up'), doc.activeElement?.outerHTML.slice(0, 120));
+        // A new question is read from its own block: focus left on Next would
+        // say only "Next, button", and on the last question Next's place is Submit's.
         doc.querySelector('[data-focus="next"]').focus();
         doc.querySelector('[data-focus="next"]').click();
-        ok('Next on the second to last question leaves focus on the button that replaces it, Submit',
-            doc.activeElement?.tagName === 'BUTTON' && /Submit/.test(doc.activeElement.textContent), doc.activeElement?.outerHTML.slice(0, 120));
+        ok('Next puts focus on the new question\'s block, which names it',
+            doc.activeElement?.classList.contains('question') && /Pick one/.test(doc.activeElement.textContent) && /2/.test(doc.activeElement.getAttribute('aria-label') || ''),
+            doc.activeElement?.outerHTML.slice(0, 120));
+        ok('Submit has its own key and focus is not on it after Next, so a held Enter cannot submit',
+            !!doc.querySelector('[data-focus="submit"]') && !doc.querySelector('[data-focus="next"]') && doc.activeElement?.dataset.focus !== 'submit' && calls('check_submit').length === 0,
+            doc.activeElement?.outerHTML.slice(0, 120));
         doc.querySelector('[data-focus="previous"]').focus();
         doc.querySelector('[data-focus="previous"]').click();
-        ok('Previous back to the first question, where it is disabled, passes focus to Next, not the page',
-            doc.activeElement?.dataset.focus === 'next', doc.activeElement?.outerHTML.slice(0, 120));
-        doc.querySelector('[data-focus="next"], [data-focus="submit"]').click();
-        doc.querySelector('[data-focus="next"], [data-focus="submit"]').click();
+        ok('Previous back to the first question puts focus on that question\'s block',
+            doc.activeElement?.classList.contains('question') && /Order the steps/.test(doc.activeElement.textContent), doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="next"]').click();
+        doc.querySelector('[data-focus="submit"]')?.click();
         await until(() => doc.querySelector('.outcome'));
         ok('after Submit, focus goes to the result instead of the page', doc.activeElement?.classList.contains('outcome'), doc.activeElement?.outerHTML.slice(0, 120));
         // A block the script focuses is a reading position, not a control: the
-        // stylesheet must not draw a focus ring round the result or a card.
+        // stylesheet draws no focus ring after a click, and the browser's own after a key.
         const viewCss = readFileSync(join(repoRoot, 'mcp', 'views', 'view.css'), 'utf8');
-        ok('a block focused by the script gets no focus ring', /\[tabindex="-1"\]:focus\s*\{\s*outline:\s*none;?\s*\}/.test(viewCss));
+        ok('a block focused by the script gets a focus ring only after a key', /\[tabindex="-1"\]:focus:not\(:focus-visible\)\s*\{\s*outline:\s*none;?\s*\}/.test(viewCss));
     } finally {
         checkKeys.close();
     }
@@ -1571,6 +1588,48 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         ok('the answers list numbers its questions out of the list\'s length, not the judged total', heads.length === 5 && heads[4] === 'Question 5 of 5', JSON.stringify(heads));
     } finally {
         listed.close();
+    }
+
+    // A failed Submit leaves the learner at the notice that says so.
+    const failing = (name) => name === 'check_questions'
+        ? answerWith({ topic: { title: 'Gate topic' }, questions: [stubMc], passPct: 80 })
+        : { result: { isError: true, content: [{ type: 'text', text: 'The check could not be saved.' }] } };
+    const failedSubmit = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-failing' } } }, failing);
+    try {
+        await failedSubmit.until(() => failedSubmit.doc.querySelector('[data-focus="submit"]'));
+        failedSubmit.doc.querySelector('[data-focus="submit"]')?.focus();
+        failedSubmit.doc.querySelector('[data-focus="submit"]')?.click();
+        await failedSubmit.until(() => failedSubmit.doc.querySelector('[role="alert"]'));
+        ok('after a failed Submit, focus is on the notice that says why', failedSubmit.doc.activeElement?.getAttribute('role') === 'alert'
+            && /could not be saved/.test(failedSubmit.doc.activeElement.textContent), failedSubmit.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        failedSubmit.close();
+    }
+
+    // The screens with nothing to take: the first thing on the page, so they are read when they appear.
+    const nothingDue = await driveView(viewHtmlOf.review_cards,
+        { result: { _meta: { 'terramentor/nothing': 'no_cards' }, content: [{ type: 'text', text: 'Nothing is due today.' }] } }, () => answerWith({}), { frameFocused: true });
+    try {
+        await nothingDue.until(() => nothingDue.doc.querySelector('.title'));
+        ok('the "No Cards Due" screen takes focus when it appears', nothingDue.doc.activeElement?.textContent === 'No Cards Due', nothingDue.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        nothingDue.close();
+    }
+    // The learner is typing in the host's composer when the first card arrives.
+    const composing = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview, { frameFocused: false });
+    try {
+        await composing.until(() => composing.doc.querySelector('.card-front'));
+        ok('a first card that arrives while the host\'s page has the keyboard leaves it there', composing.doc.activeElement === composing.doc.body, composing.doc.activeElement?.outerHTML.slice(0, 80));
+    } finally {
+        composing.close();
+    }
+    const refused = await driveView(viewHtmlOf.mastery_check,
+        { result: { content: [{ type: 'text', text: 'Too few questions are confirmed to check this topic.' }] } }, () => answerWith({}), { frameFocused: true });
+    try {
+        await refused.until(() => refused.doc.querySelector('.notice'));
+        ok('a check\'s refusal takes focus when it appears', refused.doc.activeElement?.classList.contains('notice') && /Too few questions/.test(refused.doc.activeElement.textContent), refused.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        refused.close();
     }
     host.close();
 }

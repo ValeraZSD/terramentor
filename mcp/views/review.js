@@ -169,10 +169,10 @@
                 if (state.notice) { const n = state.notice; state.notice = ''; return showError(n); }
                 return mount(h('p', { class: 'muted loading' }, t('Loading…')));
             case 'empty':
-                return mount(h('header', { class: 'head' }, h('p', { class: 'eyebrow' }, t('Flashcard Review')), h('h1', { class: 'title' }, t('No Cards Due'))),
+                return mount(h('header', { class: 'head' }, h('p', { class: 'eyebrow' }, t('Flashcard Review')), h('h1', { class: 'title', tabindex: -1, 'data-autofocus': '' }, t('No Cards Due'))),
                     h('p', { class: 'muted' }, state.message || ''));
             case 'message':
-                return mount(h('header', { class: 'head' }, h('p', { class: 'eyebrow' }, t('Flashcard Review'))), h('p', { class: 'notice' }, state.message || ''));
+                return mount(h('header', { class: 'head' }, h('p', { class: 'eyebrow' }, t('Flashcard Review'))), h('p', { class: 'notice', tabindex: -1, 'data-autofocus': '' }, state.message || ''));
             case 'done':
                 return mount(...doneScreen(state.view));
             default:
