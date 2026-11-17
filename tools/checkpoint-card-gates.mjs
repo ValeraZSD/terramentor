@@ -223,6 +223,13 @@ if (CheckpointCard) {
     ok('on time: the day count alone', onTime === '9 days to the project deadline', String(onTime));
     const noLine = await lineOf({ ...composed, key: 'checkpoint-67', nodeId: 67, deadline: { daysLeft: -3, paceStatus: null } });
     ok('on time and the deadline passed: no line at all', noLine === null, String(noLine));
+    const today = await lineOf({ ...composed, key: 'checkpoint-68', nodeId: 68, deadline: { daysLeft: 0, paceStatus: null } });
+    ok('the deadline is today: the count stays, at zero', today === '0 days to the project deadline', String(today));
+    const readyCard = { ...composed, key: 'checkpoint-69', nodeId: 69, isOverdue: true, eligible: true, scheduledEnd: '2020-01-01' };
+    const readyOpen = await lineOf({ ...readyCard, deadline: { daysLeft: 5, paceStatus: null } });
+    ok('ready to prove: a space between the lead-in and the day count', readyOpen === 'Ready to prove · 5 days to the project deadline', String(readyOpen));
+    const readyPassed = await lineOf({ ...readyCard, deadline: { daysLeft: -2, paceStatus: null } });
+    ok('ready to prove and the deadline passed: the lead-in stands without a dangling "·"', readyPassed === 'Ready to prove', String(readyPassed));
     await act(() => r.unmount());
     host.remove();
     globalThis.__api = undefined;
