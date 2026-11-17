@@ -312,10 +312,11 @@ if (ReportItem && ReportScope && useItemReports) {
     // was filed) but the host is not told and focus stays where the learner
     // went, instead of jumping onto Undo.
     const ref = 'q:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    let land;
+    let land, rewrites = 0;
     globalThis.__api = {
-        itemReportTarget: () => Promise.resolve({ item: null, kind: 'question', canRewrite: false, report: null }),
-        reportItem: () => new Promise(res => { land = () => res({ report: reportOf(ref) }); }),
+        itemReportTarget: () => Promise.resolve({ item: null, kind: 'question', canRewrite: true, report: null }),
+        reportItem: () => new Promise(res => { land = () => res({ report: { ...reportOf(ref), canRewrite: true } }); }),
+        rewriteItemReport: () => { rewrites++; return Promise.resolve({ report: { ...reportOf(ref), canRewrite: true, rewrite: {} } }); },
     };
     const told = [];
     const m = await mount(h(ReportScope, null,
@@ -329,8 +330,11 @@ if (ReportItem && ReportScope && useItemReports) {
     await settle();
     const elsewhere = m.host.querySelector('input');
     elsewhere.focus();
+    ok('the report was in flight when Cancel was pressed', typeof land === 'function');
     await act(() => land?.());
     await settle();
+    ok('…and it was stored (it was filed)', useItemReports.getState().byRef[ref]?.id === 7);
+    ok('…but no rewrite was started for the dismissed dialog', rewrites === 0, `${rewrites} started`);
     ok('the dialog was cancelled before the answer: no dialog, the host is not told', dialogs() === 0 && told.length === 0, `dialogs ${dialogs()}, told ${JSON.stringify(told)}`);
     ok('…focus stays where the learner went, not on Undo', doc.activeElement === elsewhere, doc.activeElement?.outerHTML?.slice(0, 80));
     await setReport(ref, null);

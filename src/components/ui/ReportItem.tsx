@@ -260,7 +260,8 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
             let filed = report;
             // Only where the server offered it: with AI off a new question
             // or card cannot be written, and the box was not shown.
-            if (rewrite && target?.canRewrite && report.canRewrite && !report.rewrite) {
+            // A cancelled dialog starts no rewrite (an AI job nobody is waiting on).
+            if (alive.current && rewrite && target?.canRewrite && report.canRewrite && !report.rewrite) {
                 try { filed = (await api.rewriteItemReport(report.id)).report; }
                 catch { addToast('error', t("Reported, but a new one couldn't be started.")); }
             }

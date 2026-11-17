@@ -84,11 +84,12 @@ check('the project card’s ⋮ menu is a MenuPopover anchored to its ⋮',
     // `roving={false}` strips the `menuitem` role the popover's arrow keys look
     // for, so a doc that sends a MenuPopover menu's rows there would break it.
     const popoverSrc = read('src/components/ui/Popover.tsx');
-    const menuItemDoc = /\/\*\*[^]*?\*\/\s*export function MenuItem\b/.exec(popoverSrc)?.[0] ?? '';
+    // The comment directly above `MenuItem` (a lazy `[^]*?` would start at the file's first `/**`).
+    const menuItemDoc = /\/\*\*(?:(?!\*\/)[^])*\*\/\s*export function MenuItem\b/.exec(popoverSrc)?.[0] ?? '';
     check('no caller passes `roving={false}` to a menu row',
-        !/<MenuItem\b[^>]*\broving=\{false\}/.test([card, dropdown, esb, popoverSrc].join('\n')));
+        !/<MenuItem\b(?:[^>]|=>)*\broving=\{false\}/.test(execFileSync('git', ['ls-files', 'src'], { cwd: root, encoding: 'utf8' }).split('\n').filter(f => f.endsWith('.tsx')).map(read).join('\n')));
     check('MenuItem’s doc does not send a MenuPopover menu (DropdownMenu, the project card) to `roving={false}`',
-        menuItemDoc.includes('roving') && !/hand-placed[^]*?`DropdownMenu`/.test(menuItemDoc) && !/`DropdownMenu`'s\)[^]*?roving=\{false\}/.test(menuItemDoc),
+        /inside a `MenuPopover`[^]*Leave `roving` on/.test(menuItemDoc) && !/hand-placed/.test(menuItemDoc),
         menuItemDoc ? 'the comment still calls them hand-placed menus without arrow keys' : 'MenuItem doc comment not found');
 }
 
@@ -505,7 +506,7 @@ section('a stepper’s number field can be cleared and typed in; it clamps on le
 
     type(''); type('4');
     check('a digit below the minimum stays as typed while the field is being edited', field.value === '4', field.value);
-    type('45');
+    type(field.value + '5');
     check('…so the next digit makes 45, not 55', field.value === '45' && s.calls.at(-1) === 45, `${field.value} / ${JSON.stringify(s.calls)}`);
     leave();
     check('leaving the field keeps the 45', field.value === '45' && s.calls.at(-1) === 45, `${field.value} / ${JSON.stringify(s.calls)}`);
