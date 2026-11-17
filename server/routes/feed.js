@@ -11,6 +11,8 @@ import { scheduleTransferSweep } from '../masteryTransfer.js';
 import { getGateConfig } from '../settingsStore.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { getAISettings } from '../ai.js';
+import { EXPLANATION_MAX, markExplanation, recordPreQuestions } from '../lessonPrompts.js';
 
 const app = routeTable('feed');
 
@@ -109,6 +111,42 @@ app.post('/api/feed/consume', (req, res) => {
         // Fresh counters so the client header ticks without a full refetch.
         res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });
         feedGen.ensureBuffer();
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// A topic's pre-question round, answered or skipped: recorded once, in its
+// own table. No evidence, no log, no feed row consumed (server/lessonPrompts.js).
+app.post('/api/feed/nodes/:nodeId/pre-questions', (req, res) => {
+    try {
+        const nodeId = Number(req.params.nodeId);
+        if (!Number.isInteger(nodeId) || nodeId <= 0) return res.status(400).json({ error: 'nodeId required' });
+        const out = recordPreQuestions(nodeId, { outcome: req.body?.outcome, items: req.body?.items });
+        if (out.error) return res.status(400).json({ error: out.error });
+        if (out.missing) return res.status(404).json({ error: 'Node not found' });
+        res.json({ ok: true, ...(out.duplicate ? { duplicate: true } : {}) });
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// The learner's own account of a lesson part, marked against the part's
+// stored text. Not evidence. With no model set up there is nothing to mark
+// with, and the card never offers it.
+app.post('/api/feed/lessons/:id/explain', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id required' });
+        const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+        if (!text || text.length > EXPLANATION_MAX) {
+            return res.status(400).json({ error: `text must be 1 to ${EXPLANATION_MAX} characters` });
+        }
+        const ai = getAISettings();
+        if (!ai.enabled || !ai.model) return res.status(409).json({ error: 'No model is set up to mark this.' });
+        const out = await markExplanation(id, text);
+        if (out.missing) return res.status(404).json({ error: 'Lesson not found' });
+        res.json(out);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }
