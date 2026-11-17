@@ -337,7 +337,7 @@ for (let i = 0; i < 9; i++) mkNode(course, `open ${i}`, section);
     check('only completed topic leaves with a time count: 2', recUtc.topicDays.length === 2, show(recUtc.topicDays));
     check('23:30 UTC is that day in UTC…', recUtc.topicDays.includes(ago(8)), show(recUtc.topicDays));
     check('…and the next day in Amsterdam (the learner\'s day)', recAms.topicDays.includes(ago(7)) && !recAms.topicDays.includes(ago(8)), show(recAms.topicDays));
-    check('the record starts at the oldest course', recAms.since === ago(200), show(recAms.since));
+    check('the topic record starts at the oldest course', recAms.topicsSince === ago(200), show(recAms.topicsSince));
 
     const libUtc = libraryPace({ now: NOW_MS, timeZone: 'UTC' });
     const libAms = libraryPace({ now: NOW_MS, timeZone: AMS });
@@ -350,9 +350,12 @@ console.log('\n--- readers: cards met, without machine bursts ---');
 const deck = mkProject('Deck', { kind: 'deck', deadline: ahead(28), start: ago(10) });
 const deckRoot = mkNode(deck, 'stages', null);
 const stage = mkNode(deck, 'Stage 1', deckRoot, { role: 'pagination' });
-const card = (met) => Number(db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, 'q', 'a', ?, ?)`)
-    .run(stage, met ? 1 : 0, met ? iso(NOW_MS - DAY_MS) : null).lastInsertRowid);
-const review = (cardId, ms) => db.prepare(`INSERT INTO review_log (card_id, reviewed_at, rating) VALUES (?, ?, 3)`).run(cardId, iso(ms));
+// The deck's cards were made five days ago; the topic course is 200 days old.
+const card = (met) => Number(db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, created_at) VALUES (?, 'q', 'a', ?, ?, ?)`)
+    .run(stage, met ? 1 : 0, met ? iso(NOW_MS - DAY_MS) : null, iso(NOW_MS - 5 * DAY_MS).replace('T', ' ').slice(0, 19)).lastInsertRowid);
+const review = (cardId, ms, { source = 'app', stateBefore = null } = {}) => db.prepare(
+    `INSERT INTO review_log (card_id, reviewed_at, rating, source, state_before, external_id) VALUES (?, ?, 3, ?, ?, ?)`
+).run(cardId, iso(ms), source, stateBefore, source === 'app' ? null : `x${cardId}`);
 {
     const t0 = dayNum(ago(3)) * DAY_MS + 12 * 3600_000;
     const human1 = card(true), human2 = card(true);
@@ -368,8 +371,26 @@ const review = (cardId, ms) => db.prepare(`INSERT INTO review_log (card_id, revi
     review(paced[1], t0 + 1_802_000);
     // A card whose review count is NULL has not been met.
     db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, 'q', 'a', NULL, ?)`).run(stage, iso(NOW_MS - DAY_MS));
+    // A card imported with a review count and no history: its first in-app
+    // review found it already in review, so it was not met that day.
+    const imported = card(true);
+    review(imported, t0 - DAY_MS, { stateBefore: 2 });
     const rec = learnerRecord({ timeZone: 'UTC' });
     check('cards met: first reviews only, bursts under 2 s left out', rec.cardDays.length === 4, show(rec.cardDays));
+    check('…and an imported card\'s first in-app review (state_before past New) is not a card met',
+        !rec.cardDays.includes(ago(4)), show(rec.cardDays));
+    check('the card record starts at the oldest card, not the oldest course', rec.cardsSince === ago(5), show(rec.cardsSince));
+    check('…so a five-day-old deck has no full week of card data yet',
+        libraryPace({ now: NOW_MS, timeZone: 'UTC' }).cards.weeksOfData === 0, show(libraryPace({ now: NOW_MS, timeZone: 'UTC' }).cards.weeksOfData));
+
+    // History brought in from Anki is the learner's record in cards (met in
+    // Anki 300 days ago, state Learning) but says nothing about topics.
+    const fromAnki = card(true);
+    review(fromAnki, NOW_MS - 300 * DAY_MS, { source: 'anki', stateBefore: 1 });
+    const withAnki = learnerRecord({ timeZone: 'UTC' });
+    check('an Anki first review counts as a card met on its own day', withAnki.cardDays.includes(ago(300)), show(withAnki.cardDays));
+    check('…moves the card record back to it', withAnki.cardsSince === ago(300), show(withAnki.cardsSince));
+    check('…and leaves the topic record where it was', withAnki.topicsSince === ago(200), show(withAnki.topicsSince));
 
     const v = projectVerdict(deck, { now: NOW_MS, timeZone: 'UTC' });
     check('a deck is judged in cards', v.unit === 'cards', show(v.unit));
