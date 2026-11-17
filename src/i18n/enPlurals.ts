@@ -110,6 +110,8 @@ const enPlurals: Record<string, string> = {
     "{{count}} phases created_other": "{{count}} phases created",
     "{{count}} projects imported_one": "{{count}} project imported",
     "{{count}} projects imported_other": "{{count}} projects imported",
+    "{{count}} question you reported was left out of the score_one": "{{count}} question you reported was left out of the score",
+    "{{count}} question you reported was left out of the score_other": "{{count}} questions you reported were left out of the score",
     "{{count}} questions answered._one": "{{count}} question answered.",
     "{{count}} questions answered._other": "{{count}} questions answered.",
     "{{count}} questions were reworded, so you will be asked them again as if for the first time._one": "{{count}} question was reworded, so you will be asked it again as if for the first time.",
