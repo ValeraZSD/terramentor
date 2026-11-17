@@ -901,8 +901,9 @@ export interface FeedLessonCard extends FeedCardCommon {
      *  read on an earlier visit, so the card can offer them again. Absent when
      *  the topic starts at part 1 or nothing earlier is kept. */
     readBefore?: FeedReadPart[];
-    /** On a topic's first part, met for the first time: two or three of its own
-     *  questions asked before the part is shown. Never evidence
+    /** On a topic's first part, met for the first time, and only when the app
+     *  holds an unspent head start on it: ONE of its own tap questions, asked
+     *  before the part is shown. Never evidence
      *  (`server/lessonPrompts.js`). A feed row by its id, a bank question by its uuid. */
     preQuestions?: { feedItemId: number | null; question: QuizQuestion }[];
     /** A model is set up to mark the learner's own account of this part. */

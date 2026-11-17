@@ -130,17 +130,18 @@ export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onRe
     const { t } = useTranslation();
     const [text, setText] = useState('');
     const [busy, setBusy] = useState(false);
-    const [failed, setFailed] = useState(false);
+    // 'model': no model is set up any more, so trying again cannot help.
+    const [failed, setFailed] = useState<null | 'retry' | 'model'>(null);
     const [verdict, setVerdict] = useState<Verdict | null>(null);
 
     const submit = async () => {
         if (!text.trim() || busy) return;
         setBusy(true);
-        setFailed(false);
+        setFailed(null);
         try {
             setVerdict(await api.explainBack(feedItemId, text.trim()));
-        } catch {
-            setFailed(true);
+        } catch (err) {
+            setFailed((err as { status?: number })?.status === 409 ? 'model' : 'retry');
         } finally {
             setBusy(false);
         }
@@ -167,7 +168,9 @@ export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onRe
             <div className="mt-2 flex flex-wrap items-center justify-end gap-3">
                 {failed && (
                     <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
-                        {t("It could not be marked just now. Your text is kept; try again.")}
+                        {failed === 'model'
+                            ? t("No model is set up to mark this. Your text is kept.")
+                            : t("It could not be marked just now. Your text is kept; try again.")}
                     </p>
                 )}
                 <Button size="md" busy={busy} disabled={!text.trim()} onClick={() => void submit()}>
@@ -180,7 +183,11 @@ export function ExplainBack({ feedItemId, onReread }: { feedItemId: number; onRe
                         <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
                         {look.label}
                     </p>
-                    {verdict.reason && <p className="mt-1 text-sm leading-6">{verdict.reason}</p>}
+                    {verdict.reason
+                        ? <p className="mt-1 text-sm leading-6">{verdict.reason}</p>
+                        : verdict.verdict === 'unsure' && (
+                            <p className="mt-1 text-sm leading-6">{t("The marker gave no clear verdict on this one. Compare it with the part yourself.")}</p>
+                        )}
                     {verdict.verdict === 'weak' && (
                         <>
                             <div className="mt-2">

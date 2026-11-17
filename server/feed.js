@@ -801,9 +801,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         const readBefore = opensTopic && partIndex > 1
                             ? readLessonParts(f.nodeId, partIndex, { withText: false })
                             : [];
-                        // A topic met for the first time opens on a few of its
-                        // own questions, asked before the part is shown and
-                        // never counted (server/lessonPrompts.js).
+                        // A topic met for the first time, with an unspent head
+                        // start, opens on ONE of its own tap questions, asked
+                        // before the part is shown and never counted
+                        // (server/lessonPrompts.js).
                         const preQuestions = opensTopic && partIndex === 1 && consumedLessons === 0
                             ? preQuestionsFor(f.nodeId, ready, { exclude: heldSaved })
                             : null;
