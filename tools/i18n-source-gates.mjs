@@ -394,7 +394,11 @@ check('every label built into an object is a translation key, not a literal', bu
 // between expressions, so each suffix has to carry its own leading space.
 const SUFFIX_AFTER_BADGE = /tr\("· math recovered"\)\}([^<]*)<\/span>/;
 const glueSuffixes = (src) => {
-    const run = SUFFIX_AFTER_BADGE.exec(src)?.[1] ?? '';
+    // No badge found is a failure, not a clean pass: the rule has stopped
+    // matching the source it guards.
+    const badge = SUFFIX_AFTER_BADGE.exec(src);
+    if (!badge) return ['the "· math recovered" badge was not found'];
+    const run = badge[1];
     // A suffix is spaced when it sits in a template that opens with a space, or
     // after a `{' '}`.
     return [...run.matchAll(/(.{0,6})tr\("(\([^"]*\))"\)/g)]
@@ -433,6 +437,11 @@ const PRE_FIX = [
     ['a task labelKey en.json does not hold',
         'server/bulkGen.js', `labelKey: project?.name ? 'Study material · {{project}}' : 'Not a key anywhere',`,
         (s) => scanServerLabelKeys(s).filter((key) => !inEn(key)).join() === 'Not a key anywhere'],
+    ['a badge suffix glued to its word',
+        'VaultPanel.tsx', `{tr("· math recovered")}{method === 'ocr' ? tr("(OCR)") : ''}{cancelled ? tr("(partial)") : ''}</span>`,
+        (s) => glueSuffixes(s).join() === '(OCR),(partial)'
+            && glueSuffixes(`{tr("· math recovered")}{method === 'ocr' ? \` \${tr("(OCR)")}\` : ''}</span>`).length === 0
+            && glueSuffixes('<span>nothing here</span>').length === 1],
     ['a drill title and prompt built in English',
         'parseDrill.ts', "title: `Practice: ${nodeTitle}`,\n        promptLabel: 'What is this?',",
         (s) => scanDisplayFields(s).map((h) => h.field).join() === 'title,promptLabel'],

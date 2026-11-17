@@ -278,13 +278,38 @@ export function drillTimeSummary(base: number | null, mode: DrillMode, scale: Dr
     return { seconds: tenth(base * k), perLetter: mode === 'type' ? tenth(TYPING_SECONDS_PER_LETTER * k) : null };
 }
 
+/** A plain decimal as typed anywhere: one point or comma between digits at most. */
+const PLAIN_DECIMAL = /^[-+]?\d+(?:[.,]\d+)?$/;
+/** Thousands grouped with points or commas: 1,000 or 299,792,458 or 3.024.000. */
+const GROUPED = /^[-+]?\d{1,3}(?:([.,])\d{3})(?:\1\d{3})*$/;
+
+/** Every value a typed number can mean. "1,000" is a thousand or one, read
+ *  either way; "3,5" is three and a half; "299,792,458" is only grouped. */
+function numberReadings(s: string): number[] {
+    const out: number[] = [];
+    if (GROUPED.test(s)) out.push(Number(s.replace(/[.,]/g, '')));
+    if (PLAIN_DECIMAL.test(s)) out.push(Number(s.replace(',', '.')));
+    return out;
+}
+
 /** Loose equality for grading typed/selected answers: case + surrounding punctuation insensitive. */
 export function answersMatch(a: string, b: string): boolean {
-    // A point or comma BETWEEN two digits is part of the number: dropping it
-    // made 3.5 and 35 (or 9.81 and 981) the same answer, so a wrong option that
-    // was only a distractor graded as correct.
-    const norm = (s: string) => s.toLowerCase().trim().replace(/(?<!\d)[.,]|[.,](?!\d)|[!?;:'"()]/g, '').replace(/\s+/g, ' ');
-    return norm(a) === norm(b);
+    // A point or comma BETWEEN two digits is part of the number, so it stays:
+    // dropping it made 3.5 and 35 (or 9.81 and 981) the same answer. No
+    // lookbehind: this ships to browsers and Safari only grew it in 16.4.
+    const norm = (s: string) => s.toLowerCase().trim().replace(/(\d)([.,])(?=\d)|[.,!?;:'"()]/g, (m, digit) => digit ? m : '').replace(/\s+/g, ' ');
+    const x = norm(a);
+    const y = norm(b);
+    // Two numbers are compared as numbers, so "3,5" and "3.5" agree whichever
+    // mark the learner types, and "299,792,458" and "299792458" agree as they
+    // did before marks between digits were kept. A mark before two digits is
+    // never grouping, so 9.81 and 981 stay apart. A subset of `parseNumber`
+    // (answer/formats.ts), not imported because this module is bundled alone by
+    // the gates and that file brings in i18n.
+    const xs = numberReadings(x);
+    const ys = numberReadings(y);
+    if (xs.length && ys.length) return xs.some(v => ys.includes(v));
+    return x === y;
 }
 
 /**

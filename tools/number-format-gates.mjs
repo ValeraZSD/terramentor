@@ -190,9 +190,16 @@ section('The vault list writes a file size with the reader\'s separator');
         const sizeWith = (style) => new Function('num', `${js}\nreturn humanSize;`)(
             (v, o) => fmt.formatNumber(v, style, o));
         check('1.5 MB is written 1,5 MB under a comma-decimal style', sizeWith('1.234,5')(1572864) === '1,5 MB', sizeWith('1.234,5')(1572864));
+        // Only the comma row above fails on the old toFixed() code. The next
+        // three pass on it as well: they guard what the rewrite must keep.
         check('and 1.5 MB under a point-decimal style', sizeWith('1,234.5')(1572864) === '1.5 MB', sizeWith('1,234.5')(1572864));
         check('a size under a megabyte is whole kilobytes', sizeWith('1.234,5')(900 * 1024) === '900 KB', sizeWith('1.234,5')(900 * 1024));
         check('under a kilobyte it is bytes', sizeWith('1.234,5')(512) === '512 B');
+        check('a size just under a megabyte is megabytes, not a grouped kilobyte figure',
+            sizeWith('1,234.5')(1048500) === '1.0 MB' && sizeWith('1,234.5')(999 * 1024) === '999 KB', `${sizeWith('1,234.5')(1048500)} / ${sizeWith('1,234.5')(999 * 1024)}`);
+        // VaultPanel writes sizes through the module-level `num()`, which does not
+        // re-render anything; the component has to subscribe to the number style.
+        check('VaultPanel subscribes to the number style', /useNumberFormat\(\)/.test(panel));
     }
 }
 

@@ -260,8 +260,20 @@ section('The spec a model writes still parses');
     // distractor 35 must not pass for the answer 3.5.
     check('a number is not graded equal to the same digits without their decimal mark',
         !answersMatch('35', '3.5') && !answersMatch('981', '9.81') && !answersMatch('12', '1,2') && !answersMatch('1,5', '15'));
+    // This row passes on the old rule too: it guards what the fix must keep.
     check('a number still matches itself, with a full stop or case ignored around it',
         answersMatch('3.5', '3.5.') && answersMatch(' (9.81) ', '9.81') && answersMatch('1,2', '1,2'));
+    // Either mark is the same number: the typed answer 3,5 is the key 3.5.
+    check('a comma and a point are the same decimal mark, and trailing zeros do not matter',
+        answersMatch('3,5', '3.5') && answersMatch('3.5', '3,5') && answersMatch('3.50', '3.5') && !answersMatch('3,5', '35') && !answersMatch('3.5', '3.6'));
+    // Grouped thousands typed without the marks are the same number (as they
+    // were when every mark was dropped); a mark before two digits never groups.
+    check('thousands typed with or without grouping marks are the same number',
+        answersMatch('299,792,458', '299792458') && answersMatch('3.024.000', '3024000') && answersMatch('1,000', '1000')
+        && !answersMatch('9.81', '981') && !answersMatch('299,792,458', '299792'));
+    check('a number is not compared to text by its leading digits', !answersMatch('3 apples', '3') && answersMatch('3 apples', '3 Apples'));
+    check('the answer rule compiles with no lookbehind, which Safari before 16.4 cannot parse',
+        !/\(\?<[=!]/.test(readFileSync(fileURLToPath(new URL('../src/components/drills/parseDrill.ts', import.meta.url)), 'utf8')));
 }
 
 section('The bar under the counter — a timed drill\'s bar is its clock, and only its clock');

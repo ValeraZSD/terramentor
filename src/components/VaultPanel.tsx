@@ -11,6 +11,7 @@ import { IconButton, IconLink } from './ui/Button';
 import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
+import { useNumberFormat } from '../hooks/useNumberFormat';
 
 // Anything binary that the server can't read as text is rejected on upload and
 // surfaced as a "failed" doc, so we intentionally don't restrict selection here
@@ -28,7 +29,10 @@ function humanSize(bytes?: number | null): string {
     if (bytes < 1024) return `${bytes} B`;
     // Through num(), like humanChars below: toFixed() always writes a point,
     // whatever separator the reader chose.
-    if (bytes < 1024 * 1024) return `${num(bytes / 1024, { decimals: 0 })} KB`;
+    // Whole kilobytes up to 999: a size that rounds to 1,000 KB or more reads as
+    // megabytes, so a grouping separator never appears in a kilobyte figure.
+    const kb = Math.round(bytes / 1024);
+    if (kb < 1000) return `${num(kb, { decimals: 0 })} KB`;
     return `${num(bytes / 1024 / 1024, { decimals: 1 })} MB`;
 }
 
@@ -123,6 +127,9 @@ export default function VaultPanel({
     projectId, nodeId, stagedFiles, onStagedFilesChange, className = '',
 }: VaultPanelProps) {
     const { t: tr } = useTranslation();
+    // The sizes and counts below are written through `num()`, which reads the
+    // number style outside React; subscribing here re-renders them when it changes.
+    useNumberFormat();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
     const staging = !!onStagedFilesChange;
