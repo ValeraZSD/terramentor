@@ -219,16 +219,62 @@ section('8. larger text and buttons: one switch, two floors');
     const root = /html\[data-larger-ui\] \{([^}]*)\}/.exec(css)?.[1] ?? '';
     const vars = ['--text-xs', '--text-2xs', '--text-3xs'].map(v => new RegExp(`${v}:\\s*([0-9.]+)rem`).exec(root)?.[1]);
     check('the switch raises all three to the body size, in rem', vars.every(v => Number(v) >= 0.875), vars.join(', '));
-    const targets = /html\[data-larger-ui\] :is\(([^)]*(?:\([^)]*\)[^)]*)*)\):not\(([^{]*)\)\s*\{([^}]*)\}/.exec(css);
-    check('every control kind is held to 44px each way',
-        !!targets && ['button', 'select', 'summary', 'a[href]', 'input', '[role="button"]', '[role="tab"]', '[role="option"]'].every(s => targets[1].includes(s))
-        && /min-height:\s*2\.75rem/.test(targets[3]) && /min-width:\s*2\.75rem/.test(targets[3]), targets?.[1]?.replace(/\s+/g, ' '));
-    check('a link inside running text is left its line (WCAG 2.5.5)', !!targets && /:is\(p, blockquote, \.prose[^)]*\) a/.test(targets[2]));
+    // Two rules, height then width, so each can spare the controls that ask
+    // for more than the floor in that direction.
+    const rules = [...css.matchAll(/html\[data-larger-ui\] :is\(([^)]*(?:\([^)]*\)[^)]*)*)\):not\(([^{]*)\)\s*\{([^}]*)\}/g)];
+    const [hRule, wRule] = rules;
+    const kinds = ['button', 'select', 'summary', 'a[href]', 'input', '[role="button"]', '[role="tab"]', '[role="option"]'];
+    check('every control kind is held to the floor each way, never under 44px at any interface size',
+        rules.length === 2 && rules.every(r => kinds.every(s => r[1].includes(s)))
+        && /^\s*min-height:\s*var\(--target-floor\);\s*$/.test(hRule[3]) && /^\s*min-width:\s*var\(--target-floor\);\s*$/.test(wRule[3])
+        && /--target-floor:\s*max\(2\.75rem, 44px\)/.test(root), `${rules.length} rules`);
+    // Only a link in a sentence; a chip drawn in an answer sits in .prose
+    // under `not-prose` and is a control like any other.
+    check('a link inside running text is left its line (WCAG 2.5.5), a chip in an answer is not',
+        rules.length === 2 && rules.every(r => /:is\(p, blockquote, \.prose\) a:not\(\.not-prose \*\)/.test(r[2])));
+    const switchTsx = read('src/components/ui/Switch.tsx');
     check('a switch keeps its track; its target already spills to 44px',
-        !!targets && /\[role="switch"\]/.test(targets[2]) && /absolute -inset-x-1\.5 -inset-y-2\.5/.test(read('src/components/ui/Switch.tsx')));
+        rules.length === 2 && rules.every(r => /\[role="switch"\]/.test(r[2]))
+        && /<span data-switch-spill className="absolute -inset-x-1\.5 -inset-y-2\.5"/.test(switchTsx));
+    // In forced colours the border eats 1px of the spill; the fix must find
+    // the spill by name: a tile with role="switch" (search providers) has an
+    // icon as its first span, and `> span:first-child` moved it.
+    check('the high-contrast spill fix touches only the switch spill',
+        /\[role="switch"\] > \[data-switch-spill\] \{\s*inset:/.test(css) && !/\[role="switch"\] > span:first-child/.test(css));
+    // The floor replaces a control's own min-height/min-width, so every class
+    // in the app that asks for 44px or more must be spared by its rule.
+    const remPx = v => { const m = /^([0-9.]+)(rem|px)$/.exec(v); return m ? Number(m[1]) * (m[2] === 'rem' ? 16 : 1) : null; };
+    const tallClasses = (prop) => {
+        const out = new Set();
+        for (const f of SRC) {
+            for (const m of read(f).matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
+                const v = m[1];
+                const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
+                if (px !== null && px > 44) out.add(`${prop}-${v}`);
+            }
+        }
+        return [...out];
+    };
+    const spared = (cls, not) => cls.includes('[')
+        ? not.includes(`[class*="${cls}"]`) || (cls.startsWith('min-h-') && not.includes('[class*="min-h-["]'))
+        : not.includes(`.${cls}`);
+    const tallH = tallClasses('min-h').filter(c => !spared(c, hRule?.[2] ?? ''));
+    const tallW = tallClasses('min-w').filter(c => !spared(c, wRule?.[2] ?? ''));
+    check('a control that asks for more than the floor keeps its own size', rules.length === 2 && tallH.length === 0 && tallW.length === 0,
+        [...tallH, ...tallW].join(', '));
     check('a tickbox keeps its box; its input spills to 44px round it',
         /<span data-checkbox className=/.test(read('src/components/Checkbox.tsx'))
         && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: min\(0px, calc\(\(100% - 2\.75rem\) \/ 2\)\);\s*width: auto;\s*height: auto;/.test(css));
+    // Larger text in a narrow column cut tree and outline titles to a word or
+    // two; with the switch on they wrap instead, and only the tree row (not
+    // every [data-node-id]: cards, the calendar, the timeline) loses padding.
+    const wraps = ['src/components/Sidebar.tsx', 'src/components/TreeItemRow.tsx', 'src/components/CategoryCard.tsx']
+        .filter(f => !/data-larger-wraps/.test(read(f)));
+    check('tree, outline and section titles wrap instead of being cut short',
+        wraps.length === 0 && /html\[data-larger-ui\] \[data-larger-wraps\] \{\s*white-space: normal;/.test(css), wraps.join(', '));
+    check('only the tree row gives up its padding',
+        /data-sidebar-row/.test(read('src/components/Sidebar.tsx')) && /html\[data-larger-ui\] \[data-sidebar-row\] \{\s*padding-block: 0;/.test(css)
+        && !/html\[data-larger-ui\] \[data-node-id\]/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));

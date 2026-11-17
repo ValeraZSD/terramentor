@@ -175,8 +175,8 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   {isNote ? <FileText className="w-5 h-5" /> : <FolderOpen className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white truncate">
-                    <button data-row="title"
+                  <h3 data-larger-wraps className="font-semibold text-slate-900 dark:text-white truncate">
+                    <button data-row="title" data-larger-wraps
                       type="button"
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
                       aria-label={t("Open {{title}}", { title: node.title })}

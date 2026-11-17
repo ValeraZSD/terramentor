@@ -132,6 +132,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         <div ref={setNodeRef} style={{ ...style, opacity: isDragging && !held ? 0.4 : 1 }}>
             <div
                 data-node-id={node.id}
+                data-sidebar-row
                 // A click target for the pointer, not a control: as a button
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
@@ -204,7 +205,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         ) : null}
                     </span>
 
-                    <span className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span data-larger-wraps className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
