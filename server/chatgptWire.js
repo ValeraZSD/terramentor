@@ -24,6 +24,9 @@
 const NO_TOOLS = 'This connection (a ChatGPT plan) does not take native tool calls; the lookups use the text protocol instead.';
 export const USAGE_LIMIT_MESSAGE = "Your ChatGPT plan's limit for this app is used up for now. Review it in ChatGPT → Settings → Usage, or switch connection in Terramentor's Settings.";
 
+/** The reasoning levels the Responses API documents for every model. */
+const RESPONSES_EFFORTS = ['minimal', 'low', 'medium', 'high'];
+
 /** A plan error code → the status the app's retry layer should see, and a sentence. */
 export function planErrorOf(code, message = '') {
     switch (code) {
@@ -80,8 +83,12 @@ export function toResponsesRequest(body) {
     }
     const req = { model: body.model, input, store: false, stream: true };
     if (instructions.length) req.instructions = instructions.join('\n\n');
+    // The one stored level belongs to whichever connection it was chosen on, and
+    // Settings draws no thinking control for a plan (no list is published), so
+    // a level the Responses API does not name, `max` from a Claude connection,
+    // would be a 400 on every call with nothing on screen to reset it.
     const effort = body.reasoning?.effort || body.reasoning_effort;
-    if (effort) req.reasoning = { effort };
+    if (RESPONSES_EFFORTS.includes(effort)) req.reasoning = { effort };
     return { req };
 }
 

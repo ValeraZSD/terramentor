@@ -146,6 +146,18 @@ jobs.setJobRoute('questions', [{ connectionId: idB, model: 'model-b2', effort: '
     check('...and the effort chosen for that entry rides on the wire', B.hits[0]?.json?.reasoning?.effort === 'minimal', JSON.stringify(B.hits[0]?.json?.reasoning));
 }
 
+{
+    reset();
+    // The model picker writes the active rows and not the connection's row; a
+    // blank-model entry on the connection in use must still send what was picked.
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: '', effort: '' }]);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_openai_model', 'model-a-picked')").run();
+    await ask({ operation: 'questions' });
+    check('an entry with no model on the connection in use sends the model just picked in Settings', A.hits[0]?.json?.model === 'model-a-picked', A.hits[0]?.json?.model);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_openai_model', 'model-a')").run();
+    conns.reconcile();
+}
+
 section('a failure the next model could fix moves to it, in order');
 jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
 for (const [plan, what, aHits] of [
