@@ -156,11 +156,17 @@ interface A11yCache {
     letterSpacing?: SpacingLevel;
     wordSpacing?: SpacingLevel;
     lineSpacing?: SpacingLevel;
+    // Read before the settings arrive: a card's clip must not start over a
+    // screen reader for the moment it takes the library to answer, and the
+    // first press on a rating must not grade.
+    cardAudioAutoplay?: boolean;
+    confirmAnswers?: boolean;
 }
 
 /** Put the visual preferences on `<html>`. Contrast is painted by the theme
  *  (store.ts), which reads `resolveContrast` itself; its attribute is set here
- *  so CSS that is not a colour (a ring's width) can follow it too. */
+ *  so the resolved choice can be read off the page (the gates and screenshots
+ *  check it), and so CSS that is not a colour may follow it later. */
 export function applyA11yToDom(prefs: A11yPrefs): void {
     if (typeof document === 'undefined') return;
     const root = document.documentElement;
@@ -181,6 +187,8 @@ export function applyA11yToDom(prefs: A11yPrefs): void {
             letterSpacing: prefs.letterSpacing,
             wordSpacing: prefs.wordSpacing,
             lineSpacing: prefs.lineSpacing,
+            cardAudioAutoplay: prefs.cardAudioAutoplay,
+            confirmAnswers: prefs.confirmAnswers,
         };
         localStorage.setItem(A11Y_STORAGE_KEY, JSON.stringify(cache));
     } catch { /* private mode: the cache is an optimisation */ }
@@ -197,6 +205,8 @@ export function cachedA11yPrefs(): A11yPrefs {
             letterSpacing: pick(SPACING_LEVELS, c.letterSpacing, 'normal'),
             wordSpacing: pick(SPACING_LEVELS, c.wordSpacing, 'normal'),
             lineSpacing: pick(SPACING_LEVELS, c.lineSpacing, 'normal'),
+            cardAudioAutoplay: typeof c.cardAudioAutoplay === 'boolean' ? c.cardAudioAutoplay : DEFAULT_A11Y.cardAudioAutoplay,
+            confirmAnswers: typeof c.confirmAnswers === 'boolean' ? c.confirmAnswers : DEFAULT_A11Y.confirmAnswers,
         };
     } catch {
         return { ...DEFAULT_A11Y };

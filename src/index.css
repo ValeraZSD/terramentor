@@ -415,13 +415,15 @@ html[data-motion="reduce"] *:not(.drop-flash)::after {
    survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em), and
    tools/axe-gates.mjs scans every screen at it for clipped text. On every
    element, because a class that sets its own tracking or leading would
-   otherwise keep it. */
-html[data-letter-spacing="wider"] body * { letter-spacing: 0.06em !important; }
-html[data-letter-spacing="widest"] body * { letter-spacing: 0.12em !important; }
-html[data-word-spacing="wider"] body * { word-spacing: 0.08em !important; }
-html[data-word-spacing="widest"] body * { word-spacing: 0.16em !important; }
-html[data-line-spacing="wider"] body * { line-height: 1.5 !important; }
-html[data-line-spacing="widest"] body * { line-height: 1.8 !important; }
+   otherwise keep it. Formulas and drawings are left alone: KaTeX places the
+   parts of a fraction or a root by its own line height, and a diagram sizes
+   its label boxes to the text, so spacing there breaks them, not reads better. */
+html[data-letter-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.06em !important; }
+html[data-letter-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.12em !important; }
+html[data-word-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.08em !important; }
+html[data-word-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.16em !important; }
+html[data-line-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.5 !important; }
+html[data-line-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.8 !important; }
 html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
 
 /* Forced colours (Windows High Contrast) drop every background, so a choice
@@ -436,6 +438,18 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
   [role="option"][aria-selected="true"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+  /* A chosen segment or an armed rating is filled, not only outlined: a thin
+     outline beside the system's thick button borders read as the unchosen one. */
+  [aria-pressed="true"],
+  [role="radio"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  [aria-pressed="true"] *,
+  [role="radio"][aria-checked="true"] * {
+    color: HighlightText;
   }
   [role="switch"] {
     border: 1px solid ButtonText;

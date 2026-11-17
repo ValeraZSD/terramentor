@@ -74,7 +74,7 @@ export default {
             // reader who turned motion off in the app gets none even when the
             // system allows it, and the other way round. New names, because
             // Tailwind's own `motion-safe`/`motion-reduce` cannot be redefined
-            // (its media-query versions win); tools/motion-gates.mjs keeps
+            // (its media-query versions win); tools/accessibility-settings-gates.mjs keeps
             // those two out of src/.
             addVariant('motion-on', 'html:not([data-motion="reduce"]) &');
             addVariant('motion-off', 'html[data-motion="reduce"] &');
