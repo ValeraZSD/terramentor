@@ -26,7 +26,8 @@ import {
  * in the same place, as the page and the accent. The cut and the corners are
  * not colours; they show under that palette only while the icon is the target.
  *
- * ONE preview, beside the cut, and it is the real icon: the same function
+ * ONE large preview, beside the cut (the switch's 16px one is too small to show
+ * the cut), and it is the real icon: the same function
  * the tab and the manifest draw from, at the colour and corner currently
  * chosen. A card per style would spend a third of the panel drawing the same
  * mark twice, which is what a preview of a preview looks like.
@@ -52,7 +53,7 @@ import {
  * asserts it, and the one light option is there to prove the ink flips).
  *
  * The NAMES and their ORDER are `ACCENT_COLORS`', slot for slot, so the three
- * colour rows on the Appearance card are one family read at three rungs
+ * palettes behind the Appearance card's Colours switch are one family read at three rungs
  * (`palette-order-gates.mjs`). Here the achromatic pair can be what it says —
  * a tile has no label text to carry, so Ink is true black and Paper is true
  * white. The shipped default tile is Ink itself, black with a white mark.
@@ -147,24 +148,28 @@ export function AppIconShape() {
             {/* Both cuts are one picture at tab size (the grid is sub-pixel
                 at 16px), so the choice is only about the big tile — which is
                 exactly the size the preview beside it is drawn at. */}
-            <div className="mt-4 flex items-center gap-3">
-                <IconPreview icon={icon} size={40} variant="tile" />
-                <SegmentedControl
-                    label={tr("App icon")}
-                    value={icon.style}
-                    onChange={style => void setAppIcon({ style })}
-                    options={(Object.keys(STYLE_LABELS) as IconStyle[]).map(style => ({
-                        value: style,
-                        label: tr(STYLE_LABELS[style]),
-                    }))}
-                />
-            </div>
+            {/* ONE ROW with the corners where the card is wide enough: three
+                rows of icon controls under a palette made this target 36%
+                taller than the other two, and the switch's height jump read
+                as a different screen. On a phone the corners wrap under. */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-3">
+                    <IconPreview icon={icon} size={40} variant="tile" />
+                    <SegmentedControl
+                        label={tr("App icon")}
+                        value={icon.style}
+                        onChange={style => void setAppIcon({ style })}
+                        options={(Object.keys(STYLE_LABELS) as IconStyle[]).map(style => ({
+                            value: style,
+                            label: tr(STYLE_LABELS[style]),
+                        }))}
+                    />
+                </div>
 
-            {/* ROUNDNESS — the same three-controls-over-one-number row as the
-                interface size below: drag it, nudge it, or put it back. */}
-            <div className="mt-4">
-                <p className="text-sm font-medium text-slate-900 dark:text-white mb-2">{tr("Corners")}</p>
-                <div className="flex flex-wrap items-center gap-3">
+                {/* ROUNDNESS — the same three-controls-over-one-number row as the
+                    interface size above: drag it, nudge it, or put it back. */}
+                <div className="flex flex-1 min-w-[16rem] items-center gap-3">
+                    <span className="text-sm font-medium text-slate-900 dark:text-white">{tr("Corners")}</span>
                     <Slider
                         min={MIN_RADIUS}
                         max={MAX_RADIUS}

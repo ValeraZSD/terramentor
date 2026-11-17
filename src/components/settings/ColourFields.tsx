@@ -8,17 +8,24 @@ import { AppIconColour, AppIconShape, IconPreview } from './AppIconPanel';
 
 type Target = 'page' | 'accent' | 'icon';
 
-/** A colour's chip inside a segment: the same inset edge as a palette chip, so
- *  white on a white track and black on a black one still have an outline. A
- *  SQUARE, like the chips below it: a round white one beside a word read as an
- *  unticked radio button. 16px, the size the icon's own preview is drawn at. */
-function Dot({ hex }: { hex: string }) {
+/** A colour's chip inside a segment. Its inset edge is darker than a palette
+ *  chip's (`SWATCH_EDGE`, 12%): at 16px that edge vanished, and a white page
+ *  on the switch's grey track read as nothing at all. A SQUARE, like the chips
+ *  below it: a round white one beside a word read as an unticked radio button.
+ *  16px, the size the icon's own preview is drawn at.
+ *
+ *  `page` draws it as a tiny window, a darker strip along its top: the page's
+ *  usual colour is white, and a plain white square beside a word is a
+ *  checkbox, which no amount of edge contrast changed. */
+function Dot({ hex, page = false }: { hex: string; page?: boolean }) {
     return (
         <span
             aria-hidden="true"
-            className="w-4 h-4 rounded shrink-0 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.18)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.25)]"
+            className="relative w-4 h-4 rounded overflow-hidden shrink-0 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.35)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.4)]"
             style={{ background: hex }}
-        />
+        >
+            {page && <span className="absolute inset-x-0 top-0 h-1 bg-black/35 dark:bg-white/40" />}
+        </span>
     );
 }
 
@@ -34,7 +41,18 @@ function Dot({ hex }: { hex: string }) {
  * colour, so all three values stay visible while only one is being changed.
  *
  * The switch starts on the page every time the screen opens; which target was
- * last edited is not worth a stored setting.
+ * last edited is not worth a stored setting. It spans the row and its segments
+ * share it equally, so it never breaks into loose pills: "Icon", not "App
+ * icon", because the longest translation of the latter ("Icono de la
+ * aplicación") pushed the third segment onto a line of its own on a phone.
+ *
+ * Each target's one line sits under the switch, in the same place for all of
+ * them, so it is read before a colour is pressed rather than beside the value
+ * field after.
+ *
+ * The segments say "Page" and "Accent"; their FULL names name the palette for
+ * a screen reader (the group round it) and are each segment's tooltip, since
+ * the palette itself is called only "Colour" whichever target it serves.
  */
 export function ColourChooser() {
     const { t: tr } = useTranslation();
@@ -43,20 +61,29 @@ export function ColourChooser() {
     const themeTint = useStore(s => s.themeTint);
     const accentColor = useStore(s => s.accentColor);
     const appIcon = useStore(s => s.appIcon);
+    const line = target === 'page' ? tr("White is no tint at all.")
+        : target === 'accent' ? tr("Projects keep their own colour.")
+        : null;
+    const name: Record<Target, string> = {
+        page: tr("Page colour"),
+        accent: tr("Accent colour"),
+        icon: tr("App icon"),
+    };
     return (
         <div className="w-full">
             <SegmentedControl
                 label={tr("Colours")}
                 value={target}
                 onChange={setTarget}
+                block
                 options={[
-                    { value: 'page', label: <span className="inline-flex items-center gap-2"><Dot hex={tintSwatch(theme, themeTint)} />{tr("Page")}</span> },
-                    { value: 'accent', label: <span className="inline-flex items-center gap-2"><Dot hex={accentColor} />{tr("Accent")}</span> },
-                    { value: 'icon', label: <span className="inline-flex items-center gap-2"><IconPreview icon={appIcon} size={16} variant="tile" />{tr("App icon")}</span> },
+                    { value: 'page', title: name.page, label: <span className="inline-flex items-center gap-2"><Dot page hex={tintSwatch(theme, themeTint)} />{tr("Page")}</span> },
+                    { value: 'accent', title: name.accent, label: <span className="inline-flex items-center gap-2"><Dot hex={accentColor} />{tr("Accent")}</span> },
+                    { value: 'icon', title: name.icon, label: <span className="inline-flex items-center gap-2"><IconPreview icon={appIcon} size={16} variant="tile" />{tr("Icon")}</span> },
                 ]}
             />
-            {/* `key`: each target's half-typed value is its own. */}
-            <div className="mt-4" key={target}>
+            {line && <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">{line}</p>}
+            <div className="mt-4" role="group" aria-label={name[target]}>
                 {target === 'page' && <ThemeTintField />}
                 {target === 'accent' && <AccentField />}
                 {target === 'icon' && <><AppIconColour /><AppIconShape /></>}
@@ -66,7 +93,7 @@ export function ColourChooser() {
 }
 
 /**
- * The tint palette alone; the row it sits in supplies its name and its line.
+ * The tint palette alone; the switch above it supplies its name and its line.
  *
  * THE CHIPS ARE DRESSED FOR THE MODE YOU ARE IN. The sixteen tints are stored
  * as pastels because a pastel is the LIGHT register — they are generated at one
@@ -98,22 +125,13 @@ export function ThemeTintField() {
             onChange={setThemeTint}
             colors={THEME_TINTS}
             swatch={pageOf}
-            hint={tr("White is no tint at all.")}
         />
     );
 }
 
-/** The accent palette alone; its name comes from the switch above it. */
+/** The accent palette alone; its name and its line come from the switch above it. */
 export function AccentField() {
-    const { t: tr } = useTranslation();
     const accentColor = useStore(s => s.accentColor);
     const setAccentColor = useStore(s => s.setAccentColor);
-    return (
-        <ColorField
-            value={accentColor}
-            onChange={setAccentColor}
-            colors={ACCENT_COLORS}
-            hint={tr("Projects keep their own colour.")}
-        />
-    );
+    return <ColorField value={accentColor} onChange={setAccentColor} colors={ACCENT_COLORS} />;
 }

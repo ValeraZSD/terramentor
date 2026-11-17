@@ -195,7 +195,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                         finally { setDesktopBusy(false); }
                                     }}
                                     options={[
-                                        // NOT the existing "Background" key: that one is the
+                                        // NOT a shared "Background" key: that one was the
                                         // visual sense and is already translated as Фон, 背景,
                                         // Tło, Fondo — the colour behind a thing, not the place
                                         // a program runs. One English word, two meanings, and

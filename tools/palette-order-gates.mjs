@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// palette-order-gates.mjs — three colour rows on one card, and they are the
-// same sixteen colours read at three rungs.
+// palette-order-gates.mjs — three palettes behind one switch on one card, and
+// they are the same sixteen colours read at three rungs.
 //
 // Settings → Appearance asks three colour questions in a column: what colour
 // the PAGE is, what the ACCENT is, and what the app ICON's tile is. Each had
@@ -108,12 +108,18 @@ ok('all three rows are the one ColorField',
 // palette (`ColourChooser`). Settings mounts that row and none of the three
 // fields on its own, so a fourth colour row cannot grow back beside it.
 {
-    const chooser = read('src/components/settings/ColourFields.tsx');
+    const chooserFile = read('src/components/settings/ColourFields.tsx');
+    // The function's own body, up to the next top-level declaration: a field
+    // named in a comment or in another component must not satisfy this.
+    const chooser = (chooserFile.match(/export function ColourChooser\(\)[\s\S]*?\r?\n\}\r?\n/) || [''])[0]
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const general = read('src/components/settings/GeneralSettings.tsx');
     ok('the Colours row switches one palette between the three targets',
-        /export function ColourChooser/.test(chooser)
-        && /<ThemeTintField \/>/.test(chooser) && /<AccentField \/>/.test(chooser) && /<AppIconColour \/>/.test(chooser),
-        'ColourChooser must draw the page, the accent and the icon tile');
+        /<SegmentedControl\b/.test(chooser)
+        && /target === 'page' && <ThemeTintField \/>/.test(chooser)
+        && /target === 'accent' && <AccentField \/>/.test(chooser)
+        && /target === 'icon' && <><AppIconColour \/>/.test(chooser),
+        'ColourChooser must draw ONE of the page, accent and icon palettes, chosen by its switch');
     ok('Appearance mounts the chooser and no palette of its own',
         /<ColourChooser \/>/.test(general)
         && !/<(ThemeTintField|AccentField|AppIconColour|AppIconPanel|ColorField)\b/.test(general),
