@@ -163,16 +163,22 @@ export function toPlainText(input: string): string {
     // A dollar sign that survives as text (`\$` in a formula or in prose) is
     // held as a placeholder until every span is read, so it is never taken for
     // a delimiter by a later pass.
-    const DOLLAR = String.fromCharCode(0xe000);
+    // The placeholder is a private-use character the text does not already hold,
+    // so a pasted icon-font glyph is never turned into a dollar.
+    let code = 0xe000;
+    while (s.includes(String.fromCharCode(code))) code += 1;
+    const DOLLAR = String.fromCharCode(code);
     const flat = (m: string) => flattenMath(m).replace(/\$/g, DOLLAR);
     // Display and inline math, in both delimiter styles. `$$` first so a
     // display span is not read as two empty inline spans around a body.
     // A span opens at an unescaped dollar, and `\$` inside it is part of its
     // body: `$\$20{,}000$` is one span, "Pay \$20 or \$30" holds none.
-    s = s.replace(/(?<!\\)\$\$([\s\S]+?)\$\$/g, (_, m) => ` ${flat(m)} `);
+    s = s.replace(/(?<!\\)\$\$((?:\\[\s\S]|[^\\])+?)\$\$/g, (_, m) => ` ${flat(m)} `);
     s = s.replace(/\\\[([\s\S]+?)\\\]/g, (_, m) => ` ${flat(m)} `);
     s = s.replace(/\\\(([\s\S]+?)\\\)/g, (_, m) => flat(m));
-    s = s.replace(/(?<!\\)\$((?:\\.|[^$\\\n])+?)\$/g, (_, m) => flat(m));
+    // An inline body touches both delimiters (no space inside either), as in
+    // `keepDollarsInMath`: "$5 and \$10 more, or $20" is prose, not a formula.
+    s = s.replace(/(?<!\\)\$(?!\s)((?:\\.|[^$\\\n])+?)(?<!\s)\$/g, (_, m) => flat(m));
     s = s.replace(/\\\$/g, DOLLAR);
     // Light markdown.
     s = s.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1');

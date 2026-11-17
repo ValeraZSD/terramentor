@@ -163,6 +163,8 @@ try {
         sanitizeMathText('$\\text{max\\_speed}$') === '$\\text{max\\_speed}$', sanitizeMathText('$\\text{max\\_speed}$'));
     check('… and an escaped caret',
         sanitizeMathText('$\\text{\\^e}$') === '$\\text{\\^e}$', sanitizeMathText('$\\text{\\^e}$'));
+    const caret = read(inline('$\\text{\\^e}$ is a letter.'));
+    check('a text group with an escaped caret draws', caret.formulas === 1 && caret.errors === 0, shown(caret));
     const escScript = sanitizeMathText('$\\text{a\\_b W/m^2}$');
     check('a real script beside an escaped one is still lifted out',
         escScript === '$\\text{a\\_b W/m}^{2}$', escScript);
@@ -203,7 +205,17 @@ try {
         toPlainText('the angle is $30^\\circ$') === 'the angle is 30°' && toPlainText('$90^{\\circ}$') === '90°',
         `${toPlainText('the angle is $30^\\circ$')} / ${toPlainText('$90^{\\circ}$')}`);
     check('… and a temperature keeps its unit', toPlainText('$25^\\circ C$') === '25° C', toPlainText('$25^\\circ C$'));
-    check('an ordinary superscript is unchanged', toPlainText('$x^2$') === 'x²' && toPlainText('$x^{n+1}$') === 'xⁿ⁺¹');
+    // Control: passes on the code before the dollar handling, kept so a change to
+    // the superscript table cannot slip by unseen.
+    check('control: an ordinary superscript is unchanged', toPlainText('$x^2$') === 'x²' && toPlainText('$x^{n+1}$') === 'xⁿ⁺¹');
+    const price = 'It costs $5 and \\$10 more, or $20.';
+    check('prose with a bare dollar, an escaped one and a bare one holds no formula',
+        toPlainText(price) === 'It costs $5 and $10 more, or $20.', toPlainText(price));
+    check('a display span may end in an escaped dollar',
+        toPlainText('$$x = 5\\$$$ ok') === 'x = 5$ ok', toPlainText('$$x = 5\\$$$ ok'));
+    const pua = 'Icon  and $x^2$ and \\$5';
+    check('a private-use character in the text comes out as itself',
+        toPlainText(pua) === 'Icon  and x² and $5', JSON.stringify(toPlainText(pua)));
 
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exitCode = fail ? 1 : 0;
