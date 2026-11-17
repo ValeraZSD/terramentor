@@ -310,8 +310,8 @@ function ShakyList({ items, total }: { items: ShakyQuestion[]; total: number }) 
                 {t("Missed twice or more, and not answered right since.")}
             </p>
             <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                {items.map(s => (
-                    <li key={s.ref ?? s.question} className="flex items-start gap-3 py-3">
+                {items.map((s, i) => (
+                    <li key={s.ref ?? `${i}:${s.question}`} className="flex items-start gap-3 py-3">
                         <div className="min-w-0 flex-1">
                             <p className="break-words text-sm text-slate-800 dark:text-slate-100">{s.question}</p>
                             <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-400">
