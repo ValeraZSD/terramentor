@@ -83,7 +83,9 @@ const dayNum = (date) => Math.round(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
 function dayNumOf(date) {
     if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
     const n = dayNum(date);
-    return Number.isFinite(n) ? n : null;
+    // Date.parse rolls 2026-02-30 over to 2 March: a day that reads back
+    // differently does not exist.
+    return Number.isFinite(n) && dayStr(n) === date ? n : null;
 }
 const dayStr = (n) => new Date(n * DAY_MS).toISOString().slice(0, 10);
 const weightOf = (weeksAgo) => Math.pow(0.5, weeksAgo / HALF_LIFE_WEEKS);

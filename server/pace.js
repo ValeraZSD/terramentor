@@ -22,7 +22,7 @@ import { WORK_LEAF, OPEN_WORK_LEAF } from './today.js';
 import { projectCountsInCards } from './progress.js';
 import { probeAvailability } from './placement.js';
 import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
-import { judgeDate, learnerPace } from './paceModel.js';
+import { OFFERS, judgeDate, learnerPace } from './paceModel.js';
 
 const BURST_SECONDS = 2;
 // julianday() carries about a tenth of a millisecond of float error: two rows
@@ -70,12 +70,12 @@ function statements() {
             SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
             WHERE n.project_id = ? AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)
         `),
-        // Other courses still asking for time: active, dated after today, with
-        // a topic or a card left.
+        // Other courses still asking for time: active, dated today or later
+        // (the deadline day is still a study day), with a topic or a card left.
         otherCourses: db.prepare(`
             SELECT COUNT(*) AS c FROM projects p
             WHERE p.id != ? AND COALESCE(p.status, 'active') = 'active'
-              AND p.deadline IS NOT NULL AND p.deadline > ?
+              AND p.deadline IS NOT NULL AND p.deadline >= ?
               AND (EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${OPEN_WORK_LEAF})
                    OR EXISTS (SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
                               WHERE n.project_id = p.id AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)))
@@ -157,19 +157,21 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     const cards = projectCountsInCards(project.id);
     const open = cards ? s.unmetCards.get(project.id).c : s.openTopics.get(project.id).c;
     const otherCourses = s.otherCourses.get(project.id, lib.today).c;
-    const judge = (canCheckKnown) => judgeDate(cards ? lib.cards : lib.topics, {
+    const verdict = judgeDate(cards ? lib.cards : lib.topics, {
         open,
         deadline: project.deadline,
         today: lib.today,
         unit: cards ? 'cards' : 'topics',
-        canCheckKnown,
         otherCourses,
         ...dateOwnership(),
     });
-    let verdict = judge(false);
     // The placement check is offered only when the date misses, so it is
     // asked only then (it walks the course's tree). It places topics; a deck
-    // has none to place.
-    if (!cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) verdict = judge(true);
+    // has none to place. The offer is slotted in by OFFERS' order rather than
+    // judged again, which would re-run both finish-range simulations.
+    if (!cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) {
+        verdict.offers = [...verdict.offers, { kind: 'check_known' }]
+            .sort((a, b) => OFFERS.indexOf(a.kind) - OFFERS.indexOf(b.kind));
+    }
     return { ...verdict, otherCourses };
 }

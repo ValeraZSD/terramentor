@@ -14,8 +14,8 @@
 // The clock is a PARAMETER: every date below derives from NOW, never from
 // Date.now(). PACE_GATES_NOW picks the DAY (a DST switch, a month end); the hour
 // is always 12:00 UTC, the same date in UTC and in Amsterdam, so one `TODAY`
-// serves both halves. The routes read the real clock, so their checks use a
-// date long past and assert shape only.
+// serves both halves. The routes read Date.now(), which the route checks pin
+// to NOW while the requests run.
 
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -93,6 +93,11 @@ console.log('\n--- the weekly series: 7-day blocks ending yesterday ---');
     let threwToday = false;
     try { learnerPace([], { since: null, today: 'today' }); } catch { threwToday = true; }
     check('a today that is not a date is refused', threwToday);
+    let threwFeb30 = false;
+    try { learnerPace([], { since: null, today: '2026-02-30' }); } catch { threwFeb30 = true; }
+    check('…nor a day the calendar lacks (Feb 30 is not 2 March)', threwFeb30);
+    const feb30 = judgeDate(none, { open: 5, deadline: '2027-02-30', today: TODAY });
+    check('a deadline the calendar lacks is no date', feb30.band === 'no_date' && feb30.deadline === null, show(feb30.band));
 }
 
 console.log('\n--- recency weighting: a week counts half every 4 weeks back ---');
@@ -385,6 +390,21 @@ console.log('\n--- readers: a course verdict ---');
     const lib = libraryPace({ now: NOW_MS, timeZone: AMS });
     check('one library read serves many courses with the same answer',
         isDeepStrictEqual(projectVerdict(course, { now: NOW_MS, timeZone: AMS, library: lib }), v));
+
+    const dueToday = mkProject('Due today', { deadline: TODAY, start: ago(20) });
+    mkNode(dueToday, 'last topic', null);
+    check('a course due today still competes (its deadline day is a study day)',
+        projectVerdict(course, { now: NOW_MS, timeZone: AMS, library: lib }).otherCourses === 2);
+
+    // A course that misses and can be placed: the placement offer is slotted
+    // in where judging it with the check would have put it.
+    const cram = mkProject('Cram', { deadline: ahead(7), start: ago(5) });
+    for (let i = 0; i < 8; i++) mkNode(cram, `cram topic ${i + 1}`, null);
+    const cv = projectVerdict(cram, { now: NOW_MS, timeZone: AMS, library: lib });
+    const judgedWithCheck = judgeDate(lib.topics, { open: cv.open, deadline: ahead(7), today: lib.today, canCheckKnown: true, otherCourses: cv.otherCourses });
+    check('a missing course that can be placed is offered the check', cv.offers.some(o => o.kind === 'check_known'), show(cv.band));
+    check('…in the same place and with the same verdict as judging it with the check',
+        isDeepStrictEqual({ ...cv, otherCourses: undefined }, { ...judgedWithCheck, otherCourses: undefined }), show(cv.offers));
 }
 
 console.log('\n--- routes: the verdict rides beside the old pace ---');
@@ -395,19 +415,26 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
     const srv = createServer(createApp());
     const port = await new Promise(ok => srv.listen(0, '127.0.0.1', () => ok(srv.address().port)));
     const get = async (p) => (await fetch(`http://127.0.0.1:${port}${p}`, { headers: { 'X-Time-Zone': AMS } })).json();
+    // The handlers read Date.now(); pin it to the gate's instant while they
+    // answer, so their days match the fixtures' at any hour and on any day.
+    const realNow = Date.now;
+    Date.now = () => NOW_MS;
     try {
         const pace = await get(`/api/projects/${old}/pace`);
         check('/pace still answers the old fields', 'paceStatus' in pace && 'expectedProgress' in pace && 'daysBehind' in pace, Object.keys(pace).join(','));
         check('…plus the verdict: a date long gone has passed', pace.verdict?.band === 'passed', show(pace.verdict));
         const datedPace = await get(`/api/projects/${course}/pace`);
         check('…a dated course carries the learner\'s weeks beside it', datedPace.verdict?.unit === 'topics' && Array.isArray(datedPace.learnerPace?.weeks), show(Object.keys(datedPace)));
+        check('…judged on the learner\'s today, not the machine\'s', datedPace.verdict?.daysLeft === 35, show(datedPace.verdict?.daysLeft));
         const ov = await get('/api/schedule/overview');
         const row = ov.projects.find(p => p.id === old);
         const plain = ov.projects.find(p => p.name === 'No date');
         check('the overview row carries the verdict too', row?.verdict?.band === 'passed', show(row?.verdict));
         check('…and its old pace object is untouched', row?.pace && 'paceStatus' in row.pace, show(row?.pace));
         check('…an undated row has none', plain && plain.verdict === null, show(plain?.verdict));
+        check('the overview\'s today is the day its verdicts were judged on', ov.today === TODAY, show(ov.today));
     } finally {
+        Date.now = realNow;
         srv.closeAllConnections();
         await new Promise(ok => srv.close(ok));
     }

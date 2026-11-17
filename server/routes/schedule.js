@@ -133,7 +133,8 @@ app.get('/api/schedule/overview', (req, res) => {
                 verdict: p.deadline ? projectVerdict(p.id, { library }) : null,
             };
         });
-        res.json({ projects: rows, today: studyToday() });
+        // The day the verdicts were judged on, even if midnight passed since.
+        res.json({ projects: rows, today: library?.today ?? studyToday() });
     } catch (err) {
         console.error('[Schedule overview] Error:', err);
         res.status(500).json({ error: clientError(err) });
