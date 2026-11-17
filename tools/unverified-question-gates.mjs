@@ -120,6 +120,8 @@ if (argv[0] === '--client') {
             export const isDarkTheme = () => false;`,
         'Markdown': `import { createElement } from 'react'; export default function Markdown({ content }) { return createElement('div', null, content); }`,
         'codeLanguages': `import { createElement } from 'react'; export const highlightLanguage = (l) => l; export default function SyntaxHighlighter({ children }) { return createElement('pre', null, children); }`,
+        // Records what each render claimed, so a case can read it back.
+        'studyClock': `export const useStudyClock = (target) => { globalThis.__clock = target ?? null; };`,
         'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => (globalThis.__api?.[name] ?? (() => new Promise(() => { })))(...args) });
             let seq = 0; export const newAttemptId = () => 'attempt-' + (++seq);`,
     };
@@ -132,6 +134,7 @@ if (argv[0] === '--client') {
             b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
             b.onResolve({ filter: /^\.\.?\/(\.\.\/)*(Markdown|MathText)$/ }, () => ({ path: 'Markdown', namespace: 'stub' }));
             b.onResolve({ filter: /^\.\.?\/(\.\.\/)*codeLanguages$/ }, () => ({ path: 'codeLanguages', namespace: 'stub' }));
+            b.onResolve({ filter: /^(\.\.\/)+hooks\/useStudyClock$/ }, () => ({ path: 'studyClock', namespace: 'stub' }));
             b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js', resolveDir: repo }));
             // A copy under --root imports its neighbours: the copy's own when
             // the checkout carries one, else this tree's.
@@ -260,7 +263,12 @@ if (argv[0] === '--client') {
             drawMasteryCheck: async () => ({ size: 10, bankSize: 4, unverified: 0, minQuestions: 4, status: 'in_progress', questions: four() }),
             submitMasteryCheck: () => pending,
         };
-        const m = await mount(h(MasteryGateModal, { isOpen: true, onClose() { }, nodeId: 3, nodeTitle: 'Adding', projectId: 1, onPassed() { } }));
+        const left = { close: 0, skip: 0, mark: 0 };
+        const m = await mount(h(MasteryGateModal, {
+            isOpen: true, onClose() { left.close++; }, nodeId: 3, nodeTitle: 'Adding', projectId: 1, onPassed() { },
+            advisory: true, onSkip() { left.skip++; }, onMarkAnyway() { left.mark++; },
+        }));
+        check('while the answers are being given the study clock runs on this topic', globalThis.__clock?.nodeId === 3, JSON.stringify(globalThis.__clock));
         for (let i = 0; i < 4; i++) {
             act(() => { buttons(m.host, '4')[0]?.click(); });
             if (i < 3) act(() => { buttons(m.host, 'Next')[0]?.click(); });
@@ -272,9 +280,23 @@ if (argv[0] === '--client') {
         check('...the question stays on screen', /Question 4 of 4/.test(text), text.slice(0, 200));
         check('...and says it is checking the answer', /Checking the answer…/.test(text), text.slice(0, 200));
         check('...the X is held until the result is in', !!closeButton(m.host) && closeButton(m.host).disabled, closeButton(m.host) ? 'the X is live' : 'no X');
+        // Skip, Mark done, Previous and Next are the other ways out of, or
+        // around, a sitting whose result has not come back; the answer input
+        // and the report flag sit in the body, which is inert.
+        const held = ['Skip topic', 'Mark done without the check', 'Previous'].map(l => [l, buttons(m.host, l)[0]]);
+        for (const [label, b] of held) check(`...${label} is held until the result is in`, !!b && b.disabled, b ? 'it is live' : 'no button');
+        act(() => { for (const [, b] of held) b?.click(); });
+        check('...pressing them does nothing', left.skip === 0 && left.mark === 0 && left.close === 0, JSON.stringify(left));
+        const body = m.host.querySelector('[inert]');
+        check('...the answers and the report flag cannot change under the grading (the body is inert)',
+            !!body && !!body.querySelector('[role="radio"], input, textarea, button') && !!body.textContent.includes('Question 3?'), body ? body.textContent.slice(0, 120) : 'nothing is inert');
+        act(() => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+        check('...Escape does not close it either', left.close === 0, JSON.stringify(left));
+        check('...and the grading wait is not counted as time on the topic', globalThis.__clock === null, JSON.stringify(globalThis.__clock));
         await act(async () => { release({ passed: false, pass_threshold: 0.8 }); });
         await settle();
         check('...and the result then takes the screen', /Not Yet Mastered/.test(m.host.textContent) && !!closeButton(m.host) && !closeButton(m.host).disabled, m.host.textContent.slice(0, 200));
+        check('...with nothing inert, and the clock back on the topic', !m.host.querySelector('[inert]') && globalThis.__clock?.nodeId === 3, JSON.stringify(globalThis.__clock));
         m.done();
     }
     {
@@ -313,7 +335,8 @@ if (argv[0] === '--client') {
         check('...and the header counts it as answered', /1\/1 answered/.test(m.host.textContent), m.host.textContent.slice(0, 200));
         await act(async () => { submit?.click(); });
         await settle();
-        check('...and it is graded as the served order (one question asked)', !!sent && sent[3] === 1, JSON.stringify(sent?.slice(2, 4)));
+        // The review argument carries what was graded: the served order, not nothing.
+        check('...and it is graded as the served order', !!sent && sent[3] === 1 && sent[7]?.[0]?.answer === JSON.stringify(['b', 'c', 'a']), JSON.stringify(sent?.slice(2, 4)) + ' ' + JSON.stringify(sent?.[7]?.map(r => r.answer)));
         m.done();
     }
     {

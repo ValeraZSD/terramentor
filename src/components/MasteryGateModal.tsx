@@ -579,7 +579,7 @@ export default function MasteryGateModal({
     // The check, and reading its results back, is time on this topic. Waiting
     // for its questions to be drawn or written is not.
     useStudyClock(
-        questionPhase || (submitted && !loading) ? { nodeId, activity: 'checks' } : null,
+        (questionPhase && !submitting) || (submitted && !loading) ? { nodeId, activity: 'checks' } : null,
         { enabled: isOpen, layer: 'session' },
     );
 
@@ -636,7 +636,9 @@ export default function MasteryGateModal({
                     </div>
                 )}
 
-                <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
+                {/* inert while grading: the answers sent are the ones on screen,
+                    and the input and the report flag cannot change them. */}
+                <div inert={submitting} className="flex-1 min-h-0 overflow-auto px-6 py-4">
                     {loading && !submitted && (
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
@@ -967,21 +969,21 @@ export default function MasteryGateModal({
                             tucked under the row reads as an afterthought. */}
                         <div className="flex flex-wrap items-center gap-2">
                             {offerSkip && (
-                                <Button variant="quiet" onClick={onSkip}>
+                                <Button variant="quiet" onClick={onSkip} disabled={submitting}>
                                     {t("Skip topic")}
                                 </Button>
                             )}
                             {offerMarkAnyway && (
-                                <Button variant="quiet" onClick={onMarkAnyway}>
+                                <Button variant="quiet" onClick={onMarkAnyway} disabled={submitting}>
                                     {t("Mark done without the check")}
                                 </Button>
                             )}
                             <div className="ml-auto flex gap-2">
-                                <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0}>
+                                <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0 || submitting}>
                                     {t("Previous")}
                                 </Button>
                                 {currentQ < questions.length - 1 ? (
-                                    <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)}>
+                                    <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)} disabled={submitting}>
                                         {t("Next")}
                                     </Button>
                                 ) : nothingLeft ? (

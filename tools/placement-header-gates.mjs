@@ -336,7 +336,7 @@ if (PlacementModal) {
         ok('an answer that fails to save shows why', dialogText().includes('The server dropped the answer'), dialogText().slice(0, 200));
         await pick();
         await settle();
-        ok('…and the banner is gone once the next try is recorded', !dialogText().includes('The server dropped the answer') && !!button('Next'), dialogText().slice(0, 200));
+        ok('…and the banner is gone when the next try starts',!dialogText().includes('The server dropped the answer') && !!button('Next'), dialogText().slice(0, 200));
         await act(() => r.unmount());
         host.remove();
     }
