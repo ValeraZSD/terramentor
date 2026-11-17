@@ -11,6 +11,7 @@ import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
+import { useDragA11y, useDragKeyboard, nodeTitle } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -83,8 +84,10 @@ export default function NodeTree() {
         useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
         // Touch: require a short press-and-hold before a drag begins, so a normal
         // swipe scrolls the page and only a deliberate long-press moves anything.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(nodeTitle);
 
     const activeRowId = drag?.kind === 'row' ? drag.id : null;
     const activeCategory = drag?.kind === 'card' ? (tree.find(n => n.id === drag.id) ?? null) : null;
@@ -276,6 +279,7 @@ export default function NodeTree() {
             <div ref={scrollRef} className="flex-1 overflow-auto p-6">
                 <DndContext
                     sensors={sensors}
+                    accessibility={dragA11y}
                     collisionDetection={collisionDetection}
                     onDragStart={handleDragStart}
                     onDragMove={track}

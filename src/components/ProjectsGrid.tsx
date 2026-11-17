@@ -40,6 +40,7 @@ import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
+import { useDragA11y, useDragKeyboard, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
@@ -151,8 +152,10 @@ export default function ProjectsGrid() {
         useSensor(MouseSensor, { activationConstraint: { distance: 10 } }),
         // Touch: require a short press-and-hold before a drag begins, so a normal
         // swipe scrolls the page and only a deliberate long-press reorders a card.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(projectName);
 
     // "Create your first project" (the welcome's last step, the home checklist)
     // arrives asking for the creation dialog, not the list it sits behind. The
@@ -215,6 +218,25 @@ export default function ProjectsGrid() {
         } catch (e: any) {
             // This drop's flash only: the card may have been dropped again since.
             endDropFlashIf(`project:${draggedId}`, flash);
+            await loadProjects();
+            addToast('error', t("Failed to move project"), e.message);
+        }
+    };
+
+    // The menu's Move earlier / Move later: the two cards trade places in the
+    // one stored order, the same write a drag ends in.
+    const swapProjects = async (id: number, otherId: number) => {
+        const a = projects.findIndex(p => p.id === id);
+        const b = projects.findIndex(p => p.id === otherId);
+        if (a < 0 || b < 0) return;
+        const newOrder = [...projects];
+        [newOrder[a], newOrder[b]] = [newOrder[b], newOrder[a]];
+        setProjects(newOrder);
+        const flash = flashAfterDrop(`project:${id}`);
+        try {
+            await api.reorderProjects(newOrder.map(p => p.id));
+        } catch (e: any) {
+            endDropFlashIf(`project:${id}`, flash);
             await loadProjects();
             addToast('error', t("Failed to move project"), e.message);
         }
@@ -339,6 +361,7 @@ export default function ProjectsGrid() {
                                 Move to active). */}
                             <DndContext
                                 sensors={sensors}
+                                accessibility={dragA11y}
                                 collisionDetection={closestCorners}
                                 measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                                 onDragStart={handleDragStart}
@@ -346,8 +369,17 @@ export default function ProjectsGrid() {
                             >
                                 <SortableContext items={activeProjects.map(p => p.id)} strategy={rectSortingStrategy}>
                                     <div className={GRID}>
-                                        {activeProjects.map(project => (
-                                            <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
+                                        {activeProjects.map((project, i) => (
+                                            <ProjectCard
+                                                key={project.id}
+                                                project={project}
+                                                schedule={schedule.get(project.id)}
+                                                onScheduleChanged={loadSchedule}
+                                                onMove={{
+                                                    up: i > 0 ? () => void swapProjects(project.id, activeProjects[i - 1].id) : undefined,
+                                                    down: i < activeProjects.length - 1 ? () => void swapProjects(project.id, activeProjects[i + 1].id) : undefined,
+                                                }}
+                                            />
                                         ))}
                                     </div>
                                 </SortableContext>

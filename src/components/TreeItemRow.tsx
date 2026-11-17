@@ -9,9 +9,10 @@ import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import type { FlatItem } from '../utils/treeDnd';
 import { useDropFlash } from '../hooks/useDropFlash';
+import { useSiblingMove } from '../hooks/useDragA11y';
 import {
     Circle, Clock, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown,
-    FileText, GripVertical, MoreVertical, MinusCircle, SkipForward, CornerDownRight, BookOpen,
+    FileText, GripVertical, MoreVertical, MinusCircle, SkipForward, CornerDownRight, BookOpen, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import HeadStartMark from './HeadStartMark';
 import { useTranslation } from 'react-i18next';
@@ -70,6 +71,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     const hasChildren = node.children.length > 0;
     const studyNode = useStore(s => s.studyNode);
     const currentProjectId = useStore(s => s.currentProjectId);
+    const move = useSiblingMove(node);
     const isLeaf = isLeafNode(node);
     const isNote = !!node.is_note;
     const isExpanded = expanded[node.id] ?? true;
@@ -183,7 +185,11 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                     onClick={cycleStatus}
                     aria-label={isLeaf ? t("Cycle status of {{title}}", { title: node.title }) : undefined}
                     title={isLeaf && hoverCapable ? t("Click to cycle status · Shift-click to skip") : undefined}
-                    className={`shrink-0 ${isLeaf ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
+                    // 24px to press (WCAG 2.5.8) around a 16px icon: the padding
+                    // is taken back by the margin, inside the row's 6px gap, on
+                    // every side but the right, where the title's own `-mx-1`
+                    // would cover 2px of it.
+                    className={`shrink-0 -my-1 -ml-1 p-1 rounded ${isLeaf ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
                     disabled={!isLeaf}
                 >
                     {getStatusIcon()}
@@ -229,6 +235,16 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                         {isLeaf && node.status !== 'skipped' && (
                             <MenuItem onSelect={() => skipNode(node.id)} icon={<SkipForward className="w-4 h-4" />}>
                                 {t("Skip topic")}
+                            </MenuItem>
+                        )}
+                        {move.up && (
+                            <MenuItem onSelect={move.up} icon={<ArrowUp className="w-4 h-4" />}>
+                                {t("Move up")}
+                            </MenuItem>
+                        )}
+                        {move.down && (
+                            <MenuItem onSelect={move.down} icon={<ArrowDown className="w-4 h-4" />}>
+                                {t("Move down")}
                             </MenuItem>
                         )}
                         <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>

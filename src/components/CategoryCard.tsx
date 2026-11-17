@@ -17,7 +17,10 @@ import {
   MoreVertical,
   FolderOpen,
   FileText,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
+import { useSiblingMove } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -48,6 +51,7 @@ interface Props {
 
 export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndicator }: Props) {
   const { t } = useTranslation();
+  const move = useSiblingMove(node);
   const selectNode = useStore((s) => s.selectNode);
   const createNode = useStore((s) => s.createNode);
   const deleteNode = useStore((s) => s.deleteNode);
@@ -142,7 +146,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
             {...attributes}
             {...listeners}
             title={t("Drag to reorder (press and hold on touch)")}
-            className="flex justify-center py-2 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
+            className="flex justify-center py-2.5 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
           >
             <div className="flex gap-1">
               {[...Array(5)].map((_, i) => (
@@ -191,6 +195,16 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   <MenuItem onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
                     {t("Add Item")}
                   </MenuItem>
+                  {move.up && (
+                    <MenuItem onSelect={move.up} icon={<ArrowUp className="w-4 h-4" />}>
+                      {t("Move up")}
+                    </MenuItem>
+                  )}
+                  {move.down && (
+                    <MenuItem onSelect={move.down} icon={<ArrowDown className="w-4 h-4" />}>
+                      {t("Move down")}
+                    </MenuItem>
+                  )}
                   <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                     {t("Delete")}
                   </MenuItem>
