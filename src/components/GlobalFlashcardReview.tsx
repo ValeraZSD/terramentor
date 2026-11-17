@@ -871,16 +871,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                             and a real button for a keyboard or a screen reader
                             (the plate above is content, not a control). */}
                         <div className="relative">
-                        {/* An outline, not a filled block: the card is what the
-                            learner looks at, and a green bar under every
-                            question shouted over it. */}
+                        {/* The card's full width (an easy target on a phone), but
+                            an outline, not a fill: the card is what the learner
+                            looks at, and a green bar under every question
+                            shouted over it. */}
                         {!queue.flipped && (
-                            <div className="absolute inset-0 z-10 flex items-center justify-center">
-                                <Button ref={revealRef} variant="neutral" size="lg" onClick={() => queue.setFlipped(true)}
-                                    className="min-w-[12rem]">
-                                    {t("Reveal answer")}
-                                </Button>
-                            </div>
+                            <Button ref={revealRef} variant="neutral" size="lg" block onClick={() => queue.setFlipped(true)}
+                                className="absolute inset-0 z-10 h-full">
+                                {t("Reveal answer")}
+                            </Button>
                         )}
                         <div ref={ratingsRef} role="group" aria-label={t("How well did you know this?")} tabIndex={-1}
                             className={`grid grid-cols-4 gap-2 sm:gap-3 transition-opacity outline-none ${queue.flipped ? '' : 'invisible opacity-0'}`} aria-hidden={!queue.flipped}>
