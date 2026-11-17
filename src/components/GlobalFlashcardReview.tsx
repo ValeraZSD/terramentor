@@ -866,16 +866,12 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         </>
                     ) : (
                         <>
-                        <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                            {queue.flipped ? (
-                                t("How well did you know this?")
-                            ) : (
-                                hasKeyboard ? (
-                                    <>{t("Click the card or press")}{' '}<kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-xs">Space</kbd> {t("to reveal the answer")}</>
-                                ) : (
-                                    t("Tap the card to reveal the answer")
-                                )
-                            )}
+                        {/* Before the flip the Reveal answer button says what to
+                            do (and the header shows its key), so the line stays
+                            empty: it only holds its height for the question
+                            the ratings answer. */}
+                        <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400" aria-hidden={!queue.flipped}>
+                            {queue.flipped ? t("How well did you know this?") : ' '}
                         </p>
                         {/* Before the flip, Reveal answer covers the row the
                             ratings will fill: the same place under the thumb,
