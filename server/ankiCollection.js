@@ -157,7 +157,7 @@ export function readCollection(path) {
         // card (type 0) `due` is its position in the new-card queue, the author's
         // intended sequence; on a graduated card it is a due date.
         const cardRows = handle.prepare(`
-            SELECT id, nid, did, ord, ivl, factor, reps, lapses, due, type
+            SELECT id, nid, did, ord, ivl, factor, reps, lapses, due, type, odid, odue
             FROM cards ORDER BY nid, ord
         `).all();
         const noteRows = handle.prepare('SELECT id, mid, flds, tags FROM notes').all();
