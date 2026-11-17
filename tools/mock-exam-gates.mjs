@@ -555,6 +555,21 @@ try {
         check('"Time left" sits on its own line and the time on the next, unbroken and sized to the card',
             /<p [^>]*>\{t\("Time left"\)\}<\/p>\s*<p className="[^"]*whitespace-nowrap[^"]*cqi[^"]*">\{time\}<\/p>/.test(clock));
     });
+
+    await block('16. results say nothing extra; a held Add says why', async () => {
+        const dir = join(ROOT, 'src', 'components', 'mockExam');
+        const screen = readFileSync(join(dir, 'MockSittingScreen.tsx'), 'utf8');
+        const course = readFileSync(join(dir, 'CourseMock.tsx'), 'utf8');
+        const dialog = readFileSync(join(dir, 'AddPaperDialog.tsx'), 'utf8');
+        check('neither result adds a line about topics showing it as practice',
+            !/now shows (?:this paper|in its topic) as practice/.test(screen + course));
+        check('with no name, the dialog footer says a name is needed before Add',
+            /\{!title\.trim\(\) && \(\s*<span [^>]*>\{t\("Give the paper a name to add it\."\)\}<\/span>/.test(dialog)
+                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{onClose\}>[^\n]*\n\s*<Button variant="primary"[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+        const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
+        check('the away offer\'s two buttons are full-size tap targets',
+            /takeOff\(awayOff\)/.test(offer) && /I kept writing/.test(offer) && !/size="sm"/.test(offer));
+    });
 } finally {
     server.close();
     db.close();
