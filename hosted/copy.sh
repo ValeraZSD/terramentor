@@ -10,7 +10,8 @@
 #       An online backup of each copy into $TM_BACKUP_DIR/<name>/<time>.tar.gz.
 #       Run nightly from cron (docs/HOSTING.md).
 #   hosted/copy.sh restore <name> <archive.tar.gz>
-#       Reads the archive first, then stops the copy, puts the backup in place
+#       Reads the archive first and backs the copy up as it is (kept beside
+#       its other backups), then stops it, puts the backup in place
 #       of its library and starts it. A failed check restarts it on its own
 #       library; only a restore that failed partway leaves it stopped.
 #   hosted/copy.sh remove <name> [--yes]
@@ -108,22 +109,26 @@ copies() { docker ps -a --filter label=terramentor.copy --format '{{.Label "terr
 # run already holds it (undo_new after a failed apply) goes straight on.
 PROXY_HELD=""
 proxy_apply() {
-    local mine="" n
+    local mine="" n list
     if [ -z "$PROXY_HELD" ]; then
         wait_lock _proxy
         PROXY_HELD=1
         mine=1
     fi
+    # Read once: a `remove` deletes its container before it waits for this
+    # lock, so a second read could drop a network the first one listed, and
+    # compose refuses a service on a network the file never declares.
+    list="$(copies)"
     {
         echo "# Written by copy.sh from the copies that exist. Do not edit."
         echo "services:"
         echo "  caddy:"
         echo "    networks:"
         echo "      - default"
-        for n in $(copies); do echo "      - $(network "$n")"; done
+        for n in $list; do echo "      - $(network "$n")"; done
         echo "networks:"
         echo "  default:"
-        for n in $(copies); do
+        for n in $list; do
             echo "  $(network "$n"):"
             echo "    external: true"
         done
@@ -290,8 +295,10 @@ cmd_list() {
 # Prints the archive's path as its last line, or fails with nothing kept. Every
 # step is checked by hand: `set -e` does not apply inside a function called
 # from `||` or `$( )`, which is how --all and remove call this one.
+# With "keep-all" the old archives are not thinned: the backup a restore takes
+# first must not delete the archive it is about to restore.
 backup_one() {
-    local name="$1"
+    local name="$1" thin="${2:-}"
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
     exists "$name" || { echo "copy.sh: no copy called $name" >&2; return 1; }
     local stamp dir out tmp ok=1
@@ -326,7 +333,9 @@ backup_one() {
     # Keep the newest TM_BACKUP_KEEP; the names sort by time, and only checked
     # archives are ever here.
     # NUL-separated all the way, so a TM_BACKUP_DIR with spaces stays whole.
-    find "$out" -maxdepth 1 -type f -name '*.tar.gz' -print0 | sort -z | head -z -n "-$TM_BACKUP_KEEP" | xargs -0 -r rm -f
+    if [ "$thin" != keep-all ]; then
+        find "$out" -maxdepth 1 -type f -name '*.tar.gz' -print0 | sort -z | head -z -n "-$TM_BACKUP_KEEP" | xargs -0 -r rm -f
+    fi
     echo "$out/$stamp.tar.gz"
 }
 
@@ -360,6 +369,11 @@ cmd_restore() {
     local listing
     listing="$(tar tzf - < "$archive" 2>/dev/null)" || die "$archive is not a readable archive; $name was not touched"
     [ "$(grep -cE '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing")" = 1 ] || die "$archive is not one backup made by copy.sh; $name was not touched"
+    # The library as it is now, kept before anything replaces it: a restore
+    # from the wrong archive must be one more restore away from undone.
+    local before
+    before="$(backup_one "$name" keep-all)" && [ -s "$before" ] || die "the backup of $name before the restore failed; $name was not touched"
+    echo "its library before the restore: $before"
     docker stop "$(container "$name")" >/dev/null
     # hostedCli marks the library before it starts replacing it and clears the
     # mark only when every part is in place, so even a killed restore leaves

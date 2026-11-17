@@ -344,6 +344,18 @@ try {
     const guardAt = appSrc.indexOf("app.use('/api', hostedGuard)");
     const authAt = appSrc.indexOf('mount(authApi.routes)');
     ok('the hosted guard is mounted before the public auth routes', guardAt > 0 && guardAt < authAt);
+
+    // hosted/copy.sh: the proxy's network file is written from ONE read of the
+    // copies (a remove running alongside deletes its container between two
+    // reads, and compose refuses a network the file lists but never declares),
+    // and a restore backs the copy up before it stops it.
+    const copySh = readFileSync(join(repoRoot, 'hosted', 'copy.sh'), 'utf8').replace(/^\s*#.*$/gm, '');
+    const body = (fn) => copySh.slice(copySh.indexOf(`${fn}() {`), copySh.indexOf('\n}', copySh.indexOf(`${fn}() {`)));
+    const apply = body('proxy_apply');
+    ok('copy.sh proxy_apply reads the copy list once', apply.length > 0 && (apply.match(/\$\(copies\)/g) || []).length === 1);
+    const restore = body('cmd_restore');
+    const backupAt = restore.indexOf('backup_one "$name" keep-all'), stopAt = restore.indexOf('docker stop');
+    ok('copy.sh restore backs the copy up, keeping every archive, before it stops it', backupAt > 0 && stopAt > backupAt);
 } finally {
     for (const dir of scratchRoots) rmSync(dir, { recursive: true, force: true });
 }

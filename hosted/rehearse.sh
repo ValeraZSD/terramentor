@@ -121,7 +121,11 @@ listing="$(tar tzf - < "$archive")"
 grep -q '/terramentor.db$' <<< "$listing" && grep -q '/credentials.json$' <<< "$listing" && ok "it holds the database and the credentials" || no "archive contents: $listing"
 [ "$(status "$A" "/api/projects/$id" -b "$WORK/a.jar" -X DELETE)" = 200 ] && ok "the project is deleted" || no "delete"
 c "$A" /api/projects -b "$WORK/a.jar" | grep -q 'Rehearsal course' && no "still there after delete" || ok "…and gone"
-bash "$COPY" restore "$A" "$archive"
+kept_before="$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz' | wc -l)"
+safety="$(bash "$COPY" restore "$A" "$archive" | sed -n 's/^its library before the restore: //p')"
+[ -s "$safety" ] && [ "$safety" != "$archive" ] && [ -s "$archive" ] \
+    && [ "$(find "$(dirname "$archive")" -maxdepth 1 -name '*.tar.gz' | wc -l)" = $((kept_before + 1)) ] \
+    && ok "the restore backed $A up first ($safety) and kept the archive it restored" || no "no backup before the restore: '$safety'"
 [ "$(login "$A" "$pwA" a2)" = 200 ] && ok "the same password opens the restored copy" || no "login after restore"
 c "$A" /api/projects -b "$WORK/a2.jar" | grep -q 'Rehearsal course' && ok "the project is back after the restore" || no "project not restored"
 
