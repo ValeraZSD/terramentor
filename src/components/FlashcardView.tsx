@@ -13,6 +13,7 @@ import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
@@ -53,6 +54,8 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     // `flashcards` is owned by the caller and only refetched when the session
     // closes, so the local override is what keeps the card on screen honest.
     const currentCard = stored ? { ...stored, ...(edits[stored.id] ?? {}) } : stored;
+    // A topic's cards belong to the course open in the panel.
+    const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.
@@ -69,7 +72,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             // Built inside the try: a card whose stored state the scheduler
             // cannot read throws here, and outside it the lock stayed on for
             // the rest of the session.
-            const { update, snapshot } = retryOrNew(unsent, currentCard, rating);
+            const { update, snapshot } = retryOrNew(unsent, currentCard, rating, retention);
             const saved = await api.updateFlashcard(currentCard.id, update);
             unsent.current = null;
             // The saved row is folded into `edits` for the same reason the
@@ -246,7 +249,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                             <RatingButton
                                 key={rating}
                                 rating={rating}
-                                when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
+                                when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
                                 onClick={() => handleRate(rating)}
                                 disabled={saving}
                                 className="flex-1"

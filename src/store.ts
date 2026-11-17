@@ -1634,6 +1634,15 @@ export const useStore = create<AppState>((set, get) => ({
         projectsRequest = request;
         try {
             const projects = await request;
+            // A list asked for before another one is older than it: drawn last,
+            // it would put back a row a write had already changed (a recall
+            // target set on the answer to its save). The newer load draws its
+            // own; this caller waits for it, so it still reads a list at least
+            // as new as the one it asked for.
+            if (projectsRequest !== request) {
+                if (projectsRequest) await projectsRequest.catch(() => undefined);
+                return;
+            }
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {

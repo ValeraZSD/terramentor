@@ -261,6 +261,8 @@ export const SETTING_FAMILIES = [
     // Per project, named by the project's uuid (server/projectSettings.js).
     { prefix: 'deck_new_per_day_', writable: 'server', sensitivity: 'learning', perProject: true },
     { prefix: 'teach_topics_', writable: 'server', sensitivity: 'learning', perProject: true },
+    // The course's recall target (server/decks.js `getRetention`), 0.70-0.97.
+    { prefix: 'desired_retention_', writable: 'server', sensitivity: 'learning', perProject: true },
     // Per kind of run: how long this computer's model took.
     { prefix: 'creation_avg_ms_', writable: 'server', sensitivity: 'internal' },
     { prefix: 'bulk_avg_ms_', writable: 'server', sensitivity: 'internal' },
@@ -293,7 +295,7 @@ export const SETTING_SCOPES = Object.freeze({
         'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
         'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
         'onboarding_dismissed', 'first_lesson_read_at',
-        'deck_new_per_day_', 'teach_topics_',
+        'deck_new_per_day_', 'teach_topics_', 'desired_retention_',
     ],
     device: [
         'theme', 'theme_tint', 'theme_surfaces', 'accent_color', 'app_icon_style', 'app_icon_bg', 'app_icon_radius',

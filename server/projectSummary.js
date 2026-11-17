@@ -8,7 +8,7 @@
 import db from './database.js';
 import { LEAF_NODE } from './today.js';
 import { TOPIC_NODE, projectTeaches } from './nodeRole.js';
-import { reviewDue } from './decks.js';
+import { getRetention, reviewDue } from './decks.js';
 import { getScheduleSummary } from './scheduling.js';
 import { projectProgressById } from './progress.js';
 
@@ -106,6 +106,9 @@ export function loadProjectSummaries() {
         // progress is counted in topics or in cards met, and whether the app
         // nudges for a deadline.
         project.teaches = projectTeaches(project.id);
+        // The course's recall target: every review surface schedules its cards
+        // with it (`useProjectRetention` in src/utils/projectRetention.ts).
+        project.desired_retention = getRetention(project.id);
         // The recalibration baseline is a per-leaf snapshot that only
         // server/scheduling.js reads, and it reads it from the row rather than
         // from here. On `p.*` it would ride along to every client that asks for
