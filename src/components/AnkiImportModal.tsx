@@ -183,12 +183,15 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             });
             setResult(res);
             setPhase('done');
-            await loadProjects();
         } catch (err: any) {
             setError(err.message || 'The import could not be completed.');
-        } finally {
             setBusy(false);
+            return;
         }
+        // The import is done and the screen says so: closing is allowed again,
+        // and a project list that will not refresh does not turn it into a failure.
+        setBusy(false);
+        try { await loadProjects(); } catch { /* the list refreshes on the next visit */ }
     }
 
     async function undo() {
@@ -243,7 +246,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                             {t("Your cards, plus everything this app adds on top.")}
                         </p>
                     </div>
-                    <IconButton size="sm" onClick={dismiss} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
+                    <IconButton size="sm" onClick={dismiss} disabled={busy} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
                 <div className={DIALOG_BODY}>
@@ -529,7 +532,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                         <Button onClick={undo} disabled={busy} icon={<Undo2 size={16} aria-hidden="true" />}>
                             {t("Undo")}
                         </Button>
-                        <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} icon={<ArrowRight size={16} aria-hidden="true" />}>
+                        <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} disabled={busy} icon={<ArrowRight size={16} aria-hidden="true" />}>
                             {t("Open it")}
                         </Button>
                     </DialogFooter>

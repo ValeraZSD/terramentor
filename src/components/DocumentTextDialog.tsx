@@ -33,7 +33,12 @@ export default function DocumentTextDialog({ doc, onClose }: { doc: TextDocument
     const failed = !!current?.failed;
 
     useEffect(() => {
-        if (id == null) return;
+        if (id == null) {
+            // Closed: a failure shown for this document must not be what the
+            // same document opens on next time, before its request has answered.
+            setLoaded(prev => (prev?.failed ? null : prev));
+            return;
+        }
         let live = true;
         api.getDocumentText(id)
             .then(({ content }) => { if (live) setLoaded({ id, text: content ?? '' }); })
@@ -74,7 +79,7 @@ export default function DocumentTextDialog({ doc, onClose }: { doc: TextDocument
                     </div>
                 ) : failed ? (
                     <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-                        <p>{t("Failed to load extracted text")}</p>
+                        <p role="alert">{t("Failed to load extracted text")}</p>
                         <Button size="sm" onClick={() => { setLoaded(null); setAttempt(n => n + 1); }}>{t("Retry")}</Button>
                     </div>
                 ) : text ? (

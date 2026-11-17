@@ -564,6 +564,22 @@ section('the Sources line opens only what it may, and only what is there now');
     await settle();
     check('Retry asks again and shows the text', /Beta: the text of the file/.test(document.body.textContent), document.body.textContent);
     await bad.unmount();
+
+    // Closed and opened again on the same document: the failure of the last try is
+    // not what it opens on, not for one frame, while the new request is out.
+    fails = true;
+    globalThis.__api.getDocumentText = () => (fails ? Promise.reject(new Error('offline')) : new Promise(() => { }));
+    seen.length = 0;
+    const reopened = await mount(h(Probe, { doc: { id: 4, title: 'Fourth file' } }));
+    check('control: the document that failed says so', /Failed to load extracted text/.test(document.body.textContent), document.body.textContent);
+    await reopened.render(h(Probe, { doc: null }));
+    fails = false;
+    seen.length = 0;
+    await reopened.render(h(Probe, { doc: { id: 4, title: 'Fourth file' } }));
+    check('reopening a document that failed never draws the old failure while it asks again',
+        seen.length > 0 && seen.every(s => !/Failed to load extracted text/.test(s)) && /Loading/.test(seen[seen.length - 1]),
+        JSON.stringify(seen.map(s => s.slice(0, 80))));
+    await reopened.unmount();
     delete globalThis.__api;
 }
 
