@@ -32,6 +32,8 @@ export interface FormatSpec {
     keyLabel: string;
     /** One line under an open input saying how it will be judged. */
     hint?: string;
+    /** The same line when `forgive_spelling` is on, for a format it changes. */
+    forgivingHint?: string;
     /** The label in a "question type" picker. */
     label: string;
     /** The learner's answer reads as a BLOCK (code, an ordering) rather than one line of text. */
@@ -68,6 +70,7 @@ export const ANSWER_FORMATS: Record<AnswerFormat, FormatSpec> = {
         // not after: they need to know that a missing capital will not cost
         // them the mark and a missing letter will.
         hint: k("Spelling counts; capitals and punctuation do not"),
+        forgivingHint: k("A small spelling slip is forgiven; capitals and punctuation do not count"),
         label: k("Type the answer"),
     },
     numeric: {
@@ -112,6 +115,15 @@ export const FORMAT_IDS = Object.keys(ANSWER_FORMATS) as AnswerFormat[];
 /** The spec for a question, falling back to multiple choice for a row written before a format existed. */
 export const formatOf = (question: Pick<QuizQuestion, 'type'>): FormatSpec =>
     ANSWER_FORMATS[question.type] ?? ANSWER_FORMATS.multiple_choice;
+
+/**
+ * The line under an open input, as the grader will actually judge it. A key,
+ * not text: the caller renders it through `t()`.
+ */
+export const answerHint = (question: Pick<QuizQuestion, 'type'>, forgiveSpelling: boolean): string | undefined => {
+    const { hint, forgivingHint } = formatOf(question);
+    return (forgiveSpelling && forgivingHint) || hint;
+};
 
 /**
  * What an UNTOUCHED input already answers. An ordering is an answer from the
@@ -183,6 +195,84 @@ export function acceptedAnswers(question: Pick<QuizQuestion, 'correct_answer' | 
         if (norm && !out.includes(norm)) out.push(norm);
     }
     return out;
+}
+
+/**
+ * How many letters a word may be off by and still count as a slip, by the
+ * length of the word it should have been. Mirror of `slipBudget` in
+ * `server/answerFormats.js`, which carries the reasoning.
+ */
+export function slipBudget(length: number): number {
+    if (length < 5) return 0;
+    return length < 9 ? 1 : 2;
+}
+
+/** Insert, delete, change or swap two neighbours: one edit each. */
+function editDistance(a: string, b: string): number {
+    // Only an accent may change in place, and a drop or an add may not follow
+    // straight on from another (a drop beside an add is a changed letter:
+    // hypothesis/hypotheses). See the server side.
+    const s = [...a];
+    const t = [...b];
+    const grid = (): number[][] => Array.from({ length: s.length + 1 }, () => Array(t.length + 1).fill(Infinity));
+    const kept = grid();
+    const indel = grid();
+    kept[0][0] = 0;
+    for (let i = 0; i <= s.length; i++) {
+        for (let j = 0; j <= t.length; j++) {
+            if (i > 0 && j > 0) {
+                const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
+                kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 1][j - 1], indel[i - 1][j - 1]) + cost);
+                if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                    kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 2][j - 2], indel[i - 2][j - 2]) + 1);
+                }
+            }
+            if (i > 0) indel[i][j] = Math.min(indel[i][j], kept[i - 1][j] + 1);
+            if (j > 0) indel[i][j] = Math.min(indel[i][j], kept[i][j - 1] + 1);
+        }
+    }
+    return Math.min(kept[s.length][t.length], indel[s.length][t.length]);
+}
+
+const baseLetter = (ch: string) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+function isSlipOf(word: string, key: string): boolean {
+    if (word === key) return true;
+    if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    // A script written without spaces: one "word" is a phrase (see the server side).
+    if (UNSPACED_SCRIPT.test(key)) return false;
+    const budget = slipBudget([...key].length);
+    if (budget === 0) return false;
+    const w = [...word];
+    const k = [...key];
+    if (baseLetter(w[0] || '') !== baseLetter(k[0] || '')) return false;
+    if (baseLetter(w[w.length - 1] || '') !== baseLetter(k[k.length - 1] || '')) return false;
+    return editDistance(word, key) <= budget;
+}
+
+/**
+ * The accepted spelling a typed `fill_in` answer slipped from, or null (also
+ * null for an exact match). Only consulted when the learner switched on
+ * `forgive_spelling`. Mirror of `spellingSlipOf` in `server/answerFormats.js`;
+ * `tolerant-grading-gates.mjs` runs both against one table.
+ */
+export function spellingSlipOf(question: Pick<QuizQuestion, 'type' | 'correct_answer' | 'accept'>, answer: string): string | null {
+    if (question?.type !== 'fill_in') return null;
+    const given = normalizeTyped(answer);
+    if (!given) return null;
+    const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
+    if (written.some(w => normalizeTyped(w) === given)) return null;
+    const words = given.split(' ');
+    for (const w of written) {
+        const key = normalizeTyped(w);
+        if (!key) continue;
+        const keyWords = key.split(' ');
+        if (keyWords.length === words.length && keyWords.every((k, i) => isSlipOf(words[i], k))) {
+            return String(w).trim();
+        }
+    }
+    return null;
 }
 
 /** "3.0 × 10^8", "3.0 x 10**8" — how a physics answer is written outside a programming language. */

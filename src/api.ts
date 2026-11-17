@@ -2646,6 +2646,19 @@ export const api = {
     cancelMediaDescriptions: () =>
         request<{ ok: boolean }>('/media-descriptions/cancel', { method: 'POST' }),
 
+    /** What is known about one card file: the description a screen reader reads instead. */
+    mediaInfo: (hash: string) =>
+        request<import('./types').MediaInfo>(`/media/${hash}/info`),
+
+    /** `after`: the `cursor` of the last row shown, for the next page. */
+    listMediaDescriptions: (after?: string) =>
+        request<{ items: import('./types').MediaDescriptionRow[] }>(`/media-descriptions${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+
+    setMediaDescription: (hash: string, description: string) =>
+        request<{ description: string | null; described_by: import('./types').MediaDescriber | null }>(`/media/${hash}/description`, {
+            method: 'PUT', body: JSON.stringify({ description }),
+        }),
+
     describeMedia: (hash: string, force = false) =>
         request<{ ok: boolean; description: string }>(`/media/${hash}/describe`, {
             method: 'POST', body: JSON.stringify({ force }),

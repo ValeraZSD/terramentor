@@ -538,6 +538,8 @@ interface AppState {
      *  checked against the question's tests (src/runner/); off, the model
      *  judges them as before. On unless switched off. */
     codeRunner: boolean;
+    /** `forgive_spelling`: a fill-in answer a letter or two off a long word is marked right. */
+    forgiveSpelling: boolean;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -779,6 +781,7 @@ interface AppState {
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
     setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     setCodeRunner: (on: boolean) => Promise<void>;
+    setForgiveSpelling: (on: boolean) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -955,6 +958,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
     drillTimeScale: '1',
     codeRunner: true,
+    forgiveSpelling: false,
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1340,6 +1344,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'code_runner', on ? 'on' : 'off', before, on, value => set({ codeRunner: value }));
     },
 
+    setForgiveSpelling: async (on) => {
+        const before = get().forgiveSpelling;
+        set({ forgiveSpelling: on });
+        await saveSetting(get, 'forgive_spelling', on ? 'on' : 'off', before, on, value => set({ forgiveSpelling: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1438,11 +1448,12 @@ export const useStore = create<AppState>((set, get) => ({
             // server makes and it fails closed on anything else.
             const aiWebSearch = settings.ai_web_search === 'on';
             const codeRunner = settings.code_runner !== 'off';
+            const forgiveSpelling = settings.forgive_spelling === 'on';
             // Written by the welcome screen, or by the migration in
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
