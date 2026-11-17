@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
 import { onActivateKey } from '../utils/a11y';
+import { installedEditionOf } from '../utils/projectFiles';
 
 /** What this dropzone accepts. An Anki deck is here because it is where
  *  someone holding one looks first — "import" is the word they are after,
@@ -20,6 +21,7 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
     const openAnkiImport = useStore(s => s.openAnkiImport);
+    const openCourseUpdate = useStore(s => s.openCourseUpdate);
     const loadProjects = useStore(s => s.loadProjects);
     const addToast = useStore(s => s.addToast);
 
@@ -38,6 +40,14 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         }
         setImporting(true);
         try {
+            // A newer edition of a course already here updates it in place,
+            // after a preview, instead of arriving as a second copy.
+            const edition = await installedEditionOf(file);
+            if (edition) {
+                onDone();
+                openCourseUpdate(file, edition);
+                return;
+            }
             const isBundle = /\.(studyvault|zip)$/i.test(file.name);
             let newProject;
             if (isBundle) {

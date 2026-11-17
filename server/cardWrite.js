@@ -8,6 +8,7 @@ import db from './database.js';
 import { hasAppReview, logReview, normalizeRating, undoLastReview, undoReview } from './reviewLog.js';
 import { recordCardEvidence } from './cardEvidence.js';
 import { cardEdited, parkedByReport } from './itemReports.js';
+import { markLearnerEdit } from './courseUpdate.js';
 
 /**
  * Apply `body` (the fields PUT /api/ai/flashcards/:id takes) to card `id`.
@@ -174,6 +175,9 @@ export function writeCard(id, body = {}) {
     const textEdited = ['front', 'back', 'extra', 'extra_front'].some(k => body[k] !== undefined && asText(body[k]) !== asText(before[k]));
     if (!isReview && undo_review !== true && textEdited) {
         try { cardEdited(before.id); } catch (err) { console.error('[cards] report settle failed:', err.message); }
+        // A course update that also changes one of these fields asks first.
+        markLearnerEdit('card', before.uuid, ['front', 'back', 'extra', 'extra_front']
+            .filter(k => body[k] !== undefined && asText(body[k]) !== asText(before[k])));
     }
     return { status: 200, json: db.prepare('SELECT * FROM flashcards WHERE id = ?').get(id) };
 }

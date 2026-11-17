@@ -6,7 +6,7 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
 
@@ -582,6 +582,20 @@ function bundleParams(options?: BundleExportOptions): URLSearchParams {
     });
 }
 
+/** A course file sent to the course-update door, multipart like the bundle door. */
+async function courseUpdateUpload<T>(step: 'inspect' | 'commit', file: File, fields: Record<string, string> = {}): Promise<T> {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    form.append('file', file);
+    const res = await apiFetch(`${BASE}/course-updates/${step}`, { method: 'POST', body: form });
+    if (!res.ok) {
+        let msg = `Update failed: ${res.status}`;
+        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+        throw Object.assign(new Error(msg), { status: res.status });
+    }
+    return res.json();
+}
+
 function filenameFrom(res: Response, fallback: string): string {
     const cd = res.headers.get('Content-Disposition') || '';
     const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
@@ -1093,6 +1107,21 @@ export const api = {
         }
         return res.json();
     },
+
+    // UPDATING AN INSTALLED COURSE FROM A NEWER FILE
+
+    /** What a course file would change in the copy of its course already in
+     *  the library. Writes nothing. */
+    inspectCourseUpdate: (file: File) => courseUpdateUpload<CourseUpdatePreview>('inspect', file),
+    /** Apply it. `choices` takes the file's version of a conflict by its key. */
+    commitCourseUpdate: (file: File, projectId: number, choices: Record<string, 'file' | 'mine'>) =>
+        courseUpdateUpload<{ projectId: number; summary: CourseUpdateSummary; undo: { available: boolean } }>('commit', file, {
+            projectId: String(projectId), choices: JSON.stringify(choices),
+        }),
+    courseUpdateUndoAvailable: (projectId: number) =>
+        request<{ available: boolean; at?: string; version?: string | null }>(`/course-updates/${projectId}/undo`),
+    undoCourseUpdate: (projectId: number) =>
+        request<{ ok: true }>(`/course-updates/${projectId}/undo`, { method: 'POST' }),
 
     // SCHEDULING
 
