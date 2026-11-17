@@ -129,7 +129,11 @@ const SCREENS = {
 };
 
 const SIZES = { desktop: { width: 1280, height: 800, scale: 1 }, phone: { width: 390, height: 844, scale: 1 } };
-const LOOKS = looks ? ['light', 'dark', 'contrast'] : ['light'];
+const LOOKS = ['light', 'dark', 'contrast'];
+// Without --looks: light everywhere, plus one dense screen in high contrast,
+// where a control's frame is drawn and an ancestor can cut it.
+const ALWAYS = new Set(['topic desktop contrast']);
+const runs = (screen, viewport, look) => looks || look === 'light' || ALWAYS.has(`${screen} ${viewport} ${look}`);
 const wanted = Object.keys(SCREENS).filter((s) => !only || s.includes(only));
 if (!wanted.length) {
     console.log(`  FAIL  --only ${only} names no screen (screens: ${Object.keys(SCREENS).join(', ')})\n0 passed, 1 failed`);
@@ -138,6 +142,7 @@ if (!wanted.length) {
 
 const states = {};
 for (const screen of wanted) for (const viewport of Object.keys(SIZES)) for (const look of LOOKS) for (const mode of ['off', 'on']) {
+    if (!runs(screen, viewport, look)) continue;
     states[`${screen} ${viewport} ${look} ${mode}`] = async (page, ctx) => {
         const { width, height } = SIZES[viewport];
         await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
@@ -222,7 +227,44 @@ const MEASURE = `(() => {
         if (el.closest('[data-gate-probe]')) { if (el.dataset.probe === 'text') probe.text = { small: size < minText }; continue; }
         if (size < minText) text.push({ text: n.nodeValue.trim().slice(0, 40), size: (size / rem).toFixed(3) + 'rem', where: where(el) });
     }
-    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text, mins, probe, examined: { controls, text: seen.size } };
+    // In forced colours every control wears a frame (its outline). An
+    // ancestor that clips its overflow and does not scroll must leave that
+    // frame whole: a title button 4px wider than its truncating heading kept
+    // only its right edge, a stray "]" beside the title.
+    const cut = [];
+    if (matchMedia('(forced-colors: active)').matches) {
+        for (const el of document.querySelectorAll(CONTROLS)) {
+            if (!shown(el) || el.closest('[data-gate-probe]')) continue;
+            const cs = getComputedStyle(el);
+            const w = parseFloat(cs.outlineWidth) || 0;
+            if (cs.outlineStyle === 'none' || w === 0) continue;
+            const out = w + (parseFloat(cs.outlineOffset) || 0);
+            if (out <= 0) continue;
+            const r = el.getBoundingClientRect();
+            // Only boxes on the containing-block chain clip: a fixed box (the
+            // phone's detail sheet) escapes every ancestor but a transformed
+            // one, an absolute box every ancestor below its positioned one.
+            let pos = cs.position;
+            for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+                const as = getComputedStyle(a);
+                const holds = as.transform !== 'none' || as.filter !== 'none';
+                if (pos === 'fixed' && !holds) continue;
+                if (pos === 'absolute' && as.position === 'static' && !holds) continue;
+                pos = as.position;
+                if (as.overflowX === 'visible' && as.overflowY === 'visible') continue;
+                // A scroller cuts what is scrolled out of view; that is not a defect.
+                if (a.scrollHeight > a.clientHeight + 1 || a.scrollWidth > a.clientWidth + 1) break;
+                const b = a.getBoundingClientRect();
+                const box = { l: b.left + a.clientLeft, t: b.top + a.clientTop, r: b.left + a.clientLeft + a.clientWidth, b: b.top + a.clientTop + a.clientHeight };
+                const sides = [];
+                const past = (side, px) => { if (px > 0.5) sides.push(side + ' ' + px.toFixed(1) + 'px'); };
+                if (as.overflowX !== 'visible') { past('left', box.l - (r.left - out)); past('right', r.right + out - box.r); }
+                if (as.overflowY !== 'visible') { past('top', box.t - (r.top - out)); past('bottom', r.bottom + out - box.b); }
+                if (sides.length) { cut.push({ name: name(el), sides: sides.join(', '), where: where(el), by: where(a) }); break; }
+            }
+        }
+    }
+    return { attr: document.documentElement.hasAttribute('data-larger-ui'), targets, text, mins, probe, cut, examined: { controls, text: seen.size } };
 })()`;
 
 // Three known controls put on every page, so the counts cannot pass by
@@ -285,6 +327,7 @@ for (const [state, m] of Object.entries(seen)) {
     const on = state.endsWith(' on');
     check(`${state}: the page ${on ? 'carries' : 'does not carry'} data-larger-ui`, m.attr === on);
     // A screen that never rendered would pass every count below with nothing in it.
+    if (state.includes(' contrast ')) check(`${state}: every control's high-contrast frame is whole`, m.cut.length === 0, list(m.cut, (x) => `${x.sides} cut  "${x.name}"  ${x.where}  (by ${x.by})`));
     check(`${state}: the screen rendered (${m.examined.controls} controls, ${m.examined.text} text runs)`, m.examined.controls >= 5 && m.examined.text >= 5);
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,

@@ -532,6 +532,12 @@ html[data-larger-ui] [data-checkbox] > input {
   [data-segmented="chips"] > button[data-segment] {
     border: 1px solid ButtonText;
   }
+  /* A rail scrolls sideways, and overflow-x clips its top and bottom too:
+     1px of room round the tabs keeps each tab's frame whole. `:where`, so a
+     rail's own px-* utility still wins. */
+  :where(.rail-scroll) {
+    padding: 1px;
+  }
   [aria-current="page"],
   [aria-current="true"],
   [aria-pressed="true"],
