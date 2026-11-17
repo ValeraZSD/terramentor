@@ -1416,10 +1416,10 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     const targetShown = data(await hostCall('review_next', { sitting: targetSitting })).card;
     await hostCall('review_reveal', { sitting: targetSitting, presentationId: targetShown?.presentationId });
     await hostCall('review_rate', { sitting: targetSitting, presentationId: targetShown?.presentationId, rating: 'easy' });
-    const atTarget = db.prepare('SELECT last_interval, last_reviewed FROM flashcards WHERE id = ?').get(targetCard);
-    const ratedAt = new Date(atTarget.last_reviewed || 0);
-    const wanted = computeSrsUpdate(unrated, 'easy', ratedAt, 0.8).last_interval;
-    const standardInterval = computeSrsUpdate(unrated, 'easy', ratedAt).last_interval;
+    const atTarget = db.prepare('SELECT last_interval FROM flashcards WHERE id = ?').get(targetCard);
+    // Pinned, never the clock: a new card's Easy is the same at any instant after it is due.
+    const wanted = computeSrsUpdate(unrated, 'easy', TWIN_RATED_AT, 0.8).last_interval;
+    const standardInterval = computeSrsUpdate(unrated, 'easy', TWIN_RATED_AT).last_interval;
     ok('a rating in the view schedules at the course\'s recall target, not the standard 90%', storedTarget === 0.8 && targetShown?.cardId === targetCard
         && atTarget.last_interval === wanted && wanted !== standardInterval, `${JSON.stringify(atTarget)}; wanted ${wanted}, standard ${standardInterval}`);
 
