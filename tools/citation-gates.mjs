@@ -88,6 +88,18 @@ const overlapOnce = resolveCitations('X. [[src:1]] Y. [[src:2]]', OVERLAP);
 const overlapTwice = resolveCitations(overlapOnce.text, OVERLAP);
 check('a line whose titles hold the separator is kept on a second pass',
     overlapOnce.text.endsWith('Sources: A · B · C') && overlapTwice.text === overlapOnce.text, JSON.stringify(overlapTwice.text));
+// A page's own title must not be able to close its link and open another.
+const BRACKET = [{ n: 1, title: 'x\\](https://evil.example)', url: 'https://real.example/page' }];
+const bracketLine = splitSourcesTail(resolveCitations('A. [[src:1]]', BRACKET).text).sources;
+check('a title holding a backslash and a bracket stays one link to the real page',
+    bracketLine.length === 1 && bracketLine[0].kind === 'web' && bracketLine[0].href === 'https://real.example/page', JSON.stringify(bracketLine));
+// The server finds a cited document by its title as the line wrote it.
+check('a document title holding a backslash is written the same way on every pass',
+    resolveCitations('A. [[src:1]]', [{ n: 1, title: 'a\\b' }]).text.endsWith('Sources: a\\\\b'));
+// ...and the reader shows the title as it was, one backslash.
+const slashLine = splitSourcesTail(resolveCitations('A. [[src:1]] B. [[src:2]]', [{ n: 1, title: 'a\\b' }, { n: 2, title: 'C:\\x', url: 'https://real.example/c' }]).text).sources;
+check('a title holding a backslash is shown with one backslash, not two',
+    slashLine[0]?.label === 'a\\b' && slashLine[1]?.label === 'C:\\x', JSON.stringify(slashLine));
 // The idempotency test is the stored TAIL, never any line that happens to
 // begin "Sources: " — a history lesson or answer can say exactly that.
 const sourcesLine = resolveCitations('Historians sort evidence in two kinds.\nSources: primary and secondary differ in who wrote them. [[src:1]]\n\nA diary is primary. [[src:2]]', SOURCES);
