@@ -153,6 +153,10 @@ section('6b. high contrast fills only the chosen segment and the armed rating');
         && rest < block.indexOf('[aria-current="page"]'));
     // ...but only on controls: a region focused from code (the rating row,
     // a dialog) wore a square frame round its buttons.
+    // The at-rest frame is 1px out; a state outline straddling the edge (2px at
+    // -1px) ends at the same place, so the current button is not a box smaller.
+    check('a state outline ends where the at-rest frame does',
+        /\[aria-current="page"\],[^{]*\{\s*outline: 2px solid Highlight;\s*outline-offset: -1px;/.test(block));
     check('a region that is not a control wears no frame at rest',
         /\.outline-none:where\(:not\(:focus-visible, button, a,[^)]*\[role="button"\][^)]*\)\) \{\s*outline-style: none;/.test(block)
         && block.indexOf('outline-style: none') > rest && block.indexOf('outline-style: none') < block.indexOf('[aria-current="page"]'));

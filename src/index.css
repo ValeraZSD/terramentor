@@ -464,8 +464,11 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
   [role="tab"][aria-selected="true"],
   [role="radio"][aria-checked="true"],
   [role="option"][aria-selected="true"] {
+    /* Straddles the edge (1px out, 1px in), so its outer edge meets the
+       at-rest 1px frame of the controls beside it: same size, thicker line.
+       At -2px the current page's button drew a box 2px smaller. */
     outline: 2px solid Highlight;
-    outline-offset: -2px;
+    outline-offset: -1px;
   }
   /* A chosen segment or an armed rating is filled, not only outlined: a thin
      outline beside the system's thick button borders read as the unchosen one.
