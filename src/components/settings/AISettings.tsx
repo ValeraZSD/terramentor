@@ -257,18 +257,39 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         writeSetting('ai_provider_order', JSON.stringify(next)).catch(e => console.error('Saving ai_provider_order failed:', e));
     };
 
+    // The machines behind a router are listed per MODEL, so the list belongs to
+    // the model and connection it was asked for. `endpointsFor` is what the one
+    // on screen must be about; an answer for another is dropped, and a list that
+    // was open is asked again for the new one. A request that failed is no
+    // answer: the list stays unasked, so opening it again retries, rather than
+    // saying the endpoint has nothing to publish.
+    const endpointsKey = `${activeConnection?.id ?? ''}|${openaiModel}`;
+    const endpointsFor = useRef(endpointsKey);
+    const endpointsPending = useRef<string | null>(null);
+    const endpointsWanted = useRef(false);
     const loadServingEndpoints = async () => {
-        if (endpointsLoading) return;
+        endpointsWanted.current = true;
+        const asked = endpointsKey;
+        if (endpointsPending.current === asked) return;
+        endpointsPending.current = asked;
         setEndpointsLoading(true);
         try {
-            const result = await api.getServingEndpoints();
-            setServingEndpoints(result.available ? result.endpoints : []);
+            const result = await api.getServingEndpoints(openaiModel || undefined);
+            if (endpointsFor.current === asked) setServingEndpoints(result.available ? result.endpoints : []);
         } catch {
-            setServingEndpoints([]);   // an endpoint that will not say is the same as one with nothing to say
+            if (endpointsFor.current === asked) setServingEndpoints(null);
         } finally {
-            setEndpointsLoading(false);
+            if (endpointsPending.current === asked) {
+                endpointsPending.current = null;
+                setEndpointsLoading(false);
+            }
         }
     };
+    useEffect(() => {
+        endpointsFor.current = endpointsKey;
+        setServingEndpoints(null);
+        if (endpointsWanted.current && activeConnection?.kind === 'openrouter') void loadServingEndpoints();
+    }, [endpointsKey]);
 
     // The levels the thinking control may offer follow the MODEL (and so the
     // connection): asked whenever either changes, never on opening Settings
@@ -284,8 +305,9 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     }, [currentModelForLevels, provider, activeConnection?.id]);
 
     // Validate selectedModel when models list changes
-    // Ensures selectedModel always points to an actually installed model.
-    // Handles :latest mismatches, deleted models, and auto-selection.
+    // Corrects a saved name to the installed tag (":latest" mismatches). A saved
+    // name that is not installed at all is left as it is: it is never swapped
+    // for another model, and removing the one in use clears it (handleDeleteModel).
     //
     // The one save that stays in an effect, because no press causes it: it
     // writes only a CORRECTION derived from loaded settings and the installed
@@ -476,8 +498,15 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         try {
             await api.deleteModel(modelName);
             addToast('success', tr("Model \"{{modelName}}\" deleted", { modelName }));
-            // Refresh the models list; validation effect handles selecting
-            // a valid model if the deleted one was active.
+            // The saved name of a model that is gone is kept by the reconcile
+            // effect (it never invents a model), so the one in use is cleared
+            // here: the field then asks for a model, and no call goes out
+            // naming one the server no longer has.
+            const bare = (n: string) => n.replace(/:latest$/, '');
+            if (selectedModel && bare(selectedModel) === bare(modelName)) {
+                setSelectedModel('');
+                saveSelectedModel('');
+            }
             await loadModels();
         } catch (e: any) {
             addToast('error', tr("Failed to delete model"), e.message);
