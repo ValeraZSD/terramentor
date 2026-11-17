@@ -70,8 +70,8 @@ const stub = createServer((req, res) => {
         const system = msgs.find(m => m.role === 'system')?.content || '';
         const user = msgs.find(m => m.role === 'user')?.content || '';
         let content;
-        if (/checking a question before it is shown|audit the MODEL ANSWER/.test(system)) {
-            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE)\w*/) || [])[0] || 'SILENT';
+        if (/checking a question before it is shown|checking an ORDERING question|audit the MODEL ANSWER/.test(system)) {
+            const tag = (user.match(/\b(CONFIRM|DISPUTE|SILENT|WORKING|UNSURE|LOWERSEQ)\w*/) || [])[0] || 'SILENT';
             verifierCalls.set(tag, (verifierCalls.get(tag) || 0) + 1);
             content = tag === 'WORKING'
                 // Working first, TeX braces and all, then the verdict in a fence.
@@ -79,9 +79,16 @@ const stub = createServer((req, res) => {
                     + JSON.stringify({ verdict: 'ok', answer: '4', eliminable: 0, reason: 'With f\'(0)=0 the quotient is 2e^{-1/h^2}/h^4.' }) + '\n```'
                 : tag.startsWith('CONFIRM') ? JSON.stringify({ verdict: 'ok', answer: '4', reason: 'agrees', eliminable: 0 })
                 : tag.startsWith('DISPUTE') ? JSON.stringify({ verdict: 'ok', answer: '5', reason: 'the key is wrong', eliminable: 0 })
+                // The order solved cold, every step written in lower case.
+                : tag.startsWith('LOWERSEQ') ? JSON.stringify({ verdict: 'ok', answer: ['boil', 'cool', 'serve'], reason: 'agrees', eliminable: 0 })
                 // A word the prompt never offered, with an answer that matches the key.
                 : tag.startsWith('UNSURE') ? JSON.stringify({ verdict: 'unsure', answer: '4', reason: 'not certain', eliminable: 0 })
                 : 'I would rather not say.';
+        } else if (/checking a practice drill/.test(system)) {
+            // A cold drill answer: the prompt repeated in lower case for "Mercury", the key for the rest.
+            const keyOf = { Sodium: 'Na', Iron: 'Fe' };
+            const answers = [...user.matchAll(/^(\d+)\. (.+)$/gm)].map(m => ({ n: Number(m[1]), answer: m[2] === 'Mercury' ? 'mercury' : keyOf[m[2]] ?? 'x' }));
+            content = JSON.stringify({ answers });
         } else {
             res.writeHead(400, { 'content-type': 'application/json' });
             res.end('{"error":{"message":"stub: not part of this gate"}}');
@@ -384,6 +391,17 @@ const unsureMc = await verifyQuestion('Two and two', mc('UNSURE mc: what is 2 + 
 check('a verdict the prompt never offered ("unsure") is not a verification', unsureMc.available === false, JSON.stringify(unsureMc));
 const unsureOpen = await verifyQuestion('Two and two', { ...mc('UNSURE open: what is 2 + 2?'), type: 'short_answer', options: undefined });
 check('...nor an audit passed for an open question', unsureOpen.available === false, JSON.stringify(unsureOpen));
+// A verifier writes free-hand: "boil" for "Boil", "mercury" for "Mercury". Case
+// is no disagreement about an order or a drill's key.
+const orderQ = { question: 'LOWERSEQ put these steps in order', type: 'sequence', options: ['Serve', 'Boil', 'Cool'], correct_answer: JSON.stringify(['Boil', 'Cool', 'Serve']), explanation: 'Boil, then cool, then serve.' };
+const lowerOrder = await verifyQuestion('Cooking', orderQ);
+check('a verifier that writes the steps in lower case still agrees with the order of the key',
+    lowerOrder.ok === true && lowerOrder.available === true, JSON.stringify(lowerOrder));
+const { checkItemKeys } = await import(B + 'feedQuality.js');
+const echoDrill = { title: 'Symbols', items: [{ prompt: 'Mercury', answer: 'Hg' }, { prompt: 'Sodium', answer: 'Na' }, { prompt: 'Iron', answer: 'Fe' }] };
+const echoCheck = await checkItemKeys('Chemistry', echoDrill);
+check('a checker that repeats a prompt in lower case is excused as an echo, not disputed',
+    echoCheck.gone.size === 0 && echoCheck.unchecked === null, JSON.stringify({ gone: [...echoCheck.gone], unchecked: echoCheck.unchecked }));
 const { parseAnswerVerdict } = await import(B + 'ai.js');
 const graded = parseAnswerVerdict(String.raw`Since $\dfrac{f'(h)}{h} = \dfrac{2}{h^4}e^{-1/h^2}$, the learner's $k = 4$ is right.
 ` + '```json\n{"correct": true, "explanation": "k = 4."}\n```');
