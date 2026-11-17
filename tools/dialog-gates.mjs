@@ -625,7 +625,7 @@ await holdsTheContract('Drill', mountedSurface((onClose) => h(surfaces.DrillModa
     await holdsTheContract('Search', {
         show: () => {
             act(() => r.render(h(MemoryRouter, null, h(surfaces.SearchBar), h(ConfirmDialog))));
-            act(() => { el.querySelector('button[aria-label="Search"]').click(); });
+            act(() => { el.querySelector('button[aria-label^="Search…"]').click(); });
         },
         hide: () => { act(() => r.unmount()); el.remove(); },
         closes: () => n,

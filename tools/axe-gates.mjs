@@ -153,7 +153,9 @@ const SCREENS = {
     },
     'card-answer': async (page, ctx) => {
         await SCREENS['card-front'](page, ctx);
-        await page.press(byText('button', '/^Reveal answer/'), 'Reveal answer');
+        // The plate is the fallback for a session drawn with no Reveal answer
+        // button (before it had one), so the gate can measure that version too.
+        await page.press(`(${byText('button', '/^Reveal answer/')}) || document.querySelector('[aria-label="Flip flashcard"]')`, 'Reveal answer');
         await sleep(800);
     },
     assistant: STATES['topic-assistant'],

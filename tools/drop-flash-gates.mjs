@@ -306,10 +306,10 @@ const gridCatch = grid.slice(grid.indexOf('} catch'));
 check('Projects grid: the drop keeps the start its flash was given', grid.includes('const flash = flashAfterDrop(`project:${draggedId}`);'));
 check('Projects grid: a refused write ends that flash only, first',
     /^\} catch[^{]*\{\s*(\/\/[^\n]*\n\s*)*endDropFlashIf\(`project:\$\{draggedId\}`, flash\);/.test(gridCatch), gridCatch.slice(0, 120));
-check('each surface asks once per path, no more (two on the board, one elsewhere)',
+check('each surface asks once per path, no more (two on the board; two on the projects grid, a drop and a menu move; one in the sidebar)',
     (board.match(/flashAfterDrop\(/g) ?? []).length === 2
     && (sidebar.match(/flashAfterDrop\(/g) ?? []).length === 1
-    && (grid.match(/flashAfterDrop\(/g) ?? []).length === 1);
+    && (grid.match(/flashAfterDrop\(/g) ?? []).length === 2);
 
 // ── The items draw it, and never animate their opacity ────────────────────────
 console.log('\nthe items: each draws its flash, and no opacity transition can blink it');
