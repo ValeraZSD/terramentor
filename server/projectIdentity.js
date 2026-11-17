@@ -110,9 +110,9 @@ export function cleanProposedName(raw, lang, taught = null) {
     if (/[?!]$/.test(raw.trim()) || /[.!?]\s+\p{L}/u.test(t)) return null; // a question or two sentences
     if (words(t).length > NAME_MAX_WORDS || words(t).length === 0) return null;
     // A request or a first-person sentence is what a name must NOT be.
-    // The opening word must end where a word ends (a space, an apostrophe, the end), so "I2C and
-    // SPI basics", "I/O and Interrupts" and "I-beam statics" are titles, not sentences.
-    if (/^(?:i|i'm|i am|i want|let me|help me|я|мне|хочу)(?=\s|$|['’])/iu.test(t)) return null;
+    // Only an opening word continued by a letter, a digit, "/" or "-" is a title ("I2C and SPI
+    // basics", "I/O and Interrupts", "I-beam statics"); "Я, хочу ..." and "Let me: ..." stay refused.
+    if (/^(?:i|i'm|i am|i want|let me|help me|я|мне|хочу)(?![\p{L}\p{N}/-])/iu.test(t)) return null;
     if (!inLanguage(t, lang, { isName: true }) && !(taught && inLanguage(t, taught, { isName: true }))) return null;
     return t;
 }

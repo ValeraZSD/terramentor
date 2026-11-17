@@ -685,7 +685,8 @@ if (!OLD) {
     check('commit: the picture is served', (await call(`/api/media/${hashOf(pngOld)}`)).status, 200);
     const { sweepOrphanMedia } = await import(B + 'ankiImport.js');
     sweepOrphanMedia();
-    check('commit: the orphan sweep keeps the pictures', (await call(`/api/media/${hashOf(pngNew)}`)).status, 200);
+    check('commit: the orphan sweep keeps both pictures (the changed card’s and the added card’s)',
+        [(await call(`/api/media/${hashOf(pngOld)}`)).status, (await call(`/api/media/${hashOf(pngNew)}`)).status], [200, 200]);
 
     console.log('\n--- a bundle’s card media reads as file names in the preview ---');
     const mdtag = 'bundle-media';

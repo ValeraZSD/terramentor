@@ -141,6 +141,9 @@ check('a title that starts with the letter I is a name, not a first-person sente
     ['I2C and SPI basics', 'I/O and Interrupts', 'I-beam statics'].every(n => P.cleanProposedName(n, en) === n));
 check('...while a first-person opening is still refused', ['I want to learn circuits', "I'd like to learn circuits", "I'm new to circuits"]
     .every(n => P.cleanProposedName(n, en) === null));
+check('...also when the opening word is followed by a comma or a colon',
+    ['Let me: learn circuits', 'I, a beginner, want circuits'].every(n => P.cleanProposedName(n, en) === null)
+    && ['Хочу, выучить термодинамику', 'Я, начинающий, хочу курс'].every(n => P.cleanProposedName(n, ru) === null));
 
 const goodDesc = 'Курс для начинающих: основы термодинамики, законы, циклы и примеры расчётов.';
 check('a good description passes', P.cleanProposedDescription(goodDesc, ru) === goodDesc);
