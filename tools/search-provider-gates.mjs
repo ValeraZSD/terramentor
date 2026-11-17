@@ -370,38 +370,48 @@ console.log('\n--- /api/search reads its query parameters strictly ---');
     const base = `http://127.0.0.1:${server.address().port}`;
     const get = async (path) => { const r = await fetch(base + path); return { status: r.status, body: await r.json().catch(() => null) }; };
 
-    // Two courses sharing a word, five topics in the first: enough rows that a
-    // limit of 1 and a project scope each change what comes back.
+    // Two courses sharing a word, twelve topics in the first and one in the
+    // second: more matches than either default limit (10 and 8), so a limit that
+    // became unbounded (`-1`) or a slice (`limit=-1` dropping the last row)
+    // returns a different count, and so does a project scope.
     const addProject = (name) => Number(db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name, '').lastInsertRowid);
     const first = addProject('Quokka course');
     const second = addProject('Quokka second');
-    for (let i = 1; i <= 5; i++) db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(first, `Quokka topic ${i}`);
+    for (let i = 1; i <= 12; i++) db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(first, `Quokka topic ${i}`);
     db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(second, 'Quokka elsewhere');
 
     const plain = await get('/api/search?q=quokka');
     check('a plain search answers 200', plain.status, 200);
-    check('...and finds topics from both courses', plain.body?.nodes?.some(n => n.projectId === second) && plain.body?.nodes?.some(n => n.projectId === first), true);
+    check('the default limit is 10 topics out of 13', plain.body?.nodes?.length, 10);
+    check('...and they come from the first course', plain.body?.nodes?.some(n => n.projectId === first), true);
 
-    for (const bad of ['abc', '-1', '0', '1.5', '']) {
+    for (const bad of ['abc', '-1', '0', '1.5', '1e1', '0x10', '+3', '']) {
         const r = await get(`/api/search?q=quokka&limit=${bad}`);
         check(`limit=${bad || '(empty)'} is not an error`, r.status, 200);
-        check(`limit=${bad || '(empty)'} falls back to the default, not a slice of it`, r.body?.nodes?.length, plain.body?.nodes?.length);
+        check(`limit=${bad || '(empty)'} falls back to the default of 10`, r.body?.nodes?.length, 10);
     }
     check('a valid limit still caps the topics', (await get('/api/search?q=quokka&limit=2')).body?.nodes?.length, 2);
 
-    for (const bad of ['abc', '-1', '0', '1.5', '1&projectId=2']) {
+    for (const bad of ['abc', '-1', '0', '1.5', '1e0', '0x10', '+3', '%205', '05', '1&projectId=2']) {
         const r = await get(`/api/search?q=quokka&projectId=${bad}`);
         check(`projectId=${bad} is a 400, not the whole library`, r.status, 400);
     }
+    check('a bad projectId is a 400 even before the query is long enough', (await get('/api/search?q=a&projectId=abc')).status, 400);
     const scoped = await get(`/api/search?q=quokka&projectId=${second}`);
     check('a real projectId still scopes the search', scoped.status === 200 && scoped.body.nodes.length > 0 && scoped.body.nodes.every(n => n.projectId === second), true);
     check('an empty projectId is the whole library', (await get('/api/search?q=quokka&projectId=')).body?.nodes?.length, plain.body?.nodes?.length);
 
     const suggest = await get('/api/search/suggest?q=quo');
     check('suggest answers 200', suggest.status, 200);
+    check('suggest gives the default of 8 out of 13', suggest.body?.length, 8);
     check('suggest with a bad projectId is a 400', (await get('/api/search/suggest?q=quo&projectId=abc')).status, 400);
-    check('suggest with a bad limit is not an error', (await get('/api/search/suggest?q=quo&limit=abc')).status, 200);
-    check('suggest with limit=-1 gives the same as the default', (await get('/api/search/suggest?q=quo&limit=-1')).body?.length, suggest.body?.length);
+    check('suggest with a bad projectId is a 400 for a one-letter query too', (await get('/api/search/suggest?q=q&projectId=abc')).status, 400);
+    for (const bad of ['abc', '-1', '0', '1e1', '']) {
+        const r = await get(`/api/search/suggest?q=quo&limit=${bad}`);
+        check(`suggest limit=${bad || '(empty)'} is not an error`, r.status, 200);
+        check(`suggest limit=${bad || '(empty)'} falls back to the default of 8`, r.body?.length, 8);
+    }
+    check('a valid suggest limit still caps the rows', (await get('/api/search/suggest?q=quo&limit=3')).body?.length, 3);
 
     // Express 5 leaves a body-less request's req.body undefined; createApp fills
     // it in, so the provider toggle answers its own 400.
