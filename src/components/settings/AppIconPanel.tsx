@@ -167,35 +167,39 @@ export function AppIconShape() {
                 </div>
 
                 {/* ROUNDNESS — the same three-controls-over-one-number row as the
-                    interface size above: drag it, nudge it, or put it back. */}
-                <div className="flex flex-1 min-w-[16rem] items-center gap-3">
-                    <span className="text-sm font-medium text-slate-900 dark:text-white">{tr("Corners")}</span>
-                    <Slider
-                        min={MIN_RADIUS}
-                        max={MAX_RADIUS}
-                        step={1}
-                        value={icon.radius}
-                        onChange={radius => void setAppIcon({ radius })}
-                        label={tr("Corners")}
-                        valueText={`${icon.radius}%`}
-                        className="flex-1 min-w-[8rem]"
-                    />
-                    <Stepper
-                        value={icon.radius}
-                        min={MIN_RADIUS}
-                        max={MAX_RADIUS}
-                        step={1}
-                        onChange={radius => void setAppIcon({ radius })}
-                        label={tr("Corners")}
-                        suffix="%"
-                    />
-                    <IconButton
-                        variant="neutral"
-                        onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
-                        disabled={isDefault}
-                        label={tr("Restore the default icon")}
-                        icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
-                    />
+                    interface size above: drag it, nudge it, or put it back. The
+                    word sits ABOVE the track: beside it, on a phone, it left the
+                    track about 120px for the whole range. */}
+                <div className="flex-1 min-w-[16rem]">
+                    <span className="block text-sm font-medium text-slate-900 dark:text-white mb-1">{tr("Corners")}</span>
+                    <div className="flex items-center gap-3">
+                        <Slider
+                            min={MIN_RADIUS}
+                            max={MAX_RADIUS}
+                            step={1}
+                            value={icon.radius}
+                            onChange={radius => void setAppIcon({ radius })}
+                            label={tr("Corners")}
+                            valueText={`${icon.radius}%`}
+                            className="flex-1 min-w-[8rem]"
+                        />
+                        <Stepper
+                            value={icon.radius}
+                            min={MIN_RADIUS}
+                            max={MAX_RADIUS}
+                            step={1}
+                            onChange={radius => void setAppIcon({ radius })}
+                            label={tr("Corners")}
+                            suffix="%"
+                        />
+                        <IconButton
+                            variant="neutral"
+                            onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
+                            disabled={isDefault}
+                            label={tr("Restore the default icon")}
+                            icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                        />
+                    </div>
                 </div>
             </div>
 

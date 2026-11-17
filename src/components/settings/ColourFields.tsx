@@ -79,7 +79,7 @@ export function ColourChooser() {
                 options={[
                     { value: 'page', title: name.page, label: <span className="inline-flex items-center gap-2"><Dot page hex={tintSwatch(theme, themeTint)} />{tr("Page")}</span> },
                     { value: 'accent', title: name.accent, label: <span className="inline-flex items-center gap-2"><Dot hex={accentColor} />{tr("Accent")}</span> },
-                    { value: 'icon', title: name.icon, label: <span className="inline-flex items-center gap-2"><IconPreview icon={appIcon} size={16} variant="tile" />{tr("Icon")}</span> },
+                    { value: 'icon', title: name.icon, label: <span className="inline-flex items-center gap-2"><span className="inline-flex rounded ring-1 ring-black/35 dark:ring-white/40"><IconPreview icon={appIcon} size={16} variant="tile" /></span>{tr("Icon")}</span> },
                 ]}
             />
             {line && <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">{line}</p>}
