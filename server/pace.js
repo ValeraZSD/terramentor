@@ -15,12 +15,16 @@
 //            review rows were under 2 s apart. An in-app first row that found
 //            the card already past New (`state_before` > 0: a card imported
 //            with a review count but no history) was met before this library
-//            kept a log, so it is not a card met that day.
+//            kept a log, so it is not a card met that day. A row with no
+//            `state_before` at all (written before the column existed) is
+//            unknown, not past New, so it counts; decks.js and feed.js ask the
+//            stricter `= 0` because they pick out today's new cards.
 //
 // Each unit's record begins on its own day: topics at the oldest course with a
 // topic (or an older completion), cards at the oldest card (or an older
 // review). A learner with a deck since January and a course since last week
-// has one week of topic data, not forty-five empty ones.
+// has one week of topic data, not forty-five empty ones. The card record reads
+// the cards that still exist: deleting a deck's oldest cards moves it forward.
 //
 // Days are the learner's (server/studyDay.js): a topic closed at 23:30 UTC on a
 // Monday was closed on Tuesday in Amsterdam, and lands in Tuesday's week.
@@ -65,8 +69,9 @@ function statements() {
               AND (prev_jd IS NULL OR (jd - prev_jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
               AND (next_jd IS NULL OR (next_jd - jd) * 86400 >= ${BURST_SECONDS - BURST_SLACK})
         `),
-        // Where each unit's record begins: aggregates, no sort, so a screen that
-        // needs only topics never pays for the review log's window query.
+        // Where each unit's record begins: single aggregates (one correlated
+        // EXISTS per project for topics), so a screen that needs only topics
+        // never pays for the review log's window query.
         firstTopicCourse: db.prepare(`
             SELECT MIN(${AS_ISO('p.created_at')}) AS at FROM projects p
             WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${WORK_LEAF})

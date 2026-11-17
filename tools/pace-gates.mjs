@@ -347,7 +347,9 @@ for (let i = 0; i < 9; i++) mkNode(course, `open ${i}`, section);
 }
 
 console.log('\n--- readers: cards met, without machine bursts ---');
-const deck = mkProject('Deck', { kind: 'deck', deadline: ahead(28), start: ago(10) });
+// Older than the topic course, and with no topic of its own: the deck's day
+// must not become the topic record's start.
+const deck = mkProject('Deck', { kind: 'deck', deadline: ahead(28), start: ago(10), created: iso(NOW_MS - 300 * DAY_MS) });
 const deckRoot = mkNode(deck, 'stages', null);
 const stage = mkNode(deck, 'Stage 1', deckRoot, { role: 'pagination' });
 // The deck's cards were made five days ago; the topic course is 200 days old.
@@ -370,13 +372,19 @@ const review = (cardId, ms, { source = 'app', stateBefore = null } = {}) => db.p
     review(paced[0], t0 + 1_800_000);
     review(paced[1], t0 + 1_802_000);
     // A card whose review count is NULL has not been met.
-    db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, 'q', 'a', NULL, ?)`).run(stage, iso(NOW_MS - DAY_MS));
+    db.prepare(`INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, created_at) VALUES (?, 'q', 'a', NULL, ?, ?)`)
+        .run(stage, iso(NOW_MS - DAY_MS), iso(NOW_MS - 5 * DAY_MS).replace('T', ' ').slice(0, 19));
+    // A review row written before state_before was kept has NULL there: the
+    // state is unknown, not past New, so the card still counts as met.
+    const legacy = card(true);
+    review(legacy, t0 + DAY_MS);
     // A card imported with a review count and no history: its first in-app
     // review found it already in review, so it was not met that day.
     const imported = card(true);
     review(imported, t0 - DAY_MS, { stateBefore: 2 });
     const rec = learnerRecord({ timeZone: 'UTC' });
-    check('cards met: first reviews only, bursts under 2 s left out', rec.cardDays.length === 4, show(rec.cardDays));
+    check('cards met: first reviews only, bursts under 2 s left out', rec.cardDays.length === 5, show(rec.cardDays));
+    check('…a first review with no state_before (an older log row) counts', rec.cardDays.includes(ago(2)), show(rec.cardDays));
     check('…and an imported card\'s first in-app review (state_before past New) is not a card met',
         !rec.cardDays.includes(ago(4)), show(rec.cardDays));
     check('the card record starts at the oldest card, not the oldest course', rec.cardsSince === ago(5), show(rec.cardsSince));
@@ -390,7 +398,17 @@ const review = (cardId, ms, { source = 'app', stateBefore = null } = {}) => db.p
     const withAnki = learnerRecord({ timeZone: 'UTC' });
     check('an Anki first review counts as a card met on its own day', withAnki.cardDays.includes(ago(300)), show(withAnki.cardDays));
     check('…moves the card record back to it', withAnki.cardsSince === ago(300), show(withAnki.cardsSince));
-    check('…and leaves the topic record where it was', withAnki.topicsSince === ago(200), show(withAnki.topicsSince));
+    check('…and leaves the topic record where it was, not at the older topic-less deck', withAnki.topicsSince === ago(200), show(withAnki.topicsSince));
+    // A course imported with its completions: a topic closed before the
+    // course row was made moves the topic record back to that day, and only
+    // that unit's record.
+    const imported2 = mkProject('Imported', { created: iso(NOW_MS - 100 * DAY_MS) });
+    mkNode(imported2, 'closed long ago', null, { status: 'completed', completedAt: iso(NOW_MS - 250 * DAY_MS) });
+    const withImport = learnerRecord({ timeZone: 'UTC' });
+    check('a topic completed before any course row moves the topic record back to it', withImport.topicsSince === ago(250), show(withImport.topicsSince));
+    check('…and the card record stays where it was', withImport.cardsSince === ago(300), show(withImport.cardsSince));
+    db.prepare(`DELETE FROM projects WHERE id = ?`).run(imported2);
+    check('…and removing it puts the topic record back', learnerRecord({ timeZone: 'UTC' }).topicsSince === ago(200));
 
     const v = projectVerdict(deck, { now: NOW_MS, timeZone: 'UTC' });
     check('a deck is judged in cards', v.unit === 'cards', show(v.unit));
