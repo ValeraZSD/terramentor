@@ -7,6 +7,7 @@ import { Select } from '../ui/Field';
 import SegmentedControl from '../ui/SegmentedControl';
 import Stepper from '../ui/Stepper';
 import Slider from '../ui/Slider';
+import Switch from '../ui/Switch';
 import { SettingGroup, SettingRow, GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
@@ -30,6 +31,8 @@ export default function GeneralSettings({ active }: { active: boolean }) {
     const numberFormat = useStore(s => s.numberFormat);
     const setNumberFormat = useStore(s => s.setNumberFormat);
     const hasKeyboard = usePhysicalKeyboard();
+    const keyShortcuts = useStore(s => s.keyShortcuts);
+    const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
 
     return (
         <>
@@ -192,6 +195,13 @@ export default function GeneralSettings({ active }: { active: boolean }) {
             <section className={active ? 'mb-8' : 'hidden'}>
                 <h2 className={GROUP_CAPTION}>{tr("Keyboard shortcuts")}</h2>
                 <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-700">
+                        <div className="min-w-0">
+                            <p id="key-shortcuts-label" className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Single-key shortcuts")}</p>
+                            <p id="key-shortcuts-hint" className="text-xs text-slate-600 dark:text-slate-300">{tr("Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.", { key: MOD_KEY })}</p>
+                        </div>
+                        <Switch checked={keyShortcuts} onChange={on => void setKeyShortcuts(on)} label={tr("Single-key shortcuts")} describedBy="key-shortcuts-hint" />
+                    </div>
                     {/* Keycaps follow the platform (⌘ on Apple, Ctrl elsewhere) — the
                         handlers always accepted both. Listed in full: the assistant
                         key existed but was documented nowhere. */}
@@ -199,6 +209,9 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         {[
                             [tr("Open search"), `${MOD_KEY} + K`],
                             [tr("Open the assistant"), 'A'],
+                            [tr("Cards: show the answer"), tr("Space")],
+                            [tr("Cards: rate Again, Hard, Good or Easy"), '1 2 3 4'],
+                            [tr("Cards: take back the last rating"), `Z  ·  ${MOD_KEY} + Z`],
                             [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
                             [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
                             [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],

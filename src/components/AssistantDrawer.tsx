@@ -19,6 +19,7 @@ import { useComposerAttachments, type ComposerFile } from '../hooks/useComposerA
 import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMarkers } from '../utils/attachments';
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
+import { speakable } from '../utils/speakable';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
 import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } from '../types';
@@ -355,6 +356,17 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' } | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [streamed, setStreamed] = useState('');
+    // A finished answer, said once by a screen reader. The conversation itself
+    // is a log that does not speak: a live region over a streaming reply read
+    // out every few words as they arrived.
+    // Said where a finished answer is put into the list, and only there: a
+    // stream that ends with nothing new (Stop before a word, a dropped socket,
+    // a failure) has no answer to read, and the previous one is not repeated.
+    const [spoken, setSpoken] = useState('');
+    const say = useCallback((content: string) => {
+        const { text, cut } = speakable(readableAnswer(content));
+        setSpoken(cut ? `${text} ${tr("The answer goes on in the conversation.")}` : text);
+    }, [tr]);
     // Whether the assistant may look something up, read for the line under the
     // composer and for nothing else: the decision is the model's, taken
     // mid-answer, and the permission is the Settings switch.
@@ -815,6 +827,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     actions: rows,
                     created_at: new Date().toISOString(),
                 } as ChatMessage]);
+                say(shown);
             }
             setStreaming(false);
             setStreamed('');
@@ -853,7 +866,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 }
             }
         }
-    }, [appendReasoning, noteContentStarted, loadHistory, trackActions]);
+    }, [appendReasoning, noteContentStarted, loadHistory, trackActions, say]);
 
     // Pick up a global turn that is already in flight.
     //
@@ -1084,7 +1097,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             if (dropped && taskId) {
                 attachedRef.current.delete(taskId);
                 setReasoningByMsg(prev => { const next = { ...prev }; delete next[assistantId]; return next; });
-                loadHistory().catch(() => { });
+                // A turn still running is followed again, and that follow says
+                // its answer; one that finished meanwhile arrives only here.
+                const lost = taskId;
+                loadHistory().then(rows => {
+                    const last = rows?.[rows.length - 1];
+                    const task = useStore.getState().aiTasks.find(t => t.id === lost);
+                    if (task?.status === 'done' && last?.role === 'assistant' && last.content) say(last.content);
+                }).catch(() => { });
             } else if (full.trim()) {
                 // Stored RAW, markers and all — exactly what the server persists,
                 // so this message and the same one re-read from history resolve
@@ -1125,6 +1145,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     actions: stored && settledRows ? settledRows : (looked.length ? looked : null),
                     created_at: new Date().toISOString(),
                 } as ChatMessage]);
+                say(stored && settledText ? settledText : full);
                 trackActions([]);
             } else if (failed) {
                 // Nothing came back, so the turn did not happen: drop the
@@ -1145,7 +1166,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
         }
-    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
+    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
 
     // Coming back to the app re-reads the conversation. A phone suspends the
     // page while another app is in front; whatever this panel showed at that
@@ -1467,9 +1488,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 </div>
             </header>
 
+            <div className="sr-only" aria-live="polite">{spoken}</div>
             <div
                 ref={scroll.ref}
                 onScroll={scroll.onScroll}
+                role="log"
+                aria-live="off"
+                aria-label={tr("Conversation")}
                 className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
             >
                 {showList ? (
@@ -1525,12 +1550,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                     {m.attachments?.length ? <MessageAttachments attachments={m.attachments} /> : null}
                                     {m.content ? (
                                         <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
+                                            {/* Who is speaking, for a screen reader reading the log. */}
+                                            <span className="sr-only">{tr("You said:")} </span>
                                             {m.content}
                                         </p>
                                     ) : null}
                                 </div>
                             ) : (
                                 <>
+                                    <span className="sr-only">{tr("Assistant said:")}</span>
                                     {/* What the model worked through before it
                                         answered. Not a character count: a count
                                         says a long turn is alive and nothing
@@ -1817,6 +1845,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             composer.add(pasted);
                         }}
                         rows={1}
+                        aria-label={tr("Message to the assistant")}
                         placeholder={tr("Ask anything…")}
                         className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />

@@ -105,7 +105,7 @@ export default function OnboardingCard({ cta = true }: { cta?: boolean }) {
                         every width, and nothing here for a translator to get
                         wrong. The sentence it replaced ran to three lines on a
                         phone beside two icon buttons. */}
-                    <span className="block text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                    <span className="block text-xs text-slate-600 dark:text-slate-300 tabular-nums">
                         {doneCount} / {STEPS.length}
                     </span>
                 </button>
