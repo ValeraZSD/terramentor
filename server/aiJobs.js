@@ -70,8 +70,14 @@ let stmts = null;
 const q = () => stmts ||= {
     all: db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position'),
     conn: db.prepare('SELECT model FROM ai_connections WHERE id = ?'),
-    clearJob: db.prepare('DELETE FROM ai_job_routes WHERE job = ?'),
-    put: db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)'),
+    // A place in a list is named by (job, position) everywhere (its uuid is
+    // derived from them, server/syncTables.js), so a save rewrites each place
+    // in place and keeps its uuid: a delete and re-insert would give every
+    // place a new identity on every save, with nothing changed.
+    put: db.prepare(`INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(job, position) DO UPDATE SET connection_id = excluded.connection_id,
+        model = excluded.model, effort = excluded.effort`),
+    dropFrom: db.prepare('DELETE FROM ai_job_routes WHERE job = ? AND position >= ?'),
     clearAll: db.prepare('DELETE FROM ai_job_routes'),
     note: db.prepare(`INSERT INTO ai_job_fallbacks (job, at, place, model, kind, status) VALUES (?, ${NOW_ISO}, ?, ?, ?, ?)
         ON CONFLICT(job) DO UPDATE SET at = excluded.at, place = excluded.place, model = excluded.model,
@@ -119,8 +125,8 @@ export function setJobRoute(job, route) {
         return { connectionId, model, effort };
     });
     db.transaction(() => {
-        q().clearJob.run(job);
         entries.forEach((e, i) => q().put.run(job, i, e.connectionId, e.model, e.effort));
+        q().dropFrom.run(job, entries.length);
         // A note is about the list it happened on. New backups change the list
         // of every job that has none of its own.
         if (job !== BACKUPS) q().forget.run(job);
