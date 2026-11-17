@@ -125,14 +125,21 @@ function listDescriptionsStmt(where, past) {
 
 /** Rows still worth describing: images, no description yet. */
 export function pendingDescriptions(projectId = null) {
-    const where = projectId
-        ? `WHERE kind = ? AND (description IS NULL OR description = '') AND project_id = ?`
-        : `WHERE kind = ? AND (description IS NULL OR description = '')`;
+    // One row per FILE (its first, as in `listDescriptions`): a picture imported
+    // into two projects has a row each, and a description is written to the file,
+    // so the second row would only come back as "already described".
+    const where = projectId ? `WHERE kind = ? AND project_id = ?` : `WHERE kind = ?`;
     const args = projectId ? ['image', projectId] : ['image'];
-    return db.prepare(`SELECT hash, filename, mime FROM media_files ${where} ORDER BY id`).all(...args);
+    return db.prepare(`
+        SELECT hash, filename, mime FROM media_files
+        WHERE id IN (SELECT MIN(id) FROM media_files ${where} GROUP BY hash)
+          AND (description IS NULL OR description = '')
+        ORDER BY id
+    `).all(...args);
 }
 
 export function describeStats(projectId = null) {
+    // Counted per file, like the review list, not per row.
     const clause = projectId ? 'WHERE project_id = ?' : '';
     const args = projectId ? [projectId] : [];
     const row = db.prepare(`
@@ -142,7 +149,8 @@ export function describeStats(projectId = null) {
             SUM(kind = 'image' AND described_by = 'author') AS byAuthor,
             SUM(kind = 'image' AND described_by = 'vision') AS byVision,
             SUM(kind = 'image' AND described_by = 'learner') AS byLearner
-        FROM media_files ${clause}
+        FROM media_files
+        WHERE id IN (SELECT MIN(id) FROM media_files ${clause} GROUP BY hash)
     `).get(...args);
     return {
         images: row?.images ?? 0,
@@ -194,7 +202,9 @@ export async function describeMedia(hash, { force = false, model, signal } = {})
         return { ok: false, reason: err.message || 'the vision model did not answer' };
     }
 
-    const clean = String(text || '').trim().replace(/\s+/g, ' ').slice(0, MAX_DESCRIPTION);
+    // The same cleaning a learner's edit gets: this is read aloud and pasted into
+    // prompts, so control and direction marks go, and the cut is by characters.
+    const clean = cleanDescription(text);
     if (!clean || /^unreadable$/i.test(clean)) {
         return { ok: false, reason: 'the model could not make out this image' };
     }
@@ -250,15 +260,28 @@ export async function startDescribeSweep(projectId = null) {
     // running a text-only model this is the ordinary outcome, not an edge case,
     // and a sweep that claims to have started and then dies silently sends them
     // looking for a progress bar that will never move.
-    const { use, model } = await decidePaperVision();
+    //
+    // `running` is taken BEFORE that await: a second press (or a second tab)
+    // landing while the first waits would otherwise pass the check above too,
+    // register a second task, and replace the first one's progress object, so
+    // the first chain to finish left the other running on null.
+    running = { projectId, total: pending.length, done: 0, failed: 0, cancel: false };
+    let vision;
+    try {
+        vision = await decidePaperVision();
+    } catch (err) {
+        running = null;
+        throw err;
+    }
+    const { use, model } = vision;
     if (use !== 'yes') {
+        running = null;
         return {
             started: false,
             reason: 'No verified vision model is available. Set one under Settings → AI & Models → PDF math recovery, which this shares.',
         };
     }
 
-    running = { projectId, total: pending.length, done: 0, failed: 0, cancel: false };
     const handle = tasks.registerExternal({
         kind: 'media_describe',
         label: `Describing ${pending.length} image${pending.length === 1 ? '' : 's'}`,

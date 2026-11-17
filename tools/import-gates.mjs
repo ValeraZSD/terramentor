@@ -100,6 +100,23 @@ check('an empty URL is valid (a resource may have no link)', sanitizeUrl(''), { 
 check('null is valid', sanitizeUrl(null), { ok: true, url: '' });
 check('a bare hostname is normalized to https', sanitizeUrl('example.com/page'),
     { ok: true, url: 'https://example.com/page' });
+// A port makes the first parse succeed with the host standing in as the scheme
+// (`example.com:`), so the https fallback has to be told apart from a real one.
+check('a bare hostname with a port is normalized to https', sanitizeUrl('example.com:8080/page'),
+    { ok: true, url: 'https://example.com:8080/page' });
+check('localhost with a port and a path is normalized to https', sanitizeUrl('localhost:3000/x'),
+    { ok: true, url: 'https://localhost:3000/x' });
+check('a hostname and a port alone is normalized to https', sanitizeUrl('university.nl:8080'),
+    { ok: true, url: 'https://university.nl:8080' });
+for (const [name, url] of [
+    ['javascript: with a call', 'javascript:alert(1)'],
+    ['javascript: that starts with a digit', 'javascript:1;alert(1)'],
+    ['data: scheme with a payload', 'data:text/html,<script>alert(1)</script>'],
+    ['mailto:', 'mailto:x'],
+    ['javascript: followed by digits only', 'javascript:1'],
+    ['a phone link', 'tel:112'],
+    ['an sms link with a path-like tail', 'sms:555/1'],
+]) check(name + ' is still refused beside the port rule', sanitizeUrl(url).ok, false);
 check('an over-long URL is rejected', sanitizeUrl('https://e.com/' + 'a'.repeat(MAX_URL_LENGTH)).ok, false);
 check('the https:// fallback cannot rescue javascript:',
     sanitizeUrl('javascript:alert(1)').reason.includes('javascript:'), true);

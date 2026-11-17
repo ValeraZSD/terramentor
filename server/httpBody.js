@@ -45,10 +45,14 @@ const hasStream = (res) => !!res?.body && typeof res.body.getReader === 'functio
  * split across a chunk boundary still decodes; the last one may be replaced,
  * which costs a character of a body that was already being cut.
  *
+ * `sniffCharset` is for a web page, which is not always UTF-8: the bytes are
+ * decoded as the response's Content-Type, else the page's own `<meta>`, says
+ * (see `decodeText`). Every other body here is JSON or an error and stays UTF-8.
+ *
  * A body with no stream (a stub's plain object) falls back to `.text()`: there
  * is nothing to read incrementally and nothing to bound.
  */
-export async function readCappedText(res, limit, { refuse = false } = {}) {
+export async function readCappedText(res, limit, { refuse = false, sniffCharset = false } = {}) {
     if (!hasStream(res)) return typeof res?.text === 'function' ? res.text() : '';
     const reader = res.body.getReader();
     const chunks = [];
@@ -68,7 +72,32 @@ export async function readCappedText(res, limit, { refuse = false } = {}) {
         await reader.cancel().catch(() => {});
     }
     if (over && refuse) throw new Error(`the response was larger than ${limit} bytes; refusing it`);
-    return new TextDecoder('utf-8').decode(Buffer.concat(chunks, Math.min(total, limit)));
+    const bytes = Buffer.concat(chunks, Math.min(total, limit));
+    return sniffCharset ? decodeText(bytes, res.headers?.get?.('content-type') || '') : new TextDecoder('utf-8').decode(bytes);
+}
+
+/**
+ * Bytes of a web page as text, in the charset the page names: the one in its
+ * Content-Type, else a `<meta charset>` or `<meta http-equiv>` in its first
+ * 2 KB, else UTF-8. A label the runtime does not know is UTF-8 too, so a
+ * misspelt one costs a garbled accent, never the page.
+ */
+export function decodeText(bytes, contentType = '') {
+    let label = /charset\s*=\s*["']?\s*([^\s;"']+)/i.exec(contentType)?.[1];
+    if (!label) {
+        // Comments are skipped, as a browser skips them, and `data-charset` is
+        // not a charset.
+        const head = Buffer.from(bytes.subarray(0, 2048)).toString('latin1').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+        label = /<meta\s[^<>]*?(?<![-\w])charset\s*=\s*["']?\s*([^\s"';/>]+)/i.exec(head)?.[1];
+        // A page in UTF-16 would not be readable here as ASCII markup: a meta
+        // tag that says so is wrong, and browsers read such a page as UTF-8.
+        if (/^utf-?16/i.test(label || '')) label = 'utf-8';
+    }
+    try {
+        return new TextDecoder(label || 'utf-8').decode(bytes);
+    } catch {
+        return new TextDecoder('utf-8').decode(bytes);
+    }
 }
 
 /** `res.json()`, refused past `limit` bytes. */
