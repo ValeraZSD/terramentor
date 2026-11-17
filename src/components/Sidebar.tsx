@@ -126,13 +126,17 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         return 'text-slate-500 dark:text-slate-400';
     };
 
-    // With a mouse the grip shows only under the pointer, so it waits at the
-    // row's END: at the start it was a blank slot before every title. On a
-    // touch screen the whole row takes the press-and-hold (`touchDrag`), and
-    // the grip stays for a keyboard only: a 44px grip beside the 44px column
-    // left a wide gap before every title.
+    // The whole row is what a pointer drags (`rowDrag`): a mouse once it has
+    // moved 5px, a finger after the press-and-hold. A touch's own pointer
+    // events are left to the touch sensor, or a swipe would scroll into a
+    // drag. The grip stays for a keyboard and shows only while focused: a
+    // grip in every row, 44px with the larger setting, took width from every
+    // title (hidden under a mouse, it still held its slot).
     const canHover = useCanHover();
-    const touchDrag = canHover ? {} : {
+    const rowDrag = {
+        onPointerDown: (e: React.PointerEvent) => {
+            if (e.pointerType !== 'touch') (listeners?.onPointerDown as React.PointerEventHandler | undefined)?.(e);
+        },
         onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
     };
     const handle = (
@@ -141,7 +145,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
             {...listeners}
             onClick={e => e.stopPropagation()}
             aria-label={t("Drag to reorder")}
-            className={`shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-none ${canHover ? 'p-0.5' : 'sr-only focus-visible:not-sr-only focus-visible:p-0.5'} ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
+            className={`shrink-0 cursor-grab active:cursor-grabbing touch-none sr-only focus-visible:not-sr-only focus-visible:p-0.5 ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400'}`}
         >
             <GripVertical className="w-3 h-3" />
         </button>
@@ -161,7 +165,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                {...touchDrag}
+                {...rowDrag}
                 className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${canHover ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''

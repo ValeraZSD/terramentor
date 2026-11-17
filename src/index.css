@@ -495,12 +495,8 @@ html[data-larger-ui] [data-course-sidebar] {
   --row-indent-tree: 1.5rem;
   --row-indent-outline: 1.375rem;
   /* A card's rows stand one level in from its header, as a tree topic does
-     under its chapter. With the larger setting the 44px column already holds
-     its mark clear of the edge, and the extra step broke words mid-way. */
+     under its chapter. */
   --row-outline-start: var(--row-indent-outline);
-}
-html[data-larger-ui] {
-  --row-outline-start: 0px;
 }
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */

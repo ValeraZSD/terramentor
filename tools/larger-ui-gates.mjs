@@ -406,18 +406,16 @@ for (const [state, m] of Object.entries(seen)) {
             }
             check(`${state}: a sub-topic's column stands under its parent's title`, misplaced.length === 0, list(misplaced, (x) => x));
         }
-        // With a mouse the grip only shows under the pointer: before the
-        // column it was a blank slot in front of every title. On a touch
-        // screen the row itself takes the press-and-hold, and a 44px grip
-        // there stood 44px of gap between the edge and the column.
+        // The row itself is what a mouse or a finger drags. A grip in every
+        // row was a blank slot before the title (touch) or after it (mouse,
+        // hidden but still holding 44px with the switch on); it shows only
+        // while a keyboard has it.
         const wrong = m.rows.filter((r) => r.first !== 'column');
         check(`${state}: every row starts with its fold chevron or status mark`, wrong.length === 0,
             list(wrong, (r) => `${r.list} "${r.text}" starts with ${r.first}`));
-        if (state.includes(' phone ')) {
-            const shown = m.rows.filter((r) => r.grip > 1);
-            check(`${state}: on a touch screen no row shows a grip until it is focused`, shown.length === 0,
-                list(shown, (r) => `${r.list} "${r.text}" grip ${r.grip}px wide`));
-        }
+        const shown = m.rows.filter((r) => r.grip > 1);
+        check(`${state}: no row holds room for a grip until it is focused`, shown.length === 0,
+            list(shown, (r) => `${r.list} "${r.text}" grip ${r.grip}px wide`));
     }
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,

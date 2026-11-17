@@ -135,12 +135,13 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
     };
 
     const displayDepth = held ? projectedDepth ?? item.depth : item.depth;
-    // With a mouse the grip shows only under the pointer, so it waits at the
-    // row's end beside the ⋮: at the start it was a blank slot before every
-    // title. On a touch screen the whole row takes the press-and-hold
-    // (`touchDrag`), and the grip stays for a keyboard only: a 44px grip
-    // beside the 44px column left a wide gap before every title.
-    const touchDrag = hoverCapable ? {} : {
+    // The whole row is what a pointer drags (`rowDrag`): a mouse once it has
+    // moved 5px, a finger after the press-and-hold. The grip stays for a
+    // keyboard and shows only while focused: a grip in every row, 44px with
+    // the larger setting, took width from every title (hidden under a mouse,
+    // it still held its slot).
+    const rowDrag = {
+        onMouseDown: listeners?.onMouseDown as React.MouseEventHandler | undefined,
         onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
     };
     const handle = (
@@ -150,7 +151,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
             {...listeners}
             onClick={(e) => e.stopPropagation()}
             aria-label={t("Drag to reorder")}
-            className={`shrink-0 cursor-grab active:cursor-grabbing transition-opacity touch-pan-y ${hoverCapable ? 'p-0.5' : 'sr-only focus-visible:not-sr-only focus-visible:p-0.5'} ${held ? 'text-accent' : `text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 ${rowControls}`}`}
+            className={`shrink-0 cursor-grab active:cursor-grabbing touch-pan-y sr-only focus-visible:not-sr-only focus-visible:p-0.5 ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400'}`}
         >
             <GripVertical className="w-3.5 h-3.5" />
         </button>
@@ -178,7 +179,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
             <div
                 ref={setNodeRef}
                 style={{ ...style, ...flash?.style, paddingLeft: `calc(${displayDepth} * var(--row-indent-outline) + var(--row-outline-start))` }}
-                {...touchDrag}
+                {...rowDrag}
                 data-depth={displayDepth}
                 data-tree-item-id={node.id}
                 data-node-id={node.id}
