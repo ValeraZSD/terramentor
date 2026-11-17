@@ -246,6 +246,14 @@ for (const [name, description] of [
     ['ЕГЭ по математике', ''],
     ['Goethe: Faust and the Sturm und Drang', ''],
     ['Staatsexamen VWO wiskunde B', ''],
+    // An object property is not an exam: "constructor" once read as Object.
+    ['JavaScript classes', 'How the constructor works'],
+    ['', 'Constructor functions and prototypes'],
+    // An acronym that is an ordinary technical word names no language.
+    ['CPE router configuration', ''],
+    ['Finite elements and CAE', ''],
+    ['Netwerken: CPE en routers', ''],
+    ['TEF and TCF in plant genetics', ''],
 ]) {
     check(`"${name || description}" is not a language course by the rule`, named(name, description) === null, `got ${named(name, description)}`);
 }
