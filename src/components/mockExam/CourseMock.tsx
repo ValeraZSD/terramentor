@@ -695,8 +695,10 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             </li>
                         ))}
                     </ul>
+                    {/* Answers are recorded as practice per topic; a mock never completes or reopens a
+                        topic (the mastery check decides that), so the line says what the learner gains. */}
                     <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each answer counts as practice in its topic. A mock never completes or reopens a topic: the mastery check still decides that.")}
+                        {t("Each answer now shows in its topic as practice.")}
                     </p>
                 </Panel>
             )}
