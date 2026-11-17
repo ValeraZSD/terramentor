@@ -195,9 +195,10 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 >
                     {getStatusIcon()}
                 </button>
-                <button data-row="title" data-larger-wraps
+                <button data-row="title"
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
+                    data-larger-wraps
                     aria-current={selectedNodeId === node.id ? 'true' : undefined}
                     className={`flex-1 min-w-0 -mx-1 px-1 text-left text-sm truncate rounded ${FOCUS_RING} ${held || selectedNodeId === node.id ? 'font-medium text-accent-fg' : 'text-slate-700 dark:text-slate-200'}`}
                 >
