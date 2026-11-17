@@ -6,7 +6,7 @@ import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
 import type { LessonWrite } from './types';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
 
@@ -92,10 +92,27 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             throw err;
         }
 
-        return res.json();
+        const body = await res.json();
+        noteEvidenceWrite(url, options?.method);
+        return body;
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+/**
+ * Writes that add, void or undo evidence about a topic. A screen that shows
+ * the evidence (the topic panel's card) listens for EVIDENCE_CHANGED, so an
+ * answer given beside it shows without reopening the topic. A placement
+ * probe's finish applies its seeds and a DELETE of the placement withdraws them.
+ */
+const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/(probe\/\d+\/(answer|finish)|\d+$)|item-reports)/;
+export const EVIDENCE_CHANGED = 'terramentor:evidence-changed';
+
+/** After a successful write: tell the evidence readers if it was evidence. */
+function noteEvidenceWrite(url: string, method?: string) {
+    const m = method?.toUpperCase();
+    if (m && m !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
 }
 
 /** What the server says after a study-clock flush (server/studyTime.js). */
@@ -563,6 +580,20 @@ function bundleParams(options?: BundleExportOptions): URLSearchParams {
         includeProgress: String(options?.includeProgress ?? false),
         includeResources: String(options?.includeResources ?? true),
     });
+}
+
+/** A course file sent to the course-update door, multipart like the bundle door. */
+async function courseUpdateUpload<T>(step: 'inspect' | 'commit', file: File, fields: Record<string, string> = {}): Promise<T> {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    form.append('file', file);
+    const res = await apiFetch(`${BASE}/course-updates/${step}`, { method: 'POST', body: form });
+    if (!res.ok) {
+        let msg = `Update failed: ${res.status}`;
+        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+        throw Object.assign(new Error(msg), { status: res.status });
+    }
+    return res.json();
 }
 
 function filenameFrom(res: Response, fallback: string): string {
@@ -1076,6 +1107,21 @@ export const api = {
         }
         return res.json();
     },
+
+    // UPDATING AN INSTALLED COURSE FROM A NEWER FILE
+
+    /** What a course file would change in the copy of its course already in
+     *  the library. Writes nothing. */
+    inspectCourseUpdate: (file: File) => courseUpdateUpload<CourseUpdatePreview>('inspect', file),
+    /** Apply it. `choices` takes the file's version of a conflict by its key. */
+    commitCourseUpdate: (file: File, projectId: number, choices: Record<string, 'file' | 'mine'>) =>
+        courseUpdateUpload<{ projectId: number; summary: CourseUpdateSummary; undo: { available: boolean } }>('commit', file, {
+            projectId: String(projectId), choices: JSON.stringify(choices),
+        }),
+    courseUpdateUndoAvailable: (projectId: number) =>
+        request<{ available: boolean; at?: string; version?: string | null }>(`/course-updates/${projectId}/undo`),
+    undoCourseUpdate: (projectId: number) =>
+        request<{ ok: true }>(`/course-updates/${projectId}/undo`, { method: 'POST' }),
 
     // SCHEDULING
 
@@ -2370,6 +2416,10 @@ export const api = {
     getProjectMastery: (projectId: number) =>
         request<any[]>(`/projects/${projectId}/mastery`),
 
+    /** What the app thinks the learner knows about one topic, and the evidence behind it. */
+    getEvidenceTrail: (nodeId: number) =>
+        request<EvidenceTrail>(`/nodes/${nodeId}/evidence`),
+
     submitMasteryCheck: (projectId: number, nodeId: number, score: number, total: number, questions?: any[], asked?: AskedQuestion[], attemptId?: string, review?: SittingReviewItem[]) =>
         request<any>(`/projects/${projectId}/mastery/mastery-check`, {
             method: 'POST',
@@ -2484,7 +2534,9 @@ export const api = {
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
-        return res.json();
+        const graded = await res.json();
+        noteEvidenceWrite(`/paper/${feedItemId}/grade`, 'POST');
+        return graded;
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>

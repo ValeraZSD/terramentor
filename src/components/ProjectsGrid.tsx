@@ -368,7 +368,7 @@ export default function ProjectsGrid() {
                                 onDragEnd={handleDragEnd}
                             >
                                 <SortableContext items={activeProjects.map(p => p.id)} strategy={rectSortingStrategy}>
-                                    <div className={GRID}>
+                                    <div className={GRID} data-card-grid="">
                                         {activeProjects.map((project, i) => (
                                             <ProjectCard
                                                 key={project.id}

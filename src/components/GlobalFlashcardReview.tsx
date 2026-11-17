@@ -878,8 +878,12 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                             and a real button for a keyboard or a screen reader
                             (the plate above is content, not a control). */}
                         <div className="relative">
+                        {/* The card's full width (an easy target on a phone), but
+                            an outline, not a fill: the card is what the learner
+                            looks at, and a green bar under every question
+                            shouted over it. */}
                         {!queue.flipped && (
-                            <Button ref={revealRef} variant="primary" size="lg" block onClick={() => queue.setFlipped(true)}
+                            <Button ref={revealRef} variant="neutral" size="lg" block onClick={() => queue.setFlipped(true)}
                                 className="absolute inset-0 z-10 h-full">
                                 {t("Reveal answer")}
                             </Button>

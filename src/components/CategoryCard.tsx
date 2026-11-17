@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -19,8 +19,10 @@ import {
   FileText,
   ArrowUp,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
-import { useSiblingMove } from '../hooks/useDragA11y';
+import { useSiblingMove, useSidewaysInGrid } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -70,6 +72,12 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: node.id, data: { kind: 'card' } });
   const flash = useDropFlash(`node:${node.id}`);
+  // Sections sit side by side on a wide board and in one column on a phone;
+  // the move arrows follow (see useSidewaysInGrid).
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const sideways = useSidewaysInGrid(cardRef);
+  const EarlierIcon = sideways ? ArrowLeft : ArrowUp;
+  const LaterIcon = sideways ? ArrowRight : ArrowDown;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -122,7 +130,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
           its properties because a dragged card is drawn at opacity 0.3, and a
           plain `transition` faded it back in over 150 ms after every drop. */}
       <div
-        ref={setNodeRef}
+        ref={(el) => { setNodeRef(el); cardRef.current = el; }}
         style={style}
         data-category-id={node.id}
         data-node-id={node.id}
@@ -196,13 +204,13 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                     {t("Add Item")}
                   </MenuItem>
                   {move.up && (
-                    <MenuItem onSelect={move.up} icon={<ArrowUp className="w-4 h-4" />}>
-                      {t("Move up")}
+                    <MenuItem onSelect={move.up} icon={<EarlierIcon className="w-4 h-4" />}>
+                      {t("Move earlier")}
                     </MenuItem>
                   )}
                   {move.down && (
-                    <MenuItem onSelect={move.down} icon={<ArrowDown className="w-4 h-4" />}>
-                      {t("Move down")}
+                    <MenuItem onSelect={move.down} icon={<LaterIcon className="w-4 h-4" />}>
+                      {t("Move later")}
                     </MenuItem>
                   )}
                   <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>

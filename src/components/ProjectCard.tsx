@@ -9,7 +9,7 @@ import ProjectDates from './schedule/ProjectDates';
 import ProgressRing from './ProgressRing';
 import Modal from './Modal';
 import ExportProjectModal from './ExportProjectModal';
-import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play, CalendarX, ArrowUp, ArrowDown } from 'lucide-react';
+import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play, CalendarX, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
 import { Button, IconButton } from './ui/Button';
@@ -17,6 +17,7 @@ import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { useDropFlash } from '../hooks/useDropFlash';
+import { useSidewaysInGrid } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
 import { countsInCards } from '../utils/projectShape';
@@ -209,6 +210,10 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
     // dim themselves with `opacity-70`, and a menu inside that subtree is
     // painted at 70% alpha with the cards behind it showing through.
     const menuBtnRef = useRef<HTMLButtonElement>(null);
+    // The move arrows point where the card will go (see useSidewaysInGrid).
+    const sideways = useSidewaysInGrid(menuBtnRef);
+    const EarlierIcon = sideways ? ArrowLeft : ArrowUp;
+    const LaterIcon = sideways ? ArrowRight : ArrowDown;
 
     const progressColor = progress === 100 ? '#22C55E' : project.color;
 
@@ -343,12 +348,12 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                         </MenuItem>
                                     )}
                                     {onMove?.up && (
-                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.up?.(); }} icon={<ArrowUp className="w-4 h-4" />}>
+                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.up?.(); }} icon={<EarlierIcon className="w-4 h-4" />}>
                                             {t("Move earlier")}
                                         </MenuItem>
                                     )}
                                     {onMove?.down && (
-                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.down?.(); }} icon={<ArrowDown className="w-4 h-4" />}>
+                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.down?.(); }} icon={<LaterIcon className="w-4 h-4" />}>
                                             {t("Move later")}
                                         </MenuItem>
                                     )}
