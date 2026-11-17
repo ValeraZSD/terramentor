@@ -109,6 +109,11 @@ const TABLE_LIST = [
     ['visual_build_failures', { class: 'device' }],
     ['region_name_failures', { class: 'device' }],
     ['ai_job_fallbacks', { class: 'device' }],
+    // Which file each installed course came from, and the undo of its last
+    // update. Keyed by this library's project id; a sync would have to
+    // re-key them by the project's uuid before they could travel.
+    ['course_base', { class: 'device' }],
+    ['course_upstream', { class: 'device' }],
     // Left behind in libraries made by older builds; nothing creates them now.
     ['generation_state', { class: 'device', legacy: true }],
     ['resource_cache', { class: 'device', legacy: true }],
