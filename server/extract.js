@@ -264,6 +264,13 @@ function decodeUtf16Bom(buf) {
     return null;
 }
 
+// Two bytes are all a byte-order mark proves, so what they decode to is checked
+// too: a binary that merely starts FF FE decodes to lone surrogates and
+// replacement characters, and the control-character share the byte check uses.
+function garbledUtf16(text) {
+    return /[\p{Cs}�]/u.test(text) || looksBinary(Buffer.from(text.slice(0, 8000), 'utf8'));
+}
+
 function clamp(text) {
     if (text.length > MAX_TEXT_CHARS) {
         return text.slice(0, MAX_TEXT_CHARS) + '\n\n[...truncated: file exceeded extraction limit]';
@@ -401,7 +408,7 @@ async function extractPptx(zip) {
     const relsOf = async (relsName, baseDir) => {
         if (!zip.files[relsName]) return [];
         return [...(await readPart(relsName)).matchAll(/<Relationship\b[^>]*>/g)].map((m) => {
-            const attr = (k) => new RegExp(`\\b${k}="([^"]*)"`).exec(m[0])?.[1] ?? '';
+            const attr = (k) => new RegExp(`\\b${k}=(["'])(.*?)\\1`).exec(m[0])?.[2] ?? '';
             const target = decodeXml(attr('Target'));
             return {
                 id: attr('Id'),
@@ -415,9 +422,11 @@ async function extractPptx(zip) {
         if (!zip.files['ppt/presentation.xml']) return [];
         const rels = new Map((await relsOf('ppt/_rels/presentation.xml.rels', 'ppt')).map((r) => [r.id, r]));
         const xml = await readPart('ppt/presentation.xml');
-        return [...xml.matchAll(/<(?:\w+:)?sldId\b[^>]*>/g)]
-            .map((m) => rels.get(/\b\w+:id="([^"]*)"/.exec(m[0])?.[1] ?? '')?.path)
-            .filter((p) => p && zip.files[p]);
+        const listed = [...xml.matchAll(/<(?:\w+:)?sldId\b[^>]*>/g)]
+            .map((m) => rels.get(/\b\w+:id=(["'])(.*?)\1/.exec(m[0])?.[2] ?? '')?.path);
+        // All or nothing: a list with one slide that cannot be found would read as
+        // a shorter deck with no error, so it falls back to the file numbers.
+        return listed.every((p) => p && zip.files[p]) ? listed : [];
     };
     const inDeckOrder = await deckOrder();
     const slides = inDeckOrder.length ? inDeckOrder : slideFiles;
@@ -426,7 +435,7 @@ async function extractPptx(zip) {
     for (const [i, name] of slides.entries()) {
         const body = runsFrom(await readPart(name));
 
-        const slideRels = await relsOf(name.replace(/([^/]+)$/, '_rels/$1.rels'), 'ppt/slides');
+        const slideRels = await relsOf(name.replace(/([^/]+)$/, '_rels/$1.rels'), posix.dirname(name));
         const notesRel = slideRels.find((r) => !r.external && /\/notesSlide$/.test(r.type) && zip.files[r.path]);
         const notes = notesRel ? runsFrom(await readPart(notesRel.path)) : '';
 
@@ -483,7 +492,7 @@ export async function extractText(buffer, filename) {
             throw new Error('Looks like a binary archive (ZIP/Office/jar). Only text-based files and PDF/DOCX/XLSX/PPTX are supported.');
         }
         const utf16 = decodeUtf16Bom(buffer);
-        if (utf16 === null && looksBinary(buffer)) {
+        if (utf16 === null ? looksBinary(buffer) : garbledUtf16(utf16)) {
             throw new Error('File looks binary, not text — it can\'t be read as study material.');
         }
         kind = 'text';
