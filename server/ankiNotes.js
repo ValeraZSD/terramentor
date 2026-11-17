@@ -55,6 +55,9 @@ function decodeEntities(str) {
     return String(str).replace(ENTITY_RE, decodeEntity);
 }
 
+/** Text that is already decoded, safe to pass through `decodeEntities` once more unchanged. */
+const keepEntities = (str) => str.replace(/&/g, '&amp;');
+
 const IMG_RE = /<img\b[^>]*>/gi;
 const A_RE = /<a\b[^>]*>([\s\S]*?)<\/\s*a\s*>/gi;
 
@@ -193,7 +196,10 @@ export function stripAnkiHtml(html) {
         const url = linkTarget(attr(whole, 'href'));
         // An unusable target keeps the words: a label is still information.
         if (!url) return inner;
-        return `[${linkLabel(inner)}](${url})`;
+        // The label and the target were decoded once already; the decode that
+        // runs over the whole field below would decode them again, so a literal
+        // `&lt;` or `&amp;` in either must go back in as `&amp;lt;` / `&amp;amp;`.
+        return `[${keepEntities(linkLabel(inner))}](${keepEntities(url)})`;
     });
     // The bolded target word in an example sentence, kept as `**…**` for
     // `src/utils/cardText.ts` (not markdown: see that file).
@@ -204,7 +210,7 @@ export function stripAnkiHtml(html) {
     s = s.replace(/<\s*br\s*\/?\s*>/gi, '\n');
     s = s.replace(/<\/\s*(?:p|li|tr|h[1-6])\s*>/gi, '\n');
     // Table cells on one row are separate words, not one run-together one.
-    s = s.replace(/<\/\s*(?:td|th)\s*>(?=\s*<\s*(?:td|th)\b)/gi, ' ');
+    s = s.replace(/<\/\s*(?:td|th)\s*>\s*(?=<\s*(?:td|th)\b)/gi, ' ');
     s = s.replace(/<[^>]+>/g, '');
 
     s = decodeEntities(s);
