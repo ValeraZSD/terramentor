@@ -323,6 +323,9 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
     // state: the cards, the switches, the saves.
     const panelScratch = mkdtempSync(join(root, 'node_modules', '.cache', 'visual-kinds-'));
     const panelOut = join(panelScratch, 'bundle.cjs');
+    // --base: the panel as it was at <ref>, its imports still meaning the folder it came from.
+    const panelEntry = BASE ? join(panelScratch, 'VisualKindsPanel.tsx') : join(root, 'src/components/settings/VisualKindsPanel.tsx');
+    if (BASE) writeFileSync(panelEntry, read('src/components/settings/VisualKindsPanel.tsx'));
     const panelStubs = {
         ...stubs,
         'store': `import { useSyncExternalStore } from 'react';
@@ -350,10 +353,14 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
             to(/^\.\/sampleReveal$/, 'reveal');
             to(/^\.\/sampleStill$/, 'still');
             b.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => ({ contents: panelStubs[args.path], loader: 'js', resolveDir: root }));
+            b.onResolve({ filter: /^\.\.?\// }, (args) => {
+                if (!BASE || args.importer.replace(/\\/g, '/') !== panelEntry.replace(/\\/g, '/')) return undefined;
+                return b.resolve(args.path, { resolveDir: join(root, 'src', 'components', 'settings'), kind: args.kind });
+            });
         },
     };
     await esbuild.build({
-        entryPoints: [join(root, 'src/components/settings/VisualKindsPanel.tsx')],
+        entryPoints: [panelEntry],
         bundle: true, format: 'cjs', platform: 'node', outfile: panelOut,
         jsx: 'automatic', loader: { '.css': 'empty', '.svg': 'dataurl' },
         packages: 'external',
@@ -422,6 +429,26 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
                 sets.length === 2 && sets[1][1] === 'p5,widget,mermaid,plot', JSON.stringify(sets.map((s) => s[1])));
         });
 
+        // The any-model switch pressed while a kind's save is still out: the
+        // kind's write, which migrates a retired tier, must not land after it.
+        sets = [];
+        const held = deferred();
+        globalThis.__api = {
+            getSettings: async () => ({ visual_kinds_off: '', visual_tier: 'auto' }),
+            setSetting: (...a) => { sets.push(a); return sets.length === 1 ? held.p : Promise.resolve(); },
+        };
+        await mounted('VisualKindsPanel (any-model behind a kind)', () => h(VisualKindsPanel, { active: true }), async (el) => {
+            await settle();
+            await act(async () => { kindSwitch(el, 'mermaid')?.click(); });
+            await act(async () => { el.querySelector('#visual-any-model')?.click(); });
+            held.ok();
+            await settle();
+            await settle();
+            const tiers = sets.filter((s) => s[0] === 'visual_tier').map((s) => s[1]);
+            check('the learner\'s last press on the any-model switch is the last write to the tier (ON = full)',
+                tiers.length > 0 && tiers[tiers.length - 1] === 'full', JSON.stringify(sets));
+        });
+
         // Less movement: the widget sample's pointer loop does not run.
         sets = [];
         globalThis.__api = { getSettings: async () => ({}), setSetting: async () => { } };
@@ -437,6 +464,21 @@ section('Settings → Visuals: no live switch before the saved list is read, a r
             await settle();
             check('a reader who asked for less movement gets no running widget demo', rafCalls === 0, `${rafCalls} frame request(s)`);
         });
+        // The setting changes while the panel is open: the demo stops without a re-mount.
+        const followers = new Set();
+        window.matchMedia = () => ({ addEventListener: (_t, f) => followers.add(f), removeEventListener: (_t, f) => followers.delete(f) });
+        globalThis.__reduced = false;
+        await mounted('VisualKindsPanel (motion setting changes)', () => h(VisualKindsPanel, { active: true }), async () => {
+            await settle();
+            check('control: the panel listens for the motion setting', followers.size === 1, String(followers.size));
+            globalThis.__reduced = true;
+            await act(async () => { followers.forEach((f) => f()); });
+            await settle();
+            const frozen = rafCalls;
+            await act(async () => { await new Promise((r) => setTimeout(r, 80)); });
+            check('turning less movement on while the panel is open stops the widget demo', rafCalls === frozen, `${rafCalls - frozen} frame request(s) after the change`);
+        });
+        delete window.matchMedia;
     } finally {
         globalThis.requestAnimationFrame = realRaf;
         globalThis.__reduced = false;

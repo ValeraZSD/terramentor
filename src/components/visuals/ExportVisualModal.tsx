@@ -175,6 +175,9 @@ export default function ExportVisualModal({ open, onClose, kind, code, stage, pa
                 setNote(`Saved ${base}.gif (${Math.round(blob.size / 1024)} KB, ${frames} frames).`);
             } else {
                 const blob = await exportStillPng(target, { width, card, palette: exportPalette });
+                // The still cannot be interrupted part-way, but Escape or Stop
+                // while it was made still means no file.
+                if (controller.signal.aborted) return;
                 downloadBlob(blob, `${base}.png`);
                 setNote(`Saved ${base}.png.`);
             }

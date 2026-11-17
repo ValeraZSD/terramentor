@@ -802,7 +802,8 @@ console.log('\nleaving the frame');
 console.log('\nthe renderer: a dropped connection, and a rebuild');
 {
     const calls = [];
-    globalThis.__widgetApi = { calls, onBuild: null };
+    const reports = [];
+    globalThis.__widgetApi = { calls, reports, onBuild: null };
     const rscratch = mkdtempSync(join(cache, 'widget-csp-gates-render-'));
     const rout = join(rscratch, 'bundle.cjs');
     const rstubs = {
@@ -813,7 +814,7 @@ console.log('\nthe renderer: a dropped connection, and a rebuild');
             });`,
         api: `export const api = {
                 compileWidget: async (spec, opts = {}) => { globalThis.__widgetApi.calls.push({ ...opts }); return globalThis.__widgetApi.onBuild(opts); },
-                reportVisualBuildFailure: async () => ({}),
+                reportVisualBuildFailure: async (...a) => { globalThis.__widgetApi.reports.push(a); return {}; },
             };`,
         i18n: 'export default { t: (k) => k, language: "en" }; export const currentLocale = () => "en-GB";',
         sandboxFrame: `export const SANDBOX_ANSWER_GAP_MS = 1000;
@@ -899,14 +900,36 @@ console.log('\nthe renderer: a dropped connection, and a rebuild');
     check('a rebuild that fails when it runs leaves the working widget on screen', stage.querySelector('iframe') === shown, 'the frame was replaced');
     check('…and says why next to the button', /boom at runtime/.test(stage.textContent), stage.textContent.slice(0, 160));
     check('…and the button is usable again', rebuild && !rebuild.disabled);
+    check('…and the server is told the stored build does not run, with the runtime error',
+        reports.length === 1 && reports[0][0] === 'widget' && reports[0][1] === spec && /boom at runtime/.test(reports[0][2]),
+        JSON.stringify(reports));
 
-    // The control: a rebuild that runs replaces it.
+    // The control: a rebuild that runs replaces it, and reports nothing.
     globalThis.__widgetApi.onBuild = async (opts) => (opts.cacheOnly ? { html: GOOD } : { html: '<body><div id="w">NEW_BUILD</div></body>' });
     rebuild?.click();
     await tick(60);
     check('control: a rebuild that runs replaces the frame', !!stage.querySelector('iframe') && stage.querySelector('iframe') !== shown);
+    check('control: …and reports no failure', reports.length === 1, JSON.stringify(reports));
     cleanup?.();
     stage.remove();
+
+    // A rebuild whose block is left while it is being verified mounts nothing.
+    reports.length = 0;
+    globalThis.__widgetApi.onBuild = async (opts) => (opts.cacheOnly || !opts.force ? { html: GOOD } : { html: '<body><div id="w">LATE_BUILD</div></body>' });
+    const leaving = new AbortController();
+    const stage2 = host.window.document.createElement('div');
+    host.window.document.body.append(stage2);
+    const cleanup2 = await renderWidget(stage2, spec, ctx({ signal: leaving.signal }));
+    await tick();
+    const shown2 = stage2.querySelector('iframe');
+    const rebuild2 = [...stage2.querySelectorAll('button')].find(b => /rebuild/.test(b.textContent));
+    rebuild2?.click();
+    await tick(0);
+    leaving.abort();
+    await tick(60);
+    check('a rebuild verified after its block was left does not mount a new frame', !!shown2 && stage2.querySelector('iframe') === shown2, 'the frame was replaced');
+    cleanup2?.();
+    stage2.remove();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

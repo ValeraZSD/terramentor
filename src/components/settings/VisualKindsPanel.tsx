@@ -642,8 +642,24 @@ function WidgetMock({ muted, play, reveal }: { muted: boolean; play: boolean; re
     );
 }
 
+/** Whether the reader has asked for less movement, following the setting while
+ *  the panel is open (it can change from the system's own settings). */
+function useLessMotion(): boolean {
+    const [less, setLess] = useState(reducedMotion);
+    useEffect(() => {
+        let query: MediaQueryList;
+        try { query = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { return; }
+        const follow = () => setLess(reducedMotion());
+        follow();
+        query.addEventListener?.('change', follow);
+        return () => query.removeEventListener?.('change', follow);
+    }, []);
+    return less;
+}
+
 export default function VisualKindsPanel({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
+    const lessMotion = useLessMotion();
     const theme = useStore(s => themeKeyOf(s.theme, s.themeTint));
     const accentColor = useStore(s => s.accentColor);
     // Rebuilt when the language changes — the words are INSIDE the pictures, so
@@ -654,6 +670,11 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     const addToast = useStore(s => s.addToast);
     const [off, setOff] = useState<Set<Kind>>(new Set());
     const [anyModel, setAnyModel] = useState(true);
+    // What the any-model switch shows right now, read when a queued kinds write
+    // runs: a press on that switch after the kind's press must not be undone by
+    // a write that captured the old position.
+    const anyNow = useRef(true);
+    const showAnyModel = useCallback((on: boolean) => { anyNow.current = on; setAnyModel(on); }, []);
     // Until the saved list has been read the switches are not real: they all
     // show ON over an empty list, and a press would write that list minus one
     // kind over everything the learner had switched off.
@@ -694,14 +715,14 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
             offNow.current = set;
             offStored.current = set;
             // Absent is on (server/ai.js getVisualTier): 'auto' is the opt-out.
-            setAnyModel(s.visual_tier !== 'auto' && s.visual_tier !== 'basic');
+            showAnyModel(s.visual_tier !== 'auto' && s.visual_tier !== 'basic');
             setLoaded(true);
         } catch (e: any) {
             // The switches stay locked (greyed); say why. The next visit to
             // the tab asks again.
             addToast('error', tr("Could not load this view"), e?.message);
         }
-    }, [addToast, tr]);
+    }, [addToast, tr, showAnyModel]);
     useEffect(() => { if (active && !loaded) void load(); }, [active, loaded, load]);
 
     const toggle = (kind: Kind) => {
@@ -723,7 +744,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                 offStored.current = next;
                 // A switched-off "basic" tier would keep p5/widget off whatever the
                 // switches say; the kinds list is the truth now.
-                if (!anyModel) await api.setSetting('visual_tier', 'auto');
+                if (!anyNow.current) await api.setSetting('visual_tier', 'auto');
             } catch (e: any) {
                 addToast('error', tr("Failed to save"), e.message);
             } finally {
@@ -741,7 +762,13 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
     const anyModelSaver = useRef(switchSaver()).current;
     const toggleAnyModel = async (on: boolean) => {
         try {
-            await anyModelSaver(on, setAnyModel, () => api.setSetting('visual_tier', on ? 'full' : 'auto'));
+            // On the same queue as the kinds list: both end up in `visual_tier`
+            // (a kind press migrates a retired tier), so they must not overlap.
+            await anyModelSaver(on, showAnyModel, () => {
+                const run = writes.current.then(() => api.setSetting('visual_tier', on ? 'full' : 'auto'));
+                writes.current = run.then(() => undefined, () => undefined);
+                return run;
+            });
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -788,7 +815,7 @@ export default function VisualKindsPanel({ active }: { active: boolean }) {
                         >
                             <span className="block pointer-events-none">
                                 {spec.sample == null
-                                    ? <WidgetMock muted={!enabled} play={active && enabled && !reducedMotion()} reveal={reveal.widget ?? 0} />
+                                    ? <WidgetMock muted={!enabled} play={active && enabled && !lessMotion} reveal={reveal.widget ?? 0} />
                                     : spec.id === 'drill'
                                         ? <DrillMock code={spec.sample} muted={!enabled} reveal={reveal.drill ?? 0} />
                                         : <Sample kind={spec.id} code={spec.sample} muted={!enabled} reveal={reveal[spec.id] ?? 0} />}

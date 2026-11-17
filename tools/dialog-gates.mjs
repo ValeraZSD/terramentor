@@ -634,9 +634,10 @@ section('Save a visual: Escape stops an encode, a late caption draft is dropped,
     const el = doc.createElement('div'); doc.body.append(el);
     const r = createRoot(el);
     let closed = 0;
+    let stageNow = stage;
     const draw = (open) => act(() => r.render(h(React.Fragment, null,
         h(surfaces.ExportVisualModal, {
-            open, onClose: () => { closed++; }, kind: 'mermaid', code: 'graph TD; A-->B', stage,
+            open, onClose: () => { closed++; }, kind: 'mermaid', code: 'graph TD; A-->B', stage: stageNow,
             palette: { bg: '#ffffff', fg: '#0f172a', muted: '#64748b', border: '#e2e8f0' },
         }), h(ConfirmDialog))));
     const dlg = () => doc.querySelector('[aria-labelledby="export-visual-title"]');
@@ -702,15 +703,41 @@ section('Save a visual: Escape stops an encode, a late caption draft is dropped,
             text.includes('The file could not be made.') && !text.includes('rasterized'), text.slice(-120));
         draw(false);
 
+        // Escape while a PNG is being made: it cannot be interrupted part-way,
+        // but no file may arrive after the reader stopped it.
+        const still = doc.createElement('div');
+        still.append(doc.createElementNS(SVG_NS, 'svg'));
+        stageNow = still;
+        const downloads = [];
+        let finishPng = () => { };
+        globalThis.__exp = {
+            exportStillPng: () => new Promise((res) => { finishPng = () => res(new window.Blob(['x'])); }),
+            downloadBlob: (_b, name) => { downloads.push(name); },
+        };
+        const savePng = async (stop) => {
+            draw(true);
+            act(() => { button('Save PNG')?.click(); });
+            await settle();
+            if (stop) { press('Escape'); await settle(); }
+            await act(async () => { finishPng(); await new Promise(res => setTimeout(res, 10)); });
+        };
+        await savePng(true);
+        check('a PNG that was stopped with Escape is not downloaded when it finishes', downloads.length === 0, JSON.stringify(downloads));
+        draw(false);
+        await savePng(false);
+        check('control: a PNG that was not stopped is downloaded', downloads.length === 1, JSON.stringify(downloads));
+        draw(false);
+        stageNow = stage;
+
         // The loop length is written in the reader's number style.
         act(() => surfaces.setNumberPreference('1.234,5'));
         globalThis.__tCalls = [];
         draw(true);
         const loop = (globalThis.__tCalls ?? []).find(([k]) => k.startsWith('One loop'));
         check('the loop length follows the reader\'s number style (3,5 s, not 3.5 s)', loop?.[1]?.loopSeconds === '3,5', JSON.stringify(loop?.[1]));
-        act(() => surfaces.setNumberPreference('auto'));
         draw(false);
     } finally {
+        act(() => surfaces.setNumberPreference('auto'));
         console.warn = warn;
         globalThis.__exp = undefined;
         globalThis.__api = undefined;

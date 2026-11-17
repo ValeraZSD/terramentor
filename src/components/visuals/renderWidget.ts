@@ -400,7 +400,23 @@ function mountWidget(
             // stays on screen with the reason beside the button.
             status.textContent = i18n.t("Verifying the widget…");
             const probeToken = Math.random().toString(36).slice(2);
-            await probeWidget(buildWidgetDoc(fresh, probeToken, { probe: true, palette: currentPalette() }), probeToken);
+            try {
+                await probeWidget(buildWidgetDoc(fresh, probeToken, { probe: true, palette: currentPalette() }), probeToken);
+            } catch (probeError) {
+                // The server stored this build when it finished, over the one
+                // on screen, so the cache now holds a build that does not run.
+                // Tell it, like every other path: the next unasked render of
+                // this spec then offers a button and names the failure, instead
+                // of paying for a heal pass against it.
+                if (!isAbort(probeError)) {
+                    api.reportVisualBuildFailure('widget', spec, probeError instanceof Error ? probeError.message : String(probeError)).catch(() => { });
+                }
+                throw probeError;
+            }
+            // The probe takes seconds; the block may have been left meanwhile,
+            // and mounting into it would leave a listener and a store
+            // subscription nobody removes.
+            if (ctx.signal?.aborted) return;
             status.textContent = '';
             live.off?.();
             live.off = null;
