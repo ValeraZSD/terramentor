@@ -431,7 +431,14 @@ console.log('--- words that stay English round a value ---');
     // literal that glues an English word on ("commit …", "… install") is English
     // under every interface language.
     const about = readFileSync(join(srcDir, 'components/settings/AboutSection.tsx'), 'utf8');
-    const glued = [...decomment(about).matchAll(/`[^`\n]*\$\{appVersion\.(?:commitShort|deployment)\}[^`\n]*`/g)].map((m) => m[0]);
+    // A template literal, or a quoted word joined to the value with `+`.
+    const GLUED = /`[^`\n]*\$\{appVersion\.(?:commitShort|deployment)\}[^`\n]*`|(?:'[^'\n]*[A-Za-z][^'\n]*'|"[^"\n]*[A-Za-z][^"\n]*")\s*\+\s*appVersion\.(?:commitShort|deployment)\b|appVersion\.(?:commitShort|deployment)\s*\+\s*(?:'[^'\n]*[A-Za-z][^'\n]*'|"[^"\n]*[A-Za-z][^"\n]*")/g;
+    const gluedIn = (src) => [...decomment(src).matchAll(GLUED)].map((m) => m[0]);
+    check('the glue rule sees a template literal, and a word joined with +, on either side',
+        ['`commit ${appVersion.commitShort}`', '`${appVersion.deployment} install`', "'commit ' + appVersion.commitShort", 'appVersion.deployment + " install"']
+            .filter((sample) => gluedIn(sample).length !== 1));
+    check('...and passes the bare identifiers', gluedIn('[appVersion.commitShort, appVersion.deployment, `Node ${appVersion.node}`]'));
+    const glued = gluedIn(about);
     check('the About version row glues no English word onto the commit or the install kind', glued);
 
     // `PracticeCard` prints a scan error's message as the problem text, so the

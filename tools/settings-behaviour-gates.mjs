@@ -321,7 +321,7 @@ section('a switch whose save fails goes where the stored value is, whatever orde
 section('a stored 0 in the feed settings is shown as 0, not as the default');
 {
     globalThis.__api = {
-        getSettings: async () => ({ feed_recall_per_batch: '0', feed_due_per_day: '0', feed_new_per_project: '0', feed_focus_total: '8' }),
+        getSettings: async () => ({ feed_recall_per_batch: '0', feed_due_per_day: '0', feed_new_per_project: '0', feed_focus_total: '8', feed_max_parts: '0', feed_focus_per_project: '99' }),
         setSetting: async () => { },
     };
     globalThis.__setState({ addToast() { } });
@@ -332,6 +332,10 @@ section('a stored 0 in the feed settings is shown as 0, not as the default');
         check('"Recall questions per batch" stored as 0 reads 0 (0 turns it off)', field('feed_recall_per_batch') === '0', field('feed_recall_per_batch'));
         check('"Due per day" stored as 0 reads 0', field('feed_due_per_day') === '0', field('feed_due_per_day'));
         check('"New per project" stored as 0 reads 0', field('feed_new_per_project') === '0', field('feed_new_per_project'));
+        // The server clamps a stored number into the same bounds, so a 0 where the
+        // lower bound is 1 is read as 1 there and is shown as 1 here.
+        check('a part count stored as 0 (lower bound 1) reads 1, as the server reads it', field('feed_max_parts') === '1', field('feed_max_parts'));
+        check('a number stored above its upper bound reads as the bound', field('feed_focus_per_project') === '10', field('feed_focus_per_project'));
     });
 }
 
@@ -339,7 +343,8 @@ section('a stored 0 in the feed settings is shown as 0, not as the default');
 section('a mastery number that was clamped or left empty goes back into its field');
 {
     const saved = [];
-    globalThis.__api = { setSetting: async (k, v) => { saved.push([k, v]); } };
+    let offline = false;
+    globalThis.__api = { setSetting: async (k, v) => { if (offline) throw new Error('offline'); saved.push([k, v]); } };
     globalThis.__setState({ addToast() { } });
     const type = async (input, value) => {
         await act(async () => {
@@ -369,6 +374,22 @@ section('a mastery number that was clamped or left empty goes back into its fiel
         check('…and the field says 85', threshold.value === '85', threshold.value);
         await type(pass, '');
         check('an empty pass score is saved as the default 80%', saved.some(([k, v]) => k === 'mastery_check_pass' && v === '0.8') && pass.value === '80', `${JSON.stringify(saved)} ${pass.value}`);
+
+        // The server reads a stored 0 as "unset" and runs 85% / 80% (settingsStore.js),
+        // so the screen cannot offer a 0: it would say "proven at 0%" over a gate at 85%.
+        check('both pass fields stop at 1', threshold.min === '1' && pass.min === '1', `${threshold.min} ${pass.min}`);
+        saved.length = 0;
+        await type(threshold, '0');
+        check('0% to pass is saved as 1%, never as 0', saved.some(([k, v]) => k === 'mastery_threshold' && v === '0.01') && !saved.some(([, v]) => v === '0') && threshold.value === '1', `${JSON.stringify(saved)} ${threshold.value}`);
+        check('…and the sentence says 1', /proven at 1% estimated/.test(sentence()), sentence());
+        await type(pass, '0');
+        check('a pass score of 0 is saved as 1%, never as 0', saved.some(([k, v]) => k === 'mastery_check_pass' && v === '0.01') && pass.value === '1', `${JSON.stringify(saved)} ${pass.value}`);
+
+        // A save that failed leaves what was typed, not a clamped number that was never stored.
+        offline = true;
+        await type(threshold, '150');
+        check('a failed save does not put a clamped number in the field', threshold.value === '150', threshold.value);
+        offline = false;
     });
 }
 
