@@ -555,7 +555,7 @@ await esbuild.build({
         name: 'stub-store',
         setup(build) {
             build.onResolve({ filter: /\/store$/ }, () => ({ path: 'store-stub', namespace: 'stub' }));
-            build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: "export const THEME_IDS=['light','dark'];export const MIN_UI_SCALE=80;export const MAX_UI_SCALE=160;", loader: 'js' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: "export const THEME_IDS=['light','dark'];export const THEME_CHOICES=['light','dark','system'];export const MIN_UI_SCALE=80;export const MAX_UI_SCALE=160;", loader: 'js' }));
         },
     }],
 });
