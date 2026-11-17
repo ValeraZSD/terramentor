@@ -17,7 +17,8 @@
 //      learner would be, not yet knowing their own) while recall is drawn from
 //      the TRUE ones — the exact mismatch the optimiser exists to close.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -383,6 +384,23 @@ console.log('\n--- retention report ---');
     const repDefault = retentionReport(DEFAULT_W, data);
     check('under the DEFAULT parameters this learner is over-promised (expected > observed) — the readout says so',
         repDefault.expected > repDefault.observed, `${repDefault.expected.toFixed(3)} vs ${repDefault.observed.toFixed(3)}`);
+}
+
+// Every worker the server starts is a file that exists where its URL points.
+// A `new URL('./x.js', import.meta.url)` resolves against the file that holds
+// it, so moving a handler into server/routes/ moved its worker's address too,
+// and the optimizer then failed on every press with a module-not-found error.
+{
+    const serverDir = new URL('../server/', import.meta.url);
+    const files = ['', 'routes/'].flatMap(sub => readdirSync(new URL(sub, serverDir))
+        .filter(f => f.endsWith('.js')).map(f => new URL(sub + f, serverDir)));
+    const workers = files.flatMap(file => [...readFileSync(file, 'utf8')
+        .matchAll(/new Worker\(\s*new URL\(\s*'([^']+)'\s*,\s*import\.meta\.url\s*\)/g)]
+        .map(m => ({ file, target: new URL(m[1], file) })));
+    check('the server starts at least one worker (the optimizer)', workers.some(w => w.target.href.endsWith('/fsrsOptimizerWorker.js')));
+    for (const w of workers) {
+        check(`worker ${fileURLToPath(w.target).replace(/.*[\\/]server[\\/]/, 'server/')} exists`, existsSync(w.target));
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
