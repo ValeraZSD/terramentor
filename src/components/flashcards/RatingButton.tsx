@@ -33,6 +33,9 @@ export function RatingButton({ rating, when, keycap, armed = false, className, t
         <button data-rating
             type={type}
             data-armed={armed || undefined}
+            // The state change on the focused button is what a screen reader
+            // announces; the changed second line alone is never read out.
+            aria-pressed={armed || undefined}
             className={cx(
                 'flex flex-col items-center justify-center gap-0.5 min-h-11 px-1 py-2 rounded-lg border',
                 'transition-colors [touch-action:manipulation] disabled:opacity-50 disabled:cursor-default',
