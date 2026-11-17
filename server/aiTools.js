@@ -464,17 +464,41 @@ export function extractToolTail(text, tools = []) {
  * reading token by token: emitted tool lines would have to be un-said once the
  * lookups run. So every chunk is screened before it is shown — the last line is
  * held whenever it could still become a call (it starts like a tool name, or
- * could be growing into one), and released the moment a following line makes it
- * ordinary prose. At stream end the held block either parses as lookups (the
- * caller runs them and continues from `head`) or is flushed as the content it
- * turned out to be. The cost is one line of latency on any line that begins
- * like a tool call; the benefit is that scaffolding is never on the screen and
- * never in the stored text.
+ * could be growing into one), and released the moment its own text rules that
+ * out (`couldBecomeCall`) or a following line makes it ordinary prose. At
+ * stream end the held block either parses as lookups (the caller runs them and
+ * continues from `head`) or is flushed as the content it turned out to be. The
+ * cost is a wait only on a line that still looks like a tool call; the benefit
+ * is that scaffolding is never on the screen and never in the stored text.
  *
  * @param {{tools: object[], onChunk: (text: string) => void}} opts
  * @returns {{feed(chunk: string): void, end(): {tailCalls: object[], tailLength: number}}}
  */
 export function createTailGuard({ tools = [], onChunk }) {
+    // The same line shape parseCallLine accepts, asked of a line that is still
+    // being written: can ANY continuation of it parse as a call for a tool
+    // this turn has? False is final (no extension rescues it), so the line is
+    // prose and can be shown as it streams. Unsure means true: a held line only
+    // costs latency, a shown request line would have to be un-said.
+    const couldBecomeCall = (partial) => {
+        const rest = partial.trim().replace(/^[-*\d.)\s]*/, '');
+        if (!rest) return true;
+        const name = rest.match(/^[a-z_]*/i)[0];
+        const after = rest.slice(name.length);
+        if (!after) {
+            const lower = name.toLowerCase();
+            return tools.some(t => t.name.startsWith(lower));
+        }
+        if (!byName.has(name.toLowerCase())) return false;
+        const m = after.match(/^\s*([:(])?(.*)$/s);
+        if (!m[1]) return !m[2];
+        // Past the colon anything may follow, until the argument is longer than
+        // parseCallLine takes: its trailing quote, dot, bracket and space never
+        // count, so only what can no longer be trimmed away rules it out.
+        // (parseCallLine also trims what a leading quote was holding apart.)
+        const arg = m[2].replace(/^\s+/, '').replace(/^["“'`]+/, '').replace(/^\s+/, '').replace(/[\s)"”'`.]+$/, '');
+        return arg.length <= 200;
+    };
     const byName = new Map(tools.map(t => [t.name, t]));
 
     let buffer = '';
@@ -500,6 +524,11 @@ export function createTailGuard({ tools = [], onChunk }) {
             // A trailing run of call-shaped lines stays held until a line that
             // cannot be one follows it — then the run was prose and is released.
             flush(safeEnd);
+            // A last line that cannot become a request is prose already, and
+            // so is any run of call-shaped lines before it (a tail is the
+            // trailing run, and this line ends it). Only a line that still
+            // could be one waits for its newline.
+            if (!couldBecomeCall(buffer.slice(scanned))) flush(buffer.length);
         },
         end() {
             const { head, calls } = extractToolTail(buffer, tools);
@@ -542,10 +571,23 @@ const PLACEHOLDER_QUERIES = new Set([
  *  one-letter query is noise; fewer where a tool says so (an id). */
 const argFloor = (tool) => tool?.minArg ?? 2;
 
+const placeholderForm = (arg) => String(arg ?? '').toLowerCase().replace(/^[\s"'`<[{(]+|[\s"'`>\]})]+$/g, '').replace(/[.…]+$/g, '').trim();
+
 export function isPlaceholderQuery(arg) {
-    const s = String(arg ?? '').toLowerCase().replace(/^[\s"'`<[{(]+|[\s"'`>\]})]+$/g, '').replace(/[.…]+$/g, '').trim();
-    return PLACEHOLDER_QUERIES.has(s);
+    return PLACEHOLDER_QUERIES.has(placeholderForm(arg));
 }
+
+/** The placeholder words a learner could also have named something: a library
+ *  tool's argument is their own name for a course or deck, so these are real there. */
+const NAMEABLE = new Set(['search', 'text', 'example', 'test', 'todo', 'input']);
+
+/**
+ * A web search has every schema word to echo back; a library tool only the ones
+ * that are never a name ("query", "<query>", "string", "null", "n/a"), because a
+ * course or deck called "Test", "Example" or "Input" is a real thing to look up.
+ */
+const isPlaceholderArg = (tool, arg) => isPlaceholderQuery(arg)
+    && (tool?.name === searchWebTool.name || !NAMEABLE.has(placeholderForm(arg)));
 
 export function parseToolCalls(text, tools) {
     const byName = new Map(tools.map(t => [t.name, t]));
@@ -560,7 +602,7 @@ export function parseToolCalls(text, tools) {
         // Quotes around the argument are the model quoting a query, not part of
         // one; a trailing full stop is prose habit. Both would be searched for.
         const arg = m[2].replace(/^["“'`]+|["”'`.]+$/g, '').trim();
-        if (arg.length < argFloor(tool) || arg.length > 200 || isPlaceholderQuery(arg)) continue;
+        if (arg.length < argFloor(tool) || arg.length > 200 || isPlaceholderArg(tool, arg)) continue;
         if (calls.some(c => c.tool === tool.name && c.arg.toLowerCase() === arg.toLowerCase())) continue;
         calls.push({ tool: tool.name, arg });
         if (calls.length >= MAX_CALLS_PER_ROUND) break;
@@ -608,16 +650,25 @@ export async function runToolCalls({ wanted, tools, calls, items, context, emit,
     // the learner watches it happen rather than reading afterwards that it
     // did. The whole list goes out each time — six items at most, and the
     // client then never has to merge anything.
-    for (const c of wanted) calls.push({ ...c, state: 'running', ...(position ? { at: { ...position } } : {}) });
+    // A lookup line a reply repeats runs once: `first[i]` is the earliest
+    // identical call, and only that one gets a row and a run. Each row is kept
+    // by reference, so a repeat can never leave a row spinning that nothing
+    // will ever update.
+    const first = wanted.map(c => wanted.findIndex(d => sameCall(d, c)));
+    const rows = wanted.map((c, i) => first[i] === i
+        ? { ...c, state: 'running', ...(position ? { at: { ...position } } : {}) }
+        : null);
+    for (const row of rows) if (row) calls.push(row);
     emit?.({ actions: calls.map(c => ({ ...c })) });
 
     const added = [];
     const perCall = wanted.map(() => ({ items: [], context: [], images: [], failed: false, summary: 'nothing' }));
     const results = await Promise.allSettled(
-        wanted.map(c => byName.get(c.tool).run(c.arg)),
+        wanted.map((c, i) => first[i] === i ? byName.get(c.tool).run(c.arg) : null),
     );
     results.forEach((r, i) => {
-        const call = calls.find(c => c.tool === wanted[i].tool && c.arg === wanted[i].arg);
+        if (first[i] !== i) return;
+        const call = rows[i];
         const value = r.status === 'fulfilled' ? r.value : null;
         const threw = r.status === 'rejected';
         if (threw) console.error(`[tools] ${call.tool} failed:`, r.reason?.message);
@@ -662,6 +713,8 @@ export async function runToolCalls({ wanted, tools, calls, items, context, emit,
             mine.images.push(pic);
         }
     });
+    // A repeat has nothing of its own: it reads as what its first run found.
+    first.forEach((f, i) => { if (f !== i) perCall[i].summary = perCall[f].summary; });
     emit?.({ actions: calls.map(c => ({ ...c })) });
     return { added, perCall };
 }
@@ -989,7 +1042,7 @@ export async function runNativeAgentTurn({
                 continue;
             }
             const arg = parseToolArgs(rc.arguments, tool);
-            if (arg.length < argFloor(tool) || arg.length > 400 || isPlaceholderQuery(arg)) {
+            if (arg.length < argFloor(tool) || arg.length > 400 || isPlaceholderArg(tool, arg)) {
                 notes.set(rc.id, tool.name === searchWebTool.name
                     ? 'That call was malformed — its arguments did not contain a usable query. Call the tool again with one plain search query, or finish the answer from what you have.'
                     : `That call was malformed — its arguments did not say what to look at. Call ${tool.name} again with ${tool.arg}, or finish the answer from what you have.`);

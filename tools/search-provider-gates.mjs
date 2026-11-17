@@ -98,6 +98,10 @@ check('quotes are encoded (no href breakout)',
 const wiki = validateManifest({ ...base, id: 'w', urlTemplate: 'https://{lang}.wikipedia.org/w/index.php?search={query}' }).manifest;
 check('{lang} fills', buildProviderUrl(wiki, { query: 'licht', lang: 'nl' }),
     'https://nl.wikipedia.org/w/index.php?search=licht');
+check('{lang} is "en" when no language is given, as on the client',
+    buildProviderUrl(wiki, { query: 'licht' }), 'https://en.wikipedia.org/w/index.php?search=licht');
+check('…and when the language is empty',
+    buildProviderUrl(wiki, { query: 'licht', lang: '' }), 'https://en.wikipedia.org/w/index.php?search=licht');
 
 console.log('\n--- every shipped built-in is itself valid ---');
 for (const { manifest } of BUILTIN_PROVIDERS) {
@@ -188,6 +192,24 @@ check('and leaves the live built-ins alone', listProviders().some(a => a.id === 
 setProviderEnabled('youtube', true);
 syncBuiltinProviders();
 check('re-sync preserves an enabled built-in', listProviders().find(a => a.id === 'youtube').enabled, true);
+
+// A learner's own provider added under an id a later release ships as a
+// built-in: the re-sync must leave their row as it is, not swap in the shipped
+// manifest and turn it into a built-in they can no longer delete.
+{
+    const mine = { id: 'mathworld', kind: 'search_provider', label: 'My maths site', icon: 'search', urlTemplate: 'https://maths.example/find?q={query}', surfaces: ['topic'] };
+    db.prepare('DELETE FROM search_providers WHERE id = ?').run('mathworld');
+    db.prepare('INSERT INTO search_providers (id, kind, manifest, enabled, builtin) VALUES (?, ?, ?, 1, 0)').run('mathworld', 'search_provider', JSON.stringify(mine));
+    const staleArxiv = { ...BUILTIN_PROVIDERS.find(p => p.manifest.id === 'arxiv').manifest, urlTemplate: 'https://arxiv.org/abs/{query}' };
+    db.prepare('UPDATE search_providers SET manifest = ? WHERE id = ?').run(JSON.stringify(staleArxiv), 'arxiv');
+    syncBuiltinProviders();
+    const row = db.prepare('SELECT manifest, enabled, builtin FROM search_providers WHERE id = ?').get('mathworld');
+    check('re-sync leaves a learner\'s own provider with a shipped id as it was', row.builtin === 0 && row.enabled === 1 && JSON.parse(row.manifest).urlTemplate === mine.urlTemplate, true);
+    check('…and still refreshes the built-ins that are built-ins', listProviders().find(a => a.id === 'arxiv').urlTemplate, BUILTIN_PROVIDERS.find(p => p.manifest.id === 'arxiv').manifest.urlTemplate);
+    check('…and the learner can still delete theirs', deleteProvider('mathworld').ok, true);
+    syncBuiltinProviders();
+    check('…after which the shipped one is seeded again', listProviders().find(a => a.id === 'mathworld')?.builtin, true);
+}
 
 // ---------------------------------------------------------------------------
 // The 0.69 rename, against a database shaped the way an older build left it.

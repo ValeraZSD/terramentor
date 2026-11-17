@@ -509,6 +509,14 @@ ok('but not the bytes the saved document holds', vaultFiles().some(f => f.includ
 const keep = await one('same.png', png());
 await fetch(`${base}/api/documents/${saved.documentId}`, { method: 'DELETE' });
 ok('and deleting that document keeps bytes an unsent attachment holds', keep.id && vaultFiles().some(f => f.includes(photoHash)));
+// A graded paper attempt keeps its answer photo in the same vault, by the same
+// hash: removing an attachment of identical bytes must not take it.
+const answerPhoto = await one('answer.png', png(6, 6, 0x66));
+const answerHash = hashOf(answerPhoto.id);
+db.prepare("INSERT INTO paper_attempts (node_id, mode, image_hash) VALUES (?, 'photo', ?)").run(topic, answerHash);
+await fetch(`${base}/api/ai/attachments/${answerPhoto.id}`, { method: 'DELETE' });
+ok('and deleting an attachment keeps bytes a graded paper attempt holds',
+    !db.prepare('SELECT 1 FROM chat_attachments WHERE id = ?').get(answerPhoto.id) && vaultFiles().some(f => f.includes(answerHash)), answerHash);
 
 const staleId = (await one('old.txt', Buffer.from('forgotten in the composer'))).id;
 const staleHash = hashOf(staleId);

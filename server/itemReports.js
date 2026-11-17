@@ -31,7 +31,7 @@ export const REPORT_NOTE_MAX = 1000;
 // Where a report was sent from: a closed vocabulary, so it may reach the
 // activity log beside the kind and the reason.
 export const REPORT_SURFACES = new Set([
-    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant',
+    'feed', 'quiz', 'mastery_check', 'placement', 'drill', 'review', 'lesson', 'paper', 'topic', 'assistant', 'mock',
 ]);
 
 // A parked card's next review: past every due query (`next_review <= now`)
@@ -356,7 +356,8 @@ function reportBankQuestion(undo, target) {
     const positions = all.map(h => ({ quizId: h.quizId, index: h.index }));
 
     // Evidence first, while the legacy feed keys still point at their positions.
-    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check') ORDER BY id`).all(target.nodeId);
+    // A mock exam from the course names its questions the same way (server/mockExams.js).
+    const rows = stmt(`SELECT * FROM mastery_evidence WHERE node_id = ? AND evidence_type IN ('quiz', 'mastery_check', 'mock') ORDER BY id`).all(target.nodeId);
     voidItems(undo, rows, e => uuids.has(e?.u));
     for (const row of rows) {
         if (undo.evidence.some(x => x.before.id === row.id)) continue;
@@ -505,6 +506,32 @@ function reportProbeQuestion(undo, target) {
 
 // ---- the record --------------------------------------------------------------
 
+/**
+ * A question in a course mock that is still being answered leaves the server
+ * without its key (server/mockExams.js): the report's preview and the report
+ * itself keep that until the mock is finished. What is STORED stays whole, so
+ * the report shows the key once the mock is over. These previews never draw a
+ * question's key on any screen (`ItemQuote` shows its stem), so withholding it
+ * here costs another surface nothing. The assistant's page context withholds
+ * it only for items the mock itself lists (server/pageContext.js), so the
+ * same question in a quiz keeps its key there.
+ */
+export function isOpenMockRef(ref) {
+    if (typeof ref !== 'string' || !ref.startsWith('q:')) return false;
+    return !!stmt(`
+        SELECT 1 FROM exam_paper_parts pp
+        JOIN exam_papers e ON e.id = pp.paper_id AND e.source = 'course'
+        JOIN mock_sittings s ON s.paper_id = e.id AND s.status <> 'done'
+        WHERE json_extract(pp.item, '$.uuid') = ? LIMIT 1
+    `).get(ref.slice(2));
+}
+
+export function withoutOpenMockKey(ref, view) {
+    if (!view || !isOpenMockRef(ref)) return view;
+    const { correct_answer: _key, explanation: _why, tolerance: _tol, ...rest } = view;
+    return rest;
+}
+
 function publicReport(row) {
     if (!row) return null;
     const item = safeParse(row.item, {}) || {};
@@ -521,7 +548,7 @@ function publicReport(row) {
         surface: row.surface || null,
         createdAt: row.created_at,
         undoneAt: row.undone_at || null,
-        item: item.view ?? null,
+        item: withoutOpenMockKey(row.item_key, item.view ?? null),
         // A card the learner wrote or imported is theirs to fix: the editor is
         // offered instead of a rewrite.
         editable: row.kind === 'card' && !!undo.parked,

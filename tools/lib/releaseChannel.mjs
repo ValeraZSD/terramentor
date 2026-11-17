@@ -191,7 +191,7 @@ export function promotion({ nightly, onMain, packageVersion, tags, changelog, pi
  *
  * Only a plain stable X.Y.Z that is not older than every other stable tag
  * becomes the repository's Latest release and moves the `latest` image and its
- * minor line: a hotfix tagged on an older line (1.2.1 after 1.3.0) is
+ * minor and major lines: a hotfix tagged on an older line (1.2.1 after 1.3.0) is
  * published, but `docker compose pull` must not go backwards for it. A nightly
  * moves `nightly`; a suffixed tag (v1.3.0-rc.1) is a prerelease and moves
  * nothing. `movingTags` are those image tags.
@@ -218,9 +218,11 @@ export function releasePlan({ event, refName, sha, input = {}, dry = {}, tags = 
     const newestOther = highestStable(tags.filter((t) => t !== `v${version}`));
     const latest = channel === 'stable' && !prerelease && (!newestOther || compareVersions(version, newestOther) >= 0);
     const minor = version.split('.').slice(0, 2).join('.');
+    // The major line too: docs/HOSTING.md and hosted/example.env pin `:1`.
+    const major = version.split('.')[0];
     return {
         channel, version, tag: `v${version}`, ref, previous, publish, prerelease, latest, minor,
-        movingTags: latest ? ['latest', minor] : channel === 'nightly' ? ['nightly'] : [],
+        movingTags: latest ? ['latest', minor, major] : channel === 'nightly' ? ['nightly'] : [],
     };
 }
 

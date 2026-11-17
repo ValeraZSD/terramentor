@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 import { TextArea } from '../ui/Field';
+import { FOCUS_RING } from '../ui/vocabulary';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useElementWidth } from '../../hooks/useElementWidth';
 
@@ -1188,12 +1189,18 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 </div>
             )}
 
+            {/* An image read through its text twin: named by its kind and
+                title, described by the twin below it (labels, values, steps),
+                so a diagram's contents reach a screen reader as text. A stage
+                holding controls is a group instead. Focusable, because a wide
+                one scrolls sideways on a phone. */}
             <div
                 ref={containerRef}
                 role={INTERACTIVE_KINDS.has(kind) ? 'group' : 'img'}
                 aria-label={twin.title ? `${label}: ${twin.title}` : label}
                 aria-describedby={status === 'ok' && twinHasBody(twin) ? twinId : undefined}
-                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
+                tabIndex={status === 'ok' ? 0 : -1}
+                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${FOCUS_RING} ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
             />
             {status === 'ok' && twinHasBody(twin) && <TwinText id={twinId} twin={twin} />}
 

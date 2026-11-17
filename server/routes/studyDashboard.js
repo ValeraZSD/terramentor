@@ -280,7 +280,7 @@ app.get('/api/projects/:projectId/study-dashboard', (req, res) => {
             SELECT n.id, n.parent_id, n.status, n.is_note, n.role FROM nodes n
             JOIN descendants d ON n.parent_id = d.id
         )
-        SELECT d.id, d.parent_id, d.status, d.is_note, d.role,
+        SELECT d.id, d.parent_id, n.title, d.status, d.is_note, d.role,
                -- …and what its cards say, because a topic whose content is
                -- cards is finished by meeting them, not by being ticked
                -- (server/progress.js).
