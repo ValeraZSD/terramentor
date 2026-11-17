@@ -22,7 +22,7 @@
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -78,6 +78,8 @@ const stubs = {
         }`,
 };
 
+// A clean checkout has no node_modules/.cache yet.
+mkdirSync(path.join(ROOT, 'node_modules', '.cache'), { recursive: true });
 const scratch = mkdtempSync(path.join(ROOT, 'node_modules', '.cache', 'ai-settings-gates-'));
 // At HEAD the file is read from git into a sibling of the real one, so its relative imports still resolve.
 const settingsAbs = HEAD ? path.join(settingsDir, `.head-AISettings-${process.pid}.tsx`) : path.join(settingsDir, 'AISettings.tsx');
