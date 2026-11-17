@@ -84,7 +84,7 @@ export default function ImageDescriptionsDialog({ open, onClose, onChanged }: { 
         <Modal isOpen={open} onClose={() => void close()} title={t("Picture descriptions")} maxWidth="max-w-2xl" fill>
             <div className="px-5 py-4 space-y-4">
                 <p className="text-sm text-slate-600 dark:text-slate-300">
-                    {t("This is what a screen reader says instead of each picture, and what the AI reads. Check the ones your model wrote against the picture and correct them: a description you write is kept, and no model replaces it.")}
+                    {t("A screen reader reads these out instead of the pictures. Fix any that are wrong: what you write is kept and never replaced.")}
                 </p>
                 {failed ? (
                     <p className="text-sm text-red-700 dark:text-red-300">{t("The pictures could not be loaded.")}</p>
@@ -174,9 +174,14 @@ function DescriptionRow({ row, draft, onDraft, onSaved }: {
                     readOnly={saving}
                     placeholder={t("Say what the picture shows")}
                     onChange={e => { onDraft(e.target.value); setJustSaved(false); }}
+                    // Who wrote it is read with the box, not left as a line a
+                    // screen reader in forms mode never reaches; the box grows
+                    // by itself, so the drag grip is only a target to miss.
+                    aria-describedby={`${fieldId}-source`}
+                    className="resize-none"
                 />
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <p className={`text-xs ${row.described_by === 'vision' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}`}>
+                    <p id={`${fieldId}-source`} role="status" className={`text-xs ${row.described_by === 'vision' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}`}>
                         {error ? <span className="text-red-700 dark:text-red-300">{error}</span> : justSaved ? t("Saved") : source}
                     </p>
                     {changed && (
