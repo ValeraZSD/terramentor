@@ -189,12 +189,22 @@ const TM = (() => {
 
     const app = document.getElementById('app');
     function mount(...children) {
-        const keep = document.activeElement && app.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+        const had = document.activeElement && app.contains(document.activeElement) ? document.activeElement : null;
+        const keep = had ? had.dataset.focus : null;
         app.replaceChildren();
         append(app, children);
+        if (!had) return;
         // The same control again after a re-render keeps the keyboard where it was.
-        const again = keep ? app.querySelector(`[data-focus="${CSS.escape(keep)}"]`) : null;
-        if (again) again.focus();
+        let again = keep ? app.querySelector(`[data-focus="${CSS.escape(keep)}"]`) : null;
+        // A button the new screen disables (Previous on the first question, Up
+        // on the top step) cannot take focus: its enabled neighbour does.
+        if (again && again.disabled) again = [...again.parentElement.children].find(el => el.matches('button:not([disabled])')) || null;
+        // A control the new screen no longer has: the screen's own landing
+        // place (data-autofocus), else its first control, so the keyboard is
+        // never dropped on the page and a screen reader hears the new screen.
+        // The region is not live, or each re-render would read out whole.
+        const target = again || app.querySelector('[data-autofocus]') || app.querySelector('button:not([disabled]), input, textarea');
+        if (target) target.focus();
     }
 
     function showError(err) {

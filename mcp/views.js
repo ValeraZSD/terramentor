@@ -124,7 +124,7 @@ export function viewHtml(kind) {
         `<style>${style}</style>`,
         '</head>',
         '<body>',
-        '<main id="app" aria-live="polite"></main>',
+        '<main id="app"></main>',
         `<script type="application/json" id="tm-strings">${words}</script>`,
         `<script>${script}</script>`,
         '</body>',

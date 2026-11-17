@@ -1166,7 +1166,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
             }
             if (i < shownCount - 1) await press('next');
         }
-        await press('submit');
+        await press('next'); // on the last question the primary button is Submit, under Next's key
         await until(() => calls('check_submit').length > 0 && contexts().length > 0);
         const submitted = calls('check_submit')[0]?.params?.arguments || {};
         ok('the view\'s Submit sends check_submit with its sitting and each answer as its input encodes it (an untouched ordering as served, the rest null)',
@@ -1465,6 +1465,109 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     }
     const closeFromReview = await hostCall('check_complete', { sitting: rs });
     ok('a review session has no way to complete a topic', isErr(closeFromReview) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(carded).status !== 'completed');
+
+    // How the views behave for a keyboard and a screen reader, against a
+    // stand-in for the server (no database): what each view does with the
+    // answers it is sent. Space on the header's Undo is Undo's, not the
+    // reveal shortcut; the progress bars are named; a re-rendered screen is
+    // not a live region that reads out whole, so focus is put somewhere the
+    // new screen is read from, and never dropped on the page.
+    const settle = () => new Promise(r => setTimeout(r, 80));
+    const answerWith = (structuredContent) => ({ result: { structuredContent } });
+    const keyDown = (win, target, key) => target.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const stubCards = [
+        { presentationId: 'p1', front: 'First front', back: 'First back', topic: 'Optics', project: 'Gate course' },
+        { presentationId: 'p2', front: 'Second front', back: 'Second back', topic: 'Optics', project: 'Gate course' },
+    ];
+    let stubNext = 0;
+    const stubReview = (name, args) => {
+        const card = stubCards[Math.min(stubNext, stubCards.length - 1)];
+        if (name === 'review_next') return answerWith({ kind: 'review', rated: stubNext, reviewed: stubNext, total: 2, undoable: stubNext ? 'p0' : 'p-before', card: { presentationId: card.presentationId, front: card.front, topic: card.topic, project: card.project }, revealed: false });
+        if (name === 'review_reveal') return answerWith({ kind: 'review', rated: stubNext, reviewed: stubNext, total: 2, undoable: 'p0', card, revealed: true, intervals: { again: '1m', hard: '5m', good: '1d', easy: '3d' } });
+        if (name === 'review_rate') { stubNext++; return answerWith({ rated: stubNext }); }
+        return answerWith({});
+    };
+    const stubOpen = { result: { _meta: { 'terramentor/sitting': 'stub-review-sitting' } } };
+    const reviewKeys = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview);
+    try {
+        const { window: win, doc, until, calls } = reviewKeys;
+        await until(() => doc.querySelector('.card-front'));
+        ok('the view is not one live region: its screen is rebuilt on every rating and would be read out whole each time',
+            !doc.getElementById('app').hasAttribute('aria-live'), doc.getElementById('app').outerHTML.slice(0, 80));
+        ok('the review\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
+        const undoButton = doc.querySelector('[data-focus="undo"]');
+        undoButton.focus();
+        keyDown(win, undoButton, ' ');
+        await settle();
+        ok('Space on the focused Undo button does not reveal the card', undoButton && calls('review_reveal').length === 0, `${calls('review_reveal').length} reveals`);
+        keyDown(win, doc.body, ' ');
+        await until(() => calls('review_reveal').length > 0);
+        ok('Space elsewhere still reveals the card', calls('review_reveal').length === 1, `${calls('review_reveal').length} reveals`);
+        await until(() => doc.querySelector('[data-focus="rate-good"]'));
+        doc.querySelector('[data-focus="rate-good"]').focus();
+        doc.querySelector('[data-focus="rate-good"]').click();
+        await until(() => doc.querySelector('.card-front')?.textContent === 'Second front');
+        ok('after a rating, focus goes to the new card instead of the page', doc.activeElement?.classList.contains('card'), doc.activeElement?.outerHTML.slice(0, 80));
+    } finally {
+        reviewKeys.close();
+    }
+
+    const stubSeq = { type: 'sequence', question: 'Order the steps.', items: ['same', 'same', 'z'] };
+    const stubMc = { type: 'multiple_choice', question: 'Pick one.', options: ['a', 'b'] };
+    const stubCheck = (name) => {
+        if (name === 'check_questions') return answerWith({ topic: { title: 'Gate topic' }, questions: [stubSeq, stubMc], passPct: 80 });
+        if (name === 'check_submit') {
+            return answerWith({ result: { score: 0, total: 2, passed: false, unproven: false, passPct: 80, completed: false, items: [
+                { correct: false, answer: [], correctAnswer: ['same', 'same', 'z'], explanation: '' }, { correct: false, answer: '', correctAnswer: 'a', explanation: '' }] } });
+        }
+        return answerWith({});
+    };
+    const checkKeys = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-check-sitting' } } }, stubCheck);
+    try {
+        const { doc, until } = checkKeys;
+        await until(() => doc.querySelector('.sequence'));
+        ok('the check\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
+        const step = (i, label) => doc.querySelectorAll('.step')[i].querySelector(`[aria-label="${label}"]`);
+        step(1, 'Move up').focus();
+        step(1, 'Move up').click();
+        ok('moving a step keeps focus on it when another step has the same words', doc.activeElement === step(1, 'Move up'), doc.activeElement?.outerHTML.slice(0, 120));
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        step(1, 'Move up').click();
+        ok('a step moved to the end of the order passes focus to its other button, not the page',
+            doc.activeElement === step(0, 'Move down'), doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="next"]').focus();
+        doc.querySelector('[data-focus="next"]').click();
+        ok('Next on the second to last question leaves focus on the button that replaces it, Submit',
+            doc.activeElement?.tagName === 'BUTTON' && /Submit/.test(doc.activeElement.textContent), doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="previous"]').focus();
+        doc.querySelector('[data-focus="previous"]').click();
+        ok('Previous back to the first question, where it is disabled, passes focus to Next, not the page',
+            doc.activeElement?.dataset.focus === 'next', doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="next"], [data-focus="submit"]').click();
+        doc.querySelector('[data-focus="next"], [data-focus="submit"]').click();
+        await until(() => doc.querySelector('.outcome'));
+        ok('after Submit, focus goes to the result instead of the page', doc.activeElement?.classList.contains('outcome'), doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        checkKeys.close();
+    }
+
+    // The review list counts its own questions: a score judged on 4 of the 5
+    // asked still lists 5, and the fifth is "5 of 5".
+    const judgedOn4 = (name) => {
+        if (name !== 'check_questions') return answerWith({});
+        const items = [1, 2, 3, 4, 5].map(n => ({ correct: n < 4, answer: 'x', correctAnswer: 'y', explanation: '' }));
+        return answerWith({ topic: { title: 'Gate topic' }, questions: items.map((_, i) => ({ type: 'short_answer', question: `Q${i + 1}` })), passPct: 80,
+            result: { score: 3, total: 4, passed: false, unproven: false, passPct: 80, completed: false, items } });
+    };
+    const listed = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-judged' } } }, judgedOn4);
+    try {
+        await listed.press('review');
+        const heads = [...listed.doc.querySelectorAll('.review-head .muted')].map(e => e.textContent);
+        ok('the answers list numbers its questions out of the list\'s length, not the judged total', heads.length === 5 && heads[4] === 'Question 5 of 5', JSON.stringify(heads));
+    } finally {
+        listed.close();
+    }
     host.close();
 }
 

@@ -85,12 +85,14 @@
         if (e.altKey || state.busy || !state.view || (state.phase !== 'card' && state.phase !== 'done')) return;
         if (e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }
         if (e.ctrlKey || e.metaKey || state.phase !== 'card') return;
-        if (e.key === ' ' && !state.view.revealed) { e.preventDefault(); reveal(); }
+        // Space on a focused button presses that button (Undo), not the shortcut.
+        const onOtherButton = e.target.closest && e.target.closest('button') && e.target.dataset.focus !== 'reveal';
+        if (e.key === ' ' && !state.view.revealed) { if (!onOtherButton) { e.preventDefault(); reveal(); } }
         else if (/^[1-4]$/.test(e.key) && state.view.revealed) { e.preventDefault(); rate(RATINGS[Number(e.key) - 1][0]); }
     });
 
     function progress(v) {
-        const bar = h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': v.total, 'aria-valuenow': v.reviewed }, h('div', { class: 'bar-fill' }));
+        const bar = h('div', { class: 'bar', role: 'progressbar', 'aria-label': t('Flashcard Review'), 'aria-valuemin': 0, 'aria-valuemax': v.total, 'aria-valuenow': v.reviewed }, h('div', { class: 'bar-fill' }));
         bar.firstChild.style.setProperty('width', `${v.total ? (v.reviewed / v.total) * 100 : 0}%`);
         return bar;
     }
@@ -119,7 +121,7 @@
             header(v),
             progress(v),
             notice,
-            h('section', { class: 'card' },
+            h('section', { class: 'card', tabindex: -1, 'data-autofocus': '' },
                 h('p', { class: 'eyebrow' }, c.topic || t('Question')),
                 h('p', { class: 'card-front' }, c.front),
                 c.extraFront ? h('p', { class: 'muted' }, c.extraFront) : null,
@@ -146,7 +148,7 @@
             header(v),
             progress(v),
             notice,
-            h('section', { class: 'outcome is-pass' },
+            h('section', { class: 'outcome is-pass', tabindex: -1, 'data-autofocus': '' },
                 h('span', { class: 'outcome-mark', 'aria-hidden': 'true' }, icon('check')),
                 h('div', {},
                     h('h2', { class: 'outcome-title' }, t('Session Complete!')),
