@@ -50,7 +50,7 @@
         var surface = t.themeSurface;
         var meta = document.querySelector('meta[name="theme-color"]');
         if (surface && meta) meta.setAttribute('content', surface);
-        // The icon is a setting too (Settings → General → App icon), and
+        // The icon is a setting too (Settings → General → Appearance → Colours → Icon), and
         // the tab paints long before the store has read it: without this
         // line every load shows the shipped mark and then swaps to the
         // chosen one. Same cache, same reasoning as the theme above;
