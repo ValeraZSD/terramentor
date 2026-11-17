@@ -92,6 +92,8 @@ const TABLE = [
     ['...phosphate is not phosphite', fill('phosphate'), 'phosphite', false, false],
     ['...absorption is not adsorption', fill('absorption'), 'adsorption', false, false],
     ['...anaerobic is not aerobic (two letters gone side by side)', fill('anaerobic'), 'aerobic', false, false],
+    ['a script without spaces is never forgiven: one dropped sign can be its "not"', fill('我们今天不去学校上课'), '我们今天去学校上课', false, false],
+    ['...nor a long Japanese phrase', fill('ひかりごうせいのしくみ'), 'ひかりごせいのしくみ', false, false],
     ['two slips with a kept letter between them still count (necessarry)', fill('unnecessary'), 'unecessarry', false, true],
     ['a different ending is a different form: gebruik is not gebruikt', fill('gebruik'), 'gebruikt', false, false],
     ['...sulfate is not sulfates', fill('sulfate'), 'sulfates', false, false],

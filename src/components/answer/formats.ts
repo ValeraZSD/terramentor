@@ -235,10 +235,13 @@ function editDistance(a: string, b: string): number {
 }
 
 const baseLetter = (ch: string) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 
 function isSlipOf(word: string, key: string): boolean {
     if (word === key) return true;
     if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    // A script written without spaces: one "word" is a phrase (see the server side).
+    if (UNSPACED_SCRIPT.test(key)) return false;
     const budget = slipBudget([...key].length);
     if (budget === 0) return false;
     const w = [...word];

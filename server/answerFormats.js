@@ -229,6 +229,7 @@ function editDistance(a, b) {
 }
 
 const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 
 /**
  * Could the learner have meant `key` and slipped while typing `word`?
@@ -246,6 +247,9 @@ const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
 function isSlipOf(word, key) {
     if (word === key) return true;
     if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    // Written without spaces (Chinese, Japanese, Thai): one "word" is then a
+    // whole phrase, and one sign dropped from it can be its "not" (不).
+    if (UNSPACED_SCRIPT.test(key)) return false;
     const budget = slipBudget([...key].length);
     if (budget === 0) return false;
     const w = [...word];
