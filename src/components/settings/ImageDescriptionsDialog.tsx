@@ -6,6 +6,7 @@ import { TextArea } from '../ui/Field';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { forgetMediaInfo } from '../CardMedia';
+import { useAutoGrow } from '../../hooks/useAutoGrow';
 import type { MediaDescriptionRow } from '../../types';
 
 /**
@@ -125,6 +126,9 @@ function DescriptionRow({ row, draft, onDraft, onSaved }: {
     const value = draft ?? row.description ?? '';
     const changed = draft !== undefined && draft !== (row.description ?? '');
     const fieldId = `picture-description-${row.hash.slice(0, 12)}`;
+    // A description is checked against its picture, so the whole of it has to
+    // be visible: a fixed two rows cut a model's sentence in half on a phone.
+    const fieldRef = useAutoGrow(value, { rows: 6 });
 
     const source = row.described_by === 'vision'
         ? (row.generated_by ? t("Written by AI ({{model}}). Check it.", { model: row.generated_by }) : t("Written by AI. Check it."))
@@ -162,6 +166,7 @@ function DescriptionRow({ row, draft, onDraft, onSaved }: {
                     {row.filename}
                 </label>
                 <TextArea
+                    ref={fieldRef}
                     id={fieldId}
                     rows={2}
                     value={value}
