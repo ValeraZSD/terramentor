@@ -14,6 +14,7 @@ import VaultProjectView from './VaultProjectView';
 import FeedView from './feed/FeedView';
 import DeckStudy from './deck/DeckStudy';
 import PaceIndicator from './PaceIndicator';
+import MockExamView from './mockExam/MockExamView';
 import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, GanttChart, Calendar, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -56,6 +57,9 @@ export default function Workspace() {
     // asking. The other five views administer the course and are exactly where
     // the tree belongs; it is one tab away from here.
     const studyView = workspaceView === 'study';
+    // The mock exam has no tab of its own: it opens from the Dashboard's
+    // tools, so the rail keeps saying Dashboard while it is open.
+    const tabView: WorkspaceView = workspaceView === 'exam' ? 'dashboard' : workspaceView;
 
     // Close the nav drawer whenever a node is selected (the detail overlay takes
     // over) or when we leave mobile.
@@ -168,9 +172,9 @@ export default function Workspace() {
         .filter(t => t.when || workspaceView === t.key);
 
     useEffect(() => {
-        const el = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${workspaceView}"]`);
+        const el = tabRailRef.current?.querySelector<HTMLElement>(`[data-tab="${tabView}"]`);
         el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }, [workspaceView]);
+    }, [tabView]);
 
     // The pace pill's full form is shown only when it fits beside EVERY tab —
     // measured on this row, never guessed from the window. Every number the
@@ -279,9 +283,9 @@ export default function Workspace() {
                             <button
                                 key={tab.key}
                                 data-tab={tab.key}
-                                aria-current={workspaceView === tab.key ? 'page' : undefined}
+                                aria-current={tabView === tab.key ? 'page' : undefined}
                                 onClick={() => setWorkspaceView(tab.key)}
-                                className={`relative flex items-center gap-1.5 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${workspaceView === tab.key
+                                className={`relative flex items-center gap-1.5 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${tabView === tab.key
                                     ? 'bg-accent/10 text-accent-fg'
                                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
                                     }`}
@@ -298,7 +302,7 @@ export default function Workspace() {
                                     `sr-only`, never `hidden`: `display: none`
                                     took the name away from a screen reader too,
                                     and four buttons were announced as nothing. */}
-                                <span className={tab.key === 'study' || workspaceView === tab.key ? 'inline' : 'sr-only sm:not-sr-only'}>{tab.label}</span>
+                                <span className={tab.key === 'study' || tabView === tab.key ? 'inline' : 'sr-only sm:not-sr-only'}>{tab.label}</span>
                                 {isCalendarTab && todayTaskCount > 0 && (
                                     <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'calendar'
                                         ? 'bg-accent text-white'
@@ -316,7 +320,7 @@ export default function Workspace() {
                                     (server/decks.js `reviewDue`), so every
                                     project may show it. */}
                                 {isDashboardTab && dueFlashcardCount > 0 && (
-                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${workspaceView === 'dashboard'
+                                    <span className={`ml-0.5 px-1.5 py-0.5 leading-none text-3xs font-bold rounded-full ${tabView === 'dashboard'
                                         ? 'bg-accent text-white'
                                         : 'bg-amber-600 text-white'
                                         }`}>
@@ -389,6 +393,7 @@ export default function Workspace() {
                         <CalendarView scope={{ kind: 'project', projectId: currentProjectId }} />
                     )}
                     {workspaceView === 'vault' && <VaultProjectView />}
+                    {workspaceView === 'exam' && currentProjectId != null && <MockExamView key={currentProjectId} projectId={currentProjectId} />}
                     {/* Study is the scoped stream — except for a project measured
                         in cards, where it is the review session (DeckStudy): a
                         deck has nothing to teach, so the stream would only hand
