@@ -153,7 +153,7 @@ const SCREENS = {
     },
     'card-answer': async (page, ctx) => {
         await SCREENS['card-front'](page, ctx);
-        await page.press(byText('button', '/^Reveal answer$/'), 'Reveal answer');
+        await page.press(byText('button', '/^Reveal answer/'), 'Reveal answer');
         await sleep(800);
     },
     assistant: STATES['topic-assistant'],
