@@ -40,6 +40,21 @@ const check = (label, ok, extra = '') => {
 };
 const section = (name) => console.log(`\n${name}`);
 
+// A vision model that answers whatever `visionSays` holds; nothing else reaches it.
+let visionSays = 'UNREADABLE';
+const visionStub = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: visionSays }, finish_reason: 'stop' }], usage: { completion_tokens: 20 } }));
+    });
+});
+await new Promise(r => visionStub.listen(0, '127.0.0.1', r));
+process.env.AI_PROVIDER = 'openai';
+process.env.AI_BASE_URL = `http://127.0.0.1:${visionStub.address().port}/v1`;
+process.env.AI_MODEL = 'stub-vision';
+process.env.AI_API_KEY = 'stub-key';
+
 const S = (f) => pathToFileURL(join(repoRoot, 'server', f)).href;
 const { default: db } = await import(S('database.js'));
 const {
@@ -138,8 +153,11 @@ check('a file the store lost is a 404 that is not cached', await (async () => {
     const lost = await call(`/api/media/${hash('8')}`);
     return lost.status === 404 && !/immutable/.test(lost.headers.get('cache-control') || '');
 })());
-check('the route does not hand-pipe a stream (it would keep the file open when the client leaves)',
-    !/\.pipe\(res\)/.test(readFileSync(join(repoRoot, 'server/routes/media.js'), 'utf8')));
+const pastEnd = await call(`/api/media/${SONG}`, { headers: { Range: 'bytes=100-200' } });
+check('a range past the end is a 416 that says how long the file is, with no cache header and no body type',
+    pastEnd.status === 416 && pastEnd.headers.get('content-range') === 'bytes */16'
+    && !pastEnd.headers.get('cache-control') && !/audio/.test(pastEnd.headers.get('content-type') || ''),
+    `${pastEnd.status} ${pastEnd.headers.get('content-range')} ${pastEnd.headers.get('cache-control')} ${pastEnd.headers.get('content-type')}`);
 
 section('the next page, after a correction');
 // Four model-written rows, read two at a time. Correcting one on the first
@@ -182,8 +200,26 @@ const thirdPress = await startDescribeSweep();
 check('...so a later press is answered on its merits', thirdPress.started === false && thirdPress.reason !== 'already running', JSON.stringify(thirdPress));
 
 section('what a model\'s description goes through');
-check('a model\'s reply is cleaned like a learner\'s: marks dropped, cut by characters',
-    /const clean = cleanDescription\(text\)/.test(readFileSync(join(repoRoot, 'server/mediaDescribe.js'), 'utf8')));
+const { mediaStorage: store } = await import(S('vaultStorage.js'));
+const modelRow = (name) => {
+    const h = store.put(Buffer.from(`picture ${name}`)).hash;
+    db.prepare("INSERT INTO media_files (project_id, hash, filename, mime, kind, size) VALUES (?, ?, ?, 'image/png', 'image', 8)").run(projectId, h, name);
+    return h;
+};
+visionSays = 'A​ cat‮ on⁦ a\u0007 mat﻿';
+const cleanedHash = modelRow('schoon.png');
+const cleanedRes = await describeMedia(cleanedHash);
+check('a model\'s reply is cleaned like a learner\'s: control and direction marks dropped',
+    cleanedRes.ok && row(cleanedHash).description === 'A cat on a mat' && row(cleanedHash).described_by === 'vision', JSON.stringify([cleanedRes, row(cleanedHash)]));
+visionSays = '\u{1F600}'.repeat(700);
+const longHash = modelRow('lang.png');
+await describeMedia(longHash);
+const longText = row(longHash).description || '';
+check('...and a long one is cut by characters, never through a pair', [...longText].length === 600 && !/[\ud800-\udbff]$/.test(longText), String(longText.length));
+visionSays = 'UNREADABLE';
+const blankHash = modelRow('leeg.png');
+check('...and "UNREADABLE" stores nothing', (await describeMedia(blankHash)).ok === false && row(blankHash).description === null);
+await new Promise(ok => visionStub.close(ok));
 
 section('what the card says');
 const outfile = join(scratch, 'alt.mjs');

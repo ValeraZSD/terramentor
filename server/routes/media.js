@@ -64,10 +64,17 @@ app.get('/api/media/:hash', (req, res) => {
     // or the read fails half way. A hand-piped stream did neither.
     res.sendFile(filePath, { dotfiles: 'allow' }, (err) => {
         if (!err || res.headersSent) return;
-        // The headers above promised a year of caching for a file that is not
-        // coming; an error must not be kept.
+        // The headers above promised a year of caching, and a type, for a file that
+        // is not coming; an error must not be kept or typed as one.
         res.removeHeader('Cache-Control');
-        res.status(err.status === 404 ? 404 : 500).end();
+        res.removeHeader('Content-Type');
+        res.removeHeader('Content-Disposition');
+        // `send` knows why it refused: a range past the end is a 416 that carries
+        // `Content-Range` (the player's cue to ask again), a failed precondition a 412.
+        const status = Number.isInteger(err.status) && err.status >= 400 ? err.status : 500;
+        if (err.headers) res.set(err.headers);
+        if (status === 416 || status === 412) return res.status(status).end();
+        res.status(status).json({ error: status === 404 ? 'That file is missing from the media store.' : 'That file could not be read.' });
     });
 });
 
