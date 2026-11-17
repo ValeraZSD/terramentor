@@ -391,6 +391,68 @@ input[type="password"]::-ms-clear {
   }
 }
 
+/* SETTINGS → ACCESSIBILITY. The attributes on <html> are written by
+   src/utils/accessibility.ts (and replayed by public/theme-boot.js before the
+   first paint), already resolved against the system's own preference. */
+
+/* Reduce motion: every animation and transition ends at once, a library's
+   included. 0.01ms rather than none, so the animationend/transitionend a
+   component waits for still arrives. The drop flash is spared: it does not
+   move, and it is the only sign of where a dragged item landed
+   (drop-flash-gates.mjs). */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *:not(.drop-flash)::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
+   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em), and
+   tools/axe-gates.mjs scans every screen at it for clipped text. On every
+   element, because a class that sets its own tracking or leading would
+   otherwise keep it. */
+html[data-letter-spacing="wider"] body * { letter-spacing: 0.06em !important; }
+html[data-letter-spacing="widest"] body * { letter-spacing: 0.12em !important; }
+html[data-word-spacing="wider"] body * { word-spacing: 0.08em !important; }
+html[data-word-spacing="widest"] body * { word-spacing: 0.16em !important; }
+html[data-line-spacing="wider"] body * { line-height: 1.5 !important; }
+html[data-line-spacing="widest"] body * { line-height: 1.8 !important; }
+html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
+
+/* Forced colours (Windows High Contrast) drop every background, so a choice
+   marked only by a fill (the open section, the chosen segment, a switch that
+   is on) vanishes. Each gets an outline in the system's highlight colour. */
+@media (forced-colors: active) {
+  [aria-current="page"],
+  [aria-current="true"],
+  [aria-pressed="true"],
+  [role="tab"][aria-selected="true"],
+  [role="radio"][aria-checked="true"],
+  [role="option"][aria-selected="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  [role="switch"] {
+    border: 1px solid ButtonText;
+  }
+  [role="switch"] > span:last-child {
+    forced-color-adjust: none;
+    background: ButtonText;
+  }
+  [role="switch"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  [role="switch"][aria-checked="true"] > span:last-child {
+    background: HighlightText;
+  }
+}
+
 @keyframes glow-breathe {
   0%, 100% {
     box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);
@@ -415,10 +477,8 @@ input[type="password"]::-ms-clear {
   animation: toast-blip 0.4s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-toast-blip {
-    animation: none;
-  }
+html[data-motion="reduce"] .animate-toast-blip {
+  animation: none;
 }
 
 @keyframes scale-in {
@@ -457,10 +517,8 @@ input[type="password"]::-ms-clear {
   animation: confetti-fall 2s cubic-bezier(0.3, 0.1, 0.5, 1) forwards;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-confetti-fall {
-    display: none;
-  }
+html[data-motion="reduce"] .animate-confetti-fall {
+  display: none;
 }
 
 @keyframes slide-up {
@@ -502,10 +560,8 @@ details[open] > .details-reveal {
   animation: details-reveal 0.18s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  details[open] > .details-reveal {
-    animation: none;
-  }
+html[data-motion="reduce"] details[open] > .details-reveal {
+  animation: none;
 }
 
 /* The notes "tap/click to edit" hint is a static strip under the content in
@@ -920,11 +976,9 @@ pre:has(> .visual-block) {
     vb-part-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
     vb-edge-draw-back 560ms cubic-bezier(0.3, 0, 0.35, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vb-arrive,
-  .visual-block-stage.vb-arrive [data-vb-arrive] {
-    animation: none;
-  }
+html[data-motion="reduce"] .visual-block-stage.vb-arrive,
+html[data-motion="reduce"] .visual-block-stage.vb-arrive [data-vb-arrive] {
+  animation: none;
 }
 
 /* Settings → Visuals: a switched-off kind's sample is greyed and dimmed, and
@@ -1005,12 +1059,10 @@ pre:has(> .visual-block) {
 .visual-block-stage.vb-arrive.vk-flat > * {
   transition: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vk-dissolve > * { animation: none; }
-  /* The mute is a state, not a motion: under reduced motion it arrives at once
-     rather than fading, which the dissolve above already does. */
-  .vk-sample > * { transition: none; }
-}
+html[data-motion="reduce"] .visual-block-stage.vk-dissolve > * { animation: none; }
+/* The mute is a state, not a motion: under reduced motion it arrives at once
+   rather than fading, which the dissolve above already does. */
+html[data-motion="reduce"] .vk-sample > * { transition: none; }
 
 /* A drill has no parts to arrive — its sample is a launcher button — so its
    card tips and rights itself instead. The class is taken off again when the
@@ -1024,9 +1076,7 @@ pre:has(> .visual-block) {
 .vk-tilt {
   animation: vk-tilt 760ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vk-tilt { animation: none; }
-}
+html[data-motion="reduce"] .vk-tilt { animation: none; }
 
 /*
  * While rendering, Mermaid appends a temporary, full-size <div id="dvisual-mermaid-N">

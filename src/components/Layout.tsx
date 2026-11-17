@@ -500,7 +500,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-on:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>

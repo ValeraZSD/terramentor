@@ -604,20 +604,31 @@ const lightPlain = ringOff('light', { varName: '--accent-rgb', share: 1 }, PEAK_
 check(`control: the plain solid accent as the light ring fails the floor (worst ${lightPlain.min.toFixed(2)}:1, ${lightPlain.at})`, lightPlain.min < RING_FLOOR);
 const darkSolid = ringOff('dark', { varName: '--accent-rgb', share: 1 }, PEAK_ALPHA);
 check(`control: the solid accent as the dark ring fails the floor (worst ${darkSolid.min.toFixed(2)}:1, ${darkSolid.at})`, darkSolid.min < RING_FLOOR);
-const reduced = [...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)].map(m => m[0]).join('\n');
-// A rule stops the flash when it sets an animation and its selector can reach
-// the layer: one naming the flash, or a bare `::after` / `*::after` subject.
-// A plain `*` or `.x > *` selects elements, never a pseudo-element.
+// Reduced motion is the system's media query AND the app's own setting
+// (`html[data-motion="reduce"]`, Settings → Accessibility): both are read.
+const reducedRules = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(?:^|\n)(html\[data-motion="reduce"\][^{]*\{[^{}]*\})/g)].map(m => m[1]);
+const reduced = [
+    ...[...css.matchAll(/@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g)].map(m => m[0]),
+    ...reducedRules.map(r => `@media (app) {\n${r}\n}`),
+].join('\n');
+// A rule stops the flash when it sets an animation (or cuts its duration or
+// repeats to nothing) and its selector can reach the layer: one naming the
+// flash, or a bare `::after` / `*::after` subject, unless it exempts the flash
+// by name. A plain `*` or `.x > *` selects elements, never a pseudo-element.
 const stopsTheLayer = (block) => [...block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter(([, , decls]) => /(^|[;\s])animation(-name)?\s*:/.test(decls))
+    .filter(([, , decls]) => /(^|[;\s])animation(-name|-duration|-iteration-count)?\s*:/.test(decls))
     .some(([, selectors]) => selectors.split(',').some((sel) => {
+        if (/:not\(\.drop-flash\)/.test(sel)) return false;
         if (/drop-flash/.test(sel)) return true;
         const subject = sel.trim().split(/\s*[>+~]\s*|\s+/).pop();
         return /::?after$/.test(subject) && ['', '*'].includes(subject.replace(/::?after$/, ''));
     }));
+check('the app\'s own reduced-motion rules are read too', reducedRules.length > 0, `${reducedRules.length} rules`);
 check('reduced motion keeps it (nothing moves, and it is the only sign of where the item went)',
     reduced !== '' && !reduced.split(/(?=@media)/).some((m) => stopsTheLayer(m.replace(/^@media[^{]*\{/, ''))));
 check('control: a blanket reduced-motion rule over every ::after would stop it', stopsTheLayer('*, ::after { animation: none !important; }'));
+check('control: the app\'s blanket rule without its exemption would stop it',
+    stopsTheLayer('html[data-motion="reduce"] *::after { animation-duration: 0.01ms !important; }'));
 check('control: one naming the flash would stop it', stopsTheLayer('.drop-flash::after { animation: none; }'));
 check('control: an element rule (`.x > *`) cannot reach a pseudo-element', !stopsTheLayer('.visual-block-stage.vk-dissolve > * { animation: none; }'));
 
