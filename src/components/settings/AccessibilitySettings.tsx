@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, RotateCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, Play, RotateCcw } from 'lucide-react';
 import { useStore } from '../../store';
 import { MOD_KEY, usePhysicalKeyboard, usePointerVerb } from '../../utils/platform';
 import {
@@ -8,7 +9,8 @@ import {
     SPEECH_RATE_STEP, systemReducesMotion, systemWantsMoreContrast, watchSystemPreferences,
     type ContrastPref, type MotionPref, type SpacingLevel,
 } from '../../utils/accessibility';
-import { localVoices, speak, speechAvailable, stopSpeaking, voicesReady, watchVoices } from '../../utils/readAloud';
+import { listFormat } from '../../utils/locale';
+import { currentSpeaker, localVoices, speak, speechAvailable, stopSpeaking, voicesReady, watchVoices } from '../../utils/readAloud';
 import { DRILL_TIME_SCALES, type DrillTimeScale } from '../drills/parseDrill';
 import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { Button, IconButton } from '../ui/Button';
@@ -16,7 +18,7 @@ import SegmentedControl from '../ui/SegmentedControl';
 import Slider from '../ui/Slider';
 import Stepper from '../ui/Stepper';
 import Switch from '../ui/Switch';
-import { SettingGroup, SettingRow, GROUP_CAPTION } from '../ui/SettingRow';
+import { SettingGroup, SettingRow } from '../ui/SettingRow';
 
 /** The system's answer to the two questions a choice of "System" defers to,
  *  kept live: the OS setting can change while this page is open. */
@@ -72,12 +74,18 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
     const setKeyShortcuts = useStore(s => s.setKeyShortcuts);
     const hasKeyboard = usePhysicalKeyboard();
     const pointerVerb = usePointerVerb();
+    const navigate = useNavigate();
     const system = useSystemPreferences();
     const canSpeak = speechAvailable();
     const voices = useVoiceLanguages(active && a11y.readAloud);
 
-    // Stop a test sentence when the page is left.
-    useEffect(() => () => stopSpeaking(), []);
+    // Stop a test sentence when the page is left: unmounted, or another
+    // Settings tab chosen (the tabs stay mounted, hidden).
+    useEffect(() => {
+        const stopTest = () => { if (currentSpeaker() === 'settings-test') stopSpeaking(); };
+        if (!active) stopTest();
+        return stopTest;
+    }, [active]);
 
     const followLabel = tr("System");
     const motionHint = a11y.motion === 'system'
@@ -146,8 +154,22 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
 
             {/* READING — spacing for every text in the app. "Widest" is the
                 spacing WCAG 1.4.12 asks a page to survive, so nothing here
-                may clip at it. Text size stays in General, one control. */}
+                may clip at it. Text size stays in General, one control; the
+                first row is the way there, because this is where people look. */}
             <SettingGroup title={tr("Reading")}>
+                <SettingRow
+                    label={tr("Text size")}
+                    hint={tr("Set in General, for the whole app.")}
+                    control={
+                        <Button
+                            variant="neutral"
+                            onClick={() => navigate('/settings#general/text-size')}
+                            icon={<ArrowRight className="w-4 h-4" aria-hidden="true" />}
+                        >
+                            {tr("Open")}
+                        </Button>
+                    }
+                />
                 {([
                     ['letterSpacing', tr("Letter spacing"), tr("Space between the letters of a word.")],
                     ['wordSpacing', tr("Word spacing"), tr("Space between words.")],
@@ -181,7 +203,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 <SettingRow
                     label={tr("Read aloud")}
                     hint={canSpeak
-                        ? tr("Adds a speaker button to cards, questions, lessons and assistant replies. Uses this computer's voices.")
+                        ? tr("Adds a speaker button to cards, questions, lessons, notes and assistant replies. Uses this computer's voices.")
                         : tr("This browser cannot speak text.")}
                     control={<Switch checked={a11y.readAloud && canSpeak} onChange={on => void setA11y('readAloud', on)} label={tr("Read aloud")} disabled={!canSpeak} />}
                 />
@@ -191,7 +213,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                             label={tr("Reading speed")}
                             hint={voices === null ? undefined
                                 : voices.length === 0 ? tr("No voices are installed on this computer. Add one in your system's speech settings.")
-                                : tr("Voices on this computer: {{languages}}", { languages: voices.join(', ') })}
+                                : tr("Voices on this computer: {{languages}}", { languages: listFormat(voices) })}
                             block
                             control={
                                 <div className="flex flex-wrap items-center gap-3 w-full">
@@ -234,11 +256,11 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                     </>
                 )}
                 <SettingRow
-                    label={tr("Play card sounds by themselves")}
+                    label={tr("Play card recordings by themselves")}
                     hint={a11y.cardAudioAutoplay
-                        ? tr("A card's sound plays as soon as it appears.")
-                        : tr("A card's sound waits for its play button.")}
-                    control={<Switch checked={a11y.cardAudioAutoplay} onChange={on => void setA11y('cardAudioAutoplay', on)} label={tr("Play card sounds by themselves")} />}
+                        ? tr("A recording that came with a card plays as soon as the card appears.")
+                        : tr("A recording that came with a card waits for its play button.")}
+                    control={<Switch checked={a11y.cardAudioAutoplay} onChange={on => void setA11y('cardAudioAutoplay', on)} label={tr("Play card recordings by themselves")} />}
                 />
             </SettingGroup>
 
@@ -264,7 +286,9 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 />
                 <SettingRow
                     label={tr("Confirm before grading")}
-                    hint={tr("{{pointerVerb}} an answer or a rating once to choose it, and again to grade it.", { pointerVerb })}
+                    hint={hasKeyboard
+                        ? tr("The first press on an answer or a rating, or on its key, selects it. The second grades it.")
+                        : tr("{{pointerVerb}} an answer or a rating once to choose it, and again to grade it.", { pointerVerb })}
                     control={<Switch checked={a11y.confirmAnswers} onChange={on => void setA11y('confirmAnswers', on)} label={tr("Confirm before grading")} />}
                 />
             </SettingGroup>
@@ -273,19 +297,16 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 is not a width breakpoint: this is a whole section of unusable
                 instructions on a phone. */}
             {hasKeyboard && (
-                <div className="mb-8">
-                    <h2 className={GROUP_CAPTION}>{tr("Keyboard shortcuts")}</h2>
-                    <div className="bg-white dark:bg-slate-800 rounded-xl p-4 shadow-sm">
-                        <div className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-200 dark:border-slate-700">
-                            <div className="min-w-0">
-                                <p id="key-shortcuts-label" className="text-sm font-medium text-slate-800 dark:text-slate-100">{tr("Single-key shortcuts")}</p>
-                                <p id="key-shortcuts-hint" className="text-xs text-slate-600 dark:text-slate-300">{tr("Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.", { key: MOD_KEY })}</p>
-                            </div>
-                            <Switch checked={keyShortcuts} onChange={on => void setKeyShortcuts(on)} label={tr("Single-key shortcuts")} describedBy="key-shortcuts-hint" />
-                        </div>
+                <SettingGroup title={tr("Keyboard shortcuts")}>
+                    <SettingRow
+                        label={tr("Single-key shortcuts")}
+                        hint={tr("Turn off if you use speech input or press keys by accident. Shortcuts with {{key}} keep working.", { key: MOD_KEY })}
+                        control={<Switch checked={keyShortcuts} onChange={on => void setKeyShortcuts(on)} label={tr("Single-key shortcuts")} />}
+                    />
+                    <div className="px-4 py-3">
                         {/* Keycaps follow the platform (⌘ on Apple, Ctrl elsewhere) — the
                             handlers always accepted both. */}
-                        <ul className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
+                        <ul aria-label={tr("Keyboard shortcuts")} className="space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
                             {[
                                 [tr("Open search"), `${MOD_KEY} + K`],
                                 [tr("Open the assistant"), 'A'],
@@ -305,7 +326,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                             ))}
                         </ul>
                     </div>
-                </div>
+                </SettingGroup>
             )}
         </section>
     );

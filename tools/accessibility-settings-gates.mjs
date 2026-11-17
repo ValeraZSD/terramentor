@@ -104,6 +104,24 @@ for (const f of ['src/components/GlobalFlashcardReview.tsx', 'src/components/Fla
     check(`${path.basename(f)} rates through useConfirmPress`, /useConfirmPress</.test(read(f)) && /confirmRate\.press\(/.test(read(f)));
 }
 check('a choice question that grades on its press asks twice', /confirmAnswers/.test(read('src/components/answer/ChoiceInput.tsx')));
+{
+    const drill = read('src/components/drills/DrillPlayer.tsx');
+    check('a drill option that grades on its press asks twice', /useConfirmPress</.test(drill) && /pick\.press\(/.test(drill));
+}
+// An armed rating is announced: the state change on the focused button is
+// what a screen reader reads, the changed second line alone is not.
+check('an armed rating says so to a screen reader', /aria-pressed=\{armed/.test(read('src/components/flashcards/RatingButton.tsx')));
+
+section('7. read aloud and motion follow the reader, not the page around them');
+{
+    const btn = read('src/components/ui/ReadAloudButton.tsx');
+    // The course text's `lang` sits INSIDE the target; up from it is only <html lang>.
+    check('read aloud takes the language from inside the text first', /querySelector\('\[lang\]'\)/.test(btn));
+    const scroll = read('src/utils/scrollWithin.ts');
+    check('a scroll asked to be smooth is instant under reduced motion', /motionReduced\(\)/.test(scroll) && /motionReduced\(\)/.test(read('src/hooks/useStickToBottom.ts')));
+    const css = read('src/index.css');
+    check('text spacing leaves formulas and drawings alone', /data-line-spacing="widest"\] body \*:not\(\.katex, \.katex \*, svg, svg \*\)/.test(css));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

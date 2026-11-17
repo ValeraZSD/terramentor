@@ -66,7 +66,7 @@ type ChoiceKey = keyof typeof CHOICE_SETTINGS;
 const SWITCH_SETTINGS = {
     reading_line: k("Reading line"),
     read_aloud: k("Read aloud"),
-    card_audio_autoplay: k("Play card sounds by themselves"),
+    card_audio_autoplay: k("Play card recordings by themselves"),
     confirm_answers: k("Confirm before grading"),
     key_shortcuts: k("Single-key shortcuts"),
 } as const satisfies Partial<Record<SettingKey, string>>;

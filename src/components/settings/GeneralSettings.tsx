@@ -12,6 +12,7 @@ import { ThemeCards, LanguageRow } from './AppearanceControls';
 import AppIconPanel from './AppIconPanel';
 import { ThemeTintField, AccentField } from './ColourFields';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
+import { settingTargetId } from '../../utils/settingTarget';
 
 // Theme picker data lives beside ThemeCards in AppearanceControls.tsx, shared
 // with the welcome screen.
@@ -58,6 +59,7 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                         most common reason to open Settings at all and it
                         must not wait below the colour swatches. */}
                     <SettingRow
+                        id={settingTargetId('text-size')}
                         label={tr("Text & interface size")}
                         block
                         control={
