@@ -7,7 +7,7 @@ import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
 import { Chip } from './ui/Chip';
 import { FOCUS_RING } from './ui/vocabulary';
-import { fitHeader, type HeaderFit } from '../utils/headerFit';
+import { centresSearch, fitHeader, type HeaderFit } from '../utils/headerFit';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
@@ -357,6 +357,50 @@ export default function Layout({ children }: { children: ReactNode }) {
         // `barLabels` puts words beside the icons, which changes their width
         // without resizing anything observed.
     }, [isGlobalView, fitKey, activeTab, searchIcon, barLabels]);
+    // Off the global views the left side is the back arrow and, in a project,
+    // its title. The search is centred when both sides fit in half the row,
+    // measured at the bar's own width: Settings (no title) and a short project
+    // name centre on a phone; a name that would be cut keeps the room instead.
+    const leftRef = useRef<HTMLDivElement | null>(null);
+    const [sideCentred, setSideCentred] = useState(false);
+    const projectName = currentProject?.name;
+    useLayoutEffect(() => {
+        if (isGlobalView) return;
+        const measure = () => {
+            const header = headerRef.current, left = leftRef.current, right = rightRef.current, searchEl = searchWrapRef.current;
+            if (!header || !left || !right || !searchEl || !header.clientWidth) return;
+            const gapOf = (el: Element) => parseFloat(getComputedStyle(el).columnGap) || 0;
+            // The title at its full length: `scrollWidth` ignores the truncation.
+            const natural = (kids: Element[]) => {
+                const ws = kids.map(el => (el.tagName === 'H1' ? el.scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
+                return ws.reduce((s, w) => s + w, 0);
+            };
+            const sum = (el: HTMLElement) => {
+                const kids = [...el.children];
+                const n = kids.filter(k => k.getBoundingClientRect().width > 0 || k.tagName === 'H1').length;
+                return natural(kids) + gapOf(el) * Math.max(0, n - 1);
+            };
+            const hs = getComputedStyle(header);
+            const next = centresSearch({
+                inner: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                gap: gapOf(header),
+                search: searchEl.getBoundingClientRect().width,
+                left: sum(left),
+                right: sum(right),
+            });
+            setSideCentred(next);
+        };
+        const ro = new ResizeObserver(measure);
+        const observe = () => {
+            ro.disconnect();
+            for (const el of [headerRef.current, searchWrapRef.current, ...(leftRef.current?.children ?? []), ...(rightRef.current?.children ?? [])]) if (el) ro.observe(el);
+        };
+        observe();
+        measure();
+        const mo = new MutationObserver(() => { observe(); measure(); });
+        if (rightRef.current) mo.observe(rightRef.current, { childList: true });
+        return () => { ro.disconnect(); mo.disconnect(); };
+    }, [isGlobalView, view, projectName, fitKey, barLabels]);
     const shownTabs = fit ? fit.shown.map(i => globalTabs[i]) : globalTabs;
     // No room for the tab you are on beside "More": the menu button takes its
     // name and the menu lists every tab, that one ticked.
@@ -407,7 +451,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 under its status bar the bar's colour runs up behind the clock and
                 its row starts below it, the same 56px as the assistant's header. */}
             <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
-                <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
+                <div ref={leftRef} className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
                     )}
@@ -483,15 +527,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                     another tab.
 
                     But `shrink-0` at every width would leave the search glued
-                    to the right-hand edge on a wide Settings page, where there
-                    is room for all three. The binding constraint is WIDTH, so
-                    that is what the rule is keyed on: from `md` up, half the
-                    row is comfortably wider than three icons at any UI scale,
-                    so both sides take their half and the search sits at the
-                    true centre. Below it, the title wins. */}
+                    to the right-hand edge wherever there is room for all
+                    three, a phone's Settings screen included. The binding constraint is the BAR's width, so
+                    the rule is measured there (`centresSearch`), never keyed
+                    on a viewport breakpoint: an `md:` rule left the search
+                    right of centre on every phone, Settings included, where
+                    there is no title to protect. */}
                 <div
                     ref={rightRef}
-                    className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${isGlobalView && fit ? (fit.centred ? 'grow basis-0' : '') : 'md:grow md:basis-0'}`}
+                    className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${(isGlobalView ? !!fit?.centred : sideCentred) ? 'grow basis-0' : ''}`}
                 >
                     {view === 'workspace' && isGenerating && currentProjectId != null && (
                         // A status the reader can open, so a pill, not a
