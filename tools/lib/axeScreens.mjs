@@ -29,7 +29,8 @@ export const READY = {
     'card-front': `document.querySelector('[data-review-card]')`,
     'card-answer': `document.querySelector('[data-review-card]') && document.querySelector('[role="group"]:not([aria-hidden="true"]) [data-rating]')`,
     assistant: `document.querySelector('aside[aria-label="Assistant"] textarea')`,
-    settings: `document.querySelector('[data-settings-root] [data-section]')`,
+    // A section's own controls; a phone's settings home is the list of sections.
+    settings: `document.querySelector('[data-settings-root] .min-w-0 :is(input, select, textarea, button)') || document.querySelector('[data-settings-root] nav ul [data-section]')`,
 };
 
 /** The readiness expression for a screen, or undefined when it has none. */
