@@ -824,6 +824,8 @@ section('the mastery check keeps a half-answered sitting, and a failed send keep
         await settle();
         check('a failed brief request is said beside the copy button, with Try again',
             /the brief failed/.test(textOf(p.el)) && !!buttonIn(p.el, 'Try again'), textOf(p.el).slice(0, 200));
+        check('with no brief there is no "Read it first (0k characters)" to open',
+            !/Read it first/.test(textOf(p.el)), textOf(p.el).slice(0, 200));
         act(() => { buttonIn(p.el, 'Try again')?.click(); });
         await settle();
         check('Try again asks for the brief again, and the message goes', briefs === 2 && !/the brief failed/.test(textOf(p.el)),
@@ -851,7 +853,7 @@ section('the mastery check keeps a half-answered sitting, and a failed send keep
         const runs = read('src/components/creation/creationRuns.ts');
         check('a stream that fails with no message is not "Unknown AI creation error"', !/Unknown AI creation error/.test(runs));
         const ext = read('src/components/ExternalAuthoring.tsx');
-        check('the prompt size is written through the number formatter', /num\(prompt \? Math\.round\(prompt\.length \/ 1000\) : 0\)/.test(ext));
+        check('the prompt size is written through the number formatter', /num\(Math\.round\(prompt\.length \/ 1000\)\)/.test(ext));
         const fail = read('src/components/TaskFailureModal.tsx');
         check('"Ran for" is written with the interface language\'s decimal and the translated unit',
             !/toFixed\(/.test(fail) && /t\("\{\{ms\}\}ms"/.test(fail) && /t\("\{\{n\}\} s"/.test(fail));
