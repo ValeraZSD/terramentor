@@ -20,7 +20,7 @@
 // pull the whole app (and its model, i18n and API modules) into the bundle.
 // No model, no network, no database.
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -33,6 +33,11 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const cache = join(repoRoot, 'node_modules', '.cache');
 mkdirSync(cache, { recursive: true });
 const scratch = mkdtempSync(join(cache, 'router-sync-gates-'));
+// Removed however the run ends, a thrown error included. It lives under the
+// repo's own node_modules so the bundle resolves react from there.
+process.on('exit', () => {
+    try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a handle may linger on Windows */ }
+});
 
 const entry = join(scratch, 'entry.tsx');
 writeFileSync(entry, `
@@ -153,5 +158,4 @@ console.log('\n--- a server with no password ---');
 }
 
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'}: ${pass} passed, ${fail} failed`);
-try { (await import('node:fs')).rmSync(scratch, { recursive: true, force: true }); } catch { /* a handle may linger on Windows */ }
 process.exit(fail === 0 ? 0 : 1);

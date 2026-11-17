@@ -36,8 +36,8 @@ export default function UpdatePrompt() {
             else setReady(true);
         };
         const unsubscribe = onUpdateReady(stale);
-        watchFreshness(stale);
-        return unsubscribe;
+        const unwatch = watchFreshness(stale);
+        return () => { unsubscribe(); unwatch(); };
     }, []);
 
     if (!ready || dismissed) return null;

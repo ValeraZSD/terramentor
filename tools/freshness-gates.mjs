@@ -648,6 +648,23 @@ console.log('\n--- installing a new build (the handover) -----------------------
         await mod.checkFreshness(true);
         check('...once per build', calls.second, 1);
 
+        // The build changes WHILE the prompt is unmounted (the lock screen is
+        // up; /api/build is public, so the check still runs). Nobody can be told
+        // then, and the mismatch is not raised again once it has been noted, so
+        // it has to be held until the prompt mounts again.
+        const gone = { calls: 0 };
+        const unmount = mod.watchFreshness(() => { gone.calls++; });
+        unmount?.();                                           // the app locks
+        serverBuild = 'build-c';
+        await mod.checkFreshness(true);
+        check('a build that changes while the prompt is unmounted calls nobody', gone.calls, 0);
+        const remounted = { calls: 0 };
+        mod.watchFreshness(() => { remounted.calls++; });      // the login: it mounts again
+        check('...the prompt that mounts next is told at once', remounted.calls, 1);
+        const later = { calls: 0 };
+        mod.watchFreshness(() => { later.calls++; });
+        check('...and told only once', later.calls, 0);
+
         // canReloadNow against real DOM elements. A focused control whose value
         // is not something typed ("on" on a checkbox, "100" on a slider) must
         // not hold the reload; a field with text in it must.
@@ -677,6 +694,15 @@ console.log('\n--- installing a new build (the handover) -----------------------
         for (const type of ['checkbox', 'radio', 'range', 'button', 'file', 'color']) {
             check(`a focused ${type} input does not hold it`, focused('input', { type, ...(type === 'button' ? { value: 'Save' } : {}) }), true);
         }
+        // A number box reads '' for "1e" while it is half typed, though the person
+        // has typed something; the browser says so through `validity.badInput`.
+        {
+            const half = doc.createElement('input');
+            half.setAttribute('type', 'number');
+            Object.defineProperty(half, 'validity', { value: { badInput: true } });   // jsdom does not parse a number box
+            globalThis.document.activeElement = half;
+            check('...a number box holding a half-typed number', mod.canReloadNow(), false);
+        }
         check('a focused button does not', focused('button', { value: 'Save' }), true);
         globalThis.document.activeElement = null;
         check('a registered hold still does', (() => { const release = mod.holdReload('a stream'); const held = mod.canReloadNow(); release(); return held; })(), false);
@@ -684,7 +710,7 @@ console.log('\n--- installing a new build (the handover) -----------------------
     }
 }
 
-console.log('\n--- the update banner stays off the controls -----------------------');
+console.log('\n--- the update banner is placed top centre, under the header -------');
 
 {
     // The banner shows exactly when a reload is held back: a review session, an
