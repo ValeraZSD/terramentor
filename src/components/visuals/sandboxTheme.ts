@@ -52,6 +52,29 @@ function __vtParse(raw){
     }
     return null;
 }
+function __vtAlpha(raw){
+    if(raw===null||raw===undefined)return 1;
+    var s=String(raw).trim().toLowerCase(),n;
+    if(s.charAt(0)==='#'){
+        var h=s.slice(1);
+        if(h.length===4)n=parseInt(h.charAt(3)+h.charAt(3),16);
+        else if(h.length===8)n=parseInt(h.slice(6),16);
+        else return 1;
+        return isNaN(n)?1:n/255;
+    }
+    var m=/^rgba?\\(([^)]*)\\)$/.exec(s);
+    if(!m)return 1;
+    var p=m[1].split(/[\\s,\\/]+/).filter(Boolean);
+    if(p.length<4)return 1;
+    var a=p[3].charAt(p[3].length-1)==='%'?parseFloat(p[3])/100:Number(p[3]);
+    return isFinite(a)?__vtClamp(a):1;
+}
+function __vtWithAlpha(hex,a){
+    var c=__vtParse(hex);
+    if(!c||a>=1)return hex;
+    function b(v){return Math.round(__vtClamp(v)*255);}
+    return 'rgba('+b(c.r)+','+b(c.g)+','+b(c.b)+','+Math.round(__vtClamp(a)*1000)/1000+')';
+}
 function __vtLum(c){
     function l(v){return v<=0.04045?v/12.92:Math.pow((v+0.055)/1.055,2.4);}
     return 0.2126*l(c.r)+0.7152*l(c.g)+0.0722*l(c.b);
@@ -81,6 +104,10 @@ function __vtContrast(color,bg,min){
     return best;
 }
 function __vtAdapt(raw,palette,role,assumedBg){
+    var solid=__vtAdaptSolid(raw,palette,role,assumedBg);
+    return solid===null?null:__vtWithAlpha(solid,__vtAlpha(raw));
+}
+function __vtAdaptSolid(raw,palette,role,assumedBg){
     var rgb=__vtParse(raw);
     if(!rgb)return null;
     var bg=__vtParse(palette.bg)||{r:1,g:1,b:1};
@@ -157,7 +184,20 @@ var __vtAssumed = '#ffffff';
         var rgb = __vtParse(css);
         if (!rgb) return null;
         var chroma = Math.max(rgb.r, rgb.g, rgb.b) - Math.min(rgb.r, rgb.g, rgb.b);
-        return chroma < 0.16 ? __vtPalette.bg : css;
+        return chroma < 0.16 ? __vtWithAlpha(__vtPalette.bg, __vtAlpha(css)) : css;
+    }
+    // Are plain numbers in this sketch 0-255 RGB right now? p5 keeps the mode
+    // and ranges on the instance (and push()/pop() restore them), so they are
+    // read at the call rather than tracked. An instance that does not expose
+    // them is treated as default, which is what every sketch without a
+    // colorMode() call is.
+    function numbersAreRgb255(p) {
+        try {
+            if (!p || typeof p._colorMode !== 'string') return true;
+            if (p._colorMode !== 'rgb') return false;
+            var m = p._colorMaxes && p._colorMaxes.rgb;
+            return !m || (m[0] === 255 && m[1] === 255 && m[2] === 255);
+        } catch (e) { return true; }
     }
     // WHERE to wrap, and it is not window. p5 copies its drawing functions onto
     // window inside the p5 constructor, which runs on the load event — after
@@ -174,6 +214,12 @@ var __vtAssumed = '#ffffff';
         proto[name] = function () {
             var css = toCss(arguments);
             if (css === null) return orig.apply(this, arguments);
+            var isString = typeof arguments[0] === 'string';
+            // Numbers mean what colorMode() says they mean. Read as 0-255 RGB
+            // when the sketch is in HSB or a 0-1 range, they would be adapted
+            // as the wrong colour and handed back as numbers in the wrong
+            // scale. A string is CSS whatever the mode, so it is always safe.
+            if (!isString && !numbersAreRgb255(this)) return orig.apply(this, arguments);
             var next;
             if (name === 'background') {
                 __vtAssumed = css;
@@ -182,6 +228,8 @@ var __vtAssumed = '#ffffff';
                 next = __vtAdapt(css, __vtPalette, role, __vtAssumed);
             }
             if (!next) return orig.apply(this, arguments);
+            // A string goes back as a string, so an alpha written into it survives.
+            if (isString) return orig.call(this, next);
             var rgb = __vtParse(next);
             if (!rgb) return orig.apply(this, arguments);
             var a = alphaOf(arguments);

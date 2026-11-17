@@ -47,7 +47,7 @@ await esbuild.build({
 });
 
 const {
-    adaptColor, parseColor, rgbToHex, contrastRatio, ensureContrast, luminance,
+    adaptColor, parseColor, rgbToHex, contrastRatio, ensureContrast, luminance, themeSvgColors,
 } = await import(pathToFileURL(out).href);
 
 // The accent the learner TYPES. Every visual's `palette.accent` is this value,
@@ -252,6 +252,10 @@ const TWIN_CASES = [
     ['#1d4ed8', 'stroke', '#ffffff'], ['#22c55e', 'fill', '#ffffff'],
     ['#eab308', 'stroke', '#ffffff'], ['#a855f7', 'fill', '#ffffff'],
     ['#11182740', 'fill', '#ffffff'], ['rgb(17, 24, 39)', 'fill', '#ffffff'],
+    // A stated opacity is carried over, in the same notation on both sides.
+    ['rgba(0,0,0,0.1)', 'stroke', '#ffffff'], ['rgba(59,130,246,0.2)', 'fill', '#ffffff'],
+    ['#0002', 'stroke', '#ffffff'], ['rgb(0 0 0 / 50%)', 'stroke', '#ffffff'],
+    ['rgba(255,255,255,0.3)', 'fill', '#ffffff'], ['rgba(0,0,0,1)', 'stroke', '#ffffff'],
     // The p5 case: a sketch that declared a dark canvas.
     ['#ffffff', 'stroke', '#111827'], ['#e2e8f0', 'text', '#111827'],
     ['#111827', 'fill', '#111827'], ['#94a3b8', 'stroke', '#111827'],
@@ -575,6 +579,184 @@ for (const t of THEMES) {
         `${theme.O} on ${t.bg} = ${contrastRatio(parseColor(theme.O), parseColor(t.bg)).toFixed(2)}`);
     check(`[${t.theme}] hydrogen stays the quiet ink it was`,
         theme.H === t.muted, theme.H);
+}
+
+const { JSDOM } = require('jsdom');
+const svgParser = new (new JSDOM('').window.DOMParser)();
+const parseSvg = (inner) => svgParser.parseFromString(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300">${inner}</svg>`, 'image/svg+xml').documentElement;
+
+section('a colour that states an opacity keeps it');
+// A translucent shadow, gridline or highlight band came back as a solid colour
+// (parseColor reads the three channels only), so a 10% gridline became a heavy
+// ink line and a 20% band became a slab over what it highlighted.
+{
+    const fg = parseColor(DARK.fg);
+    const rgba = (c, a) => `rgba(${Math.round(c.r * 255)},${Math.round(c.g * 255)},${Math.round(c.b * 255)},${a})`;
+    check('a 10% black gridline on a dark theme is 10% of the foreground, not solid ink',
+        adaptColor('rgba(0,0,0,0.1)', DARK, 'stroke') === rgba(fg, 0.1), adaptColor('rgba(0,0,0,0.1)', DARK, 'stroke'));
+    check('a chromatic wash keeps its hue and its 20%',
+        adaptColor('rgba(59,130,246,0.2)', LIGHT, 'fill') === 'rgba(59,130,246,0.2)', adaptColor('rgba(59,130,246,0.2)', LIGHT, 'fill'));
+    check('an 8-digit hex carries its alpha byte over (0x20 is 0.125)',
+        /,0\.125\)$/.test(adaptColor('#00000020', DARK, 'fill')), adaptColor('#00000020', DARK, 'fill'));
+    check('a 4-digit hex does too (0x2 doubled is 0.133)',
+        /,0\.133\)$/.test(adaptColor('#0002', DARK, 'stroke')), adaptColor('#0002', DARK, 'stroke'));
+    check('a percentage alpha after a slash is read',
+        /,0\.5\)$/.test(adaptColor('rgb(0 0 0 / 50%)', DARK, 'stroke')), adaptColor('rgb(0 0 0 / 50%)', DARK, 'stroke'));
+    check('an alpha of 1 is an ordinary solid colour',
+        adaptColor('rgba(0,0,0,1)', DARK, 'stroke') === DARK.fg);
+    check('a colour with no alpha is unchanged (hex out)', adaptColor('#000000', DARK, 'stroke') === DARK.fg);
+    const svg = parseSvg('<rect width="4" height="4" fill="rgba(0,0,0,0.3)"/>');
+    themeSvgColors(svg, DARK);
+    check('the SVG pass keeps it on an attribute', svg.querySelector('rect').getAttribute('fill') === rgba(fg, 0.3),
+        svg.querySelector('rect').getAttribute('fill'));
+}
+
+section('a backdrop stated in percent is a backdrop');
+// `<rect width="100%" height="100%">` is the usual full-bleed backdrop. It was
+// read as 100 units, so a dark scene arrived with its backdrop treated as ink
+// and its pale elements judged against white paper: inverted, not themed.
+{
+    const parse = parseSvg;
+    for (const [label, rect] of [
+        ['100% width and height', '<rect width="100%" height="100%" fill="#0f172a"/>'],
+        ['units', '<rect width="600" height="300" fill="#0f172a"/>'],
+        ['percent with a zero offset', '<rect x="0%" y="0%" width="100%" height="100%" fill="#0f172a"/>'],
+    ]) {
+        const svg = parse(`${rect}<text x="5" y="20" fill="#ffffff">hi</text>`);
+        themeSvgColors(svg, LIGHT);
+        check(`[${label}] the backdrop becomes the theme surface`, svg.querySelector('rect').getAttribute('fill') === LIGHT.bg,
+            svg.querySelector('rect').getAttribute('fill'));
+        check(`[${label}] and white text drawn on it is the strongest ink, so it turns dark on a light page`,
+            svg.querySelector('text').getAttribute('fill') === LIGHT.fg, svg.querySelector('text').getAttribute('fill'));
+    }
+    const part = parse('<rect width="50%" height="100%" fill="#0f172a"/>');
+    themeSvgColors(part, LIGHT);
+    check('half the width is not a backdrop', part.querySelector('rect').getAttribute('fill') !== LIGHT.bg,
+        part.querySelector('rect').getAttribute('fill'));
+}
+
+section('p5 colorMode and string colours');
+{
+    const run = (palette, state) => {
+        const calls = [];
+        const record = (name) => function (...a) { calls.push([name, ...a]); };
+        const proto = { background: record('background'), fill: record('fill'), stroke: record('stroke'), ...state };
+        new Function('window', p5ThemePrelude(palette))({ p5: { prototype: proto } });
+        return { proto, calls };
+    };
+    const HSB = { _colorMode: 'hsb', _colorMaxes: { rgb: [255, 255, 255, 255], hsb: [360, 100, 100, 1] } };
+    const UNIT = { _colorMode: 'rgb', _colorMaxes: { rgb: [1, 1, 1, 1], hsb: [360, 100, 100, 1] } };
+    const RGB = { _colorMode: 'rgb', _colorMaxes: { rgb: [255, 255, 255, 255], hsb: [360, 100, 100, 1] } };
+    {
+        const { proto, calls } = run(DARK, HSB);
+        proto.fill(60, 100, 100);
+        check('numbers in HSB mode are not read as RGB: handed to p5 exactly as written',
+            JSON.stringify(calls[0]) === JSON.stringify(['fill', 60, 100, 100]), JSON.stringify(calls[0]));
+        proto.stroke(200, 50, 50, 0.5);
+        check('so are four numbers with an alpha', JSON.stringify(calls[1]) === JSON.stringify(['stroke', 200, 50, 50, 0.5]), JSON.stringify(calls[1]));
+        proto.fill('#ffffff');
+        check('a CSS string in HSB mode is still adapted (a string is CSS in every mode)',
+            calls[2].length === 2 && calls[2][1] === DARK.bg, JSON.stringify(calls[2]));
+    }
+    {
+        const { proto, calls } = run(DARK, UNIT);
+        proto.fill(0.1, 0.1, 0.1);
+        check('RGB with a 0-1 range is handed through too',
+            JSON.stringify(calls[0]) === JSON.stringify(['fill', 0.1, 0.1, 0.1]), JSON.stringify(calls[0]));
+    }
+    {
+        const { proto, calls } = run(DARK, RGB);
+        proto.fill(226, 232, 240);
+        check('default RGB 0-255 is still adapted', calls[0].length === 4 && hex(calls[0][1], calls[0][2], calls[0][3]) !== '#e2e8f0', JSON.stringify(calls[0]));
+    }
+    {
+        const { proto, calls } = run(DARK, RGB);
+        proto.fill('rgba(0,0,0,0.3)');
+        check('a translucent CSS string keeps its alpha', calls[0][1] === 'rgba(241,245,249,0.3)', JSON.stringify(calls[0]));
+        proto.background('rgba(0,0,0,0.2)');
+        check('and so does a translucent background string', calls[1][1] === `rgba(15,23,42,0.2)`, JSON.stringify(calls[1]));
+    }
+}
+
+section('a build\'s own --w-* variables survive unless the host defines them');
+{
+    const css = ':root{--w-radius:8px;--w-gap:12px;--w-height:40px;--w-bg:#ffffff;--w-accent-2:#f00;--w-series-3:#0f0;--w-fg:#111;}';
+    for (const t of THEMES) {
+        const got = wt.remap(css, wpal(t));
+        check(`[${t.theme}] --w-radius, --w-gap and --w-height are kept`,
+            ['--w-radius:8px', '--w-gap:12px', '--w-height:40px'].every((d) => got.includes(d)), got);
+        check(`[${t.theme}] the host's own names are still removed`,
+            !/--w-(bg|fg|accent-2|series-3)\s*:/.test(got), got);
+    }
+}
+
+section('a re-theme keeps what the widget\'s own script has set');
+// `__wtOrig` is the build's text at load. A re-theme that re-derived from it
+// alone put a bar's height or an indicator's position back where it started,
+// which is exactly what the live re-theme exists to avoid.
+{
+    const boot = (body, palette = DARK, extra) => {
+        const dom = new JSDOM(`<!doctype html><body>${body}</body>`, { runScripts: 'outside-only' });
+        const w = dom.window;
+        if (extra) extra(w);
+        w.eval(widgetThemePrelude(palette));
+        return w;
+    };
+    const asHex = (v) => rgbToHex(parseColor(v));
+    const w = boot('<div id="bar" style="height:10px;background-color:#ffffff"></div>'
+        + '<svg><rect id="r" fill="#ffffff"/><rect id="s" fill="#ffffff"/></svg>');
+    w.__wtApply();
+    const bar = w.document.getElementById('bar');
+    check('the first pass themes the inline style', asHex(bar.style.backgroundColor) === DARK.bg, bar.getAttribute('style'));
+    bar.style.height = '50px';
+    w.document.getElementById('r').setAttribute('fill', '#ff0000');
+    w.__wtRetheme(wpal(WARM));
+    check('a height the script set is still there after a re-theme', bar.style.height === '50px', bar.getAttribute('style'));
+    check('the colour in the same attribute follows the new theme', asHex(bar.style.backgroundColor) === WARM.bg, bar.getAttribute('style'));
+    check('a fill the script set on an SVG element survives a re-theme',
+        w.document.getElementById('r').getAttribute('fill') === '#ff0000', w.document.getElementById('r').getAttribute('fill'));
+    w.__wtRetheme(wpal(LIGHT));
+    check('an SVG fill nothing adapts on this theme goes back to the original, not the last theme\'s colour',
+        w.document.getElementById('s').getAttribute('fill') === '#ffffff', w.document.getElementById('s').getAttribute('fill'));
+    w.__wtRetheme(wpal(DARK));
+    w.__wtRetheme(wpal(WARM));
+    check('theme order does not matter: a run of re-themes lands where one would',
+        asHex(bar.style.backgroundColor) === WARM.bg && bar.style.height === '50px', bar.getAttribute('style'));
+}
+
+section('a canvas gradient is not painted over by a stale fill colour');
+// The full-canvas `fillRect` backdrop check reads the last string fill colour.
+// After a gradient (or a restore()) that string no longer says what is painted,
+// and the gradient background was overwritten with the flat theme surface.
+{
+    const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only' });
+    const w = dom.window;
+    class Ctx {
+        constructor() { this.canvas = { width: 100, height: 100 }; this._f = '#000000'; this._s = '#000000'; this._stack = []; this.painted = []; }
+        get fillStyle() { return this._f; } set fillStyle(v) { this._f = v; }
+        get strokeStyle() { return this._s; } set strokeStyle(v) { this._s = v; }
+        get shadowColor() { return 'x'; } set shadowColor(v) { /* unused */ }
+        fillRect() { this.painted.push(this._f); }
+        save() { this._stack.push(this._f); }
+        restore() { this._f = this._stack.pop(); }
+    }
+    w.CanvasRenderingContext2D = Ctx;
+    w.eval(widgetThemePrelude(DARK));
+    const grad = { gradient: true };
+    const full = (ctx) => ctx.fillRect(0, 0, 100, 100);
+    let ctx = new Ctx();
+    ctx.fillStyle = '#ffffff'; full(ctx);
+    check('control: a flat white full-canvas fill is still the theme surface', ctx.painted[0] === DARK.bg, String(ctx.painted[0]));
+    ctx = new Ctx();
+    ctx.fillStyle = '#ffffff'; ctx.fillStyle = grad; full(ctx);
+    check('a gradient assigned after a colour is what the full-canvas fill paints', ctx.painted[0] === grad, String(ctx.painted[0]));
+    ctx = new Ctx();
+    ctx.fillStyle = grad; ctx.save(); ctx.fillStyle = '#ffffff'; ctx.restore(); full(ctx);
+    check('and a restore() back to a gradient is not overwritten by the colour set in between', ctx.painted[0] === grad, String(ctx.painted[0]));
+    ctx = new Ctx();
+    ctx.fillStyle = grad; ctx.strokeStyle = '#ffffff'; full(ctx);
+    check('a stroke colour is never read as the fill', ctx.painted[0] === grad, String(ctx.painted[0]));
 }
 
 rmSync(scratch, { recursive: true, force: true });

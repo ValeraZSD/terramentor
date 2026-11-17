@@ -47,8 +47,10 @@ const TRANSFORM_OPS = new Set([
 // no `Math.` namespace, no `**` operator — and local models write JS out of
 // habit. Both are mechanically fixable.
 
-// Simple operand: identifier chain (datum.angle), number, or one paren group.
-const POW_OPERAND = String.raw`[A-Za-z_$][\w$.]*|\d+(?:\.\d+)?|\([^()]*\)`;
+// Simple operand: a call or paren group, identifier chain (datum.angle), or number.
+// The call comes first and carries its function name: tried after the bare
+// identifier, `sin(x) ** 2` matched `(x)` alone and became `sinpow((x),2)`.
+const POW_OPERAND = String.raw`(?:[A-Za-z_$][\w$.]*)?\([^()]*\)|[A-Za-z_$][\w$.]*|\d+(?:\.\d+)?`;
 const POW_RE = new RegExp(String.raw`(${POW_OPERAND})\s*\*\*\s*(${POW_OPERAND})`);
 
 export function sanitizeVegaExpression(expr: string): string {
@@ -184,9 +186,13 @@ function bindOrphanComputedField(spec: Record<string, unknown>): void {
 
 // Vega renders no KaTeX: `$\Delta x$` in a title/axis label shows literal `$…$`
 // characters (the same failure the p5 guide bans in text()). Strip the delimiters
-// from matched `$…$` pairs, leaving the inner text.
+// from matched `$…$` pairs, leaving the inner text. Only a pair that reads as
+// maths: LaTeX markup, or a one- or two-letter symbol. Two currency signs in one
+// title ("Cost ($M) vs revenue ($K)", "$5 and $10") also pair up, and removing
+// that pair deleted the dollar signs and the units with them.
+const LOOKS_LIKE_MATH = /[\\^_{}]|^\p{L}{1,2}\d?$/u;
 function stripInlineLatex(s: string): string {
-    return s.replace(/\$([^$]+)\$/g, '$1');
+    return s.replace(/\$([^$]+)\$/g, (whole, inner: string) => (LOOKS_LIKE_MATH.test(inner) ? inner : whole));
 }
 
 function stripTitleLatex(title: unknown): unknown {
