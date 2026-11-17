@@ -247,6 +247,7 @@ ok('a binary is refused with a reason', exe && exe.ok === false && exe.reason ==
 ok('a refused file leaves nothing behind', db.prepare('SELECT COUNT(*) AS n FROM chat_attachments').get().n === 3);
 ok('uploading asks the model nothing — nothing describes a picture in advance', !requests.some(r => r.messages), requests.length);
 ok('beside a picture, the upload says the chat model can see it', up.body?.modelSees === true, up.body?.modelSees);
+ok('a file named in UTF-8 (a browser\'s way) keeps its name', (await one('Конспект café.txt', Buffer.from('lecture words')))?.name === 'Конспект café.txt');
 ok('and says nothing about a model when no picture came', (await upload([{ name: 'plain.txt', bytes: Buffer.from('just words') }])).body?.modelSees === null);
 
 const tooMany = await upload(Array.from({ length: att.ATTACH_MAX_FILES + 1 }, (_, i) => ({ name: `n${i}.txt`, bytes: Buffer.from(`note ${i}`) })));
