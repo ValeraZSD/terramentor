@@ -356,6 +356,11 @@ try {
     const restore = body('cmd_restore');
     const backupAt = restore.indexOf('backup_one "$name" keep-all'), stopAt = restore.indexOf('docker stop');
     ok('copy.sh restore backs the copy up, keeping every archive, before it stops it', backupAt > 0 && stopAt > backupAt);
+    // An update of every copy lets go of each copy as it finishes: held to the
+    // end, the nightly backup of the copies already done waited and failed.
+    const update = body('cmd_update');
+    const loop = update.slice(update.indexOf('for n in $names; do'), update.indexOf('done', update.indexOf('for n in $names; do')));
+    ok('copy.sh update releases each copy\'s lock inside its loop', loop.includes('lock "$n"') && loop.includes('unlock "$n"'));
 } finally {
     for (const dir of scratchRoots) rmSync(dir, { recursive: true, force: true });
 }

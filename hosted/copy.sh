@@ -283,6 +283,9 @@ cmd_update() {
         proxy_apply
         wait_up "$n"
         echo "updated: $n"
+        # Released per copy: held to the end of an --all run, it made the
+        # nightly backup of every copy already updated wait and fail.
+        unlock "$n"
     done
 }
 
