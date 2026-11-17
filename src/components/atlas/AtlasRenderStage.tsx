@@ -171,7 +171,8 @@ export default function AtlasRenderStage({
                     recorderRef.current = format.extension === 'gif'
                         ? recordCanvasGif(canvas, outputFps(settings))
                         : recordCanvas(canvas, outputFps(settings), format);
-                } catch {
+                } catch (e) {
+                    console.warn('Recording could not start:', e);
                     // The thrown text is English and a browser's own wording;
                     // the learner is told in their language.
                     live.current.onFailed(tr("This browser would not start a recording."));
@@ -199,7 +200,8 @@ export default function AtlasRenderStage({
                     if (!rec) return;
                     try {
                         live.current.onDone(await rec.stop());
-                    } catch {
+                    } catch (e) {
+                        console.warn('Recording could not be saved:', e);
                         live.current.onFailed(tr("The recording could not be saved."));
                     }
                 }, CLOSING_HOLD_MS);

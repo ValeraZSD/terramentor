@@ -742,8 +742,13 @@ console.log('\n--- a recording that fails');
         }
     }
     const stageSrc = read('src/components/atlas/AtlasRenderStage.tsx') || '';
+    // Every call is the bare translated sentence: `onFailed(tr("…") + e.message)`
+    // and `onFailed(String(e))` would both pass a looser "no .message" scan.
+    const failedCalls = [...stageSrc.matchAll(/\bonFailed\(([^;]*)\);/g)].map(m => m[1].trim());
     check('a failed recording is toasted in the learner’s language, never as the thrown message',
-        stageSrc.length > 0 && !/onFailed\([^)]*\.message/.test(stageSrc));
+        failedCalls.length === 3 && failedCalls.every(a => /^tr\("[^"]+"\)$/.test(a)), JSON.stringify(failedCalls));
+    check('…and the thrown error is still written to the console for whoever has to find out why',
+        (stageSrc.match(/console\.warn\(/g) || []).length >= 2);
     const modalSrc = read('src/components/atlas/AtlasSettingsModal.tsx') || '';
     check('the pause slider’s unit is a translated key, not a Latin "s" after the number',
         /tr\("\{\{seconds\}\}s", \{ seconds: num\(settings\.holdMs/.test(modalSrc) && !/\)\}s\s*$/m.test(modalSrc));
@@ -886,7 +891,7 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
         check('the finished count follows the number style', host.textContent.includes('1.234 finished'), host.textContent);
         check('the undated count follows it too', host.textContent.includes('2.345 finished with no date'), host.textContent);
         await React.act(async () => r.render(React.createElement(TracePanel, props(5))));
-        check('the step counter follows it, as the spoken line already did',
+        check('the step counter follows it, both as drawn and as spoken',
             host.textContent.includes('5/1.234') && host.textContent.includes('Step 5 of 1.234'), host.textContent);
         await React.act(async () => r.unmount());
         setNumberPreference('auto');
