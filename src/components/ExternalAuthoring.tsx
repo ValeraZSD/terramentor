@@ -422,7 +422,7 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
         setLoading(true);
         api.materialBrief(projectId, phaseId)
             .then(r => { if (!cancelled) { setPrompt(r.prompt); setLeafCount(r.leaves); setBriefError(''); } })
-            .catch(e => { if (!cancelled) { setPrompt(''); setBriefError((e as Error)?.message || tr("Something went wrong")); } })
+            .catch(e => { if (!cancelled) { setPrompt(''); setLeafCount(0); setBriefError((e as Error)?.message || tr("Something went wrong")); } })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -469,6 +469,15 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                 {tr("One phase per reply. A chat model cannot write a whole course's teaching in one go. Come back and do the next phase whenever you like.")}
             </p>
+
+            {/* The phase list could not be read again (after a merge, say): the
+                counts below are the last ones read, so say they may be behind. */}
+            {phasesError && (
+                <div role="alert" className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-red-600 dark:text-red-400">{phasesError}</p>
+                    <Button size="sm" onClick={() => { setPhasesError(''); loadPhases(); }}>{tr("Try again")}</Button>
+                </div>
+            )}
 
             <Step n={1} title={tr("Pick a phase")}>
                 <div className="space-y-1.5">

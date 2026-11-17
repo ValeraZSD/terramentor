@@ -123,8 +123,11 @@ section('a run that failed opens the outline on the topic it failed on');
     check('the stopped-topic search finds the topic it failed on', client.stoppedLeaf?.(run.tree)?.title === 'Waves basics',
         String(client.stoppedLeaf?.(run.tree)?.title));
     check('topics it never started stay pending', statusOf(run.tree, 'Frequency') === 'pending' && statusOf(run.tree, 'Optics') === 'pending');
+    check('the outline opens on that topic once the run is over', client.openingLeaf?.(run.tree, false)?.title === 'Waves basics',
+        String(client.openingLeaf?.(run.tree, false)?.title));
+    check('and on nothing while the run is still live and no topic is being written', client.openingLeaf?.(run.tree, true) === null);
     const view = read('src/components/creation/CreationRunView.tsx');
-    check('the run screen falls back to that topic once the run is over', /stoppedLeaf\(run\.tree\)/.test(view));
+    check('the run screen asks for it with the live flag', /openingLeaf\(run\.tree, live\)/.test(view));
 }
 
 section('a failed first status request is asked again');

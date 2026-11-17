@@ -90,6 +90,13 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
     // material for no longer count as missing, and the topics past the cap of
     // one pass become reachable without closing the dialog.
     const [reload, setReload] = useState(0);
+    // Whether the last poll saw a run in progress. A ref, so a run that ends
+    // between two polls (or before the first) still triggers the re-read, and
+    // the poll effect restarting does not forget it.
+    const wasRunning = useRef(false);
+    // The picker has been given its opening selection once; a re-read after
+    // that keeps what the learner lined up.
+    const opened = useRef(false);
 
     const today = todayStr();
 
@@ -98,14 +105,23 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
         api.getBulkCandidates(projectId)
             .then(res => {
                 if (!alive) return;
+                setLoadError(null);
                 setCandidates(res.candidates);
                 setMax(res.max);
                 // Default = still-open topics that are actually missing something.
                 // Selecting work already done is how a learner spends twenty
                 // minutes of GPU time on nothing.
                 const want = res.candidates.filter(c => isOpen(c) && (!c.gateReady || c.flashcards === 0));
-                setSelected(new Set(want.slice(0, res.max).map(c => c.nodeId)));
-                setCapped(want.length > res.max);
+                if (!opened.current) {
+                    opened.current = true;
+                    setSelected(new Set(want.slice(0, res.max).map(c => c.nodeId)));
+                    setCapped(want.length > res.max);
+                } else {
+                    // The run just written material for some rows: drop those
+                    // from the learner's picks, keep the rest as they were.
+                    const missing = new Set(want.map(c => c.nodeId));
+                    setSelected(prev => new Set([...prev].filter(id => missing.has(id))));
+                }
             })
             .catch(e => { if (alive) setLoadError(e.message); });
         return () => { alive = false; };
@@ -116,7 +132,6 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
     useEffect(() => {
         let alive = true;
         let timer: number | undefined;
-        let wasRunning = false;
         let retryMs = POLL_MS;
         const tick = async () => {
             try {
@@ -125,8 +140,8 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 retryMs = POLL_MS;
                 setJob(status);
                 const isRunning = status?.status === 'running';
-                if (wasRunning && !isRunning) setReload(n => n + 1);
-                wasRunning = isRunning;
+                if (wasRunning.current && !isRunning) setReload(n => n + 1);
+                wasRunning.current = isRunning;
                 if (isRunning) timer = window.setTimeout(tick, POLL_MS);
             } catch {
                 // A dropped request or a restarting server must not freeze the
@@ -220,6 +235,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 projectId, nodeIds: [...selected], kinds, questionCount, cardCount, skipExisting,
             });
             setJob(status);
+            wasRunning.current = status?.status === 'running';
             addToast('info', t("Generating study material"),
                 t("It runs in the background and pauses whenever you use the assistant. You can close this."));
         } catch (e: any) {
@@ -344,7 +360,12 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                     </section>
 
                     <div className="px-3 pb-2">
-                        {loadError && <p className="p-4 text-sm text-red-500">{loadError}</p>}
+                        {loadError && (
+                            <div role="alert" className="p-4 flex flex-wrap items-center gap-3">
+                                <p className="text-sm text-red-500">{loadError}</p>
+                                <Button size="sm" onClick={() => { setLoadError(null); setReload(n => n + 1); }}>{t("Try again")}</Button>
+                            </div>
+                        )}
                         {!candidates && !loadError && (
                             <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
                         )}

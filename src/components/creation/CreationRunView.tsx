@@ -33,7 +33,7 @@ import { useStore } from '../../store';
 import { Explain } from '../ui/Disclosure';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
-import { activeLeaf, stoppedLeaf } from './liveTree';
+import { openingLeaf } from './liveTree';
 import { retryMayHelp } from '../../utils/failureCause';
 import {
     COURSE_DIALOG_SIZE, canContinue, canRetry, cancelCreationRun, closeCreationView, continueCreationRun,
@@ -80,8 +80,8 @@ export default function CreationRunView() {
     const activeNodeKey = useMemo(() => {
         if (!run) return null;
         // `settle` has already turned the node it stopped on into error or
-        // cancelled, so `activeLeaf` finds nothing once the run is over.
-        return (activeLeaf(run.tree) ?? (live ? null : stoppedLeaf(run.tree)))?.key ?? null;
+        // cancelled, so the search for the active one finds nothing once the run is over.
+        return openingLeaf(run.tree, live)?.key ?? null;
     }, [run?.tree, live]);
 
     // Which view: the run's own choice until the reader picks one — the log

@@ -248,6 +248,14 @@ export function stoppedLeaf(nodes: LiveNode[]): LiveNode | null {
     return null;
 }
 
+/**
+ * The topic the run screen opens its outline on: the one being written while
+ * the run is live, the one it stopped on once it is over.
+ */
+export function openingLeaf(nodes: LiveNode[], live: boolean): LiveNode | null {
+    return activeLeaf(nodes) ?? (live ? null : stoppedLeaf(nodes));
+}
+
 /** Is `key` this node or one under it? */
 export function containsKey(node: LiveNode, key: string): boolean {
     return node.key === key || node.children.some(c => containsKey(c, key));
