@@ -106,6 +106,9 @@ button:focus-visible, .field:focus-visible {
     outline: 2px solid var(--tm-ring);
     outline-offset: 2px;
 }
+/* A block the script focuses (a result, a card) is a reading position for a
+   screen reader, not a control: no ring around it. */
+[tabindex="-1"]:focus { outline: none; }
 @media (hover: hover) {
     .button:not(:disabled):hover, .option:not(:disabled):hover, .piece:not(:disabled):hover,
     .gap:not(:disabled):hover, .icon-button:not(:disabled):hover { background: var(--tm-bg-2); }

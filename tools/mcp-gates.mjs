@@ -1548,6 +1548,10 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         doc.querySelector('[data-focus="next"], [data-focus="submit"]').click();
         await until(() => doc.querySelector('.outcome'));
         ok('after Submit, focus goes to the result instead of the page', doc.activeElement?.classList.contains('outcome'), doc.activeElement?.outerHTML.slice(0, 120));
+        // A block the script focuses is a reading position, not a control: the
+        // stylesheet must not draw a focus ring round the result or a card.
+        const viewCss = readFileSync(join(repoRoot, 'mcp', 'views', 'view.css'), 'utf8');
+        ok('a block focused by the script gets no focus ring', /\[tabindex="-1"\]:focus\s*\{\s*outline:\s*none;?\s*\}/.test(viewCss));
     } finally {
         checkKeys.close();
     }
