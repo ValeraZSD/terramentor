@@ -10,6 +10,9 @@ import Radio from '../ui/Radio';
 import { fmt } from './deckPalette';
 
 const pct = (r: number) => `${Math.round(r * 100)}%`;
+/** Reviews a day as said: whole numbers, except under one, where a whole number
+ *  reads "about 0" for a course that will still ask for something. */
+const perDayShown = (n: number) => (n > 0 && n < 1 ? Math.round(n * 10) / 10 : Math.round(n));
 
 /**
  * The course's recall target, at rest: one quiet button beside the daily
@@ -116,7 +119,7 @@ export function RetentionEditor({ projectId, value, onDone }: {
                                 </span>
                                 <span className="ml-auto text-sm tabular-nums text-slate-600 dark:text-slate-300">
                                     {n != null
-                                        ? t("about {{fmt}} reviews a day", { count: Math.round(n), fmt: fmt(Math.round(n)) })
+                                        ? t("about {{fmt}} reviews a day", { count: perDayShown(n), fmt: fmt(perDayShown(n)) })
                                         : failed
                                             ? ''
                                             : <Loader2 className="h-4 w-4 animate-spin text-slate-400" aria-label={t("Counting")} />}

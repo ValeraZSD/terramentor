@@ -107,7 +107,7 @@ export function loadProjectSummaries() {
         // nudges for a deadline.
         project.teaches = projectTeaches(project.id);
         // The course's recall target: every review surface schedules its cards
-        // with it (`retentionOf` in src/utils/projectRetention.ts).
+        // with it (`useProjectRetention` in src/utils/projectRetention.ts).
         project.desired_retention = getRetention(project.id);
         // The recalibration baseline is a per-leaf snapshot that only
         // server/scheduling.js reads, and it reads it from the row rather than

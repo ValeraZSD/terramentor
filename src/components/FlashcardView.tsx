@@ -13,7 +13,7 @@ import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
-import { retentionOf } from '../utils/projectRetention';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
@@ -55,7 +55,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     // closes, so the local override is what keeps the card on screen honest.
     const currentCard = stored ? { ...stored, ...(edits[stored.id] ?? {}) } : stored;
     // A topic's cards belong to the course open in the panel.
-    const retention = retentionOf(useStore(s => s.currentProjectId));
+    const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.

@@ -25,7 +25,7 @@ import { RatingButton } from './flashcards/RatingButton';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { cardRef } from '../utils/itemReports';
 import { useItemReports, useReportOn } from '../utils/itemReportStore';
-import { retentionOf } from '../utils/projectRetention';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
@@ -269,7 +269,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
 
     const currentCard = cards[queue.index];
     // Each card on its own course's target: a mixed session holds several.
-    const retention = retentionOf(currentCard?.project_id ?? projectId);
+    const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
     // A card reported as wrong is out of the session: a model-written one is
     // gone, the learner's own is set aside until they edit it. It is not rated

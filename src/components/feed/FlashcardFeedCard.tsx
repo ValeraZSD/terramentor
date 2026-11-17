@@ -7,7 +7,7 @@ import { parseCardMedia } from '../CardMedia';
 import CardFace from '../CardFace';
 import { FeedFlashcardCard } from '../../types';
 import { computeSrsUpdate, computeNextInterval, formatInterval, requeueAt, ReviewRating } from '../../utils/srs';
-import { retentionOf } from '../../utils/projectRetention';
+import { useProjectRetention } from '../../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER, RATING_STYLES } from '../flashcards/ratingStyles';
 import { RatingButton } from '../flashcards/RatingButton';
@@ -48,7 +48,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
 
     // The text the learner corrected is the text shown, without a reload.
     const fc = edited ? { ...card.card, ...edited } : card.card;
-    const retention = retentionOf(fc.project_id);
+    const retention = useProjectRetention(fc.project_id);
     const media = parseCardMedia(fc.media);
 
     // A report takes the card off the stream unrated. Once it no longer holds

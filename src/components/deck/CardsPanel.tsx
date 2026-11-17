@@ -84,8 +84,12 @@ export default function CardsPanel({
     const [session, setSession] = useState<{ stage: DeckStage | null; ahead?: boolean } | null>(null);
     const [editingLimit, setEditingLimit] = useState(false);
     const [editingRetention, setEditingRetention] = useState(false);
-    // Closed the target editor: focus goes back to its button.
+    // Closed the target editor: focus goes back to its button, once. The flag
+    // is spent on the commit that mounted the button, or a later remount (the
+    // row moves between the owed and the done-for-today blocks when a session
+    // ends) would take focus from wherever the learner is by then.
     const [retentionReturn, setRetentionReturn] = useState(false);
+    useEffect(() => { if (retentionReturn) setRetentionReturn(false); }, [retentionReturn]);
     const [limitDraft, setLimitDraft] = useState('20');
     const autoStarted = useRef(false);
     // Loads can overlap (a session ends while the page around it refreshes):

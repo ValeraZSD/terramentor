@@ -6,8 +6,14 @@
 import { useStore } from '../store';
 import { normalRetention, REQUEST_RETENTION } from './srs';
 
-export function retentionOf(projectId: number | null | undefined): number {
-    if (projectId == null) return REQUEST_RETENTION;
-    const project = useStore.getState().projects.find(p => p.id === projectId);
-    return normalRetention(project?.desired_retention);
+/**
+ * The course's target, followed: a subscription, not a read at render, so a
+ * surface drawn before the project list arrived (a cold start on the feed), or
+ * one whose course changed its target on another device, re-renders with the
+ * row and rates at it.
+ */
+export function useProjectRetention(projectId: number | null | undefined): number {
+    return useStore(s => (projectId == null
+        ? REQUEST_RETENTION
+        : normalRetention(s.projects.find(p => p.id === projectId)?.desired_retention)));
 }
