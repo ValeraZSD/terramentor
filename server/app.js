@@ -70,6 +70,7 @@ import * as placementApi from './routes/placement.js';
 import * as itemReportsApi from './routes/itemReports.js';
 import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
+import * as mockExamsApi from './routes/mockExams.js';
 import * as devicesApi from './routes/devices.js';
 import * as calendarApi from './routes/calendar.js';
 import * as agentApi from './routes/agent.js';
@@ -503,6 +504,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(todayApi.todayRoutes);
     mount(feedApi.feedRoutes);
     mount(paperApi.routes);
+    mount(mockExamsApi.routes);
     mount(shortCoursesApi.routes);
     mount(feedApi.feedItemRoutes);
     mount(flashcardsApi.dueRoutes);
