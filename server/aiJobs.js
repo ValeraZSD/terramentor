@@ -70,10 +70,11 @@ let stmts = null;
 const q = () => stmts ||= {
     all: db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position'),
     conn: db.prepare('SELECT model FROM ai_connections WHERE id = ?'),
-    // A place in a list is named by (job, position) everywhere (its uuid is
-    // derived from them, server/syncTables.js), so a save rewrites each place
-    // in place and keeps its uuid: a delete and re-insert would give every
-    // place a new identity on every save, with nothing changed.
+    // A place in a list is the row named by (job, position) (a row from before
+    // uuids existed gets its uuid derived from them, server/syncTables.js; a
+    // new row gets a random one), so a save rewrites each place in place and
+    // keeps its uuid: a delete and re-insert would give every place a new
+    // identity on every save, with nothing changed.
     put: db.prepare(`INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(job, position) DO UPDATE SET connection_id = excluded.connection_id,
         model = excluded.model, effort = excluded.effort`),
