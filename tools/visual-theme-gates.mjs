@@ -634,6 +634,18 @@ section('a backdrop stated in percent is a backdrop');
     themeSvgColors(part, LIGHT);
     check('half the width is not a backdrop', part.querySelector('rect').getAttribute('fill') !== LIGHT.bg,
         part.querySelector('rect').getAttribute('fill'));
+    // A translucent rect over the whole drawing is a dim or a wash laid over the
+    // content, not the surface the content sits on.
+    for (const [label, rect] of [
+        ['a fill-opacity below 1', '<rect width="100%" height="100%" fill="#0f172a" fill-opacity="0.5"/>'],
+        ['an rgba fill', '<rect width="100%" height="100%" fill="rgba(15,23,42,0.08)"/>'],
+        ['an opacity below 1', '<rect width="100%" height="100%" fill="#0f172a" opacity="0.3"/>'],
+    ]) {
+        const veil = parse(rect);
+        themeSvgColors(veil, LIGHT);
+        check(`${label} on a full-size rect is an overlay, not the backdrop`, veil.querySelector('rect').getAttribute('fill') !== LIGHT.bg,
+            veil.querySelector('rect').getAttribute('fill'));
+    }
 }
 
 section('p5 colorMode and string colours');
@@ -658,6 +670,22 @@ section('p5 colorMode and string colours');
         proto.fill('#ffffff');
         check('a CSS string in HSB mode is still adapted (a string is CSS in every mode)',
             calls[2].length === 2 && calls[2][1] === DARK.bg, JSON.stringify(calls[2]));
+    }
+    {
+        // The backdrop declared in numbers the sketch's colour mode owns is still
+        // the backdrop: a later CSS string is judged against it.
+        const asHsb = (hexOut) => ({ ...HSB, color: () => ({ toString: () => hexOut }) });
+        const { proto, calls } = run(LIGHT, asHsb('#0f172a'));
+        proto.background(222, 60, 15);
+        proto.stroke('#e2e8f0');
+        const onDark = calls[1][1];
+        const plain = run(LIGHT, HSB);
+        plain.proto.background(222, 60, 15);
+        plain.proto.stroke('#e2e8f0');
+        const onPaper = plain.calls[1][1];
+        check('control: with no backdrop known, a pale stroke is judged against paper', onPaper !== onDark, `${onPaper} vs ${onDark}`);
+        check('a background in HSB numbers is the backdrop later string colours are judged against',
+            onDark === LIGHT.fg, `${onDark} (paper reading: ${onPaper})`);
     }
     {
         const { proto, calls } = run(DARK, UNIT);
@@ -757,6 +785,16 @@ section('a canvas gradient is not painted over by a stale fill colour');
     ctx = new Ctx();
     ctx.fillStyle = grad; ctx.strokeStyle = '#ffffff'; full(ctx);
     check('a stroke colour is never read as the fill', ctx.painted[0] === grad, String(ctx.painted[0]));
+    // A translucent full-canvas fill (a trail fade, a dim over the chart) is
+    // laid over the frame on purpose: it keeps the opacity the author stated.
+    const bgc = parseColor(DARK.bg);
+    const bgAt = (a) => `rgba(${Math.round(bgc.r * 255)},${Math.round(bgc.g * 255)},${Math.round(bgc.b * 255)},${a})`;
+    ctx = new Ctx();
+    ctx.fillStyle = 'rgba(255,255,255,0.05)'; full(ctx);
+    check('a 5% white trail fade over the whole canvas stays 5% of the surface, not an opaque slab', ctx.painted[0] === bgAt(0.05), String(ctx.painted[0]));
+    ctx = new Ctx();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; full(ctx);
+    check('a 60% black dim over the whole canvas stays 60%', ctx.painted[0] === bgAt(0.6), String(ctx.painted[0]));
 }
 
 rmSync(scratch, { recursive: true, force: true });

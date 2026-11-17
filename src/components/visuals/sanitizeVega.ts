@@ -187,12 +187,17 @@ function bindOrphanComputedField(spec: Record<string, unknown>): void {
 // Vega renders no KaTeX: `$\Delta x$` in a title/axis label shows literal `$…$`
 // characters (the same failure the p5 guide bans in text()). Strip the delimiters
 // from matched `$…$` pairs, leaving the inner text. Only a pair that reads as
-// maths: LaTeX markup, or a one- or two-letter symbol. Two currency signs in one
-// title ("Cost ($M) vs revenue ($K)", "$5 and $10") also pair up, and removing
-// that pair deleted the dollar signs and the units with them.
-const LOOKS_LIKE_MATH = /[\\^_{}]|^\p{L}{1,2}\d?$/u;
+// maths: LaTeX markup, an operator, a call like `f(x)`, or a one- or two-letter
+// symbol. Two currency signs in one title ("Cost ($M) vs revenue ($K)",
+// "$5 and $10") also pair up, and removing that pair deleted the dollar signs
+// and the units with them. What sits between two currency signs begins or ends
+// on a space or a bracket, which a formula written in `$…$` does not.
+const MATH_MARK = /[\\^_{}=+*/<>]/;
+const MATH_SHAPE = /^(?:\p{L}{1,2}\d?|\d+\p{L}{1,2}|\p{L}{1,2}\d?\([^()]*\))$/u;
+const CURRENCY_EDGE = /^[\s)\]]|[\s(\[]$/;
+const looksLikeMath = (inner: string) => !CURRENCY_EDGE.test(inner) && (MATH_MARK.test(inner) || MATH_SHAPE.test(inner));
 function stripInlineLatex(s: string): string {
-    return s.replace(/\$([^$]+)\$/g, (whole, inner: string) => (LOOKS_LIKE_MATH.test(inner) ? inner : whole));
+    return s.replace(/\$([^$]+)\$/g, (whole, inner: string) => (looksLikeMath(inner) ? inner : whole));
 }
 
 function stripTitleLatex(title: unknown): unknown {

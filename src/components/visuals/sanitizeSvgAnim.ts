@@ -7,6 +7,7 @@
 // external refs) — the output is inert markup that can only draw and animate.
 
 import DOMPurify from 'dompurify';
+import { hasCssAnimation } from './svgFrames';
 
 /**
  * Grab the <svg>…</svg> span out of any surrounding prose/fence debris.
@@ -623,11 +624,7 @@ export function sanitizeAnimatedSvg(code: string): SVGSVGElement {
     floorLabelSizes(svg);
 
     const hasSmil = !!svg.querySelector('animate, animateTransform, animateMotion, set');
-    const hasCss = /@keyframes|animation\s*:/.test(
-        Array.from(svg.querySelectorAll('style')).map(s => s.textContent).join('') +
-        Array.from(svg.querySelectorAll('[style]')).map(s => s.getAttribute('style')).join(''),
-    );
-    if (!hasSmil && !hasCss) {
+    if (!hasSmil && !hasCssAnimation(svg)) {
         throw new Error('nothing is animated — add SMIL tags (<animate>, <animateTransform>, <animateMotion>) with dur and repeatCount="indefinite".');
     }
 

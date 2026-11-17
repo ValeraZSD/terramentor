@@ -164,10 +164,16 @@ section('Vega — a dollar sign is only removed from maths');
         ['Cost ($M) vs revenue ($K)', 'Cost ($M) vs revenue ($K)', 'two units in one title are left alone'],
         ['$5 and $10', '$5 and $10', 'two prices are left alone'],
         ['Price in $ per kg ($/kg)', 'Price in $ per kg ($/kg)', 'a bare dollar sign is left alone'],
-        ['Speed $v_0$ over time', 'Speed v_0 over time', 'a subscript is maths'],
-        ['Energy $E = mc^2$', 'Energy E = mc^2', 'a superscript is maths'],
-        ['Angle $\\theta$ (rad)', 'Angle \\theta (rad)', 'a LaTeX command is maths'],
-        ['$x$ against $t$', 'x against t', 'a single-letter symbol is maths'],
+        ['Speed $v_0$ over time', 'Speed v_0 over time', 'control: a subscript is maths'],
+        ['Energy $E = mc^2$', 'Energy E = mc^2', 'control: a superscript is maths'],
+        ['Angle $\\theta$ (rad)', 'Angle \\theta (rad)', 'control: a LaTeX command is maths'],
+        ['$x$ against $t$', 'x against t', 'control: a single-letter symbol is maths'],
+        ['Sum $x + y$', 'Sum x + y', 'a sum is maths'],
+        ['Output $f(x)$', 'Output f(x)', 'a function call is maths'],
+        ['Fit $a=b$', 'Fit a=b', 'an equation is maths'],
+        ['Count $n=5$', 'Count n=5', 'an equation with a number is maths'],
+        ['Slope $2x$', 'Slope 2x', 'a coefficient and a symbol is maths'],
+        ['Revenue ($) vs cost_per_unit ($)', 'Revenue ($) vs cost_per_unit ($)', 'two empty currency signs around an underscore name are left alone'],
     ];
     for (const [input, want, why] of table) {
         const got = title(input);
@@ -191,11 +197,11 @@ section('Mermaid — a header above the diagram does not hide its kind');
     for (const [name, head] of Object.entries(header)) {
         const got = sanitizeMermaid(`${head}\nflowchart TD\n  A[f(x)] --> B`);
         check(`[${name}] a flowchart under it still has its labels quoted`, got.includes(quoted), got);
-        check(`[${name}] and the header is passed through exactly as written`, got.startsWith(head), got);
+        check(`control: [${name}] and the header is passed through exactly as written`, got.startsWith(head), got);
     }
     const seq = `${header.directive}\nsequenceDiagram\n  A->>B: f(x)`;
-    check('a sequence diagram under a header is not touched', sanitizeMermaid(seq) === seq, sanitizeMermaid(seq));
-    check('no header: unchanged behaviour', sanitizeMermaid('flowchart TD\n  A[f(x)] --> B').includes(quoted));
+    check('control: a sequence diagram under a header is not touched', sanitizeMermaid(seq) === seq, sanitizeMermaid(seq));
+    check('control: no header: unchanged behaviour', sanitizeMermaid('flowchart TD\n  A[f(x)] --> B').includes(quoted));
 }
 
 section('SVG animation — a stylesheet reference to the drawing\'s own #id survives');
@@ -215,7 +221,7 @@ section('SVG animation — a stylesheet reference to the drawing\'s own #id surv
     // And it is still the same boundary: nothing off-document gets through.
     for (const ref of ['url(https://tracker.example/p.svg#g)', 'url("https://tracker.example/p.svg#g")', "url('//tracker.example/p')", 'url( "http://tracker.example/p")', 'url("data:image/svg+xml,x#g")']) {
         const got = run(`<rect width="5" height="5" fill="${ref.replace(/"/g, '&quot;')}"/>`) + run(`<style>rect { fill: ${ref} }</style><rect width="5" height="5"/>`);
-        check(`${ref} is still refused`, !/tracker\.example|data:image/.test(got), got);
+        check(`control: ${ref} is still refused`, !/tracker\.example|data:image/.test(got), got);
     }
 }
 
@@ -271,6 +277,18 @@ section('SVG animation — a scene that moves by CSS keyframes is not called sti
         globalThis.Image = savedImage;
         proto.getContext = savedGetContext;
     }
+}
+
+section('SVG animation: one rule for "animated by CSS", shared with the motion probe');
+{
+    // `animation-name` alone (the longhands, no shorthand) animates in a browser;
+    // the sanitizer's own copy of the test only knew the shorthand and refused it
+    // as "nothing is animated" while the probe's copy accepted it.
+    let thrown = null;
+    try {
+        svgAnim.sanitizeAnimatedSvg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300"><style>.w { animation-name: spin; animation-duration: 2s }</style><rect class="w" width="50" height="50"/></svg>');
+    } catch (e) { thrown = e; }
+    check('a scene animated by animation-name alone is not refused as still', thrown === null, thrown?.message);
 }
 
 rmSync(scratch, { recursive: true, force: true });

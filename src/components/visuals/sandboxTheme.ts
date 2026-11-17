@@ -219,7 +219,18 @@ var __vtAssumed = '#ffffff';
             // when the sketch is in HSB or a 0-1 range, they would be adapted
             // as the wrong colour and handed back as numbers in the wrong
             // scale. A string is CSS whatever the mode, so it is always safe.
-            if (!isString && !numbersAreRgb255(this)) return orig.apply(this, arguments);
+            if (!isString && !numbersAreRgb255(this)) {
+                // The numbers are left alone, but a background is still the
+                // backdrop: string colours drawn on it later are judged
+                // against it, not against the default paper.
+                if (name === 'background') {
+                    try {
+                        var shown = this.color.apply(this, arguments).toString('#rrggbb');
+                        if (__vtParse(shown)) __vtAssumed = shown;
+                    } catch (e) { /* no colour object: the backdrop stays unknown */ }
+                }
+                return orig.apply(this, arguments);
+            }
             var next;
             if (name === 'background') {
                 __vtAssumed = css;

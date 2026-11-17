@@ -20,7 +20,8 @@ import { SANDBOX_THEME_JS } from './sandboxTheme';
  * (so `WIDGET_CONTRACT_VERSION` is deliberately NOT bumped for this):
  *
  *   1. The host's variables are written at `:root:root`, a specificity a build
- *      cannot reach, and the build's own `--w-*` declarations are deleted.
+ *      cannot reach, and the build's own declarations of those names are deleted
+ *      (its other `--w-*` variables are its own and stay).
  *   2. Every colour the build states LITERALLY — CSS, inline `style=`, SVG
  *      `fill=`/`stroke=`, a canvas context — goes through the app's achromatic-ink /
  *      chromatic-meaning rule (`palette.ts`, via its twin `sandboxTheme.ts`).
@@ -98,7 +99,7 @@ export function widgetThemeCss(p: VisualPalette): string {
  * `palette.ts` over one table of inputs. The DOM wiring is in `widgetThemePrelude`.
  *
  * Depends on `SANDBOX_THEME_JS` being concatenated ahead of it (`__vtParse`,
- * `__vtToHex`, `__vtAdapt`, `__VT_NAMED`).
+ * `__vtToHex`, `__vtAdapt`, `__vtAlpha`, `__vtWithAlpha`, `__VT_NAMED`).
  */
 export const WIDGET_THEME_JS = `
 var __WT_ROLE = {'color':'text','caret-color':'text','-webkit-text-fill-color':'text','background':'fill','background-color':'fill','fill':'fill','stop-color':'fill'};
@@ -298,7 +299,9 @@ var __wtPalette = ${JSON.stringify(widgetPalette(p))};
                     // of the picture and is kept; a grey one was "the page".
                     if (chroma < 0.16) {
                         var d = Object.getOwnPropertyDescriptor(C.prototype, 'fillStyle');
-                        if (d && d.set) d.set.call(this, __wtPalette.bg);
+                        // The opacity the author stated stays: a trail fade or a
+                        // dim laid over the frame is translucent on purpose.
+                        if (d && d.set) d.set.call(this, __vtWithAlpha(__wtPalette.bg, __vtAlpha(raw)));
                     }
                 }
             }

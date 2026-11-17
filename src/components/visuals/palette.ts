@@ -400,7 +400,15 @@ function declaredBackdrop(svg: SVGSVGElement): { color: string; el: Element } | 
         const h = length(el.getAttribute('height'), vh);
         // 96%: a scene often insets its backdrop by a pixel or two.
         if (!(w >= vw * 0.96 && h >= vh * 0.96 && x <= vx + vw * 0.04 && y <= vy + vh * 0.04)) continue;
-        const fill = parseColor(el.getAttribute('fill'));
+        const stated = el.getAttribute('fill');
+        // A translucent rect over the whole drawing is a dim or a wash drawn
+        // after the content, not the surface the content sits on.
+        const veiled = ['fill-opacity', 'opacity'].some((a) => {
+            const v = parseFloat(el.getAttribute(a) ?? '');
+            return Number.isFinite(v) && v < 1;
+        });
+        if (veiled || colorAlpha(stated) < 1) continue;
+        const fill = parseColor(stated);
         if (fill) return { color: rgbToHex(fill), el };
     }
     return null;

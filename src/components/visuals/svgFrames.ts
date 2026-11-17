@@ -66,6 +66,13 @@ export async function previewFrame(svg: SVGSVGElement, width: number, t = 0): Pr
     return { img, w, h };
 }
 
+/** Does the scene animate by CSS (`@keyframes`, `animation`, `animation-name`)? */
+export function hasCssAnimation(svg: Element): boolean {
+    const css = Array.from(svg.querySelectorAll('style')).map(s => s.textContent ?? '').join('\n')
+        + Array.from(svg.querySelectorAll('[style]')).map(e => e.getAttribute('style') ?? '').join('\n');
+    return /@keyframes|animation(-name)?\s*:/.test(css);
+}
+
 /**
  * Does anything in this scene move at all?
  *
@@ -84,9 +91,7 @@ export async function previewFrame(svg: SVGSVGElement, width: number, t = 0): Pr
 export async function probeMotion(svg: SVGSVGElement, loopSeconds: number): Promise<boolean | null> {
     const hasSmil = svg.querySelector('animate, animateTransform, animateMotion, set') != null;
     if (!hasSmil) return null;
-    const css = Array.from(svg.querySelectorAll('style')).map(s => s.textContent ?? '').join('\n')
-        + Array.from(svg.querySelectorAll('[style]')).map(e => e.getAttribute('style') ?? '').join('\n');
-    const hasCss = /@keyframes|animation(-name)?\s*:/.test(css);
+    const hasCss = hasCssAnimation(svg);
     try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
