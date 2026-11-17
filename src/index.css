@@ -442,6 +442,11 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
     outline-width: 1px;
     outline-offset: 0;
   }
+  /* A region that only takes focus from code (a dialog, the rating row) is
+     not a control: no frame at rest, or the rating buttons sat in a square box. */
+  .outline-none:where(:not(:focus-visible, button, a, summary, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="combobox"])) {
+    outline-style: none;
+  }
   button[data-segment]:where(:not(:focus-visible)) {
     outline-style: none;
   }

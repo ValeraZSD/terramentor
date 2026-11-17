@@ -151,6 +151,11 @@ section('6b. high contrast fills only the chosen segment and the armed rating');
         rest !== -1 && /\.outline-none:where\(:not\(:focus-visible\)\) \{\s*outline-width: 1px;\s*outline-offset: 0;/.test(block)
         && /button\[data-segment\]:where\(:not\(:focus-visible\)\) \{\s*outline-style: none;/.test(block)
         && rest < block.indexOf('[aria-current="page"]'));
+    // ...but only on controls: a region focused from code (the rating row,
+    // a dialog) wore a square frame round its buttons.
+    check('a region that is not a control wears no frame at rest',
+        /\.outline-none:where\(:not\(:focus-visible, button, a,[^)]*\[role="button"\][^)]*\)\) \{\s*outline-style: none;/.test(block)
+        && block.indexOf('outline-style: none') > rest && block.indexOf('outline-style: none') < block.indexOf('[aria-current="page"]'));
     check('a segmented row gets one frame (track) or one per chip',
         /\[data-segmented="track"\] \{\s*border: 1px solid ButtonText/.test(block) && /\[data-segmented="chips"\] > button\[data-segment\] \{\s*border: 1px solid ButtonText/.test(block)
         && /data-segmented=\{track && !wrapped \? 'track' : 'chips'\}/.test(read('src/components/ui/SegmentedControl.tsx')));
