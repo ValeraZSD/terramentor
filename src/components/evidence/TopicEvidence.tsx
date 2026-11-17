@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Gauge, History, ListChecks } from 'lucide-react';
+import { Gauge, History, ListChecks, Repeat } from 'lucide-react';
 import { api, EVIDENCE_CHANGED } from '../../api';
-import type { EstimateLevel, EvidenceRow, EvidenceTrail } from '../../types';
+import type { EstimateLevel, EvidenceRow, EvidenceTrail, ShakyQuestion } from '../../types';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import Modal from '../Modal';
@@ -292,11 +292,61 @@ function EvidenceRowItem({ row, deck, onOpen }: { row: EvidenceRow; deck: boolea
     );
 }
 
+/**
+ * The questions the learner keeps missing (server: shakyQuestions): missed
+ * twice or more with no right answer since. Not evidence, and it moves no
+ * number; each carries the flag, since a question nobody gets right may be
+ * the one that is wrong.
+ */
+function ShakyList({ items, total }: { items: ShakyQuestion[]; total: number }) {
+    const { t } = useTranslation();
+    return (
+        <section className="mt-5">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                <Repeat className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                {t("Still shaky")}
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {t("Missed twice or more, and not answered right since.")}
+            </p>
+            <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                {items.map((s, i) => (
+                    <li key={s.ref ?? `${i}:${s.question}`} className="flex items-start gap-3 py-3">
+                        <div className="min-w-0 flex-1">
+                            <p className="break-words text-sm text-slate-800 dark:text-slate-100">{s.question}</p>
+                            <p className="mt-0.5 text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                                {t("Missed {{count}} times in a row", { count: s.misses })}
+                            </p>
+                        </div>
+                        {s.ref && (
+                            <ReportItem
+                                itemRef={s.ref}
+                                surface="topic"
+                                shown={{ correct: false }}
+                                listed
+                                // As on the evidence rows: no reload under an
+                                // open Undo; closing the dialog reads it again.
+                                className="-mt-1"
+                            />
+                        )}
+                    </li>
+                ))}
+            </ul>
+            {total > items.length && (
+                <p className="pt-2 text-xs text-slate-500 dark:text-slate-400">
+                    {t("The first {{shown}} of {{total}}.", { shown: items.length, total })}
+                </p>
+            )}
+        </section>
+    );
+}
+
 function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; onClose: () => void; onChanged: () => void }) {
     const { t } = useTranslation();
     const [reviewing, setReviewing] = useState<number | null>(null);
     const day = useDay();
     const held = trail.count;
+    const shaky = trail.shaky ?? [];
     const points = useMemo(() => chartPoints(trail.rows), [trail.rows]);
     // A line needs two answers, and a deck has no steps. Under "too early to
     // tell" the card hides the number, so the chart does not show it either.
@@ -328,16 +378,25 @@ function EvidenceDialog({ trail, onClose, onChanged }: { trail: EvidenceTrail; o
                             />
                         </div>
                     )}
-                    <h3 className="mt-5 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
-                        <History className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
-                        {t("Evidence, newest first")}
-                    </h3>
-                    {trail.rows.length === 0 ? (
-                        <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("Nothing answered on this topic yet.")}</p>
-                    ) : (
-                        <ul className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} deck={trail.projectKind === 'deck'} onOpen={setReviewing} />)}
-                        </ul>
+                    {shaky.length > 0 && <ShakyList items={shaky} total={trail.shakyCount ?? shaky.length} />}
+                    {/* Misses logged while a question waited for a verifier
+                        wrote no evidence, so a topic can have shaky questions
+                        and no rows: then the list stands alone, with no
+                        "nothing answered" under it. */}
+                    {(trail.rows.length > 0 || shaky.length === 0) && (
+                        <>
+                            <h3 className="mt-5 flex items-center gap-1.5 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                                <History className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
+                                {t("Evidence, newest first")}
+                            </h3>
+                            {trail.rows.length === 0 ? (
+                                <p className="py-6 text-sm text-slate-500 dark:text-slate-400">{t("Nothing answered on this topic yet.")}</p>
+                            ) : (
+                                <ul className="divide-y divide-slate-200 dark:divide-slate-700">
+                                    {trail.rows.map(row => <EvidenceRowItem key={row.id} row={row} deck={trail.projectKind === 'deck'} onOpen={setReviewing} />)}
+                                </ul>
+                            )}
+                        </>
                     )}
                     {held > trail.rows.length && (
                         <p className="pt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -393,17 +452,27 @@ export default function TopicEvidence({ nodeId, refreshKey }: { nodeId: number; 
 
     if (!trail || trail.nodeId !== nodeId) return null;
     const held = trail.count;
+    // Absent from a server older than this client (a phone on the hosted copy).
+    const shakyCount = trail.shakyCount ?? 0;
     return (
         <div className="space-y-2 rounded-lg border border-slate-200/60 bg-slate-50 p-3 dark:border-slate-700/60 dark:bg-slate-900/40">
             <EstimateSummary trail={trail} />
-            {held > 0 && (
+            {shakyCount > 0 && (
+                // The list is in the dialog; the card only says it is there.
+                <p className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    <Repeat className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {t("Still shaky: {{count}} question you keep missing", { count: shakyCount })}
+                </p>
+            )}
+            {(held > 0 || shakyCount > 0) && (
                 <Button
                     variant="neutral"
                     size="sm"
                     onClick={() => setOpen(true)}
                     icon={<History className="h-4 w-4" aria-hidden="true" />}
                 >
-                    {t("See the evidence ({{n}})", { n: held })}
+                    {/* No evidence rows, only misses (see the dialog): no "(0)". */}
+                    {held > 0 ? t("See the evidence ({{n}})", { n: held }) : t("See what you keep missing")}
                 </Button>
             )}
             {open && (

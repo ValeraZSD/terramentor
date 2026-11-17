@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { usePortalAccent } from '../hooks/usePortalAccent';
+import { focusIsLost } from '../utils/a11y';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { api } from '../api';
@@ -24,6 +25,7 @@ import { RatingButton } from './flashcards/RatingButton';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { cardRef } from '../utils/itemReports';
 import { useItemReports, useReportOn } from '../utils/itemReportStore';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
@@ -35,11 +37,10 @@ interface EnrichedFlashcard extends Flashcard {
     node_title?: string;
     categoryTitle?: string;
     categoryId?: number | null;
-    // Present only in the cross-project session (GET /api/flashcards/due).
+    // Present only in the cross-project session (GET /api/flashcards/due); project_id also gives the language its text is read in.
+    project_id?: number;
     project_name?: string;
     project_color?: string;
-    /** The card's course, for the language its text is read in. */
-    project_id?: number;
 }
 
 interface Props {
@@ -272,6 +273,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     };
 
     const currentCard = cards[queue.index];
+    // Each card on its own course's target: a mixed session holds several.
+    const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
     // A card reported as wrong is out of the session: a model-written one is
     // gone, the learner's own is set aside until they edit it. It is not rated
@@ -284,14 +287,15 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     // Focus follows the session for a keyboard: the flip takes away the Reveal
     // button that held it, so it moves to the ratings; a rating brings the next
     // card's Reveal button. Only from where the session left it (the ratings,
-    // or nowhere), never out of a control the learner moved to.
+    // nowhere, or the session surface, which takes focus as it opens),
+    // never out of a control the learner moved to.
     const revealRef = useRef<HTMLButtonElement>(null);
     const cardTextRef = useRef<HTMLDivElement>(null);
     const readAloud = useStore(s => s.a11y.readAloud);
     const ratingsRef = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const active = document.activeElement;
-        const lost = !active || active === document.body;
+        const lost = focusIsLost(active);
         if (queue.flipped) { if (lost) ratingsRef.current?.focus(); }
         else if (lost || ratingsRef.current?.contains(active)) revealRef.current?.focus();
     }, [queue.flipped, currentCard?.id]);
@@ -304,7 +308,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             // Built inside the try: a card whose stored state the scheduler
             // cannot read throws here, and outside it the lock stayed on for
             // the rest of the session.
-            const { update, snapshot } = retryOrNew(unsent, currentCard, rating);
+            const { update, snapshot } = retryOrNew(unsent, currentCard, rating, retention);
             const saved = await api.updateFlashcard(currentCard.id, update);
             unsent.current = null;
             // Keep the local row in step with the server, or a second rating of
@@ -326,7 +330,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             writing.current = false;
             setSaving(false);
         }
-    }, [currentCard, queue, addToast, reportHolds]);
+    }, [currentCard, queue, addToast, reportHolds, retention]);
 
     /**
      * Take back the last rating — the one control that makes a mis-tap
@@ -894,7 +898,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 <RatingButton
                                     key={rating}
                                     rating={rating}
-                                    when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
+                                    when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
                                     onClick={() => confirmRate.press(rating, () => handleRate(rating))}
                                     armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                     disabled={!queue.flipped || saving}

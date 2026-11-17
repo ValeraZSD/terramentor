@@ -1438,6 +1438,16 @@ try {
 } catch (e) {
   console.error('[Migration] uuid identity migration failed (non-fatal):', e.message);
 }
+// A question is looked up by its uuid across quizzes (a copy answered in
+// another topic's practice quiz): the recall pick and the still-shaky list,
+// which every topic panel reads. Its own try, so a failure in the migration
+// above does not leave every panel read without it. Not idx_question_log_uuid:
+// that name is the sync migration's UNIQUE index on the row's own uuid.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_question_uuid ON question_log(question_uuid)');
+} catch (e) {
+  console.error('[Migration] question_log question_uuid index failed (non-fatal):', e.message);
+}
 
 // One-time orphan cleanup. Databases created before foreign-key enforcement
 // was enabled may contain rows whose parent was deleted without cascading
@@ -2246,12 +2256,70 @@ db.exec(`
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
+
+// Answers that are NOT evidence (server/lessonPrompts.js), each in a table of
+// its own for the same reason as `mastery_claims`: every reader of
+// `mastery_evidence` counts it as answers the learner was taught for.
+// `pre_questions`: a topic's round of questions asked BEFORE its first part,
+// one row per topic; `items` is `[{ ref, correct }]`, refs only, never text.
+// `explain_backs`: the learner's own account of a lesson part, the model's
+// verdict on it and who marked it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pre_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    asked INTEGER NOT NULL DEFAULT 0,
+    answered INTEGER NOT NULL DEFAULT 0,
+    correct INTEGER NOT NULL DEFAULT 0,
+    items TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pre_questions_node ON pre_questions(node_id);
+  CREATE TABLE IF NOT EXISTS explain_backs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    part_index INTEGER NOT NULL,
+    explanation TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    generated_by TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_explain_backs_node ON explain_backs(node_id);
+`);
 // A short course (server/shortCourses.js): where it was made from, as JSON
 // `{ kind: page|pdf|video|file|topic, url?, host?, file?, title?, minutes? }`;
 // NULL for every other course. Never the source's text, which is a document.
 addColumnIfMissing('projects', 'made_from', 'TEXT DEFAULT NULL');
 // The same, for a source Read staged before its course exists.
 addColumnIfMissing('staged_documents', 'origin', 'TEXT DEFAULT NULL');
+// A mock exam drawn from the course's own questions (server/mockExams.js) is a
+// question set in the past paper's tables, kept apart from any attempt at it:
+// `source` 'course' (a draw) or 'paper' (a past paper); `pass_right` the real
+// exam's pass line, set only when the draw copies an on-screen exam's length.
+// A drawn part keeps the question as it was asked (`item`, key included, never
+// sent before the mock is finished) and where it came from in the bank.
+addColumnIfMissing('exam_papers', 'source', "TEXT NOT NULL DEFAULT 'paper'");
+addColumnIfMissing('exam_papers', 'pass_right', 'INTEGER');
+addColumnIfMissing('exam_paper_parts', 'item', 'TEXT');
+addColumnIfMissing('exam_paper_parts', 'quiz_id', 'INTEGER');
+addColumnIfMissing('exam_paper_parts', 'question_index', 'INTEGER');
+// An on-screen answer: what was answered, what it was when time ran out (the
+// result is the in-time one), and "come back to this".
+addColumnIfMissing('mock_part_scores', 'answer', 'TEXT');
+addColumnIfMissing('mock_part_scores', 'in_time_answer', 'TEXT');
+addColumnIfMissing('mock_part_scores', 'in_time_points', 'REAL');
+addColumnIfMissing('mock_part_scores', 'later', 'INTEGER NOT NULL DEFAULT 0');
+// The real exam, described once per course: taken on screen (1) or on paper
+// (0), NULL when not described; for an on-screen exam its length, minutes and
+// the right answers it takes to pass. The date stays the course's deadline.
+addColumnIfMissing('projects', 'exam_on_screen', 'INTEGER');
+addColumnIfMissing('projects', 'exam_questions', 'INTEGER');
+addColumnIfMissing('projects', 'exam_minutes', 'INTEGER');
+addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;

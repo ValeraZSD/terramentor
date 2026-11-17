@@ -300,7 +300,7 @@ export default function StudyDashboard() {
                 <ToolRow
                     icon={Timer}
                     title={tr("Mock exam")}
-                    hint={tr("Write a past paper with the exam clock, then mark it against the worked solution")}
+                    hint={tr("Answer a draw of this course's questions on screen, or write a past paper with the exam clock")}
                     onClick={() => setWorkspaceView('exam')}
                 />
                 <ToolRow

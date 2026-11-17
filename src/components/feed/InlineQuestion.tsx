@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useArrivalFocus } from '../../hooks/useArrivalFocus';
 import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
-import { formatOf, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
+import SpellingNote from '../answer/SpellingNote';
+import { formatOf, answerHint, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
+import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
 import { QuizQuestion } from '../../types';
@@ -50,6 +53,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     const [checking, setChecking] = useState(false);
     const result = graded;
     const format = formatOf(question);
+    const hint = answerHint(question, useStore(s => s.forgiveSpelling));
 
     const grade = async (answer: string) => {
         if (!answer.trim() || result || checking) return;
@@ -69,15 +73,12 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
 
     // The verdict is said once, and focus that was on the Check button (gone
     // with the verdict) lands on the verdict instead of the top of the page.
-    const verdictRef = useRef<HTMLDivElement>(null);
-    const verdict = result && !reportedNote
-        ? (result.correct ? t("Correct") : result.unsure ? t("Not marked") : t("Not quite"))
-        : '';
-    useEffect(() => {
-        if (!verdict) return;
-        const active = document.activeElement;
-        if (!active || active === document.body) verdictRef.current?.focus({ preventScroll: true });
-    }, [verdict]);
+    // Only a verdict given while the card is on screen: one it mounts with
+    // (a reload, a card scrolled back) neither speaks nor takes focus.
+    const shown = result && !reportedNote ? (result.correct ? 'correct' : result.unsure ? 'unsure' : 'wrong') : '';
+    const { ref: verdictRef, arrived } = useArrivalFocus<HTMLDivElement>(shown);
+    const verdict = !arrived ? ''
+        : shown === 'correct' ? t("Correct") : shown === 'unsure' ? t("Not marked") : shown === 'wrong' ? t("Not quite") : '';
 
     return (
         // One item: the flag at the stem and the line under a wrong verdict
@@ -113,7 +114,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                 {!format.commitsOnSelect && !result && !reportedNote && (
                     <div className="flex items-center justify-between gap-3 mt-2">
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {format.hint ? t(format.hint) : ''}
+                            {hint ? t(hint) : ''}
                         </p>
                         <Button variant="primary" size="md" busy={checking} disabled={!submittable} onClick={submit} className="shrink-0">
                             {t("Check answer")}
@@ -147,6 +148,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                                 <AnswerKey question={question} />
                             </div>
                         )}
+                        {result.correct && <SpellingNote question={question} answer={result.answer} className="mt-1.5" />}
                         {result.explanation && (
                             <p className="text-sm leading-6 text-slate-600 dark:text-slate-400 mt-1.5">
                                 <MathText content={result.explanation} />

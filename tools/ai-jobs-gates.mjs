@@ -476,6 +476,23 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
 }
 
+section('a saved list keeps each place\'s identity');
+{
+    const uuids = () => db.prepare(`SELECT position, uuid, model FROM ai_job_routes WHERE job = 'checks' ORDER BY position`).all();
+    jobs.setJobRoute('checks', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    const first = uuids();
+    check('every place has a uuid', first.length === 2 && first.every(r => typeof r.uuid === 'string' && r.uuid.length > 0), JSON.stringify(first));
+    jobs.setJobRoute('checks', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    const again = uuids();
+    check('saving the same list again keeps every uuid', again.map(r => r.uuid).join() === first.map(r => r.uuid).join(), JSON.stringify(again));
+    jobs.setJobRoute('checks', [{ connectionId: idB, model: 'model-b2', effort: '' }]);
+    const shorter = uuids();
+    check('a shorter list rewrites place 1 in place and drops place 2',
+        shorter.length === 1 && shorter[0].uuid === first[0].uuid && shorter[0].model === 'model-b2', JSON.stringify(shorter));
+    check('...and the job reads the new list', JSON.stringify(jobs.getJobRoutes().checks) === JSON.stringify([{ connectionId: idB, model: 'model-b2', effort: '' }]));
+    jobs.setJobRoute('checks', []);
+}
+
 section('the lists keep themselves honest');
 {
     let refused = 0;
