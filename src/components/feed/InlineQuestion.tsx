@@ -5,7 +5,8 @@ import MathText from '../MathText';
 import AnswerInput from '../answer/AnswerInput';
 import AnswerKey from '../answer/AnswerKey';
 import SpellingNote from '../answer/SpellingNote';
-import { formatOf, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
+import { formatOf, answerHint, defaultAnswer, answerIsComplete, answerAsText } from '../answer/formats';
+import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { gradeAnswer, GradedAnswer } from '../../utils/grading';
 import { QuizQuestion } from '../../types';
@@ -51,6 +52,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
     const [checking, setChecking] = useState(false);
     const result = graded;
     const format = formatOf(question);
+    const hint = answerHint(question, useStore(s => s.forgiveSpelling));
 
     const grade = async (answer: string) => {
         if (!answer.trim() || result || checking) return;
@@ -101,7 +103,7 @@ export default function InlineQuestion({ question, graded = null, onGraded, node
                 {!format.commitsOnSelect && !result && !reportedNote && (
                     <div className="flex items-center justify-between gap-3 mt-2">
                         <p className="text-sm text-slate-500 dark:text-slate-400">
-                            {format.hint ? t(format.hint) : ''}
+                            {hint ? t(hint) : ''}
                         </p>
                         <Button variant="primary" size="md" busy={checking} disabled={!submittable} onClick={submit} className="shrink-0">
                             {t("Check answer")}

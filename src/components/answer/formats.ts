@@ -32,6 +32,8 @@ export interface FormatSpec {
     keyLabel: string;
     /** One line under an open input saying how it will be judged. */
     hint?: string;
+    /** The same line when `forgive_spelling` is on, for a format it changes. */
+    forgivingHint?: string;
     /** The label in a "question type" picker. */
     label: string;
     /** The learner's answer reads as a BLOCK (code, an ordering) rather than one line of text. */
@@ -68,6 +70,7 @@ export const ANSWER_FORMATS: Record<AnswerFormat, FormatSpec> = {
         // not after: they need to know that a missing capital will not cost
         // them the mark and a missing letter will.
         hint: k("Spelling counts; capitals and punctuation do not"),
+        forgivingHint: k("A small spelling slip is forgiven; capitals and punctuation do not count"),
         label: k("Type the answer"),
     },
     numeric: {
@@ -112,6 +115,15 @@ export const FORMAT_IDS = Object.keys(ANSWER_FORMATS) as AnswerFormat[];
 /** The spec for a question, falling back to multiple choice for a row written before a format existed. */
 export const formatOf = (question: Pick<QuizQuestion, 'type'>): FormatSpec =>
     ANSWER_FORMATS[question.type] ?? ANSWER_FORMATS.multiple_choice;
+
+/**
+ * The line under an open input, as the grader will actually judge it. A key,
+ * not text: the caller renders it through `t()`.
+ */
+export const answerHint = (question: Pick<QuizQuestion, 'type'>, forgiveSpelling: boolean): string | undefined => {
+    const { hint, forgivingHint } = formatOf(question);
+    return (forgiveSpelling && forgivingHint) || hint;
+};
 
 /**
  * What an UNTOUCHED input already answers. An ordering is an answer from the
