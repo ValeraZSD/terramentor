@@ -9,11 +9,14 @@
 #   hosted/copy.sh backup <name> | --all
 #       An online backup of each copy into $TM_BACKUP_DIR/<name>/<time>.tar.gz.
 #       Run nightly from cron (docs/HOSTING.md).
-#   hosted/copy.sh restore <name> <archive.tar.gz>
+#   hosted/copy.sh restore <name> <archive.tar.gz> [--no-backup]
 #       Reads the archive first and backs the copy up as it is (kept beside
-#       its other backups), then stops it, puts the backup in place
-#       of its library and starts it. A failed check restarts it on its own
-#       library; only a restore that failed partway leaves it stopped.
+#       its other backups; needs TM_BACKUP_DIR), then stops it, puts the backup
+#       in place of its library and starts it. A failed check restarts it on
+#       its own library; only a restore that failed partway leaves it stopped.
+#       No backup is taken of a library whose last restore never finished
+#       (it cannot be backed up, and this restore is the repair), nor with
+#       --no-backup, for a library too damaged to back up.
 #   hosted/copy.sh remove <name> [--yes]
 #       Backs the copy up first, then removes it, its volume and its network.
 #   hosted/copy.sh update <name> | --all
@@ -363,9 +366,9 @@ cmd_backup() {
 }
 
 cmd_restore() {
-    local name="${1:-}" archive="${2:-}"
+    local name="${1:-}" archive="${2:-}" keep="${3:-}"
     valid_name "$name"
-    [ -f "$archive" ] || die "usage: restore <name> <archive.tar.gz>"
+    [ -f "$archive" ] && { [ -z "$keep" ] || [ "$keep" = --no-backup ]; } || die "usage: restore <name> <archive.tar.gz> [--no-backup]"
     exists "$name" || die "no copy called $name (create it with new, then restore into it)"
     lock "$name"
     # Read before the copy stops: a file that is no backup leaves it running.
@@ -374,9 +377,19 @@ cmd_restore() {
     [ "$(grep -cE '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing")" = 1 ] || die "$archive is not one backup made by copy.sh; $name was not touched"
     # The library as it is now, kept before anything replaces it: a restore
     # from the wrong archive must be one more restore away from undone.
-    local before
-    before="$(backup_one "$name" keep-all)" && [ -s "$before" ] || die "the backup of $name before the restore failed; $name was not touched"
-    echo "its library before the restore: $before"
+    # Not taken when there is nothing worth keeping: a restore that never
+    # finished leaves a library hostedCli refuses to back up (and restoring is
+    # the repair), and --no-backup is for one SQLite cannot back up at all.
+    local before state=0
+    docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" node server/hostedCli.js restore-state >/dev/null 2>&1 || state=$?
+    if [ "$keep" = --no-backup ]; then
+        echo "no backup of $name's library before the restore (--no-backup)"
+    elif [ "$state" = 3 ]; then
+        echo "no backup of $name's library before the restore: its last restore never finished"
+    else
+        before="$(backup_one "$name" keep-all)" && [ -s "$before" ] || die "the backup of $name before the restore failed; $name was not touched (restore with --no-backup to go on without it)"
+        echo "its library before the restore: $before"
+    fi
     docker stop "$(container "$name")" >/dev/null
     # hostedCli marks the library before it starts replacing it and clears the
     # mark only when every part is in place, so even a killed restore leaves
@@ -429,5 +442,5 @@ case "${1:-}" in
     restore) shift; cmd_restore "$@" ;;
     remove) shift; cmd_remove "$@" ;;
     update) shift; cmd_update "$@" ;;
-    *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

@@ -479,7 +479,7 @@ jobs:
 
   # The image tags that MOVE, pointed at the image already pushed and
   # smoke-tested, once the release that names it is public: `latest` and the
-  # minor line for a stable release that is not an older line's hotfix,
+  # minor and major lines for a stable release that is not an older line's hotfix,
   # `nightly` for a nightly (releasePlan's movingTags). A retag copies the
   # multi-arch manifest by digest; nothing is rebuilt.
   image-tags:

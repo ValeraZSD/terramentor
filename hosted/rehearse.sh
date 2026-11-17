@@ -140,6 +140,16 @@ tar czf - -C "$WORK/bad" .backup-x > "$WORK/bad.tar.gz"
 if bash "$COPY" restore "$A" "$WORK/bad.tar.gz" 2>"$WORK/err"; then no "a broken backup was restored"; fi
 running_a && [ "$(login "$A" "$pwA" a4)" = 200 ] && c "$A" /api/projects -b "$WORK/a4.jar" | grep -q 'Rehearsal course' \
     && ok "a backup that fails its check leaves $A running on its own library: $(tail -1 "$WORK/err")" || no "broken restore left $A down or changed"
+# The copy cannot be backed up first (its backup folder would sit under a plain
+# file): the restore stops before it touches the copy, and --no-backup goes on.
+: > "$WORK/plain-file"
+if TM_BACKUP_DIR="$WORK/plain-file/x" bash "$COPY" restore "$A" "$archive" 2>"$WORK/err"; then no "a restore went on without the backup of what it replaces"; fi
+running_a && [ "$(status "$A" /api/auth/status)" = 200 ] && grep -q "was not touched" "$WORK/err" \
+    && ok "a restore whose backup fails leaves $A running: $(tail -1 "$WORK/err")" || no "a failed backup before the restore did not stop it: $(cat "$WORK/err")"
+kept_before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
+TM_BACKUP_DIR="$WORK/plain-file/x" bash "$COPY" restore "$A" "$archive" --no-backup >/dev/null
+[ "$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)" = "$kept_before" ] && [ "$(login "$A" "$pwA" a5)" = 200 ] \
+    && ok "--no-backup restores without taking one" || no "restore --no-backup"
 
 before="$(find "$TM_BACKUP_DIR/$A" -name '*.tar.gz' | wc -l)"
 bash "$COPY" backup "$A" >/dev/null & p1=$!
