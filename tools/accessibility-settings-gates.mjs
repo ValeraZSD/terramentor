@@ -143,6 +143,17 @@ section('6b. high contrast fills only the chosen segment and the armed rating');
     const loose = takeovers.flatMap(sel => sel.split(',').map(s => s.trim()))
         .filter(s => !/^button\[data-segment\]|^button\[data-rating\]\[data-armed\]|^\[role="switch"\]/.test(s));
     check('no colour takeover on a bare aria-pressed or radio', takeovers.length > 0 && loose.length === 0, loose.join(' | '));
+    // Tailwind's outline-none is a transparent outline 2px out; forced colours
+    // paint it, so at rest every control wore a second frame and neighbouring
+    // segments drew overlapping ones. Hidden at rest, before the state rules.
+    const rest = block.indexOf('.outline-none:where(:not(:focus-visible))');
+    check('at rest the focus outline is flush and thin, and off on segments',
+        rest !== -1 && /\.outline-none:where\(:not\(:focus-visible\)\) \{\s*outline-width: 1px;\s*outline-offset: 0;/.test(block)
+        && /button\[data-segment\]:where\(:not\(:focus-visible\)\) \{\s*outline-style: none;/.test(block)
+        && rest < block.indexOf('[aria-current="page"]'));
+    check('a segmented row gets one frame (track) or one per chip',
+        /\[data-segmented="track"\] \{\s*border: 1px solid ButtonText/.test(block) && /\[data-segmented="chips"\] > button\[data-segment\] \{\s*border: 1px solid ButtonText/.test(block)
+        && /data-segmented=\{track && !wrapped \? 'track' : 'chips'\}/.test(read('src/components/ui/SegmentedControl.tsx')));
     // `button` outweighs a hover:bg-* utility (0,2,0, later in the file).
     check('the fill outweighs a hover background', /button\[data-rating\]\[data-armed\] \{[^}]*background: Highlight/.test(block));
     check('a segment carries its marker', /role="radio"[\s\S]{0,80}data-segment\b/.test(read('src/components/ui/SegmentedControl.tsx')));

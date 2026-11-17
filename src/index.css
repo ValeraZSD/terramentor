@@ -430,6 +430,29 @@ html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
    marked only by a fill (the open section, the chosen segment, a switch that
    is on) vanishes. Each gets an outline in the system's highlight colour. */
 @media (forced-colors: active) {
+  /* Tailwind's `outline-none` is a TRANSPARENT 2px outline 2px out, which
+     forced colours paint solid: at rest a bordered control wore a second
+     frame beside its border, and two segments 2px apart drew overlapping
+     ones. At rest it is 1px and flush with the edge: a quiet button keeps
+     the only frame it has in this mode, a bordered one reads as one solid
+     edge. Keyboard focus keeps the full outline (the ring is a box-shadow,
+     which forced colours drop). Segments sit in their row's frame and wear
+     none. First in the block, so the state outlines below still win. */
+  .outline-none:where(:not(:focus-visible)) {
+    outline-width: 1px;
+    outline-offset: 0;
+  }
+  button[data-segment]:where(:not(:focus-visible)) {
+    outline-style: none;
+  }
+  /* The track's fill is dropped too, so a segmented row gets one frame
+     round it; wrapped into chips, each chip gets its own. */
+  [data-segmented="track"] {
+    border: 1px solid ButtonText;
+  }
+  [data-segmented="chips"] > button[data-segment] {
+    border: 1px solid ButtonText;
+  }
   [aria-current="page"],
   [aria-current="true"],
   [aria-pressed="true"],

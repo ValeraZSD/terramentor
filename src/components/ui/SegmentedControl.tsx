@@ -190,6 +190,8 @@ export function SegmentedControl<T extends string | number>({
         <div
             ref={ref}
             role="radiogroup"
+            // The High Contrast frame (index.css): one round a track, one per chip.
+            data-segmented={track && !wrapped ? 'track' : 'chips'}
             aria-label={label}
             aria-describedby={rowHint}
             aria-orientation={orientation}
