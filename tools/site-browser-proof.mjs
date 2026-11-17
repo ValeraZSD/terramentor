@@ -90,12 +90,14 @@ const go = async (url) => {
     if (!r.loaderId) await send('Page.reload', {});
     await done;
 };
-const quiet = async (ms = 1500) => {
-    // Until no request has started or ended for `ms`.
+const quiet = async (ms = 1500, maxMs = 15000) => {
+    // Until no request has started or ended for `ms`, or `maxMs` has passed: a
+    // page that polls (the course tree asks every 3 s) is never quiet for long.
     let last = Date.now();
+    const deadline = last + maxMs;
     const l = (m) => { if (m.method?.startsWith('Network.')) last = Date.now(); };
     listeners.add(l);
-    while (Date.now() - last < ms) await sleep(200);
+    while (Date.now() - last < ms && Date.now() < deadline) await sleep(200);
     listeners.delete(l);
 };
 await send('Page.enable');
@@ -116,7 +118,8 @@ listeners.add((m) => {
         const rec = recording;
         rec.jobs.push(send('Network.getResponseBody', { requestId: m.params.requestId })
             .then((b) => ({ ...rec.meta.get(m.params.requestId), body: b.base64Encoded ? Buffer.from(b.body, 'base64').toString('latin1') : b.body }))
-            .catch(() => ({ ...rec.meta.get(m.params.requestId), body: '' })));
+            // An answer whose body cannot be read cannot be searched, so it counts against the proof.
+            .catch((e) => ({ ...rec.meta.get(m.params.requestId), body: '', unread: e.message })));
     }
 });
 
@@ -228,6 +231,7 @@ try {
     const answers = await Promise.all(recording.jobs);
     recording = null;
     const leaked = answers.filter((a) => a.body.includes(MARKER));
+    const unread = answers.filter((a) => a.unread);
     const fromSW = answers.filter((a) => a.fromSW && new URL(a.url).pathname.startsWith('/api')).length;
 
     // Two more devices for person 2 (a phone and another computer), signed in
@@ -268,15 +272,15 @@ try {
     console.log(`proof devices: Settings listed ${listedBefore} signed-in devices; "Sign out of all other devices" ${pressed ? 'pressed' : 'NOT FOUND'}, then ${listedAfter} listed, this device still answers ${stillSignedIn}`);
     if (!(listedBefore === 3 && pressed && listedAfter === 1 && stillSignedIn === 200)) { failed++; console.log('  ^ FAILED'); }
 
-    const line = `d: nothing of person 1 served to person 2: ${leaked.length} of ${answers.length} answers to person 2 held person 1's course `
+    const line = `d: nothing of person 1 served to person 2: ${leaked.length} of ${answers.length} answers to person 2 held person 1's course, ${unread.length} could not be read `
         + `(${fromSW} API answers came from the service worker; person 2's project list ${p2projects.includes(MARKER) ? 'HAS' : 'lacks'} it; storage ${p2storage.includes(MARKER) ? 'HAS' : 'lacks'} it). `
         + `Person 1 before sign-out: own project list ${before.own ? 'holds' : 'LACKS'} the course, ${before.local} local keys, ${before.caches} caches, ${before.sw} service worker. `
         + `After sign-out (${after.path}): ${after.local} local and ${after.session} session keys, ${after.idb} IndexedDB, ${after.caches} caches (${after.apiInCache} API entries), ${after.sw} service workers; `
         + `back button showed ${back.path} with ${back.marker ? 'the course' : 'no trace of the course'}.`;
     console.log(`proof ${line}`);
-    const good = where1 === '/' && made >= 200 && made < 300 && before.own && leaked.length === 0 && !p2projects.includes(MARKER) && !p2storage.includes(MARKER)
+    const good = where1 === '/' && made >= 200 && made < 300 && before.own && leaked.length === 0 && unread.length === 0 && !p2projects.includes(MARKER) && !p2storage.includes(MARKER)
         && after.local === 0 && after.session === 0 && after.idb === 0 && after.apiInCache === 0 && after.caches === 0 && !back.marker && answers.length > 5;
-    if (!good) { failed++; console.log(`  ^ FAILED (landed ${where1}, create ${made}, ${answers.length} answers)`); for (const a of leaked) console.log(`  leaked: ${a.url}`); }
+    if (!good) { failed++; console.log(`  ^ FAILED (landed ${where1}, create ${made}, ${answers.length} answers)`); for (const a of leaked) console.log(`  leaked: ${a.url}`); for (const a of unread) console.log(`  unread: ${a.status} ${a.url} (${a.unread})`); }
 } catch (e) {
     console.error(e);
     failed++;
