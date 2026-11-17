@@ -377,6 +377,17 @@ export function defaultTolerance(written) {
 }
 
 /**
+ * The tolerance a question states, NaN when it states none. `Number(null)`,
+ * `Number('  ')` and `Number(false)` are all 0: a "none given" must read as
+ * missing, or it becomes an exact-match tolerance of 0.
+ */
+export function statedTolerance(raw) {
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string' && raw.trim() !== '') return Number(raw);
+    return NaN;
+}
+
+/**
  * A fence tag that is a VISUAL, not a language the learner could write. The
  * server's advertised visual kinds plus the aliases the markdown pipeline
  * accepts; kept as a literal set because the visual registry lives on the
@@ -784,9 +795,8 @@ export const ANSWER_FORMATS = {
             // order of magnitude) falls back to the key's own precision rather
             // than failing the question — an unanswerable card measures nothing,
             // and this one is still gradeable.
-            // `Number(null)` and `Number('')` are 0: a model's "none given" must
-            // read as missing, or it becomes an exact-match tolerance of 0.
-            const stated = raw.tolerance == null || raw.tolerance === '' ? NaN : Number(raw.tolerance);
+            // `statedTolerance` reads a model's "none given" as missing.
+            const stated = statedTolerance(raw.tolerance);
             const honest = Number.isFinite(stated) && stated >= 0
                 && (key === 0 || stated <= Math.abs(key) * 0.5);
             out.tolerance = honest ? stated : defaultTolerance(written);
@@ -797,7 +807,7 @@ export const ANSWER_FORMATS = {
             if (given === null) return false;
             const key = parseNumber(q.correct_answer);
             if (key === null) return false;
-            const stated = Number(q.tolerance);
+            const stated = statedTolerance(q.tolerance);
             const tol = Number.isFinite(stated) && stated >= 0 ? stated : defaultTolerance(q.correct_answer);
             // A hair of slack for binary floating point: 0.1 + 0.2 is not 0.3,
             // and a difference of exactly the tolerance must still pass.

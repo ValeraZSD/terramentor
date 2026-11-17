@@ -24,7 +24,7 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const B = new URL('../server/', import.meta.url).href;
 const {
-    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue, sameOption,
+    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue, sameOption, sameOptionCased,
 } = await import(B + 'questionOptions.js');
 const {
     hasComputation, questionDefects, questionWeaknesses, stripSelfCertifyingCloser,
@@ -400,7 +400,7 @@ check('greek agrees with itself', sameAnswer('Ελλάδα', 'Ελλάδα'), tr
 // Two options are one choice only when they say the same thing: a case change,
 // a different comparison operator or an arrow's other direction is a different
 // answer, and refusing the question for it throws away a good distractor set.
-console.log('\n--- sameOption: when two options are the same choice ---');
+console.log('\n--- sameOptionCased: when two options are the same choice ---');
 for (const [a, b, why] of [
     ['$\\Delta x$', '$\\delta x$', 'a capital and a small Greek letter'],
     ['5 MW', '5 mW', 'mega and milli'],
@@ -411,14 +411,32 @@ for (const [a, b, why] of [
     ['x = 2', 'y = 2', 'the same value for another variable'],
     ['$\\leftarrow$', '$\\rightarrow$', 'the two arrows'],
     ['$A \\rightleftharpoons B$', '$A \\rightarrow B$', 'reversible and one way'],
-]) check(`${a} and ${b} are different options (${why})`, sameOption(a, b), false);
+    ['MPa pressure', 'mPa pressure', 'mega and milli pascal, with a word after them'],
+    ['MHz signal', 'mHz signal', 'mega and milli hertz, with a word after them'],
+    ['$\\Delta \\theta$', '$\\delta \\theta$', 'two long words in a formula are still a formula'],
+]) check(`${a} and ${b} are different options (${why})`, sameOptionCased(a, b), false);
 for (const [a, b, why] of [
     ['$x = 1.5$', '$x = \\frac{3}{2}$', 'a decimal and its fraction under one label'],
     ['$x = 4$', '$ x=4 $', 'spacing'],
     ['\\left(2\\right)', '(2)', '\\left and \\right as sizing commands'],
     ['$1.0 \\times 10^{3}$', '1000', 'a power of ten'],
     ['Melt the butter', 'melt the butter', 'a sentence whose only difference is its capital'],
-]) check(`${a} and ${b} are one option (${why})`, sameOption(a, b), true);
+    ['$x = 2$', '$2$', 'a value and the same value under a label'],
+]) check(`${a} and ${b} are one option (${why})`, sameOptionCased(a, b), true);
+// A free-hand answer is compared with a stored one with case folded: a verifier
+// writing "boil" for "Boil" disagrees with nothing.
+for (const [a, b] of [['boil', 'Boil'], ['mercury', 'Mercury'], ['5 mW', '5 MW'], ['$X = 2$', '$x = 2$']]) {
+    check(`${a} and ${b} agree once case is folded`, sameOption(a, b), true);
+}
+check('folding case does not equate different words', sameOption('Boil', 'Cool'), false);
+check('folding case does not equate two values under different labels', sameOption('x = 2', 'y = 2'), false);
+{
+    // The key written with a stray capital still finds its option, so the
+    // key-shape checks do not switch themselves off.
+    const wordy = '$\\Delta x_{\\text{max}} + \\Delta y_{\\text{max}}$';
+    check('the key-shape check still finds a key that differs from its option only by case',
+        keyIsLengthOutlier([wordy, '$x$', '$y$', '$z$'], wordy.toLowerCase()), true);
+}
 check('a comparison is no label: i <= 5 reads as no value', optionValue('i <= 5'), null);
 check('a label still gives its value', optionValue('$x = \\frac{3}{2}$'), 1.5);
 {

@@ -261,7 +261,11 @@ check('a missing tolerance becomes the key\'s own precision',
     normalizeQuestionFormat({ ...rawNum, tolerance: undefined })?.tolerance === 0.05);
 check('a null or empty tolerance means none given, not an exact match of 0',
     normalizeQuestionFormat({ ...rawNum, tolerance: null })?.tolerance === 0.05
-    && normalizeQuestionFormat({ ...rawNum, tolerance: '' })?.tolerance === 0.05);
+    && normalizeQuestionFormat({ ...rawNum, tolerance: '' })?.tolerance === 0.05
+    && normalizeQuestionFormat({ ...rawNum, tolerance: '  ' })?.tolerance === 0.05
+    && normalizeQuestionFormat({ ...rawNum, tolerance: false })?.tolerance === 0.05);
+check('a stored null tolerance is graded by the key\'s precision, not as an exact match',
+    gradeLocally({ type: 'numeric', correct_answer: '19.6', tolerance: null }, '19.62') === true);
 check('a tolerance wider than half the answer is refused, not served',
     normalizeQuestionFormat({ ...rawNum, tolerance: 15 })?.tolerance === 0.05);
 check('a negative tolerance is refused too',

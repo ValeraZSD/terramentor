@@ -39,8 +39,14 @@ function reduceOption(option) {
         .replace(/[{}\s]/g, '');
 }
 
-// Two words of three letters or more: running text, not a symbol or a unit.
-const isSentence = (option) => /\p{L}{3,}\s+\p{L}{3,}/u.test(String(option ?? ''));
+// Running text, not a symbol, a unit or a formula: two words of three letters
+// or more, none of them mixed-case (`MPa`, `MeV`, `NASA`), and no `$` or `\`
+// (`$\Delta \theta$` is two long words and still a formula).
+function isSentence(option) {
+    const s = String(option ?? '');
+    if (/[$\\]/.test(s) || !/\p{L}{3,}\s+\p{L}{3,}/u.test(s)) return false;
+    return (s.match(/\p{L}+/gu) ?? []).every(word => !/\p{L}\p{Lu}/u.test(word));
+}
 
 // An assignment's `=`: not the tail of `<=`, `>=`, `!=` and not half of `==`.
 // Those are comparisons, and the text before them is part of what is compared.
@@ -80,23 +86,53 @@ export function optionValue(option) {
 }
 
 /**
- * True when two options are the same choice wearing different clothes.
+ * True when two answers are the same choice wearing different clothes, with
+ * case folded. For comparing a free-hand answer with a stored one (a verifier's
+ * order, a drill's echo, an assistant's check of a card), where "boil" and
+ * "Boil" are one answer.
  *
  * Two values are the same only under the same label: `x = 2` and `y = 2` are
  * different answers to "which variable is it?", and `i <= 5` is not `i == 5`.
- * Case is kept for symbols, units and formulas, and folded for a sentence, whose
- * capital letter is typography: "Melt the butter" and "melt the butter" are one
- * step, "5 MW" and "5 mW" are two powers.
+ * A value with no label is the same as the labelled one (`2` and `x = 2`), since
+ * nothing contradicts it.
  */
 export function sameOption(a, b) {
-    const ra = reduceOption(a);
-    const rb = reduceOption(b);
+    return sameChoice(a, b, true);
+}
+
+/**
+ * The same comparison for telling a question's own options apart. Case is kept
+ * for symbols, units and formulas, and folded for a sentence, whose capital
+ * letter is typography: "Melt the butter" and "melt the butter" are one step,
+ * "5 MW" and "5 mW" are two powers.
+ */
+export function sameOptionCased(a, b) {
+    return sameChoice(a, b, false);
+}
+
+function sameChoice(a, b, fold) {
+    let ra = reduceOption(a);
+    let rb = reduceOption(b);
+    if (fold) { ra = ra.toLowerCase(); rb = rb.toLowerCase(); }
     if (ra === rb) return true;
-    if (isSentence(a) && isSentence(b) && ra.toLowerCase() === rb.toLowerCase()) return true;
+    if (!fold && isSentence(a) && isSentence(b) && ra.toLowerCase() === rb.toLowerCase()) return true;
     const x = readOption(a);
     const y = readOption(b);
-    if (x.value === null || y.value === null || x.label !== y.label) return false;
+    if (x.value === null || y.value === null) return false;
+    const lx = fold ? x.label.toLowerCase() : x.label;
+    const ly = fold ? y.label.toLowerCase() : y.label;
+    if (lx && ly && lx !== ly) return false;
     return Math.abs(x.value - y.value) <= 1e-9 * Math.max(1, Math.abs(x.value), Math.abs(y.value));
+}
+
+/**
+ * Where the key sits among the options: the one written exactly like it, else
+ * the one that differs only by case (a stray capital in the key must not turn
+ * the key-shape checks off), else -1.
+ */
+function keyIndexOf(options, key) {
+    const exact = options.findIndex(o => sameOptionCased(o, key));
+    return exact !== -1 ? exact : options.findIndex(o => sameOption(o, key));
 }
 
 // Small numbers written as words. A stem says "fits exactly five
@@ -188,7 +224,7 @@ export function keyEchoesStem(stem, options, correctAnswer) {
         n => Math.abs(n - v) <= 1e-9 * Math.max(1, Math.abs(n), Math.abs(v)),
     ));
 
-    const keyIndex = opts.findIndex(o => sameOption(o, correctAnswer));
+    const keyIndex = keyIndexOf(opts, correctAnswer);
     if (keyIndex === -1) return false;
     if (!echoes(marks[keyIndex])) return false;
 
@@ -224,7 +260,7 @@ export function symmetricAboutStem(stem, options, correctAnswer) {
     const stated = [...stemNumbers(text)].filter(r => r > 0);
     if (!stated.length) return null;
     const opts = Array.isArray(options) ? options : [];
-    const keyIndex = opts.findIndex(o => sameOption(o, correctAnswer));
+    const keyIndex = keyIndexOf(opts, correctAnswer);
     if (keyIndex === -1) return null;
     const keyNums = [...numbersIn(opts[keyIndex])];
     for (let i = 0; i < opts.length; i++) {
