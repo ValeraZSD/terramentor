@@ -152,18 +152,21 @@ export function jinaParse(data) {
 /** Brave's base plan is 1 request per second — a queue, not a hope. */
 const braveQueue = makeThrottledQueue(1100);
 
-/** Tasks run one at a time, each starting at least `spacingMs` after the one
- *  before it STARTED: the first goes at once, and a task that itself took a
- *  while does not wait a second time. */
-export function makeThrottledQueue(spacingMs) {
+/** Tasks run one at a time, each starting `spacingMs` after the one before it
+ *  FINISHED, so the gap the far end sees is never shorter than the spacing,
+ *  whatever the connection setup cost. Nothing precedes the first, which goes
+ *  at once. `now` and `sleep` are for a gate to drive with a fake clock. */
+export function makeThrottledQueue(spacingMs, {
+    now = () => performance.now(),
+    sleep = (ms) => new Promise(r => setTimeout(r, ms)),
+} = {}) {
     let chain = Promise.resolve();
-    let lastStart = -Infinity;
+    let lastEnd = -Infinity;
     return function enqueue(task) {
         const p = chain.then(async () => {
-            const wait = lastStart + spacingMs - performance.now();
-            if (wait > 0) await new Promise(r => setTimeout(r, wait));
-            lastStart = performance.now();
-            return task();
+            const wait = lastEnd + spacingMs - now();
+            if (wait > 0) await sleep(wait);
+            try { return await task(); } finally { lastEnd = now(); }
         });
         chain = p.catch(() => { });
         return p;

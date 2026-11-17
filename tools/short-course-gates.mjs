@@ -448,6 +448,11 @@ section('3b. a code block keeps its comments, a page is read in its own charset,
     ok('an unknown charset label reads as UTF-8 and the page still comes back', bogus.ok && bogus.text.includes(RU), bogus.text || bogus.reason);
     const plainUtf8 = await readWith(served(Buffer.from(withMeta(''), 'utf8'), 'text/html'));
     ok('a page that names no charset is UTF-8', plainUtf8.ok && plainUtf8.text.includes(RU), plainUtf8.text || plainUtf8.reason);
+    // A <meta> inside a comment, or a data-charset attribute, names nothing.
+    const commented = await readWith(served(Buffer.from(withMeta('<!-- <meta charset="windows-1251"> --><meta charset="utf-8">'), 'utf8'), 'text/html'));
+    ok('a <meta charset> inside an HTML comment is not the page\'s charset', commented.ok && commented.text.includes(RU), commented.text || commented.reason);
+    const dataAttr = await readWith(served(Buffer.from(withMeta('<meta data-charset="windows-1251" charset="utf-8">'), 'utf8'), 'text/html'));
+    ok('…nor is a data-charset attribute', dataAttr.ok && dataAttr.text.includes(RU), dataAttr.text || dataAttr.reason);
 
     // A certificate that fails fails the same way on every try.
     const tlsFail = (code) => async () => { throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('tls'), { code }) }); };
@@ -457,6 +462,12 @@ section('3b. a code block keeps its comments, a page is read in its own charset,
     }
     const reset = await readWith(tlsFail('ECONNRESET'));
     ok('a dropped connection is still "try again"', reset.ok === false && reset.reason === 'network' && reset.fix === 'retry', reset);
+    // "Save the page as a file" is no way on for a video, so a failed
+    // certificate there is not read as the site keeping the app out.
+    reader.setReaderFetchForTest(tlsFail('UNABLE_TO_VERIFY_LEAF_SIGNATURE'));
+    let video;
+    try { video = await read('https://www.youtube.com/watch?v=vidCertFail'); } finally { reader.setReaderFetchForTest(fakeFetch); }
+    ok('a failed certificate on a YouTube link is not called "blocked"', video.ok === false && video.kind === 'video' && video.reason !== 'blocked' && video.fix !== 'file', video);
 }
 
 // ---- 4. a PDF link ----------------------------------------------------------------------

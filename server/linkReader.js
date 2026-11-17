@@ -140,8 +140,10 @@ const fail = (link, reason, { kind = link.kind || 'page', title = '' } = {}) => 
 /** The caller's signal and the request's own deadline, whichever comes first. */
 const deadline = (signal) => (signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS));
 
-/** A thrown fetch as a reason the screen can say. */
-function thrownReason(err, signal) {
+/** A thrown fetch as a reason the screen can say. `page` is a web page read:
+ *  only there is "save it as a file" a way on, so only there a failed
+ *  certificate is `blocked` (a video read keeps `network`). */
+function thrownReason(err, signal, { page = false } = {}) {
     if (signal?.aborted) return 'cancelled';
     const msg = String(err?.message || '');
     if (err?.name === 'TimeoutError' || /timed? ?out|took longer/i.test(msg)) return 'timeout';
@@ -152,7 +154,7 @@ function thrownReason(err, signal) {
     // An expired or self-signed certificate, or a name the certificate does
     // not cover, fails the same way on every try: "try again" is wrong for it,
     // and the way on is the one for a site that will not let the app in.
-    if (/^(?:CERT_|ERR_TLS_|UNABLE_TO_|DEPTH_ZERO|SELF_SIGNED)/.test(String(err?.cause?.code || err?.code || ''))) return 'blocked';
+    if (page && /^(?:CERT_|ERR_TLS_|UNABLE_TO_|DEPTH_ZERO|SELF_SIGNED)/.test(String(err?.cause?.code || err?.code || ''))) return 'blocked';
     return 'network';
 }
 
@@ -232,7 +234,7 @@ async function readPage(link, { lang, signal }) {
             signal: deadline(signal),
         });
     } catch (err) {
-        return fail(link, thrownReason(err, signal));
+        return fail(link, thrownReason(err, signal, { page: true }));
     }
     if (!res.ok) {
         await res.body?.cancel?.().catch(() => {});
@@ -266,7 +268,7 @@ async function readPage(link, { lang, signal }) {
         }
         return fail(link, 'unsupported');
     } catch (err) {
-        return fail(link, thrownReason(err, signal));
+        return fail(link, thrownReason(err, signal, { page: true }));
     }
 }
 

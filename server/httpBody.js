@@ -85,8 +85,10 @@ export async function readCappedText(res, limit, { refuse = false, sniffCharset 
 export function decodeText(bytes, contentType = '') {
     let label = /charset\s*=\s*["']?\s*([^\s;"']+)/i.exec(contentType)?.[1];
     if (!label) {
-        const head = Buffer.from(bytes.subarray(0, 2048)).toString('latin1');
-        label = /<meta\b[^<>]*?\bcharset\s*=\s*["']?\s*([^\s"';/>]+)/i.exec(head)?.[1];
+        // Comments are skipped, as a browser skips them, and `data-charset` is
+        // not a charset.
+        const head = Buffer.from(bytes.subarray(0, 2048)).toString('latin1').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+        label = /<meta\s[^<>]*?(?<![-\w])charset\s*=\s*["']?\s*([^\s"';/>]+)/i.exec(head)?.[1];
         // A page in UTF-16 would not be readable here as ASCII markup: a meta
         // tag that says so is wrong, and browsers read such a page as UTF-8.
         if (/^utf-?16/i.test(label || '')) label = 'utf-8';

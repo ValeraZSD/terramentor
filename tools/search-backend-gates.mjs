@@ -180,21 +180,22 @@ console.log('\n--- Brave\'s one-a-second queue waits between requests, not befor
 {
     ok('the queue is exported for this gate', typeof makeThrottledQueue === 'function');
     if (typeof makeThrottledQueue === 'function') {
-        const SPACING = 300;
-        const queue = makeThrottledQueue(SPACING);
-        const t0 = performance.now();
+        // A fake clock: `sleep` moves it, and so does a task by its own length,
+        // so the instants below are exact and no timer is read.
+        const SPACING = 1000;
+        const clock = { t: 0 };
+        const slept = [];
+        const queue = makeThrottledQueue(SPACING, {
+            now: () => clock.t,
+            sleep: async (ms) => { slept.push(ms); clock.t += ms; },
+        });
         const started = [];
-        const done = await Promise.all([1, 2, 3].map(i => queue(async () => { started.push(performance.now() - t0); return i; })));
+        const lengths = [300, 30, 0];
+        const done = await Promise.all(lengths.map((ms, i) => queue(async () => { started.push(clock.t); clock.t += ms; return i + 1; })));
         check('the tasks all run, in order', done.join(), '1,2,3');
-        ok('the first starts at once', started[0] < SPACING / 2, started.map(Math.round));
-        ok('each later one starts a full spacing after the one before it started', started[1] - started[0] >= SPACING - 20 && started[2] - started[1] >= SPACING - 20, started.map(Math.round));
-        ok('…and not a second spacing later than that', started[2] - started[0] < 2 * SPACING + SPACING / 2, started.map(Math.round));
-        // A task that outlasts the spacing leaves nothing more to wait for.
-        const slow = makeThrottledQueue(SPACING);
-        const s0 = performance.now();
-        const startedSlow = [];
-        await Promise.all([0, 1].map(i => slow(async () => { startedSlow.push(performance.now() - s0); if (!i) await new Promise(r => setTimeout(r, SPACING + 100)); })));
-        ok('a task that took longer than the spacing is followed at once', startedSlow[1] - startedSlow[0] < SPACING + 100 + SPACING / 2, startedSlow.map(Math.round));
+        check('the first starts at once, with no wait before it', started[0], 0);
+        check('each later one starts a full spacing after the one before it ENDED, however long that took', started.join(), '0,1300,2330');
+        check('…and waits only the spacing, never a second one', slept.join(), '1000,1000');
         let failedFirst = null;
         const sturdy = makeThrottledQueue(10);
         const lost = sturdy(async () => { throw new Error('boom'); }).catch(e => { failedFirst = e.message; });
