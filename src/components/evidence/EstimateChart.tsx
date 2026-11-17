@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { EvidenceRow } from '../../types';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { MENU_SURFACE } from '../ui/Popover';
 
 /**
  * How sure the app was about one topic, answer by answer: one line over time,
@@ -73,15 +74,20 @@ export default function EstimateChart({ points, threshold, day, describe }: {
     const yOf = (v: number) => bottom - v * (bottom - top);
     const line = xy.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
-    const nearest = (clientX: number) => {
+    // The dot nearest the pointer on the plane, not only along x: answers on
+    // one day, or a row held back to its neighbour's time above, share an x.
+    // A tie goes to the newer dot.
+    const nearest = (clientX: number, clientY: number) => {
         const rect = box.current?.getBoundingClientRect();
         if (!rect || xy.length === 0) return null;
         const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        const d = (i: number) => (xy[i].x - x) ** 2 + (xy[i].y - y) ** 2;
         let best = 0;
-        for (let i = 1; i < xy.length; i++) if (Math.abs(xy[i].x - x) < Math.abs(xy[best].x - x)) best = i;
+        for (let i = 1; i < xy.length; i++) if (d(i) <= d(best)) best = i;
         return best;
     };
-    const onMove = (e: PointerEvent) => setActive(nearest(e.clientX));
+    const onMove = (e: PointerEvent) => setActive(nearest(e.clientX, e.clientY));
     const onKey = (e: KeyboardEvent) => {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
         e.preventDefault();
@@ -176,10 +182,11 @@ export default function EstimateChart({ points, threshold, day, describe }: {
                 {shown && at && (
                     <div
                         aria-hidden="true"
-                        className="pointer-events-none absolute z-10 w-max rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs shadow-md dark:border-slate-600 dark:bg-slate-900"
+                        // The app's one floating surface (menus, the hover card).
+                        className={`pointer-events-none absolute z-10 w-max px-2.5 py-1.5 text-xs ${MENU_SURFACE}`}
                         style={{ top: tipTop, bottom: tipBottom, left: tipLeft, right: tipRight, maxWidth: tipMax }}
                     >
-                        <p className="text-slate-500 dark:text-slate-400">{day(shown.row.at)} · {describe(shown.row)}</p>
+                        <p className="text-slate-500 dark:text-slate-300">{day(shown.row.at)} · {describe(shown.row)}</p>
                         <p className="font-medium tabular-nums text-slate-900 dark:text-white">
                             {t("After this the app was {{pct}}% sure", { pct: pct(shown.value) })}
                         </p>
