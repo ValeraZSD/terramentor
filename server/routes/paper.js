@@ -22,8 +22,19 @@ const app = routeTable('paper');
 const PAPER_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 const paperUpload = multer({
     storage: multer.memoryStorage(),
+    defParamCharset: 'utf8',
     limits: { fileSize: PAPER_IMAGE_MAX_BYTES, files: 1 },
 });
+// A photo over the cap is the learner's to hear about in a sentence: left to
+// the app's error handler it is a 500 with a reference, and a retry fails the same way.
+const handlePaperImage = (req, res, next) =>
+    paperUpload.single('image')(req, res, (err) => {
+        if (!err) return next();
+        if (err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({ error: `That photo is larger than ${PAPER_IMAGE_MAX_BYTES / 1024 / 1024} MB. Take it again, a little further back.` });
+        }
+        return res.status(400).json({ error: clientError(err, 400) });
+    });
 
 /** Load a practice feed_item and its authored exercise, or null. */
 function loadPracticeItem(feedItemId) {
@@ -108,7 +119,7 @@ app.get('/api/paper/:feedItemId/solution', (req, res) => {
 });
 
 // Submit a photographed attempt for marking.
-app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), paperUpload.single('image'), async (req, res) => {
+app.post('/api/paper/:feedItemId/grade', rejectOversizedBody(12 * 1024 * 1024), handlePaperImage, async (req, res) => {
     try {
         const feedItemId = parseInt(req.params.feedItemId, 10);
         const item = loadPracticeItem(feedItemId);

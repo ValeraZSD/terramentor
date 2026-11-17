@@ -154,6 +154,10 @@ const refusals = [
     ['ro', 'Îmi pare rău, nu pot vedea imaginea pe care ați trimis-o acum.'],
     ['uk', 'Вибачте, я не можу побачити зображення, яке ви надіслали.'],
     ['ru', 'Извините, я не могу увидеть изображение, которое вы отправили.'],
+    // Naming the image is what makes the verb a refusal.
+    ['en', "I don't see any image attached to your message."],
+    ['uk', 'Я не бачу вашого зображення, надішліть його ще раз.'],
+    ['ru', 'Я не вижу вашего изображения, отправьте его ещё раз.'],
 ];
 for (const [code, text] of refusals) check(`${code}: refusal caught`, isUnreadable(text), true);
 
@@ -165,6 +169,14 @@ const realWork = [
     ['de', 'Schritt 1: Ich kann das Snelliussche Gesetz anwenden und erhalte 19,5°.'],
     ['ro', 'Pasul 1: pot vedea că unghiul de incidență este 30°, deci rezultă 19,5°.'],
     ['it', "Passo 1: posso vedere che l'angolo è di 30°, quindi ottengo 19,5°."],
+    // A worked answer can open with the same words a refusal does: the verb
+    // alone, with no image named, is the learner's own sentence.
+    ['ru', 'Я не могу сократить дробь сразу, поэтому раскладываю на множители и получаю 3/4.'],
+    ['ru', 'Я не вижу, как слагаемые сокращаются, поэтому раскрываю скобки и получаю x = 3.'],
+    ['uk', 'Я не можу скоротити дріб одразу, тому розкладаю на множники і отримую 3/4.'],
+    ['uk', 'Я не бачу, як доданки скорочуються, тому розкриваю дужки і отримую x = 3.'],
+    ['en', "I don't see why the terms cancel here, so I expand first and get x = 3."],
+    ['en', 'I cannot read the answer off the graph exactly, so I estimate it as 2.4.'],
 ];
 for (const [code, text] of realWork) check(`${code}: real working kept`, isUnreadable(text), false);
 check('BLANK PAGE still caught', isUnreadable('BLANK PAGE'), true);
