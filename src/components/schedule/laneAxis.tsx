@@ -176,7 +176,7 @@ export function AxisHeader({ geom, today, label }: { geom: FittedAxis; today: st
                         key={i}
                         className={`absolute bottom-0.5 whitespace-nowrap text-3xs leading-none ${t.major
                             ? 'font-semibold text-slate-600 dark:text-slate-300'
-                            : 'text-slate-400 dark:text-slate-500'}`}
+                            : 'text-slate-500 dark:text-slate-400'}`}
                         style={t.pct > 92
                             ? { right: `${100 - t.pct}%`, paddingRight: 2 }
                             : { left: `${t.pct}%`, paddingLeft: 3 }}

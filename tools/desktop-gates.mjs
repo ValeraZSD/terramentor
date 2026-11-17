@@ -13,11 +13,11 @@
  *   node tools/desktop-gates.mjs --base <sha>   (the macOS bundle's executable
  *                                               taken from that commit instead)
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -323,6 +323,35 @@ console.log('\n--- is that server ours? ---');
     writeFileSync(join(kd, INSTANCE_KEY_FILE), '');
     const k2 = loadInstanceKey(kd);
     ok('a file cut off empty is replaced with a working key', Buffer.isBuffer(k2) && k2.length === 32 && readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k2));
+    ok('…which every later call returns', loadInstanceKey(kd)?.equals(k2) && loadInstanceKey(kd)?.equals(k2));
+    ok('…and leaves no temporary file beside it', readdirSync(kd).every((f) => !f.endsWith('.tmp')), readdirSync(kd).join(', '));
+    // The key file must never be visible empty: a second process that reads it
+    // in that gap takes it for a leftover and writes a different key over it.
+    // So the real name is only ever given to a file that is already whole (a
+    // `link` or a `rename`), never opened for writing in place.
+    const keySrc = readFileSync(join(repoRoot, 'server', 'instanceKey.js'), 'utf8');
+    // Every call that opens or writes a file in there targets the temporary name;
+    // only `linkSync` and `renameSync` ever give a file the real one.
+    const writers = [...keySrc.matchAll(/\b(?:openSync|writeFileSync|appendFileSync|createWriteStream)\(\s*([^,)\s]+)/g)].map((m) => m[1]);
+    ok('the key file is published whole, never opened for writing under its own name',
+        /linkSync\(/.test(keySrc) && writers.length > 0 && writers.every((target) => target === 'tmp'), writers.join(', '));
+    // Several processes starting on one new library at once all end with the one key.
+    const raceDir = mkdtempSync(join(tmpdir(), 'desktop-key-race-'));
+    const keyUrl = pathToFileURL(join(repoRoot, 'server', 'instanceKey.js')).href;
+    const asker = () => new Promise((done) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e',
+            `import { loadInstanceKey } from ${JSON.stringify(keyUrl)}; process.stdout.write(loadInstanceKey(${JSON.stringify(raceDir)})?.toString('hex') ?? 'none');`],
+            { stdio: ['ignore', 'pipe', 'ignore'] });
+        let out = '';
+        child.stdout.on('data', (c) => { out += c; });
+        child.on('close', () => done(out));
+    });
+    const answers = await Promise.all(Array.from({ length: 8 }, asker));
+    ok('eight processes starting on one new library all get the same key',
+        answers.every((a) => /^[0-9a-f]{64}$/.test(a) && a === answers[0]) && readInstanceKeyFile(join(raceDir, INSTANCE_KEY_FILE))?.toString('hex') === answers[0],
+        answers.map((a) => a.slice(0, 6)).join(' '));
+    ok('…and no temporary file is left', readdirSync(raceDir).every((f) => !f.endsWith('.tmp')), readdirSync(raceDir).join(', '));
+    rmSync(raceDir, { recursive: true, force: true });
     // A first launch on a new library: the launcher reads the key before the
     // server has started, so before anything has made the data folder. The
     // packaged build's self-check starts on exactly such a folder, and a key

@@ -146,6 +146,22 @@ check('a parenthesised multiple is not evaluated', faulty(R`$L = 3(\lambda_3/2)$
 check('division by zero is skipped, not reported', faulty('x/0 = x'), false);
 check('ordinary prose is never touched', faulty('The next segment shows how to count the loops in a diagram.'), false);
 check('assignment in real code is not an equation', faulty('int total = 5 * 3;'), false);
+// Every Greek letter is its own quantity: they were once all read as one symbol,
+// so a correct relation between two of them looked like a wrong sum.
+check('theta = 2 phi (inscribed angle) is a relation, not a sum', faulty(R`$\theta = 2\phi$`), false);
+check('alpha + beta = gamma is not read as one symbol', faulty(R`$\alpha + \beta = \gamma$`), false);
+check('mu = sigma / 2 relates two quantities', faulty(R`$\mu = \sigma / 2$`), false);
+check('…and a wrong sum in one Greek letter is still caught', faulty(R`$\theta/3 + \theta/3 = \theta$`), true);
+check('a subscripted Greek letter keeps its own symbol: a wrong sum is caught', faulty(R`$\theta_1 + \theta_1 = \theta_1$`), true);
+check('…and two subscripted letters are two quantities', faulty(R`$\theta_1 = 2\theta_2$`), false);
+// An equation stated to be solved or supposed is not a claimed identity: only a
+// sum (two or more terms on a side) or a longer chain says "this adds up".
+check('"Suppose x = 2x" is a hypothesis', faulty('Suppose x = 2x. Then x = 0, so the only solution is zero.'), false);
+check('"solve 5x = 2x" is an equation to solve', faulty('To solve 5x = 2x we collect terms: 3x = 0.'), false);
+check('"Try T = 2T" is a trial', faulty(R`Try $T = 2T$ and see that it forces $T = 0$.`), false);
+// The same rule means a wrong single-term product ("3 * L/4 = L/2") is not
+// checked: a deliberate loss, pinned so that it is not a silent one.
+check('a single-term pair is deliberately not checked', faulty(R`$3 \cdot \lambda/4 = \lambda/2$`), false);
 
 // ---------------------------------------------------------------------------
 // 2. keyEchoesStem — the answer readable off the question

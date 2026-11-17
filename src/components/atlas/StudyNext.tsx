@@ -33,9 +33,9 @@ export default function StudyNext({ next, regions }: {
     if (!rows.length) return null;
     return (
         <section aria-labelledby={headingId} className="pb-1">
-            <h3 id={headingId} className="px-3 pt-3 pb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <h2 id={headingId} className="px-3 pt-3 pb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
                 {tr("Study next")}
-            </h3>
+            </h2>
             {/* `px-1` plus the row's own `px-2` puts the dots on the region
                 swatches' edge below. */}
             <ul className="px-1">

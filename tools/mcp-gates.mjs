@@ -1358,7 +1358,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     // Red: a rating in the view is worth exactly what the same rating is worth
     // in the app — the same evidence row, the same estimate — and never more.
     // A twin topic is rated Easy through the app's own review route.
-    const { computeSrsUpdate } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    const { computeSrsUpdate, computeNextInterval, formatInterval } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
     // Pinned instants, never the clock: a new card's Easy is the same at any
     // instant after it is due, and the re-rating only needs a stamp the view's
     // own rating did not write.
@@ -1403,6 +1403,30 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         ok('after an Undo the app refused (rated again since), undoable names the next rating, never the one that is gone',
             kept.undone === false && kept.undoable !== behind && ratingOf(behindCard) === countBehind, JSON.stringify(kept));
     }
+
+    // Red: a rating in the view schedules at the course's own recall target,
+    // not the app's standard 90% (the card row it rates must name its course).
+    const { setRetention } = await import(B + 'decks.js');
+    const targetPid = Number(db.prepare("INSERT INTO projects (name, color) VALUES ('Recall target for the view gate', '#0369a1')").run().lastInsertRowid);
+    const targetTopic = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(targetPid, 'Damping').lastInsertRowid);
+    const targetCard = Number(db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(targetTopic, 'Damping fact?', 'DAMP-1').lastInsertRowid);
+    const storedTarget = setRetention(targetPid, 0.8);
+    const unrated = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(targetCard);
+    const targetSitting = sittingOf(await hostCall('review_cards', { project: String(targetPid) }));
+    const targetShown = data(await hostCall('review_next', { sitting: targetSitting })).card;
+    const targetRevealed = data(await hostCall('review_reveal', { sitting: targetSitting, presentationId: targetShown?.presentationId }));
+    await hostCall('review_rate', { sitting: targetSitting, presentationId: targetShown?.presentationId, rating: 'easy' });
+    const atTarget = db.prepare('SELECT last_interval, last_reviewed FROM flashcards WHERE id = ?').get(targetCard);
+    // At the instant the rating was written (its own stamp), never the clock.
+    const ratedAt = new Date(atTarget.last_reviewed);
+    const wanted = computeSrsUpdate(unrated, 'easy', ratedAt, 0.8).last_interval;
+    const standardInterval = computeSrsUpdate(unrated, 'easy', ratedAt).last_interval;
+    ok('a rating in the view schedules at the course\'s recall target, not the standard 90%', storedTarget === 0.8 && targetShown?.cardId === targetCard
+        && atTarget.last_interval === wanted && wanted !== standardInterval, `${JSON.stringify(atTarget)}; wanted ${wanted}, standard ${standardInterval}`);
+    // The hint on the Easy button is the interval the press writes.
+    const hintAt = (r) => formatInterval(computeNextInterval(unrated, 'easy', ratedAt, r).intervalDays);
+    ok('the revealed card\'s Easy hint is the course\'s target too, not the standard 90%',
+        targetRevealed?.intervals?.easy === hintAt(0.8) && hintAt(0.8) !== hintAt(0.9), `${targetRevealed?.intervals?.easy}; wanted ${hintAt(0.8)}, standard ${hintAt(0.9)}`);
 
     // The review as a learner takes it in the view: the first card Again (it
     // comes back), the second Easy, the first again Easy. Three ratings, two

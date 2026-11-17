@@ -68,6 +68,16 @@ export default {
         plugin(({ addVariant }) => {
             addVariant('can-hover', '@media (hover: hover) and (pointer: fine)');
             addVariant('touch', '@media (hover: none)');
+            // Motion follows Settings → Accessibility, not the media query
+            // alone: `data-motion` on <html> is the reader's choice already
+            // combined with the system's (src/utils/accessibility.ts), so a
+            // reader who turned motion off in the app gets none even when the
+            // system allows it, and the other way round. New names, because
+            // Tailwind's own `motion-safe`/`motion-reduce` cannot be redefined
+            // (its media-query versions win); tools/accessibility-settings-gates.mjs keeps
+            // those two out of src/.
+            addVariant('motion-on', 'html:not([data-motion="reduce"]) &');
+            addVariant('motion-off', 'html[data-motion="reduce"] &');
         }),
         // Safe-area insets: the status bar, the island, the home indicator and,
         // held sideways, the rounded corners of a phone. `index.html` asks for

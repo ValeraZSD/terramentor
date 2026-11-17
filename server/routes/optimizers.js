@@ -64,7 +64,7 @@ app.post('/api/srs/optimize', async (req, res) => {
     // server is single-threaded with a synchronous database — see
     // server/fsrsOptimizerWorker.js.
     let cancelled = false;
-    const worker = new Worker(new URL('./fsrsOptimizerWorker.js', import.meta.url), {
+    const worker = new Worker(new URL('../fsrsOptimizerWorker.js', import.meta.url), {
         workerData: { sequences, options: { steps: 200 } },
     });
     srsOptimizeRunning = worker;

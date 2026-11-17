@@ -33,6 +33,7 @@ import { sameOption } from './questionOptions.js';
 import { bankTitle } from './studyMaterial.js';
 import { reachReason } from './clientError.js';
 import { safeFetch } from './netSafety.js';
+import { decodeText } from './httpBody.js';
 import { sanitizeUrl } from './urlSafety.js';
 import { webSearchEnabled } from './webContext.js';
 
@@ -238,22 +239,25 @@ async function openPage(url, fetchImpl) {
             return { verdict: 'unchecked', reason: 'the site did not let the app open the page', detail: { url, status: res.status } };
         }
         let title = null;
-        if (/html/i.test(res.headers.get('content-type') || '')) {
+        const type = res.headers.get('content-type') || '';
+        if (/html/i.test(type)) {
             const reader = res.body?.getReader?.();
-            let html = '';
-            const decoder = new TextDecoder();
+            // Bytes first, text after: the page names its charset (in the
+            // header or a <meta>), and a windows-1251 title read as UTF-8 is
+            // a row of replacement characters.
+            const chunks = [];
             if (reader) {
                 let read = 0;
                 while (read < LINK_READ_BYTES) {
                     const { done, value } = await reader.read();
                     if (done) break;
                     read += value.byteLength;
-                    html += decoder.decode(value, { stream: true });
-                    if (/<\/title>/i.test(html)) break;
+                    chunks.push(value);
+                    if (/<\/title>/i.test(Buffer.concat(chunks).toString('latin1'))) break;
                 }
                 await reader.cancel().catch(() => {});
             }
-            title = pageTitle(html);
+            title = pageTitle(decodeText(Buffer.concat(chunks), type));
         } else {
             await res.body?.cancel?.().catch(() => {});
         }

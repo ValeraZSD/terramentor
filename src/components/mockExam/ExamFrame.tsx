@@ -6,6 +6,7 @@ import { Button, IconButton } from '../ui/Button';
 import { FOCUS_RING } from '../ui/vocabulary';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * The screen a mock exam is answered on. While it is mounted the app's own
@@ -163,7 +164,7 @@ export function QuestionStrip({ items, current, onGo }: {
 
     const page = (dir: -1 | 1) => {
         const el = scroller.current;
-        if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' });
+        if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: motionReduced() ? 'auto' : 'smooth' });
     };
 
     const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number) => {
