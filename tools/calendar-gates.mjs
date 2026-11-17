@@ -986,7 +986,11 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         // A button's own line box sat the number ~4px lower than the span it
         // replaced, and its ring touched the digits: a flex box with side padding.
         check('month: the day number keeps its place and its ring clears the digits',
-            /\binline-flex\b/.test(dayNumber('2026-11-10')?.className ?? '') && /\bpx-0\.5\b/.test(dayNumber('2026-11-10')?.firstElementChild?.className ?? ''),
+            /\binline-flex\b/.test(dayNumber('2026-11-10')?.className ?? '')
+            && /\bpx-0\.5\b/.test(dayNumber('2026-11-10')?.firstElementChild?.className ?? '')
+            && /group-focus-visible\/day:outline\b/.test(dayNumber('2026-11-10')?.firstElementChild?.className ?? '')
+            // The button itself carries no margin, so today's filled circle stays put.
+            && ![...curr().querySelectorAll('button[data-day-open]')].some(b => /(?:^|\s)-m[xl]-/.test(b.className)),
             dayNumber('2026-11-10')?.className);
         await click(dayNumber('2026-11-10'), 'a day number in the month');
         check('month: pressing the day number opens that day as a week',
