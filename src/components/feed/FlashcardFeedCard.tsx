@@ -195,7 +195,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                                 rating={rating}
                                 when={next.learning ? t("soon") : exact}
                                 onClick={() => confirmRate.press(rating, () => handleRate(rating))}
-                                armed={confirmRate.armed === rating}
+                                armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}
                                 title={next.learning
                                     ? t("{{label}} — comes back further down this feed (scheduled {{exact}})", { label: t(label), exact })

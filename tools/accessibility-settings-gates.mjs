@@ -115,17 +115,69 @@ check('a double click does not select and grade at once',
     && /Date\.now\(\) - chosenAt\.current < DOUBLE_PRESS_MS\) return/.test(read('src/components/answer/ChoiceInput.tsx')));
 // An armed rating is announced: the state change on the focused button is
 // what a screen reader reads, the changed second line alone is not.
-check('an armed rating says so to a screen reader', /aria-pressed=\{armed/.test(read('src/components/flashcards/RatingButton.tsx')));
+// It is a toggle from the start (false, not absent, while confirm is on):
+// absent -> "true" changes the role, which screen readers do not announce.
+check('an armed rating says so to a screen reader', /aria-pressed=\{armed\}/.test(read('src/components/flashcards/RatingButton.tsx')));
+for (const f of ['src/components/GlobalFlashcardReview.tsx', 'src/components/FlashcardView.tsx', 'src/components/feed/FlashcardFeedCard.tsx']) {
+    check(`${path.basename(f)} passes armed as a stable toggle while confirm is on`,
+        /armed=\{confirmRate\.confirm \? confirmRate\.armed === rating : undefined\}/.test(read(f)));
+}
+{
+    // The drill's "press again" line stays (invisible) through the verdict;
+    // removed, it took a grid row with it and the feedback jumped up.
+    const drill = read('src/components/drills/DrillPlayer.tsx');
+    check('the drill\'s confirm line stays mounted through the verdict',
+        /\{pick\.confirm && \(\s*<p data-confirm-line[^>]*feedback \? 'invisible'/.test(drill) && !/pick\.confirm && !feedback && \(/.test(drill));
+}
+
+section('6b. high contrast fills only the chosen segment and the armed rating');
+{
+    // Every forced-colors block, each up to its closing brace at column 0.
+    const block = css.split('@media (forced-colors: active)').slice(1)
+        .map(rest => rest.slice(0, rest.search(/\r?\n\}\r?\n/) + 3)).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Every rule that takes over the colours (forced-color-adjust: none)
+    // names its control by its own marker. A bare [aria-pressed] also hits a
+    // flipped flashcard, where the inherited none kept the white plate under
+    // HighlightText: white on white.
+    const takeovers = [...block.matchAll(/([^{}]+)\{[^}]*forced-color-adjust:\s*none[^}]*\}/g)].map(m => m[1].trim());
+    const loose = takeovers.flatMap(sel => sel.split(',').map(s => s.trim()))
+        .filter(s => !/^button\[data-segment\]|^button\[data-rating\]\[data-armed\]|^\[role="switch"\]/.test(s));
+    check('no colour takeover on a bare aria-pressed or radio', takeovers.length > 0 && loose.length === 0, loose.join(' | '));
+    // `button` outweighs a hover:bg-* utility (0,2,0, later in the file).
+    check('the fill outweighs a hover background', /button\[data-rating\]\[data-armed\] \{[^}]*background: Highlight/.test(block));
+    check('a segment carries its marker', /role="radio"[\s\S]{0,80}data-segment\b/.test(read('src/components/ui/SegmentedControl.tsx')));
+    check('a rating carries its markers', /data-rating\b/.test(read('src/components/flashcards/RatingButton.tsx')) && /data-armed=/.test(read('src/components/flashcards/RatingButton.tsx')));
+}
 
 section('7. read aloud and motion follow the reader, not the page around them');
 {
     const btn = read('src/components/ui/ReadAloudButton.tsx');
     // The course text's `lang` sits INSIDE the target; up from it is only <html lang>.
-    check('read aloud takes the language from inside the text first', /querySelector\('\[lang\]'\)/.test(btn));
+    check('read aloud takes the language from inside the text first',
+        /el\.matches\('\[lang\]'\) \? el : el\.querySelector\('\[lang\]'\) \?\? el\.closest\('\[lang\]'\)/.test(btn));
+    // After the voices wait the setting is read again: switched off meanwhile,
+    // the button is gone and nothing on screen could stop the voice.
+    const afterWait = code(btn).split('await voicesReady()')[1] ?? '';
+    check('read aloud switched off during the voices wait says nothing',
+        /if \(!mounted\.current \|\| !useStore\.getState\(\)\.a11y\.readAloud\) return;[\s\S]*speak\(/.test(afterWait));
+    const settings = code(read('src/components/settings/AccessibilitySettings.tsx'));
+    const testAfter = settings.split('await voicesReady()')[1] ?? '';
+    check('"Try it" starts nothing once the tab was left, and runs once at a time',
+        /if \(!shown\.current\) return;[\s\S]*speak\('settings-test'/.test(testAfter) && /if \(testing\.current\) return;/.test(settings));
     const scroll = read('src/utils/scrollWithin.ts');
-    check('a scroll asked to be smooth is instant under reduced motion', /motionReduced\(\)/.test(scroll) && /motionReduced\(\)/.test(read('src/hooks/useStickToBottom.ts')));
-    const css = read('src/index.css');
-    check('text spacing leaves formulas and drawings alone', /data-line-spacing="widest"\] body \*:not\(\.katex, \.katex \*, svg, svg \*\)/.test(css));
+    check('a scroll asked to be smooth is instant under reduced motion', /motionReduced\(\)/.test(code(scroll)) && /smooth && !motionReduced\(\)/.test(code(read('src/hooks/useStickToBottom.ts'))));
+    // No smooth scroll goes around the two helpers: a direct scrollTo /
+    // scrollBy / scrollIntoView asking for 'smooth' must ask motionReduced
+    // (or the reduced flag it read) in the same expression.
+    const bypass = SRC.filter(f => !f.endsWith('utils/scrollWithin.ts')).flatMap(f => {
+        const src = code(read(f));
+        return [...src.matchAll(/\.(?:scrollTo|scrollBy|scrollIntoView)\(\{[^}]*'smooth'[^}]*\}/g)]
+            .filter(m => !/motionReduced\(\)|\breduced\b/.test(m[0])).map(() => f);
+    });
+    check('no direct smooth scroll ignores reduced motion', bypass.length === 0, bypass.join(', '));
+    const spacing = [...css.matchAll(/^html\[data-(letter|word|line)-spacing="(wider|widest)"\] body \*(.*)\{/gm)];
+    const bare = spacing.filter(m => !m[3].startsWith(':not(.katex, .katex *, svg, svg *)')).map(m => `${m[1]} ${m[2]}`);
+    check(`text spacing leaves formulas and drawings alone (${spacing.length} rules)`, spacing.length === 6 && bare.length === 0, bare.join(', '));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

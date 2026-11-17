@@ -564,9 +564,11 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                             );
                         })}
                         {/* The same line the questions show, there for the whole
-                            mode so the options never move when it changes. */}
-                        {pick.confirm && !feedback && (
-                            <p className="col-span-full text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
+                            mode so the options never move when it changes. It
+                            stays (hidden) through the verdict, or the panel
+                            under the grid jumps up as it appears. */}
+                        {pick.confirm && (
+                            <p data-confirm-line className={`col-span-full text-xs text-slate-600 dark:text-slate-300 ${feedback ? 'invisible' : ''}`} aria-live="polite">
                                 {pick.armed !== null
                                     ? t("{{pointerVerb}} the same answer again to check it.", { pointerVerb })
                                     : t("{{pointerVerb}} an answer twice to check it.", { pointerVerb })}

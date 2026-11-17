@@ -63,7 +63,10 @@ export default function ReadAloudButton({ target, find, lang, size = 'sm', class
         const language = holder?.getAttribute('lang') || lang || document.documentElement.lang || 'en';
         pending.current = true;
         try { await voicesReady(); } finally { pending.current = false; }
-        if (!mounted.current) return;
+        // Read aloud may have been switched off during the wait (the
+        // assistant, or Settings in another window): the button is gone
+        // then, and nothing on screen could stop the voice.
+        if (!mounted.current || !useStore.getState().a11y.readAloud) return;
         const result = speak(id, text, language, rate);
         if (result === 'no-voice') {
             addToast('info', t("This computer has no {{language}} voice installed. Add one in your system's speech settings, then reload the app.", { language: languageName(language) }));

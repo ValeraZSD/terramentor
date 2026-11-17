@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, Play, RotateCcw } from 'lucide-react';
@@ -80,11 +80,15 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
     const voices = useVoiceLanguages(active && a11y.readAloud);
 
     // Stop a test sentence when the page is left: unmounted, or another
-    // Settings tab chosen (the tabs stay mounted, hidden).
+    // Settings tab chosen (the tabs stay mounted, hidden). `shown` is read
+    // after the voices wait, so a tab left during it starts nothing.
+    const shown = useRef(active);
+    const testing = useRef(false);
     useEffect(() => {
+        shown.current = active;
         const stopTest = () => { if (currentSpeaker() === 'settings-test') stopSpeaking(); };
         if (!active) stopTest();
-        return stopTest;
+        return () => { shown.current = false; stopTest(); };
     }, [active]);
 
     const followLabel = tr("System");
@@ -101,7 +105,10 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
     }));
 
     const testVoice = async () => {
-        await voicesReady();
+        if (testing.current) return;
+        testing.current = true;
+        try { await voicesReady(); } finally { testing.current = false; }
+        if (!shown.current) return;
         const result = speak('settings-test', tr("This is how fast cards and lessons will be read."), i18n.language, a11y.speechRate);
         if (result === 'no-voice') {
             const name = (() => {
@@ -226,6 +233,10 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                                         onChange={v => void setA11y('speechRate', v)}
                                         label={tr("Reading speed")}
                                         valueText={`${a11y.speechRate}%`}
+                                        // The row's hint lists the installed
+                                        // voices: true of the row, not a
+                                        // description of a speed slider.
+                                        aria-describedby={undefined}
                                         className="flex-1 min-w-[8rem]"
                                     />
                                     <Stepper

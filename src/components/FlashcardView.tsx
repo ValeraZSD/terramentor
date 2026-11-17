@@ -252,7 +252,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                                 rating={rating}
                                 when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
                                 onClick={() => confirmRate.press(rating, () => handleRate(rating))}
-                                armed={confirmRate.armed === rating}
+                                armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}
                                 className="flex-1"
                             />

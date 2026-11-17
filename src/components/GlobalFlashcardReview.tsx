@@ -892,7 +892,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                     rating={rating}
                                     when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
                                     onClick={() => confirmRate.press(rating, () => handleRate(rating))}
-                                    armed={confirmRate.armed === rating}
+                                    armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                     disabled={!queue.flipped || saving}
                                     tabIndex={queue.flipped ? 0 : -1}
                                     // The digit is a KEYCAP, not a rank — it
