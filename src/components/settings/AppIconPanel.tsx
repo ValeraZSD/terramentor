@@ -148,58 +148,54 @@ export function AppIconShape() {
             {/* Both cuts are one picture at tab size (the grid is sub-pixel
                 at 16px), so the choice is only about the big tile — which is
                 exactly the size the preview beside it is drawn at. */}
-            {/* ONE ROW with the corners where the card is wide enough: three
-                rows of icon controls under a palette made this target 36%
-                taller than the other two, and the switch's height jump read
-                as a different screen. On a phone the corners wrap under. */}
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-3">
-                    <IconPreview icon={icon} size={40} variant="tile" />
-                    <SegmentedControl
-                        label={tr("App icon")}
-                        value={icon.style}
-                        onChange={style => void setAppIcon({ style })}
-                        options={(Object.keys(STYLE_LABELS) as IconStyle[]).map(style => ({
-                            value: style,
-                            label: tr(STYLE_LABELS[style]),
-                        }))}
-                    />
-                </div>
+            {/* TWO ROWS, never one. Squeezed into one row, the corners' name
+                stood above a row whose other pieces were centred, and its
+                stepper and reset lined up with nothing else on the card. */}
+            <div className="mt-4 flex items-center gap-3">
+                <IconPreview icon={icon} size={40} variant="tile" />
+                <SegmentedControl
+                    label={tr("App icon")}
+                    value={icon.style}
+                    onChange={style => void setAppIcon({ style })}
+                    options={(Object.keys(STYLE_LABELS) as IconStyle[]).map(style => ({
+                        value: style,
+                        label: tr(STYLE_LABELS[style]),
+                    }))}
+                />
+            </div>
 
-                {/* ROUNDNESS — the same three-controls-over-one-number row as the
-                    interface size above: drag it, nudge it, or put it back. The
-                    word sits ABOVE the track: beside it, on a phone, it left the
-                    track about 120px for the whole range. */}
-                <div className="flex-1 min-w-[16rem]">
-                    <span className="block text-sm font-medium text-slate-900 dark:text-white mb-1">{tr("Corners")}</span>
-                    <div className="flex items-center gap-3">
-                        <Slider
-                            min={MIN_RADIUS}
-                            max={MAX_RADIUS}
-                            step={1}
-                            value={icon.radius}
-                            onChange={radius => void setAppIcon({ radius })}
-                            label={tr("Corners")}
-                            valueText={`${icon.radius}%`}
-                            className="flex-1 min-w-[8rem]"
-                        />
-                        <Stepper
-                            value={icon.radius}
-                            min={MIN_RADIUS}
-                            max={MAX_RADIUS}
-                            step={1}
-                            onChange={radius => void setAppIcon({ radius })}
-                            label={tr("Corners")}
-                            suffix="%"
-                        />
-                        <IconButton
-                            variant="neutral"
-                            onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
-                            disabled={isDefault}
-                            label={tr("Restore the default icon")}
-                            icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
-                        />
-                    </div>
+            {/* ROUNDNESS — built exactly as the interface size row above (name,
+                then track, stepper and reset across the full width), so its
+                stepper and reset stand under that row's. */}
+            <div className="mt-4">
+                <span className="block text-sm font-medium text-slate-900 dark:text-white mb-3">{tr("Corners")}</span>
+                <div className="flex flex-wrap items-center gap-3 w-full">
+                    <Slider
+                        min={MIN_RADIUS}
+                        max={MAX_RADIUS}
+                        step={1}
+                        value={icon.radius}
+                        onChange={radius => void setAppIcon({ radius })}
+                        label={tr("Corners")}
+                        valueText={`${icon.radius}%`}
+                        className="flex-1 min-w-[8rem]"
+                    />
+                    <Stepper
+                        value={icon.radius}
+                        min={MIN_RADIUS}
+                        max={MAX_RADIUS}
+                        step={1}
+                        onChange={radius => void setAppIcon({ radius })}
+                        label={tr("Corners")}
+                        suffix="%"
+                    />
+                    <IconButton
+                        variant="neutral"
+                        onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
+                        disabled={isDefault}
+                        label={tr("Restore the default icon")}
+                        icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                    />
                 </div>
             </div>
 
