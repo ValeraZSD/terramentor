@@ -3,14 +3,16 @@
  * Settings → AI & Models: what the panel keeps on screen after something
  * under it changes.
  *
- * The real AISettings is MOUNTED in jsdom; the api, the store and the
- * sections that draw their own requests are stubs, and the three pieces this
- * panel talks to (the connection list, the model picker, the serving-provider
- * list) are small stand-ins that expose what the panel hands them.
+ * The real AISettings is MOUNTED in jsdom, with the real serving-provider
+ * list inside it (opened and ticked the way a learner does); the api, the
+ * store and the sections that draw their own requests are stubs, and the two
+ * other pieces this panel talks to (the connection list, the model picker) are
+ * small stand-ins that expose what the panel hands them.
  *
  *   - The machines behind a router are listed per model. The list read for one
  *     model was kept when the model changed, and the providers ticked from it
- *     were saved as the order for the next one. A request that failed was kept
+ *     were saved as the order for the next one (a tick on the second model made
+ *     "3." of two ticks on the first). A request that failed was kept
  *     as "this endpoint publishes no list" and never asked again.
  *   - Removing the Ollama model in use left it chosen: the reconcile effect
  *     keeps a saved name that is not installed, so no "Choose a model" line
@@ -53,7 +55,7 @@ window.matchMedia = (q) => ({ matches: /pointer: fine/.test(q), media: q, addEve
 const settingsDir = path.join(ROOT, 'src', 'components', 'settings');
 const stubs = {
     'react-i18next': `export const useTranslation = () => ({ t: (k, o) => { let s = k; for (const [a, b] of Object.entries(o ?? {})) s = s.replace('{{' + a + '}}', b); return s; }, i18n: { language: 'en' } });`,
-    'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s;`,
+    'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
     'store': `const s = { addToast: () => {}, showConfirm: async () => true, aiConfigRev: 0 };
         export const useStore = (sel) => sel(s); useStore.getState = () => s; useStore.setState = () => {};`,
     'api': `export const api = new Proxy({}, { get: (_, name) => (...args) => globalThis.__api(name, args) });`,
@@ -70,11 +72,6 @@ const stubs = {
             return h('div', { id: 'picker', 'data-value': value },
                 h('button', { id: 'pick-b', onClick: () => onChange('model-b') }, 'pick b'),
                 ...(onDelete ? models.map(m => h('button', { key: m.name, className: 'del', 'data-model': m.name, onClick: () => onDelete(m.name) }, 'delete ' + m.name)) : []));
-        }`,
-    'serving': `import { createElement as h } from 'react';
-        export default function ServingEndpointsPicker({ servingEndpoints, endpointsLoading, loadServingEndpoints }) {
-            return h('div', { id: 'serving', 'data-loading': String(endpointsLoading), 'data-list': JSON.stringify(servingEndpoints) },
-                h('button', { id: 'ask', onClick: () => loadServingEndpoints() }, 'ask'));
         }`,
 };
 
@@ -102,7 +99,6 @@ try {
                 b.onResolve({ filter: /^(\.\.\/)+api$/ }, to('api'));
                 b.onResolve({ filter: /^\.\/connections\/ConnectionsPanel$/ }, to('connections'));
                 b.onResolve({ filter: /^\.\.\/ModelPicker$/ }, to('picker'));
-                b.onResolve({ filter: /^\.\/ServingEndpointsPicker$/ }, to('serving'));
                 b.onResolve({ filter: /^\.\/(VisualKindsPanel|ModelJobsSection|JobModelsSection|ThinkingSlider)$/ }, to('nothing'));
                 b.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => ({ contents: stubs[a.path], loader: 'js', resolveDir: ROOT }));
             },
@@ -151,9 +147,15 @@ globalThis.__api = async (name, args) => {
     return { success: true };
 };
 
-const serving = () => doc.getElementById('serving');
-const list = () => JSON.parse(serving()?.getAttribute('data-list') ?? '"absent"');
-const slugs = () => (list() ?? []).map((e) => e.slug).join(',');
+// The real list: a <details> that asks when it is opened, one tickbox per machine.
+const details = () => [...doc.querySelectorAll('details')].find((d) => d.querySelector('summary')?.textContent.includes('Where the model runs'));
+// jsdom does not fire the `toggle` event a browser fires when `open` changes.
+const setOpen = async (open) => { await act(async () => { details().open = open; details().dispatchEvent(new window.Event('toggle')); }); await flush(); };
+const slugs = () => [...doc.querySelectorAll('input[id^="serving-"]')].map((i) => i.id.slice('serving-'.length)).sort().join(',');
+const tick = async (slug) => { await click(doc.getElementById(`serving-${slug}`)); };
+const said = (text) => (details()?.textContent ?? '').includes(text);
+const NO_LIST = 'does not publish a list';
+const lastOrder = () => { const w = writes.filter(([k]) => k === 'ai_provider_order').at(-1); return w ? JSON.parse(w[1]) : null; };
 
 // ── the machines behind a router ──────────────────────────────────────────
 console.log('\nthe list of machines behind a router follows the model');
@@ -161,9 +163,11 @@ globalThis.__connection = { id: 3, kind: 'openrouter', baseUrl: 'https://openrou
 status = { available: true, provider: 'openai', model: 'model-a' };
 installed = [];
 await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
-ok('the list starts unasked', serving() && list() === null, serving()?.getAttribute('data-list'));
-endpointsFor = (m) => ({ available: true, endpoints: [{ slug: m === 'model-a' ? 'a1' : 'b1' }] });
-await click(doc.getElementById('ask'));
+const row = (slug) => ({ slug, name: slug, promptPrice: 0, completionPrice: 0, quantization: null, contextLength: null, uptime: null });
+const rowsFor = (...s) => ({ available: true, endpoints: s.map(row) });
+ok('the list is drawn closed, and nothing has been asked', !!details() && !details().open && endpointCalls.length === 0, `${endpointCalls.length} request(s)`);
+endpointsFor = (m) => rowsFor(m === 'model-a' ? 'a1' : 'b1');
+await setOpen(true);
 ok('opened, it is the saved model\'s list', slugs() === 'a1', slugs());
 ok('and the request names that model', endpointCalls.at(-1) === 'model-a', String(endpointCalls.at(-1)));
 await click(doc.getElementById('pick-b'));
@@ -174,23 +178,43 @@ ok('asked for the new model by name', endpointCalls.at(-1) === 'model-b', String
 await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
 let release;
 endpointsFor = (m) => (m === 'model-a'
-    ? new Promise((r) => { release = () => r({ available: true, endpoints: [{ slug: 'a-late' }] }); })
-    : { available: true, endpoints: [{ slug: 'b1' }] });
-await click(doc.getElementById('ask'));
+    ? new Promise((r) => { release = () => r(rowsFor('a-late')); })
+    : rowsFor('b1'));
+await setOpen(true);
 await click(doc.getElementById('pick-b'));
 await act(async () => { release?.(); });
 await flush();
 ok('a slow answer for the model before is dropped', slugs() === 'b1', slugs());
 
-// A request that failed is not an answer.
+// A request that failed is not an answer: the server answers a failed read with
+// an error (it is not "available:false"), and the list stays unasked.
 await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
-endpointsFor = () => { throw new Error('network down'); };
-await click(doc.getElementById('ask'));
-ok('a failed request leaves the list unasked, not "publishes no list"', list() === null, JSON.stringify(list()));
-ok('and no request is left marked as running', serving().getAttribute('data-loading') === 'false');
-endpointsFor = () => ({ available: true, endpoints: [{ slug: 'a1' }] });
-await click(doc.getElementById('ask'));
+endpointsFor = () => { throw new Error('The endpoint timed out'); };
+await setOpen(true);
+ok('a failed read does not say the endpoint publishes no list', !said(NO_LIST) && slugs() === '', said(NO_LIST) ? 'says it' : slugs());
+ok('and nothing is left showing as asking', !said('Asking the endpoint'));
+endpointsFor = () => rowsFor('a1');
+await setOpen(false);
+await setOpen(true);
 ok('opening it again asks again', slugs() === 'a1', slugs());
+
+// An endpoint that does answer "no list" is the one that gets the sentence.
+await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
+endpointsFor = () => ({ available: false, endpoints: [] });
+await setOpen(true);
+ok('an endpoint with no list is told so', said(NO_LIST));
+
+// The order is saved as one list but ticked on one model's machines.
+await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
+endpointsFor = (m) => (m === 'model-a' ? rowsFor('a1', 'a2') : rowsFor('b1'));
+writes.length = 0;
+await setOpen(true);
+await tick('a1'); await tick('a2');
+ok('ticked in order on the first model', JSON.stringify(lastOrder()) === '["a1","a2"]', JSON.stringify(lastOrder()));
+await click(doc.getElementById('pick-b'));
+await tick('b1');
+ok('a tick on the next model starts its own order, not "3." after the first model\'s', JSON.stringify(lastOrder()) === '["b1"]', JSON.stringify(lastOrder()));
+ok('and the count shown is that order\'s', /(^|\D)1 preferred providers/.test(details()?.querySelector('summary')?.textContent ?? ''), details()?.querySelector('summary')?.textContent);
 
 // ── removing the model in use ─────────────────────────────────────────────
 console.log('\nremoving the Ollama model in use clears the choice');

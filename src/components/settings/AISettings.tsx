@@ -249,10 +249,16 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
 
     // Ticking a provider APPENDS it, so the order on screen is the order the
     // request asks for and the learner built it by clicking in that order.
+    // The order is one saved list, but the machines on screen are this model's:
+    // a slug ticked for another model is not here to be seen or unticked, so
+    // the first change made on this model's list drops it, rather than counting
+    // it into "3." and the preferred-providers total.
     const toggleProvider = (slug: string) => {
-        const next = providerOrder.includes(slug)
-            ? providerOrder.filter(s => s !== slug)
-            : [...providerOrder, slug];
+        const offered = new Set((servingEndpoints ?? []).map(e => e.slug));
+        const here = offered.size ? providerOrder.filter(s => offered.has(s)) : providerOrder;
+        const next = here.includes(slug)
+            ? here.filter(s => s !== slug)
+            : [...here, slug];
         setProviderOrder(next);
         writeSetting('ai_provider_order', JSON.stringify(next)).catch(e => console.error('Saving ai_provider_order failed:', e));
     };

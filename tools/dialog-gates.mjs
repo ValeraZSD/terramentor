@@ -416,6 +416,24 @@ section('a connection saved in the Add dialog is reported however the dialog clo
     const doneBtn = [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === 'Done');
     await act(async () => { doneBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
     check('"Done" reports the connection once and closes', done.length === 1 && closed === 1, `${done.length} report(s), ${closed} close(s)`);
+
+    // While the test is out the dialog cannot be closed: the answer lands on
+    // the dialog that asked, so the connection it saves is reported, never lost
+    // to a dialog that is already gone. (Escape, the backdrop and the X all
+    // follow the same `closable`.)
+    mountAdd({ open: false });
+    let answer;
+    globalThis.__api.addConnection = () => new Promise((r) => { answer = r; });
+    mountAdd({ initialKind: 'ollama' });
+    await connect();
+    done.length = 0; closed = 0;
+    press('Escape');
+    check('Escape while "Test and connect" is out does not close the dialog', closed === 0 && !!doc.querySelector('[role="dialog"] form'), `${closed} close(s)`);
+    check('and the X is not offered', ![...doc.querySelectorAll('[role="dialog"] button')].some((b) => /close/i.test(b.getAttribute('aria-label') ?? '')));
+    await act(async () => { answer({ id: 8, activeId: 8, test: { ok: true, models: 0, listed: true } }); });
+    check('the answer lands on the open dialog: the model step', !!doc.querySelector('[role="dialog"] button[aria-haspopup="listbox"]') || [...doc.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === 'Done'));
+    press('Escape');
+    check('and closing it then reports the saved connection once', closed === 1 && done.length === 1 && done[0][0] === 8, `${closed} close(s), ${JSON.stringify(done)}`);
     mountAdd({ open: false });
     delete globalThis.__api;
 }

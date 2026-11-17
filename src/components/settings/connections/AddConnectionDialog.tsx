@@ -270,7 +270,9 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
 
     return (
         // The choice is two columns of lists; a form is one column of fields.
-        <Modal isOpen={open} onClose={dismiss} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'} footer={footer}>
+        // Not closable while a call is out: the answer of a test or a save lands
+        // on the dialog that asked, and one closed under it reports nothing.
+        <Modal isOpen={open} onClose={dismiss} closable={!busy} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'} footer={footer}>
             {step === 'pick' && (
                 <div className="space-y-4">
                     <p className="text-sm text-slate-600 dark:text-slate-300">
