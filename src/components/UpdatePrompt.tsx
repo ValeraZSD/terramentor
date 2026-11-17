@@ -45,8 +45,13 @@ export default function UpdatePrompt() {
     return (
         <div
             role="status"
-            className="fixed inset-x-0 bottom-0 z-[60] flex justify-center safe-px-3 pointer-events-none"
-            style={{ paddingBottom: 'calc(var(--safe-bottom) + 0.75rem)' }}
+            className="fixed inset-x-0 top-0 z-[60] flex justify-center safe-px-3 pointer-events-none"
+            // Top centre, just under the header (3.5rem, as in Layout). It is
+            // shown exactly when a reload is held back (a review session, an
+            // assistant answer, text typed and unsaved), and the bottom centre
+            // is where those screens keep the rating buttons, the composer and
+            // the task dock.
+            style={{ paddingTop: 'calc(3.5rem + var(--safe-top) + 0.5rem)' }}
         >
             <div className="pointer-events-auto flex items-center gap-3 max-w-md w-full sm:w-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg px-4 py-3">
                 <RefreshCw className="w-5 h-5 text-accent-fg shrink-0" aria-hidden="true" />

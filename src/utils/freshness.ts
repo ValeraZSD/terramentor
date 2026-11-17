@@ -57,15 +57,24 @@ export function holdReload(reason: string): () => void {
     return () => { holds.delete(token); };
 }
 
+/** The `<input type>` values a person types characters into. `.type` reads
+ *  "text" for an input with no type or one the browser does not know. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
 /** Is this a moment where reloading loses nothing? */
 export function canReloadNow(): boolean {
     if (holds.size > 0) return false;
-    // Anything typed into and not yet saved. `closest` rather than a tag test:
-    // the assistant's composer and the note editors are contenteditable.
+    // Anything typed into and not yet saved. Not just a tag test: the
+    // assistant's composer and the note editors are contenteditable, and an
+    // input only counts when it takes text. A ticked checkbox or a moved slider
+    // has a `value` too ("on", "100") but nothing typed to lose.
     const el = document.activeElement as HTMLElement | null;
     if (el) {
         const tag = el.tagName;
-        if (tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable) {
+        const typesText = tag === 'INPUT'
+            ? TEXT_INPUT_TYPES.has((el as HTMLInputElement).type)
+            : tag === 'TEXTAREA';
+        if (typesText || el.isContentEditable) {
             const value = (el as HTMLInputElement).value ?? el.textContent ?? '';
             if (value.trim().length > 0) return false;
         }
@@ -110,11 +119,16 @@ export function noteServerReconnected(): void {
 /**
  * Start watching. `stale` is called on the first mismatch; it is the caller's
  * job to decide between reloading and prompting (see `canReloadNow`).
+ *
+ * Watching starts once per page, but the handler is the NEWEST caller's: the
+ * prompt that owns it unmounts when the app locks and mounts again after the
+ * login, and a handler kept from the first mount would set state on a tree that
+ * is gone, so the banner would never show.
  */
 export function watchFreshness(stale: () => void): void {
+    onStale = stale;
     if (started) return;
     started = true;
-    onStale = stale;
     void checkFreshness(true);
     window.addEventListener('focus', () => void checkFreshness());
     document.addEventListener('visibilitychange', () => {
