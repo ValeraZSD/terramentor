@@ -44,7 +44,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-    BOOK,
+    ART, BOOK,
     DEFAULT_BACKGROUND, DEFAULT_RADIUS, DEFAULT_STYLE, ICON_STYLES,
     appIconHash, appIconSvg, clampRadius, iconContrast, inkFor,
     normalizeAppIcon, normalizeHex,
@@ -105,6 +105,17 @@ ok('the colour moves it', h({ background: '#7f1d1d' }) !== h({}));
 ok('the roundness moves it', h({ radius: 50 }) !== h({}));
 // The default is black, so "another spelling" is the 3-digit shorthand, padded.
 ok('and an equivalent spelling does not', h({ background: ' #000 ' }) === h({}));
+// The URL is cached for a year, so redrawing the mark under the same three
+// choices has to change the URL too.
+{
+    const before = h({});
+    const drawn = ART.globe;
+    ART.globe = `${drawn} `;
+    const after = h({});
+    ART.globe = drawn;
+    ok('and a redrawn mark moves it', after !== before);
+    ok('…back to the old drawing, back to the old name', h({}) === before);
+}
 
 // -------------------------------------------------------- 3. the pictures ----
 console.log('\nwhat the pixels say');

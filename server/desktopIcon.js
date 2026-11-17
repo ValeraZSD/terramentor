@@ -2,14 +2,14 @@
 //
 // `appIcon.js` answers the browser: the tab, the manifest, an installed PWA.
 // None of that reaches Windows' own idea of what this app looks like — the
-// Start Menu entry, the desktop and Startup shortcuts, the tray icon sitting in
+// Start Menu entry, the Startup shortcut, the tray icon sitting in
 // the notification area. Those read ONE file: `<install>/Terramentor.ico`,
 // written once when the folder was packaged.
 //
 // So this module rewrites that file whenever the choice changes. It is a small
 // module because the packaging already arranged everything else:
 //
-//   · all three shortcuts already carry `IconLocation = <install>\Terramentor.ico,0`
+//   · both shortcuts (Start Menu and Startup) already carry `IconLocation = <install>\Terramentor.ico,0`
 //     (`shortcutScript` in desktop/lib.js has always passed it), so they follow
 //     the file rather than the executable;
 //   · `Launcher.cs` loads its `NotifyIcon` from that same path at start, so the
@@ -60,7 +60,11 @@ export async function icoFor(icon) {
 // writes, which is also how an install whose icon predates this module catches up.
 let writtenHash = null;
 
-/** A second write while the first is in flight would race on one path. */
+/** The newest refresh still running or queued. Each call waits for the one
+ *  before it, so writes to the one path never overlap and the last call made
+ *  is the last one written: the slider sends a request per step, and a
+ *  stale picture left behind by an earlier step finishing late would stay in
+ *  the shortcuts until the next boot. */
 let inFlight = null;
 
 /**
@@ -73,8 +77,11 @@ export async function refreshDesktopIcon(icon, { env = process.env, write = writ
     if (!path) return { written: false, why: 'not a desktop install' };
     const hash = appIconHash(icon);
     if (hash === writtenHash) return { written: false, why: 'unchanged' };
-    if (inFlight) await inFlight.catch(() => {});
-    inFlight = (async () => {
+    const previous = inFlight;
+    const run = (async () => {
+        if (previous) await previous.catch(() => {});
+        // The call before this one may have put this very picture on disk.
+        if (hash === writtenHash) return { written: false, why: 'unchanged' };
         const ico = await icoFor(icon);
         // Byte-compare before writing. A tray icon is read at launch, so a
         // rewrite costs nothing on its own — but Windows keys its shortcut icon
@@ -90,13 +97,14 @@ export async function refreshDesktopIcon(icon, { env = process.env, write = writ
         try { const now = new Date(); await utimes(path, now, now); } catch { /* cosmetic */ }
         return { written: true, path };
     })();
+    inFlight = run;
     try {
-        const result = await inFlight;
+        const result = await run;
         writtenHash = hash;
         return result;
     } catch (err) {
         return { written: false, why: err?.message || 'could not write the icon' };
     } finally {
-        inFlight = null;
+        if (inFlight === run) inFlight = null;
     }
 }

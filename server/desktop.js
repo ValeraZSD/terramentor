@@ -190,10 +190,14 @@ function refreshLoginItem(marker) {
 /** How long every window may go silent before the process stops itself. The
  *  page pings on its own cadence (PING_MS in src/hooks/useDesktop.ts, 10s); a
  *  laptop lid, a busy tab or a GC pause may skip a couple, and a stop that
- *  fires during a reload would be a bug people meet daily. Generous on purpose:
- *  the cost of a late stop is a few seconds of an idle process, the cost of an
- *  early one is a lost session. */
-export const IDLE_MS = 45_000;
+ *  fires during a reload would be a bug people meet daily. A window left
+ *  minimised or covered for a few minutes is worse: Chromium then wakes its
+ *  timers about once a minute, so the 10s ping arrives every ~60s, and the
+ *  limit has to outlast that with room to spare or the server stops under a
+ *  window that is still open. Generous on purpose: the cost of a late stop is
+ *  a minute or so of an idle process, the cost of an early one is a lost
+ *  session. */
+export const IDLE_MS = 90_000;
 /** After an explicit goodbye the check runs sooner — a reload sends a goodbye
  *  and a new ping within a second, a real close sends only the goodbye. */
 export const BYE_GRACE_MS = 6_000;

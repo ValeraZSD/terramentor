@@ -35,6 +35,10 @@ import * as desktopLib from '../desktop/lib.js';
 // reports the missing decision as failed assertions instead of a load error.
 const launcherInstanceKey = desktopLib.launcherInstanceKey
     ?? ((chosen) => loadInstanceKey(resolveDataPaths({ env: { DATA_DIR: chosen.dir } }).dataDir));
+// The same for the launcher's log file: the old launcher prepared its log in
+// the chosen folder before it stopped on a missing library.
+const launcherLogFile = desktopLib.launcherLogFile
+    ?? ((chosen, appRoot) => prepareLogFile(chosen.dir || join(appRoot, 'server')));
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { runtimeSources, RUNTIME_DIRS, RUNTIME_DATA } from './lib/runtimeSources.mjs';
@@ -344,20 +348,27 @@ console.log('\n--- is that server ours? ---');
     const moved = join(kd, 'big-disk', 'Library');
     mkdirSync(perUser, { recursive: true });
     writeFileSync(join(perUser, LIBRARY_POINTER), libraryPointerFile(moved));
+    // The launcher also prepares its log file before that stop, and a log
+    // file needs its folder: `mkdir -p <library>/logs` makes the library.
     const launch = () => {
         const chosen = chooseDataDir({ appRoot: join(kd, 'app'), packaged: true, platform: 'linux', env: {}, home });
-        return { chosen, key: launcherInstanceKey(chosen) };
+        return { chosen, key: launcherInstanceKey(chosen), logFile: launcherLogFile(chosen, join(kd, 'app')) };
     };
     const first = launch();
     ok('a pointer at a folder that is gone stops the first launch', first.chosen.missing === true);
     ok('…without making that folder', !existsSync(moved));
     ok('…or a key for it', first.key === null);
+    ok('…or a log file for it', first.logFile === null);
     const second = launch();
     ok('the second launch still stops, rather than opening an empty library there', second.chosen.missing === true);
     ok('…and the folder is still not there', !existsSync(moved));
     rmSync(join(perUser, LIBRARY_POINTER));
     const firstRun = launch();
     ok('a first run on the default folder still gets its key', firstRun.chosen.why === 'user' && Buffer.isBuffer(firstRun.key));
+    ok('…and its log folder', !!firstRun.logFile && existsSync(dirname(firstRun.logFile)));
+    ok('the launcher prepares its log through that one decision',
+        /launcherLogFile\(chosen, appRoot\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
+        && !/prepareLogFile\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
     ok('the launcher reads its key through that one decision',
         /const instanceKey = launcherInstanceKey\(chosen\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
         && !/loadInstanceKey\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
@@ -370,6 +381,15 @@ console.log('\n--- is that server ours? ---');
     const launcherSrc = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
     const startUpdaterSrc = launcherSrc.slice(launcherSrc.indexOf('function startUpdater'), launcherSrc.indexOf('async function finishInterruptedSwap'));
     ok('the updater runner is given the instance-key module', /copyFileSync\([^\n]*'instanceKey\.js'[^\n]*'instanceKey\.js'\)/.test(startUpdaterSrc));
+    // The comments that list the runner's contents are what someone trimming
+    // it reads, so they have to name every module the updater really imports.
+    const updaterSrc = readFileSync(join(repoRoot, 'desktop', 'updater.js'), 'utf8');
+    const updaterHeader = updaterSrc.slice(0, updaterSrc.indexOf('\nimport '));
+    const updaterNeeds = [...updaterSrc.matchAll(/from '(\.\.?\/[^']+)'/g)].map((m) => m[1].split('/').pop());
+    ok('the updater imports the three modules its runner copy holds', updaterNeeds.length === 3, updaterNeeds.join(','));
+    ok('…every one of them is copied into the runner', updaterNeeds.every((f) => startUpdaterSrc.includes(`'${f}'`)));
+    ok('…the updater\'s header names each of them', updaterNeeds.every((f) => updaterHeader.includes(f)));
+    ok('…and the launcher\'s comment counts them', /updater and the three modules it imports/.test(launcherSrc));
     ok('…and the plan names the key file, never the key', /instanceKeyFile:/.test(startUpdaterSrc) && !/instanceKey:\s/.test(startUpdaterSrc));
     ok('a desktop build never packs a checkout\'s key or credentials',
         /rel === 'instance\.key'/.test(readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8'))
@@ -386,6 +406,10 @@ console.log('\n--- when the server stops itself ---');
     const live = { ...base, everConnected: true, lastPing: t0 + 60_000 };
     ok('pinging: stay', !shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS - 1 }));
     ok('silent past IDLE_MS: stop', shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS + 1 }));
+    // A window minimised or covered for minutes has its timers woken about once
+    // a minute, so its 10 s ping arrives every ~60 s: still a live window.
+    ok('a long-hidden window pinging once a minute (plus 20 s of slack) stays up',
+        !shouldShutDown({ ...live, now: live.lastPing + 60_000 + 20_000 }));
     const bye = { ...live, lastBye: t0 + 61_000 };
     ok('goodbye, then silence: stop after the short grace', shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS + 1 }));
     ok('goodbye inside the grace: not yet (a reload sends one)', !shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS - 1 }));
@@ -1527,6 +1551,24 @@ console.log('\n--- the icon the operating system reads ---');
         ok('the same icon a second time does not', again.written === false, again.why);
         const changed = await refreshDesktopIcon({ ...a, background: '#000000' }, { env, write: spy });
         ok('a different icon does', changed.written === true);
+
+        // A slider sends a request per step, so several refreshes arrive while
+        // the first is still writing. Writes to the one file must never overlap,
+        // and the last choice made is the one left on disk.
+        let active = 0;
+        let overlapped = false;
+        const slow = async (p, data) => {
+            active++;
+            if (active > 1) overlapped = true;
+            await new Promise((r) => setTimeout(r, 60));
+            await writeFile(p, data);
+            active--;
+        };
+        const steps = [{ ...a, radius: 10 }, { ...a, radius: 20 }, { ...a, radius: 30 }];
+        await Promise.all(steps.map((s) => refreshDesktopIcon(s, { env, write: slow })));
+        ok('quick refreshes write one at a time', overlapped === false);
+        ok('…and the last one asked for is on disk',
+            readFileSync(scratch).equals(await icoFor(steps[2])));
         rmSync(scratch, { force: true });
     }
 

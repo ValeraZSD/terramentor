@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserCommand,
-    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
+    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, launcherLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
@@ -152,9 +152,8 @@ const startPort = Number(process.env.PORT) || DEFAULT_PORT;
 // The console and a file, always both: a packaged launch has no console at all,
 // and a checkout's terminal is the natural place to watch. Set up before the
 // server is imported so its startup lines land in the file too.
-const logDir = chosen.dir || join(appRoot, 'server');
 let logFile = null;
-try { logFile = prepareLogFile(logDir); } catch { /* unwritable: console only */ }
+try { logFile = launcherLogFile(chosen, appRoot); } catch { /* unwritable: console only */ }
 const stamp = () => new Date().toISOString();
 for (const level of ['log', 'warn', 'error']) {
     const original = console[level].bind(console);
@@ -420,7 +419,7 @@ function ensureStartMenuShortcut() {
 // never installs it. "Restart to update" hands over to this function, which
 // starts desktop/updater.js as a separate, detached process and lets this one
 // exit. The updater runs from a COPY under `.update/runner/` — the runtime, the
-// updater and the two modules it imports — because the folders it moves are
+// updater and the three modules it imports — because the folders it moves are
 // the ones this process runs from, and Windows refuses to rename a folder while
 // a program inside it is open. `request` is what the server's Restart handed
 // over; its `channels` are the release channels the copy follows.

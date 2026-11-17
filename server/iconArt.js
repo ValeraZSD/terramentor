@@ -302,10 +302,13 @@ export function iconContrast(background) {
  *
  * FNV-1a over the normalised triple — not a cryptographic hash and not trying
  * to be: it is a cache key whose only job is to differ when the picture differs.
+ * The drawing's own data is part of what it hashes: the URL is cached for a
+ * year, so an update that redraws the mark under the same three choices has to
+ * change the URL too, or an installed app keeps the old picture.
  */
 export function appIconHash(icon) {
     const { style, background, radius } = normalizeAppIcon(icon);
-    const s = `${style}|${background}|${radius}`;
+    const s = `${style}|${background}|${radius}|${JSON.stringify([ART, BOOK, PAGE_POINTS, VARIANT_GEOMETRY])}`;
     let h = 0x811c9dc5;
     for (let i = 0; i < s.length; i++) {
         h ^= s.charCodeAt(i);

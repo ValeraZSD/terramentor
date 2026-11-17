@@ -14,7 +14,8 @@
 import { useEffect, useState } from 'react';
 import { desktopApi, type DesktopStatus } from '../desktopApi';
 
-/** Must stay under server/desktop.js IDLE_MS (45s) with room for a missed tick. */
+/** Must stay under server/desktop.js IDLE_MS (90s) with room for a missed tick,
+ *  and a long-hidden window's timers fire only about once a minute. */
 const PING_MS = 10_000;
 
 const clientId = (() => {
