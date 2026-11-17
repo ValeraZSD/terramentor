@@ -155,7 +155,10 @@ function preview(twin, read, p) {
     const titles = new Map();
     for (const e of p.local.entities) if (e.kind === 'node') titles.set(e.uuid, e.label);
     for (const e of p.upstream.entities) if (e.kind === 'node' && e.uuid && !titles.has(e.uuid)) titles.set(e.uuid, e.label);
-    const titleOf = (u) => (u == null ? null : titles.get(u) ?? null);
+    // A topic the update adds has no uuid yet: the plan names it `new:<ref>`, and its label is the file's title.
+    const newTitles = new Map();
+    for (const e of p.upstream.entities) if (e.kind === 'node') newTitles.set(`new:${e.ref}`, e.label);
+    const titleOf = (u) => (u == null ? null : titles.get(u) ?? newTitles.get(u) ?? null);
     const r = p.plan;
     return {
         match: { projectId: twin.id, name: twin.name, version: twin.version ?? null, fileVersion: read.project.version ?? null },
