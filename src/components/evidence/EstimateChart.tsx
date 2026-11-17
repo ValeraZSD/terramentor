@@ -4,6 +4,7 @@ import type { EvidenceRow } from '../../types';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { MENU_SURFACE } from '../ui/Popover';
+import { pickDot } from './pickDot';
 
 /**
  * How sure the app was about one topic, answer by answer: one line over time,
@@ -74,23 +75,11 @@ export default function EstimateChart({ points, threshold, day, describe }: {
     const yOf = (v: number) => bottom - v * (bottom - top);
     const line = xy.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
-    // The dot nearest the pointer along time, so sliding across the chart
-    // walks the dots in order at any height. Answers on one day, or a row
-    // held back to its neighbour's time above, share an x: among those the
-    // pointer's height picks, and a full tie goes to the newer dot.
+    // The dot under the pointer (pickDot: nearest along time, then height).
     const nearest = (clientX: number, clientY: number) => {
         const rect = box.current?.getBoundingClientRect();
         if (!rect || xy.length === 0) return null;
-        const x = clientX - rect.left;
-        const y = clientY - rect.top;
-        const dx = (i: number) => Math.abs(xy[i].x - x);
-        const dy = (i: number) => Math.abs(xy[i].y - y);
-        let best = 0;
-        for (let i = 1; i < xy.length; i++) {
-            const gap = dx(i) - dx(best);
-            if (gap < -0.5 || (Math.abs(gap) <= 0.5 && dy(i) <= dy(best))) best = i;
-        }
-        return best;
+        return pickDot(xy, clientX - rect.left, clientY - rect.top);
     };
     const onMove = (e: PointerEvent) => setActive(nearest(e.clientX, e.clientY));
     const onKey = (e: KeyboardEvent) => {

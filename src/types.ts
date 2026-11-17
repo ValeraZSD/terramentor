@@ -1760,6 +1760,19 @@ export interface EvidenceTrail {
     };
     count: number;
     rows: EvidenceRow[];
+    /** Questions missed twice or more in a row with no right answer since, most misses first.
+     *  Absent from a server older than the client. */
+    shaky?: ShakyQuestion[];
+    /** All of them; `shaky` lists the first SHAKY_LIMIT. */
+    shakyCount?: number;
+}
+
+export interface ShakyQuestion {
+    question: string;
+    /** The "this is wrong" flag's ref (`q:<uuid>`), or null for a question with no uuid. */
+    ref: string | null;
+    /** Misses since the last right answer. */
+    misses: number;
 }
 
 export interface AskedQuestion {
