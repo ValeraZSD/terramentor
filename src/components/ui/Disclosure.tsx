@@ -21,10 +21,10 @@
  *                      border. Thirty of them closed down a page are thirty
  *                      quiet lines; thirty bordered 40px boxes are a second
  *                      page of noise, which is what a settings page can least
- *                      afford. Open, the body hangs off a guide line under
- *                      the chevron, never inside a box — the line is what says
- *                      where the opened thing ends, and it costs nothing while
- *                      closed.
+ *                      afford. Open, one thin outline goes round the name
+ *                      AND its body, so they read as one block; closed it
+ *                      costs nothing. Never placed inside an opened
+ *                      ExpandableSection: a block inside a block.
  *
  *   ExpandableSection  CONTROLS behind a name. An icon, a title, one line of
  *                      what is inside, and the chevron at the far end. This is
@@ -101,10 +101,6 @@ const OPEN_EDGE =
 
 /** The rule under an opened summary, between it and its body. */
 const BODY_RULE = 'border-t border-slate-300 dark:border-slate-600';
-
-/** The line an opened `ExpandableSection` row's body hangs off, under the
- *  row's icon (3.2:1 on white, 3.6:1 on `slate-800`). */
-const GUIDE_LINE = 'before:absolute before:w-0.5 before:rounded-full before:bg-slate-500/80 dark:before:bg-slate-400/70';
 
 /**
  * An opened `Explain` is ONE block: a thin outline, no fill, round the
@@ -294,11 +290,12 @@ export function ExpandableSection({
                 <div
                     className={cx(
                         'details-reveal',
-                        // The guide sits under the centre of a 20px icon (16px
-                        // padding + 10px, less half its own 2px). A flush body's
-                        // children pad themselves by 16px, so `pl-8` lands their
-                        // text on the same 48px title column as `pl-12` does.
-                        marked && cx('relative before:left-[1.5625rem] before:top-0 before:bottom-4', GUIDE_LINE),
+                        // No guide line under the icon: a vertical rule down the
+                        // opened body read as a second block hung off the row.
+                        // The indent alone ties the body to its title. A flush
+                        // body's children pad themselves by 16px, so `pl-8`
+                        // lands their text on the same 48px title column as
+                        // `pl-12` does.
                         flushBody
                             ? (marked ? 'pl-8' : '')
                             : cx('pb-4 pt-1 pr-4', marked ? 'pl-12' : 'pl-4'),
