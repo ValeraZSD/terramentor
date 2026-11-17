@@ -415,9 +415,11 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                         </li>
                     ))}
                 </ul>
+                {/* The paper is recorded as practice per topic; it never closes a topic (a self-graded
+                    paper is not proof), so the line says what the learner gains, not what is withheld. */}
                 {practised && (
                     <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("This counts as practice for each topic. It never marks a topic as done.")}
+                        {t("Each topic above now shows this paper as practice.")}
                     </p>
                 )}
             </Panel>
