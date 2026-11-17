@@ -189,6 +189,10 @@ section('a decimal the reader sees follows their number style');
     check('the activity log writes no decimal with toFixed', !/\.toFixed\(/.test(src));
     check('its seconds go through num() and a translated unit',
         /t\("\{\{seconds\}\}s",\s*\{\s*seconds:\s*num\(e\.ms \/ 1000,\s*\{\s*decimals:\s*1\s*\}\)/.test(src));
+    const mastery = readFileSync(join(repoRoot, 'src/components/settings/MasteryTuningPanel.tsx'), 'utf8');
+    check('the topic-progress rates write no decimal with toFixed', !/\.toFixed\(/.test(mastery));
+    check('...they go through num() with their decimals',
+        /p_T: num\(r\.params\.p_T, \{ decimals: 2 \}\)/.test(mastery) && /num\(n, \{ decimals: 3 \}\)/.test(mastery));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
