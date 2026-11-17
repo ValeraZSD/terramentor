@@ -102,34 +102,28 @@ const OPEN_EDGE =
 /** The rule under an opened summary, between it and its body. */
 const BODY_RULE = 'border-t border-slate-300 dark:border-slate-600';
 
-/** The line an opened body hangs off: `Explain` under its chevron, an
- *  `ExpandableSection` row under its icon. Measured below. */
+/** The line an opened `ExpandableSection` row's body hangs off, under the
+ *  row's icon (3.2:1 on white, 3.6:1 on `slate-800`). */
 const GUIDE_LINE = 'before:absolute before:w-0.5 before:rounded-full before:bg-slate-500/80 dark:before:bg-slate-400/70';
 
 /**
- * The opened body of an `Explain`: NO box. It is indented to the summary's
- * text (the 16px chevron plus its 6px gap, in rem so the interface scale
- * moves both), and a 2px guide line runs under the chevron's centre from the
- * body's top to its last line. It is the same `GUIDE_LINE` an opened
- * `ExpandableSection` row hangs its body off, under that row's icon. Inside
- * another opened body it draws its own line too, one indent further in, the
- * way an editor's indent guides nest: with only the outer line, nothing said
- * where the inner body ended and the outer one's next setting began.
+ * An opened `Explain` is ONE block: a thin outline, no fill, round the
+ * summary AND its body. A guide line under the body alone left the summary
+ * above it as a separate line, so the name and what it opened read as two
+ * things. The outline is drawn inside the box, and the box reaches 12px into
+ * the space around it (`-mx-3 px-3`, open or shut), so the summary does not
+ * move sideways when it opens and a closed one stays aligned with the
+ * setting it sits under.
  *
- * Not a tinted panel: that was a box inside whatever card it opened in, three
- * deep around a settings form, it cost 24px of a phone's width, and a text box
- * inside it sat on a third surface. Not nothing either: with no line, nothing
- * said where the body ENDED and the page began.
- *
- * The line is `GUIDE_LINE` (3.2:1 on white, 3.6:1 on `slate-800`); paler
- * pairs lost where the body ends, the dark theme first. Text
+ * Not a tinted panel: that was a grey surface inside whatever card it opened
+ * in, three deep around a settings form, and a text box inside it sat on a
+ * third surface. The outline is `OPEN_EDGE`, the same edge an opened card
+ * section draws. The body is indented to the summary's text (the 16px
+ * chevron plus its 6px gap, in rem so the interface scale moves both). Text
  * stays `slate-600` / `slate-300`, above 4.5:1 on every surface it opens on.
  */
-const EXPLAIN_BODY = cx(
-    'details-reveal relative mt-1 mb-2 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300',
-    'before:left-[0.4375rem] before:top-0 before:bottom-0',
-    GUIDE_LINE,
-);
+const EXPLAIN_BOX = cx('group -mx-3 px-3 rounded-xl open:pt-1 open:pb-3', OPEN_EDGE);
+const EXPLAIN_BODY = 'details-reveal mt-1 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300';
 
 /**
  * Prose behind a name.
@@ -157,7 +151,7 @@ export function Explain({ summary, children, className = '', onToggle, defaultOp
 }) {
     const [initiallyOpen] = React.useState(defaultOpen);
     return (
-        <details open={initiallyOpen} onToggle={onToggle} className={cx('group', className)}>
+        <details open={initiallyOpen} onToggle={onToggle} className={cx(EXPLAIN_BOX, className)}>
             <summary
                 // 14px, not 12px: this is prose, and the page's own rule is that
                 // 12px is for badges, counters and code. It also has to sit beside
@@ -173,9 +167,6 @@ export function Explain({ summary, children, className = '', onToggle, defaultOp
                 <ChevronRight className={cx('w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400', CHEVRON_TURN)} aria-hidden="true" />
                 <span className="min-w-0">{summary}</span>
             </summary>
-            {/* The guide line is the whole open treatment. It starts under the
-                chevron, so the body reads as hanging off the line that opened
-                it rather than as the next thing on the page. */}
             <div className={EXPLAIN_BODY}>
                 {children}
             </div>
