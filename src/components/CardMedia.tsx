@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
 import { api } from '../api';
+import { storedDescription } from '../utils/mediaDescriptions';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -251,24 +252,13 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
     );
 }
 
-/**
- * The stored description of a picture, fetched once per file per page load.
- * A file with none gives '' and is not asked again; a
- * description written later reaches the card after a reload.
- */
-const descriptions = new Map<string, Promise<string>>();
+/** The stored description of a picture (`storedDescription`: once per file per page load). */
 function useStoredDescription(hash: string | null): string {
     const [text, setText] = useState('');
     useEffect(() => {
         if (!hash) { setText(''); return; }
         let live = true;
-        let pending = descriptions.get(hash);
-        if (!pending) {
-            // A failed read is forgotten, so the next card showing the file asks again.
-            pending = api.getMediaInfo(hash).then(r => (r.description ?? '').trim(), () => { descriptions.delete(hash); return ''; });
-            descriptions.set(hash, pending);
-        }
-        void pending.then(d => { if (live) setText(d); });
+        void storedDescription(hash, api.getMediaInfo).then(d => { if (live) setText(d); });
         return () => { live = false; };
     }, [hash]);
     return text;
