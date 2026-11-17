@@ -303,7 +303,7 @@ signing job runs in a GitHub environment that holds the key: `release-nightly` s
 own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
 the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+that move (`latest`, the minor and major lines, or `nightly`) move last. The image's exact-version tag
 is pushed before the approval, so rejecting a stable run leaves that one image tag behind
 (nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
 job after the release is public; if that job fails, the release stays installable (installs
