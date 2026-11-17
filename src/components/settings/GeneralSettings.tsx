@@ -11,8 +11,7 @@ import Switch from '../ui/Switch';
 import { SettingGroup, SettingRow, GROUP_CAPTION } from '../ui/SettingRow';
 import { Explain } from '../ui/Disclosure';
 import { ThemeCards, LanguageRow } from './AppearanceControls';
-import AppIconPanel from './AppIconPanel';
-import { ThemeTintField, AccentField } from './ColourFields';
+import { ColourChooser } from './ColourFields';
 import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/numberFormat';
 
@@ -23,8 +22,8 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO, formatNumber } from '../../utils/nu
  *  shortcuts. */
 export default function GeneralSettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
-    // Theme, tint, accent and UI language are their own components (ThemeCards,
-    // ThemeTintField, AccentField, LanguageRow), which read the store themselves.
+    // Theme, the colours and UI language are their own components (ThemeCards,
+    // ColourChooser, LanguageRow), which read the store themselves.
     const uiScale = useStore(s => s.uiScale);
     const setUiScale = useStore(s => s.setUiScale);
     const weekStartDay = useStore(s => s.weekStartDay);
@@ -37,16 +36,15 @@ export default function GeneralSettings({ active }: { active: boolean }) {
 
     return (
         <>
-            {/* APPEARANCE — four settings, four rows, no paragraphs.
-                What each control does is visible the moment it is
-                used: the theme repaints the page, the accent
-                repaints this card, the size resizes the words you
-                are reading. A sentence explaining any of that is a
-                sentence describing what the reader can already see.
-                The app icon is the exception, because it is the one
-                appearance choice whose effect is somewhere else —
-                so it keeps its line, and its caveats sit closed
-                inside its own disclosure (AppIconPanel). */}
+            {/* APPEARANCE — three rows, no paragraphs. What each
+                control does is visible the moment it is used: the
+                theme repaints the page, the accent repaints this
+                card, the size resizes the words you are reading. A
+                sentence explaining any of that is a sentence
+                describing what the reader can already see. The app
+                icon is the exception, because it is the one choice
+                whose effect is somewhere else — so it keeps its
+                line, under the palette while the icon is chosen. */}
             <section className={active ? '' : 'hidden'}>
                 <SettingGroup title={tr("Appearance")}>
                     <SettingRow label={tr("Theme")} block control={<ThemeCards />} />
@@ -101,27 +99,15 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                             </div>
                         }
                     />
-                    {/* …and what colour it is. The theme answers
-                        light or dark; this answers the other half,
-                        which a fixed set of themes can only ever
-                        answer for you. */}
+                    {/* …and what colour it is: the page, the accent and
+                        the app's own icon, in one palette with a switch
+                        (ColourChooser). The theme answers light or dark;
+                        this answers the other half. */}
                     <SettingRow
-                        label={tr("Page colour")}
+                        label={tr("Colours")}
                         block
-                        control={<ThemeTintField />}
+                        control={<ColourChooser />}
                     />
-                    <SettingRow
-                        label={tr("Accent colour")}
-                        hint={tr("Projects keep their own colour.")}
-                        block
-                        control={<AccentField />}
-                    />
-                    {/* THE APP'S OWN ICON — the tab, and what an install
-                        puts on a home screen. It sits with the theme and
-                        the accent because it is the same question, and it
-                        is a disclosure because it is three controls and a
-                        caveat for a picture most readers never change. */}
-                    <AppIconPanel />
                 </SettingGroup>
             </section>
 

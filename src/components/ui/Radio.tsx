@@ -22,6 +22,8 @@ export interface RadioProps {
     value?: string;
     disabled?: boolean;
     id?: string;
+    /** Take focus when mounted (an editor opening on its current choice). */
+    autoFocus?: boolean;
     /** Needed when the circle has no adjacent <label> text of its own. */
     'aria-label'?: string;
     'aria-describedby'?: string;
@@ -30,7 +32,7 @@ export interface RadioProps {
 }
 
 export default function Radio({
-    checked, onChange, name, value, disabled = false, id, className = '',
+    checked, onChange, name, value, disabled = false, id, autoFocus, className = '',
     'aria-label': ariaLabel, 'aria-describedby': ariaDescribedBy,
 }: RadioProps) {
     return (
@@ -42,6 +44,7 @@ export default function Radio({
                 type="radio"
                 checked={checked}
                 disabled={disabled}
+                autoFocus={autoFocus}
                 aria-label={ariaLabel}
                 aria-describedby={ariaDescribedBy}
                 onChange={() => onChange()}

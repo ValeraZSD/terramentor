@@ -7,6 +7,7 @@ import QuestionStem from '../QuestionStem';
 import AnswerHelp from '../AnswerHelp';
 import AnswerInput from './AnswerInput';
 import AnswerKey from './AnswerKey';
+import SpellingNote from './SpellingNote';
 import { formatOf, answerAsText } from './formats';
 import { ReportLink, ReportScope } from '../ui/ReportItem';
 import type { RunResult } from '../../runner/protocol';
@@ -87,6 +88,7 @@ export default function AnswerReviewItem({ question, answer, correct, explanatio
                                 <AnswerKey question={question} />
                             </div>
                         )}
+                        {correct && answer && <SpellingNote question={question} answer={answer} className="mt-1.5" />}
                         {said && (
                             <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 italic"><MathText content={said} /></p>
                         )}

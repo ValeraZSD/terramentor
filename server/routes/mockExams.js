@@ -1,8 +1,10 @@
 // /api/projects/:id/mock-exams, /api/mock-exams, /api/mock-sittings: past
-// papers sat by hand and marked by the learner (server/mockExams.js).
+// papers sat by hand and marked by the learner, and mocks drawn from the
+// course's own questions and answered on screen (server/mockExams.js).
 import {
     MockExamError, listForProject, createPaper, deletePaper, startSitting, sittingDetail,
     pauseSitting, resumeSitting, stopWriting, discardSitting, setPartScore, finishSitting,
+    setExam, drawCourseMock, saveAnswer,
 } from '../mockExams.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
@@ -49,7 +51,22 @@ app.put('/api/mock-sittings/:id/scores', handle(req => {
     return setPartScore(idOf(req.params.id), idOf(partId), points === null ? null : points);
 }));
 
-app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id), { fillUnmarked: req.body?.fillUnmarked === true })));
+app.post('/api/mock-sittings/:id/finish', handle(req => finishSitting(idOf(req.params.id), {
+    attemptId: req.body?.attemptId ?? null, fillUnmarked: req.body?.fillUnmarked === true,
+})));
+
+// The course's real exam, described once: on paper, or on screen with its length and pass line.
+app.put('/api/projects/:projectId/exam', handle(req => ({ exam: setExam(idOf(req.params.projectId), req.body || {}) })));
+
+app.post('/api/projects/:projectId/mock-exams/draw', handle(req => {
+    const { size, minutes = null } = req.body || {};
+    return drawCourseMock(idOf(req.params.projectId), { size, minutes });
+}));
+
+app.put('/api/mock-sittings/:id/answers', handle(req => {
+    const { partId, answer, later, attemptId = null } = req.body || {};
+    return saveAnswer(idOf(req.params.id), { partId: idOf(partId), answer, later, attemptId });
+}));
 
 app.delete('/api/mock-sittings/:id', handle(req => { discardSitting(idOf(req.params.id)); return { ok: true }; }));
 

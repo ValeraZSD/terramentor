@@ -241,32 +241,41 @@ try {
     // -----------------------------------------------------------------------
     section('a picture\'s stored description: asked once, a missing file not again');
     const MD = await load('mediaDescriptions', `export * from './src/utils/mediaDescriptions';`);
-    if (MD?.storedDescription) {
+    if (MD?.storedInfo) {
         let calls = 0;
         const answer = (fn) => (hash) => { calls++; return fn(hash); };
+        const info = (description) => ({ hash: 'h', filename: 'f.png', kind: 'image', description, described_by: description ? 'author' : null });
         const notFound = answer(() => Promise.reject(Object.assign(new Error('Not found'), { status: 404 })));
-        ok('a file the library does not hold gives no description', (await MD.storedDescription('gone', notFound)) === '');
-        await MD.storedDescription('gone', notFound);
+        ok('a file the library does not hold gives nothing', (await MD.storedInfo('gone', notFound)) === null);
+        await MD.storedInfo('gone', notFound);
         ok('…and is not asked again (a 404 is final)', calls === 1, `${calls} requests`);
         calls = 0;
         const offline = answer(() => Promise.reject(new TypeError('Failed to fetch')));
-        await MD.storedDescription('flaky', offline);
-        await MD.storedDescription('flaky', offline);
+        await MD.storedInfo('flaky', offline);
+        await MD.storedInfo('flaky', offline);
         ok('a network failure is forgotten, so the next card asks again', calls === 2, `${calls} requests`);
         calls = 0;
         const busy = answer(() => Promise.reject(Object.assign(new Error('Server error'), { status: 503 })));
-        await MD.storedDescription('busy', busy);
-        await MD.storedDescription('busy', busy);
+        await MD.storedInfo('busy', busy);
+        await MD.storedInfo('busy', busy);
         ok('so is a 5xx', calls === 2, `${calls} requests`);
         calls = 0;
-        const has = answer(() => Promise.resolve({ description: '  A red planet.  ' }));
-        ok('a description is read, trimmed', (await MD.storedDescription('mars', has)) === 'A red planet.');
-        await MD.storedDescription('mars', has);
+        const notYet = answer(() => Promise.resolve(info(null)));
+        await MD.storedInfo('later', notYet);
+        await MD.storedInfo('later', notYet);
+        ok('a picture not described yet is asked again (the sweep may reach it)', calls === 2, `${calls} requests`);
+        calls = 0;
+        const has = answer(() => Promise.resolve(info('A red planet.')));
+        ok('a description is read', (await MD.storedInfo('mars', has))?.description === 'A red planet.');
+        await MD.storedInfo('mars', has);
         ok('…once per page load', calls === 1);
-        for (let i = 0; i < MD.MAX_KEPT + 50; i++) await MD.storedDescription(`f${i}`, () => Promise.resolve({ description: null }));
+        MD.forgetStoredInfo('mars');
+        await MD.storedInfo('mars', has);
+        ok('…until it is edited and forgotten', calls === 2);
+        for (let i = 0; i < MD.MAX_KEPT + 50; i++) await MD.storedInfo(`f${i}`, () => Promise.resolve(info('d')));
         ok(`at most ${MD.MAX_KEPT} files are remembered`, MD.keptCount() === MD.MAX_KEPT, `${MD.keptCount()}`);
-    } else ok('storedDescription exists', false);
-    ok('CardMedia reads descriptions through it', /storedDescription\(hash, api\.getMediaInfo\)/.test(read('src/components/CardMedia.tsx')));
+    } else ok('storedInfo exists', false);
+    ok('CardMedia reads descriptions through it', /keptInfo\(hash, api\.mediaInfo\)/.test(read('src/components/CardMedia.tsx')));
 
     // -----------------------------------------------------------------------
     section('drag and menu moves: whose keys, and what is said');

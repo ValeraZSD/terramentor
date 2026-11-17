@@ -7,6 +7,7 @@ import { parseCardMedia } from '../CardMedia';
 import CardFace from '../CardFace';
 import { FeedFlashcardCard } from '../../types';
 import { computeSrsUpdate, computeNextInterval, formatInterval, requeueAt, ReviewRating } from '../../utils/srs';
+import { useProjectRetention } from '../../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER, RATING_STYLES } from '../flashcards/ratingStyles';
 import { RatingButton } from '../flashcards/RatingButton';
@@ -47,6 +48,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
 
     // The text the learner corrected is the text shown, without a reload.
     const fc = edited ? { ...card.card, ...edited } : card.card;
+    const retention = useProjectRetention(fc.project_id);
     const media = parseCardMedia(fc.media);
 
     // A report takes the card off the stream unrated. Once it no longer holds
@@ -73,7 +75,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
         if (locked || saving) return;
         setSaving(true);
         try {
-            const update = computeSrsUpdate(fc, rating);
+            const update = computeSrsUpdate(fc, rating, new Date(), retention);
             const saved = await api.updateFlashcard(fc.id, update);
             setRatedWith(rating);
             // A rating that leaves the card on a (re)learning ladder schedules it
@@ -180,7 +182,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                         shows the minutes: there the timer is real. */}
                     {RATING_ORDER.map(rating => {
                         const { label } = RATING_STYLES[rating];
-                        const next = computeNextInterval(fc, rating);
+                        const next = computeNextInterval(fc, rating, new Date(), retention);
                         const exact = formatInterval(next.intervalDays, t);
                         return (
                             <RatingButton
@@ -205,14 +207,14 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
             )}
             {done && ratedWith && (
                 <p className="mt-2 text-sm text-slate-500 dark:text-slate-400 text-center">
-                    {requeueAt(computeSrsUpdate(fc, ratedWith)) !== null
+                    {requeueAt(computeSrsUpdate(fc, ratedWith, new Date(), retention)) !== null
                         // "Next review in 10m" is true and useless here: it reads
                         // as a date, and what the learner needs to know is that
                         // the card is coming back before they finish scrolling.
                         // The exact step was in brackets and is gone with the
                         // minute counts on the buttons, for the same reason.
                         ? t("Coming back later in this feed")
-                        : t("Next review in {{interval}}", { interval: formatInterval(computeNextInterval(fc, ratedWith).intervalDays, t) })}
+                        : t("Next review in {{interval}}", { interval: formatInterval(computeNextInterval(fc, ratedWith, new Date(), retention).intervalDays, t) })}
                 </p>
             )}
             {editing && (
