@@ -312,6 +312,61 @@ if (PlacementModal) {
         await act(() => r.unmount());
         host.remove();
     }
+
+    // ---- 5. a failed save's banner goes with the next try ---------------------
+    {
+        let calls = 0;
+        const questions = [q(0, SHORT_PHASE), q(1, SHORT_PHASE)];
+        globalThis.__api = {
+            getPlacement: () => Promise.resolve({ probe: probeOf(questions), summary: null }),
+            answerPlacement: (_id, i) => (++calls === 1
+                ? Promise.reject(new Error('The server dropped the answer'))
+                : Promise.resolve({ correct: false, explanation: 'Because.', correctAnswer: 'Yes', probe: probeOf(questions.map(x => x.index === i ? { ...x, answered: true } : x)) })),
+            finishPlacement: () => new Promise(() => { }),
+        };
+        const host = doc.createElement('div');
+        doc.body.appendChild(host);
+        const r = createRoot(host);
+        await act(() => r.render(h(PlacementModal, { isOpen: true, onClose() { }, projectId: 1, projectName: 'Calculus' })));
+        await settle();
+        const dialogText = () => doc.querySelector('[role="dialog"]')?.textContent ?? '';
+        const pick = () => act(() => [...doc.querySelectorAll('[data-answer-option]')].find(b => b.textContent.trim() === 'No')?.click());
+        await pick();
+        await settle();
+        ok('an answer that fails to save shows why', dialogText().includes('The server dropped the answer'), dialogText().slice(0, 200));
+        await pick();
+        await settle();
+        ok('…and the banner is gone once the next try is recorded', !dialogText().includes('The server dropped the answer') && !!button('Next'), dialogText().slice(0, 200));
+        await act(() => r.unmount());
+        host.remove();
+    }
+
+    // ---- 6. the backdrop closes on a tap, not on the end of a drag ------------
+    {
+        let closed = 0;
+        globalThis.__api = { getPlacement: () => Promise.resolve({ probe: probeOf([q(0, SHORT_PHASE)]), summary: null }) };
+        const host = doc.createElement('div');
+        doc.body.appendChild(host);
+        const r = createRoot(host);
+        await act(() => r.render(h(PlacementModal, { isOpen: true, onClose() { closed++; }, projectId: 1, projectName: 'Calculus' })));
+        await settle();
+        const dialog = doc.querySelector('[role="dialog"]');
+        const overlay = dialog.parentElement;
+        const Down = window.PointerEvent ?? window.MouseEvent;
+        const press = (el) => act(() => { el.dispatchEvent(new Down('pointerdown', { bubbles: true, clientX: 5, clientY: 5 })); });
+        const release = (el) => act(() => { el.dispatchEvent(new window.MouseEvent('click', { bubbles: true, clientX: 5, clientY: 5 })); });
+        // Pressed inside the dialog (selecting text in the answer box), lifted
+        // over the overlay: the click lands on their common ancestor, the overlay.
+        await press(dialog);
+        await release(overlay);
+        ok('a drag that starts inside the dialog and ends over the overlay does not close it', closed === 0, `closed ${closed} time(s)`);
+        // And a real tap on the overlay still does.
+        await press(overlay);
+        await release(overlay);
+        ok('…a tap on the overlay itself still closes it', closed === 1, `closed ${closed} time(s)`);
+        await act(() => r.unmount());
+        host.remove();
+    }
     globalThis.__api = undefined;
 } else ok('the dialog bundles and mounts', false);
 

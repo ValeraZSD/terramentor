@@ -153,7 +153,9 @@ if (argv[0] === '--client') {
     await esbuild.build({
         stdin: {
             contents: `export { default as MasteryGateModal } from '${entry('MasteryGateModal')}';
-                       export { default as QuizView } from '${entry('QuizView')}';`,
+                       export { default as QuizView } from '${entry('QuizView')}';
+                       export { default as ProjectQuizzesList } from '${entry('ProjectQuizzesList')}';
+                       export { useOpenMasteryCheck } from '${join(repo, 'src', 'hooks', 'useOpenMasteryCheck.ts').replace(/\\/g, '/')}';`,
             resolveDir: repo, loader: 'tsx',
         },
         bundle: true, format: 'cjs', platform: 'node', outfile: out,
@@ -164,7 +166,7 @@ if (argv[0] === '--client') {
     });
     const React = require('react');
     const { createRoot } = require('react-dom/client');
-    const { MasteryGateModal, QuizView } = require(out);
+    const { MasteryGateModal, QuizView, ProjectQuizzesList, useOpenMasteryCheck } = require(out);
     const h = React.createElement;
     const act = (fn) => React.act(fn);
     const settle = () => act(async () => { await new Promise(r => setTimeout(r, 40)); });
@@ -237,6 +239,137 @@ if (argv[0] === '--client') {
         const m = await mount(h(QuizView, { quiz: small, onClose() { } }));
         await answerAll(m.host, 2, 'Submit Quiz');
         check('a practice sitting names each question by its uuid', Array.isArray(sent) && sent.length === 2 && sent.every((a, i) => a.uuid === `uuid-${i}` && a.index === i), JSON.stringify(sent));
+        m.done();
+    }
+
+    // ---- the check's and the quiz's own screens ------------------------------
+    // Not about unchecked questions: the same two components, mounted once, so
+    // these cases ride on the harness already built for them.
+    const sequence = (text, i) => ({ type: 'sequence', question: text, items: ['b', 'c', 'a'], correct_answer: JSON.stringify(['a', 'b', 'c']), explanation: 'Alphabetical.', quizId: 7, index: i, uuid: `uuid-s${i}` });
+    const four = (n = 4) => Array.from({ length: n }, (_, i) => mcq(`Question ${i}?`, i));
+    const closeButton = (host) => host.querySelector('button[aria-label="Close"]');
+
+    console.log('--- client: grading a submitted check ---');
+    {
+        // The submit is a model call that can take many seconds: the questions
+        // stay, the screen says it is checking, and the X cannot close the
+        // dialog under a result that is still on its way.
+        let release;
+        const pending = new Promise(r => { release = r; });
+        globalThis.__api = {
+            drawMasteryCheck: async () => ({ size: 10, bankSize: 4, unverified: 0, minQuestions: 4, status: 'in_progress', questions: four() }),
+            submitMasteryCheck: () => pending,
+        };
+        const m = await mount(h(MasteryGateModal, { isOpen: true, onClose() { }, nodeId: 3, nodeTitle: 'Adding', projectId: 1, onPassed() { } }));
+        for (let i = 0; i < 4; i++) {
+            act(() => { buttons(m.host, '4')[0]?.click(); });
+            if (i < 3) act(() => { buttons(m.host, 'Next')[0]?.click(); });
+        }
+        await act(async () => { buttons(m.host, 'Submit mastery check')[0]?.click(); });
+        await settle();
+        const text = m.host.textContent;
+        check('while the answers are graded the screen does not say "Loading questions..."', !/Loading questions\.\.\./.test(text), text.slice(0, 200));
+        check('...the question stays on screen', /Question 4 of 4/.test(text), text.slice(0, 200));
+        check('...and says it is checking the answer', /Checking the answer…/.test(text), text.slice(0, 200));
+        check('...the X is held until the result is in', !!closeButton(m.host) && closeButton(m.host).disabled, closeButton(m.host) ? 'the X is live' : 'no X');
+        await act(async () => { release({ passed: false, pass_threshold: 0.8 }); });
+        await settle();
+        check('...and the result then takes the screen', /Not Yet Mastered/.test(m.host.textContent) && !!closeButton(m.host) && !closeButton(m.host).disabled, m.host.textContent.slice(0, 200));
+        m.done();
+    }
+    {
+        // A check written on open sets the verifying progress; the redraw after
+        // "Retry" must not show that progress again.
+        let draws = 0;
+        globalThis.__api = {
+            drawMasteryCheck: () => {
+                draws++;
+                if (draws === 1) return Promise.resolve({ size: 10, bankSize: 0, unverified: 0, minQuestions: 4, status: 'in_progress', questions: [] });
+                if (draws === 2) return Promise.resolve({ size: 10, bankSize: 4, unverified: 0, minQuestions: 4, status: 'in_progress', questions: four() });
+                return new Promise(() => { });
+            },
+            streamGenerateQuiz: async (...args) => { args[7]?.('verifying', 0, { verified: 1, verifyTotal: 4 }); return { id: 7, questions: four() }; },
+            submitMasteryCheck: async () => ({ passed: false, pass_threshold: 0.8 }),
+        };
+        const m = await mount(h(MasteryGateModal, { isOpen: true, onClose() { }, nodeId: 3, nodeTitle: 'Adding', projectId: 1, onPassed() { } }));
+        await answerAll(m.host, 4, 'Submit mastery check');
+        act(() => { buttons(m.host, 'Retry the mastery check')[0]?.click(); });
+        await settle();
+        const text = m.host.textContent;
+        check('a redraw after Retry is loading, not still "checking every answer"', /Loading questions\.\.\./.test(text) && !/Checking every answer/.test(text) && !/of 4 checked/.test(text), text.slice(0, 240));
+        m.done();
+    }
+
+    console.log('--- client: an ordering left as served ---');
+    {
+        let sent = null;
+        globalThis.__api = {
+            drawMasteryCheck: async () => ({ size: 10, bankSize: 1, unverified: 0, minQuestions: 1, status: 'in_progress', questions: [sequence('Put these in order.', 0)] }),
+            submitMasteryCheck: async (...args) => { sent = args; return { passed: false, pass_threshold: 0.8 }; },
+        };
+        const m = await mount(h(MasteryGateModal, { isOpen: true, onClose() { }, nodeId: 3, nodeTitle: 'Adding', projectId: 1, onPassed() { } }));
+        const submit = buttons(m.host, 'Submit mastery check')[0];
+        check('an ordering left in the served order lets the check be submitted', !!submit && !submit.disabled, submit ? 'Submit is disabled' : 'no Submit');
+        check('...and the header counts it as answered', /1\/1 answered/.test(m.host.textContent), m.host.textContent.slice(0, 200));
+        await act(async () => { submit?.click(); });
+        await settle();
+        check('...and it is graded as the served order (one question asked)', !!sent && sent[3] === 1, JSON.stringify(sent?.slice(2, 4)));
+        m.done();
+    }
+    {
+        const quiz = { id: 9, node_id: 3, title: 'Bank', questions: [sequence('Put these in order.', 0)] };
+        globalThis.__api = {};
+        const m = await mount(h(QuizView, { quiz, onClose() { } }));
+        const submit = buttons(m.host, 'Submit Quiz')[0];
+        check('...and a practice quiz lets it through too', !!submit && !submit.disabled, submit ? 'Submit is disabled' : 'no Submit');
+        m.done();
+    }
+
+    console.log('--- client: the list of a project\'s quizzes ---');
+    {
+        const row = (id, title, node_title) => ({ id, node_id: id, title, node_title, questions: four(2), attempt_count: 2, best_score: 80 });
+        globalThis.__api = { getProjectQuizzes: async () => [row(1, 'Photosynthesis', 'Photosynthesis'), row(2, 'Quiz - 2026-11-01', 'Respiration')] };
+        const m = await mount(h(ProjectQuizzesList, { projectId: 1, onSelectQuiz() { }, onClose() { } }));
+        const rows = [...m.host.querySelectorAll('p.truncate')].map(p => p.parentElement.textContent);
+        check('a quiz titled like its topic does not print the topic twice', (rows[0]?.match(/Photosynthesis/g) ?? []).length === 1, rows[0]);
+        check('...a title that adds something still shows it', /2026-11-01/.test(rows[1] ?? ''), rows[1]);
+        m.done();
+    }
+    {
+        // A slow answer for the project just left must not land over the one on screen.
+        let releaseOld;
+        const old = new Promise(r => { releaseOld = r; });
+        const quiz = (name) => ({ id: 1, node_id: 1, title: name, node_title: name, questions: four(2), attempt_count: 0 });
+        globalThis.__api = { getProjectQuizzes: (id) => (id === 1 ? old : Promise.resolve([quiz('New project topic')])) };
+        const host = document.createElement('div'); document.body.append(host);
+        const r = createRoot(host);
+        act(() => r.render(h(ProjectQuizzesList, { projectId: 1, onSelectQuiz() { }, onClose() { } })));
+        await settle();
+        act(() => r.render(h(ProjectQuizzesList, { projectId: 2, onSelectQuiz() { }, onClose() { } })));
+        await settle();
+        await act(async () => { releaseOld([quiz('Old project topic')]); });
+        await settle();
+        check('an older project\'s late answer does not replace the current project\'s quizzes',
+            /New project topic/.test(host.textContent) && !/Old project topic/.test(host.textContent), host.textContent.slice(0, 200));
+        act(() => r.unmount()); host.remove();
+    }
+
+    console.log('--- client: opening the check from a topic ---');
+    {
+        let opened = null;
+        globalThis.__setState({ openMasteryGate: (...a) => { opened = a; } });
+        let open = null;
+        const Probe = () => { open = useOpenMasteryCheck(); return null; };
+        const m = await mount(h(Probe));
+        globalThis.__api = { getSettings: async () => { throw new Error('offline'); } };
+        await act(async () => { await open(5, 'Topic', 1); });
+        check('a settings read that fails opens the check enforced (the server default), never advisory', !!opened && opened[2] === false, JSON.stringify(opened));
+        for (const [mode, advisory] of [['advisory', true], ['enforced', false]]) {
+            opened = null;
+            globalThis.__api = { getSettings: async () => ({ mastery_gate_mode: mode }) };
+            await act(async () => { await open(5, 'Topic', 1); });
+            check(`...a read that works still follows the setting (${mode})`, !!opened && opened[2] === advisory, JSON.stringify(opened));
+        }
         m.done();
     }
     console.log(`\n${pass} passed, ${fail} failed`);
