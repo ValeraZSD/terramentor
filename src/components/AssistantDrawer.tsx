@@ -355,6 +355,18 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' } | null>(null);
     const [streaming, setStreaming] = useState(false);
     const [streamed, setStreamed] = useState('');
+    // A finished answer, said once by a screen reader. The conversation itself
+    // is a log that does not speak: a live region over a streaming reply read
+    // out every few words as they arrived.
+    const [spoken, setSpoken] = useState('');
+    const wasStreaming = useRef(false);
+    useEffect(() => {
+        if (wasStreaming.current && !streaming) {
+            const last = [...messages].reverse().find((m) => m.role === 'assistant');
+            if (last?.content) setSpoken(last.content.replace(/[*_`#>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000));
+        }
+        wasStreaming.current = streaming;
+    }, [streaming, messages]);
     // Whether the assistant may look something up, read for the line under the
     // composer and for nothing else: the decision is the model's, taken
     // mid-answer, and the permission is the Settings switch.
@@ -1467,9 +1479,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 </div>
             </header>
 
+            <div className="sr-only" aria-live="polite">{spoken}</div>
             <div
                 ref={scroll.ref}
                 onScroll={scroll.onScroll}
+                role="log"
+                aria-live="off"
+                aria-label={tr("Conversation")}
                 className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
             >
                 {showList ? (
@@ -1525,12 +1541,15 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                     {m.attachments?.length ? <MessageAttachments attachments={m.attachments} /> : null}
                                     {m.content ? (
                                         <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
+                                            {/* Who is speaking, for a screen reader reading the log. */}
+                                            <span className="sr-only">{tr("You said:")} </span>
                                             {m.content}
                                         </p>
                                     ) : null}
                                 </div>
                             ) : (
                                 <>
+                                    <span className="sr-only">{tr("Assistant said:")}</span>
                                     {/* What the model worked through before it
                                         answered. Not a character count: a count
                                         says a long turn is alive and nothing
@@ -1817,6 +1836,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             composer.add(pasted);
                         }}
                         rows={1}
+                        aria-label={tr("Message to the assistant")}
                         placeholder={tr("Ask anything…")}
                         className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />
