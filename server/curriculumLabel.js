@@ -20,6 +20,7 @@
 // that reads oddly beats a label that is gone.
 
 const KEYWORDS = '(?:module|phase|part|chapter|unit|lesson|week|day|section|domain|stage|step|topic|deel|hoofdstuk|les)';
+const SPELLED = '(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|een|twee|drie|vier|vijf|zes|zeven|acht|negen|tien|elf|twaalf)';
 // What may follow a position label: a colon, a long dash, or a hyphen with a
 // space on at least one side. A bare hyphen is a hyphenated name, not a
 // separator: "3-Phase Power Systems" and "2-Factor Authentication" stay whole.
@@ -29,10 +30,11 @@ const NUMBERING = [
     // "Module 9.5: …", "Phase 2 — …", "Week 3: …", "Domain C1: …"
     // The word after the keyword must be a NUMBER or a one-letter label ("3",
     // "9.5", "C1", "A"), never an ordinary word: "Unit Tests: Writing Good
-    // Ones" and "Day Trading - Risk" are names, not positions. A Roman numeral
-    // is matched in capitals only, so "Lesson Mix: Rhythm" is not read as 1009.
-    new RegExp(`^${KEYWORDS}\\s+(?:\\d[\\w.]{0,7}|[A-Za-z]\\d{1,2}|[A-Za-z])${SEPARATOR}`, 'i'),
-    new RegExp(`^${KEYWORDS.replace(/[a-z]/g, c => `[${c}${c.toUpperCase()}]`)}\\s+[IVXLCDM]{1,8}\\.?${SEPARATOR}`),
+    // Ones" and "Day Trading - Risk" are names, not positions. A spelled-out
+    // number counts from a closed list ("Chapter One", "Hoofdstuk een"). A Roman
+    // numeral must be well formed and at most 39 (I, V, X only), in either case,
+    // so "Unit CIVIC: War" and "Lesson MIX: Rhythm" are not read as numerals.
+    new RegExp(`^${KEYWORDS}\\s+(?:\\d[\\w.]{0,7}|[A-Za-z]\\d{1,2}(?:\\.\\d+)*|[A-Za-z]|${SPELLED}|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3})\\.?)${SEPARATOR}`, 'i'),
     // "4.2.1: …", "1.2 — …", "3) …"
     // The separator class deliberately excludes "." — with a dot in it, "10.2
     // Highway Driving" matched as 10 + "." and came out as "2 Highway Driving".

@@ -711,8 +711,10 @@ console.log('\n--- a resource’s completed flag is read strictly ---');
     const flags = [true, 1, false, 0, null, '', 'false', '0', 'true', 'yes', 2];
     const r = normalizeImportTree([{ title: 'T', resources: flags.map((completed, i) => ({ title: `R${i}`, completed })) }]);
     check('only true and 1 import as completed', r.nodes[0].resources.map(x => x.completed), [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    check('...an unreadable flag is warned about, false and 0 in any spelling are not',
-        r.warnings.filter(w => /completed .* imported as not completed/.test(w)).length, 3);
+    // Same as is_note: only a missing flag, false, 0 and '' are silent.
+    const warned = r.warnings.filter(w => /completed .* imported as not completed/.test(w));
+    check('...any other value is warned about, as is_note\'s are', warned.length, 5);
+    check('...and the warning says what the flag must be', warned.some(w => /^completed "true" at .* must be the boolean true or 1 /.test(w)), true);
 }
 
 // Learner text goes into the brief as written. A string replacement reads "$$",
