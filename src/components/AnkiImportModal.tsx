@@ -407,6 +407,9 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                         <span className="truncate">{d.name.replace(/::/g, ' › ')}</span>
                                         <span className="shrink-0 tabular-nums">
                                             {num(d.count)}
+                                            {/* A JSX line break is no space: without this the
+                                                count and the dot read "1,100· 22 sections". */}
+                                            {(d.stages ?? 0) > 1 && ' '}
                                             {(d.stages ?? 0) > 1 && t("· {{stages}} sections", { count: d.stages ?? 0, stages: d.stages })}
                                         </span>
                                     </li>

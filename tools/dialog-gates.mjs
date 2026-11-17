@@ -764,6 +764,11 @@ section('the review session and the phone assistant are the same kind of dialog'
     const stepCounter = (read('src/components/welcome/WelcomeFlow.tsx').match(/<span\b[^>]*aria-label=\{t\("Step \{\{n\}\} of \{\{total\}\}"[^>]*>/) || [''])[0];
     check('the welcome step counter is named through a role that takes a name',
         /\brole="img"/.test(stepCounter), stepCounter);
+    // A JSX line break between two expressions renders nothing, so the deck
+    // count and its "· N sections" read "1,100· 22 sections".
+    const deckRow = (read('src/components/AnkiImportModal.tsx').match(/\{num\(d\.count\)\}[\s\S]{0,800}?·\x20\{\{stages\}\} sections/) || [''])[0];
+    check('the import preview puts a space between a deck\'s count and its sections',
+        deckRow !== '' && /\{num\(d\.count\)\}[\s\S]*?(?:' '|\{' '\}|\{" "\})[\s\S]*?t\("· \{\{stages\}\}/.test(deckRow), deckRow.slice(0, 160));
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));
