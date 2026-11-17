@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import ReadAloudButton from '../ui/ReadAloudButton';
+import ReadingLine from '../ui/ReadingLine';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
@@ -211,15 +213,19 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
     const release = useCallback(() => unmarkFeedCardDone(card.key), [unmarkFeedCardDone, card.key]);
     const { aside, setAside } = useSetAside(reportRef, card.key, !!reported, release);
     const read = done && !aside;
+    const bodyRef = useRef<HTMLDivElement>(null);
     const flag = reportRef && (
-        <ReportItem
-            itemRef={reportRef}
-            surface="lesson"
-            inStream
-            // Taken off the feed: the stream moves on past it.
-            onReported={() => { if (!done) setAside(); onDone(card.key); }}
-            className="-mt-1 -mr-1"
-        />
+        <span className="inline-flex items-center gap-1">
+            <ReadAloudButton target={bodyRef} className="-mt-1" />
+            <ReportItem
+                itemRef={reportRef}
+                surface="lesson"
+                inStream
+                // Taken off the feed: the stream moves on past it.
+                onReported={() => { if (!done) setAside(); onDone(card.key); }}
+                className="-mt-1 -mr-1"
+            />
+        </span>
     );
 
     return (
@@ -258,6 +264,8 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </p>
             )}
 
+            <ReadingLine>
+            <div ref={bodyRef}>
             <Markdown
                 content={body}
                 nodeId={card.nodeId}
@@ -271,6 +279,8 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 surface="feed-lesson"
                 onRepaired={(original, repaired) => repairFeedVisual(card.key, original, repaired)}
             />
+            </div>
+            </ReadingLine>
             </div>
 
             {/* Degradation path: with no AI-authored drill in the markdown, offer a

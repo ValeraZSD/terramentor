@@ -44,6 +44,7 @@ import type { TFunction } from 'i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import ReadAloudButton from './ui/ReadAloudButton';
 
 interface Props {
     open: boolean;
@@ -295,6 +296,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const feedFocusItemId = useStore(s => s.feedFocusItemId);
     const openProjectNode = useStore(s => s.openProjectNode);
     const addToast = useStore(s => s.addToast);
+    const readAloudOn = useStore(s => s.a11y.readAloud);
     const consumeAssistantPrefill = useStore(s => s.consumeAssistantPrefill);
     // The live background-task list (the TaskDock's own feed).
     const aiTasks = useStore(s => s.aiTasks);
@@ -1534,7 +1536,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     return (
                     <div key={m.id} className="space-y-4">
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
-                        <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'}>
+                        <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">
@@ -1587,7 +1589,8 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                         <Markdown
                                                             key={j}
                                                             content={shown}
-                                                            className="text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
+                                                            // `read-answer`: what Read aloud reads.
+                                                            className="read-answer text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
                                                             streaming={arriving && j === pieces.length - 1}
                                                             autoRepair={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
@@ -1691,13 +1694,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 are an instruction to this app, and mean
                                                 nothing anywhere else. */}
                                             {(body.trim() || prepared) && (
-                                                <div className="flex items-center">
+                                                <div className="flex items-center gap-1">
+                                                    <ReadAloudButton
+                                                        find={b => {
+                                                            // Every rendered piece of THIS answer, as one text.
+                                                            const parts = Array.from(b.closest('[data-read-turn]')?.querySelectorAll<HTMLElement>('.read-answer') ?? []);
+                                                            if (!parts.length) return null;
+                                                            const box = document.createElement('div');
+                                                            for (const p of parts) box.appendChild(p.cloneNode(true));
+                                                            return box;
+                                                        }}
+                                                        className="-ml-2"
+                                                    />
                                                     <CopyButton
                                                         text={readableAnswer(m.content, false, m.actions)}
                                                         label={tr("Copy answer")}
                                                         // The icon's own edge on the answer's: the
                                                         // button's padding indented it off the text.
-                                                        className="-ml-2"
+                                                        className={readAloudOn ? '' : '-ml-2'}
                                                         onFailed={() => addToast('error', tr("Could not copy"), tr("Your browser blocked clipboard access."))}
                                                     />
                                                 </div>
