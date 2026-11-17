@@ -180,7 +180,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                 />
                 <SettingRow
                     label={tr("Larger text and buttons")}
-                    hint={tr("Nothing is written smaller than normal text, and every button gets bigger so it is easier to press.")}
+                    hint={tr("Small text grows to normal size, and every button gets bigger so it is easier to press.")}
                     control={<Switch checked={a11y.largerUi} onChange={on => void setA11y('largerUi', on)} label={tr("Larger text and buttons")} />}
                 />
                 {([
