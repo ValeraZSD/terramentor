@@ -510,8 +510,11 @@ function reportProbeQuestion(undo, target) {
  * A question in a course mock that is still being answered leaves the server
  * without its key (server/mockExams.js): the report's preview and the report
  * itself keep that until the mock is finished. What is STORED stays whole, so
- * the report shows the key once the mock is over. The assistant's page
- * context withholds it the same way (server/pageContext.js).
+ * the report shows the key once the mock is over. These previews never draw a
+ * question's key on any screen (`ItemQuote` shows its stem), so withholding it
+ * here costs another surface nothing. The assistant's page context withholds
+ * it only for items the mock itself lists (server/pageContext.js), so the
+ * same question in a quiz keeps its key there.
  */
 export function isOpenMockRef(ref) {
     if (typeof ref !== 'string' || !ref.startsWith('q:')) return false;

@@ -91,6 +91,10 @@ export interface ScreenItem {
      *  item's feedback). Until it is, or an answer is, the server keeps the key
      *  from the assistant. */
     keyShown?: boolean;
+    /** Set by an open mock exam's own listing, whose questions the server
+     *  keeps keyless whatever else the entry says; the same question listed
+     *  by a quiz or the feed is not held back. */
+    surface?: 'mock';
 }
 
 /**
