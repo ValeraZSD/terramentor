@@ -697,6 +697,10 @@ console.log('\n--- the update banner stays off the controls --------------------
     ok('it is not anchored to the bottom of the screen', !/\bbottom-\S+/.test(wrapper) && !/paddingBottom/.test(prompt), wrapper);
     ok('it is anchored to the top, below the 3.5rem header',
         /\btop-0\b/.test(wrapper) && /paddingTop:\s*'calc\(3\.5rem \+ var\(--safe-top\)/.test(prompt), wrapper);
+    // Centred on the app column, like the task dock: centred on the window, it
+    // straddles a docked assistant and covers the start of its text.
+    ok('it stops at a docked assistant (right edge = --assistant-w), not the window edge',
+        /\bleft-0\b/.test(wrapper) && !/\binset-x-0\b/.test(wrapper) && /right:\s*'var\(--assistant-w, 0px\)'/.test(prompt), wrapper);
 }
 
 console.log('\n--- the container build can reach the plugins ------------------------');
