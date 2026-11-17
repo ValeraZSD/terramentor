@@ -699,10 +699,19 @@ rmSync(scratch, { recursive: true, force: true });
 
     // The deck page's statistics all come from one reload key.
     const dash = read('src/components/deck/DeckDashboard.tsx');
+    // The tag is cut out whole (an arrow's ">" ends no tag here), so the order
+    // of its props does not matter.
+    const panelTag = dash.match(/<CardsPanel\b[\s\S]*?\/>/)?.[0] ?? '';
     check('Refresh on the deck page reaches the cards panel it contains',
-        /<CardsPanel[^>]*\breloadKey=\{reloadKey\}/.test(dash));
+        /\breloadKey=\{reloadKey\}/.test(panelTag));
     check('a session ending in the cards panel refreshes the page header',
-        /<CardsPanel[^>]*\bonSessionEnd=\{\(\) => setReloadKey\(/.test(dash));
+        /\bonSessionEnd=\{\(\) => setReloadKey\(/.test(panelTag));
+    // The receiving end: the panel recounts when the key moves, and says so
+    // when a session closes. Without these the props above would go nowhere.
+    check('the cards panel recounts when its reloadKey moves',
+        /useEffect\(\(\) => \{[^}]*seenReloadKey\.current === reloadKey[^}]*load\(\{ silent: true \}\)[^}]*\}, \[reloadKey, load\]\)/.test(panel));
+    check('...and tells the page when a session ends',
+        /const endSession = \(\) => \{[\s\S]*?onSessionEnd\?\.\(\)/.test(panel));
 
     // The strip's block name is the stage list's sentence, translated.
     const strip = read('src/components/deck/DeckStageStrip.tsx');
