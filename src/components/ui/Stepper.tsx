@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cx, FOCUS_RING } from './vocabulary';
@@ -30,10 +31,27 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
  * The native spinner is hidden on purpose: its arrows are 6px, invisible until
  * hover, and drawn by the OS so they ignore the theme. Typing still works, and
  * ↑/↓ in the field step by `step` because it is still a number input.
+ *
+ * While the field is being typed in it shows what was typed, empty or partial
+ * ("4" on the way to 45 under a minimum of 5), and only a number already inside
+ * min..max is passed on. Clamping every keystroke rewrote the digit as it was
+ * typed. Leaving the field or pressing Enter clamps; an empty field goes back
+ * to the last value.
  */
 export default function Stepper({ value, min, max, step = 1, onChange, label, suffix, id, className }: Props) {
     const { t } = useTranslation();
     const set = (n: number) => onChange(clamp(n, min, max));
+    // What is typed in the field, null while it just shows `value`.
+    const [draft, setDraft] = useState<string | null>(null);
+    // A value that came from anywhere but the typing (the arrows, the parent)
+    // replaces what was typed.
+    useEffect(() => { setDraft(d => (d !== null && d.trim() !== '' && Number(d) === value ? d : null)); }, [value]);
+    const nudge = (n: number) => { setDraft(null); set(n); };
+    const commit = () => {
+        const n = draft === null || draft.trim() === '' ? NaN : Number(draft);
+        setDraft(null);
+        if (!Number.isNaN(n) && clamp(n, min, max) !== value) set(n);
+    };
     const arrow = cx(
         'grid w-9 shrink-0 place-items-center text-slate-500 dark:text-slate-400 transition-colors',
         'can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700 can-hover:hover:text-slate-900 dark:can-hover:hover:text-white',
@@ -48,7 +66,7 @@ export default function Stepper({ value, min, max, step = 1, onChange, label, su
                 className,
             )}
         >
-            <button type="button" onClick={() => set(value - step)} disabled={value <= min}
+            <button type="button" onClick={() => nudge(value - step)} disabled={value <= min}
                 aria-label={t("Less: {{setting}}", { setting: label })} className={cx(arrow, 'border-r border-slate-200 dark:border-slate-700')}>
                 <Minus className="w-4 h-4" aria-hidden="true" />
             </button>
@@ -59,8 +77,15 @@ export default function Stepper({ value, min, max, step = 1, onChange, label, su
                     inputMode="numeric"
                     aria-label={label}
                     min={min} max={max} step={step}
-                    value={value}
-                    onChange={e => { const n = Number(e.target.value); if (!Number.isNaN(n)) set(n); }}
+                    value={draft ?? value}
+                    onChange={e => {
+                        const text = e.target.value;
+                        setDraft(text);
+                        const n = Number(text);
+                        if (text.trim() !== '' && n >= min && n <= max) onChange(n);
+                    }}
+                    onBlur={commit}
+                    onKeyDown={e => { if (e.key === 'Enter') commit(); }}
                     className={cx(
                         'w-14 h-full bg-transparent border-0 text-center text-sm font-medium tabular-nums',
                         'text-slate-900 dark:text-white outline-none',
@@ -74,7 +99,7 @@ export default function Stepper({ value, min, max, step = 1, onChange, label, su
                     </span>
                 )}
             </div>
-            <button type="button" onClick={() => set(value + step)} disabled={value >= max}
+            <button type="button" onClick={() => nudge(value + step)} disabled={value >= max}
                 aria-label={t("More: {{setting}}", { setting: label })} className={cx(arrow, 'border-l border-slate-200 dark:border-slate-700')}>
                 <Plus className="w-4 h-4" aria-hidden="true" />
             </button>

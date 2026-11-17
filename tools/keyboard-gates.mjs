@@ -80,6 +80,17 @@ check('the tree row’s ⋮ menu is a MenuPopover anchored to its button (Escape
 const card = read('src/components/ProjectCard.tsx');
 check('the project card’s ⋮ menu is a MenuPopover anchored to its ⋮',
     /<MenuPopover\b[^<]*?anchorRef=\{menuBtnRef\}/.test(card) && !/createPortal\(/.test(card));
+{
+    // `roving={false}` strips the `menuitem` role the popover's arrow keys look
+    // for, so a doc that sends a MenuPopover menu's rows there would break it.
+    const popoverSrc = read('src/components/ui/Popover.tsx');
+    const menuItemDoc = /\/\*\*[^]*?\*\/\s*export function MenuItem\b/.exec(popoverSrc)?.[0] ?? '';
+    check('no caller passes `roving={false}` to a menu row',
+        !/<MenuItem\b[^>]*\broving=\{false\}/.test([card, dropdown, esb, popoverSrc].join('\n')));
+    check('MenuItem’s doc does not send a MenuPopover menu (DropdownMenu, the project card) to `roving={false}`',
+        menuItemDoc.includes('roving') && !/hand-placed[^]*?`DropdownMenu`/.test(menuItemDoc) && !/`DropdownMenu`'s\)[^]*?roving=\{false\}/.test(menuItemDoc),
+        menuItemDoc ? 'the comment still calls them hand-placed menus without arrow keys' : 'MenuItem doc comment not found');
+}
 
 section('a modal dialog owns Tab and Escape once, through one hook');
 {
@@ -243,7 +254,18 @@ await esbuild.build({
             import { createRoot } from 'react-dom/client';
             import * as keys from './src/utils/escapeKey';
             import { placePopover, MenuPopover, MenuItem } from './src/components/ui/Popover';
+            import Stepper from './src/components/ui/Stepper';
             globalThis.__keys = keys;
+            globalThis.__mountStepper = (el, props) => {
+                const r = createRoot(el);
+                const calls = [];
+                function Host() {
+                    const [value, setValue] = React.useState(props.value);
+                    return React.createElement(Stepper, { ...props, value, onChange: (n) => { calls.push(n); setValue(n); } });
+                }
+                React.act(() => r.render(React.createElement(Host)));
+                return { calls, unmount: () => React.act(() => r.unmount()) };
+            };
             globalThis.__place = placePopover;
             globalThis.__act = (fn) => React.act(fn);
             globalThis.__mountMenu = (el) => {
@@ -461,6 +483,45 @@ check('the first row is focused only once the menu is placed (hidden refuses foc
 m.render(false);
 check('closed, it leaves nothing in the body', !doc.querySelector('[role="menu"]'));
 m.unmount();
+
+section('a stepper’s number field can be cleared and typed in; it clamps on leaving or Enter');
+{
+    // Under a minimum of 5, typing 45 passes through "4". Clamping every
+    // keystroke turned that 4 into 5 and the next digit made 55.
+    const sHost = doc.createElement('div'); doc.body.append(sHost);
+    const s = globalThis.__mountStepper(sHost, { value: 30, min: 5, max: 120, step: 5, label: 'Minutes allowed' });
+    const field = sHost.querySelector('input');
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    const type = (text) => globalThis.__act(() => { setValue.call(field, text); field.dispatchEvent(new window.Event('input', { bubbles: true })); });
+    const leave = () => globalThis.__act(() => { field.focus(); field.blur(); });
+    const enter = () => globalThis.__act(() => { field.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+    const press = (name) => globalThis.__act(() => { sHost.querySelector(`button[aria-label*="${name}"]`).click(); });
+
+    type('');
+    check('clearing the field leaves it empty (not rewritten to the minimum)', field.value === '', JSON.stringify(field.value));
+    check('…and tells the parent nothing yet', s.calls.length === 0, JSON.stringify(s.calls));
+    leave();
+    check('leaving it empty puts the last value back', field.value === '30' && s.calls.length === 0, `${field.value} / ${JSON.stringify(s.calls)}`);
+
+    type(''); type('4');
+    check('a digit below the minimum stays as typed while the field is being edited', field.value === '4', field.value);
+    type('45');
+    check('…so the next digit makes 45, not 55', field.value === '45' && s.calls.at(-1) === 45, `${field.value} / ${JSON.stringify(s.calls)}`);
+    leave();
+    check('leaving the field keeps the 45', field.value === '45' && s.calls.at(-1) === 45, `${field.value} / ${JSON.stringify(s.calls)}`);
+
+    type('4'); leave();
+    check('leaving it on a number below the minimum clamps to the minimum', field.value === '5' && s.calls.at(-1) === 5, `${field.value} / ${JSON.stringify(s.calls)}`);
+    type('500');
+    check('a number above the maximum is not passed on while typing', s.calls.at(-1) === 5 && field.value === '500', `${field.value} / ${JSON.stringify(s.calls)}`);
+    enter();
+    check('Enter clamps it to the maximum', field.value === '120' && s.calls.at(-1) === 120, `${field.value} / ${JSON.stringify(s.calls)}`);
+    type('');
+    press('Less');
+    check('an arrow replaces what was typed with the stepped value', field.value === '115' && s.calls.at(-1) === 115, `${field.value} / ${JSON.stringify(s.calls)}`);
+    s.unmount();
+    sHost.remove();
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
