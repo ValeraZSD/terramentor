@@ -272,9 +272,16 @@ section('8. larger text and buttons: one switch, two floors');
         .filter(f => !/data-larger-wraps/.test(read(f)));
     check('tree, outline and section titles wrap instead of being cut short',
         wraps.length === 0 && /html\[data-larger-ui\] \[data-larger-wraps\] \{\s*white-space: normal;/.test(css), wraps.join(', '));
-    check('only the tree row gives up its padding',
-        /data-sidebar-row/.test(read('src/components/Sidebar.tsx')) && /html\[data-larger-ui\] \[data-sidebar-row\] \{\s*padding-block: 0;/.test(css)
+    const sidebar = read('src/components/Sidebar.tsx');
+    check('only the tree row trims its padding, and keeps some between wrapped titles',
+        /data-sidebar-row/.test(sidebar) && /html\[data-larger-ui\] \[data-sidebar-row\] \{\s*padding-block: 0\.25rem;/.test(css)
         && !/html\[data-larger-ui\] \[data-node-id\]/.test(css));
+    // A chapter's fold button is 44px wide with the switch on; a topic's
+    // spacer stayed 20px, so topics slid left of their chapter.
+    check('a topic still sits under its chapter: the spacer is as wide as the fold button',
+        /<span data-fold-spacer className="w-5 shrink-0" \/>/.test(sidebar) && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
+    check('the course tree is wide enough for two 44px buttons and a title',
+        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: 17\.5rem;/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));

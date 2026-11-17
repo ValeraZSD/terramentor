@@ -468,14 +468,23 @@ html[data-larger-ui] :is(
 }
 /* A title in a narrow list (the course tree, the outline) wraps instead of
    being cut short: the larger text would otherwise leave "The night ..." of
-   a title and nothing to tell two rows apart. The tree row's own padding goes,
-   since its 44px controls already make it tall enough. */
+   a title and nothing to tell two rows apart. The tree row keeps a little
+   padding so wrapped titles in neighbouring rows do not run together; a
+   topic's spacer takes the fold button's width, so it still sits under its
+   chapter; and the course tree is at least 17.5rem wide, since two 44px
+   buttons stand before every title. */
 html[data-larger-ui] [data-larger-wraps] {
   white-space: normal;
   overflow-wrap: break-word;
 }
 html[data-larger-ui] [data-sidebar-row] {
-  padding-block: 0;
+  padding-block: 0.25rem;
+}
+html[data-larger-ui] [data-fold-spacer] {
+  width: var(--target-floor);
+}
+html[data-larger-ui] [data-course-sidebar] {
+  min-width: 17.5rem;
 }
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */

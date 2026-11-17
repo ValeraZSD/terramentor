@@ -170,7 +170,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         }
                     </button>
                 ) : (
-                    <span className="w-5 shrink-0" />
+                    <span data-fold-spacer className="w-5 shrink-0" />
                 )}
 
                 {isRoot && (
@@ -470,6 +470,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     return (
         <div
             ref={sidebarRef}
+            data-course-sidebar={isDrawer ? undefined : ''}
             className={`bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
             style={isDrawer ? undefined : { width: sidebarWidth }}
             tabIndex={0}
