@@ -57,8 +57,12 @@ export const SEARCH_BACKENDS = {
  * settings routes refuse them. */
 export const SECRET_SEARCH_KEYS = Object.values(SEARCH_BACKENDS).map(b => b.setting);
 
+// Own keys only: a name from a URL ("constructor", "__proto__") finds an
+// object on the prototype chain, which is no backend and has no key row.
+const backendOf = (provider) => (Object.hasOwn(SEARCH_BACKENDS, provider) ? SEARCH_BACKENDS[provider] : null);
+
 function getBackendKey(provider) {
-    const backend = SEARCH_BACKENDS[provider];
+    const backend = backendOf(provider);
     if (!backend) return null;
     return getSecret(backend.setting).trim() || null;
 }
@@ -74,7 +78,7 @@ export function searchKeysStatus() {
  * button's word, the same convention as /api/ai/key. The value is never read
  * back: the caller learns only that it is saved. */
 export function setSearchBackendKey(provider, key) {
-    const backend = SEARCH_BACKENDS[provider];
+    const backend = backendOf(provider);
     if (!backend) throw new Error(`Unknown search backend: ${provider}`);
     const trimmed = String(key || '').trim();
     setSecret(backend.setting, trimmed);
@@ -148,11 +152,17 @@ export function jinaParse(data) {
 /** Brave's base plan is 1 request per second — a queue, not a hope. */
 const braveQueue = makeThrottledQueue(1100);
 
-function makeThrottledQueue(spacingMs) {
+/** Tasks run one at a time, each starting at least `spacingMs` after the one
+ *  before it STARTED: the first goes at once, and a task that itself took a
+ *  while does not wait a second time. */
+export function makeThrottledQueue(spacingMs) {
     let chain = Promise.resolve();
+    let lastStart = -Infinity;
     return function enqueue(task) {
         const p = chain.then(async () => {
-            await new Promise(r => setTimeout(r, spacingMs));
+            const wait = lastStart + spacingMs - performance.now();
+            if (wait > 0) await new Promise(r => setTimeout(r, wait));
+            lastStart = performance.now();
             return task();
         });
         chain = p.catch(() => { });
@@ -258,8 +268,9 @@ const TEST_QUERY = 'encyclopedia';
  * be wrong yet, which is a different thing to say than "not connected".
  */
 export async function testSearchBackend(provider) {
-    const run = { tavily: tavilySearch, brave: braveSearch, jina: jinaSearch }[provider];
-    if (!run) throw new Error(`Unknown search backend: ${provider}`);
+    const searches = { tavily: tavilySearch, brave: braveSearch, jina: jinaSearch };
+    if (!Object.hasOwn(searches, provider)) throw new Error(`Unknown search backend: ${provider}`);
+    const run = searches[provider];
     if (!getBackendKey(provider)) return { configured: false, ok: false };
     try {
         const results = await run(TEST_QUERY, 1);
