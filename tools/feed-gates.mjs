@@ -401,6 +401,11 @@ check('greek agrees with itself', sameAnswer('Ελλάδα', 'Ελλάδα'), tr
 // a different comparison operator or an arrow's other direction is a different
 // answer, and refusing the question for it throws away a good distractor set.
 console.log('\n--- sameOptionCased: when two options are the same choice ---');
+// Every "different options" row fails on the comparison these replaced (case
+// folded everywhere, `\times10` read with or without a caret), except the two
+// pins `i < 5`/`i <= 5` and the reversible arrow, which passed before as well.
+// The "one option" rows and the case-folded rows below pass before and after:
+// they pin what must not change.
 for (const [a, b, why] of [
     ['$\\Delta x$', '$\\delta x$', 'a capital and a small Greek letter'],
     ['5 MW', '5 mW', 'mega and milli'],
@@ -414,6 +419,7 @@ for (const [a, b, why] of [
     ['MPa pressure', 'mPa pressure', 'mega and milli pascal, with a word after them'],
     ['MHz signal', 'mHz signal', 'mega and milli hertz, with a word after them'],
     ['$\\Delta \\theta$', '$\\delta \\theta$', 'two long words in a formula are still a formula'],
+    ['$2$', '$2 \\times 100$', 'a times sign with no power is a product, not an exponent'],
 ]) check(`${a} and ${b} are different options (${why})`, sameOptionCased(a, b), false);
 for (const [a, b, why] of [
     ['$x = 1.5$', '$x = \\frac{3}{2}$', 'a decimal and its fraction under one label'],
@@ -436,6 +442,10 @@ check('folding case does not equate two values under different labels', sameOpti
     const wordy = '$\\Delta x_{\\text{max}} + \\Delta y_{\\text{max}}$';
     check('the key-shape check still finds a key that differs from its option only by case',
         keyIsLengthOutlier([wordy, '$x$', '$y$', '$z$'], wordy.toLowerCase()), true);
+    // ...and a distractor that differs from the key only by case still counts as
+    // a distractor of the same length, so the key is no outlier.
+    check('a case-variant distractor as long as the key keeps it from being a length outlier',
+        keyIsLengthOutlier([wordy, wordy.toLowerCase(), '$x$', '$y$'], wordy), false);
 }
 check('a comparison is no label: i <= 5 reads as no value', optionValue('i <= 5'), null);
 check('a label still gives its value', optionValue('$x = \\frac{3}{2}$'), 1.5);

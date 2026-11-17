@@ -63,7 +63,7 @@ function readOption(option) {
         label = whole.slice(0, at);
         s = whole.slice(at + 1);
     }
-    s = s.toLowerCase().replace(/\\times10\^?\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
+    s = s.toLowerCase().replace(/\\times10\^\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
     const frac = /^\(?([+-]?\d*\.?\d+)\)?\/\(?([+-]?\d*\.?\d+)\)?$/.exec(s);
     if (frac) {
         const denominator = parseFloat(frac[2]);
@@ -289,7 +289,10 @@ export function keyIsLengthOutlier(options, correctAnswer) {
     if (opts.length < 3) return false;
     const key = String(correctAnswer ?? '').trim();
     if (key.length < 24) return false;
-    const others = opts.filter(o => !sameOption(o, correctAnswer)).map(o => String(o ?? '').trim().length);
+    // Only the key's own option is left out: a distractor that differs from it
+    // by case is a different choice, and its length counts.
+    const keyIndex = keyIndexOf(opts, correctAnswer);
+    const others = opts.filter((_, i) => i !== keyIndex).map(o => String(o ?? '').trim().length);
     if (others.length < 2) return false;
     const longest = Math.max(...others);
     return key.length >= longest * 1.6 && key.length - longest >= 25;
