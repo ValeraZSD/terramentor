@@ -397,9 +397,9 @@ try {
 
     await block('9. the running clock keeps its hours and minutes on one line', async () => {
         const screen = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'MockSittingScreen.tsx'), 'utf8');
-        check('the time is drawn apart from "left", unbroken and sized to the card',
-            /<ClockLeft text=\{t\("\{\{time\}\} left", \{ time: CLOCK_SLOT \}\)\}/.test(screen)
-                && /className="whitespace-nowrap[^"]*cqi[^"]*">\{time\}</.test(screen));
+        const clock = screen.slice(screen.indexOf('function ClockLeft'));
+        check('"Time left" sits on its own line and the time on the next, unbroken and sized to the card',
+            /<p [^>]*>\{t\("Time left"\)\}<\/p>\s*<p className="[^"]*whitespace-nowrap[^"]*cqi[^"]*">\{time\}<\/p>/.test(clock));
     });
 } finally {
     server.close();

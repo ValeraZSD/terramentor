@@ -245,7 +245,6 @@
   "{{steps}} finished": "{{steps}} 件完了",
   "{{thinkingChars}} characters of reasoning so far_other": "これまでに{{thinkingChars}}文字の推論",
   "{{time}} ago": "{{time}}前",
-  "{{time}} left": "残り {{time}}",
   "{{time}} studied": "{{time}} 学習",
   "{{times}} times the standard speed_other": "標準の{{times}}倍速",
   "{{title}} — {{pointerVerb}} to rename": "{{title}} — 名前を変更するには{{pointerVerb}}",
