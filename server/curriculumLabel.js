@@ -19,20 +19,31 @@
 // title stands, and the words that survive are always the author's own. A label
 // that reads oddly beats a label that is gone.
 
+const KEYWORDS = '(?:module|phase|part|chapter|unit|lesson|week|day|section|domain|stage|step|topic|deel|hoofdstuk|les)';
+// What may follow a position label: a colon, a long dash, or a hyphen with a
+// space on at least one side. A bare hyphen is a hyphenated name, not a
+// separator: "3-Phase Power Systems" and "2-Factor Authentication" stay whole.
+const SEPARATOR = '(?:\\s*[:–—]|\\s+-|-\\s)\\s*';
+
 const NUMBERING = [
     // "Module 9.5: …", "Phase 2 — …", "Week 3: …", "Domain C1: …"
-    /^(module|phase|part|chapter|unit|lesson|week|day|section|domain|stage|step|topic|deel|hoofdstuk|les)\s+[\w.]{1,8}\s*[:\-–—]\s*/i,
+    // The word after the keyword must be a NUMBER or a one-letter label ("3",
+    // "9.5", "C1", "A"), never an ordinary word: "Unit Tests: Writing Good
+    // Ones" and "Day Trading - Risk" are names, not positions. A Roman numeral
+    // is matched in capitals only, so "Lesson Mix: Rhythm" is not read as 1009.
+    new RegExp(`^${KEYWORDS}\\s+(?:\\d[\\w.]{0,7}|[A-Za-z]\\d{1,2}|[A-Za-z])${SEPARATOR}`, 'i'),
+    new RegExp(`^${KEYWORDS.replace(/[a-z]/g, c => `[${c}${c.toUpperCase()}]`)}\\s+[IVXLCDM]{1,8}\\.?${SEPARATOR}`),
     // "4.2.1: …", "1.2 — …", "3) …"
     // The separator class deliberately excludes "." — with a dot in it, "10.2
     // Highway Driving" matched as 10 + "." and came out as "2 Highway Driving".
-    /^\d+(\.\d+)*\s*[:)\-–—]\s*/,
+    /^\d+(\.\d+)*(?:\s*[:)–—]|\s+-|-\s)\s*/,
     // "1. Introduction", "3.2. Foo" — a dot that ENDS the numbering.
     /^\d+(\.\d+)*\.\s+/,
     // "13.2 Coach Period" — bare dotted numbering, no separator. Requires the
     // dot, so a title that opens with a plain number ("12 Angry Men") is safe.
     /^\d+(\.\d+)+\s+/,
     // "D3 — …", "A2: …"
-    /^[A-Z]\d{1,2}\s*[:\-–—]\s*/,
+    new RegExp(`^[A-Z]\\d{1,2}${SEPARATOR}`),
 ];
 const MIN_LABEL_CHARS = 3;
 
