@@ -224,7 +224,8 @@ if (packaged && (chosen.why === 'user' || chosen.why === 'pointer')) {
  * window — started by a login item, or by the tray host, which reads this
  * stream. Printing it and exiting would be an app that does nothing and says
  * nothing; the tray host turns this line into a message box. Everything else
- * still reads it in logs/app.log. */
+ * still reads it in logs/app.log, except a missing library's stop, which opens
+ * no log (see `launcherLogFile`) and reaches only the console and this box. */
 function fatal(message, code = 2) {
     // A version on trial after an update (its swap journal is still there and
     // the updater is waiting for it) does not put up the tray's message box:

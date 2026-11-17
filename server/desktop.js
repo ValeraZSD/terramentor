@@ -201,6 +201,10 @@ export const IDLE_MS = 90_000;
 /** After an explicit goodbye the check runs sooner — a reload sends a goodbye
  *  and a new ping within a second, a real close sends only the goodbye. */
 export const BYE_GRACE_MS = 6_000;
+/** How long a server nobody has connected to waits for its first window. A cold
+ *  Chromium start on a slow disk is ten seconds, so this is generous already,
+ *  and it is its own number: it does not follow the idle limit. */
+export const FIRST_WINDOW_MS = 180_000;
 
 /**
  * Decide whether an idle desktop server should stop. A pure function of the
@@ -215,7 +219,7 @@ export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBy
         // No page ever loaded. Give the browser a real chance — a cold Chromium
         // start on a slow disk is ten seconds — and then conclude the window
         // never came.
-        return now - startedAt > 4 * IDLE_MS;
+        return now - startedAt > FIRST_WINDOW_MS;
     }
     if (lastBye && lastBye >= lastPing) return now - lastBye > BYE_GRACE_MS;
     return now - lastPing > IDLE_MS;

@@ -402,7 +402,10 @@ console.log('\n--- when the server stops itself ---');
     const t0 = 1_000_000;
     const base = { startedAt: t0, lastPing: 0, everConnected: false, lastBye: 0, keepRunning: false };
     ok('just started, no window yet: keep waiting', !shouldShutDown({ ...base, now: t0 + IDLE_MS }));
-    ok('no window ever came: give up after 4 idle periods', shouldShutDown({ ...base, now: t0 + 4 * IDLE_MS + 1 }));
+    // The wait for a first window is its own number, three minutes, and does not
+    // follow the idle limit.
+    ok('no window ever came: give up after three minutes', shouldShutDown({ ...base, now: t0 + 180_000 + 1 }));
+    ok('…and not before', !shouldShutDown({ ...base, now: t0 + 180_000 - 1 }));
     const live = { ...base, everConnected: true, lastPing: t0 + 60_000 };
     ok('pinging: stay', !shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS - 1 }));
     ok('silent past IDLE_MS: stop', shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS + 1 }));
@@ -1557,10 +1560,14 @@ console.log('\n--- the icon the operating system reads ---');
         // and the last choice made is the one left on disk.
         let active = 0;
         let overlapped = false;
+        // The first write is the slowest, so a write that skipped the queue would
+        // finish last and leave the oldest choice on disk.
+        const delays = [90, 30, 0];
+        let started = 0;
         const slow = async (p, data) => {
             active++;
             if (active > 1) overlapped = true;
-            await new Promise((r) => setTimeout(r, 60));
+            await new Promise((r) => setTimeout(r, delays[started++] ?? 0));
             await writeFile(p, data);
             active--;
         };
@@ -1569,6 +1576,18 @@ console.log('\n--- the icon the operating system reads ---');
         ok('quick refreshes write one at a time', overlapped === false);
         ok('…and the last one asked for is on disk',
             readFileSync(scratch).equals(await icoFor(steps[2])));
+
+        // The slider can also go back to the picture already on disk while a
+        // newer one is still being written: the answer to that request is not
+        // "unchanged", because the write in flight is about to replace it.
+        const onDisk = { ...a, radius: 30 };
+        delays.push(80, 0);
+        const away = refreshDesktopIcon({ ...a, radius: 40 }, { env, write: slow });
+        await new Promise((r) => setTimeout(r, 15));
+        const back = refreshDesktopIcon(onDisk, { env, write: slow });
+        await Promise.all([away, back]);
+        ok('moving away and straight back leaves the picture asked for last',
+            readFileSync(scratch).equals(await icoFor(onDisk)));
         rmSync(scratch, { force: true });
     }
 

@@ -76,11 +76,12 @@ export async function refreshDesktopIcon(icon, { env = process.env, write = writ
     const path = desktopIconPath(env);
     if (!path) return { written: false, why: 'not a desktop install' };
     const hash = appIconHash(icon);
-    if (hash === writtenHash) return { written: false, why: 'unchanged' };
     const previous = inFlight;
     const run = (async () => {
         if (previous) await previous.catch(() => {});
-        // The call before this one may have put this very picture on disk.
+        // Decided only once every earlier write is done: `writtenHash` is the
+        // last FINISHED write, and a write still in flight is about to replace
+        // it, so asking for the picture on disk right now is not "unchanged".
         if (hash === writtenHash) return { written: false, why: 'unchanged' };
         const ico = await icoFor(icon);
         // Byte-compare before writing. A tray icon is read at launch, so a

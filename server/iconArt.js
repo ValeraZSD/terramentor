@@ -302,13 +302,17 @@ export function iconContrast(background) {
  *
  * FNV-1a over the normalised triple — not a cryptographic hash and not trying
  * to be: it is a cache key whose only job is to differ when the picture differs.
- * The drawing's own data is part of what it hashes: the URL is cached for a
- * year, so an update that redraws the mark under the same three choices has to
- * change the URL too, or an installed app keeps the old picture.
+ * The drawing is part of what it hashes: the URL is cached for a year, so an
+ * update that redraws the mark under the same three choices has to change the
+ * URL too, or an installed app keeps the old picture. The mark itself, as
+ * `markArt` draws it, stands for the art data, the book's placement and the
+ * rounding; the variants' geometry, the two inks and the no-grid line weight
+ * are the other inputs `appIconSvg` adds to it.
  */
 export function appIconHash(icon) {
     const { style, background, radius } = normalizeAppIcon(icon);
-    const s = `${style}|${background}|${radius}|${JSON.stringify([ART, BOOK, PAGE_POINTS, VARIANT_GEOMETRY])}`;
+    const drawing = JSON.stringify([VARIANT_GEOMETRY, INK_LIGHT, INK_DARK, NO_GRID_STROKE]);
+    const s = `${style}|${background}|${radius}|${markArt()}|${drawing}`;
     let h = 0x811c9dc5;
     for (let i = 0; i < s.length; i++) {
         h ^= s.charCodeAt(i);
@@ -334,6 +338,9 @@ export function appIconHash(icon) {
  *              itself. Rounding here would be rounded twice, unevenly.
  */
 export const ICON_VARIANTS = ['favicon', 'tile', 'maskable'];
+
+/** The line gets this much heavier when the grid is dropped. */
+const NO_GRID_STROKE = 1.2;
 
 const VARIANT_GEOMETRY = {
     favicon: { inset: 0, d: 44, stroke: 3.4, gridFloor: 20, rounded: true },
@@ -363,7 +370,7 @@ export function appIconSvg(icon, variant = 'tile', size = 64) {
     const grid = style === 'full' && size >= (geo.gridFloor || 0);
     // The cut that drops the grid carries the heavier line the grid's absence
     // asks for — thin lines with nothing between them read as a sketch.
-    const stroke = geo.stroke * (grid ? 1 : 1.2);
+    const stroke = geo.stroke * (grid ? 1 : NO_GRID_STROKE);
     const art = markArt({ d: geo.d, stroke, grid, paper: background, ink });
     const tile = `<rect x="${f(geo.inset)}" y="${f(geo.inset)}" width="${f(width)}" height="${f(width)}"`
         + ` rx="${f(rx)}" fill="${background}"/>`;

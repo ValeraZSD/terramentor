@@ -70,7 +70,8 @@ globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // Retries wait seconds; here they run at once. The heartbeat's interval never fires.
 const realSetTimeout = globalThis.setTimeout;
-globalThis.setTimeout = (fn, _ms, ...args) => realSetTimeout(fn, 0, ...args);
+const waits = [];
+globalThis.setTimeout = (fn, ms, ...args) => { waits.push(ms); return realSetTimeout(fn, 0, ...args); };
 globalThis.setInterval = () => 0;
 
 let pass = 0, fail = 0;
@@ -84,6 +85,7 @@ const settle = () => new Promise((r) => realSetTimeout(r, 50));
 async function run(failures) {
     globalThis.__api = { calls: 0, pings: 0, failures };
     globalThis.__status = undefined;
+    waits.length = 0;
     const out = join(scratch, `harness-${failures}.mjs`);
     await esbuild.build({
         entryPoints: [entry], bundle: true, format: 'esm', platform: 'browser', target: 'es2020', jsx: 'automatic',
@@ -97,7 +99,7 @@ async function run(failures) {
     const root = createRoot(host);
     await React.act(async () => { root.render(React.createElement(Probe)); });
     for (let i = 0; i < 20; i++) await React.act(settle);
-    const result = { ...globalThis.__api, status: globalThis.__status };
+    const result = { ...globalThis.__api, status: globalThis.__status, waits: [...waits] };
     await React.act(async () => root.unmount());
     return result;
 }
@@ -111,7 +113,11 @@ try {
 
     console.log('\n-- a probe that never answers');
     const never = await run(100);
-    check('it is asked a bounded number of times', never.calls > 1 && never.calls <= 10, JSON.stringify(never));
+    check('it is asked six times in all', never.calls === 6, JSON.stringify(never));
+    // The waits are what keeps a server that is still starting from being asked
+    // six times in one second: each one is longer than the last, 2 s to 10 s.
+    check('…waiting 2, 4, 6, 8 and 10 s between the tries',
+        JSON.stringify(never.waits) === JSON.stringify([2000, 4000, 6000, 8000, 10000]), JSON.stringify(never.waits));
     check('then the page settles on "not a desktop process"', never.status?.desktop === false, JSON.stringify(never.status));
     check('and sends no ping', never.pings === 0, JSON.stringify(never));
 } finally {

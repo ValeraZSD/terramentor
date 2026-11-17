@@ -115,6 +115,12 @@ ok('and an equivalent spelling does not', h({ background: ' #000 ' }) === h({}))
     ART.globe = drawn;
     ok('and a redrawn mark moves it', after !== before);
     ok('…back to the old drawing, back to the old name', h({}) === before);
+    // What the drawing reads that no gate can reach into and change (the two
+    // inks and the no-grid line weight are module constants) is named in the
+    // hash's source, so a redraw by editing one of them moves the URL as well.
+    const hashSource = appIconHash.toString();
+    ok('and the inks, the line weight and the variants\' geometry are in it',
+        ['INK_LIGHT', 'INK_DARK', 'NO_GRID_STROKE', 'VARIANT_GEOMETRY', 'markArt('].every((n) => hashSource.includes(n)));
 }
 
 // -------------------------------------------------------- 3. the pictures ----
