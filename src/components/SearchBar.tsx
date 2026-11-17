@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
-import { modShortcut, usePhysicalKeyboard } from '../utils/platform';
+import { isAppleOS, modShortcut, usePhysicalKeyboard } from '../utils/platform';
 import { shortcutLetter } from '../utils/escapeKey';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import type {
@@ -467,10 +467,14 @@ export default function SearchBar({ iconOnly }: { iconOnly?: boolean } = {}) {
             <Button
                 variant="subtle"
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsOpen(true); }}
-                aria-label={tr("Search")}
+                // The name is the visible words ("Search…" and, where it is
+                // drawn, the keycap), so a voice user can say what they see;
+                // the label stays for the icon-only button, which has none.
+                aria-label={hasKeyboard && !iconOnly ? `${tr("Search…")} ${modShortcut('K')}` : tr("Search…")}
+                aria-keyshortcuts={hasKeyboard ? (isAppleOS() ? 'Meta+K' : 'Control+K') : undefined}
                 icon={<Search className="w-4 h-4" aria-hidden="true" />}
                 trailing={hasKeyboard && !iconOnly
-                    ? <kbd className="px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-600 rounded">{modShortcut('K')}</kbd>
+                    ? <kbd aria-hidden="true" className="px-1.5 py-0.5 text-xs bg-slate-200 dark:bg-slate-600 rounded">{modShortcut('K')}</kbd>
                     : undefined}
                 className="touch:min-w-11"
             >

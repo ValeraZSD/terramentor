@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 import { TextArea } from '../ui/Field';
+import { FOCUS_RING } from '../ui/vocabulary';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useElementWidth } from '../../hooks/useElementWidth';
 
@@ -1156,10 +1157,17 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 </div>
             )}
 
+            {/* A figure, not an image: an image's contents are hidden from a
+                screen reader, so a diagram's labels and a chart's caption were
+                lost under a nameless "image". Named by the brief's `Shows:` line
+                when it was drawn from one, else by its kind. Focusable, because
+                a wide one scrolls sideways on a phone. */}
             <div
                 ref={containerRef}
-                role="img"
-                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
+                role="figure"
+                aria-label={(sourceIsBrief && briefSummary(code)) || label}
+                tabIndex={status === 'ok' ? 0 : -1}
+                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${FOCUS_RING} ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
             />
 
             {/* A brief (or a widget spec) that is not built. Not an error and
