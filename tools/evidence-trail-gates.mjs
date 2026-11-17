@@ -238,7 +238,18 @@ try {
     const shakyQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(shakyTopic, 'Bank', JSON.stringify(bankQs)).lastInsertRowid);
     const shakyBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
     const uuidOf = (i) => shakyBank[i].uuid;
-    const answer = (i, correct, surface = 'feed', quiz = shakyQuiz) => logAsked([{ quizId: quiz, uuid: uuidOf(i), correct }], surface);
+    // Every logged answer is pinned to its own instant, a minute after the
+    // one before, so the order the reader sees is the fixture's, never the
+    // clock's (logAsked stamps NOW_ISO).
+    let minute = 0;
+    const pinNew = (fn) => {
+        const before = db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM question_log').get().m;
+        fn();
+        for (const { id } of db.prepare('SELECT id FROM question_log WHERE id > ? ORDER BY id').all(before)) {
+            db.prepare('UPDATE question_log SET asked_at = ? WHERE id = ?').run(new Date(Date.UTC(2026, 0, 1) + minute++ * 60_000).toISOString(), id);
+        }
+    };
+    const answer = (i, correct, surface = 'feed', quiz = shakyQuiz) => pinNew(() => logAsked([{ quizId: quiz, uuid: uuidOf(i), correct }], surface));
     t = await trail(shakyTopic);
     check('no answers logged: nothing is shaky (an empty list, not missing)', Array.isArray(t.shaky) && t.shaky.length === 0, JSON.stringify(t.shaky));
 
@@ -309,7 +320,7 @@ try {
         Array.from({ length: 21 }, (_, i) => ({ question: `Fringe ${i}?`, type: 'multiple_choice', options: ['A', 'B'], correct_answer: 'A' })),
     )).lastInsertRowid);
     const wideBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(wideQuiz).questions);
-    for (const q of wideBank) logAsked([{ quizId: wideQuiz, uuid: q.uuid, correct: false }, { quizId: wideQuiz, uuid: q.uuid, correct: false }], 'quiz');
+    for (const q of wideBank) pinNew(() => logAsked([{ quizId: wideQuiz, uuid: q.uuid, correct: false }, { quizId: wideQuiz, uuid: q.uuid, correct: false }], 'quiz'));
     t = await trail(wide);
     check('21 shaky questions: 20 listed, the count says 21', t.shaky?.length === 20 && t.shakyCount === 21, JSON.stringify({ n: t.shaky?.length, count: t.shakyCount }));
 
