@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { Check, Plus, Trash2, Upload } from 'lucide-react';
 import Modal from '../Modal';
 import { Button, IconButton } from '../ui/Button';
 import { Field, TextInput } from '../ui/Field';
@@ -50,10 +50,21 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
     const [paperDoc, setPaperDoc] = useState<number | null>(null);
     const [solutionDoc, setSolutionDoc] = useState<number | null>(null);
     const [parts, setParts] = useState<PartDraft[]>([{ key: 0, question: '1', part: 'a', points: 8, nodeId: null }]);
+    const [printed, setPrinted] = useState('');
+    const [docs, setDocs] = useState(documents);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
     const total = parts.reduce((a, p) => a + p.points, 0);
+    // The total printed on the paper, when typed, checks the table: a
+    // mistyped row shows here before the paper is added, not in a grade.
+    const printedTotal = /^\d+$/.test(printed.trim()) ? Number(printed.trim()) : null;
+    // Typed but not a whole number ("80 pts", "80,5"): said so, never skipped silently.
+    const printedBad = printed.trim() !== '' && printedTotal == null;
+    const mismatch = printedTotal != null && printedTotal !== total;
+    // An upload still running holds Add, so the paper is never saved without its file.
+    const [uploading, setUploading] = useState(0);
+    const onBusy = (on: boolean) => setUploading(n => n + (on ? 1 : -1));
     const edit = (key: number, patch: Partial<PartDraft>) => setParts(ps => ps.map(p => (p.key === key ? { ...p, ...patch } : p)));
     const add = (next: typeof nextPart) => setParts(ps => [...ps, next(ps[ps.length - 1], Math.max(...ps.map(x => x.key)) + 1)]);
 
@@ -62,7 +73,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
         setError(null);
         api.addExamPaper(projectId, {
             title, minutes, gradeMin, gradeMax, passGrade,
-            paperDocumentId: paperDoc, solutionDocumentId: solutionDoc,
+            paperDocumentId: paperDoc, solutionDocumentId: solutionDoc, printedTotal,
             parts: parts.map(({ question, part, points, nodeId }) => ({ question, part, points, nodeId })),
         })
             .then(onAdded)
@@ -70,11 +81,17 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             .finally(() => setBusy(false));
     };
 
-    const docSelect = (id: string, value: number | null, set: (v: number | null) => void) => (
-        <Select id={id} value={value == null ? '' : String(value)} onChange={v => set(v === '' ? null : Number(v))}>
-            <option value="">{t("None")}</option>
-            {documents.map(d => <option key={d.id} value={String(d.id)}>{d.title}</option>)}
-        </Select>
+    const docSelect = (id: string, uploadLabel: string, value: number | null, set: (v: number | null) => void) => (
+        <div className="flex gap-2">
+            <div className="flex-1 min-w-0">
+                <Select id={id} value={value == null ? '' : String(value)} onChange={v => set(v === '' ? null : Number(v))}>
+                    <option value="">{t("None")}</option>
+                    {docs.map(d => <option key={d.id} value={String(d.id)}>{d.title}</option>)}
+                </Select>
+            </div>
+            <UploadButton projectId={projectId} label={uploadLabel} onError={setError} onBusy={onBusy}
+                onUploaded={doc => { setDocs(ds => [...ds, doc]); set(doc.id); }} />
+        </div>
     );
 
     return (
@@ -86,7 +103,7 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
             footer={(
                 <>
                     <Button onClick={onClose}>{t("Cancel")}</Button>
-                    <Button variant="primary" busy={busy} disabled={!title.trim()} onClick={save}>{t("Add the paper")}</Button>
+                    <Button variant="primary" busy={busy} disabled={!title.trim() || mismatch || printedBad || uploading > 0} onClick={save}>{t("Add the paper")}</Button>
                 </>
             )}
         >
@@ -116,8 +133,8 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                     </p>
                 </div>
                 <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
-                    <Field label={t("The paper")}>{id => docSelect(id, paperDoc, setPaperDoc)}</Field>
-                    <Field label={t("Worked solution")}>{id => docSelect(id, solutionDoc, setSolutionDoc)}</Field>
+                    <Field label={t("The paper")}>{id => docSelect(id, t("Upload the paper"), paperDoc, setPaperDoc)}</Field>
+                    <Field label={t("Worked solution")}>{id => docSelect(id, t("Upload the worked solution"), solutionDoc, setSolutionDoc)}</Field>
                 </div>
 
                 <div>
@@ -150,9 +167,79 @@ export default function AddPaperDialog({ projectId, topics, documents, onClose, 
                         </div>
                         <span className="text-sm tabular-nums text-slate-600 dark:text-slate-300">{t("{{count}} points in total", { count: total })}</span>
                     </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <label htmlFor="paper-printed-total" className="text-sm text-slate-700 dark:text-slate-200">{t("Total printed on the paper")}</label>
+                        <TextInput id="paper-printed-total" inputMode="numeric" value={printed} onChange={e => setPrinted(e.target.value)}
+                            className="!w-20 text-center tabular-nums" aria-describedby="paper-printed-check" />
+                        <p id="paper-printed-check" aria-live="polite"
+                            className={`flex items-center gap-1.5 text-sm ${mismatch || printedBad ? 'text-amber-800 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'}`}>
+                            {printedBad ? t("Type the total as a whole number of points.") : printedTotal == null ? null : mismatch ? (
+                                total < printedTotal
+                                    ? t("{{count}} points are still missing from the questions above.", { count: printedTotal - total })
+                                    : t("The questions above have {{count}} points too many.", { count: total - printedTotal })
+                            ) : (
+                                <><Check className="w-4 h-4" aria-hidden="true" />{t("The questions above add up to this total.")}</>
+                            )}
+                        </p>
+                    </div>
                 </div>
                 {error && <p role="alert" className="text-sm text-amber-800 dark:text-amber-300">{error}</p>}
             </div>
         </Modal>
+    );
+}
+
+/**
+ * The kinds a browser shows by itself, which the server takes as a paper or its
+ * solution (server/mockExams.js SHOWN_KINDS). Checked on the file's name BEFORE
+ * the upload, since an uploaded file stays in the course's files.
+ */
+const PAPER_KINDS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+const paperKind = (name: string) => PAPER_KINDS.includes(name.split('.').pop()?.toLowerCase() ?? '');
+
+/**
+ * Upload the paper or its worked solution from here, into the course's own
+ * files, and pick it for the field it was uploaded from: no trip to the
+ * course's files and back with the dialog half filled.
+ */
+function UploadButton({ projectId, label, onUploaded, onError, onBusy }: {
+    projectId: number;
+    /** The button's full name ("Upload the paper"): two sit in the dialog, both reading "Upload". */
+    label: string;
+    onUploaded: (doc: MockExamList['documents'][number]) => void;
+    onError: (message: string | null) => void;
+    onBusy: (busy: boolean) => void;
+}) {
+    const { t } = useTranslation();
+    const input = useRef<HTMLInputElement>(null);
+    const [busy, setBusy] = useState(false);
+    const working = (on: boolean) => { setBusy(on); onBusy(on); };
+    const pick = (file: File | undefined) => {
+        if (!file) return;
+        onError(null);
+        const clear = () => { if (input.current) input.current.value = ''; };
+        if (!paperKind(file.name)) {
+            onError(t("Upload a PDF or a picture: those open in the browser beside your points."));
+            clear();
+            return;
+        }
+        working(true);
+        api.uploadDocumentFiles([file], { projectId })
+            .then(({ documents: [doc] }) => {
+                if (!doc?.ok) throw new Error(doc?.error || t("That file could not be read."));
+                if (!PAPER_KINDS.includes(doc.file_type ?? '')) throw new Error(t("Upload a PDF or a picture: those open in the browser beside your points."));
+                onUploaded({ id: doc.id, title: doc.title, fileType: doc.file_type! });
+            })
+            .catch(e => onError(e.message))
+            .finally(() => { working(false); clear(); });
+    };
+    return (
+        <>
+            <input ref={input} type="file" accept=".pdf,image/png,image/jpeg,image/webp" className="sr-only" tabIndex={-1} aria-hidden="true"
+                onChange={e => pick(e.target.files?.[0])} />
+            <Button busy={busy} aria-label={label} icon={<Upload className="w-4 h-4" aria-hidden="true" />} onClick={() => input.current?.click()}>
+                {t("Upload")}
+            </Button>
+        </>
     );
 }

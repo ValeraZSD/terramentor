@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -15,4 +15,28 @@ export function useDuration() {
         if (m === 0) return t("{{h}} h", { h });
         return t("{{h}} h {{m}}", { h, m: String(m).padStart(2, '0') });
     }, [t]);
+}
+
+/** Seconds left at which a hidden clock shows again, the way an invigilator calls the last five minutes. */
+export const REVEAL_AT = 300;
+
+/**
+ * "Hide the clock", kept per mock in this tab: a reload or a phone turned
+ * sideways keeps it hidden. With five minutes left it shows again by itself
+ * and cannot be hidden. Storage that refuses is no loss.
+ */
+export function useHiddenClock(sittingId: number, secondsLeft: number) {
+    const key = `mock-clock-hidden:${sittingId}`;
+    const [wanted, setWanted] = useState(() => {
+        try { return sessionStorage.getItem(key) === '1'; } catch { return false; }
+    });
+    const setHidden = useCallback((hide: boolean) => {
+        setWanted(hide);
+        try {
+            if (hide) sessionStorage.setItem(key, '1');
+            else sessionStorage.removeItem(key);
+        } catch { /* private mode: this tab only */ }
+    }, [key]);
+    const canHide = secondsLeft > REVEAL_AT;
+    return { hidden: wanted && canHide, canHide, setHidden };
 }
