@@ -182,6 +182,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                     <span className="w-4" />
                 )}
                 <button
+                    data-row-status
                     onClick={cycleStatus}
                     aria-label={isLeaf ? t("Cycle status of {{title}}", { title: node.title }) : undefined}
                     title={isLeaf && hoverCapable ? t("Click to cycle status · Shift-click to skip") : undefined}

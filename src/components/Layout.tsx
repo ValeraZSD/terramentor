@@ -377,6 +377,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* The first stop for Tab: past the header and its tab strip,
                 straight to the screen. Hidden until it has focus. */}
             <a
+                data-skip-link
                 href="#main-content"
                 onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}
                 className={`sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}

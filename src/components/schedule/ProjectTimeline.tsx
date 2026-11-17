@@ -179,7 +179,7 @@ export default function ProjectTimeline() {
                             <span className="w-6 shrink-0" />
                         )}
                         <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(row.status, late, row.readyToProve)}`} aria-hidden="true" />
-                        <button type="button" className={`min-w-0 flex-1 text-left rounded ${FOCUS_RING}`}
+                        <button type="button" data-row className={`min-w-0 flex-1 text-left rounded ${FOCUS_RING}`}
                             onClick={e => { e.stopPropagation(); selectNode(row.id); }}>
                             <span className={`block truncate text-sm ${late ? 'text-red-600 dark:text-red-400 font-medium' : 'text-slate-700 dark:text-slate-200'} ${row.hasChildren ? 'font-medium' : ''}`}>
                                 {row.title}
