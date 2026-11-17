@@ -73,8 +73,8 @@ const TABLE_LIST = [
     ['mastery_claims', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['source']) }],
     ['answer_attempts', { class: 'history', uuid: true, derive: D([], 'created_at', ['surface', 'attempt_id']) }],
     // One go at a past paper, and the points the learner gave each part.
-    ['mock_sittings', { class: 'history', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
-    ['mock_part_scores', { class: 'history', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],
+    ['mock_sittings', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
+    ['mock_part_scores', { class: 'content', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],
 
     // ---- counters ----------------------------------------------------------------------
     // Keyed by (topic, hour, activity, device): each device adds to its own row.
