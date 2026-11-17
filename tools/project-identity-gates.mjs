@@ -137,6 +137,10 @@ check('eleven words is not a name', P.cleanProposedName('один два три 
 check('an English name in a Russian project is refused', P.cleanProposedName('Thermodynamics basics', ru) === null);
 check('...but the same name in an English project passes', P.cleanProposedName('Thermodynamics basics', en) === 'Thermodynamics basics');
 check('a non-string is refused', P.cleanProposedName(null, en) === null && P.cleanProposedName(42, en) === null);
+check('a title that starts with the letter I is a name, not a first-person sentence',
+    ['I2C and SPI basics', 'I/O and Interrupts', 'I-beam statics'].every(n => P.cleanProposedName(n, en) === n));
+check('...while a first-person opening is still refused', ['I want to learn circuits', "I'd like to learn circuits", "I'm new to circuits"]
+    .every(n => P.cleanProposedName(n, en) === null));
 
 const goodDesc = 'Курс для начинающих: основы термодинамики, законы, циклы и примеры расчётов.';
 check('a good description passes', P.cleanProposedDescription(goodDesc, ru) === goodDesc);
