@@ -250,8 +250,10 @@ export function compareVersions(a, b) {
 /** How long an answer stands before the automatic check asks again. Once a day
  *  missed nightlies for most of a day and, measured on a timer that does not
  *  run while the computer sleeps, a laptop could go days without asking. An
- *  unchanged answer comes back as an empty 304 (`fetchLatestRelease`), so
- *  asking every few hours costs a few hundred bytes. */
+ *  unchanged answer comes back as an empty 304 (`fetchLatestRelease`). GitHub's
+ *  answer carries each asset's download count, so between asks hours apart it
+ *  has often changed and the full answer comes again: about 16 KB on Stable and
+ *  415 KB on Nightly, measured 16 Nov 2026. */
 export const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 /** After a failed check, the waits before the next tries; past the last one,
@@ -272,7 +274,7 @@ const FETCH_TIMEOUT_MS = 8000;
 
 /** The last full answer per URL with its ETag. The next ask sends the ETag back
  *  (If-None-Match), and GitHub answers an unchanged release list with an empty
- *  304 instead of the whole list again (tens of kilobytes on Nightly). In memory
+ *  304 instead of the whole list again (about 415 KB on Nightly). In memory
  *  only: after a restart the first ask is a full one. */
 const lastBodies = new Map();
 

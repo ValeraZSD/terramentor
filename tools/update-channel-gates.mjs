@@ -253,6 +253,12 @@ try {
         due({ ...ok, lastAttemptAt: T0 + 10 * MIN, lastSuccessAt: T0 + 10 * MIN, now: T0 + 40 * MIN, lastTickAt: T0 + 20 * MIN }), false);
     check('the clock set back behind the last ask: due, not silent until it catches up',
         due({ ...ok, now: T0 - HOUR, lastTickAt: T0 - HOUR - MIN }), true);
+    // A laptop that sleeps and wakes every few minutes while offline: each wake
+    // must not be an ask, or the back-off is spent in minutes.
+    check('back from sleep while failing: not before the first back-off step, then asked',
+        [due({ ...failed(1), now: T0 + 4 * MIN, lastTickAt: T0 }), due({ ...failed(1), now: T0 + 10 * MIN, lastTickAt: T0 + 5 * MIN })], [false, true]);
+    check('a switch held back by the minute limit: due when that minute is up, not before',
+        [due({ ...ok, askAt: T0 + MIN, now: T0 + 30_000, lastTickAt: T0 }), due({ ...ok, askAt: T0 + MIN, now: T0 + MIN, lastTickAt: T0 + 30_000 })], [false, true]);
 
     // The real timers, captured: what each look of the minute clock does.
     console.log('\n--- the automatic check, on its timers ---');
@@ -268,6 +274,11 @@ try {
     const failing = globalThis.fetch;
     let asked = 0;
     globalThis.fetch = async () => { asked++; return { status: 503, ok: false, json: async () => ({}) }; };
+    // One pinned clock, moved by hand: whether a look is due must not depend on
+    // how long the runner took between two lines.
+    const unpinnedNow = Date.now;
+    let clock = T0 + 100 * HOUR;
+    Date.now = () => clock;
     try {
         setSettingValue('update_check', 'on');
         updateScheduleForTest.set({ lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0 });
@@ -285,6 +296,15 @@ try {
         await settle();
         check('a look ten minutes after the failure retries', [asked, updateScheduleForTest.get().failures], [2, 2]);
 
+        // The lid shut for 2.5 h: no look ran, and the answer is 2.5 h old. The
+        // real tick must notice the gap and record its own look, or the wake
+        // rule never fires outside the pure walk above.
+        clock += 150 * MIN;
+        updateScheduleForTest.set({ lastAttemptAt: clock - 150 * MIN, lastSuccessAt: clock - 150 * MIN, failures: 0, lastTickAt: clock - 150 * MIN });
+        intervals[0].fn();
+        await settle();
+        check('back from sleep, the running poll asks at once and records its look', [asked, updateScheduleForTest.get().lastTickAt], [3, clock]);
+
         // Turned off: the minute clock of the stopped poll asks nothing even
         // when a check is long overdue.
         stopUpdatePoll();
@@ -292,8 +312,9 @@ try {
         updateScheduleForTest.set({ lastAttemptAt: Date.now() - 10 * HOUR, lastTickAt: Date.now() - MIN });
         intervals[0].fn();
         await settle();
-        check('a stopped poll\'s clock asks nothing', asked, 2);
+        check('a stopped poll\'s clock asks nothing', asked, 3);
     } finally {
+        Date.now = unpinnedNow;
         globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
         globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
         globalThis.fetch = failing;
@@ -317,11 +338,24 @@ try {
         const after = updateScheduleForTest.get();
         check('a check overtaken by a channel switch leaves the schedule alone',
             [after.lastAttemptAt, after.failures], [set0.lastAttemptAt, set0.failures]);
-        globalThis.fetch = before;
-        updateScheduleForTest.set({ lastAttemptAt: Date.now(), lastSuccessAt: Date.now(), failures: 0 });
-        await setUpdateChannel('stable', { checkNow: false });
-        check('a switch held back by the minute limit makes the next look due',
-            checkIsDue({ now: Date.now(), ...updateScheduleForTest.get() }), true);
+        // Flipping the channel inside the minute: the held switch asks once the
+        // minute is up, never at the next look, so flipping stays one request a minute.
+        const unpinned = Date.now;
+        const at = T0 + 200 * HOUR;
+        Date.now = () => at;
+        try {
+            updateScheduleForTest.set({ lastAttemptAt: at, lastSuccessAt: at, failures: 0, lastTickAt: at, askAt: 0 });
+            await setUpdateChannel('stable', { checkNow: false });
+            const held = updateScheduleForTest.get();
+            check('a switch held back by the minute limit asks when that minute is up, not at the next look',
+                [checkIsDue({ ...held, now: at + 30_000 }), checkIsDue({ ...held, now: at + 60_000 })], [false, true]);
+            globalThis.fetch = async () => ({ status: 200, ok: true, headers: new Headers(), json: async () => ({ tag_name: 'v99.0.0' }) });
+            await runUpdateCheck();
+            check('the ask it waited for clears the hold', updateScheduleForTest.get().askAt, 0);
+        } finally {
+            Date.now = unpinned;
+            globalThis.fetch = before;
+        }
     }
 
     // Asking every few hours stays light: an unchanged list comes back as an

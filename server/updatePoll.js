@@ -8,7 +8,7 @@ const currentChannel = () => updateChannel(getSetting('update_channel', 'stable'
 
 /** What the automatic check's schedule needs to know, in this process only:
  *  a new process asks once at startup anyway. Times are wall-clock ms. */
-const schedule = { lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0 };
+const schedule = { lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0, askAt: 0 };
 
 /** Fold the stored check into a status the UI can render. Pure read. */
 function readUpdateState() {
@@ -70,7 +70,7 @@ async function runUpdateCheck() {
     const result = await fetchLatestRelease(undefined, { channel });
     // Switched while this one was in flight: its answer is to a question
     // nobody is asking any more, and writing it would overwrite the new
-    // channel's (or leave the panel blank until tomorrow). Nor does it count
+    // channel's (or leave the panel blank until the next check). Nor does it count
     // for the schedule: a success here would push the new channel's retry
     // four hours out.
     if (currentChannel() !== channel) return readUpdateState();
@@ -78,6 +78,7 @@ async function runUpdateCheck() {
     // pressed check is not followed by a scheduled one a minute later.
     const at = Date.now();
     schedule.lastAttemptAt = at;
+    schedule.askAt = 0;
     if (result.ok) { schedule.lastSuccessAt = at; schedule.failures = 0; } else schedule.failures++;
     if (result.ok) {
         heard = { raw: result.latest ? JSON.stringify(result.latest) : '', channel };
@@ -159,9 +160,11 @@ async function setUpdateChannel(channel, { checkNow = true } = {}) {
     setSettingValue('update_answer_channel', next);
     if (checkNow) return startUpdatePoll({ checkNow: true });
     // Not now (the caller's one-a-minute limit), but the new channel has no
-    // answer at all: the poll's next look, within the minute, asks for it
-    // instead of the panel saying "not checked" for hours.
-    schedule.lastAttemptAt = 0;
+    // answer at all: the poll asks for it once that minute has passed, instead
+    // of the panel saying "not checked" for hours. A minute from NOW, not from
+    // the last ask: the ask that spent the minute may still be on the wire, so
+    // flipping back and forth stays at one request a minute.
+    schedule.askAt = Date.now() + 60_000;
     return readUpdateState();
 }
 
@@ -174,14 +177,19 @@ async function setUpdateChannel(channel, { checkNow = true } = {}) {
  *   (RETRY_DELAYS_MS), then every CHECK_INTERVAL_MS while it keeps failing.
  * - After a success: due CHECK_INTERVAL_MS later.
  * - Back from sleep (`now` is more than three ticks past the last tick): due if
- *   the last answer is older than WAKE_RECHECK_MS.
+ *   the last answer is older than WAKE_RECHECK_MS. While checks are failing, a
+ *   wake still waits out the first back-off step: a laptop that sleeps and wakes
+ *   often would otherwise ask on every wake and burn through the back-off.
+ * - A channel switch held back by the minute limit (`askAt`): due once it passes.
  * - The clock set back behind the last ask: due, rather than silent until the
  *   clock catches up again.
  */
-function checkIsDue({ now, lastAttemptAt, lastSuccessAt, failures, lastTickAt }) {
+function checkIsDue({ now, lastAttemptAt, lastSuccessAt, failures, lastTickAt, askAt = 0 }) {
+    if (askAt > 0 && now >= askAt) return true;
     if (!lastAttemptAt || now < lastAttemptAt) return true;
     const woke = lastTickAt > 0 && now - lastTickAt > 3 * DUE_TICK_MS;
-    if (woke && now - lastSuccessAt >= WAKE_RECHECK_MS) return true;
+    const backedOff = failures === 0 || now - lastAttemptAt >= RETRY_DELAYS_MS[0];
+    if (woke && backedOff && now - lastSuccessAt >= WAKE_RECHECK_MS) return true;
     const wait = failures > 0 ? (RETRY_DELAYS_MS[failures - 1] ?? CHECK_INTERVAL_MS) : CHECK_INTERVAL_MS;
     return now - lastAttemptAt >= wait;
 }

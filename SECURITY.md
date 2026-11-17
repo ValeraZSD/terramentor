@@ -528,13 +528,17 @@ would reach the network without you asking for something, so it is built to be c
   straight away; after that it is one request each time the app starts (15 seconds in) and one
   every four hours while it runs, counted on the wall clock so the hours a computer sleeps
   count too. When the computer wakes and the last answer is over an hour old, it asks once
-  straight away. A failed check is tried again after 10, 30 and 60 minutes, then every four
+  straight away, unless checks are failing and the last try was under 10 minutes ago. A failed
+  check is tried again 10 minutes later, then 30 minutes after that, then 60, then every four
   hours. Nothing else in the app enables it.
 - **What it sends:** an HTTP GET to `https://api.github.com/repos/<owner>/<repo>/releases/latest`
   with a `User-Agent` naming the app and its version, and, from the second ask on, an
   `If-None-Match` header carrying the ETag GitHub gave the last answer, so an unchanged answer
-  comes back as an empty `304 Not Modified`. The ETag names that answer's content, which is the
-  same for every copy; it does not identify yours. No install identifier, no machine name,
+  comes back as an empty `304 Not Modified`. The ETag is a value GitHub chose for its last
+  answer; the app keeps it in memory only, never on disk, and a restart drops it. It is the
+  one header the app cannot vouch for: if GitHub ever issued a different ETag to each caller,
+  echoing it back would let GitHub link this copy's asks to each other within one run. No
+  install identifier, no machine name,
   no library contents, no request body. GitHub can see that some copy of the app asked what
   the newest release is, from your IP address (the same thing it would see if you opened the
   releases page in a browser).
@@ -546,10 +550,10 @@ would reach the network without you asking for something, so it is built to be c
   with it on, the switch checks once, at most once a minute.
 - **Who makes it:** the server process, on the schedule above and when you press a button that
   asks (below), never once per page load. The once-a-minute limits are the server's, so the
-  number of requests does not depend on how many devices or tabs you have open. An open page
-  re-reads the server's stored answer every two minutes while it is visible, so a new version
-  the server found shows without a reload; that read stays on your computer and never reaches
-  GitHub.
+  number of requests does not depend on how many devices or tabs you have open. While the
+  automatic check is on, an open page re-reads the server's stored answer every two minutes
+  while it is visible, so a new version the server found shows without a reload; that read
+  goes only to the Terramentor server the page came from and never reaches GitHub.
 - **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
   The same answer carries the release notes shown under "What's new", so reading them asks
   nothing more of the network.

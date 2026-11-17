@@ -69,7 +69,8 @@ Things that will be declined regardless of quality:
 - **Telemetry, analytics, crash reporting.** The no-outbound-traffic claim in `SECURITY.md` is
   verifiable and must stay that way. The one exception, and the shape any future outbound
   feature has to take: the update check is a **button**, plus an **automatic check that ships off**,
-  it sends the version and nothing else, and it is named in `SECURITY.md` with a procedure for
+  it sends the version and nothing about you (the only other header is the ETag GitHub
+  returned last time, held in memory), and it is named in `SECURITY.md` with a procedure for
   catching it lying. An unconditional ping, an install identifier, or anything counted per user
   is still declined.
 - **A required cloud service** for any core loop.

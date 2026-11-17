@@ -61,7 +61,7 @@ app.post('/api/updates/check', wrap(async (req, res) => {
 /** Turn the automatic check on or off. Its own endpoint rather than a generic setting
  *  write, because switching it ON is consent to an outbound call and should read
  *  that way in the code as well as in the UI — and because turning it on should
- *  answer immediately instead of leaving a blank panel until tomorrow. */
+ *  answer immediately instead of leaving a blank panel until the first scheduled check. */
 app.put('/api/updates/auto', wrap(async (req, res) => {
     const enabled = req.body?.enabled === true;
     setSettingValue('update_check', enabled ? 'on' : 'off');
