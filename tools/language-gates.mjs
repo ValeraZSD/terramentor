@@ -158,6 +158,17 @@ const refusals = [
     ['en', "I don't see any image attached to your message."],
     ['uk', 'Я не бачу вашого зображення, надішліть його ще раз.'],
     ['ru', 'Я не вижу вашего изображения, отправьте его ещё раз.'],
+    // ...and so is the verb with a few words between it and the image.
+    ['en', "I'm sorry, but I can't see anything in the image."],
+    ['en', "I can't see any content in the image you attached."],
+    ['en', 'I cannot see the text in this image'],
+    ['en', "I can't read the text in the image."],
+    ['en', "I'm unable to see the picture."],
+    ['en', "I can't see what is written on the page."],
+    ['uk', 'Я не бачу тут жодного зображення.'],
+    ['uk', 'Я не бачу нічого на зображенні.'],
+    ['ru', 'Я не могу прочитать текст на фото.'],
+    ['ru', 'Я не вижу ничего на изображении.'],
 ];
 for (const [code, text] of refusals) check(`${code}: refusal caught`, isUnreadable(text), true);
 
@@ -177,6 +188,7 @@ const realWork = [
     ['uk', 'Я не бачу, як доданки скорочуються, тому розкриваю дужки і отримую x = 3.'],
     ['en', "I don't see why the terms cancel here, so I expand first and get x = 3."],
     ['en', 'I cannot read the answer off the graph exactly, so I estimate it as 2.4.'],
+    ['en', 'I cannot read the page number on the sheet, but the answer is x = 3.'],
 ];
 for (const [code, text] of realWork) check(`${code}: real working kept`, isUnreadable(text), false);
 check('BLANK PAGE still caught', isUnreadable('BLANK PAGE'), true);

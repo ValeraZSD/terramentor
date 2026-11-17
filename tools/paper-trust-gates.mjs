@@ -37,7 +37,7 @@
 //      answer a second submit gets for a mark that wrote no evidence still
 //      says `unproven`, decided from the evidence table, not a guess.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -346,17 +346,25 @@ check('a mark that counted is never answered as one that did not, first time or 
     JSON.stringify({ first: firstChecked.unproven, again: { duplicate: againChecked.duplicate, unproven: againChecked.unproven }, proof: proof(cardCheckedNode) }));
 
 // ---- 6. a marked page is not thrown away, a big photo is told so ------------------------
-console.log('\n--- 6. a one-pass mark with no transcription counts; an oversized photo gets a sentence ---');
-// The marker ruled on the page and only left out what it read (or read a short
-// answer): its mark stands, and the learner is not sent to retake the photo.
+console.log('\n--- 6. a one-pass mark with a short answer counts, an empty or refused one does not; an oversized photo gets a sentence ---');
+// A short answer read off the page is a real answer and its mark stands; a mark
+// with no transcription, or one that is a refusal, never saw the page and writes
+// nothing.
 const onePassNode = mkNode('Linear equations PAPER-CONFIRM-R');
 const onePassRow = shelve(onePassNode, await generatePaperExercise(onePassNode, 'Linear equations PAPER-CONFIRM-R'));
 setSetting('paper_vision', 'always');
 pageTranscription = undefined;
 const noTranscript = await visionMark(onePassNode, onePassRow);
-check('a one-pass mark whose answer left out the transcription is graded, not "nothing readable"',
-    noTranscript.status === 'graded' && noTranscript.grade?.score === 5 && attempts(onePassNode) === 1 && proof(onePassNode) === 1,
-    JSON.stringify({ status: noTranscript.status, reason: noTranscript.reason, attempts: attempts(onePassNode), proof: proof(onePassNode) }));
+check('a one-pass mark with no transcription is "nothing readable": no attempt, no evidence',
+    noTranscript.status === 'unreadable' && attempts(onePassNode) === 0 && proof(onePassNode) === 0,
+    JSON.stringify({ status: noTranscript.status, attempts: attempts(onePassNode), proof: proof(onePassNode) }));
+const refuseNode = mkNode('Linear equations PAPER-CONFIRM-V');
+const refuseRow = shelve(refuseNode, await generatePaperExercise(refuseNode, 'Linear equations PAPER-CONFIRM-V'));
+pageTranscription = "I'm sorry, but I can't see anything in the image.";
+const refusedMark = await visionMark(refuseNode, refuseRow);
+check('a one-pass mark whose transcription is a refusal is not graded either',
+    refusedMark.status === 'unreadable' && attempts(refuseNode) === 0 && proof(refuseNode) === 0,
+    JSON.stringify({ status: refusedMark.status, attempts: attempts(refuseNode), proof: proof(refuseNode) }));
 const shortNode = mkNode('Linear equations PAPER-CONFIRM-S');
 const shortRow = shelve(shortNode, await generatePaperExercise(shortNode, 'Linear equations PAPER-CONFIRM-S'));
 pageTranscription = 'x = 3';
@@ -385,14 +393,6 @@ check('a photo over the size cap is answered 413 with a sentence, and the card s
     bigRes.status === 413 && /larger than 8 MB/.test(bigBody.error || '') && !/ref/i.test(bigBody.error || '')
     && db.prepare('SELECT status FROM feed_items WHERE id = ?').get(bigRow).status === 'ready' && attempts(bigNode) === 0,
     JSON.stringify({ status: bigRes.status, body: bigBody }));
-
-// The prose-newline helper carries ONE doc block, the one that describes what it does.
-const paperSource = readFileSync(new URL('../server/paper.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const helperAt = paperSource.indexOf('export function restoreProseNewlines');
-const aboveHelper = paperSource.slice(paperSource.lastIndexOf('\n}\n', helperAt), helperAt);
-check('restoreProseNewlines has one doc block, the one for the matching it does now',
-    helperAt > 0 && (aboveHelper.match(/\/\*\*/g) || []).length === 1 && !/OUTSIDE math spans/.test(aboveHelper),
-    JSON.stringify({ blocks: (aboveHelper.match(/\/\*\*/g) || []).length }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));

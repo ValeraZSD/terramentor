@@ -811,7 +811,7 @@ ok('and the file as the New course dialog takes it, for a full course', bookRead
         ok(`${route} reads an uploaded file's name as UTF-8`, /multer\(\{[^}]*defParamCharset:\s*'utf8'/.test(source));
     }
 }
-ok('picking no chapter is refused',(await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, parts: [] })).status === 400);
+ok('picking no chapter is refused', (await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, parts: [] })).status === 400);
 {
     // The assistant's card goes straight to Create: a whole book is still not one short course.
     const before = db.prepare('SELECT COUNT(*) c FROM projects').get().c;

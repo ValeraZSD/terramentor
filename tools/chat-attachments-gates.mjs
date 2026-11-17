@@ -244,6 +244,8 @@ ok('a text file is a document, its text counted', notes?.ok && notes.kind === 'd
 ok('an SVG named .png is NOT a picture: it is the text it is', svg?.ok && svg.kind === 'document' && svg.fileType === 'text', JSON.stringify(svg));
 ok('a HEIC photo is refused, and the reason names the format', heic && heic.ok === false && heic.reason === 'unsupported' && /HEIC/.test(heic.error), JSON.stringify(heic));
 ok('a binary is refused with a reason', exe && exe.ok === false && exe.reason === 'unsupported' && exe.error, JSON.stringify(exe));
+ok('a file named in Ukrainian or Dutch is answered under its own name, not as latin1 mojibake',
+    (await one('Урок з фізики één.exe', BINARY))?.name === 'Урок з фізики één.exe');
 ok('a refused file leaves nothing behind', db.prepare('SELECT COUNT(*) AS n FROM chat_attachments').get().n === 3);
 ok('uploading asks the model nothing — nothing describes a picture in advance', !requests.some(r => r.messages), requests.length);
 ok('beside a picture, the upload says the chat model can see it', up.body?.modelSees === true, up.body?.modelSees);
