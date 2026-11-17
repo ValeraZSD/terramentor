@@ -11,7 +11,7 @@ export const CLIENT_SETTING_KEYS = [
     // How the app looks
     'theme', 'theme_tint', 'theme_surfaces', 'accent_color',
     'app_icon_style', 'app_icon_bg', 'app_icon_radius',
-    'ui_scale', 'ui_language', 'number_format', 'week_start_day',
+    'ui_scale', 'ui_language', 'number_format', 'week_start_day', 'key_shortcuts',
     'sidebarWidth', 'detailPanelWidth',
     'atlas_color_mode', 'atlas_surface', 'atlas_viewer',
     'welcome_done', 'ai_setup_dismissed', 'library_notice_dismissed', 'app_placement_notice_dismissed', 'activity_log_enabled',

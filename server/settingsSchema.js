@@ -144,6 +144,8 @@ export const SETTINGS = {
     number_format: client('ui', text(16)),
     // 0 = Sunday, 1 = Monday (types.ts WeekStartDay); readers take anything else as Monday.
     week_start_day: client('ui', oneOf('0', '1')),
+    // Single-key shortcuts (src/utils/escapeKey.ts); 'false' turns them all off.
+    key_shortcuts: client('ui', bool),
     // The bounds the store clamps the drag to (store.ts setSidebarWidth / setDetailPanelWidth).
     sidebarWidth: client('ui', int(200, 600)),
     detailPanelWidth: client('ui', int(300, 600)),
@@ -282,7 +284,7 @@ export const PROJECT_SETTING_PREFIXES = SETTING_FAMILIES.filter(f => f.perProjec
  */
 export const SETTING_SCOPES = Object.freeze({
     library: [
-        'ui_language', 'number_format', 'week_start_day', 'welcome_done',
+        'ui_language', 'number_format', 'week_start_day', 'key_shortcuts', 'welcome_done',
         'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
         'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
         'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner',
