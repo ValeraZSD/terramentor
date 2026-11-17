@@ -2251,6 +2251,40 @@ db.exec(`
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
+
+// Answers that are NOT evidence (server/lessonPrompts.js), each in a table of
+// its own for the same reason as `mastery_claims`: every reader of
+// `mastery_evidence` counts it as answers the learner was taught for.
+// `pre_questions`: a topic's round of questions asked BEFORE its first part,
+// one row per topic; `items` is `[{ ref, correct }]`, refs only, never text.
+// `explain_backs`: the learner's own account of a lesson part, the model's
+// verdict on it and who marked it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pre_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    outcome TEXT NOT NULL,
+    asked INTEGER NOT NULL DEFAULT 0,
+    answered INTEGER NOT NULL DEFAULT 0,
+    correct INTEGER NOT NULL DEFAULT 0,
+    items TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pre_questions_node ON pre_questions(node_id);
+  CREATE TABLE IF NOT EXISTS explain_backs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id INTEGER NOT NULL,
+    part_index INTEGER NOT NULL,
+    explanation TEXT NOT NULL,
+    verdict TEXT NOT NULL,
+    reason TEXT,
+    generated_by TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_explain_backs_node ON explain_backs(node_id);
+`);
 // A short course (server/shortCourses.js): where it was made from, as JSON
 // `{ kind: page|pdf|video|file|topic, url?, host?, file?, title?, minutes? }`;
 // NULL for every other course. Never the source's text, which is a document.

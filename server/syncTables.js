@@ -72,6 +72,9 @@ const TABLE_LIST = [
     ['item_reports', { class: 'history', uuid: true, derive: D([['node_id', 'nodes'], ['project_id', 'projects']], 'created_at', ['kind', 'reason']) }],
     ['mastery_claims', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['source']) }],
     ['answer_attempts', { class: 'history', uuid: true, derive: D([], 'created_at', ['surface', 'attempt_id']) }],
+    // Answers that are not evidence (server/lessonPrompts.js).
+    ['pre_questions', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at') }],
+    ['explain_backs', { class: 'history', uuid: true, derive: D([['node_id', 'nodes']], 'created_at', ['part_index']) }],
     // One go at a past paper, and the points the learner gave each part.
     ['mock_sittings', { class: 'content', uuid: true, derive: D([['paper_id', 'exam_papers']], 'started_at') }],
     ['mock_part_scores', { class: 'content', uuid: true, derive: D([['sitting_id', 'mock_sittings'], ['part_id', 'exam_paper_parts']], null) }],

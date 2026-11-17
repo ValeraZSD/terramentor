@@ -52,6 +52,16 @@ export interface HeaderFit {
 /** Sub-pixel widths are measured as fractions; half a pixel is not an overflow. */
 const SLACK = 0.5;
 
+/**
+ * Whether both sides fit in half the row each, so the search can sit at the
+ * true centre without cutting anything. `left` and `right` are the sides'
+ * natural widths (a project title at its full length, not as truncated).
+ */
+export function centresSearch(room: { inner: number; gap: number; search: number; left: number; right: number }): boolean {
+    const half = (room.inner - room.search - 2 * room.gap) / 2;
+    return room.left <= half + SLACK && room.right <= half + SLACK;
+}
+
 export function fitHeader(room: HeaderRoom, active: number): HeaderFit {
     const { inner, gap, search, searchIcon, right, tabs, tabGap, more } = room;
     const all = tabs.map((_, i) => i);
@@ -59,8 +69,7 @@ export function fitHeader(room: HeaderRoom, active: number): HeaderFit {
         shown.reduce((sum, i) => sum + tabs[i], 0) + tabGap * Math.max(0, shown.length - 1);
     const rail = width(all);
 
-    const half = (inner - search - 2 * gap) / 2;
-    if (rail <= half + SLACK && right <= half + SLACK) return { centred: true, searchIcon: false, shown: all, switcher: false };
+    if (centresSearch({ inner, gap, search, left: rail, right })) return { centred: true, searchIcon: false, shown: all, switcher: false };
     if (rail <= inner - search - right - 2 * gap + SLACK) return { centred: false, searchIcon: false, shown: all, switcher: false };
 
     const room4 = inner - searchIcon - right - 2 * gap;
