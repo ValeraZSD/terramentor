@@ -9,7 +9,7 @@ import ProjectDates from './schedule/ProjectDates';
 import ProgressRing from './ProgressRing';
 import Modal from './Modal';
 import ExportProjectModal from './ExportProjectModal';
-import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play, CalendarX } from 'lucide-react';
+import { Trash2, MoreVertical, Edit2, Upload, Loader2, CheckCircle2, Archive, RotateCcw, BookPlus, Trophy, Play, CalendarX, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import ProjectFormFields from './ProjectFormFields';
 import { Button, IconButton } from './ui/Button';
@@ -17,6 +17,7 @@ import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { ProjectIcon } from './ProjectIcon';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { useDropFlash } from '../hooks/useDropFlash';
+import { useSidewaysInGrid } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { uiLocale } from '../utils/locale';
 import { countsInCards } from '../utils/projectShape';
@@ -29,9 +30,13 @@ interface Props {
     /** After the dates strip wrote, so the grid re-reads every card's pace. */
     onScheduleChanged?: () => void;
     isDragOverlay?: boolean;
+    /** Moves the card one place earlier (-1) or later (1): the same reorder as
+     *  a drag, from the menu, for anyone who cannot drag (WCAG 2.5.7). Absent
+     *  where there is no order to change; a direction is absent at its end. */
+    onMove?: { up?: () => void; down?: () => void };
 }
 
-export default function ProjectCard({ project, schedule, onScheduleChanged, isDragOverlay }: Props) {
+export default function ProjectCard({ project, schedule, onScheduleChanged, isDragOverlay, onMove }: Props) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
     const studyProject = useStore(s => s.studyProject);
@@ -205,6 +210,10 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
     // dim themselves with `opacity-70`, and a menu inside that subtree is
     // painted at 70% alpha with the cards behind it showing through.
     const menuBtnRef = useRef<HTMLButtonElement>(null);
+    // The move arrows point where the card will go (see useSidewaysInGrid).
+    const sideways = useSidewaysInGrid(menuBtnRef);
+    const EarlierIcon = sideways ? ArrowLeft : ArrowUp;
+    const LaterIcon = sideways ? ArrowRight : ArrowDown;
 
     const progressColor = progress === 100 ? '#22C55E' : project.color;
 
@@ -230,7 +239,10 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                     {...listeners}
                     onClick={e => e.stopPropagation()}
                     title={t("Drag to reorder (press and hold on touch)")}
-                    className="flex justify-center py-2 cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100"
+                    aria-label={t("Move {{name}}", { name: project.name })}
+                    // Shown while it holds keyboard focus too: a focus stop
+                    // nobody can see is a trap.
+                    className={`flex justify-center py-2.5 rounded-t-2xl cursor-grab active:cursor-grabbing transition touch-pan-y can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100 ${FOCUS_RING}`}
                 >
                     <div className="flex gap-1">
                         {[...Array(5)].map((_, i) => (
@@ -333,6 +345,16 @@ export default function ProjectCard({ project, schedule, onScheduleChanged, isDr
                                     {status !== 'active' && (
                                         <MenuItem onSelect={e => changeStatus(e, 'active')} icon={<RotateCcw className="w-4 h-4" />}>
                                             {t("Move to active")}
+                                        </MenuItem>
+                                    )}
+                                    {onMove?.up && (
+                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.up?.(); }} icon={<EarlierIcon className="w-4 h-4" />}>
+                                            {t("Move earlier")}
+                                        </MenuItem>
+                                    )}
+                                    {onMove?.down && (
+                                        <MenuItem onSelect={e => { e.stopPropagation(); setShowMenu(false); onMove.down?.(); }} icon={<LaterIcon className="w-4 h-4" />}>
+                                            {t("Move later")}
                                         </MenuItem>
                                     )}
 

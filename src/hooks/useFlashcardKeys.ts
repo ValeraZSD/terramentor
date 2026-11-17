@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { singleKeyShortcutsOn } from '../utils/escapeKey';
 
 /**
  * The review keyboard: Space flips, 1-4 rate.
@@ -51,6 +52,13 @@ function isTypingTarget(target: EventTarget | null): boolean {
     return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
 }
 
+/** A control that has its own Space: a button, a link, a switch, a summary. */
+function isOwnControl(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (!el || typeof el.closest !== 'function') return false;
+    return !!el.closest('button, a[href], summary, [role="button"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [role="option"]');
+}
+
 export function useFlashcardKeys({ enabled = true, onFlip, onRate, onUndo, flipped = false }: FlashcardKeyHandlers) {
     // The handler is read from a ref so the listener is attached once and never
     // re-bound mid-session: re-attaching on every flip is how a listener ends up
@@ -72,12 +80,20 @@ export function useFlashcardKeys({ enabled = true, onFlip, onRate, onUndo, flipp
             const claim = () => { e.preventDefault(); e.stopPropagation(); };
 
             // Before the modifier bail-out: this is the one key that wants them.
-            if (undo && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
+            // Bare `z` is a single-key shortcut; Ctrl/Cmd+Z stays when those are off.
+            const withModifier = e.ctrlKey || e.metaKey;
+            if (undo && !e.altKey && (e.key === 'z' || e.key === 'Z') && (withModifier || singleKeyShortcutsOn())) {
                 claim();
                 undo();
                 return;
             }
             if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (!singleKeyShortcutsOn()) return;
+
+            // Space on a focused control is that control's own key: a button
+            // presses, a link follows. The session takes it only from the page
+            // itself or the card, never from a button the learner moved to.
+            if ((e.key === ' ' || e.key === 'Spacebar') && isOwnControl(e.target)) return;
 
             if (e.key === ' ' || e.key === 'Spacebar') {
                 claim();

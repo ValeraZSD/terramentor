@@ -350,6 +350,110 @@ ok('...and the book and the exam do not', bookDoc?.noText === false && examDoc?.
 ok('nothing staged is a vault document yet', db.prepare('SELECT COUNT(*) c FROM documents').get().c === 0);
 ok('the vault listing shows none of it', (await (await fetch(`${base}/api/documents`)).json()).length === 0);
 
+// A file the reader chokes on is shown to the learner in the dialog: the
+// message is theirs to read, not the parser's own text about its code.
+const choked = await staged.stageFile(null, 'broken.txt');
+ok('a file the reader fails on is refused, not kept', choked.ok === false && choked.reason === 'unreadable', JSON.stringify(choked));
+ok('the dialog never shows a parser\'s own message', !/Cannot read properties|reading 'length'/.test(choked.error || ''), choked.error);
+ok('a file with no text still says so', (await staged.stageFile(Buffer.from('   \n'), 'blank.txt')).reason === 'no_text');
+
+// UTF-16 text (PowerShell `>` output, a Windows "Unicode" .txt) has NULs in
+// every other byte and is not binary.
+const utf16le = Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from('Hoofdstuk één\r\nSecond line\r\n', 'utf16le')]);
+const utf16be = Buffer.concat([Buffer.from([0xFE, 0xFF]), Buffer.from('Hoofdstuk één\r\nSecond line\r\n', 'utf16le').swap16()]);
+const readLe = await extractText(utf16le, 'notes.txt').then(r => r.text, e => `error: ${e.message}`);
+const readBe = await extractText(utf16be, 'notes.log').then(r => r.text, e => `error: ${e.message}`);
+ok('a UTF-16LE text file is read, not refused as binary', readLe === 'Hoofdstuk één\r\nSecond line', JSON.stringify(readLe));
+ok('a UTF-16BE text file is read too', readBe === 'Hoofdstuk één\r\nSecond line', JSON.stringify(readBe));
+ok('NUL bytes with no byte-order mark are still refused as binary',
+    await extractText(Buffer.alloc(64), 'blob.dat').then(() => false, e => /looks binary/.test(e.message)));
+
+// A PowerPoint's notes belong to the slide whose .rels names them, and the
+// slides run in the deck's own order — not in the order the parts were made.
+{
+    const { default: JSZip } = await import('jszip');
+    const slideXml = (t) => `<p:sld><a:t>${t}</a:t></p:sld>`;
+    const rel = (id, type, target) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${target}"/>`;
+    const deck = new JSZip();
+    deck.file('[Content_Types].xml', '<Types/>');
+    deck.file('ppt/slides/slide1.xml', slideXml('Alpha'));
+    deck.file('ppt/slides/slide2.xml', slideXml('Bravo'));
+    deck.file('ppt/slides/slide3.xml', slideXml('Charlie'));
+    // The only notes in the deck sit on the third file, and are the first notes part.
+    deck.file('ppt/notesSlides/notesSlide1.xml', slideXml('Remember the Charlie example'));
+    deck.file('ppt/slides/_rels/slide3.xml.rels', `<Relationships>${rel('rId1', 'slideLayout', '../slideLayouts/slideLayout1.xml')}${rel('rId2', 'notesSlide', '../notesSlides/notesSlide1.xml')}</Relationships>`);
+    deck.file('ppt/presentation.xml', '<p:presentation><p:sldIdLst><p:sldId id="256" r:id="rId7"/><p:sldId id="257" r:id="rId5"/><p:sldId id="258" r:id="rId6"/></p:sldIdLst></p:presentation>');
+    deck.file('ppt/_rels/presentation.xml.rels', `<Relationships>${rel('rId5', 'slide', 'slides/slide1.xml')}${rel('rId6', 'slide', 'slides/slide2.xml')}${rel('rId7', 'slide', 'slides/slide3.xml')}</Relationships>`);
+    const out = await extractText(await deck.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), 'order.pptx');
+    ok('slides read in the deck\'s own order and numbered by it',
+        out.text === '## Slide 1\nCharlie\nNotes: Remember the Charlie example\n\n## Slide 2\nAlpha\n\n## Slide 3\nBravo', JSON.stringify(out.text));
+    ok('the slide count is the deck\'s', out.meta.pageCount === 3);
+
+    // No notes link at all: a notes part that merely shares a number is nobody's.
+    deck.file('ppt/slides/_rels/slide3.xml.rels', `<Relationships>${rel('rId1', 'slideLayout', '../slideLayouts/slideLayout1.xml')}</Relationships>`);
+    const noLink = await extractText(await deck.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), 'order.pptx');
+    ok('notes no slide links to are not read onto a slide that shares the number', !/Notes:/.test(noLink.text), JSON.stringify(noLink.text));
+
+    // Other shapes a deck comes in. `build` writes the deck from the three slides
+    // above plus whatever the case adds, and reads it back.
+    const read = async (files) => {
+        const z = new JSZip();
+        z.file('[Content_Types].xml', '<Types/>');
+        for (const [name, body] of Object.entries(files)) z.file(name, body);
+        return extractText(await z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }), 'shape.pptx');
+    };
+    const threeSlides = {
+        'ppt/slides/slide1.xml': slideXml('Alpha'), 'ppt/slides/slide2.xml': slideXml('Bravo'), 'ppt/slides/slide3.xml': slideXml('Charlie'),
+    };
+    const sldIds = (...ids) => `<p:presentation><p:sldIdLst>${ids.map((id, i) => `<p:sldId id="${256 + i}" r:id="${id}"/>`).join('')}</p:sldIdLst></p:presentation>`;
+    const slideRels = (...pairs) => `<Relationships>${pairs.map(([id, target]) => rel(id, 'slide', target)).join('')}</Relationships>`;
+
+    const noPresentation = await read(threeSlides);
+    ok('with no presentation.xml the slides run in file-number order',
+        noPresentation.text === '## Slide 1\nAlpha\n\n## Slide 2\nBravo\n\n## Slide 3\nCharlie' && noPresentation.meta.pageCount === 3, JSON.stringify(noPresentation.text));
+
+    const orphan = await read({
+        ...threeSlides,
+        'ppt/presentation.xml': sldIds('rId1', 'rId2'),
+        'ppt/_rels/presentation.xml.rels': slideRels(['rId1', 'slides/slide2.xml'], ['rId2', 'slides/slide1.xml']),
+    });
+    ok('a slide part the deck does not list is not read',
+        orphan.text === '## Slide 1\nBravo\n\n## Slide 2\nAlpha' && orphan.meta.pageCount === 2, JSON.stringify(orphan.text));
+
+    const unresolved = await read({
+        ...threeSlides,
+        'ppt/presentation.xml': sldIds('rId1', 'rId9', 'rId3'),
+        'ppt/_rels/presentation.xml.rels': slideRels(['rId1', 'slides/slide3.xml'], ['rId3', 'slides/slide1.xml']),
+    });
+    ok('a deck whose list names a slide that cannot be found is read whole, in file-number order, not as a shorter deck',
+        unresolved.text === '## Slide 1\nAlpha\n\n## Slide 2\nBravo\n\n## Slide 3\nCharlie' && unresolved.meta.pageCount === 3, JSON.stringify(unresolved.text));
+
+    const singleQuoted = await read({
+        ...threeSlides,
+        'ppt/presentation.xml': "<p:presentation><p:sldIdLst><p:sldId id='256' r:id='rId1'/><p:sldId id='257' r:id='rId2'/></p:sldIdLst></p:presentation>",
+        'ppt/_rels/presentation.xml.rels': "<Relationships><Relationship Id='rId1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide' Target='slides/slide3.xml'/><Relationship Id='rId2' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide' Target='/ppt/slides/slide1.xml'/></Relationships>",
+    });
+    ok('single-quoted attributes and an absolute Target are read',
+        singleQuoted.text === '## Slide 1\nCharlie\n\n## Slide 2\nAlpha' && singleQuoted.meta.pageCount === 2, JSON.stringify(singleQuoted.text));
+
+    // A slide outside ppt/slides/ resolves its notes against its own folder.
+    const nested = await read({
+        'ppt/slides/extra/first.xml': slideXml('Delta'),
+        'ppt/slides/extra/_rels/first.xml.rels': `<Relationships>${rel('rId1', 'notesSlide', '../../notesSlides/notesSlide9.xml')}</Relationships>`,
+        'ppt/notesSlides/notesSlide9.xml': slideXml('Say the Delta part slowly'),
+        'ppt/presentation.xml': sldIds('rId1'),
+        'ppt/_rels/presentation.xml.rels': slideRels(['rId1', 'slides/extra/first.xml']),
+    });
+    ok('a slide in another folder keeps its notes', nested.text === '## Slide 1\nDelta\nNotes: Say the Delta part slowly', JSON.stringify(nested.text));
+}
+
+// A byte-order mark is two bytes of evidence: a binary that starts with one is not text.
+const bomBinary = Buffer.concat([Buffer.from([0xFF, 0xFE, 0x00, 0xD8, 0x41, 0x00, 0x42, 0x00]), Buffer.from('a longer line of ordinary letters after it', 'utf16le')]);
+ok('a file that starts with a UTF-16 mark but decodes to a lone surrogate is refused as binary',
+    await extractText(bomBinary, 'blob.dat').then(() => false, e => /looks binary/.test(e.message)));
+ok('an emoji (a surrogate PAIR) in UTF-16 text is kept',
+    await extractText(Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from('Done \u{1F600} ok', 'utf16le')]), 'smile.txt').then(r => r.text, e => e.message) === 'Done \u{1F600} ok');
+
 // The printed-Contents reading, for a PDF without bookmarks.
 const printedText = await extractText(PRINTED, 'garden.pdf');
 const pmap = buildSourceMap({ ...printedText, filename: 'garden_final_v3.pdf' });
