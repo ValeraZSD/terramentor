@@ -537,8 +537,8 @@ console.log('\n--- the grader can say "unsure" ---');
     // count is what stops a third mount arriving unguarded.
     const sidebarIsStudyFree = (src) =>
         /const studyView = workspaceView === 'study'/.test(src)
-        && /!isMobile && !studyView && <Sidebar \/>/.test(src)
-        && /\{isMobile && !studyView && \(/.test(src)
+        && /!isMobile && !studyView && !examFocus && <Sidebar \/>/.test(src)
+        && /\{isMobile && !studyView && !examFocus && \(/.test(src)
         && [...src.matchAll(/<Sidebar\b/g)].length === 2;
     const wsSrc = readFileSync(new URL('../src/components/Workspace.tsx', import.meta.url), 'utf8');
     okc('the nav tree is not drawn on Study (both mounts)', sidebarIsStudyFree(wsSrc));
@@ -549,7 +549,7 @@ console.log('\n--- the grader can say "unsure" ---');
     ].join('\n')));
     okc('…and a drawer left unguarded behind a fixed desktop mount', !sidebarIsStudyFree([
         "const studyView = workspaceView === 'study';",
-        '{!isMobile && !studyView && <Sidebar />}',
+        '{!isMobile && !studyView && !examFocus && <Sidebar />}',
         '{isMobile && (<div><Sidebar isDrawer /></div>)}',
     ].join('\n')));
     okc('no drawer handle either, so nothing opens what is not there',

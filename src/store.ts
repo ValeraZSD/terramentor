@@ -555,6 +555,8 @@ interface AppState {
     searchLoading: boolean;
     searchOpen: boolean;
     workspaceView: WorkspaceView;
+    /** A mock exam is being answered: the app's own chrome steps aside (ExamFrame). */
+    examFocus: boolean;
     showScheduleModal: boolean;
     scheduleModalProjectId: number | null;
     paceData: PaceData | null;
@@ -848,6 +850,7 @@ interface AppState {
     performSearch: (query: string) => Promise<void>;
     clearSearch: () => void;
     setWorkspaceView: (view: WorkspaceView) => void;
+    setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
@@ -969,6 +972,7 @@ export const useStore = create<AppState>((set, get) => ({
     searchLoading: false,
     searchOpen: false,
     workspaceView: 'dashboard',
+    examFocus: false,
     showScheduleModal: false,
     scheduleModalProjectId: null,
     paceData: null,
@@ -2499,6 +2503,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ searchQuery: '', searchResults: null, searchResultsQuery: null, searchError: null, searchLoading: false, searchOpen: false });
     },
 
+    setExamFocus: (on) => set({ examFocus: on }),
     setWorkspaceView: (view) => {
         const nav = get()._navigate;
         const pid = get().currentProjectId;
