@@ -17,6 +17,7 @@ import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
+import CourseUpdateModal from './CourseUpdateModal';
 import CompletionSummary from './completion/CompletionSummary';
 import AssistantDrawer, { DEFAULT_WIDTH, DOCK_QUERY, MIN_WIDTH } from './AssistantDrawer';
 import { useAICreationContext } from './aiCreationContext';
@@ -609,6 +610,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* Reachable from Settings and from the projects grid, so it is
                 mounted at the root rather than inside either. */}
             <AnkiImportModal open={ankiImportOpen} onClose={closeAnkiImport} />
+            <CourseUpdateModal />
 
             {/* The finished-project screen, at the root for the same reason the
                 gate is: a course can be finished from the feed, from a review
