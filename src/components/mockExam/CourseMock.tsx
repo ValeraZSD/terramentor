@@ -22,10 +22,11 @@ import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
 import { Panel } from './Panel';
-import { useDuration } from './mockFormat';
+import { REVEAL_AT, useDuration, useHiddenClock } from './mockFormat';
+import { PractiseWeakest } from './PractiseWeakest';
 import { usePhysicalKeyboard } from '../../utils/platform';
 import { isTextEntry } from '../../utils/escapeKey';
-import { EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
+import { ClockToggle, EXAM_BAR_TINY, ExamFrame, GridButton, QuestionGrid, QuestionStrip } from './ExamFrame';
 import type { CourseMockDetail, CourseReadiness, RealExam, ReviewGroup } from './mockExamTypes';
 
 /**
@@ -483,9 +484,16 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
     // The last five minutes are told by weight, not alarm: real exam apps
     // bring the clock forward then, so the learner plans the end.
     const left = sitting.timeAllowed - elapsed;
+    // "Hide the clock", as on a past paper: the eye sits beside the time.
+    const { hidden: clockHidden, canHide, setHidden } = useHiddenClock(sitting.id, timed ? left : 0);
+    const toggle = timed && !timeUp && canHide
+        ? <ClockToggle short hidden={clockHidden} onToggle={() => setHidden(!clockHidden)} className="-my-1.5 ml-0.5 align-middle" />
+        : null;
     const clock = timeUp
         ? t("Time is up")
-        : <span className={left <= 300 ? 'font-semibold text-amber-800 dark:text-amber-300' : ''}>{t("{{time}} left", { time: duration(left + 59) })}</span>;
+        : clockHidden
+            ? <>{t("Clock hidden")}{toggle}</>
+            : <><span className={left <= REVEAL_AT ? 'font-semibold text-amber-800 dark:text-amber-300' : ''}>{t("{{time}} left", { time: duration(left + 59) })}</span>{toggle}</>;
     const status = [
         t("{{answered}} of {{total}} answered", { answered: progress.answered, total: questions.length }),
         timed ? clock : null,
@@ -621,6 +629,16 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
     const { sitting, result } = detail;
     const date = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }).format(new Date(sitting.startedAt)), [sitting.startedAt]);
     if (!result) return null;
+    // The topic to practise: most answers missed; a tie goes to the larger share
+    // missed, then to the topic listed first. None when every answer was right.
+    const weakest = result.topics.reduce<(typeof result.topics)[number] | null>((best, tp) => {
+        const missed = tp.total - tp.right;
+        if (missed <= 0) return best;
+        if (!best) return tp;
+        const bestMissed = best.total - best.right;
+        if (missed !== bestMissed) return missed > bestMissed ? tp : best;
+        return missed / tp.total > bestMissed / best.total ? tp : best;
+    }, null);
     const groups = (['wrong', 'wrong_later', 'none', 'right'] as const)
         .map(g => ({ g, items: result.review.filter(r => r.group === g) }))
         .filter(x => x.items.length);
@@ -695,11 +713,10 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             </li>
                         ))}
                     </ul>
-                    {/* Answers are recorded as practice per topic; a mock never completes or reopens a
-                        topic (the mastery check decides that), so the line says what the learner gains. */}
-                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                        {t("Each answer now shows in its topic as practice.")}
-                    </p>
+                    {weakest && (
+                        <PractiseWeakest projectId={detail.paper.projectId} nodeId={weakest.id}
+                            line={t("Most missed: {{topic}}, {{right}} of {{total}} right.", { topic: weakest.title, right: fmt(weakest.right), total: fmt(weakest.total) })} />
+                    )}
                 </Panel>
             )}
 
@@ -725,7 +742,7 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
             </Panel>
 
             <div className="flex justify-end">
-                <Button variant="primary" onClick={onDone}>{t("Done")}</Button>
+                <Button variant={weakest ? 'neutral' : 'primary'} onClick={onDone}>{t("Done")}</Button>
             </div>
         </div>
     );

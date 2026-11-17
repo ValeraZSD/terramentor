@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button, IconButton } from '../ui/Button';
 import { FOCUS_RING } from '../ui/vocabulary';
@@ -240,6 +240,23 @@ export function QuestionGrid({ items, current, onGo }: {
                 <li className="flex items-center gap-1.5"><span aria-hidden="true" className="w-2.5 h-2.5 rounded-full bg-amber-500" />{t("Come back to this")}</li>
             </ul>
         </div>
+    );
+}
+
+/**
+ * "Hide the clock" / "Show the clock", the same on the past paper's desk clock
+ * and in a course mock's exam bar. In the bar it says only "Hide" or "Show"
+ * beside the time, so the bar keeps one line on a phone; the full name is its
+ * accessible label. An eye alone was read as decoration.
+ */
+export function ClockToggle({ hidden, onToggle, short = false, className }: { hidden: boolean; onToggle: () => void; short?: boolean; className?: string }) {
+    const { t } = useTranslation();
+    const label = hidden ? t("Show the clock") : t("Hide the clock");
+    const icon = hidden ? <Eye className="w-4 h-4" aria-hidden="true" /> : <EyeOff className="w-4 h-4" aria-hidden="true" />;
+    return (
+        <Button variant="quiet" size="sm" icon={icon} onClick={onToggle} className={className} aria-label={short ? label : undefined}>
+            {short ? (hidden ? t("Show") : t("Hide")) : label}
+        </Button>
     );
 }
 

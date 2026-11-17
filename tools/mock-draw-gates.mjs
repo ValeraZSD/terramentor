@@ -412,8 +412,9 @@ try {
         check('a past paper\'s way out says Back, not Save and leave',
             /<ExamFrame [^>]*leaveLabel=\{t\("Back"\)\}/.test(paperSrc));
         check('a paused past paper leads with Resume; Finish writing is then the quiet button',
-            /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{sitting\.running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
-                && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*act\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc));
+            /variant=\{paused \? 'primary' : 'neutral'\}[^\n]*\n\s*\{running \? t\("Pause"\) : t\("Resume"\)\}/.test(paperSrc)
+                && /variant=\{paused \? 'neutral' : 'primary'\}[^\n]*onAct\('stop'\)\}>\{t\("Finish writing"\)\}/.test(paperSrc)
+                && /<ClockButtons paused=\{paused\} running=\{sitting\.running\}/.test(paperSrc));
     });
 } finally {
     server.close();

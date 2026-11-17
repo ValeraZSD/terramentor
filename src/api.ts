@@ -2271,6 +2271,9 @@ export const api = {
     /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
     pauseMockOnLeave: (id: number) =>
         request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
+    /** Take `seconds` spent away (a call, the screen put away) off a running clock. */
+    mockAway: (id: number, seconds: number) =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/away`, { method: 'POST', body: JSON.stringify({ seconds }) }),
     markMockPart: (id: number, partId: number, points: number | null) =>
         request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
     /**
