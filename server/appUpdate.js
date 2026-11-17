@@ -225,13 +225,13 @@ async function rangeRead(fetchImpl, url, start, end, signal) {
                 // A body the server already dropped rejects the cancel; the
                 // answer is still "no ranges", not a network failure.
                 await res.body?.cancel().catch(() => {});
-                // Only a server that ignores Range (200, the whole file) or
-                // refuses the range (416) lacks ranges. Any other answer, a
-                // 429 or 503 from a busy file host above all, is a hiccup on
-                // this request: it is retried like a dropped connection and
-                // must not turn a few MB of delta into the whole package.
-                const noRanges = res.status === 200 || res.status === 416;
-                throw new UpdateError(noRanges ? 'no-range' : 'network', `The download server answered ${res.status} to a partial request.`);
+                // A busy file host (408, 429 or any 5xx) is a hiccup on this
+                // request: it is retried like a dropped connection and must not
+                // turn a few MB of delta into the whole package. Every other
+                // answer (a 200 that ignores Range, a 416, a 400/403/404/501
+                // that will not change) means no ranges: the whole zip.
+                const busy = res.status === 408 || res.status === 429 || (res.status >= 500 && res.status !== 501);
+                throw new UpdateError(busy ? 'network' : 'no-range', `The download server answered ${res.status} to a partial request.`);
             }
             const buf = Buffer.from(await res.arrayBuffer());
             if (buf.length !== end - start + 1) throw new UpdateError('network', 'A part of the download arrived cut short.');

@@ -600,11 +600,13 @@ for (const status of [429, 503]) {
     const wholeZip = served.requests.filter((r) => !r.range && /\.zip$/.test(decodeURIComponent(r.url))).length;
     check(`a ${status} on one partial request is retried and the delta goes on, not the whole package`, afterBusy.mode === 'delta' && wholeZip === 0, `${afterBusy.mode}, ${wholeZip} whole-zip requests`);
 }
-{
+// An answer that will not change (416, or a 4xx or 501 the host keeps giving)
+// still means no ranges: the whole zip, as before.
+for (const status of [416, 403, 404, 501]) {
     rmSync(join(appA, '.update'), { recursive: true, force: true });
-    const refusing = (url, init) => (init?.headers?.Range === 'bytes=0-0' ? Promise.resolve(new Response('', { status: 416 })) : fetch(url, init));
-    const after416 = await stage({ latest: B.latest, fetchImpl: refusing }).catch((e) => ({ mode: `threw ${e.kind || ''} ${e.message}` }));
-    check('a 416 to a partial request still means no ranges: the whole zip', after416.mode === 'full', after416.mode);
+    const refusing = (url, init) => (init?.headers?.Range === 'bytes=0-0' ? Promise.resolve(new Response('', { status })) : fetch(url, init));
+    const afterRefusal = await stage({ latest: B.latest, fetchImpl: refusing }).catch((e) => ({ mode: `threw ${e.kind || ''} ${e.message}` }));
+    check(`a ${status} to a partial request still means no ranges: the whole zip`, afterRefusal.mode === 'full', afterRefusal.mode);
 }
 
 // One of the eight checking workers failing stops the others, and the step

@@ -262,11 +262,20 @@ const t4 = tasksMod.createTask({ kind: 'test', label: 'four', run: () => g4.p })
 await new Promise(r => setTimeout(r, 10));
 check('a task waits behind the running one at a limit of 1', t3.status === 'running' && t4.status === 'queued');
 limit = 3;
-await new Promise(r => setTimeout(r, 1500));
+// The queue looks again on a one-second timer: wait for it, up to a deadline
+// that a slow runner will not pass, instead of a fixed sleep.
+for (let waited = 0; t4.status !== 'running' && waited < 5000; waited += 50) await new Promise(r => setTimeout(r, 50));
 check('a limit that rises while a task waits starts it, with nothing else arriving or finishing', t4.status === 'running', t4.status);
 g3.release({}); g4.release({});
 await new Promise(r => setTimeout(r, 10));
-check('a nonsense limit falls back to 1',(tasksMod.setConcurrencyProvider(() => NaN), true));
+tasksMod.setConcurrencyProvider(() => NaN);
+const g5 = gate(), g6 = gate();
+const t5 = tasksMod.createTask({ kind: 'test', label: 'five', run: () => g5.p }).task;
+const t6 = tasksMod.createTask({ kind: 'test', label: 'six', run: () => g6.p }).task;
+await new Promise(r => setTimeout(r, 10));
+check('a nonsense limit falls back to 1: one task runs, the next waits', t5.status === 'running' && t6.status === 'queued', `${t5.status}, ${t6.status}`);
+g5.release({}); g6.release({});
+await new Promise(r => setTimeout(r, 10));
 const conc = (await import('../server/ai.js')).aiConcurrency;
 process.env.AI_CONCURRENCY = '';
 check('the default provider (ollama) is serial', conc() === 1);
