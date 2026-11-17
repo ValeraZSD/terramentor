@@ -784,7 +784,9 @@ export const ANSWER_FORMATS = {
             // order of magnitude) falls back to the key's own precision rather
             // than failing the question — an unanswerable card measures nothing,
             // and this one is still gradeable.
-            const stated = Number(raw.tolerance);
+            // `Number(null)` and `Number('')` are 0: a model's "none given" must
+            // read as missing, or it becomes an exact-match tolerance of 0.
+            const stated = raw.tolerance == null || raw.tolerance === '' ? NaN : Number(raw.tolerance);
             const honest = Number.isFinite(stated) && stated >= 0
                 && (key === 0 || stated <= Math.abs(key) * 0.5);
             out.tolerance = honest ? stated : defaultTolerance(written);

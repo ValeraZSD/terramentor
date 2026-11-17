@@ -24,7 +24,7 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const B = new URL('../server/', import.meta.url).href;
 const {
-    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue,
+    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue, sameOption,
 } = await import(B + 'questionOptions.js');
 const {
     hasComputation, questionDefects, questionWeaknesses, stripSelfCertifyingCloser,
@@ -397,6 +397,47 @@ console.log('\n--- sameAnswer: every script, not just Latin ---');
 check('kana agrees with itself', sameAnswer('お', 'お'), true);
 check('cyrillic agrees with itself', sameAnswer('Привет', 'Привет'), true);
 check('greek agrees with itself', sameAnswer('Ελλάδα', 'Ελλάδα'), true);
+// Two options are one choice only when they say the same thing: a case change,
+// a different comparison operator or an arrow's other direction is a different
+// answer, and refusing the question for it throws away a good distractor set.
+console.log('\n--- sameOption: when two options are the same choice ---');
+for (const [a, b, why] of [
+    ['$\\Delta x$', '$\\delta x$', 'a capital and a small Greek letter'],
+    ['5 MW', '5 mW', 'mega and milli'],
+    ['CO', 'Co', 'carbon monoxide and cobalt'],
+    ['i == 5', 'i <= 5', 'equal and at most'],
+    ['i >= 5', 'i != 5', 'at least and not equal'],
+    ['i < 5', 'i <= 5', 'below and at most'],
+    ['x = 2', 'y = 2', 'the same value for another variable'],
+    ['$\\leftarrow$', '$\\rightarrow$', 'the two arrows'],
+    ['$A \\rightleftharpoons B$', '$A \\rightarrow B$', 'reversible and one way'],
+]) check(`${a} and ${b} are different options (${why})`, sameOption(a, b), false);
+for (const [a, b, why] of [
+    ['$x = 1.5$', '$x = \\frac{3}{2}$', 'a decimal and its fraction under one label'],
+    ['$x = 4$', '$ x=4 $', 'spacing'],
+    ['\\left(2\\right)', '(2)', '\\left and \\right as sizing commands'],
+    ['$1.0 \\times 10^{3}$', '1000', 'a power of ten'],
+    ['Melt the butter', 'melt the butter', 'a sentence whose only difference is its capital'],
+]) check(`${a} and ${b} are one option (${why})`, sameOption(a, b), true);
+check('a comparison is no label: i <= 5 reads as no value', optionValue('i <= 5'), null);
+check('a label still gives its value', optionValue('$x = \\frac{3}{2}$'), 1.5);
+{
+    const optionFaults = (options) => questionDefects({
+        type: 'multiple_choice',
+        question: 'Which symbol stands for the change in $x$?',
+        options, correct_answer: options[0],
+        explanation: 'The capital delta marks a change; the small delta marks a tiny one.',
+    }).filter(p => /same value written two ways/.test(p)).length;
+    check('options that differ only by case are not refused as duplicates',
+        optionFaults(['$\\Delta x$', '$\\delta x$', '$\\Sigma x$', '$dx$']), 0);
+    check('operator options are not refused as duplicates',
+        optionFaults(['i == 5', 'i <= 5', 'i >= 5', 'i != 5']), 0);
+    check('arrow options are not refused as duplicates',
+        optionFaults(['$\\leftarrow$', '$\\rightarrow$', '$\\leftrightarrow$', '$\\uparrow$']), 0);
+    check('a real duplicate is still refused',
+        optionFaults(['$x = 1.5$', '$x = \\frac{3}{2}$', '$x = 2$', '$x = 4$']), 1);
+}
+
 check('han agrees with itself', sameAnswer('你好', '你好'), true);
 check('two different kana still differ', sameAnswer('お', 'あ'), false);
 

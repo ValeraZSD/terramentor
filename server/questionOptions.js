@@ -21,12 +21,50 @@
  * promises there is one. String comparison cannot see it; the strings differ.
  */
 export function canonicalOption(option) {
+    return reduceOption(option).toLowerCase();
+}
+
+// The same reduction with the case left alone. Case carries meaning in the
+// options a science question offers: $\Delta x$ and $\delta x$, 5 MW and 5 mW,
+// CO and Co are different choices, so `sameOption` must not fold them together.
+// `canonicalOption` still folds, for the one place that asks whether the key is
+// written like an option and a stray capital there should not fail the question.
+// `\left`/`\right` are dropped only as whole commands: `\rightarrow` and
+// `\leftarrow` are arrows, not `arrow`.
+function reduceOption(option) {
     return String(option ?? '')
         .replace(/\$+/g, '')
         .replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)')
-        .replace(/\\(?:left|right|,|;|!|quad|qquad|ensuremath)/g, '')
-        .replace(/[{}\s]/g, '')
-        .toLowerCase();
+        .replace(/\\(?:left|right|quad|qquad|ensuremath)(?![A-Za-z])|\\[,;!]/g, '')
+        .replace(/[{}\s]/g, '');
+}
+
+// Two words of three letters or more: running text, not a symbol or a unit.
+const isSentence = (option) => /\p{L}{3,}\s+\p{L}{3,}/u.test(String(option ?? ''));
+
+// An assignment's `=`: not the tail of `<=`, `>=`, `!=` and not half of `==`.
+// Those are comparisons, and the text before them is part of what is compared.
+const ASSIGNMENT = /(?<![<>!=])=(?!=)/g;
+
+/** The label and the numeric value an option states, `{ label: '', value: null }` when it states none. */
+function readOption(option) {
+    const whole = reduceOption(option);
+    let label = '';
+    let s = whole;
+    const assignments = [...whole.matchAll(ASSIGNMENT)];
+    if (assignments.length) {
+        const at = assignments[assignments.length - 1].index;
+        label = whole.slice(0, at);
+        s = whole.slice(at + 1);
+    }
+    s = s.toLowerCase().replace(/\\times10\^?\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
+    const frac = /^\(?([+-]?\d*\.?\d+)\)?\/\(?([+-]?\d*\.?\d+)\)?$/.exec(s);
+    if (frac) {
+        const denominator = parseFloat(frac[2]);
+        return { label, value: denominator === 0 ? null : parseFloat(frac[1]) / denominator };
+    }
+    if (/^[+-]?\d*\.?\d+(?:e[+-]?\d+)?$/.test(s)) return { label, value: parseFloat(s) };
+    return { label, value: null };
 }
 
 /**
@@ -38,26 +76,27 @@ export function canonicalOption(option) {
  * wrong in.
  */
 export function optionValue(option) {
-    let s = canonicalOption(option);
-    const eq = s.lastIndexOf('=');
-    if (eq >= 0) s = s.slice(eq + 1);
-    s = s.replace(/\\times10\^?\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
-    const frac = /^\(?([+-]?\d*\.?\d+)\)?\/\(?([+-]?\d*\.?\d+)\)?$/.exec(s);
-    if (frac) {
-        const denominator = parseFloat(frac[2]);
-        return denominator === 0 ? null : parseFloat(frac[1]) / denominator;
-    }
-    if (/^[+-]?\d*\.?\d+(?:e[+-]?\d+)?$/.test(s)) return parseFloat(s);
-    return null;
+    return readOption(option).value;
 }
 
-/** True when two options are the same choice wearing different clothes. */
+/**
+ * True when two options are the same choice wearing different clothes.
+ *
+ * Two values are the same only under the same label: `x = 2` and `y = 2` are
+ * different answers to "which variable is it?", and `i <= 5` is not `i == 5`.
+ * Case is kept for symbols, units and formulas, and folded for a sentence, whose
+ * capital letter is typography: "Melt the butter" and "melt the butter" are one
+ * step, "5 MW" and "5 mW" are two powers.
+ */
 export function sameOption(a, b) {
-    if (canonicalOption(a) === canonicalOption(b)) return true;
-    const x = optionValue(a);
-    const y = optionValue(b);
-    if (x === null || y === null) return false;
-    return Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+    const ra = reduceOption(a);
+    const rb = reduceOption(b);
+    if (ra === rb) return true;
+    if (isSentence(a) && isSentence(b) && ra.toLowerCase() === rb.toLowerCase()) return true;
+    const x = readOption(a);
+    const y = readOption(b);
+    if (x.value === null || y.value === null || x.label !== y.label) return false;
+    return Math.abs(x.value - y.value) <= 1e-9 * Math.max(1, Math.abs(x.value), Math.abs(y.value));
 }
 
 // Small numbers written as words. A stem says "fits exactly five
