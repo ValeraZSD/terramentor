@@ -17,6 +17,12 @@
  * is the state the whole AI layer is required to degrade into.
  */
 
+/** The Greek macros kept as symbols; all of them (and λ) fall in α-ω. */
+const GREEK = {
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', theta: 'θ', phi: 'φ',
+    omega: 'ω', mu: 'μ', nu: 'ν', rho: 'ρ', sigma: 'σ', tau: 'τ',
+};
+
 /**
  * Normalise LaTeX-ish maths into a form a small parser can read.
  * Only the transformations needed by `linearCombinationFaults` below.
@@ -28,7 +34,9 @@ function normalizeMath(text) {
         .replace(/\\(?:left|right|,|;|!|:|quad|qquad)/g, '')
         .replace(/\\cdot|\\times/g, '*')
         .replace(/\\lambda/g, 'λ')
-        .replace(/\\(?:alpha|beta|gamma|delta|theta|phi|omega|mu|nu|rho|sigma|tau)\b/g, 'γ')
+        // Each Greek letter is its own quantity, so each keeps its own symbol:
+        // folding them into one would read "θ = 2φ" as "γ = 2γ".
+        .replace(/\\(alpha|beta|gamma|delta|theta|phi|omega|mu|nu|rho|sigma|tau)(?![A-Za-z])/g, (_, name) => GREEK[name])
         // EVERY remaining macro becomes a BREAK, never whitespace. Deleting them
         // is what welds two separate equations into one false chain: "$L =
         // \lambda_1/4 \implies \lambda_1 = 4L$" is two correct statements, and
@@ -44,7 +52,7 @@ function normalizeMath(text) {
         // Losing a checkable equation is the cheap direction to be wrong in.
         .replace(/\\[a-zA-Z]+\s*[A-Za-z]?/g, ' § ')
         // \frac leaves "(L)/(3)"; a parenthesis around a lone token is noise.
-        .replace(/\(\s*([A-Za-z0-9λγ_.]+)\s*\)/g, '$1')
+        .replace(/\(\s*([A-Za-z0-9α-ω_.]+)\s*\)/g, '$1')
         .replace(/[ \t]+/g, ' ');
 }
 
@@ -59,7 +67,7 @@ function normalizeMath(text) {
  * a unit, which also has no place in the shape checked here).
  */
 function isMathToken(token) {
-    if (!/^[0-9A-Za-zλγ_{}().\/*+\-=]+$/.test(token)) return false;
+    if (!/^[0-9A-Za-zα-ω_{}().\/*+\-=]+$/.test(token)) return false;
     return !/[A-Za-z]{2}/.test(token);
 }
 
@@ -90,7 +98,7 @@ function equationRuns(normalized) {
 // x and x_0 are two different quantities, so "x = x - x_0" is a definition of
 // displacement and not the claim that x equals zero. Dropping the subscript made
 // it the latter, and the checker duly reported a fault in correct teaching.
-const TERM = /^\s*([+-]?)\s*(\d+(?:\.\d+)?)?\s*\*?\s*([A-Za-zλγ](?:_\{?\w+\}?)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?\s*$/;
+const TERM = /^\s*([+-]?)\s*(\d+(?:\.\d+)?)?\s*\*?\s*([A-Za-zα-ω](?:_\{?\w+\}?)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?\s*$/;
 
 /**
  * Read "λ/4 + λ/2 + λ/2" as { symbol: 'λ', value: 1.25 }, or null when the
@@ -115,7 +123,7 @@ function sumOfOneSymbol(expression) {
         const c = coefficient === undefined ? 1 : parseFloat(coefficient);
         total += (sign === '-' ? -1 : 1) * (c / d);
     }
-    return { symbol, value: total };
+    return { symbol, value: total, terms: parts.length };
 }
 
 const TOLERANCE = 1e-9;
@@ -150,6 +158,10 @@ export function linearCombinationFaults(text) {
                 const a = parsed[i];
                 const b = parsed[j];
                 if (!a || !b || a.symbol !== b.symbol) continue;
+                // "x = 2x" is an equation to solve or a supposition ("suppose",
+                // "solve 5x = 2x"), not a claim that two things are equal. Only a
+                // pair with an actual sum in it says "this adds up".
+                if (a.terms < 2 && b.terms < 2) continue;
                 if (Math.abs(a.value - b.value) <= TOLERANCE * Math.max(1, Math.abs(a.value))) continue;
                 faults.push({
                     statement: chain.slice(0, 120),
