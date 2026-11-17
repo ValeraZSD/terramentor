@@ -684,12 +684,13 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                 title={tr("Open this day")}
                                 onClick={e => { e.stopPropagation(); openDay(day.date); }}
                                 /* A flex box, so the number sits where the old span did
-                                   (a button's own line box pushed it ~4px down), and a
-                                   little side padding, cancelled by the margin, so the
-                                   focus ring clears the digits. */
-                                className={`self-start mb-1 shrink-0 inline-flex -mx-0.5 px-0.5 rounded ${FOCUS_RING}`}
+                                   (a button's own line box pushed it ~4px down). The
+                                   number's own side padding, cancelled by the button's
+                                   margin, keeps the focus ring clear of the digits: a raw
+                                   button may not size itself (control-gates). */
+                                className={`self-start mb-1 shrink-0 inline-flex -mx-0.5 ${FOCUS_RING}`}
                             >
-                                <span className={`text-xs font-semibold ${day.isToday
+                                <span className={`px-0.5 text-xs font-semibold ${day.isToday
                                     ? 'bg-accent text-white w-5 h-5 rounded-full inline-flex items-center justify-center leading-none'
                                     : day.isCurrentMonth ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 font-normal'}`}>
                                     {parseDate(day.date).getUTCDate()}
