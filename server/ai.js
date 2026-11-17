@@ -3921,6 +3921,24 @@ ${GLOSS_RULE}
 Write every sentence as if speaking to them directly.`,
         user: `Mark this answer and write the explanation to the person who wrote it.\n\nQuestion: ${question}\nExpected answer: ${correctAnswer}\nTheir answer: ${userAnswer}\n\nOutput ONLY JSON: {"correct": true/false/"unsure", "explanation": "..."}\nIn the explanation, address them as "you" — never "the student".`
     }),
+    // Explain-it-back (server/lessonPrompts.js): the learner's own account of a
+    // lesson part they just read, marked against that part's text. A verdict
+    // on understanding, not a key: "weak" sends them back to the part.
+    explain_back: (topic, partTitle, partText, explanation) => ({
+        system: `You read a learner's explanation, in their own words, of a lesson part they have just read, and reply TO THEM.
+CRITICAL: Output ONLY a JSON object: {"verdict": "good" | "weak" | "unsure", "reason": "..."}
+
+Marking, against the lesson part below and nothing else:
+- "good": they state the part's main idea correctly, in any words, and assert nothing the part contradicts. Short is fine; complete is not required.
+- "weak": they miss the main idea, restate only the title, or assert something the part contradicts.
+- "unsure": the text is too short or off-topic to judge either way.
+Ignore spelling, grammar and language; never mark down for them.
+
+The reason (1-2 sentences, plain prose, addressed as "you"): for "good", name what they got right and the one piece a fuller answer would add; for "weak", name exactly what is missing or wrong and WHERE in the part to look again (its idea or step, in a few words). Never praise, never hedge, never narrate your marking. Write it in the language the learner wrote in.
+${GLOSS_RULE}
+${NOTATION_RULE}`,
+        user: `Topic: ${topic}${partTitle ? `\nPart: ${partTitle}` : ''}\n\nThe lesson part:\n"""\n${partText}\n"""\n\nTheir explanation:\n"""\n${explanation}\n"""\n\nOutput ONLY JSON: {"verdict": "good" | "weak" | "unsure", "reason": "..."}`
+    }),
     // The checker for CODE. Same contract as answer_checker (one JSON verdict,
     // written to the learner), different judgement: a program is right when it
     // BEHAVES right — a different name, a loop instead of a comprehension, an

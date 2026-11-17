@@ -630,6 +630,8 @@ interface AppState {
      * repair happens once rather than on every page load.
      */
     repairFeedVisual: (key: string, originalCode: string, repairedCode: string) => void;
+    /** The opening round of a lesson card was answered or skipped: drop it, so a remount does not ask it again. */
+    settlePreQuestions: (key: string) => void;
     /**
      * Mark a card done locally + report to the server (lesson/question/recall).
      * Resolves false when the save failed — the card is then NOT done, and the
@@ -1841,6 +1843,12 @@ export const useStore = create<AppState>((set, get) => ({
         const feedItemId = 'feedItemId' in card ? card.feedItemId : null;
         if (feedItemId) api.repairFeedVisual(feedItemId, originalCode, repairedCode).catch(() => { });
     },
+
+    settlePreQuestions: (key) => set(state => ({
+        feedCards: state.feedCards.map(c => (c.key === key && c.kind === 'lesson' && c.preQuestions
+            ? { ...c, preQuestions: undefined }
+            : c)),
+    })),
 
     consumeFeedCard: async (key, payload) => {
         // Optimistic: collapse the card immediately; the server call settles stats.

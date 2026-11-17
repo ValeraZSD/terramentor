@@ -256,6 +256,7 @@ console.log('\n--- foreign words glossed, cards state the task ---');
         'lesson writer': AI_PROMPTS.feed_lesson('T', [{ title: 'P', focus: 'f' }], 1, 'ctx'),
         'explain an answer': AI_PROMPTS.explain_question('T', 'ctx', 'q', 'a', 'b'),
         'answer checker': AI_PROMPTS.answer_checker('q', 'a', 'b'),
+        'explain-back marker': AI_PROMPTS.explain_back('T', 'P', 'text', 'mine'),
     };
     for (const [name, p] of Object.entries(writers)) check(`${name}: glosses foreign words`, GLOSS.test(sys(p)), true);
     const cardWriters = {
