@@ -406,7 +406,7 @@ try {
         const dialog = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'AddPaperDialog.tsx'), 'utf8');
         check('the dialog sends the printed total and holds Add while the parts disagree with it',
             /printedTotal/.test(dialog) && /disabled=\{[^}]*mismatch/.test(dialog) && /mismatch\s*=\s*printedTotal != null && printedTotal !== total/.test(dialog));
-        check('…and says so when what was typed is not a whole number, rather than skipping the check',
+        check('…and holds Add while what was typed is not a whole number',
             /printedBad\s*=\s*printed\.trim\(\) !== '' && printedTotal == null/.test(dialog) && /disabled=\{[^}]*printedBad/.test(dialog));
     });
 
