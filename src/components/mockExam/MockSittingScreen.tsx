@@ -163,7 +163,7 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
                 )}
             </div>
 
-            <div className="my-10 text-center" aria-live="off">
+            <div className="my-10 text-center [container-type:inline-size]" aria-live="off">
                 {/* Time up wins over Paused and a hidden clock: there is nothing left to resume or hide. */}
                 {timeUp ? (
                     <p className="text-3xl font-semibold text-slate-900 dark:text-white">{t("Time is up")}</p>
@@ -172,7 +172,7 @@ function ClockScreen({ detail, onChange, reload }: { detail: MockDetail; onChang
                 ) : hidden ? (
                     <p className="text-3xl font-semibold text-slate-400 dark:text-slate-500">{t("Clock hidden")}</p>
                 ) : (
-                    <p className="text-5xl font-semibold tabular-nums text-slate-900 dark:text-white">{t("{{time}} left", { time: duration(left + 59) })}</p>
+                    <ClockLeft text={t("{{time}} left", { time: CLOCK_SLOT })} time={duration(left + 59)} />
                 )}
                 {timeUp ? (
                     <p role="status" className="mt-3 text-sm text-slate-600 dark:text-slate-300">
@@ -457,5 +457,23 @@ function ResultScreen({ detail, onDone }: { detail: MockDetail; onDone: () => vo
                 <Button variant="primary" onClick={onDone}>{t("Done")}</Button>
             </div>
         </div>
+    );
+}
+
+/** Stands in for the time inside the translated "{{time}} left", so the time can be drawn apart. */
+const CLOCK_SLOT = '\u0001';
+
+/** The running clock. The time is one unbroken line sized to the card (on a phone the hours
+ *  never wrap away from the minutes); the word around it ("left", or a word before it in other languages) is smaller and
+ *  is the only thing that wraps. Font sizes in rem, so the interface scale still reaches it. */
+function ClockLeft({ text, time }: { text: string; time: string }) {
+    const [before, after = ''] = text.split(CLOCK_SLOT);
+    const word = 'text-2xl text-slate-600 dark:text-slate-300';
+    return (
+        <p className="font-semibold text-slate-900 dark:text-white">
+            {before.trim() && <span className={word}>{before}</span>}
+            <span className="whitespace-nowrap tabular-nums text-[clamp(1.875rem,12cqi,3rem)]">{time}</span>
+            {after.trim() && <span className={word}>{after}</span>}
+        </p>
     );
 }
