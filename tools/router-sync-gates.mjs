@@ -41,7 +41,7 @@ import { createRoot } from 'react-dom/client';
 import { act as domAct } from 'react';
 import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { useRouterStoreSync } from ${JSON.stringify(join(repoRoot, 'src/hooks/useRouterStoreSync.ts').split('\\').join('/'))};
-import { useStore, applied } from 'fake-store';
+import { useStore, applied } from '../store';
 
 let navigateTo: (to: string) => void = () => {};
 function Probe() {
