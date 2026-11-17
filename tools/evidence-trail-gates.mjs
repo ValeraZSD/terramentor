@@ -213,6 +213,18 @@ try {
     t = await trail(seeded);
     check('…the first own answer steps from the seed, never from 0', close(t.rows[0]?.before, 0.52), JSON.stringify(t.rows[0]));
 
+    // Both seeds stored: the estimate is the larger (MAX), so the trail names that one.
+    const twinSeeded = addNode(course, 'Lenses');
+    applySeededPrior(twinSeeded, 'placement', 0.29, []);
+    applySeededPrior(twinSeeded, 'transfer', 0.6, []);
+    t = await trail(twinSeeded);
+    check('a placement seed under a larger transfer seed: the trail names transfer', t.estimate.seed === 'transfer', JSON.stringify(t.estimate));
+    const placementLarger = addNode(course, 'Mirrors');
+    applySeededPrior(placementLarger, 'transfer', 0.4, []);
+    applySeededPrior(placementLarger, 'placement', 0.52, []);
+    t = await trail(placementLarger);
+    check('…and a larger placement seed is still named placement', t.estimate.seed === 'placement', JSON.stringify(t.estimate));
+
     const deckTopic = addNode(deck, 'Hiragana');
     const cards = Array.from({ length: 4 }, (_, i) => Number(db.prepare('INSERT INTO flashcards (node_id, front, back) VALUES (?, ?, ?)').run(deckTopic, `f${i}`, `b${i}`).lastInsertRowid));
     cards.forEach(c => rate(c, 4));
