@@ -63,6 +63,8 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', 'temp', '.git', '.claude']);
 /** Packages declared on purpose that no scan can see. Each needs a reason. */
 const ALLOWLIST = {
     postcss: 'the engine Tailwind and Vite run through; named by neither, required by both',
+    'axe-core': 'read as a file, not imported: tools/axe-gates.mjs resolves `axe-core/axe.min.js` and '
+        + 'injects its source into each page the browser opens',
     typescript: 'invoked as the `tsc` binary by `npm run check` and by the editor, never imported',
     '@tesseract.js-data/eng': 'the English OCR model. It is DATA: `server/pdfRecovery.js` resolves its '
         + 'directory and hands the path to tesseract.js as `langPath`, so nothing imports it. Removing it '

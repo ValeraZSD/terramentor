@@ -26,6 +26,7 @@ import { getVisualKind, VISUAL_KIND_LABELS } from './visuals/registry';
 import { DrillLauncher } from './drills/DrillLauncher';
 import { getDrillLang } from './drills/parseDrill';
 import { useStore, isDarkTheme } from '../store';
+import { useContentLang } from '../utils/contentLang';
 import 'katex/dist/katex.min.css';
 // A copied selection gives each formula's TeX, not KaTeX's glyphs.
 import '../utils/copyTex';
@@ -498,6 +499,10 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
 const components = { ...htmlComponents, ...customElements } as Components;
 
 const Markdown = memo(({ content, className = '', streaming = false, autoRepair = false, autoBuild = autoRepair, onRepaired, nodeId, surface, messageId }: MarkdownProps) => {
+    // The course's language when this is course text (`ContentLang`); the
+    // assistant answers in the learner's language, whatever course is open.
+    const courseLang = useContentLang();
+    const lang = surface === 'assistant' ? undefined : courseLang;
     // Safety net: `content` is typed as string, but it's frequently sourced from
     // AI-generated JSON (insights, chat) that a local model can malform — e.g. a
     // `message` field that arrives as an object/array/number. A non-string here
@@ -532,7 +537,7 @@ const Markdown = memo(({ content, className = '', streaming = false, autoRepair 
                     <RepairContext.Provider value={onRepaired}>
                       <NodeIdContext.Provider value={nodeId}>
                        <VisualOriginContext.Provider value={{ surface, messageId }}>
-                        <div className={`prose prose-sm dark:prose-invert max-w-none break-words ${className}`}>
+                        <div lang={lang} className={`prose prose-sm dark:prose-invert max-w-none break-words ${className}`}>
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm, remarkMath, remarkBreaks]}
                                 // Order is load-bearing: raw HTML must be parsed before it can be

@@ -300,7 +300,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     )}
 
                     {quizzes.length === 0 ? (
-                        <div className="text-center py-8 text-slate-400">
+                        <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                             <Brain className="w-12 h-12 mx-auto mb-3 opacity-50" />
                             <p>{t("No quizzes yet")}</p>
                             <p className="text-sm mt-1">{t("Generate a quiz to test your knowledge")}</p>
@@ -373,7 +373,7 @@ export default function StudyTools({ nodeId, mode, onCountsChange }: Props) {
                     <GenerationCounter />
 
                     {flashcards.length === 0 ? (
-                        <div className="text-center py-8 text-slate-400">
+                        <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                             <BookOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
                             <p>{t("No flashcards yet")}</p>
                             <p className="text-sm mt-1">{t("Generate flashcards for spaced repetition")}</p>

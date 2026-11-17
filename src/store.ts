@@ -21,6 +21,7 @@ import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
+import { setSingleKeyShortcuts } from './utils/escapeKey';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import { loadedRunner } from './runner/load';
 import {
@@ -517,6 +518,8 @@ interface AppState {
      *  state: living inside the calendar component would reset it to Monday on
      *  every navigation and cost a permanent toolbar toggle. */
     weekStartDay: WeekStartDay;
+    /** Single-key shortcuts (`a`, the calendar letters, Space, 1-4, `z`) on or off. */
+    keyShortcuts: boolean;
     /** What colour means on the atlas: how much is proven, or which course a
      *  topic belongs to. A preference rather than view state — a map you have
      *  chosen to read by course should still read that way tomorrow. */
@@ -555,6 +558,8 @@ interface AppState {
     searchLoading: boolean;
     searchOpen: boolean;
     workspaceView: WorkspaceView;
+    /** A mock exam is being answered: the app's own chrome steps aside (ExamFrame). */
+    examFocus: boolean;
     showScheduleModal: boolean;
     scheduleModalProjectId: number | null;
     paceData: PaceData | null;
@@ -776,6 +781,7 @@ interface AppState {
     setSidebarWidth: (width: number) => Promise<void>;
     setDetailPanelWidth: (width: number) => Promise<void>;
     setWeekStartDay: (day: WeekStartDay) => Promise<void>;
+    setKeyShortcuts: (on: boolean) => Promise<void>;
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
@@ -848,6 +854,7 @@ interface AppState {
     performSearch: (query: string) => Promise<void>;
     clearSearch: () => void;
     setWorkspaceView: (view: WorkspaceView) => void;
+    setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
@@ -953,6 +960,7 @@ export const useStore = create<AppState>((set, get) => ({
     sidebarWidth: 256,
     detailPanelWidth: 420,
     weekStartDay: 1,
+    keyShortcuts: true,
     atlasColorMode: 'course',
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
@@ -969,6 +977,7 @@ export const useStore = create<AppState>((set, get) => ({
     searchLoading: false,
     searchOpen: false,
     workspaceView: 'dashboard',
+    examFocus: false,
     showScheduleModal: false,
     scheduleModalProjectId: null,
     paceData: null,
@@ -1309,6 +1318,13 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'week_start_day', String(day), before, day, value => set({ weekStartDay: value }));
     },
 
+    setKeyShortcuts: async (on) => {
+        const before = get().keyShortcuts;
+        const paint = (value: boolean) => { set({ keyShortcuts: value }); setSingleKeyShortcuts(value); };
+        paint(on);
+        await saveSetting(get, 'key_shortcuts', on ? 'true' : 'false', before, on, paint);
+    },
+
     setNumberFormat: async (style) => {
         // Applied before it is stored, like the theme and the language: the
         // change IS the feedback, and every number on screen is the preview.
@@ -1453,7 +1469,9 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
+            const keyShortcuts = settings.key_shortcuts !== 'false';
+            setSingleKeyShortcuts(keyShortcuts);
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
@@ -1630,6 +1648,15 @@ export const useStore = create<AppState>((set, get) => ({
         projectsRequest = request;
         try {
             const projects = await request;
+            // A list asked for before another one is older than it: drawn last,
+            // it would put back a row a write had already changed (a recall
+            // target set on the answer to its save). The newer load draws its
+            // own; this caller waits for it, so it still reads a list at least
+            // as new as the one it asked for.
+            if (projectsRequest !== request) {
+                if (projectsRequest) await projectsRequest.catch(() => undefined);
+                return;
+            }
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {
@@ -2499,6 +2526,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ searchQuery: '', searchResults: null, searchResultsQuery: null, searchError: null, searchLoading: false, searchOpen: false });
     },
 
+    setExamFocus: (on) => set({ examFocus: on }),
     setWorkspaceView: (view) => {
         const nav = get()._navigate;
         const pid = get().currentProjectId;
