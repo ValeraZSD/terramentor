@@ -549,6 +549,21 @@ section('the Sources line opens only what it may, and only what is there now');
         seen.length > 0 && seen.every(s => !/Alpha: the text/.test(s)) && /Loading/.test(seen[seen.length - 1]),
         JSON.stringify(seen.map(s => s.slice(0, 80))));
     await dlg.unmount();
+
+    // A request that failed is not an empty file: the dialog says it failed,
+    // offers the request again, and the retry shows the text.
+    let fails = true;
+    globalThis.__api.getDocumentText = () => (fails ? Promise.reject(new Error('offline')) : Promise.resolve({ content: 'Beta: the text of the file.' }));
+    const bad = await mount(h(DocumentTextDialog, { doc: { id: 3, title: 'Third file' }, onClose: () => { } }));
+    check('a failed text request does not claim the file was empty',
+        !/No text was extracted/.test(document.body.textContent) && /Failed to load extracted text/.test(document.body.textContent),
+        document.body.textContent);
+    fails = false;
+    const retry = [...document.querySelectorAll('button')].find(b => /^Retry$/.test(b.textContent.trim()));
+    await React.act(async () => { retry?.click(); });
+    await settle();
+    check('Retry asks again and shows the text', /Beta: the text of the file/.test(document.body.textContent), document.body.textContent);
+    await bad.unmount();
     delete globalThis.__api;
 }
 
