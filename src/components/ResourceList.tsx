@@ -21,7 +21,7 @@ import DropdownMenu from './DropdownMenu';
 import { MenuItem } from './ui/Popover';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
-import { useDragA11y, useDragKeyboard, resourceTitle } from '../hooks/useDragA11y';
+import { useDragA11y, useDragKeyboard, useMovedSay, resourceTitle } from '../hooks/useDragA11y';
 import { Button, IconButton, IconLink } from './ui/Button';
 import { TextInput } from './ui/Field';
 import ProgressBar from './ui/ProgressBar';
@@ -229,7 +229,8 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
   const [finding, setFinding] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useDragKeyboard());
-  const dragA11y = useDragA11y(resourceTitle);
+  const dragA11y = useDragA11y(resourceTitle, { positions: true });
+  const sayMoved = useMovedSay();
 
   // Derived
   const typeCounts = useMemo(() => {
@@ -342,6 +343,8 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
     const step = (delta: -1 | 1) => () => {
       const to = resources.findIndex(r => r.id === filteredResources[shown + delta].id);
       void reorderResources(arrayMove(resources, at, to).map(r => r.id));
+      // Its place in the list as shown (a type filter hides the rest).
+      sayMoved(resources[at].title, shown + delta + 1, filteredResources.length);
     };
     return {
       up: at >= 0 && shown > 0 ? step(-1) : null,
