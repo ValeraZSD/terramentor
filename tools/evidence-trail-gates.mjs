@@ -15,7 +15,13 @@
  *   - a single feed answer names its question and the ref the "this is wrong"
  *     flag takes; a sitting with kept answers opens; a reported question is
  *     counted out;
- *   - reading writes nothing (no mastery row is made for a topic never answered).
+ *   - still shaky: a question whose newest graded answers, on any surface, are
+ *     two or more misses in a row is listed with its flag; a right answer
+ *     clears it, and a question held back or reported out is never listed; a
+ *     question confirmed later counts only the answers after it, and a second
+ *     copy of the course counts only its own;
+ *   - reading writes nothing (no mastery row is made for a topic never answered);
+ *   - the chart's pointer picks the dot nearest in time, then in height.
  *
  * --root runs the same cases against another checkout's server; on the code
  * before this suite the route is missing and every case fails.
@@ -51,6 +57,7 @@ const { default: db } = await import(S + 'database.js');
 if (!process.env.DB_PATH.startsWith(scratch)) throw new Error('refusing: not the scratch library');
 const { updateMasteryFromAttempt, applySeededPrior, getNodeMastery } = await import(S + 'mastery.js');
 const { recordCardEvidence } = await import(S + 'cardEvidence.js');
+const { logAsked } = await import(S + 'questionLog.js');
 const { createApp } = await import(S + 'app.js');
 
 const course = Number(db.prepare("INSERT INTO projects (name) VALUES ('Optics')").run().lastInsertRowid);
@@ -224,6 +231,148 @@ try {
     check('…and one reported question counted out of it', t.rows[0]?.voided === 1, JSON.stringify(t.rows[0]));
     check('a row without kept answers is not', (await trail(many)).rows.every(r => r.reviewable === false));
     void res;
+
+    console.log('\n--- 7. still shaky: a question missed twice, not right since ---');
+    // The log every surface writes (question_log), read per question: a
+    // question whose newest graded answers are two or more misses in a row.
+    const shakyTopic = addNode(course, 'Total internal reflection');
+    const bankQs = ['Critical angle?', 'Which way does light bend?', 'Fibre optics?', 'Mirage?', 'Held back?', 'Reported?']
+        .map(q => ({ question: q, type: 'multiple_choice', options: ['A', 'B'], correct_answer: 'A' }));
+    const shakyQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(shakyTopic, 'Bank', JSON.stringify(bankQs)).lastInsertRowid);
+    const shakyBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
+    const uuidOf = (i) => shakyBank[i].uuid;
+    // Every logged answer is pinned to its own instant, a minute after the
+    // one before, so the order the reader sees is the fixture's, never the
+    // clock's (logAsked stamps NOW_ISO).
+    let minute = 0;
+    const pinNew = (fn) => {
+        const before = db.prepare('SELECT COALESCE(MAX(id), 0) AS m FROM question_log').get().m;
+        fn();
+        for (const { id } of db.prepare('SELECT id FROM question_log WHERE id > ? ORDER BY id').all(before)) {
+            db.prepare('UPDATE question_log SET asked_at = ? WHERE id = ?').run(new Date(Date.UTC(2026, 0, 1) + minute++ * 60_000).toISOString(), id);
+        }
+    };
+    const answer = (i, correct, surface = 'feed', quiz = shakyQuiz) => pinNew(() => logAsked([{ quizId: quiz, uuid: uuidOf(i), correct }], surface));
+    // Listed / not listed, each requiring the field: a missing list fails
+    // both, so no negative check passes on a server that never sends it.
+    const has = (tr, stem) => Array.isArray(tr.shaky) && tr.shaky.some(s => s.question === stem);
+    const lacks = (tr, stem) => Array.isArray(tr.shaky) && !tr.shaky.some(s => s.question === stem);
+    t = await trail(shakyTopic);
+    check('no answers logged: nothing is shaky (an empty list, not missing)', Array.isArray(t.shaky) && t.shaky.length === 0, JSON.stringify(t.shaky));
+
+    answer(0, false); answer(0, null, 'quiz'); answer(0, false);          // missed twice, an ungraded ask between
+    answer(1, false); answer(1, false); answer(1, true);                  // missed twice, then right
+    answer(2, true); answer(2, false);                                    // missed once, after a right one
+    answer(3, false, 'mastery_check'); answer(3, true, 'feed'); answer(3, false, 'quiz'); answer(3, false, 'recall'); // right between, then two misses on two surfaces
+    t = await trail(shakyTopic);
+    check('missed twice in a row: shaky', has(t, 'Critical angle?'), JSON.stringify(t.shaky));
+    check('missed twice, then right: not shaky', lacks(t, 'Which way does light bend?'), JSON.stringify(t.shaky));
+    check('one miss after a right answer: not shaky', lacks(t, 'Fibre optics?'), JSON.stringify(t.shaky));
+    check('two misses since the last right answer, on any surface: shaky', has(t, 'Mirage?'), JSON.stringify(t.shaky));
+    const crit = (t.shaky ?? []).find(s => s.question === 'Critical angle?') ?? {};
+    check('…each names its question for the flag (q:<uuid>) and its misses since the last right answer; an ungraded ask between two misses neither breaks the run nor adds to it', crit.ref === `q:${uuidOf(0)}` && crit.misses === 2, JSON.stringify(crit));
+    check('the count is the list\'s length', Array.isArray(t.shaky) && t.shakyCount === t.shaky.length && t.shakyCount === 2, JSON.stringify({ count: t.shakyCount, n: t.shaky?.length }));
+
+    // The run is read by WHEN it was answered: a right answer written later
+    // (a higher id) but dated before the misses does not end it.
+    answer(3, true);
+    db.prepare("UPDATE question_log SET asked_at = '2000-01-01T00:00:00.000Z' WHERE id = (SELECT MAX(id) FROM question_log)").run();
+    t = await trail(shakyTopic);
+    check('a right answer dated before the misses: still shaky', has(t, 'Mirage?'), JSON.stringify(t.shaky));
+
+    answer(0, false);
+    t = await trail(shakyTopic);
+    check('most misses first: three misses ahead of two', t.shaky?.[0]?.question === 'Critical angle?' && t.shaky[0].misses === 3 && t.shaky[1]?.misses === 2, JSON.stringify(t.shaky));
+
+    // One question held in two of the topic's rows (a bank row and a saved
+    // practice quiz) is listed once.
+    db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(shakyTopic, 'Practice', JSON.stringify([shakyBank[0]]));
+    t = await trail(shakyTopic);
+    check('a question in two of its rows: listed once', Array.isArray(t.shaky) && t.shaky.filter(s => s.question === 'Critical angle?').length === 1 && t.shakyCount === 2, JSON.stringify(t.shaky));
+
+    // A copy answered as a review question inside another topic's practice
+    // quiz keeps the uuid, so it is the same question missed.
+    const other = addNode(course, 'Reflection');
+    const otherQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(other, 'Practice', JSON.stringify([
+        { ...shakyBank[2], isGhost: true },
+    ])).lastInsertRowid);
+    answer(2, false, 'quiz', otherQuiz);
+    t = await trail(shakyTopic);
+    check('a second miss as a review question in another topic: shaky here', has(t, 'Fibre optics?'), JSON.stringify(t.shaky));
+    const otherTrail = await trail(other);
+    check('…and not shaky on the other topic, which does not own it', Array.isArray(otherTrail.shaky) && otherTrail.shaky.length === 0, JSON.stringify(otherTrail.shaky));
+    answer(2, true, 'quiz', otherQuiz);
+    t = await trail(shakyTopic);
+    check('…and a right answer to that copy clears it', lacks(t, 'Fibre optics?'), JSON.stringify(t.shaky));
+
+    // The same course imported a second time keeps its questions' uuids, but
+    // its answers are that course's: two misses there list it there only.
+    const copyCourse = Number(db.prepare("INSERT INTO projects (name) VALUES ('Optics, again')").run().lastInsertRowid);
+    const copyTopic = addNode(copyCourse, 'Total internal reflection');
+    const copyQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(copyTopic, 'Bank', JSON.stringify([shakyBank[2]])).lastInsertRowid);
+    answer(2, false, 'feed', copyQuiz); answer(2, false, 'feed', copyQuiz);
+    check('two misses on a second copy of the course: shaky in that copy', has(await trail(copyTopic), 'Fibre optics?'), JSON.stringify((await trail(copyTopic)).shaky));
+    t = await trail(shakyTopic);
+    check('…and not in the first, which never missed it since', lacks(t, 'Fibre optics?'), JSON.stringify(t.shaky));
+
+    // A question a verifier could not confirm may have a wrong key: a miss of
+    // it says nothing about the learner. One reported out of the bank is gone.
+    answer(4, false); answer(4, false); answer(5, false); answer(5, false);
+    const stamped = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
+    stamped[4].unverified = { reason: 'gate', tries: 1, at: '2026-01-01T00:00:00Z', next: null };
+    stamped.splice(5, 1);
+    db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(stamped), shakyQuiz);
+    t = await trail(shakyTopic);
+    check('a question no verifier confirmed: not listed', lacks(t, 'Held back?'), JSON.stringify(t.shaky));
+    check('a question gone from the bank (reported): not listed', lacks(t, 'Reported?'), JSON.stringify(t.shaky));
+    check('most misses first', Array.isArray(t.shaky) && t.shaky.every((s, i, a) => i === 0 || a[i - 1].misses >= s.misses), JSON.stringify(t.shaky));
+
+    // Confirmed later: the stamp comes off and only the answers from then on
+    // count (questionTrust.js), so the two misses while it was held back do not.
+    const confirmed = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(shakyQuiz).questions);
+    delete confirmed[4].unverified;
+    confirmed[4].verifiedAt = new Date(Date.UTC(2026, 0, 1) + minute++ * 60_000).toISOString();
+    db.prepare('UPDATE quizzes SET questions = ? WHERE id = ?').run(JSON.stringify(confirmed), shakyQuiz);
+    t = await trail(shakyTopic);
+    check('confirmed after two misses: not listed for the misses before', lacks(t, 'Held back?'), JSON.stringify(t.shaky));
+    answer(4, false); answer(4, false);
+    t = await trail(shakyTopic);
+    const held = Array.isArray(t.shaky) ? t.shaky.find(s => s.question === 'Held back?') : null;
+    check('…two misses after it: listed, with those two only', held?.misses === 2, JSON.stringify(held));
+
+    // A long list is cut; the count still says how many.
+    const wide = addNode(course, 'Interference');
+    const wideQuiz = Number(db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)').run(wide, 'Bank', JSON.stringify(
+        Array.from({ length: 21 }, (_, i) => ({ question: `Fringe ${i}?`, type: 'multiple_choice', options: ['A', 'B'], correct_answer: 'A' })),
+    )).lastInsertRowid);
+    const wideBank = JSON.parse(db.prepare('SELECT questions FROM quizzes WHERE id = ?').get(wideQuiz).questions);
+    for (const q of wideBank) pinNew(() => logAsked([{ quizId: wideQuiz, uuid: q.uuid, correct: false }, { quizId: wideQuiz, uuid: q.uuid, correct: false }], 'quiz'));
+    t = await trail(wide);
+    check('21 shaky questions: 20 listed, the count says 21', t.shaky?.length === 20 && t.shakyCount === 21, JSON.stringify({ n: t.shaky?.length, count: t.shakyCount }));
+    check('…equal misses: the newest first', t.shaky?.[0]?.question === 'Fringe 20?', JSON.stringify(t.shaky?.slice(0, 2)));
+
+    db.prepare("UPDATE nodes SET status = 'skipped' WHERE id = ?").run(shakyTopic);
+    const skippedTrail = await trail(shakyTopic);
+    check('a skipped topic lists nothing', Array.isArray(skippedTrail.shaky) && skippedTrail.shaky.length === 0, JSON.stringify(skippedTrail.shaky));
+
+    console.log('\n--- 8. the chart: which dot the pointer picks ---');
+    // The client's picker, bundled. The half-pixel band that lets dots on one
+    // day share a time is measured from the nearest dot, never from the dot
+    // picked so far, or it creeps along a row of dots 0.4 px apart.
+    let pickDot = null;
+    try {
+        const { build } = await import('esbuild');
+        const outfile = join(scratch, 'pickDot.mjs');
+        await build({ entryPoints: [join(ROOT, 'src/components/evidence/pickDot.ts')], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' });
+        ({ pickDot } = await import(pathToFileURL(outfile).href));
+    } catch (e) { console.log(`  (no picker to load: ${e?.message?.split('\n')[0]})`); }
+    const pick = (xy, x, y) => (typeof pickDot === 'function' ? pickDot(xy, x, y) : 'missing');
+    const creep = [{ x: 100, y: 50 }, { x: 100.4, y: 40 }, { x: 100.8, y: 30 }];
+    check('dots 0.4 px apart, the pointer on the first at the top: the band stops at 0.5 px from the nearest', pick(creep, 100, 0) === 1, String(pick(creep, 100, 0)));
+    check('dots on one time: the pointer\'s height picks', pick([{ x: 10, y: 80 }, { x: 10, y: 20 }], 10, 75) === 0, String(pick([{ x: 10, y: 80 }, { x: 10, y: 20 }], 10, 75)));
+    check('…and a full tie goes to the later dot', pick([{ x: 10, y: 50 }, { x: 10, y: 50 }], 10, 0) === 1);
+    check('otherwise the nearest along time, at any height', pick([{ x: 0, y: 0 }, { x: 50, y: 100 }, { x: 100, y: 0 }], 60, 0) === 1);
+    check('no dots: -1', pick([], 0, 0) === -1);
 } finally {
     server.close();
     db.close();
