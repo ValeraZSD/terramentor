@@ -706,6 +706,49 @@ check('no prototype switch or dev hook is left in', leftovers.length === 0, left
 const stage = read('src/components/atlas/AtlasRenderStage.tsx') || '';
 check('the video stage draws with the same renderer', /GlobeMap/.test(stage) && !/AtlasMap\b/.test(stage));
 
+// ---- a recording that fails -------------------------------------------------------
+// The GIF encoder runs in a worker and can throw on its closing message (out of
+// memory on a long film). The page must hear that and stop waiting, and the
+// learner must be told in their own language, not in the thrown text.
+console.log('\n--- a recording that fails');
+{
+    const rec = await load('src/components/atlas/videoRecorder.ts', ['recordCanvasGif']);
+    if (rec) {
+        const workers = [];
+        class FakeWorker {
+            constructor() { this.terminated = false; workers.push(this); }
+            postMessage() {}
+            terminate() { this.terminated = true; }
+        }
+        const ctx2d = { drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }) };
+        const names = ['Worker', 'document', 'requestAnimationFrame', 'cancelAnimationFrame'];
+        const had = names.map(n => [n, n in globalThis, globalThis[n]]);
+        globalThis.Worker = FakeWorker;
+        globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx2d }) };
+        globalThis.requestAnimationFrame = () => 1;
+        globalThis.cancelAnimationFrame = () => {};
+        try {
+            const recorder = rec.recordCanvasGif({ width: 2, height: 2 }, 10);
+            const worker = workers[0];
+            const outcome = recorder.stop().then(() => 'resolved', e => `rejected: ${e.message}`);
+            // The encoder throws while writing the file, after `finish` was sent.
+            worker.onmessage({ data: { type: 'error', message: 'out of memory' } });
+            const result = await Promise.race([outcome, new Promise(r => setTimeout(() => r('still waiting'), 300))]);
+            check('a GIF encoder that throws on the closing message ends the stop with that error, not a wait for ever',
+                result === 'rejected: out of memory', result);
+            check('…and its worker is let go', worker.terminated === true);
+        } finally {
+            for (const [n, was, value] of had) { if (was) globalThis[n] = value; else delete globalThis[n]; }
+        }
+    }
+    const stageSrc = read('src/components/atlas/AtlasRenderStage.tsx') || '';
+    check('a failed recording is toasted in the learner’s language, never as the thrown message',
+        stageSrc.length > 0 && !/onFailed\([^)]*\.message/.test(stageSrc));
+    const modalSrc = read('src/components/atlas/AtlasSettingsModal.tsx') || '';
+    check('the pause slider’s unit is a translated key, not a Latin "s" after the number',
+        /tr\("\{\{seconds\}\}s", \{ seconds: num\(settings\.holdMs/.test(modalSrc) && !/\)\}s\s*$/m.test(modalSrc));
+}
+
 // ---- what to study next, drawn -----------------------------------------------
 // Last, because it puts a DOM on the globals: the real StudyNext and TopicRow in
 // jsdom, with only the store and the translation stubbed.
@@ -721,7 +764,7 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     const stubs = {
         'react-i18next': `export const useTranslation = () => ({ i18n: { language: 'en' },
             t: (key, o) => o ? Object.keys(o).reduce((s, n) => s.split('{{' + n + '}}').join(String(o[n])), key) : key });`,
-        i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s;`,
+        i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
         store: `export const useStore = (sel) => sel({ openProjectNode: (p, n) => globalThis.__opened.push([p, n]) });`,
     };
     const stubPlugin = {
@@ -735,13 +778,22 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     };
     const outfile = join(out, 'study-next.cjs');
     await esbuild.build({
-        stdin: { contents: `export { default as StudyNext } from './src/components/atlas/StudyNext.tsx';`, resolveDir: ROOT, loader: 'tsx' },
+        stdin: {
+            contents: [
+                `export { default as StudyNext } from './src/components/atlas/StudyNext.tsx';`,
+                `export { default as TopicRow } from './src/components/atlas/TopicRow.tsx';`,
+                `export { default as BridgeList } from './src/components/atlas/BridgeList.tsx';`,
+                `export { default as TracePanel } from './src/components/atlas/TracePanel.tsx';`,
+                `export { setNumberPreference } from './src/utils/numberFormat.ts';`,
+            ].join('\n'),
+            resolveDir: ROOT, loader: 'tsx',
+        },
         bundle: true, format: 'cjs', platform: 'node', outfile, jsx: 'automatic', packages: 'external',
         plugins: [stubPlugin], logLevel: 'silent',
     });
     const React = require('react');
     const { createRoot } = require('react-dom/client');
-    const { StudyNext } = require(outfile);
+    const { StudyNext, TopicRow, BridgeList, TracePanel, setNumberPreference } = require(outfile);
     globalThis.__opened = [];
     const el = document.createElement('div');
     document.body.appendChild(el);
@@ -766,6 +818,79 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     await React.act(async () => root.render(React.createElement(StudyNext, { next: [], regions })));
     check('with nothing to suggest it draws nothing', el.innerHTML === '', el.innerHTML.slice(0, 120));
     await React.act(async () => root.unmount());
+
+    // The dot's colour is the only sighted cue for where a topic stands, so the
+    // row must say it in words too.
+    console.log('\n--- a topic row says its status in words');
+    {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const words = async (status, extra = {}) => {
+            await React.act(async () => r.render(React.createElement(TopicRow, {
+                topic: topic(7, 'Integrals', { status, ...extra }), detail: 'Calculus', onOpen: () => {},
+            })));
+            return [...host.querySelectorAll('.sr-only')].map(n => n.textContent).join('|');
+        };
+        check('a proven topic reads "Proven"', (await words('completed')).includes('Proven'));
+        check('a topic with answers of its own reads "In progress"', (await words('not_started', { attempts: 3 })).includes('In progress'));
+        check('a skipped topic reads "Skipped"', (await words('skipped')).includes('Skipped'));
+        check('an untouched topic reads "Not started"', (await words('not_started')).includes('Not started'));
+        await React.act(async () => r.unmount());
+    }
+
+    // The pairs are laid side by side by the list's own measured width. A list
+    // that first mounts with no pairs must still be measured when they arrive.
+    console.log('\n--- the pair list is measured when its pairs arrive late');
+    {
+        const observed = [];
+        globalThis.ResizeObserver = class {
+            constructor(cb) { this.cb = cb; }
+            observe(el) { observed.push({ el, cb: this.cb }); }
+            disconnect() {}
+        };
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const side = (id, title) => ({ id, projectId: id, title, projectName: `Course ${id}` });
+        const bridge = { a: side(1, 'Derivatives'), b: side(2, 'Differentiation'), similarity: 0.9, proven: false };
+        await React.act(async () => r.render(React.createElement(BridgeList, { bridges: [] })));
+        await React.act(async () => r.render(React.createElement(BridgeList, { bridges: [bridge] })));
+        await React.act(async () => {
+            for (const { cb } of observed) cb([{ contentRect: { width: 700 } }]);
+        });
+        const pair = host.querySelector('li > div');
+        check('pairs that arrive after the first render are laid across in a wide list',
+            !!pair && /\bflex-row\b/.test(pair.className), pair ? pair.className : 'no pair drawn');
+        await React.act(async () => r.unmount());
+        delete globalThis.ResizeObserver;
+    }
+
+    // A count is written the way the reader chose to read numbers (Settings,
+    // Numbers), the same on every surface that shows it.
+    console.log('\n--- the course player writes its counts in the chosen number style');
+    {
+        setNumberPreference('1.234,5');
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const trace = {
+            projectId: 1, name: 'Calculus', points: new Map(), undated: 2345, startedAt: null,
+            journey: Array.from({ length: 1234 }, (_, i) => i + 1),
+        };
+        const props = (step) => ({
+            course: { name: 'Calculus' }, onClose() {}, trace, step, playing: false, onPlay() {}, onPause() {},
+            onRestart() {}, onOpenSettings() {}, progressAt: () => null,
+        });
+        await React.act(async () => r.render(React.createElement(TracePanel, props(null))));
+        check('the finished count follows the number style', host.textContent.includes('1.234 finished'), host.textContent);
+        check('the undated count follows it too', host.textContent.includes('2.345 finished with no date'), host.textContent);
+        await React.act(async () => r.render(React.createElement(TracePanel, props(5))));
+        check('the step counter follows it, as the spoken line already did',
+            host.textContent.includes('5/1.234') && host.textContent.includes('Step 5 of 1.234'), host.textContent);
+        await React.act(async () => r.unmount());
+        setNumberPreference('auto');
+    }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

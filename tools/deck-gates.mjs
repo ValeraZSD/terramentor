@@ -826,6 +826,10 @@ rmSync(scratch, { recursive: true, force: true });
     const freqRoot = { cards: 5168, seen: 491, topics: 6, closed: 0, inCards: true };
     eq('the root of a deck with 491 cards met says its cards met', keys(freqRoot), '{{value}} / {{value2}} cards met');
     eq('…with the numbers in it', says(freqRoot)[0]?.values?.value, '491');
+    // Every count goes through the reader's number style, so this one is checked
+    // with a formatter that is not `String`.
+    eq('the answers counted are written in the reader’s number style',
+        topicStatusLines({ ...base, attempts: 1234, mastery: 0.5 }, n => `<${n}>`)[0]?.values?.attempts, '<1234>');
     eq('a fully met section with answers says both', keys({ attempts: 76, mastery: 0.99, cards: 86, seen: 86, inCards: true }),
         '{{round}}% · {{attempts}} answered / {{value}} / {{value2}} cards met');
     eq('a course chapter says its topics done, and its cards', keys({ topics: 12, closed: 1, cards: 120, seen: 3 }),
