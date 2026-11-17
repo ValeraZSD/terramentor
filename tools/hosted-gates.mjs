@@ -364,7 +364,7 @@ try {
     const stateAt = restore.indexOf('hostedCli.js restore-state');
     ok('copy.sh restore skips the backup of a library with an unfinished restore (restore-state exit 3, checked first)',
         stateAt > 0 && stateAt < backupAt && /"\$state" = 3/.test(restore));
-    ok('copy.sh restore takes --no-backup, and says so when the backup fails', /"\$keep" = --no-backup/.test(restore) && /restore with --no-backup/.test(restore));
+    ok('copy.sh restore takes --no-backup, and a failed backup names that flag', /"\$keep" = --no-backup/.test(restore) && /restore with --no-backup/.test(restore));
     // An update of every copy lets go of each copy as it finishes: held to the
     // end, the nightly backup of the copies already done waited and failed.
     const update = body('cmd_update');
