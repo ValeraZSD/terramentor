@@ -769,6 +769,10 @@ section('the review session and the phone assistant are the same kind of dialog'
     const deckRow = (read('src/components/AnkiImportModal.tsx').match(/\{num\(d\.count\)\}[\s\S]{0,800}?·\x20\{\{stages\}\} sections/) || [''])[0];
     check('the import preview puts a space between a deck\'s count and its sections',
         deckRow !== '' && /\{num\(d\.count\)\}[\s\S]*?(?:' '|\{' '\}|\{" "\})[\s\S]*?t\("· \{\{stages\}\}/.test(deckRow), deckRow.slice(0, 160));
+    // The media row has the same break between the icon counts and "· N KB".
+    const mediaRow = (read('src/components/AnkiImportModal.tsx').match(/<\/span>\s*(?:\{' '\}\s*)?\{t\("·\x20\{\{bytes\}\} kept on this machine/) || [''])[0];
+    check('the import media row puts a space between its counts and the size',
+        mediaRow !== '' && /\{' '\}/.test(mediaRow), mediaRow);
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));

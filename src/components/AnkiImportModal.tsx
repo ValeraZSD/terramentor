@@ -462,6 +462,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                             <><Volume2 size={12} aria-hidden="true" className="ml-1.5" />{num((stats.mediaSounds ?? 0))}</>
                                         )}
                                     </span>
+                                    {' '}
                                     {t("· {{bytes}} kept on this machine.", { bytes: formatBytes(stats.mediaBytes ?? 0) })}
                                 </OptionRow>
                             )}
