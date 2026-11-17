@@ -13,6 +13,7 @@ import {
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { recordInstalledBase } from '../courseUpdate.js';
 
 const app = routeTable('importExport');
 
@@ -147,6 +148,8 @@ app.post('/api/import', (req, res) => {
         if (project.search_words !== undefined) setSearchWords(newProjectId, project.search_words);
         applyImportedCardDial(newProjectId, project, cardCount);
         if (typeof project.teaches === 'boolean') setProjectTeaches(newProjectId, project.teaches);
+        // What the file installed, so a newer edition can update this copy.
+        recordInstalledBase(newProjectId, { exportedAt: req.body?.exported_at });
         return newProjectId;
     });
 
