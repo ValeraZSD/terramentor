@@ -110,10 +110,9 @@ const GUIDE_LINE = 'before:absolute before:w-0.5 before:rounded-full before:bg-s
  * An opened `Explain` is ONE block: a thin outline, no fill, round the
  * summary AND its body. A guide line under the body alone left the summary
  * above it as a separate line, so the name and what it opened read as two
- * things. The outline is drawn inside the box, and the box reaches 12px into
- * the space around it (`-mx-3 px-3`, open or shut), so the summary does not
- * move sideways when it opens and a closed one stays aligned with the
- * setting it sits under.
+ * things. The box stays inside its column and takes its padding only when
+ * open: reaching 12px out so the summary would not move, it ran to within
+ * 3-6px of the card's own edge and doubled the card's border.
  *
  * Not a tinted panel: that was a grey surface inside whatever card it opened
  * in, three deep around a settings form, and a text box inside it sat on a
@@ -122,7 +121,7 @@ const GUIDE_LINE = 'before:absolute before:w-0.5 before:rounded-full before:bg-s
  * chevron plus its 6px gap, in rem so the interface scale moves both). Text
  * stays `slate-600` / `slate-300`, above 4.5:1 on every surface it opens on.
  */
-const EXPLAIN_BOX = cx('group -mx-3 px-3 rounded-xl open:pt-1 open:pb-3', OPEN_EDGE);
+const EXPLAIN_BOX = cx('group rounded-xl open:px-3 open:pt-1 open:pb-3', OPEN_EDGE);
 const EXPLAIN_BODY = 'details-reveal mt-1 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300';
 
 /**
