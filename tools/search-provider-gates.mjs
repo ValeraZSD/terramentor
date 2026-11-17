@@ -361,6 +361,55 @@ console.log('\n--- a language course\'s search names the language ---');
     check('the link asks searchOwner whose course it is', /searchOwner\(projectId, currentProjectId\)/.test(button), true);
 }
 
+/* ── the search routes' query parameters, on the real app ── */
+console.log('\n--- /api/search reads its query parameters strictly ---');
+{
+    const { createApp } = await import(B + 'app.js');
+    const server = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => server.once('listening', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const get = async (path) => { const r = await fetch(base + path); return { status: r.status, body: await r.json().catch(() => null) }; };
+
+    // Two courses sharing a word, five topics in the first: enough rows that a
+    // limit of 1 and a project scope each change what comes back.
+    const addProject = (name) => Number(db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name, '').lastInsertRowid);
+    const first = addProject('Quokka course');
+    const second = addProject('Quokka second');
+    for (let i = 1; i <= 5; i++) db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(first, `Quokka topic ${i}`);
+    db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(second, 'Quokka elsewhere');
+
+    const plain = await get('/api/search?q=quokka');
+    check('a plain search answers 200', plain.status, 200);
+    check('...and finds topics from both courses', plain.body?.nodes?.some(n => n.projectId === second) && plain.body?.nodes?.some(n => n.projectId === first), true);
+
+    for (const bad of ['abc', '-1', '0', '1.5', '']) {
+        const r = await get(`/api/search?q=quokka&limit=${bad}`);
+        check(`limit=${bad || '(empty)'} is not an error`, r.status, 200);
+        check(`limit=${bad || '(empty)'} falls back to the default, not a slice of it`, r.body?.nodes?.length, plain.body?.nodes?.length);
+    }
+    check('a valid limit still caps the topics', (await get('/api/search?q=quokka&limit=2')).body?.nodes?.length, 2);
+
+    for (const bad of ['abc', '-1', '0', '1.5', '1&projectId=2']) {
+        const r = await get(`/api/search?q=quokka&projectId=${bad}`);
+        check(`projectId=${bad} is a 400, not the whole library`, r.status, 400);
+    }
+    const scoped = await get(`/api/search?q=quokka&projectId=${second}`);
+    check('a real projectId still scopes the search', scoped.status === 200 && scoped.body.nodes.length > 0 && scoped.body.nodes.every(n => n.projectId === second), true);
+    check('an empty projectId is the whole library', (await get('/api/search?q=quokka&projectId=')).body?.nodes?.length, plain.body?.nodes?.length);
+
+    const suggest = await get('/api/search/suggest?q=quo');
+    check('suggest answers 200', suggest.status, 200);
+    check('suggest with a bad projectId is a 400', (await get('/api/search/suggest?q=quo&projectId=abc')).status, 400);
+    check('suggest with a bad limit is not an error', (await get('/api/search/suggest?q=quo&limit=abc')).status, 200);
+    check('suggest with limit=-1 gives the same as the default', (await get('/api/search/suggest?q=quo&limit=-1')).body?.length, suggest.body?.length);
+
+    // Express 5 leaves a body-less request's req.body undefined; createApp fills
+    // it in, so the provider toggle answers its own 400.
+    const toggle = await fetch(`${base}/api/search-providers/youtube`, { method: 'PUT' });
+    check('a body-less provider toggle is a 400, not a 500', toggle.status, 400);
+    server.close();
+}
+
 try { db.close(); } catch { }
 try { rmSync(scratch, { recursive: true, force: true }); } catch { }
 
