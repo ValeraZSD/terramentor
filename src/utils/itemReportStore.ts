@@ -189,8 +189,9 @@ export function useReportOn(ref: string | null): ItemReport | null {
 export function useScreenItem(
     ref: string | null,
     shown?: { answer?: string; correct?: boolean },
-    { inStream = false, listed = false, hideKey }: { inStream?: boolean; listed?: boolean; hideKey?: boolean } = {},
+    { inStream = false, listed = false, hideKey, surface }: { inStream?: boolean; listed?: boolean; hideKey?: boolean; surface?: string } = {},
 ) {
+    const mock = surface === 'mock';
     const answer = shown?.answer;
     const correct = shown?.correct;
     useEffect(() => {
@@ -205,8 +206,9 @@ export function useScreenItem(
             ...(answer ? { answer: answer.slice(0, 300) } : {}),
             ...(typeof correct === 'boolean' ? { correct } : {}),
             ...(typeof hideKey === 'boolean' ? { keyShown: !hideKey } : {}),
+            ...(mock ? { surface: 'mock' as const } : {}),
         }, current);
-    }, [ref, answer, correct, inStream, listed, hideKey]);
+    }, [ref, answer, correct, inStream, listed, hideKey, mock]);
     useEffect(() => {
         if (!ref) return;
         return () => useItemReports.getState().leaveItem(ref);

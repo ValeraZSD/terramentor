@@ -10,6 +10,7 @@ import RouteChunk from './components/RouteChunk';
 import FeedView from './components/feed/FeedView';
 import UpdatePrompt from './components/UpdatePrompt';
 import { useDesktop } from './hooks/useDesktop';
+import { useUpdateStatusRefresh } from './hooks/useUpdateStatusRefresh';
 import type { CalendarScope } from './components/calendar/CalendarView';
 import { k } from './i18n';
 import { isOpenRouterReturn } from './utils/openRouterConnect';
@@ -63,6 +64,9 @@ export default function App() {
     // window saying it is still here. A no-op everywhere else.
     useDesktop();
 
+    // An update the server's automatic check finds after the page loaded.
+    useUpdateStatusRefresh(authChecked && (!authEnabled || authenticated));
+
     useEffect(() => {
         // A 401 on any protected request flips us to the locked screen.
         setAuthRequiredHandler(lockApp);
@@ -76,8 +80,8 @@ export default function App() {
                 loadProjects();
                 useStore.getState().loadSearchProviders();
                 // Identity + the last update verdict. Both are local reads; the
-                // daily poll that produces the verdict runs on the server and
-                // only when the learner turned it on.
+                // automatic check that produces the verdict runs on the server
+                // and only when the learner turned it on.
                 useStore.getState().loadVersion();
             }
         })();

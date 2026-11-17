@@ -402,6 +402,11 @@ async function saveSetting<T>(
 let taskFeedStarted = false;
 /** Download presses whose answer has not come back (see refreshUpdates). */
 let downloadPressesInFlight = 0;
+/** Changes to the update toggle or channel not answered yet, and a count of
+ *  every one started: a background re-read sent before a change, or answered
+ *  while one is on the wire, carries the state from before it (refreshUpdates). */
+let updateWritesInFlight = 0;
+let updateWritesStarted = 0;
 
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
@@ -533,6 +538,8 @@ interface AppState {
      *  checked against the question's tests (src/runner/); off, the model
      *  judges them as before. On unless switched off. */
     codeRunner: boolean;
+    /** `forgive_spelling`: a fill-in answer a letter or two off a long word is marked right. */
+    forgiveSpelling: boolean;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -548,6 +555,8 @@ interface AppState {
     searchLoading: boolean;
     searchOpen: boolean;
     workspaceView: WorkspaceView;
+    /** A mock exam is being answered: the app's own chrome steps aside (ExamFrame). */
+    examFocus: boolean;
     showScheduleModal: boolean;
     scheduleModalProjectId: number | null;
     paceData: PaceData | null;
@@ -774,6 +783,7 @@ interface AppState {
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
     setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     setCodeRunner: (on: boolean) => Promise<void>;
+    setForgiveSpelling: (on: boolean) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -840,6 +850,7 @@ interface AppState {
     performSearch: (query: string) => Promise<void>;
     clearSearch: () => void;
     setWorkspaceView: (view: WorkspaceView) => void;
+    setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
     recalibrateSchedule: (projectId: number) => Promise<boolean>;
@@ -950,6 +961,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
     drillTimeScale: '1',
     codeRunner: true,
+    forgiveSpelling: false,
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -960,6 +972,7 @@ export const useStore = create<AppState>((set, get) => ({
     searchLoading: false,
     searchOpen: false,
     workspaceView: 'dashboard',
+    examFocus: false,
     showScheduleModal: false,
     scheduleModalProjectId: null,
     paceData: null,
@@ -1335,6 +1348,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'code_runner', on ? 'on' : 'off', before, on, value => set({ codeRunner: value }));
     },
 
+    setForgiveSpelling: async (on) => {
+        const before = get().forgiveSpelling;
+        set({ forgiveSpelling: on });
+        await saveSetting(get, 'forgive_spelling', on ? 'on' : 'off', before, on, value => set({ forgiveSpelling: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1433,11 +1452,12 @@ export const useStore = create<AppState>((set, get) => ({
             // server makes and it fails closed on anything else.
             const aiWebSearch = settings.ai_web_search === 'on';
             const codeRunner = settings.code_runner !== 'off';
+            const forgiveSpelling = settings.forgive_spelling === 'on';
             // Written by the welcome screen, or by the migration in
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, welcome });
+            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
@@ -1494,32 +1514,43 @@ export const useStore = create<AppState>((set, get) => ({
         // even though turning it ON performs a check before it answers.
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, enabled } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setAutoUpdateCheck(enabled) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update setting'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
     refreshUpdates: async () => {
+        const startedBefore = updateWritesStarted;
         try {
             const status = await api.getUpdates();
             // While a Download press is still asking GitHub for the newest
             // release, the server has not started anything yet; its "available"
             // would flip the button back from "Preparing" under the press.
-            if (downloadPressesInFlight === 0) set({ updateStatus: status });
+            // Likewise a toggle or channel change: until it is answered, the
+            // read would put the old setting back under the person's hand.
+            if (downloadPressesInFlight === 0 && updateWritesInFlight === 0 && updateWritesStarted === startedBefore) {
+                set({ updateStatus: status });
+            }
         } catch { /* the next poll tries again */ }
     },
 
     setUpdateChannel: async (channel: UpdateChannel) => {
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, channel } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setUpdateChannel(channel) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update channel'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
@@ -2481,6 +2512,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ searchQuery: '', searchResults: null, searchResultsQuery: null, searchError: null, searchLoading: false, searchOpen: false });
     },
 
+    setExamFocus: (on) => set({ examFocus: on }),
     setWorkspaceView: (view) => {
         const nav = get()._navigate;
         const pid = get().currentProjectId;

@@ -9,7 +9,7 @@ import ProgressBar from './ui/ProgressBar';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
-import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
+import { formatOf, answerHint, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
@@ -48,6 +48,7 @@ const SESSION_SIZE = 15;
 export default function QuizView({ quiz, onClose }: Props) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
+    const forgiveSpelling = useStore(s => s.forgiveSpelling);
     const sampled = quiz.questions.length > SESSION_SIZE;
     // The questions of THIS sitting, each carrying its index in the bank. A
     // question whose stored key cannot be graded is left out (the index is
@@ -420,9 +421,9 @@ export default function QuizView({ quiz, onClose }: Props) {
                         value={answers[currentIndex] || ''}
                         onChange={handleAnswer}
                     />
-                    {formatOf(currentQuestion).hint && (
+                    {answerHint(currentQuestion, forgiveSpelling) && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                            {t(formatOf(currentQuestion).hint!)}
+                            {t(answerHint(currentQuestion, forgiveSpelling)!)}
                         </p>
                     )}
                 </div>
