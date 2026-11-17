@@ -316,7 +316,7 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     // A topic with note children takes the percentage branch, which never
     // calls getStatusIcon — so the shield must win that branch too.
     check('sidebar: a ready topic with notes under it shows the shield, not its percentage',
-        /hasChildren && !node\.is_note && !isRoot && !untaught && !readyToProve \?/.test(side));
+        /\(isRoot \? !isNote : hasChildren\) && !untaught[\s\S]{0,400}?!node\.is_note && !readyToProve \?/.test(side));
 
     const dash = src('src/components/StudyDashboard.tsx');
     // The plan's lists live in their own file since the dashboard redesign.

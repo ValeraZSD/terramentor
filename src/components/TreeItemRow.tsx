@@ -239,7 +239,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
                     only children are notes is still a topic: its status mark,
                     pressable, goes there too. */}
                 {hasChildren && (isLeaf ? statusButton : (
-                    <span data-row-progress className="shrink-0 ml-1">{getStatusIcon()}</span>
+                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">{getStatusIcon()}</span>
                 ))}
                 {hoverCapable && handle}
                 {/* Held, the ⋮ keeps only its height (the row's, on a phone too) and gives its width to the title. */}
