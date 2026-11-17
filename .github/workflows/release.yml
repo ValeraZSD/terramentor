@@ -219,8 +219,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Only the exact version here. The tags that MOVE (`latest` and the minor
-      # line, or `nightly`) are pointed at this image by the image-tags job,
+      # Only the exact version here. The tags that MOVE (`latest`, the minor and
+      # major lines, or `nightly`) are pointed at this image by the image-tags job,
       # after the release is published: a build that fails later, in the zips or
       # the release, must not have moved what `docker compose pull` fetches.
       - id: meta
