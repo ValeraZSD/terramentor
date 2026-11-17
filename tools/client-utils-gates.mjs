@@ -1,24 +1,28 @@
-// tools/client-utils-gates.mjs — three small client utilities, each run for real.
+// tools/client-utils-gates.mjs — four small client utilities, each run for real.
 //
 // Run:  node tools/client-utils-gates.mjs
 //
 // Deterministic, no model, no network. Each section bundles the real source with
 // esbuild and drives it in jsdom (or, for the language switch, with stand-ins for
-// Vite's locale chunks), because every fault here is one of ORDER or of what
-// happens after a gesture ends badly, which a read of the source cannot show.
+// Vite's locale chunks and for the server), because every fault here is one of
+// ORDER or of what happens after a gesture ends badly, which a read of the
+// source cannot show.
 //
 //   1. The swipe carousel: a touch the browser cancels mid-drag never fires
 //      `touchend`, so the three-panel track used to stay half-way across the
 //      viewport. A cancelled drag must return, and must never page.
-//   2. Copy without the async Clipboard API: the temporary field takes focus
+//   2. A measured element width is one quantity: the first measure, an
+//      observer callback and a window resize all report the content box.
+//   3. Copy without the async Clipboard API: the temporary field takes focus
 //      and must give it back, and must leave the page even when `execCommand`
 //      throws, or a keyboard user lands outside their dialog.
-//   3. Switching the interface language: two picks can overlap, and the older
-//      chunk arriving last must not win; a chunk that failed to load must not
-//      leave `<html lang>`, `Intl` and the device cache naming a language the
-//      words are not in.
+//   4. Switching the interface language: two picks can overlap, and the older
+//      chunk arriving last must not win, on screen or in what is stored; a chunk
+//      that failed to load must not leave `<html lang>`, `Intl` and the device
+//      cache naming a language the words are not in.
 //
-// Every global a section sets is put back in its `finally`.
+// Each section puts back the globals it set; the `finally` does so again if one
+// throws.
 
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -105,12 +109,13 @@ try {
         const calls = [];
         const unmount = carousel.mount(host, calls);
         const track = doc.getElementById('track');
-        const fire = (type, x = 0, y = 0, extra = {}) => carousel.act(() => {
+        const dispatch = (type, x = 0, y = 0, extra = {}) => {
             const ev = new window.Event(type, { bubbles: true, cancelable: true });
             ev.touches = type === 'touchend' || type === 'touchcancel' ? [] : [{ clientX: x, clientY: y }];
             Object.assign(ev, extra);
             track.dispatchEvent(ev);
-        });
+        };
+        const fire = (...args) => carousel.act(() => dispatch(...args));
         const at = () => track.style.transform;
         const settle = () => fire('transitionend', 0, 0, { propertyName: 'transform' });
 
@@ -152,6 +157,20 @@ try {
         fire('touchmove', 120, 100);
         fire('touchmove', 70, 100);
         check('a cancel at the start offset does not freeze the carousel', at() === 'translateX(-330px)', at());
+
+        // A cancel can arrive before the render that follows the last move: the
+        // handler must act on where the track really is, not on the offset of the
+        // last render, or a track that is mid-drag stays there.
+        settle();
+        fire('touchstart', 100, 100);
+        carousel.act(() => {
+            dispatch('touchmove', 120, 100);
+            dispatch('touchmove', 40, 100);
+            dispatch('touchcancel');
+        });
+        check('a cancel straight after a move, before it renders, still returns the track',
+            at() === 'translateX(-300px)' && /transform/.test(track.style.transition), `${at()} / ${track.style.transition}`);
+        settle();
         unmount();
     }
     restoreGlobals();
@@ -314,6 +333,66 @@ try {
         await i18n.setUiLanguage('en');
         check('English needs no chunk', i18n.currentLocale() === 'en' && storage.getItem(i18n.LANGUAGE_STORAGE_KEY) === 'en', state());
         delete g.__localeLoaders;
+    }
+    restoreGlobals();
+
+    // -----------------------------------------------------------------------
+    section('the store saves only the newest language pick');
+    {
+        const { window } = newDom();
+        setGlobals({ window, document: window.document, localStorage: window.localStorage, HTMLElement: window.HTMLElement });
+        // The store, with the server and the language applier replaced: what is
+        // under test is which pick it WRITES, not how a chunk loads.
+        const stubs = [
+            [/(^|\/)api$/, 'export const api = globalThis.__api;'],
+            [/(^|\/)i18n$/, `export default { t: (k) => k, language: 'en' };
+                export const setUiLanguage = (code) => globalThis.__apply(code);
+                export const resolveLanguagePreference = (code) => code;
+                export const currentLocale = () => 'en';
+                export const k = (text) => text;`],
+            [/creationRuns$/, 'export const openCreationRunForTask = () => {};'],
+            [/runner\/load$/, 'export const loadedRunner = () => null;'],
+        ];
+        // Set before the bundle loads: the stand-in `api` reads it at import.
+        const writes = [];
+        const releases = {};
+        g.__api = { setSetting: async (key, value) => { writes.push(`${key}=${value}`); } };
+        // Applying a language takes as long as the test lets its chunk take, and
+        // resolves either way, as the real applier does for a pick it drops.
+        g.__apply = (code) => new Promise((resolve) => { releases[code] = resolve; });
+        const { useStore } = await bundle('store', {
+            entryPoints: [join(repo, 'src/store.ts')],
+            plugins: [{
+                name: 'stand-ins',
+                setup(b) {
+                    b.onResolve({ filter: /.*/ }, (a) => {
+                        if (a.kind === 'entry-point' || !a.path.startsWith('.')) return undefined;
+                        const i = stubs.findIndex(([re]) => re.test(a.path));
+                        return i < 0 ? undefined : { path: String(i), namespace: 'stand-in' };
+                    });
+                    b.onLoad({ filter: /.*/, namespace: 'stand-in' }, (a) => ({ contents: stubs[Number(a.path)][1], loader: 'js' }));
+                },
+            }],
+        });
+
+        // German is picked, then French; French lands first, German last.
+        const first = useStore.getState().setUiLanguage('de');
+        const second = useStore.getState().setUiLanguage('fr');
+        releases.fr();
+        await second;
+        releases.de();
+        await first;
+        check('an older pick that finishes last is not written after the newer one',
+            writes.join(' ') === 'ui_language=fr' && useStore.getState().uiLanguage === 'fr', `${writes.join(' ')} / screen ${useStore.getState().uiLanguage}`);
+
+        // Picks that finish in order are both the newest at their turn.
+        writes.length = 0;
+        const third = useStore.getState().setUiLanguage('pt');
+        releases.pt();
+        await third;
+        check('a single pick is written', writes.join(' ') === 'ui_language=pt', writes.join(' '));
+        delete g.__api;
+        delete g.__apply;
     }
 } finally {
     restoreGlobals();

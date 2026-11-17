@@ -147,6 +147,10 @@ void i18next.use(initReactI18next).init({
  * Switch the interface language. Loads the locale if needed, then changes it
  * — in that order, so the switch never renders keys while the file is in
  * flight. Records the choice on this device for the next boot.
+ *
+ * If the locale cannot be loaded the reader stays on English and nothing is
+ * cached on the device. The picker still shows the language that was chosen,
+ * and the store still saves it, so the next boot asks for the chunk again.
  */
 export async function setUiLanguage(code: string): Promise<void> {
     const lang = isSupportedLanguage(code) ? code : DEFAULT_LANGUAGE;

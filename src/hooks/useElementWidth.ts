@@ -14,6 +14,12 @@ import { useLayoutEffect, useState, type RefObject } from 'react';
  * answer; the observer then only handles resizes, rotation and the panel
  * opening. Width 0 means "not measured yet" and callers should render the
  * layout-independent fallback.
+ *
+ * The width is the CONTENT box: the padding is taken off. The observer's
+ * `contentRect` is that quantity, and `clientWidth` alone is the padding box, so
+ * the first measure and a window resize used to disagree with an observer
+ * callback by the element's horizontal padding. A caller laying marks out inside
+ * a padded element gets the room it really has; the height hook is the same.
  */
 export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
     return useElementSide(ref, 'width');
@@ -36,7 +42,7 @@ function useElementSide(ref: RefObject<HTMLElement | null>, side: 'width' | 'hei
         // element read 32px wider after a window resize than after an observer
         // callback, and a threshold flipped on the wrong side.
         const measure = () => {
-            const cs = getComputedStyle(el);
+            const cs = window.getComputedStyle(el);
             const pad = side === 'width'
                 ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
                 : (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);

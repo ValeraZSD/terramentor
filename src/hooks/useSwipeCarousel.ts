@@ -40,8 +40,8 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
     const [dragX, setDragX] = useState(0);
     const [animating, setAnimating] = useState(false);
     const pendingNav = useRef<'prev' | 'next' | null>(null);
-    const touch = useRef<{ x: number; y: number; locked: 'h' | 'v' | null; active: boolean }>({
-        x: 0, y: 0, locked: null, active: false,
+    const touch = useRef<{ x: number; y: number; locked: 'h' | 'v' | null; active: boolean; offset: number }>({
+        x: 0, y: 0, locked: null, active: false, offset: 0,
     });
 
     const viewportRef = useCallback((el: HTMLDivElement | null) => {
@@ -56,7 +56,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
 
     const onTouchStart = (e: React.TouchEvent) => {
         if (animating || e.touches.length !== 1) return;
-        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, locked: null, active: true };
+        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, locked: null, active: true, offset: 0 };
     };
 
     const onTouchMove = (e: React.TouchEvent) => {
@@ -69,7 +69,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
         if (t.locked === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
             t.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
         }
-        if (t.locked === 'h') setDragX(dx);
+        if (t.locked === 'h') { t.offset = dx; setDragX(dx); }
     };
 
     const onTouchEnd = () => {
@@ -92,8 +92,10 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
         const wasDragging = t.active && t.locked === 'h';
         t.active = false;
         // At offset 0 nothing would move, so no transition would end to clear
-        // `animating`, and the next touch would be ignored.
-        if (wasDragging && dragX !== 0) { setAnimating(true); setDragX(0); }
+        // `animating`, and the next touch would be ignored. The offset is the
+        // one the last move set, not `dragX`: a cancel can arrive before the
+        // render that follows that move, and this closure still holds the old one.
+        if (wasDragging && t.offset !== 0) { setAnimating(true); setDragX(0); }
     };
 
     const onTransitionEnd = (e: React.TransitionEvent) => {
