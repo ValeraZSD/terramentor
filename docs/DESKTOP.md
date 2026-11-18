@@ -342,6 +342,10 @@ Design decisions worth knowing before changing it:
 - **Not code-signed.** A Windows Authenticode certificate and an Apple
   Developer ID are recurring costs; until they exist the README and the zip's
   README.txt say what SmartScreen and Gatekeeper will show.
+- **One README per system.** `desktop/README.txt` is one template; lines
+  between `@only <systems>` and `@end` go only into those systems' zips
+  (`tools/lib/readmeForPlatform.mjs`), so a Windows zip carries no macOS or
+  Linux steps and the three copies cannot drift apart.
 
 Guard: `node tools/desktop-gates.mjs` (path resolution on every platform, the
 launcher's decisions, the shutdown rule, the lifecycle router on a real Express

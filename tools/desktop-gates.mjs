@@ -42,6 +42,7 @@ const launcherLogFile = desktopLib.launcherLogFile
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { runtimeSources, RUNTIME_DIRS, RUNTIME_DATA } from './lib/runtimeSources.mjs';
+import { readmeForPlatform, PLATFORMS, PLATFORM_OF, LABEL } from './lib/readmeForPlatform.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1484,10 +1485,59 @@ console.log('\n--- packaging pieces are present ---');
     ok('the auth gate is mounted in createApp', gateAt > 0);
     ok('the desktop probe is mounted BEFORE the auth gate', appSrc.indexOf('desktop.publicRouter') >= 0 && appSrc.indexOf('desktop.publicRouter') < gateAt);
     ok('…and the controls after it', appSrc.indexOf('desktop.protectedRouter') > gateAt);
-    const readme = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
-    ok('the zip README names the data folder on every platform', ['%LOCALAPPDATA%', 'Application Support', '.local/share'].every((s) => readme.includes(s)));
     const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     ok('the release workflow builds the desktop packages on all three OSes', ['windows-latest', 'macos-latest', 'ubuntu-latest'].every((s) => wf.includes(s)) && wf.includes('build-desktop'));
+}
+
+// ---------------------------------------------------------------------------
+// THE ZIP'S README, ONE PER SYSTEM. desktop/README.txt is one template; the
+// build keeps only the blocks for the system it packages. Each system's copy
+// must carry its own way in (the launcher, the warning its OS shows the first
+// time, its data folder) and none of another system's: a Windows user who
+// reads about xattr and Applications has been handed the wrong page.
+console.log('\n--- the zip README carries its own system only ---');
+{
+    const template = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
+    // Each phrase and the systems whose copy must say it; every other copy
+    // must not.
+    const SAYS = [
+        ['Terramentor.exe', ['windows']], ['Run anyway', ['windows']], ['%LOCALAPPDATA%', ['windows']],
+        ['notification area', ['windows']], ['runtime\\node.exe', ['windows']],
+        ['When it starts with the computer', ['windows']], ['Terramentor.cmd', ['windows']],
+        ['More info', ['windows']], ['Start Menu', ['windows']],
+        ['Terramentor.app', ['macos']], ['Open Anyway', ['macos']], ['xattr', ['macos']],
+        ['Application Support', ['macos']], ['Apple Silicon', ['macos']],
+        ['terramentor.sh', ['linux']], ['install-desktop-entry.sh', ['linux']], ['.local/share', ['linux']],
+        ['Keep running in', ['macos', 'linux']], ['Closing the last window', ['macos', 'linux']],
+        ['runtime/node', ['macos', 'linux']],
+        ['Portable use', ['windows', 'linux']], ['delete this folder', ['windows', 'linux']],
+    ];
+    check('the build names all three systems', Object.keys(PLATFORM_OF).map((p) => PLATFORM_OF[p]).sort().join(), [...PLATFORMS].sort().join());
+    const built = {};
+    for (const p of PLATFORMS) {
+        built[p] = readmeForPlatform(template, p, '9.8.7');
+        const text = built[p];
+        const missing = SAYS.filter(([s, ps]) => ps.includes(p) && !text.includes(s)).map(([s]) => s);
+        ok(`${p}: its own steps are there`, missing.length === 0, missing.join(', '));
+        const foreign = SAYS.filter(([s, ps]) => !ps.includes(p) && text.includes(s)).map(([s]) => s);
+        ok(`${p}: no other system's steps`, foreign.length === 0, foreign.join(', '));
+        ok(`${p}: no marker or placeholder left`, !/^@(only|end)\b|__VERSION__|__SYSTEM__/m.test(text));
+        const title = text.split(/\r?\n/)[0];
+        ok(`${p}: the title names the version and the system`, title.includes('9.8.7') && title.includes(LABEL[p]), title);
+    }
+    check('CRLF in, CRLF out', readmeForPlatform('a\r\n@only linux\r\nb\r\n@end\r\nc\r\n', 'linux', '1'), 'a\r\nb\r\nc\r\n');
+    check('a block for other systems drops out', readmeForPlatform('a\n@only macos\nb\n@end\nc', 'windows', '1'), 'a\nc');
+    const throws = (src) => { try { readmeForPlatform(src, 'linux', '1'); return false; } catch { return true; } };
+    ok('a misspelt system is refused', throws('@only linuxx\nb\n@end'));
+    ok('an @only with no system is refused', throws('@only\nb\n@end'));
+    ok('an unclosed block is refused', throws('@only linux\nb'));
+    ok('an @end with no @only is refused', throws('b\n@end'));
+    ok('a nested block is refused', throws('@only linux\n@only macos\nb\n@end\n@end'));
+    ok('an upper-case marker is refused, not shipped as text', throws('@ONLY macos\nb\n@END'));
+    ok('an indented marker is refused, not shipped as text', throws('  @only macos\nb\n  @end'));
+    ok('an unknown target system is refused', (() => { try { readmeForPlatform('a', 'freebsd', '1'); return false; } catch { return true; } })());
+    const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
+    ok('the build writes the README through readmeForPlatform for its own system', /readmeForPlatform\(readme, PLATFORM_OF\[platform\]/.test(build));
 }
 
 // ---------------------------------------------------------------------------
