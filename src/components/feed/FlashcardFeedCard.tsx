@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import ReadAloudButton from '../ui/ReadAloudButton';
+import { useConfirmPress } from '../../hooks/useConfirmPress';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import { onActivateKey } from '../../utils/a11y';
@@ -40,6 +42,8 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
     const updateFeedStats = useStore(s => s.updateFeedStats);
     const requeueFeedCard = useStore(s => s.requeueFeedCard);
     const [flipped, setFlipped] = useState(false);
+    const faceRef = useRef<HTMLDivElement>(null);
+    const confirmRate = useConfirmPress<ReviewRating>(`${card.key}:${flipped}`);
     const [saving, setSaving] = useState(false);
     const [ratedWith, setRatedWith] = useState<ReviewRating | null>(null);
     const [editing, setEditing] = useState(false);
@@ -123,6 +127,7 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                     ) : card.isNew ? (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent/10 text-accent-fg">{t("New")}</span>
                     ) : null}
+                    <ReadAloudButton key={String(flipped)} target={faceRef} className="-my-1.5" />
                     <ReportItem itemRef={ref} surface="review" onReported={() => { if (!done) setAside(); onDone(card.key); }}
                         onEdit={() => setEditing(true)} hideKey={!flipped} inStream className="-my-1.5 -mr-1.5" />
                 </>
@@ -136,7 +141,8 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                 onKeyDown={onActivateKey(() => !locked && setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
-                aria-label={flipped ? t("Show question") : t("Reveal answer")}
+                // Named by the card's own words: a label would replace them.
+                aria-pressed={flipped}
                 className={`min-h-[120px] p-5 rounded-xl border-2 outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-accent/70 bg-slate-50 dark:bg-slate-900/40 ${locked ? '' : 'cursor-pointer'} ${flipped
                     ? 'border-accent/40'
                     : 'border-slate-200 dark:border-slate-600'}`}
@@ -149,16 +155,18 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                         card arrives by SCROLLING, and a page that starts talking
                         because something drifted into view is hostile. The front's
                         clip has a button and waits to be pressed. */}
-                    <CardFace
-                        front={fc.front}
-                        back={fc.back}
-                        extra={fc.extra}
-                        extraFront={fc.extra_front}
-                        flipped={flipped}
-                        media={media}
-                        autoPlay={flipped}
-                        size="feed"
-                    />
+                    <div ref={faceRef} className="contents">
+                        <CardFace
+                            front={fc.front}
+                            back={fc.back}
+                            extra={fc.extra}
+                            extraFront={fc.extra_front}
+                            flipped={flipped}
+                            media={media}
+                            autoPlay={flipped}
+                            size="feed"
+                        />
+                    </div>
                     {!flipped && !locked && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">{t("Tap to reveal")}</p>
                     )}
@@ -188,7 +196,8 @@ export default function FlashcardFeedCard({ card, done: feedDone, onDone }: Prop
                                 key={rating}
                                 rating={rating}
                                 when={next.learning ? t("soon") : exact}
-                                onClick={() => handleRate(rating)}
+                                onClick={() => confirmRate.press(rating, () => handleRate(rating))}
+                                armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}
                                 title={next.learning
                                     ? t("{{label}} — comes back further down this feed (scheduled {{exact}})", { label: t(label), exact })

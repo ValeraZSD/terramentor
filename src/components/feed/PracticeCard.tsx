@@ -360,18 +360,21 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 )}
 
                 {/* --- Phase: brief ------------------------------------------------ */}
+                {/* Mounted in every phase: "Retake" in the adjust phase opens
+                    this picker too, and a picker that only exists in the brief
+                    phase is gone by then. */}
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={onFilePicked}
+                    className="hidden"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                />
                 {phase === 'brief' && !done && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={onFilePicked}
-                            className="hidden"
-                            aria-hidden="true"
-                            tabIndex={-1}
-                        />
                         {visionAvailable !== false && (
                             <Button
                                 variant="primary"
@@ -461,17 +464,21 @@ export default function PracticeCard({ card, done, onDone }: Props) {
                 )}
 
                 {/* --- Phase: self-mark ------------------------------------------- */}
-                {phase === 'selfmark' && (
-                    <div className="mt-4">
-                        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
-                            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">{t("Worked solution")}</p>
-                            <div className="prose prose-slate dark:prose-invert max-w-none prose-sm">
-                                {/* Fetched on demand, never cached in the card, so a
-                                    repair here has no row to persist into — surface
-                                    and node are carried for a feedback report only. */}
-                                <Markdown content={solution || ''} nodeId={card.nodeId} surface="paper-solution" autoBuild={false} />
-                            </div>
+                {/* Stays on screen after Record: the "Recorded" line below points
+                    back to it. */}
+                {(phase === 'selfmark' || (phase === 'result' && !grade && solution !== null)) && (
+                    <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/40">
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 mb-2">{t("Worked solution")}</p>
+                        <div className="prose prose-slate dark:prose-invert max-w-none prose-sm">
+                            {/* Fetched on demand, never cached in the card, so a
+                                repair here has no row to persist into — surface
+                                and node are carried for a feedback report only. */}
+                            <Markdown content={solution || ''} nodeId={card.nodeId} surface="paper-solution" autoBuild={false} />
                         </div>
+                    </div>
+                )}
+                {phase === 'selfmark' && (
+                    <div>
                         <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
                             {/* An unchecked exercise's ticks tune nothing: its mark writes no evidence. */}
                             {card.unchecked

@@ -125,7 +125,7 @@ const headDir = join(scratch, 'head');
 const files = ['Modal', 'ConfirmDialog', 'Toast',
     'ScheduleModal', 'AnkiImportModal', 'BulkGenerateModal', 'PlacementModal',
     'ReportProblemDialog', 'TaskDetailModal', 'TaskFailureModal', 'visuals/ExportVisualModal', 'drills/DrillModal',
-    'SearchBar', 'MasteryGateModal', 'ExternalAuthoring'];
+    'SearchBar', 'MasteryGateModal', 'ExternalAuthoring', 'ModelPicker', 'settings/connections/AddConnectionDialog'];
 if (HEAD) {
     for (const f of files) {
         mkdirSync(dirname(join(headDir, `${f}.tsx`)), { recursive: true });
@@ -135,12 +135,12 @@ if (HEAD) {
 const from = (f) => HEAD ? join(headDir, `${f}.tsx`).replace(/\\/g, '/') : `./src/components/${f}`;
 
 const stubs = {
-    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => (o && o.count != null ? k.replace('{{count}}', o.count) : k) });`,
+    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => (o && o.count != null ? k.replace('{{count}}', o.count) : k), i18n: { language: 'en' } });`,
     'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
     // The fields the components read, and a `hideConfirm` the gate supplies.
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: {}, subs: new Set() };
+        g.__st = { state: { a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } }, subs: new Set() };
         g.__setState = (patch) => { g.__st.state = { ...g.__st.state, ...patch }; g.__st.subs.forEach(f => f()); };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
@@ -199,6 +199,8 @@ await esbuild.build({
             export { default as SearchBar } from '${from('SearchBar')}';
             export { default as MasteryGateModal } from '${from('MasteryGateModal')}';
             export { OutlineBriefPanel, MaterialPassPanel } from '${from('ExternalAuthoring')}';
+            export { default as ModelPicker } from '${from('ModelPicker')}';
+            export { default as AddConnectionDialog } from '${from('settings/connections/AddConnectionDialog')}';
             export { focusableIn } from './src/hooks/useDialogFocus';`,
         resolveDir: root,
         loader: 'tsx',
@@ -340,6 +342,115 @@ section('a ConfirmDialog over it closes only itself');
     check('focus went back to what opened the confirm', doc.activeElement?.id === 'create', doc.activeElement?.id);
     press('Escape');
     check('the next Escape closes the Modal', closes === before + 1, `${closes - before} Modal close(s)`);
+}
+
+section('a model list open inside a dialog takes its own Escape');
+{
+    // The list is portalled and the dialog hears Escape on the document, so a
+    // press meant for the list also closed the dialog, and with it the step the
+    // learner was in.
+    const { ModelPicker } = surfaces;
+    const models = [{ name: 'alpha-7b', size: 0 }, { name: 'beta-70b', size: 0 }];
+    const before = closes;
+    opener.focus();
+    renderModal(true, {
+        children: h('div', null,
+            h('input', { id: 'name', type: 'text' }),
+            h(ModelPicker, { value: '', onChange: () => { }, models, label: 'Model', id: 'mp' })),
+    });
+    act(() => { doc.getElementById('mp').dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    const filter = doc.querySelector('[role="combobox"]');
+    check('the list opens and its filter box has focus', !!filter && doc.activeElement === filter, `${doc.activeElement?.tagName}#${doc.activeElement?.id}`);
+    press('Escape');
+    check('Escape shuts the list', !doc.querySelector('[role="combobox"]'));
+    check('and does NOT close the dialog it sits in', closes === before, `${closes - before} dialog close(s)`);
+    check('focus went back to the picker\'s button', doc.activeElement?.id === 'mp', doc.activeElement?.id);
+    press('Escape');
+    check('the next Escape, with no list open, closes the dialog', closes === before + 1, `${closes - before} dialog close(s)`);
+    renderModal(false);
+}
+
+section('a connection saved in the Add dialog is reported however the dialog closes');
+{
+    // "Test and connect" saves the connection before the model step; only the
+    // step's own buttons told the list, so the X, the backdrop and Escape left
+    // the panel showing none and the next try saved a second copy.
+    const { AddConnectionDialog } = surfaces;
+    const kinds = { ollama: { baseUrl: 'http://127.0.0.1:11434', key: 'none', editable: true, keyUrl: '' } };
+    const done = [];
+    let closed = 0;
+    globalThis.__api = {
+        addConnection: async () => ({ id: 7, activeId: 7, test: { ok: true, models: 2, listed: true } }),
+        getConnectionModels: async () => ({ success: true, models: [] }),
+    };
+    const mountAdd = (props) => act(() => {
+        root1 ??= createRoot(host);
+        root1.render(h(AddConnectionDialog, {
+            open: true, kinds, onClose: () => { closed++; }, onDone: (id, o) => { done.push([id, o.testIt]); }, ...props,
+        }));
+    });
+    const connect = async () => {
+        const form = doc.querySelector('[role="dialog"] form');
+        await act(async () => { form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })); });
+    };
+    renderModal(false);
+    mountAdd({ initialKind: 'ollama' });
+    press('Escape');
+    check('closed before anything is saved: nothing to report', done.length === 0 && closed === 1, `${done.length} report(s), ${closed} close(s)`);
+
+    mountAdd({ open: false });
+    mountAdd({ initialKind: 'ollama' });
+    await connect();
+    check('Test and connect moves on to the model step', !!doc.querySelector('[role="dialog"] button[aria-haspopup="listbox"]'));
+    done.length = 0; closed = 0;
+    press('Escape');
+    check('Escape on the model step closes it', closed === 1, `${closed} close(s)`);
+    check('and the saved connection is reported, so the list reloads', done.length === 1 && done[0][0] === 7, JSON.stringify(done));
+
+    // Finishing with its own button still reports once (the dialog's own
+    // buttons already did, and closing must not say it a second time).
+    mountAdd({ open: false });
+    globalThis.__api.useConnection = async () => ({});
+    globalThis.__api.updateConnection = async () => ({});
+    mountAdd({ initialKind: 'ollama' });
+    await connect();
+    done.length = 0; closed = 0;
+    const doneBtn = [...doc.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === 'Done');
+    await act(async () => { doneBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    check('"Done" reports the connection once and closes', done.length === 1 && closed === 1, `${done.length} report(s), ${closed} close(s)`);
+
+    // While the test is out the dialog cannot be closed: the answer lands on
+    // the dialog that asked, so the connection it saves is reported, never lost
+    // to a dialog that is already gone. (Escape, the backdrop and the X all
+    // follow the same `closable`.)
+    mountAdd({ open: false });
+    let answer;
+    globalThis.__api.addConnection = () => new Promise((r) => { answer = r; });
+    mountAdd({ initialKind: 'ollama' });
+    await connect();
+    done.length = 0; closed = 0;
+    press('Escape');
+    check('Escape while "Test and connect" is out does not close the dialog', closed === 0 && !!doc.querySelector('[role="dialog"] form'), `${closed} close(s)`);
+    check('and the X is not offered', ![...doc.querySelectorAll('[role="dialog"] button')].some((b) => /close/i.test(b.getAttribute('aria-label') ?? '')));
+    await act(async () => { answer({ id: 8, activeId: 8, test: { ok: true, models: 0, listed: true } }); });
+    check('the answer lands on the open dialog: the model step', !!doc.querySelector('[role="dialog"] button[aria-haspopup="listbox"]') || [...doc.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === 'Done'));
+    press('Escape');
+    check('and closing it then reports the saved connection once', closed === 1 && done.length === 1 && done[0][0] === 8, `${closed} close(s), ${JSON.stringify(done)}`);
+
+    // Back leaves the form as surely as the X does: started from the list of
+    // providers, it is offered, and it waits for the save like the X.
+    mountAdd({ open: false });
+    globalThis.__api.addConnection = () => new Promise((r) => { answer = r; });
+    mountAdd({});
+    const ollamaTile = [...doc.querySelectorAll('[role="dialog"] button')].find((b) => /Ollama/.test(b.textContent));
+    await act(async () => { ollamaTile?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    const back = () => [...doc.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === 'Back');
+    check('picked from the list, the form offers Back', !!back() && !back().disabled);
+    await connect();
+    check('and Back is disabled while "Test and connect" is out', !!back() && back().disabled, back() ? `disabled=${back().disabled}` : 'no Back');
+    await act(async () => { answer({ id: 9, activeId: 9, test: { ok: true, models: 0, listed: true } }); });
+    mountAdd({ open: false });
+    delete globalThis.__api;
 }
 
 section('closing gives focus and scroll back');
@@ -629,7 +740,7 @@ await holdsTheContract('Drill', mountedSurface((onClose) => h(surfaces.DrillModa
     await holdsTheContract('Search', {
         show: () => {
             act(() => r.render(h(MemoryRouter, null, h(surfaces.SearchBar), h(ConfirmDialog))));
-            act(() => { el.querySelector('button[aria-label="Search"]').click(); });
+            act(() => { el.querySelector('button[aria-label^="Search…"]').click(); });
         },
         hide: () => { act(() => r.unmount()); el.remove(); },
         closes: () => n,

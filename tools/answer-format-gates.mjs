@@ -259,6 +259,13 @@ check('a stated tolerance is kept', num?.tolerance === 0.1);
 check('no number, no question', normalizeQuestionFormat({ ...rawNum, correct_answer: 'about twenty' }) === null);
 check('a missing tolerance becomes the key\'s own precision',
     normalizeQuestionFormat({ ...rawNum, tolerance: undefined })?.tolerance === 0.05);
+check('a null or empty tolerance means none given, not an exact match of 0',
+    normalizeQuestionFormat({ ...rawNum, tolerance: null })?.tolerance === 0.05
+    && normalizeQuestionFormat({ ...rawNum, tolerance: '' })?.tolerance === 0.05
+    && normalizeQuestionFormat({ ...rawNum, tolerance: '  ' })?.tolerance === 0.05
+    && normalizeQuestionFormat({ ...rawNum, tolerance: false })?.tolerance === 0.05);
+check('a stored null tolerance is graded by the key\'s precision, not as an exact match',
+    gradeLocally({ type: 'numeric', correct_answer: '19.6', tolerance: null }, '19.62') === true);
 check('a tolerance wider than half the answer is refused, not served',
     normalizeQuestionFormat({ ...rawNum, tolerance: 15 })?.tolerance === 0.05);
 check('a negative tolerance is refused too',
@@ -1235,6 +1242,10 @@ section('ChoiceInput lays out from measured widths');
                 b.onLoad({ filter: /.*/, namespace: 'choice' }, (a) => ({ contents: readFileSync(a.path, 'utf8'), loader: 'tsx', resolveDir: join(repoRoot, 'src/components/answer') }));
                 b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub-math' }));
                 b.onLoad({ filter: /.*/, namespace: 'stub-math' }, () => ({ contents: "import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }", loader: 'js', resolveDir: repoRoot }));
+                // The store reaches the whole app (down to the chart renderers);
+                // ChoiceInput reads one preference from it.
+                b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub-store' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({ contents: "const state = { a11y: { confirmAnswers: false } }; export const useStore = (sel) => sel(state);", loader: 'js' }));
             },
         }],
     });

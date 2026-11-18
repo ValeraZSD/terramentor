@@ -9,8 +9,10 @@ import { clientError } from '../clientError.js';
 
 const app = routeTable('shortCourses');
 
-// One file, held in memory as the vault's own upload holds it.
-const oneFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
+// One file, held in memory as the vault's own upload holds it. Browsers send a
+// file's name as UTF-8 and multer reads it as latin1 unless told otherwise, so
+// "Hoofdstuk één.pdf" would become the course's name as mojibake.
+const oneFile = multer({ storage: multer.memoryStorage(), defParamCharset: 'utf8', limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
 const handleOneFile = (req, res, next) =>
     rejectOversizedBody(MAX_FILE_BYTES + 1024 * 1024)(req, res, () =>
         oneFile.single('file')(req, res, (err) => {

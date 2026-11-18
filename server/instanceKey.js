@@ -30,11 +30,14 @@
 // `startUpdater` copies it there).
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { chmodSync, closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The key's file name inside the data directory. */
 export const INSTANCE_KEY_FILE = 'instance.key';
+
+/** What `link` answers on a file system that has no hard links. */
+const NO_HARD_LINKS = ['EPERM', 'ENOSYS', 'EOPNOTSUPP', 'EMLINK', 'EXDEV'];
 
 const KEY_TEXT = /^[0-9a-f]{64}$/;
 
@@ -56,12 +59,13 @@ export function readInstanceKeyFile(path, { readFile = readFileSync } = {}) {
 /**
  * The key of the library in `dir`, made on first use.
  *
- * Created with `wx`, so two launchers starting at the same moment cannot each
- * write a different key and leave one of them proving against the wrong one:
- * the second `open` fails with EEXIST and that process reads what the first
- * wrote. A file that exists but holds no key (a write cut off by a power loss)
- * is replaced. Returns null when the folder cannot be written at all; the
- * callers then trust nothing, which costs a second server, never a wrong one.
+ * Published with `link`, which refuses a name that is taken, so two launchers
+ * starting at the same moment cannot each write a different key and leave one
+ * of them proving against the wrong one: the second `link` fails with EEXIST
+ * and that process reads what the first published. A file that exists but holds
+ * no key (a write cut off by a power loss) is replaced. Returns null when the
+ * folder cannot be written at all; the callers then trust nothing, which
+ * costs a second server, never a wrong one.
  */
 export function loadInstanceKey(dir, { platform = process.platform } = {}) {
     if (!dir) return null;
@@ -82,21 +86,42 @@ export function loadInstanceKey(dir, { platform = process.platform } = {}) {
     // open below, which then fails and returns null as before.
     try { mkdirSync(dir, { recursive: true }); } catch { /* the open below reports it */ }
     const fresh = randomBytes(32);
-    for (const flag of ['wx', 'w']) {
+    // The key is written to a file of its own first and only then given its
+    // real name, so the real name is never visible empty. Creating it with `wx`
+    // and writing after left a gap in which a second process saw a file with no
+    // key, took it for a leftover and wrote its own over it: each process then
+    // proved itself with a different key.
+    const tmp = join(dir, `${INSTANCE_KEY_FILE}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`);
+    try {
+        const fd = openSync(tmp, 'wx', 0o600);
+        try { writeSync(fd, `${fresh.toString('hex')}\n`); } finally { closeSync(fd); }
+        let mine = fresh;
         try {
-            const fd = openSync(path, flag, 0o600);
-            try { writeSync(fd, `${fresh.toString('hex')}\n`); } finally { closeSync(fd); }
-            if (platform !== 'win32') { try { chmodSync(path, 0o600); } catch { /* created 0600 already */ } }
-            return fresh;
+            // Fails with EEXIST when another process published first.
+            linkSync(tmp, path);
         } catch (e) {
-            if (e?.code !== 'EEXIST') return null;
-            // Another process made it between our read and our open.
+            // EEXIST: taken. The others: a file system without hard links
+            // (exFAT, some network shares), where the file can only be moved in.
+            if (e?.code !== 'EEXIST' && !NO_HARD_LINKS.includes(e?.code)) return null;
             const theirs = readInstanceKeyFile(path);
             if (theirs) return theirs;
-            // It exists and holds no key: overwrite it on the second pass.
+            // Nothing there holds a key (a write cut off by an old crash, or no
+            // file at all): put ours in whole, then answer with what the file says.
+            // `rename` replaces whatever is there, so on these two paths only (a
+            // leftover empty file, a disk without hard links) two processes
+            // starting at the very same moment can still end with different
+            // keys. That fails safe: the later proof fails and a second server
+            // is started, never a wrong one trusted.
+            renameSync(tmp, path);
+            mine = readInstanceKeyFile(path);
         }
+        if (mine && platform !== 'win32') { try { chmodSync(path, 0o600); } catch { /* created 0600 already */ } }
+        return mine;
+    } catch {
+        return null;
+    } finally {
+        try { unlinkSync(tmp); } catch { /* already moved into place, or never made */ }
     }
-    return null;
 }
 
 /** A fresh challenge. 128 bits, so no two are ever the same. */

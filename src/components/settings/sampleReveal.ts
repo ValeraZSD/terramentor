@@ -3,6 +3,7 @@ import {
     ARRIVAL_LEAD_MS, ARRIVAL_CURVE_MS, ARRIVAL_STAGE_MS,
 } from '../visuals/arrival';
 import { getVisualKind } from '../visuals/registry';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * Switching a visual kind ON clears its sample and draws it back.
@@ -323,7 +324,7 @@ function tellSketch(el: HTMLElement, message: { type: string; on?: boolean }): v
 /** Whether the reader has asked for less movement. Checked at the moment of
  *  playing, never cached: the setting can change while the page is open. */
 export function reducedMotion(): boolean {
-    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+    return motionReduced();
 }
 
 /**

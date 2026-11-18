@@ -21,12 +21,56 @@
  * promises there is one. String comparison cannot see it; the strings differ.
  */
 export function canonicalOption(option) {
+    return reduceOption(option).toLowerCase();
+}
+
+// The same reduction with the case left alone. Case carries meaning in the
+// options a science question offers: $\Delta x$ and $\delta x$, 5 MW and 5 mW,
+// CO and Co are different choices, so `sameOption` must not fold them together.
+// `canonicalOption` still folds, for the one place that asks whether the key is
+// written like an option and a stray capital there should not fail the question.
+// `\left`/`\right` are dropped only as whole commands: `\rightarrow` and
+// `\leftarrow` are arrows, not `arrow`.
+function reduceOption(option) {
     return String(option ?? '')
         .replace(/\$+/g, '')
         .replace(/\\[dt]?frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)')
-        .replace(/\\(?:left|right|,|;|!|quad|qquad|ensuremath)/g, '')
-        .replace(/[{}\s]/g, '')
-        .toLowerCase();
+        .replace(/\\(?:left|right|quad|qquad|ensuremath)(?![A-Za-z])|\\[,;!]/g, '')
+        .replace(/[{}\s]/g, '');
+}
+
+// Running text, not a symbol, a unit or a formula: two words of three letters
+// or more, none of them mixed-case (`MPa`, `MeV`, `NASA`), and no `$` or `\`
+// (`$\Delta \theta$` is two long words and still a formula).
+function isSentence(option) {
+    const s = String(option ?? '');
+    if (/[$\\]/.test(s) || !/\p{L}{3,}\s+\p{L}{3,}/u.test(s)) return false;
+    return (s.match(/\p{L}+/gu) ?? []).every(word => !/\p{L}\p{Lu}/u.test(word));
+}
+
+// An assignment's `=`: not the tail of `<=`, `>=`, `!=` and not half of `==`.
+// Those are comparisons, and the text before them is part of what is compared.
+const ASSIGNMENT = /(?<![<>!=])=(?!=)/g;
+
+/** The label and the numeric value an option states, `{ label: '', value: null }` when it states none. */
+function readOption(option) {
+    const whole = reduceOption(option);
+    let label = '';
+    let s = whole;
+    const assignments = [...whole.matchAll(ASSIGNMENT)];
+    if (assignments.length) {
+        const at = assignments[assignments.length - 1].index;
+        label = whole.slice(0, at);
+        s = whole.slice(at + 1);
+    }
+    s = s.toLowerCase().replace(/\\times10\^\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
+    const frac = /^\(?([+-]?\d*\.?\d+)\)?\/\(?([+-]?\d*\.?\d+)\)?$/.exec(s);
+    if (frac) {
+        const denominator = parseFloat(frac[2]);
+        return { label, value: denominator === 0 ? null : parseFloat(frac[1]) / denominator };
+    }
+    if (/^[+-]?\d*\.?\d+(?:e[+-]?\d+)?$/.test(s)) return { label, value: parseFloat(s) };
+    return { label, value: null };
 }
 
 /**
@@ -38,26 +82,57 @@ export function canonicalOption(option) {
  * wrong in.
  */
 export function optionValue(option) {
-    let s = canonicalOption(option);
-    const eq = s.lastIndexOf('=');
-    if (eq >= 0) s = s.slice(eq + 1);
-    s = s.replace(/\\times10\^?\(?([+-]?\d+)\)?/, 'e$1').replace(/\\cdot/g, '*');
-    const frac = /^\(?([+-]?\d*\.?\d+)\)?\/\(?([+-]?\d*\.?\d+)\)?$/.exec(s);
-    if (frac) {
-        const denominator = parseFloat(frac[2]);
-        return denominator === 0 ? null : parseFloat(frac[1]) / denominator;
-    }
-    if (/^[+-]?\d*\.?\d+(?:e[+-]?\d+)?$/.test(s)) return parseFloat(s);
-    return null;
+    return readOption(option).value;
 }
 
-/** True when two options are the same choice wearing different clothes. */
+/**
+ * True when two answers are the same choice wearing different clothes, with
+ * case folded. For comparing a free-hand answer with a stored one (a verifier's
+ * order, a drill's echo, an assistant's check of a card), where "boil" and
+ * "Boil" are one answer.
+ *
+ * Two values are the same only under the same label: `x = 2` and `y = 2` are
+ * different answers to "which variable is it?", and `i <= 5` is not `i == 5`.
+ * A value with no label is the same as the labelled one (`2` and `x = 2`), since
+ * nothing contradicts it.
+ */
 export function sameOption(a, b) {
-    if (canonicalOption(a) === canonicalOption(b)) return true;
-    const x = optionValue(a);
-    const y = optionValue(b);
-    if (x === null || y === null) return false;
-    return Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+    return sameChoice(a, b, true);
+}
+
+/**
+ * The same comparison for telling a question's own options apart. Case is kept
+ * for symbols, units and formulas, and folded for a sentence, whose capital
+ * letter is typography: "Melt the butter" and "melt the butter" are one step,
+ * "5 MW" and "5 mW" are two powers.
+ */
+export function sameOptionCased(a, b) {
+    return sameChoice(a, b, false);
+}
+
+function sameChoice(a, b, fold) {
+    let ra = reduceOption(a);
+    let rb = reduceOption(b);
+    if (fold) { ra = ra.toLowerCase(); rb = rb.toLowerCase(); }
+    if (ra === rb) return true;
+    if (!fold && isSentence(a) && isSentence(b) && ra.toLowerCase() === rb.toLowerCase()) return true;
+    const x = readOption(a);
+    const y = readOption(b);
+    if (x.value === null || y.value === null) return false;
+    const lx = fold ? x.label.toLowerCase() : x.label;
+    const ly = fold ? y.label.toLowerCase() : y.label;
+    if (lx && ly && lx !== ly) return false;
+    return Math.abs(x.value - y.value) <= 1e-9 * Math.max(1, Math.abs(x.value), Math.abs(y.value));
+}
+
+/**
+ * Where the key sits among the options: the one written exactly like it, else
+ * the one that differs only by case (a stray capital in the key must not turn
+ * the key-shape checks off), else -1.
+ */
+function keyIndexOf(options, key) {
+    const exact = options.findIndex(o => sameOptionCased(o, key));
+    return exact !== -1 ? exact : options.findIndex(o => sameOption(o, key));
 }
 
 // Small numbers written as words. A stem says "fits exactly five
@@ -149,7 +224,7 @@ export function keyEchoesStem(stem, options, correctAnswer) {
         n => Math.abs(n - v) <= 1e-9 * Math.max(1, Math.abs(n), Math.abs(v)),
     ));
 
-    const keyIndex = opts.findIndex(o => sameOption(o, correctAnswer));
+    const keyIndex = keyIndexOf(opts, correctAnswer);
     if (keyIndex === -1) return false;
     if (!echoes(marks[keyIndex])) return false;
 
@@ -185,7 +260,7 @@ export function symmetricAboutStem(stem, options, correctAnswer) {
     const stated = [...stemNumbers(text)].filter(r => r > 0);
     if (!stated.length) return null;
     const opts = Array.isArray(options) ? options : [];
-    const keyIndex = opts.findIndex(o => sameOption(o, correctAnswer));
+    const keyIndex = keyIndexOf(opts, correctAnswer);
     if (keyIndex === -1) return null;
     const keyNums = [...numbersIn(opts[keyIndex])];
     for (let i = 0; i < opts.length; i++) {
@@ -214,7 +289,10 @@ export function keyIsLengthOutlier(options, correctAnswer) {
     if (opts.length < 3) return false;
     const key = String(correctAnswer ?? '').trim();
     if (key.length < 24) return false;
-    const others = opts.filter(o => !sameOption(o, correctAnswer)).map(o => String(o ?? '').trim().length);
+    // Only the key's own option is left out: a distractor that differs from it
+    // by case is a different choice, and its length counts.
+    const keyIndex = keyIndexOf(opts, correctAnswer);
+    const others = opts.filter((_, i) => i !== keyIndex).map(o => String(o ?? '').trim().length);
     if (others.length < 2) return false;
     const longest = Math.max(...others);
     return key.length >= longest * 1.6 && key.length - longest >= 25;

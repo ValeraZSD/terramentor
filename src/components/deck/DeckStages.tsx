@@ -161,9 +161,11 @@ export default function DeckStages({ stages, currentStageId, onStudy, onOpen }: 
 
                                     <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                                         {tr("{{fmt}}/{{fmt2}} met", { fmt: fmt(stage.seen), fmt2: fmt(stage.cards) })}
-                                        {stage.mature > 0 && tr("· {{fmt}} mature", { fmt: fmt(stage.mature) })}
-                                        {stage.due > 0 && <span className="text-accent-fg font-medium"> {tr("· {{fmt}} due", { fmt: fmt(stage.due) })}</span>}
-                                        {stage.newCards > 0 && tr("· {{fmt}} new", { fmt: fmt(stage.newCards) })}
+                                        {/* JSX drops the newline between these, so the space before
+                                            each separator has to be written: "5/50 met· 3 mature". */}
+                                        {stage.mature > 0 && <>{' '}{tr("· {{fmt}} mature", { fmt: fmt(stage.mature) })}</>}
+                                        {stage.due > 0 && <>{' '}<span className="text-accent-fg font-medium">{tr("· {{fmt}} due", { fmt: fmt(stage.due) })}</span></>}
+                                        {stage.newCards > 0 && <>{' '}{tr("· {{fmt}} new", { fmt: fmt(stage.newCards) })}</>}
                                     </p>
                                 </button>
 

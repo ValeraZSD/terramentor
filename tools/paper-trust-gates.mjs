@@ -54,6 +54,9 @@ process.env.DATA_DIR = scratch;
 const auditSays = new Map();
 let duringGrade = null;
 let pageReadable = true;
+// What the stub's marker reports reading off the page; `undefined` leaves the
+// field out, as a small model's one-pass answer sometimes does.
+let pageTranscription = 'Line 1: 3x + 2 = 11. Line 2: 3x = 9. Line 3: x = 3. Check: 3 times 3 plus 2 is 11.';
 const auditCalls = [];
 const tagIn = (s) => (String(s).match(/PAPER-(SILENT|CONFIRM|DISPUTE)-[A-Z]+/) || [])[0] || null;
 const stub = createServer((req, res) => {
@@ -65,7 +68,7 @@ const stub = createServer((req, res) => {
             // What the background chain does while a mark is with the model (section 3).
             if (duringGrade) { duringGrade(); duringGrade = null; }
             content = JSON.stringify({
-                transcription: 'Line 1: 3x + 2 = 11. Line 2: 3x = 9. Line 3: x = 3. Check: 3 times 3 plus 2 is 11.',
+                transcription: pageTranscription,
                 readable: pageReadable,
                 rubric_results: ['r1', 'r2', 'r3', 'r4'].map(id => ({ id, met: true, comment: 'shown' })),
                 feedback: 'Every step is shown.',
@@ -341,6 +344,55 @@ const againChecked = await selfGradeRoute(cardCheckedRow);
 check('a mark that counted is never answered as one that did not, first time or second',
     firstChecked.status === 'graded' && firstChecked.unproven !== true && againChecked.duplicate === true && againChecked.unproven !== true && proof(cardCheckedNode) === 1,
     JSON.stringify({ first: firstChecked.unproven, again: { duplicate: againChecked.duplicate, unproven: againChecked.unproven }, proof: proof(cardCheckedNode) }));
+
+// ---- 6. a marked page is not thrown away, a big photo is told so ------------------------
+console.log('\n--- 6. a one-pass mark with a short answer counts, an empty or refused one does not; an oversized photo gets a sentence ---');
+// A short answer read off the page is a real answer and its mark stands; a mark
+// with no transcription, or one that is a refusal, never saw the page and writes
+// nothing.
+const onePassNode = mkNode('Linear equations PAPER-CONFIRM-R');
+const onePassRow = shelve(onePassNode, await generatePaperExercise(onePassNode, 'Linear equations PAPER-CONFIRM-R'));
+setSetting('paper_vision', 'always');
+pageTranscription = undefined;
+const noTranscript = await visionMark(onePassNode, onePassRow);
+check('a one-pass mark with no transcription is "nothing readable": no attempt, no evidence',
+    noTranscript.status === 'unreadable' && attempts(onePassNode) === 0 && proof(onePassNode) === 0,
+    JSON.stringify({ status: noTranscript.status, attempts: attempts(onePassNode), proof: proof(onePassNode) }));
+const refuseNode = mkNode('Linear equations PAPER-CONFIRM-V');
+const refuseRow = shelve(refuseNode, await generatePaperExercise(refuseNode, 'Linear equations PAPER-CONFIRM-V'));
+pageTranscription = "I'm sorry, but I can't see anything in the image.";
+const refusedMark = await visionMark(refuseNode, refuseRow);
+check('a one-pass mark whose transcription is a refusal is not graded either',
+    refusedMark.status === 'unreadable' && attempts(refuseNode) === 0 && proof(refuseNode) === 0,
+    JSON.stringify({ status: refusedMark.status, attempts: attempts(refuseNode), proof: proof(refuseNode) }));
+const shortNode = mkNode('Linear equations PAPER-CONFIRM-S');
+const shortRow = shelve(shortNode, await generatePaperExercise(shortNode, 'Linear equations PAPER-CONFIRM-S'));
+pageTranscription = 'x = 3';
+const shortAnswer = await visionMark(shortNode, shortRow);
+check('...and so is one that read a short answer off the page',
+    shortAnswer.status === 'graded' && shortAnswer.transcription === 'x = 3' && proof(shortNode) === 1,
+    JSON.stringify({ status: shortAnswer.status, reason: shortAnswer.reason }));
+const blankNode = mkNode('Linear equations PAPER-CONFIRM-T');
+const blankRow = shelve(blankNode, await generatePaperExercise(blankNode, 'Linear equations PAPER-CONFIRM-T'));
+pageTranscription = 'BLANK PAGE';
+const blankMark = await visionMark(blankNode, blankRow);
+check('a one-pass mark that says the page is blank is still not graded',
+    blankMark.status === 'unreadable' && attempts(blankNode) === 0 && proof(blankNode) === 0, JSON.stringify({ status: blankMark.status }));
+pageTranscription = 'Line 1: 3x + 2 = 11. Line 2: 3x = 9. Line 3: x = 3. Check: 3 times 3 plus 2 is 11.';
+setSetting('paper_vision', 'never');
+
+// Over the route's 8 MB photo cap but under its 12 MB body cap: the learner
+// gets a plain sentence, not a 500 with a reference number.
+const bigNode = mkNode('Linear equations PAPER-CONFIRM-U');
+const bigRow = shelve(bigNode, await generatePaperExercise(bigNode, 'Linear equations PAPER-CONFIRM-U'));
+const bigForm = new FormData();
+bigForm.append('image', new Blob([Buffer.alloc(9 * 1024 * 1024, 1)], { type: 'image/jpeg' }), 'scan.jpg');
+const bigRes = await fetch(`${base}/api/paper/${bigRow}/grade`, { method: 'POST', body: bigForm });
+const bigBody = await bigRes.json().catch(() => ({}));
+check('a photo over the size cap is answered 413 with a sentence, and the card stays to retake',
+    bigRes.status === 413 && /larger than 8 MB/.test(bigBody.error || '') && !/ref/i.test(bigBody.error || '')
+    && db.prepare('SELECT status FROM feed_items WHERE id = ?').get(bigRow).status === 'ready' && attempts(bigNode) === 0,
+    JSON.stringify({ status: bigRes.status, body: bigBody }));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => stub.close(r));

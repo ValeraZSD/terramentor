@@ -15,10 +15,13 @@ import {
   Plus, ExternalLink, Trash2, Link2, Video, BookOpen, FileText,
   GripVertical, Edit2, CheckCircle2, Circle,
   FileCode2, Wrench, GraduationCap, Globe, Keyboard,
-  Search, Loader2,
+  Search, Loader2, ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react';
+import DropdownMenu from './DropdownMenu';
+import { MenuItem } from './ui/Popover';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
+import { useDragA11y, useDragKeyboard, useMovedSay, resourceTitle } from '../hooks/useDragA11y';
 import { Button, IconButton, IconLink } from './ui/Button';
 import { TextInput } from './ui/Field';
 import ProgressBar from './ui/ProgressBar';
@@ -77,11 +80,13 @@ function looksLikeUrl(text: string): boolean {
 
 // Sortable resource card
 
-function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
+function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
   resource: any;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  /** Move up / Move down: the drag's reorder from a menu (WCAG 2.5.7); null at that end. */
+  onMove: { up: (() => void) | null; down: (() => void) | null };
 }) {
   const { t: tr } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: resource.id });
@@ -185,6 +190,14 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete }: {
         )}
         <IconButton size="sm" onClick={onEdit} label={tr("Edit")} icon={<Edit2 className="w-4 h-4" />} />
         <IconButton size="sm" onClick={onDelete} label={tr("Delete")} icon={<Trash2 className="w-4 h-4" />} />
+        {(onMove.up || onMove.down) && (
+          <DropdownMenu
+            trigger={<IconButton size="sm" tooltip={false} label={tr("Move {{name}}", { name: resource.title })} icon={<ArrowUpDown className="w-4 h-4" />} />}
+          >
+            {onMove.up && <MenuItem onSelect={onMove.up} icon={<ArrowUp className="w-4 h-4" />}>{tr("Move up")}</MenuItem>}
+            {onMove.down && <MenuItem onSelect={onMove.down} icon={<ArrowDown className="w-4 h-4" />}>{tr("Move down")}</MenuItem>}
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );
@@ -215,7 +228,9 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [finding, setFinding] = useState(false);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useDragKeyboard());
+  const dragA11y = useDragA11y(resourceTitle, { positions: true });
+  const sayMoved = useMovedSay();
 
   // Derived
   const typeCounts = useMemo(() => {
@@ -319,6 +334,23 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
       await reorderResources(arrayMove(resources, oldIdx, newIdx).map(r => r.id));
     }
   }, [resources, reorderResources]);
+
+  // The menu's Move up / Move down: one step past the neighbour the learner
+  // can SEE (a type filter hides the rest), the same write as a drop on it.
+  const moveHandlers = (id: number) => {
+    const shown = filteredResources.findIndex(r => r.id === id);
+    const at = resources.findIndex(r => r.id === id);
+    const step = (delta: -1 | 1) => () => {
+      const to = resources.findIndex(r => r.id === filteredResources[shown + delta].id);
+      void reorderResources(arrayMove(resources, at, to).map(r => r.id));
+      // Its place in the list as shown (a type filter hides the rest).
+      sayMoved(resources[at].title, shown + delta + 1, filteredResources.length);
+    };
+    return {
+      up: at >= 0 && shown > 0 ? step(-1) : null,
+      down: at >= 0 && shown >= 0 && shown < filteredResources.length - 1 ? step(1) : null,
+    };
+  };
 
   // RENDER
 
@@ -467,7 +499,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
       )}
 
       {/* Resource list */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} accessibility={dragA11y} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={filteredResources.map(r => r.id)} strategy={verticalListSortingStrategy}>
           <div className="space-y-1.5">
             {filteredResources.map(resource => (
@@ -527,6 +559,7 @@ export default function ResourceList({ nodeId }: { nodeId: number }) {
                       onToggle={() => toggleComplete(resource.id, resource.completed)}
                       onEdit={() => startEdit(resource)}
                       onDelete={() => setDeleteConfirmId(resource.id)}
+                      onMove={moveHandlers(resource.id)}
                     />
                   )
                 )}
