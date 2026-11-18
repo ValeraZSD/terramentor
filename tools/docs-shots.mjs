@@ -203,10 +203,15 @@ export function findBrowser(explicit) {
     return found;
 }
 
+// A screen reader reads only a window it can see: tools/screen-reader-run.mjs
+// (a CI runner, never a desktop someone is using) opens the browser on screen.
+let headed = false;
+export function openOnScreen() { headed = true; }
+
 async function openBrowser(exe, { width, height, scale }) {
     const port = await freePort();
     const profile = mkdtempSync(join(tmpdir(), 'docs-shots-browser-'));
-    const args = ['--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+    const args = [headed ? `--window-size=${width},${height + 120}` : '--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
         '--mute-audio', '--lang=en-US', '--accept-lang=en-US', '--force-color-profile=srgb', '--ignore-certificate-errors',
         `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'];
     // A Linux CI runner refuses Chromium's user-namespace sandbox.

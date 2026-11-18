@@ -306,6 +306,13 @@ try {
         ok('…and where it was dropped', end === 'Dropped Waves at position 2 of 3.', end);
         const off = a11y.announcements.onDragOver({ active: spot(1, 0), over: null });
         ok('over nothing: says so', off === 'Waves is not over a place to drop it.', off);
+        // dnd-kit reports the item over itself right after the pick-up; that report must not
+        // replace "Picked up" before a screen reader says it (NVDA heard only "is at position 1").
+        a11y.announcements.onDragStart({ active: spot(1, 0) });
+        const firstOver = a11y.announcements.onDragOver({ active: spot(1, 0), over: spot(1, 0) });
+        ok('the report right after a pick-up repeats the pick-up', firstOver === 'Picked up Waves.', firstOver);
+        const back = a11y.announcements.onDragOver({ active: spot(1, 0), over: spot(1, 0) });
+        ok('…and only that one: back over its own place later says the place', back === 'Waves is at position 1 of 3.', back);
         await flat.unmount();
         const tree = await mount(h(Host, { positions: false }));
         const treeOver = a11y.announcements.onDragOver({ active: spot(1, 0), over: spot(3, 2) });
