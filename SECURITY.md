@@ -64,7 +64,9 @@ your data at all." Those are different claims and we only make the second one.
   nothing about you or your library; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
-  default**. Nothing else. There is **no telemetry, no analytics and no crash reporting**;
+  default**; and (f) only on a server running the site front desk (`server/site/`, never in
+  the app on your own machine), the breached-password check when someone sets a password there,
+  described under "Accounts on a site". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
   see "Verifying the no-telemetry claim" below, because you should not take our word for it.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
   falls back to OCR, and tesseract.js downloads its language model from a CDN unless it is told
@@ -443,6 +445,59 @@ your data at all." Those are different claims and we only make the second one.
   where a child process outlives its parent (`tools/anki-gates.mjs`).
   Archive entry names are never used as filesystem paths — media files and vault originals are
   stored under the SHA-256 of their own bytes.
+
+## Accounts on a site
+
+`server/site/` is a front desk for a server where several people each have their own library at
+one address (`docs/HOSTING.md`, "Many people at one address"). The app on your own machine never
+loads it. What it does:
+
+- **Each person's library is a separate process under its own system user.** The front desk
+  starts one `server/index.js` per account, as a numeric user of its own (from `SITE_UID_BASE`,
+  default 100000), with the library's folder owned by that user and readable by no one else
+  (`0700`). A library listens only on a Unix socket inside its own folder, never on a port, so
+  another library cannot connect to it. `tools/site-proofs.mjs` checks this on Linux: a library
+  is refused reading another's database, listing or writing its folder, connecting to its socket
+  and reading its environment.
+- **The front desk vouches for the person, the library checks the voucher.** Every request it
+  passes on carries a short-lived note (30 seconds) signed with a key only that library and the
+  front desk hold; a library treats a request without a valid note for itself as signed out
+  (below, "What answers without a session"), and a note
+  sent by a browser is removed before the request is passed on. Signing in and out happens only
+  at the front desk; the library's own password routes are refused.
+- **Passwords**: at least 15 characters, at most 128, stored as argon2id (19 MiB, two passes,
+  one lane, Node's built-in `crypto.argon2`), at most two hashed at once. A wrong sign-in costs
+  the same time whether or not the address has an account, and gives the same answer.
+- **Wrong guesses are counted in the site's database**, per account (five free, then a doubling
+  wait up to 15 minutes; after 100 in a row the password stops working until the operator
+  runs `node server/site/cli.js unlock <email>`) and per network (an IPv4 address or an IPv6 /64; twenty free).
+- **Sessions**: a random 32-byte token in a `__Host-` cookie (`Secure`, `HttpOnly`,
+  `SameSite=Lax`, `Path=/`); only its SHA-256 is stored. A session ends after 30 days unused or
+  90 days in all. Settings → Devices & security lists the account's sessions (device name, last
+  used, signed in; `GET /site/sessions.json`, never the token) and signs out any one of them or all
+  but the current one (`POST /site/sessions/<id>/sign-out`, `POST /site/sign-out-others`, both
+  under the same same-origin check as every other form post).
+- **Signing out clears the browser, and so does signing in.** Both answers carry
+  `Clear-Site-Data: "cache", "storage"` (signing in too, for whatever a session that ran out or
+  was ended from another device left behind), every answer from a library is sent
+  `Cache-Control: no-store`, and the app's service worker never caches `/site` pages, so the
+  next person on the same browser is not shown the last person's pages. Ending a session also
+  closes any answer still streaming to it.
+- **What answers without a session**: at the front desk, only its own `/site` pages (sign-in,
+  invite, health); every other request is sent to sign in. Behind it, a library treats the note
+  as its sign-in, so what the app answers signed out (its auth status route and the built
+  static files, the same for everyone) also answers a request with no note; only the front desk
+  can reach a library's socket to ask.
+- **Names**: bound beyond loopback, the front desk refuses to start without `SITE_HOSTS`, and
+  answers 421 to any other `Host`.
+- **The breached-password check** is the one outbound call the front desk makes. When someone
+  sets a password, the first five characters of its SHA-1 are sent to
+  `https://api.pwnedpasswords.com/range/<five characters>` with `Add-Padding: true`; the
+  password and the rest of its hash never leave the server, and the match is made on the
+  server. A password found there is refused. `SITE_BREACH_CHECK=0` turns the check off; if the
+  service does not answer in 5 seconds the password is accepted.
+- **Not there yet**: public sign-up, email, password reset, a second factor and export. The
+  front desk itself runs as root, because it must start each library as its own user.
 
 ## What is NOT protected
 
