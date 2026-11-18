@@ -104,7 +104,8 @@ await require('esbuild').build({
             build.onResolve({ filter: /\/api$/ }, () => ({ path: 'api-stub', namespace: 'stub' }));
             build.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({
                 contents: `export const api = new Proxy({}, { get: (_, key) => globalThis.__api[key] || (async () => ({})) });
-export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16, '0');`,
+export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16, '0');
+export const goToSiteSignIn = () => {};`,
                 loader: 'js',
             }));
         },
