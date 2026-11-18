@@ -1,155 +1,32 @@
 import { useStore } from '../store';
-import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { dateRangeLabel, uiLocale } from '../utils/locale';
-import { paceHeadline } from '../utils/pace';
-import ProgressBar, { type ProgressTone } from './ui/ProgressBar';
+import { useNumberFormat } from '../hooks/useNumberFormat';
+import { VerdictPill, verdictLine } from './plan/verdict';
 
 /**
- * `full` is decided by the row this sits in (`Workspace` measures whether the
- * full form fits beside the view tabs), never by the window: at a 1280px window
- * the sidebar leaves the workspace ~900px, and an `xl:` switch shows the full
- * form exactly where it cuts the tab rail short ("Vault").
+ * The course's date, judged, beside the view tabs: the same verdict the plan
+ * panel and the Projects card show (`judgeDate`, server/paceModel.js). It
+ * replaced two bars, "Exp" and "Act", that measured the learner against dates
+ * the plan had written itself.
+ *
+ * Shown only in the `full` form, the pill and its sentence. `full` is decided
+ * by the row this sits in (`Workspace` measures whether it fits beside the view
+ * tabs), never by the window: at a 1280px window the sidebar leaves the
+ * workspace ~900px, and an `xl:` switch shows it exactly where it cuts the tab
+ * rail short. Where it does not fit, the verdict is a dot on the plan button
+ * (`VerdictDot`), and its word is in that button's name.
  */
 export default function PaceIndicator({ full }: { full: boolean }) {
     const { t } = useTranslation();
-    const paceData = useStore(s => s.paceData);
+    const num = useNumberFormat();
+    const verdict = useStore(s => s.paceData?.verdict ?? null);
 
-    if (!paceData || !paceData.hasSchedule) return null;
-
-    const { expectedProgress, actualProgress, paceStatus, startDate, deadline, drift, totalDays } = paceData;
-
-    const statusDot: Record<string, string> = {
-        ahead: 'bg-emerald-500',
-        on_track: 'bg-blue-500',
-        falling_behind: 'bg-amber-500',
-        critical: 'bg-red-500',
-        no_schedule: 'bg-slate-400',
-        no_tasks: 'bg-slate-400',
-    };
-
-    const statusIcon: Record<string, typeof CheckCircle> = {
-        ahead: TrendingUp,
-        on_track: CheckCircle,
-        falling_behind: TrendingDown,
-        critical: AlertTriangle,
-        no_schedule: CheckCircle,
-        no_tasks: CheckCircle,
-    };
-
-    const barColor: Record<string, ProgressTone> = {
-        ahead: 'success',
-        on_track: 'info',
-        falling_behind: 'warning',
-        critical: 'danger',
-        no_schedule: 'neutral',
-        no_tasks: 'neutral',
-    };
-
-    const statusText: Record<string, string> = {
-        ahead: 'text-emerald-600 dark:text-emerald-400',
-        on_track: 'text-blue-600 dark:text-blue-400',
-        falling_behind: 'text-amber-600 dark:text-amber-400',
-        critical: 'text-red-600 dark:text-red-400',
-        no_schedule: 'text-slate-500 dark:text-slate-400',
-        no_tasks: 'text-slate-500 dark:text-slate-400',
-    };
-
-    const Icon = statusIcon[paceStatus] || CheckCircle;
-    const dot = statusDot[paceStatus] || statusDot.no_schedule;
-    const bar = barColor[paceStatus] || barColor.no_schedule;
-    const text = statusText[paceStatus] || statusText.no_schedule;
-
-    // Signed pace offset in days: positive = ahead, negative = behind.
-    // The server clamps `daysBehind` to >= 0 (dropping the "ahead" magnitude),
-    // so derive the signed value from the raw drift instead. drift = expected -
-    // actual, so ahead (actual > expected) → negative drift → positive offset.
-    const offsetDays = (drift != null && totalDays)
-        ? -Math.round((drift / 100) * totalDays)
-        : 0;
-    // A zero offset says so in words rather than "0d", and a non-zero one says
-    // WHICH way: a bare red "-29d" beside the tabs was read as a countdown.
-    // Within the server's on-track band the two forms say the same thing: the
-    // compact pill read "5d ahead" (and on the next load "5d behind") beside a
-    // full form saying "On track" about the same numbers.
-    const offsetLabel = paceStatus === 'on_track'
-        ? paceHeadline(paceStatus, 0, t)
-        : offsetDays === 0
-        // Behind by under half a day still carries the amber of "behind": the
-        // server flags it past 5 points of drift on a short window, so say
-        // the same words the tooltip does instead of "On plan" in amber.
-        ? (paceStatus === 'falling_behind' || paceStatus === 'critical'
-            ? paceHeadline(paceStatus, 0, t)
-            : t("On plan"))
-        : offsetDays > 0
-            ? t("{{n}}d ahead", { n: offsetDays })
-            : t("{{daysBehind}}d behind", { daysBehind: -offsetDays });
-
-    // The server's own `message` is English prose built with a template
-    // literal; it stayed English between two translated lines here.
-    const headline = paceHeadline(paceStatus, Math.abs(offsetDays), t);
-
-    const utcDate = (dateStr: string) => {
-        const [y, m, d] = dateStr.split('-').map(Number);
-        return new Date(Date.UTC(y, m - 1, d));
-    };
-    const formatDateShort = (date: Date) =>
-        date.toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    // Without the year a window leaving this year lies: "1 Oct → 1 Jan" reads as
-    // three months beside a chip saying more than a year of days.
-    function windowLabel(startStr: string, endStr: string): string {
-        const start = utcDate(startStr), end = utcDate(endStr);
-        const thisYear = new Date().getFullYear();
-        return start.getUTCFullYear() === thisYear && end.getUTCFullYear() === thisYear
-            ? `${formatDateShort(start)} → ${formatDateShort(end)}`
-            : dateRangeLabel(start, end);
-    }
-
-    if (!full) {
-        return (
-            /* Compact: the offset in words, and nothing else. A signed "-29d"
-               beside two unlabelled bars (expected over actual) asks the reader
-               to decode both; the words say it outright. This form exists
-               because the row is short of room — the tab rail beside it is
-               what pays for every pixel here. The full form keeps the bars,
-               with their labels. */
-            <div
-                className="flex items-center px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200/60 dark:border-slate-700/60"
-                title={headline}
-            >
-                <span className={`text-xs font-semibold tabular-nums whitespace-nowrap ${text}`}>{offsetLabel}</span>
-            </div>
-        );
-    }
-
+    if (!full || !verdict || verdict.band === 'no_date') return null;
+    const line = verdictLine(verdict, t, num);
     return (
-        <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-1.5 shrink-0">
-                <span className={`w-2 h-2 rounded-full ${dot}`} />
-                <Icon className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-                <span className="text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">{headline}</span>
-            </div>
-            <div className="w-px h-4 bg-slate-200 dark:bg-slate-600" />
-            <div className="flex flex-col gap-1 shrink-0">
-                <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 w-7">{t("Exp")}</span>
-                    <ProgressBar value={expectedProgress} tone="neutral" size="sm" decorative className="w-16" />
-                    <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{expectedProgress}%</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 w-7">{t("Act")}</span>
-                    <ProgressBar value={actualProgress} tone={bar} size="sm" decorative className="w-16" />
-                    <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{actualProgress}%</span>
-                </div>
-            </div>
-            {startDate && deadline && (
-                <>
-                    <div className="w-px h-4 bg-slate-200 dark:bg-slate-600" />
-                    <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                        {windowLabel(startDate, deadline)}
-                    </span>
-                </>
-            )}
+        <div className="flex items-center gap-2 min-w-0">
+            <VerdictPill verdict={verdict} t={t} />
+            {line && <span className="text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{line}</span>}
         </div>
     );
 }

@@ -1,4 +1,4 @@
-// tools/project-forms-gates.mjs — the schedule dialog, the import zone and the pace pill say what is true.
+// tools/project-forms-gates.mjs — the plan panel, the import zone and the pace line say what is true.
 //
 // Run:  node tools/project-forms-gates.mjs
 //
@@ -11,8 +11,10 @@
 //   - the import zone took a second file while one was importing (two copies),
 //     and never cleared its file input, so choosing the same file again after a
 //     failed import did nothing;
-//   - a pace under half a day behind rounded to "On plan" in amber in the
-//     workspace's compact pill, while its tooltip said "Slightly behind schedule".
+//   - the course header's pace said one thing in its words and another in its
+//     colour; it now shows the verdict alone (the band and one line).
+// A date marked "cannot move" is read-only in the panel, has no Remove, and a
+// Save sends the mark the box shows; a pace that cannot be read says so.
 // The REAL components and the real store are bundled into jsdom; the store's
 // writes are spies and the network is a fake `fetch`.
 import { createRequire } from 'node:module';
@@ -109,13 +111,127 @@ section('the schedule dialog starts from the project it opens on');
     // opens on the defaults, not on the project before it, then fills in.
     await open(1, [dated, undated]);
     await open(3);
-    check('a project the store does not hold yet opens on the defaults, not the last project\'s',
-        dates()[1]?.value === '' && !!dates()[0]?.value && dates()[0].value !== '2026-11-01' && days() === 5,
-        `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
+    // The plan panel shows nothing until it holds the project, so there is no
+    // field that could carry the last project's dates.
+    check('a project the store does not hold yet shows no fields, never the last project\'s',
+        dates().length === 0 && w.document.querySelectorAll('[data-day-toggle]').length === 0,
+        `${dates().length} date fields: ${dates().map(d => d.value).join(', ')}`);
     const maths = { id: 3, name: 'Maths', kind: 'curriculum', start_date: '2026-12-01', deadline: '2027-03-01', study_days: '[6]' };
     await g.act(async () => { g.useStore.setState({ projects: [dated, undated, maths] }); await settle(); });
     check('...and fills in when the project arrives', dates()[1]?.value === '2027-03-01' && dates()[0]?.value === '2026-12-01' && days() === 1,
         `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
+    w.close();
+}
+
+// ---------------------------------------------------------------------------
+section('a date marked "cannot move" is read-only in the panel and has no Remove');
+{
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 7, name: 'Physics', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 7, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    const buttons = () => [...doc.querySelectorAll('button')].map(b => b.textContent.trim());
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    check('the locked deadline is read-only', deadlineField()?.readOnly === true, `readOnly ${deadlineField()?.readOnly}`);
+    check('...and the footer has no Remove schedule', !buttons().includes('Remove schedule'), buttons().join(' | '));
+    check('a pace that cannot be read says so, with a way to try again',
+        doc.querySelector('[role="dialog"] [role="alert"]')?.textContent.includes('Could not read your pace.') && buttons().includes('Try again'),
+        doc.querySelector('[role="dialog"]')?.textContent.slice(0, 200));
+    // Untick, then Save: the write names the lock as off, so the server lets it go.
+    await g.act(async () => { box()?.click(); await settle(); });
+    check('unticking frees the field', deadlineField()?.readOnly === false, `readOnly ${deadlineField()?.readOnly}`);
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('Save sends the mark the box shows', calls.length === 1 && calls[0][1]?.deadlineFixed === false, JSON.stringify(calls));
+    w.close();
+}
+{
+    // Untick, type a new date, tick again, one Save: the typed date goes, locked.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 9, name: 'Biology', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 9, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => {
+        const set = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set;
+        set.call(deadlineField(), '2027-03-01');
+        deadlineField().dispatchEvent(new w.Event('input', { bubbles: true }));
+        await settle();
+    });
+    await g.act(async () => { box()?.click(); await settle(); });
+    check('re-ticking keeps the typed date in the field', deadlineField()?.value === '2027-03-01' && deadlineField()?.readOnly === true,
+        `${deadlineField()?.value} readOnly ${deadlineField()?.readOnly}`);
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('…and Save sends it with the mark on', calls.length === 1 && calls[0][1]?.deadline === '2027-03-01' && calls[0][1]?.deadlineFixed === true,
+        JSON.stringify(calls));
+    w.close();
+}
+{
+    // Untick and tick again with nothing typed, then the saved date moves on
+    // another device: the locked field follows the saved date, not the one the
+    // panel opened with.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 10, name: 'History', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 10, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async () => true,
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => { g.useStore.setState({ projects: [{ ...exam, deadline: '2027-04-01' }] }); await settle(); });
+    check('untick, tick again, nothing typed: the locked field follows a saved date that moved',
+        deadlineField()?.value === '2027-04-01' && deadlineField()?.readOnly === true,
+        `${deadlineField()?.value} readOnly ${deadlineField()?.readOnly}`);
+    w.close();
+}
+{
+    // The mark untouched, a study day changed, and the date locked meanwhile
+    // (another device): Save must not send the stale "not locked" it opened with.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const course = { id: 8, name: 'Chemistry', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 0 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 8, projects: [course], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    await g.act(async () => { doc.querySelectorAll('[data-day-toggle]')[5]?.click(); await settle(); });
+    await g.act(async () => { g.useStore.setState({ projects: [{ ...course, deadline_fixed: 1 }] }); await settle(); });
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('a save that never touched the mark does not name it, so a lock set meanwhile stays',
+        calls.length === 1 && !('deadlineFixed' in calls[0][1]) && calls[0][1].deadline === '2027-02-01', JSON.stringify(calls));
     w.close();
 }
 
@@ -192,26 +308,30 @@ section('choosing the same file again after a failed import works');
 }
 
 // ---------------------------------------------------------------------------
-section('a pace under half a day behind is not "On plan" in amber');
+section('the course header names the verdict, never the plan\'s day count');
 {
+    // The header once counted days against the plan, and a drift under half a
+    // day read "On plan" in amber. It now shows the verdict on the learner's
+    // own pace; the old plan fields are still in the payload and must not leak.
     const { w, g, host } = page();
+    const verdict = {
+        unit: 'topics', band: 'under_pace', early: false, open: 3, deadline: '2026-11-08', daysLeft: 7,
+        needed: 3, recent: 1, best: 4, bestStretch: null, fits: null, weeksOfData: 8, quietWeeks: 0,
+        ranges: { recent: null, best: null }, owner: 'learner', fixed: false, offers: [],
+    };
     g.useStore.setState({
         paceData: {
             hasSchedule: true, paceStatus: 'falling_behind', expectedProgress: 40, actualProgress: 34,
-            startDate: '2026-11-01', deadline: '2026-11-08', drift: 6, totalDays: 7,
+            startDate: '2026-11-01', deadline: '2026-11-08', drift: 6, totalDays: 7, verdict,
         },
     });
-    g.mount(host, g.h(g.PaceIndicator, { full: false }));
+    g.mount(host, g.h(g.PaceIndicator, { full: true }));
     const text = host.textContent;
-    check('the compact pill does not say "On plan"', !/On plan/.test(text), text);
-    check('...it says the same words as its tooltip', /Slightly behind schedule/.test(text) && host.querySelector('[title]')?.getAttribute('title') === 'Slightly behind schedule', text);
-    // Critical needs more drift than that, so a window short enough that it
-    // still rounds to under half a day.
-    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'critical', expectedProgress: 60, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-03', drift: 20, totalDays: 2 } }); await settle(); });
-    check('critical, under half a day: the same words, not "On plan"', !/On plan/.test(host.textContent) && /Slightly behind schedule/.test(host.textContent), host.textContent);
-    // Ahead by under half a day is on plan, and still says so.
-    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'ahead', expectedProgress: 34, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-08', drift: -6, totalDays: 7 } }); await settle(); });
-    check('ahead, under half a day: still "On plan"', /On plan/.test(host.textContent), host.textContent);
+    check('the header shows the verdict and its reason', /Under pace/.test(text) && /Needs 3 a week/.test(text), text);
+    check('...and no day count or "On plan"', !/On plan|days? (behind|ahead)|\d+d (behind|ahead)/.test(text), text);
+    // Still "has a schedule" and the old fields: only the verdict says no date.
+    await g.act(async () => { g.useStore.setState({ paceData: { ...g.useStore.getState().paceData, verdict: { ...verdict, band: 'no_date' } } }); await settle(); });
+    check('a course with no date shows nothing there', host.textContent === '', host.textContent);
     w.close();
 }
 
