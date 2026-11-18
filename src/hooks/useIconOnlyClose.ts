@@ -19,8 +19,8 @@ const TITLE_MIN_REM = 8;
  * Measured on the row's own width, never a breakpoint: the same phone header is
  * wider or narrower with the text size, the language and the buttons a topic
  * has. The word's width is read while it is drawn and kept per `wordKey` (the
- * language), so a row showing the X can still tell when the word would fit
- * again. A new key draws the word once to measure it, before the paint.
+ * language) and text size, so a row showing the X can still tell when the word
+ * would fit again. A new key draws the word once to measure it, before the paint.
  *
  * `row` is a flex row whose children are the controls: the title is
  * `[data-row="title"]`, Close is `[data-close="word"]` or `[data-close="icon"]`.
@@ -42,8 +42,11 @@ export function useIconOnlyClose(row: RefObject<HTMLElement | null>, active: boo
             setIconOnly(false);
             return;
         }
-        if (close.dataset.close === 'word') word.current = { key: wordKey, px: close.getBoundingClientRect().width };
-        if (word.current?.key !== wordKey) {
+        // Kept per language AND text size: a width read at 160% would keep the
+        // X after the size went back to 100%, where the word fits again.
+        const key = `${wordKey}|${rootPx}`;
+        if (close.dataset.close === 'word') word.current = { key, px: close.getBoundingClientRect().width };
+        if (word.current?.key !== key) {
             setIconOnly(false);
             return;
         }

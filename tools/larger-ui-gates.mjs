@@ -426,6 +426,8 @@ const MEASURE = `(() => {
             fits: on ? (n.scrollWidth <= n.clientWidth + 0.5 || (cs.textOverflow === 'ellipsis' && cs.overflowX === 'hidden'))
                 && n.getBoundingClientRect().right <= r.right + 0.5 && n.getBoundingClientRect().height <= r.height + 0.5 : null,
             ratio: on ? contrast(n) : null,
+            // Longer than its block: only the ellipsis keeps it inside.
+            cut: on ? n.scrollWidth > n.clientWidth + 0.5 : null,
         };
     });
     // The detail header's one row of controls: title, Study, icon buttons, Close.
@@ -594,6 +596,8 @@ for (const [state, m] of Object.entries(seen)) {
         } else {
             const wide = m.ticks.filter((x) => x.w >= 6 * m.rem + 1), narrow = m.ticks.filter((x) => x.w < 6 * m.rem - 1);
             if (state.includes(' desktop ')) check(`${state}: a 4-topic phase on a desktop has blocks wide enough for a name (${wide.length})`, wide.length >= 4);
+            // "Constellations and star maps" is longer than a desktop block, so the ellipsis is really exercised.
+            if (state.includes(' desktop ')) check(`${state}: at least one name is longer than its block and is cut (${named.filter((x) => x.cut).length})`, named.some((x) => x.cut));
             check(`${state}: every block at least 6rem wide shows its topic's name (${wide.length})`, wide.every((x) => x.name === x.title && x.title), list(wide.filter((x) => x.name !== x.title || !x.title), fmt));
             check(`${state}: no block under 6rem shows a name (${narrow.length})`, narrow.every((x) => x.name === null), list(narrow.filter((x) => x.name !== null), fmt));
             check(`${state}: each name is cut with an ellipsis inside its block, on one line`, named.every((x) => x.fits), list(named.filter((x) => !x.fits), fmt));
