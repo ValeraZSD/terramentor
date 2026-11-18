@@ -142,6 +142,15 @@ course's topics while it is drafted, and a topic's links read when its lessons a
 on by default, two switches in Settings → AI & Models). [SECURITY.md](SECURITY.md) lists every
 outbound connection.
 
+## Accessibility
+
+You can study, review cards and answer questions with only a keyboard, and a screen reader is
+told what each control does. Any list or card you can drag also moves from the keyboard. Text
+and the whole interface grow to 160% under Settings → General. Settings → Accessibility holds
+contrast, motion, text spacing, a reading line, reading aloud, time limits, confirming before
+an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
+says how that is tested, what does not meet it yet, and how to report a barrier.
+
 ## Install
 
 **Desktop.** Download the zip for your system from the
@@ -185,6 +194,7 @@ interface comes in twelve languages ([docs/I18N.md](docs/I18N.md)).
   here to contribute.
 - [Technical reference](TECHNICAL_DOCUMENTATION.md): schema, engines, API.
 - [Security](SECURITY.md): threat model and every outbound connection.
+- [Accessibility](docs/ACCESSIBILITY.md): what is tested, the WCAG 2.2 report, known gaps.
 - [Contributing](CONTRIBUTING.md), [Roadmap](ROADMAP.md), [Changelog](CHANGELOG.md).
 
 Found a wrong lesson or a bug? **Settings → Library & about → About → Report a problem** fills in
