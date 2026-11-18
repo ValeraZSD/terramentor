@@ -197,28 +197,61 @@ const MEASURE = `(() => {
         const cs = getComputedStyle(el);
         return cs.visibility !== 'hidden' && cs.display !== 'none';
     };
+    // A box clips what it holds only on its containing-block chain: a fixed
+    // box (the phone's detail sheet) escapes every ancestor but a transformed
+    // one, an absolute box every ancestor below its positioned one. Walks
+    // that chain up from \`from\`, calling \`each(ancestor, style, box)\` for
+    // every one that clips on some axis; \`each\` returns true to stop.
+    const clippers = (from, each) => {
+        let pos = getComputedStyle(from).position;
+        for (let a = from.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+            const s = getComputedStyle(a);
+            const holds = s.transform !== 'none' || s.filter !== 'none';
+            if (pos === 'fixed' && !holds) continue;
+            if (pos === 'absolute' && s.position === 'static' && !holds) continue;
+            pos = s.position;
+            if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+            const k = a.getBoundingClientRect();
+            const box = { l: k.left + a.clientLeft, t: k.top + a.clientTop, r: k.left + a.clientLeft + a.clientWidth, b: k.top + a.clientTop + a.clientHeight };
+            if (each(a, s, box)) return;
+        }
+    };
+    const scrolls = (s, axis) => /auto|scroll/.test(axis === 'x' ? s.overflowX : s.overflowY);
+    const cutTo = (q, s, box, axis) => {
+        if (axis === 'x' && s.overflowX !== 'visible') { q.l = Math.max(q.l, box.l); q.r = Math.min(q.r, box.r); }
+        if (axis === 'y' && s.overflowY !== 'visible') { q.t = Math.max(q.t, box.t); q.b = Math.min(q.b, box.b); }
+    };
     // The pressable area: the control, and what it holds that takes the
-    // pointer, as far as it shows: a part spilling past a box that clips its
-    // overflow (the control itself included) is cut back to that box.
+    // pointer, as far as it shows. A part spilling past a box that clips it,
+    // inside the control or round it, is cut back to that box. A box that
+    // scrolls is left out round the control: what it hides can be scrolled to.
     const area = (el) => {
-        let r = el.getBoundingClientRect();
-        let [l, t, rt, b] = [r.left, r.top, r.right, r.bottom];
+        const r = el.getBoundingClientRect();
+        const q = { l: r.left, t: r.top, r: r.right, b: r.bottom };
         const grow = (x) => {
-            const q = x.getBoundingClientRect();
-            let [ql, qt, qr, qb] = [q.left, q.top, q.right, q.bottom];
-            for (let a = x.parentElement; a; a = a.parentElement) {
-                const s = getComputedStyle(a);
-                const k = a.getBoundingClientRect();
-                if (s.overflowX !== 'visible') { ql = Math.max(ql, k.left + a.clientLeft); qr = Math.min(qr, k.left + a.clientLeft + a.clientWidth); }
-                if (s.overflowY !== 'visible') { qt = Math.max(qt, k.top + a.clientTop); qb = Math.min(qb, k.top + a.clientTop + a.clientHeight); }
-                if (a === el) break;
-            }
-            if (qr - ql < 1 || qb - qt < 1) return;
-            l = Math.min(l, ql); t = Math.min(t, qt); rt = Math.max(rt, qr); b = Math.max(b, qb);
+            const p = x.getBoundingClientRect();
+            const c = { l: p.left, t: p.top, r: p.right, b: p.bottom };
+            // Inside the control every clipping box counts; the boxes round it come once, below.
+            clippers(x, (a, s, box) => {
+                if (a !== el && !el.contains(a)) return true;
+                cutTo(c, s, box, 'x'); cutTo(c, s, box, 'y');
+                return a === el;
+            });
+            if (c.r - c.l < 1 || c.b - c.t < 1) return;
+            q.l = Math.min(q.l, c.l); q.t = Math.min(q.t, c.t); q.r = Math.max(q.r, c.r); q.b = Math.max(q.b, c.b);
         };
         for (const c of el.querySelectorAll('*')) if (getComputedStyle(c).pointerEvents !== 'none') grow(c);
         if (el.matches('input[type="checkbox"], input[type="radio"]')) for (const label of el.labels || []) grow(label);
-        return { w: rt - l, h: b - t };
+        // Scrolled into view, a control leaves its scroller and every box round
+        // that scroller behind on the axis it scrolls: only boxes nearer clip.
+        const free = { x: false, y: false };
+        clippers(el, (a, s, box) => {
+            for (const axis of ['x', 'y']) {
+                if (scrolls(s, axis)) free[axis] = true;
+                if (!free[axis]) cutTo(q, s, box, axis);
+            }
+        });
+        return { w: Math.max(0, q.r - q.l), h: Math.max(0, q.b - q.t) };
     };
     const CONTROLS = 'button, select, summary, a[href], input:not([type="hidden"]), textarea, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"], [role="slider"]';
     const targets = [];
@@ -269,44 +302,38 @@ const MEASURE = `(() => {
     const cut = [];
     if (matchMedia('(forced-colors: active)').matches) {
         for (const el of document.querySelectorAll(CONTROLS)) {
-            // Of the probes only the rail's tab: a sideways rail as tall as it.
+            // Of the probes only the three framed tabs (PROBE says what each is).
             const isProbe = !!el.closest('[data-gate-probe]');
-            if (!shown(el) || (isProbe && el.dataset.probe !== 'rail')) continue;
-            if (isProbe) probe.railCut = '';
+            if (!shown(el) || (isProbe && !['rail', 'hidden', 'outer'].includes(el.dataset.probe))) continue;
+            if (isProbe) probe[el.dataset.probe + 'Cut'] = '';
             const cs = getComputedStyle(el);
             const w = parseFloat(cs.outlineWidth) || 0;
             if (cs.outlineStyle === 'none' || w === 0) continue;
             const out = w + (parseFloat(cs.outlineOffset) || 0);
             if (out <= 0) continue;
             const r = el.getBoundingClientRect();
-            // Only boxes on the containing-block chain clip: a fixed box (the
-            // phone's detail sheet) escapes every ancestor but a transformed
-            // one, an absolute box every ancestor below its positioned one.
-            let pos = cs.position;
-            // A scroller cuts what is scrolled out of view along the axis it
-            // scrolls, and so does every box round it; that is not a defect.
-            // The other axis still counts: a tab rail that scrolls sideways
-            // must not cut its tabs' top and bottom.
-            let freeX = false, freeY = false;
-            for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
-                const as = getComputedStyle(a);
-                const holds = as.transform !== 'none' || as.filter !== 'none';
-                if (pos === 'fixed' && !holds) continue;
-                if (pos === 'absolute' && as.position === 'static' && !holds) continue;
-                pos = as.position;
-                if (as.overflowX === 'visible' && as.overflowY === 'visible') continue;
-                if (a.scrollWidth > a.clientWidth + 1) freeX = true;
-                if (a.scrollHeight > a.clientHeight + 1) freeY = true;
-                if (freeX && freeY) break;
-                const b = a.getBoundingClientRect();
-                const box = { l: b.left + a.clientLeft, t: b.top + a.clientTop, r: b.left + a.clientLeft + a.clientWidth, b: b.top + a.clientTop + a.clientHeight };
+            // The frame as far as it can show. A box that scrolls along an
+            // axis cuts what is scrolled out of view: not a defect, so along
+            // that axis the frame is narrowed to what shows inside it, and the
+            // boxes round it are checked against that part. Every other
+            // clipping axis (hidden, clip; a scroller's other axis: a tab
+            // rail that scrolls sideways) must leave the frame whole.
+            const f = { l: r.left - out, t: r.top - out, r: r.right + out, b: r.bottom + out };
+            clippers(el, (a, s, box) => {
                 const sides = [];
                 const past = (side, px) => { if (px > 0.5) sides.push(side + ' ' + px.toFixed(1) + 'px'); };
-                if (as.overflowX !== 'visible' && !freeX) { past('left', box.l - (r.left - out)); past('right', r.right + out - box.r); }
-                if (as.overflowY !== 'visible' && !freeY) { past('top', box.t - (r.top - out)); past('bottom', r.bottom + out - box.b); }
-                if (sides.length && isProbe) { probe.railCut = sides.join(', '); break; }
-                if (sides.length) { cut.push({ name: name(el), sides: sides.join(', '), where: where(el), by: where(a) }); break; }
-            }
+                const moving = { x: scrolls(s, 'x') && a.scrollWidth > a.clientWidth + 1, y: scrolls(s, 'y') && a.scrollHeight > a.clientHeight + 1 };
+                if (s.overflowX !== 'visible' && !moving.x) { past('left', box.l - f.l); past('right', f.r - box.r); }
+                if (s.overflowY !== 'visible' && !moving.y) { past('top', box.t - f.t); past('bottom', f.b - box.b); }
+                if (sides.length) {
+                    if (isProbe) probe[el.dataset.probe + 'Cut'] = sides.join(', ');
+                    else cut.push({ name: name(el), sides: sides.join(', '), where: where(el), by: where(a) });
+                    return true;
+                }
+                if (moving.x) cutTo(f, s, box, 'x');
+                if (moving.y) cutTo(f, s, box, 'y');
+                return f.r - f.l < 1 || f.b - f.t < 1;   // scrolled out of view
+            });
         }
     }
     // A row's or card's title button is framed only when it is the open one
@@ -346,8 +373,14 @@ const PROBE = `(() => {
         // and the same one inside a track that clips it: only what shows counts.
         + '<button type="button" role="switch" data-probe="spill" class="relative block w-11 h-6 my-4 p-0"><span data-switch-spill class="absolute -inset-x-1.5 -inset-y-2.5"></span></button>'
         + '<button type="button" role="switch" data-probe="clipped" class="relative block w-11 h-6 my-4 p-0 overflow-hidden"><span data-switch-spill class="absolute -inset-x-1.5 -inset-y-2.5"></span></button>'
+        // The same switch inside a 24px box that hides what spills out of it.
+        + '<div style="overflow:hidden;height:1.5rem;margin:1rem 0"><button type="button" role="switch" data-probe="wrapped" class="relative block w-11 h-6 p-0"><span data-switch-spill class="absolute -inset-x-1.5 -inset-y-2.5"></span></button></div>'
         // A tab in a rail that scrolls sideways and is no taller than the tab.
-        + '<div style="overflow-x:auto;width:60px;white-space:nowrap"><button type="button" data-probe="rail" class="outline-none" style="width:200px">tab</button></div>';
+        + '<div style="overflow-x:auto;width:60px;white-space:nowrap"><button type="button" data-probe="rail" class="outline-none" style="width:200px">tab</button></div>'
+        // A tab wider than a box that hides its overflow: that cannot scroll.
+        + '<div style="overflow:hidden;width:60px;padding:4px 0;white-space:nowrap"><button type="button" data-probe="hidden" class="outline-none" style="width:200px">tab</button></div>'
+        // A tab in full view inside its rail, the rail in a box narrower than it.
+        + '<div style="overflow:hidden;width:40px"><div style="overflow-x:auto;width:120px;padding:4px;white-space:nowrap"><button type="button" data-probe="outer" class="outline-none" style="width:60px">tab</button><span style="display:inline-block;width:200px"></span></div></div>';
     document.body.appendChild(box);
 })()`;
 const UNPROBE = `document.querySelector('[data-gate-probe]')?.remove()`;
@@ -405,15 +438,21 @@ for (const [state, m] of Object.entries(seen)) {
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
         !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));
     // Clipping counts: the clipped spill is 24px tall whatever the setting.
-    check(`${state}: a switch whose spill is clipped is seen as too small`, p.clipped?.small === true, JSON.stringify(p.clipped));
-    if (state.includes(' contrast ')) check(`${state}: a sideways rail that cuts its tab's top and bottom frame is caught`,
-        /top .*bottom/.test(p.railCut ?? ''), JSON.stringify(p.railCut));
+    check(`${state}: a switch whose spill is clipped, by itself or by a box round it, is seen as too small`,
+        p.clipped?.small === true && p.wrapped?.small === true, JSON.stringify([p.clipped, p.wrapped]));
+    if (state.includes(' contrast ')) {
+        check(`${state}: a sideways rail that cuts its tab's top and bottom frame is caught`, /top .*bottom/.test(p.railCut ?? ''), JSON.stringify(p.railCut));
+        check(`${state}: a box that hides overflow sideways and cuts a tab's frame is caught`, /right/.test(p.hiddenCut ?? ''), JSON.stringify(p.hiddenCut));
+        check(`${state}: a box round a rail that cuts a tab showing in the rail is caught`, /right/.test(p.outerCut ?? ''), JSON.stringify(p.outerCut));
+    }
     const scale = SIZES[state.split(' ')[1]].uiScale ?? 100;
     check(`${state}: the page runs at ${scale}% text`, Math.abs(m.rem - 16 * scale / 100) < 0.1, `${m.rem}px`);
     if (!on) continue;
     // The tree may grow for its buttons, never at the page's cost: the page
     // keeps what it had with the setting off, or a quarter of the row.
     const offState = seen[state.replace(/ on$/, ' off')];
+    // The narrow state exists for this check, so there it must measure.
+    if (state.includes(' narrow-160% ')) check(`${state}: the tree and the page beside it were measured, both modes`, !!(m.centre && offState?.centre));
     if (m.centre && offState?.centre) check(`${state}: the page beside the tree keeps its width (${offState.centre.w} -> ${m.centre.w}px of ${m.centre.row})`,
         m.centre.w >= Math.min(offState.centre.w, 0.25 * m.centre.row) - 1);
     check(`${state}: a button that asks for 4rem keeps it`, p.tall?.minH >= 4 * m.rem - 0.5, JSON.stringify(p.tall));
