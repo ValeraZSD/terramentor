@@ -105,7 +105,15 @@ async function changed(read, was, ms = 5000) {
 /** One step: what NVDA said from the moment `act` started until it went quiet. */
 async function step(label, act) {
     await nvda.clearSpokenPhraseLog();
-    await act();
+    try {
+        await act();
+    } catch (err) {
+        // What NVDA said before the step broke is still evidence; the step's own error wins.
+        let said = [];
+        try { said = await spoken(); } catch { /* the log is gone too */ }
+        current.steps.push({ label: `${label} (broke: ${err.message.split('\n')[0]})`, said });
+        throw err;
+    }
     await sleep(1200);
     const said = await spoken();
     current.steps.push({ label, said });
@@ -246,6 +254,8 @@ const TASKS = {
                 await tabTo(page, check, 'the Check button');
                 verdict = await step('Space on Check', () => nvda.press('Space'));
             }
+            // An answered question locks its options: the page shows a result, whatever NVDA said.
+            if (!(await changed(() => page.evaluate(`!!${option}?.disabled`), false))) throw new Error('the question shows no result after it was answered');
             expect('a verdict is spoken (right or wrong)', /correct|right|wrong|not quite|incorrect|well done/i.test(verdict));
         },
     },
@@ -272,8 +282,12 @@ const TASKS = {
             expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(all));
             expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(all));
             await tabTo(page, plate, 'the card');
+            const face = () => page.evaluate(`${plate}?.getAttribute('aria-pressed')`);
+            const front = await face();
             const flip = await step('Space on the card', () => nvda.press('Space'));
-            expect('the answer is read out, maths included', /to the|superscript|over|fraction/i.test(flip));
+            if ((await changed(face, front)) === front) throw new Error('Space did not flip the card');
+            // Only the back has "because" and 1/100 (1 over 100, not the front's 1 over 1000).
+            expect('the answer is read out, maths included', /\bbecause\b|1 over 100(?!0)|one hundredth/i.test(flip));
         },
     },
     'keyboard-reorder': {
@@ -290,6 +304,7 @@ const TASKS = {
             await step('NVDA+Space: focus mode, so keys reach the page', () => nvda.perform(NVDAKeyCodeCommands.toggleBetweenBrowseAndFocusMode));
             const order = () => page.evaluate(`[...document.querySelectorAll('main [data-node-id]')].map((e) => e.getAttribute('data-node-id')).join(',')`);
             const was = await order();
+            const pickedAt = await page.evaluate(`${handle}?.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null`);
             const up = await step('Space: pick up', () => nvda.press('Space'));
             expect('picking up is announced', /picked up/i.test(up));
             const moved = await step('Down arrow', () => nvda.press('Down'));
@@ -297,7 +312,14 @@ const TASKS = {
             const dropped = await step('Space: drop', () => nvda.press('Space'));
             expect('the drop is announced', /dropped|moved/i.test(dropped));
             // The move itself is checked on the page; the speech above is only the expectations.
-            if (!was || (await changed(order, was)) === was) throw new Error('the outline order did not change after the drop');
+            // Same rows, other order, and the picked-up row now after the one that followed it.
+            const before = was.split(',');
+            const after = (await changed(order, was)).split(',').filter(Boolean);
+            if (!was || !after.length || !pickedAt) throw new Error('the outline is empty');
+            if (after.join() === was) throw new Error('the outline order did not change after the drop');
+            if ([...after].sort().join() !== [...before].sort().join()) throw new Error(`the outline lost or gained rows on the drop (${before.length} -> ${after.length})`);
+            const next = before[before.indexOf(pickedAt) + 1];
+            if (next && after.indexOf(pickedAt) < after.indexOf(next)) throw new Error('the picked-up row did not move down past the row after it');
         },
     },
 };
@@ -336,7 +358,14 @@ try {
             failed.push(`${name}: ${err.message}`);
             console.log(`  FAIL  ${err.message}`);
         }
-        writeFileSync(join(OUT, `${name}.png`), await page.png());
+        // A picture that cannot be written fails the run but not the tasks after it.
+        try {
+            writeFileSync(join(OUT, `${name}.png`), await page.png());
+        } catch (err) {
+            current.error = [current.error, `no screenshot: ${err.message.split('\n')[0]}`].filter(Boolean).join('; ');
+            failed.push(`${name}: no screenshot: ${err.message.split('\n')[0]}`);
+            console.log(`  FAIL  no screenshot: ${err.message}`);
+        }
     }, prepare, states);
 } finally {
     try { await nvda.stop(); } catch { /* already gone */ }
