@@ -246,16 +246,39 @@ const MEASURE = `(() => {
         };
         for (const c of el.querySelectorAll('*')) if (getComputedStyle(c).pointerEvents !== 'none') grow(c);
         if (el.matches('input[type="checkbox"], input[type="radio"]')) for (const label of el.labels || []) grow(label);
-        // A scroller can bring any part of what it holds into its scrollport,
-        // but never more than fits there at once: along the axis it scrolls,
-        // the area is capped at what showed up to that box, and from there on
-        // it is the scrollport, which the boxes round the scroller still cut.
-        const cap = { x: Infinity, y: Infinity };
+        // Round the control, along the axis a box scrolls, the control slides
+        // as far as that box can scroll, and what shows is its best overlap
+        // with the scrollport once the boxes round the scroller have cut it.
+        // Per axis: the part [lo, hi], the shift range [tmin, tmax] and the
+        // window [vl, vr] it slides under. The overlap is a trapezoid in the
+        // shift, so the best shift is the centred one, clamped to the range.
+        const best = (k) => {
+            const t = Math.min(k.tmax, Math.max(k.tmin, (k.vl + k.vr) / 2 - (k.lo + k.hi) / 2));
+            return [Math.max(k.lo + t, k.vl), Math.min(k.hi + t, k.vr)];
+        };
+        const ax = {
+            x: { lo: q.l, hi: q.r, slides: false, edge: ['l', 'r'], size: 'clientWidth', scroll: 'scrollWidth', at: 'scrollLeft' },
+            y: { lo: q.t, hi: q.b, slides: false, edge: ['t', 'b'], size: 'clientHeight', scroll: 'scrollHeight', at: 'scrollTop' },
+        };
         clippers(el, (a, s, box) => {
-            if (scrolls(s, 'x')) { cap.x = Math.min(cap.x, q.r - q.l); q.l = box.l; q.r = box.r; } else cutTo(q, s, box, 'x');
-            if (scrolls(s, 'y')) { cap.y = Math.min(cap.y, q.b - q.t); q.t = box.t; q.b = box.b; } else cutTo(q, s, box, 'y');
+            for (const [name, k] of Object.entries(ax)) {
+                const [b0, b1] = [box[k.edge[0]], box[k.edge[1]]];
+                if (!scrolls(s, name)) {
+                    if ((name === 'x' ? s.overflowX : s.overflowY) === 'visible') continue;
+                    if (k.slides) { k.vl = Math.max(k.vl, b0); k.vr = Math.min(k.vr, b1); }
+                    else { k.lo = Math.max(k.lo, b0); k.hi = Math.min(k.hi, b1); }
+                    continue;
+                }
+                // A scroller inside a scroller: settle the inner one first.
+                if (k.slides) [k.lo, k.hi] = best(k);
+                const scale = a[k.size] ? (b1 - b0) / a[k.size] : 1;
+                const max = Math.max(0, a[k.scroll] - a[k.size]), now = a[k.at];
+                const [s0, s1] = name === 'x' && s.direction === 'rtl' ? [-max, 0] : [0, max];
+                Object.assign(k, { slides: true, tmin: (now - s1) * scale, tmax: (now - s0) * scale, vl: b0, vr: b1 });
+            }
         });
-        return { w: Math.max(0, Math.min(cap.x, q.r - q.l)), h: Math.max(0, Math.min(cap.y, q.b - q.t)) };
+        for (const k of Object.values(ax)) if (k.slides) [k.lo, k.hi] = best(k);
+        return { w: Math.max(0, ax.x.hi - ax.x.lo), h: Math.max(0, ax.y.hi - ax.y.lo) };
     };
     const CONTROLS = 'button, select, summary, a[href], input:not([type="hidden"]), textarea, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"], [role="slider"]';
     const targets = [];
@@ -306,9 +329,9 @@ const MEASURE = `(() => {
     const cut = [];
     if (matchMedia('(forced-colors: active)').matches) {
         for (const el of document.querySelectorAll(CONTROLS)) {
-            // Of the probes only the three framed tabs (PROBE says what each is).
+            // Of the probes only the framed tabs (PROBE says what each is).
             const isProbe = !!el.closest('[data-gate-probe]');
-            if (!shown(el) || (isProbe && !['rail', 'hidden', 'outer'].includes(el.dataset.probe))) continue;
+            if (!shown(el) || (isProbe && !['rail', 'hidden', 'outer', 'scaledFrame', 'scaledFrameOver'].includes(el.dataset.probe))) continue;
             if (isProbe) probe[el.dataset.probe + 'Cut'] = '';
             const cs = getComputedStyle(el);
             const w = parseFloat(cs.outlineWidth) || 0;
@@ -322,7 +345,9 @@ const MEASURE = `(() => {
             // boxes round it are checked against that part. Every other
             // clipping axis (hidden, clip; a scroller's other axis: a tab
             // rail that scrolls sideways) must leave the frame whole.
-            const f = { l: r.left - out, t: r.top - out, r: r.right + out, b: r.bottom + out };
+            // The outline is laid out in the control's own pixels; the rect is drawn.
+            const ox = el.offsetWidth ? out * r.width / el.offsetWidth : out, oy = el.offsetHeight ? out * r.height / el.offsetHeight : out;
+            const f = { l: r.left - ox, t: r.top - oy, r: r.right + ox, b: r.bottom + oy };
             clippers(el, (a, s, box) => {
                 const sides = [];
                 const past = (side, px) => { if (px > 0.5) sides.push(side + ' ' + px.toFixed(1) + 'px'); };
@@ -394,6 +419,16 @@ const PROBE = `(() => {
         // of a floor at any scroll position; in one 3 floors wide, all of it.
         + '<div style="overflow-x:auto;width:calc(var(--f) * 0.7)"><button type="button" data-probe="narrowRail" class="p-0" style="width:calc(var(--f) * 1.4);height:calc(var(--f) * 1.1)">n</button></div>'
         + '<div style="overflow-x:auto;width:calc(var(--f) * 3)"><button type="button" data-probe="wideRail" class="p-0" style="width:calc(var(--f) * 1.4);height:calc(var(--f) * 1.1)">w</button></div>'
+        // A rail 3 floors wide that scrolls only 0.1 of a floor, holding a
+        // button that starts 1.5 floors in, inside a box showing the rail's
+        // first 1.2 floors: no scroll position brings the button into view.
+        + '<div style="overflow:hidden;width:calc(var(--f) * 1.2)"><div style="overflow-x:auto;width:calc(var(--f) * 3);white-space:nowrap"><span style="display:inline-block;width:calc(var(--f) * 1.5)"></span><button type="button" data-probe="limitedRail" class="p-0" style="width:calc(var(--f) * 1.6);height:calc(var(--f) * 1.1)">l</button></div></div>'
+        // A tab's 2px frame, 2px out, in a box drawn at half size that hides
+        // overflow: 4px of padding round the tab holds the frame exactly, 2px
+        // does not (it shows 1px of the 2 the frame needs).
+        // (Set inline: at rest the forced-colours CSS makes an outline-none frame 1px and flush.)
+        + '<div style="display:inline-block;transform:scale(0.5);transform-origin:0 0;overflow:hidden;padding:4px"><button type="button" data-probe="scaledFrame" class="p-0 block" style="width:40px;height:20px;outline:2px solid transparent;outline-offset:2px">t</button></div>'
+        + '<div style="display:inline-block;transform:scale(0.5);transform-origin:0 0;overflow:hidden;padding:2px"><button type="button" data-probe="scaledFrameOver" class="p-0 block" style="width:40px;height:20px;outline:2px solid transparent;outline-offset:2px">t</button></div>'
         // A 100-topic phase: dashboard/PhaseProgress.tsx's tick bar, its
         // classes copied. Its last topic must be pressable at the floor.
         + '<div data-tick-bar class="flex h-3 w-full overflow-hidden gap-0">'
@@ -462,10 +497,14 @@ for (const [state, m] of Object.entries(seen)) {
         p.scaled?.small === true && p.scaledFits?.small === false, JSON.stringify([p.scaled, p.scaledFits]));
     check(`${state}: a target wider than its scroller counts at the scrollport's width`,
         p.narrowRail?.small === true && p.wideRail?.small === false, JSON.stringify([p.narrowRail, p.wideRail]));
+    check(`${state}: a target a rail cannot scroll into the part that shows is seen as too small`,
+        p.limitedRail?.small === true, JSON.stringify(p.limitedRail));
     if (state.includes(' contrast ')) {
         check(`${state}: a sideways rail that cuts its tab's top and bottom frame is caught`, /top .*bottom/.test(p.railCut ?? ''), JSON.stringify(p.railCut));
         check(`${state}: a box that hides overflow sideways and cuts a tab's frame is caught`, /right/.test(p.hiddenCut ?? ''), JSON.stringify(p.hiddenCut));
         check(`${state}: a box round a rail that cuts a tab showing in the rail is caught`, /right/.test(p.outerCut ?? ''), JSON.stringify(p.outerCut));
+        check(`${state}: a frame drawn at half size is measured at that size: whole when it fits, caught when it spills`,
+            p.scaledFrameCut === '' && /left|right|top|bottom/.test(p.scaledFrameOverCut ?? ''), JSON.stringify([p.scaledFrameCut, p.scaledFrameOverCut]));
     }
     const scale = SIZES[state.split(' ')[1]].uiScale ?? 100;
     check(`${state}: the page runs at ${scale}% text`, Math.abs(m.rem - 16 * scale / 100) < 0.1, `${m.rem}px`);
