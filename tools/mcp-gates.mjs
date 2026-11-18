@@ -906,7 +906,7 @@ function post(port, body, headers = {}) {
  * update. `sent` holds every message the view sent; `until` waits on a test;
  * `press` clicks the control named by its data-focus.
  */
-async function driveView(html, toolResult, callTool) {
+async function driveView(html, toolResult, callTool, { frameFocused } = {}) {
     const sent = [];
     let win = null;
     const answer = (data) => win.dispatchEvent(new win.MessageEvent('message', { data, source: win }));
@@ -926,6 +926,10 @@ async function driveView(html, toolResult, callTool) {
                 }
             };
             w.ResizeObserver = class { observe() {} disconnect() {} };
+            // Whether the view's frame holds the keyboard (the learner clicked or
+            // tabbed into it) or the host's own page does; jsdom alone says no
+            // until something inside is focused.
+            if (frameFocused !== undefined) w.document.hasFocus = () => frameFocused;
         },
     });
     const until = async (test, tries = 500) => { for (let i = 0; i < tries && !test(); i++) await new Promise(r => setTimeout(r, 10)); return !!test(); };
@@ -1358,7 +1362,7 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     // Red: a rating in the view is worth exactly what the same rating is worth
     // in the app — the same evidence row, the same estimate — and never more.
     // A twin topic is rated Easy through the app's own review route.
-    const { computeSrsUpdate } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
+    const { computeSrsUpdate, computeNextInterval, formatInterval } = await import(new URL('../src/utils/srs.ts', import.meta.url).href);
     // Pinned instants, never the clock: a new card's Easy is the same at any
     // instant after it is due, and the re-rating only needs a stamp the view's
     // own rating did not write.
@@ -1404,6 +1408,30 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
             kept.undone === false && kept.undoable !== behind && ratingOf(behindCard) === countBehind, JSON.stringify(kept));
     }
 
+    // Red: a rating in the view schedules at the course's own recall target,
+    // not the app's standard 90% (the card row it rates must name its course).
+    const { setRetention } = await import(B + 'decks.js');
+    const targetPid = Number(db.prepare("INSERT INTO projects (name, color) VALUES ('Recall target for the view gate', '#0369a1')").run().lastInsertRowid);
+    const targetTopic = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(targetPid, 'Damping').lastInsertRowid);
+    const targetCard = Number(db.prepare("INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, '2026-01-05T09:00:00.000Z')").run(targetTopic, 'Damping fact?', 'DAMP-1').lastInsertRowid);
+    const storedTarget = setRetention(targetPid, 0.8);
+    const unrated = db.prepare('SELECT * FROM flashcards WHERE id = ?').get(targetCard);
+    const targetSitting = sittingOf(await hostCall('review_cards', { project: String(targetPid) }));
+    const targetShown = data(await hostCall('review_next', { sitting: targetSitting })).card;
+    const targetRevealed = data(await hostCall('review_reveal', { sitting: targetSitting, presentationId: targetShown?.presentationId }));
+    await hostCall('review_rate', { sitting: targetSitting, presentationId: targetShown?.presentationId, rating: 'easy' });
+    const atTarget = db.prepare('SELECT last_interval, last_reviewed FROM flashcards WHERE id = ?').get(targetCard);
+    // At the instant the rating was written (its own stamp), never the clock.
+    const ratedAt = new Date(atTarget.last_reviewed);
+    const wanted = computeSrsUpdate(unrated, 'easy', ratedAt, 0.8).last_interval;
+    const standardInterval = computeSrsUpdate(unrated, 'easy', ratedAt).last_interval;
+    ok('a rating in the view schedules at the course\'s recall target, not the standard 90%', storedTarget === 0.8 && targetShown?.cardId === targetCard
+        && atTarget.last_interval === wanted && wanted !== standardInterval, `${JSON.stringify(atTarget)}; wanted ${wanted}, standard ${standardInterval}`);
+    // The hint on the Easy button is the interval the press writes.
+    const hintAt = (r) => formatInterval(computeNextInterval(unrated, 'easy', ratedAt, r).intervalDays);
+    ok('the revealed card\'s Easy hint is the course\'s target too, not the standard 90%',
+        targetRevealed?.intervals?.easy === hintAt(0.8) && hintAt(0.8) !== hintAt(0.9), `${targetRevealed?.intervals?.easy}; wanted ${hintAt(0.8)}, standard ${hintAt(0.9)}`);
+
     // The review as a learner takes it in the view: the first card Again (it
     // comes back), the second Easy, the first again Easy. Three ratings, two
     // cards. Then Undo on the done screen reopens the session, and the model,
@@ -1441,6 +1469,193 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     }
     const closeFromReview = await hostCall('check_complete', { sitting: rs });
     ok('a review session has no way to complete a topic', isErr(closeFromReview) && db.prepare('SELECT status FROM nodes WHERE id = ?').get(carded).status !== 'completed');
+
+    // How the views behave for a keyboard and a screen reader, against a
+    // stand-in for the server (no database): what each view does with the
+    // answers it is sent. Space on the header's Undo is Undo's, not the
+    // reveal shortcut; the progress bars are named; a re-rendered screen is
+    // not a live region that reads out whole, so focus is put somewhere the
+    // new screen is read from, and never dropped on the page.
+    const settle = () => new Promise(r => setTimeout(r, 80));
+    const answerWith = (structuredContent) => ({ result: { structuredContent } });
+    const keyDown = (win, target, key) => target.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    const stubCards = [
+        { presentationId: 'p1', front: 'First front', back: 'First back', topic: 'Optics', project: 'Gate course' },
+        { presentationId: 'p2', front: 'Second front', back: 'Second back', topic: 'Optics', project: 'Gate course' },
+    ];
+    let stubNext = 0;
+    const stubReview = (name, args) => {
+        const card = stubCards[Math.min(stubNext, stubCards.length - 1)];
+        if (name === 'review_next') return answerWith({ kind: 'review', rated: stubNext, reviewed: stubNext, total: 2, undoable: stubNext ? 'p0' : 'p-before', card: { presentationId: card.presentationId, front: card.front, topic: card.topic, project: card.project }, revealed: false });
+        if (name === 'review_reveal') return answerWith({ kind: 'review', rated: stubNext, reviewed: stubNext, total: 2, undoable: 'p0', card, revealed: true, intervals: { again: '1m', hard: '5m', good: '1d', easy: '3d' } });
+        if (name === 'review_rate') { stubNext++; return answerWith({ rated: stubNext }); }
+        return answerWith({});
+    };
+    const stubOpen = { result: { _meta: { 'terramentor/sitting': 'stub-review-sitting' } } };
+    const reviewKeys = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview, { frameFocused: true });
+    try {
+        const { window: win, doc, until, calls } = reviewKeys;
+        await until(() => doc.querySelector('.card-front'));
+        ok('the first card is where focus lands when it appears, while the frame has the keyboard', doc.activeElement?.classList.contains('card'), doc.activeElement?.outerHTML.slice(0, 80));
+        ok('the view is not one live region: its screen is rebuilt on every rating and would be read out whole each time',
+            !doc.getElementById('app').hasAttribute('aria-live'), doc.getElementById('app').outerHTML.slice(0, 80));
+        ok('the review\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
+        const undoButton = doc.querySelector('[data-focus="undo"]');
+        undoButton.focus();
+        keyDown(win, undoButton, ' ');
+        await settle();
+        ok('Space on the focused Undo button does not reveal the card', undoButton && calls('review_reveal').length === 0, `${calls('review_reveal').length} reveals`);
+        // Counted from its own key: had Space on Undo revealed the card, this
+        // Space would find nothing left to reveal and add no call.
+        const revealsBefore = calls('review_reveal').length;
+        keyDown(win, doc.body, ' ');
+        await until(() => calls('review_reveal').length > revealsBefore);
+        ok('Space elsewhere still reveals the card', calls('review_reveal').length === revealsBefore + 1, `${calls('review_reveal').length - revealsBefore} reveal(s) from this key`);
+        await until(() => doc.querySelector('[data-focus="rate-good"]'));
+        doc.querySelector('[data-focus="rate-good"]').focus();
+        doc.querySelector('[data-focus="rate-good"]').click();
+        await until(() => doc.querySelector('.card-front')?.textContent === 'Second front');
+        ok('after a rating, focus goes to the new card instead of the page', doc.activeElement?.classList.contains('card'), doc.activeElement?.outerHTML.slice(0, 80));
+    } finally {
+        reviewKeys.close();
+    }
+
+    const stubSeq = { type: 'sequence', question: 'Order the steps.', items: ['same', 'same', 'z'] };
+    const stubMc = { type: 'multiple_choice', question: 'Pick one.', options: ['a', 'b'] };
+    const stubCheck = (name) => {
+        if (name === 'check_questions') return answerWith({ topic: { title: 'Gate topic' }, questions: [stubSeq, stubMc], passPct: 80 });
+        if (name === 'check_submit') {
+            return answerWith({ result: { score: 0, total: 2, passed: false, unproven: false, passPct: 80, completed: false, items: [
+                { correct: false, answer: [], correctAnswer: ['same', 'same', 'z'], explanation: '' }, { correct: false, answer: '', correctAnswer: 'a', explanation: '' }] } });
+        }
+        return answerWith({});
+    };
+    const checkKeys = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-check-sitting' } } }, stubCheck, { frameFocused: true });
+    try {
+        const { doc, until, calls } = checkKeys;
+        await until(() => doc.querySelector('.sequence'));
+        ok('the first question is where focus lands when it appears, while the frame has the keyboard',
+            doc.activeElement?.classList.contains('question'), doc.activeElement?.outerHTML.slice(0, 120));
+        ok('the check\'s progress bar has a name', !!doc.querySelector('[role="progressbar"]')?.getAttribute('aria-label'), doc.querySelector('[role="progressbar"]')?.outerHTML);
+        const step = (i, label) => doc.querySelectorAll('.step')[i].querySelector(`[aria-label="${label}"]`);
+        step(1, 'Move up').focus();
+        step(1, 'Move up').click();
+        ok('moving a step keeps focus on it when another step has the same words', doc.activeElement === step(1, 'Move up'), doc.activeElement?.outerHTML.slice(0, 120));
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        // Now same, z, same: the last step crosses z and lands next to its
+        // equal. Focus follows the step that moved, not the first of its words.
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        ok('a step that crosses another to sit beside its equal keeps focus',
+            doc.activeElement === step(1, 'Move up') && [...doc.querySelectorAll('.step-text')].map(e => e.textContent).join(',') === 'same,same,z',
+            doc.activeElement?.outerHTML.slice(0, 120));
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        step(1, 'Move up').click();
+        ok('a step moved to the top of the order passes focus to its other button, not the page',
+            doc.activeElement === step(0, 'Move down'), doc.activeElement?.outerHTML.slice(0, 120));
+        step(0, 'Move down').click();
+        step(1, 'Move down').click();
+        ok('a step moved to the bottom of the order passes focus to its other button, not the page',
+            doc.activeElement === step(2, 'Move up'), doc.activeElement?.outerHTML.slice(0, 120));
+        // A new question is read from its own block: focus left on Next would
+        // say only "Next, button", and on the last question Next's place is Submit's.
+        doc.querySelector('[data-focus="next"]').focus();
+        doc.querySelector('[data-focus="next"]').click();
+        ok('Next puts focus on the new question\'s block, which names it',
+            doc.activeElement?.classList.contains('question') && /Pick one/.test(doc.activeElement.textContent) && /2/.test(doc.activeElement.getAttribute('aria-label') || ''),
+            doc.activeElement?.outerHTML.slice(0, 120));
+        ok('Submit has its own key and focus is not on it after Next, so a held Enter cannot submit',
+            !!doc.querySelector('[data-focus="submit"]') && !doc.querySelector('[data-focus="next"]') && doc.activeElement?.dataset.focus !== 'submit' && calls('check_submit').length === 0,
+            doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="previous"]').focus();
+        doc.querySelector('[data-focus="previous"]').click();
+        ok('Previous back to the first question puts focus on that question\'s block',
+            doc.activeElement?.classList.contains('question') && /Order the steps/.test(doc.activeElement.textContent), doc.activeElement?.outerHTML.slice(0, 120));
+        doc.querySelector('[data-focus="next"]').click();
+        doc.querySelector('[data-focus="submit"]')?.click();
+        await until(() => doc.querySelector('.outcome'));
+        ok('after Submit, focus goes to the result instead of the page', doc.activeElement?.classList.contains('outcome'), doc.activeElement?.outerHTML.slice(0, 120));
+        // A block the script focuses is a reading position, not a control: the
+        // stylesheet draws no focus ring after a click, and the browser's own after a key.
+        const viewCss = readFileSync(join(repoRoot, 'mcp', 'views', 'view.css'), 'utf8');
+        ok('a block focused by the script gets a focus ring only after a key', /\[tabindex="-1"\]:focus:not\(:focus-visible\)\s*\{\s*outline:\s*none;?\s*\}/.test(viewCss));
+        // The block's own text and options run to its edge, so the ring after a
+        // key is the app's colour and stands off the block instead of touching them.
+        const blockRing = /\[tabindex="-1"\]:focus-visible\s*\{([^}]*)\}/.exec(viewCss)?.[1] ?? '';
+        ok('the ring after a key is the app\'s ring and stands clear of the block',
+            /outline:\s*2px solid var\(--tm-ring\)/.test(blockRing) && Number(/outline-offset:\s*(\d+)px/.exec(blockRing)?.[1] ?? 0) >= 4, blockRing.trim());
+    } finally {
+        checkKeys.close();
+    }
+
+    // The review list counts its own questions: a score judged on 4 of the 5
+    // asked still lists 5, and the fifth is "5 of 5".
+    const judgedOn4 = (name) => {
+        if (name !== 'check_questions') return answerWith({});
+        const items = [1, 2, 3, 4, 5].map(n => ({ correct: n < 4, answer: 'x', correctAnswer: 'y', explanation: '' }));
+        return answerWith({ topic: { title: 'Gate topic' }, questions: items.map((_, i) => ({ type: 'short_answer', question: `Q${i + 1}` })), passPct: 80,
+            result: { score: 3, total: 4, passed: false, unproven: false, passPct: 80, completed: false, items } });
+    };
+    const listed = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-judged' } } }, judgedOn4);
+    try {
+        await listed.press('review');
+        const heads = [...listed.doc.querySelectorAll('.review-head .muted')].map(e => e.textContent);
+        ok('the answers list numbers its questions out of the list\'s length, not the judged total', heads.length === 5 && heads[4] === 'Question 5 of 5', JSON.stringify(heads));
+    } finally {
+        listed.close();
+    }
+
+    // A failed Submit leaves the learner at the notice that says so.
+    const failing = (name) => name === 'check_questions'
+        ? answerWith({ topic: { title: 'Gate topic' }, questions: [stubMc], passPct: 80 })
+        : { result: { isError: true, content: [{ type: 'text', text: 'The check could not be saved.' }] } };
+    const failedSubmit = await driveView(viewHtmlOf.mastery_check, { result: { _meta: { 'terramentor/sitting': 'stub-failing' } } }, failing);
+    try {
+        await failedSubmit.until(() => failedSubmit.doc.querySelector('[data-focus="submit"]'));
+        failedSubmit.doc.querySelector('[data-focus="submit"]')?.focus();
+        failedSubmit.doc.querySelector('[data-focus="submit"]')?.click();
+        await failedSubmit.until(() => failedSubmit.doc.querySelector('[role="alert"]'));
+        ok('after a failed Submit, focus is on the notice that says why', failedSubmit.doc.activeElement?.getAttribute('role') === 'alert'
+            && /could not be saved/.test(failedSubmit.doc.activeElement.textContent), failedSubmit.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        failedSubmit.close();
+    }
+
+    // The screens with nothing to take: the first thing on the page, so they are read when they appear.
+    const nothingDue = await driveView(viewHtmlOf.review_cards,
+        { result: { _meta: { 'terramentor/nothing': 'no_cards' }, content: [{ type: 'text', text: 'Nothing is due today.' }] } }, () => answerWith({}), { frameFocused: true });
+    try {
+        await nothingDue.until(() => nothingDue.doc.querySelector('.title'));
+        ok('the "No Cards Due" screen takes focus when it appears', nothingDue.doc.activeElement?.textContent === 'No Cards Due', nothingDue.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        nothingDue.close();
+    }
+    // The learner is typing in the host's composer when the first card arrives.
+    const composing = await driveView(viewHtmlOf.review_cards, stubOpen, stubReview, { frameFocused: false });
+    try {
+        await composing.until(() => composing.doc.querySelector('.card-front'));
+        ok('a first card that arrives while the host\'s page has the keyboard leaves it there', composing.doc.activeElement === composing.doc.body, composing.doc.activeElement?.outerHTML.slice(0, 80));
+        // Not focused, so not heard that way: the status line outside the view reads it once.
+        const told = () => composing.doc.getElementById('tm-announce');
+        ok('and is read out once from a status line outside the view', told()?.getAttribute('role') === 'status' && !composing.doc.getElementById('app').contains(told())
+            && told().textContent.includes(` ${composing.doc.querySelector('.card-front').textContent}`), told()?.outerHTML.slice(0, 120) ?? 'no status line');
+        const firstTold = told()?.textContent;
+        composing.doc.querySelector('[data-focus="reveal"]')?.click();
+        await composing.until(() => composing.doc.querySelector('[data-focus="rate-good"]'));
+        ok('a later screen is not read out again', !!firstTold && told()?.textContent === firstTold, told()?.textContent.slice(0, 120));
+    } finally {
+        composing.close();
+    }
+    const refused = await driveView(viewHtmlOf.mastery_check,
+        { result: { content: [{ type: 'text', text: 'Too few questions are confirmed to check this topic.' }] } }, () => answerWith({}), { frameFocused: true });
+    try {
+        await refused.until(() => refused.doc.querySelector('.notice'));
+        ok('a check\'s refusal takes focus when it appears', refused.doc.activeElement?.classList.contains('notice') && /Too few questions/.test(refused.doc.activeElement.textContent), refused.doc.activeElement?.outerHTML.slice(0, 120));
+    } finally {
+        refused.close();
+    }
     host.close();
 }
 

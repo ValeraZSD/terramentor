@@ -12,6 +12,18 @@ import { currentLocale } from '../i18n';
 /** The BCP-47 tag for `Intl`, from the interface language. */
 export const uiLocale = (): string => currentLocale();
 
+/** "Icon, Colour and Name", in the interface's language. `Intl.ListFormat` is
+ *  ES2021 and the project's `lib` is ES2020, hence the narrow cast. */
+export function listFormat(items: string[]): string {
+    const ListFormat = (Intl as unknown as {
+        ListFormat?: new (locale: string, options: { style: string; type: string }) => { format(list: string[]): string };
+    }).ListFormat;
+    try {
+        if (ListFormat) return new ListFormat(uiLocale(), { style: 'long', type: 'conjunction' }).format(items);
+    } catch { /* an unknown locale: the plain join */ }
+    return items.join(', ');
+}
+
 /**
  * Month and weekday names in the INTERFACE language.
  *
@@ -71,6 +83,27 @@ function rangeFormat(locale: string, year: boolean): RangeFormat {
         rangeFormats.set(key, fmt);
     }
     return fmt;
+}
+
+const fullDateFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * A calendar day in full, "Tuesday 18 November 2026", in the interface
+ * language: the name of a control that shows only the day's number, so a
+ * screen reader does not hear "1" twice in a month that shows the next one's
+ * first days. `iso` is a `YYYY-MM-DD` day at UTC midnight. One formatter per
+ * language, since a month grid asks for 42 at once.
+ */
+export function fullDateLabel(iso: string): string {
+    const d = new Date(`${iso}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return '';
+    const locale = uiLocale();
+    let fmt = fullDateFormats.get(locale);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+        fullDateFormats.set(locale, fmt);
+    }
+    return fmt.format(d);
 }
 
 /**

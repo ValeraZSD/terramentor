@@ -265,5 +265,22 @@ section('"The deadline is before the start." waits for a whole year');
     s.close();
 }
 
+section('a drift too small to be a day is not "0 days behind"');
+{
+    // The server calls it falling behind past 5 points of drift on a short
+    // window; 6 points of a 7-day window is 0.42 of a day, which rounds to 0.
+    const tiny = { ...row, pace: { ...row.pace, paceStatus: 'falling_behind', drift: 6, totalDays: 7 } };
+    const s = await show({ r: tiny });
+    const text = s.strip().textContent;
+    check('the pill never reads "0 days behind"', !/0 days? behind/.test(text), text);
+    check('…it says "Slightly behind schedule", the pace headline\'s words', /Slightly behind schedule/.test(text), text);
+    s.close();
+}
+{
+    const s = await show({ r: { ...row, pace: { ...row.pace, paceStatus: 'falling_behind', drift: 50, totalDays: 40 } } });
+    check('a whole-day drift still counts the days', /20 days behind/.test(s.strip().textContent), s.strip().textContent);
+    s.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

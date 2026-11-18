@@ -16,6 +16,11 @@
 //   2. a card marked done asks the server for its numbers again, shows them,
 //      and still says "Topic completed".
 //
+// The card's deadline line (the lead-in and the day count read as one
+// sentence; a passed deadline has no day count), and the paper exercise card
+// beside it in the feed (Retake opens the file picker; the worked solution
+// stays on screen after a self-mark) are mounted the same way.
+//
 //   node tools/checkpoint-card-gates.mjs
 
 import { createRequire } from 'node:module';
@@ -76,7 +81,19 @@ const stubs = {
             return null;
         }`,
     // The drill title's renderer (KaTeX and its stylesheet are not what is tested).
-    'mathtext': `export default function MathText({ text }) { return text ?? null; }`,
+    'mathtext': `export default function MathText({ text, content }) { return text ?? content ?? null; }`,
+    // The paper card's collaborators that are not what is tested: the photo
+    // pipeline (canvas), the markdown renderer, the report flag.
+    'warp': `export const fileToImageData = async () => ({ width: 100, height: 100 });
+        export const scanToBlob = async () => new Blob();
+        export const imageDataToCanvas = () => document.createElement('canvas');
+        export const orderCorners = (q) => q;`,
+    'markdown': `import { createElement } from 'react';
+        export default function Markdown({ content }) { return createElement('div', { 'data-md': '' }, content); }`,
+    'reportitem': `export default function ReportItem() { return null; }
+        export function ReportLink() { return null; }
+        export function ReportScope({ children }) { return children; }`,
+    'unchecked': `export default function UncheckedKeyNote() { return null; }`,
 };
 const stubPlugin = {
     name: 'stubs',
@@ -86,22 +103,28 @@ const stubPlugin = {
         b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
         b.onResolve({ filter: /^\.\/DrillPlayer$/ }, () => ({ path: 'player', namespace: 'stub' }));
         b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub' }));
+        b.onResolve({ filter: /^(\.\.\/)+utils\/scan\/warp$/ }, () => ({ path: 'warp', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\.\/Markdown$/ }, () => ({ path: 'markdown', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\.\/ui\/ReportItem$/ }, () => ({ path: 'reportitem', namespace: 'stub' }));
+        b.onResolve({ filter: /^\.\.\/UncheckedKeyNote$/ }, () => ({ path: 'unchecked', namespace: 'stub' }));
         b.onLoad({ filter: /.*/, namespace: 'stub' }, args => ({ contents: stubs[args.path], loader: 'js', resolveDir: root }));
     },
 };
 
 let CheckpointCard = null;
 let DrillModal = null;
+let PracticeCard = null;
 try {
     await esbuild.build({
         stdin: { contents: `export { default as CheckpointCard } from './src/components/feed/CheckpointCard';
+            export { default as PracticeCard } from './src/components/feed/PracticeCard';
             export { default as DrillModal } from './src/components/drills/DrillModal';`, resolveDir: root, loader: 'tsx' },
         bundle: true, format: 'cjs', platform: 'node', outfile: out,
         jsx: 'automatic', loader: { '.css': 'empty', '.svg': 'dataurl' }, packages: 'external',
         define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' },
         plugins: [stubPlugin], logLevel: 'silent',
     });
-    ({ CheckpointCard, DrillModal } = require(out));
+    ({ CheckpointCard, DrillModal, PracticeCard } = require(out));
 } catch (e) {
     console.log(`  (could not bundle the card: ${String(e.message).split('\n').slice(0, 3).join(' | ')})`);
 }
@@ -178,6 +201,88 @@ if (CheckpointCard && DrillModal) {
     host.remove();
     globalThis.__api = undefined;
 } else ok('the drill dialog bundles and mounts', false);
+
+// 4. The deadline line reads as one sentence, and a passed deadline has no
+//    day count ("-12 days to the project deadline").
+if (CheckpointCard) {
+    globalThis.__api = { getCheckpointFacts: () => new Promise(() => { }) };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const r = createRoot(host);
+    const lineOf = async (card) => {
+        await act(() => r.render(h(CheckpointCard, { card, done: false, onDone() { } })));
+        await settle();
+        return [...host.querySelectorAll('p')].map(p => p.textContent.trim()).find(s => /schedule|deadline|Ready to prove/.test(s)) ?? null;
+    };
+    const late = { ...composed, key: 'checkpoint-65', nodeId: 65, isOverdue: true, deadline: { daysLeft: 5, paceStatus: null } };
+    const open = await lineOf(late);
+    ok('behind schedule: a space between the lead-in and the day count', open === 'This topic is behind schedule · 5 days to the project deadline', String(open));
+    const passed = await lineOf({ ...late, deadline: { daysLeft: -12, paceStatus: null } });
+    ok('deadline passed: the lead-in stands without a dangling "·" and no negative count', passed === 'This topic is behind schedule', String(passed));
+    const onTime = await lineOf({ ...composed, key: 'checkpoint-66', nodeId: 66, deadline: { daysLeft: 9, paceStatus: null } });
+    ok('on time: the day count alone', onTime === '9 days to the project deadline', String(onTime));
+    const noLine = await lineOf({ ...composed, key: 'checkpoint-67', nodeId: 67, deadline: { daysLeft: -3, paceStatus: null } });
+    ok('on time and the deadline passed: no line at all', noLine === null, String(noLine));
+    const today = await lineOf({ ...composed, key: 'checkpoint-68', nodeId: 68, deadline: { daysLeft: 0, paceStatus: null } });
+    ok('the deadline is today: the count stays, at zero', today === '0 days to the project deadline', String(today));
+    const readyCard = { ...composed, key: 'checkpoint-69', nodeId: 69, isOverdue: true, eligible: true, scheduledEnd: '2020-01-01' };
+    const readyOpen = await lineOf({ ...readyCard, deadline: { daysLeft: 5, paceStatus: null } });
+    ok('ready to prove: a space between the lead-in and the day count', readyOpen === 'Ready to prove · 5 days to the project deadline', String(readyOpen));
+    const readyPassed = await lineOf({ ...readyCard, deadline: { daysLeft: -2, paceStatus: null } });
+    ok('ready to prove and the deadline passed: the lead-in stands without a dangling "·"', readyPassed === 'Ready to prove', String(readyPassed));
+    await act(() => r.unmount());
+    host.remove();
+    globalThis.__api = undefined;
+} else ok('the card bundles and mounts (deadline line)', false);
+
+// 5. The paper exercise card.
+if (PracticeCard) {
+    globalThis.__api = {
+        getPaperCapability: () => Promise.resolve({ vision: true }),
+        getPaperSolution: () => Promise.resolve({ referenceSolution: 'THE WORKED SOLUTION' }),
+        selfGradePaperAttempt: () => Promise.resolve({ status: 'ok', unproven: false }),
+    };
+    const card = { kind: 'practice', key: 'practice-1', feedItemId: 1, nodeId: 70, nodeTitle: 'Limits', projectId: 1, mode: 'document',
+        brief: 'THE BRIEF', materials: '', rubric: [{ id: 'a', point: 'Finds the limit', weight: 1 }] };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const r = createRoot(host);
+    const button = (label) => [...host.querySelectorAll('button')].find(b => b.textContent.trim().startsWith(label));
+    await act(() => r.render(h(PracticeCard, { card, done: false, onDone() { } })));
+    await settle();
+
+    // Photograph, then land on the corner screen and press Retake.
+    const picker = host.querySelector('input[type=file]');
+    Object.defineProperty(picker, 'files', { value: [new window.File(['x'], 'work.png', { type: 'image/png' })], configurable: true });
+    await act(() => { picker.dispatchEvent(new window.Event('change', { bubbles: true })); });
+    await settle();
+    ok('a picked photo opens the corner screen', !!button('Scan & submit'), host.textContent.slice(0, 200));
+    let opened = 0;
+    const pickerNow = host.querySelector('input[type=file]');
+    if (pickerNow) pickerNow.click = () => { opened++; };
+    await act(() => button('Retake')?.click());
+    ok('"Retake" opens the file picker', !!pickerNow && opened === 1, pickerNow ? `${opened} click(s)` : 'no file input on the corner screen');
+    await act(() => r.unmount());
+    host.remove();
+
+    // Self-mark, record: the solution the closing line points to is still there.
+    const host2 = document.createElement('div');
+    document.body.appendChild(host2);
+    const r2 = createRoot(host2);
+    await act(() => r2.render(h(PracticeCard, { card: { ...card, key: 'practice-2', feedItemId: 2 }, done: false, onDone() { } })));
+    await settle();
+    const btn2 = (label) => [...host2.querySelectorAll('button')].find(b => b.textContent.trim().startsWith(label));
+    await act(() => btn2('Mark it myself')?.click());
+    await settle();
+    ok('self-marking shows the worked solution', host2.textContent.includes('THE WORKED SOLUTION'), host2.textContent.slice(0, 200));
+    await act(() => btn2('Record')?.click());
+    await settle();
+    ok('recorded: the line says to compare against the solution above', host2.textContent.includes('Recorded. Compare your working against the solution above'), host2.textContent.slice(0, 300));
+    ok('…and that solution is still on screen', host2.textContent.includes('THE WORKED SOLUTION'), 'the line points at a solution that is gone');
+    await act(() => r2.unmount());
+    host2.remove();
+    globalThis.__api = undefined;
+} else ok('the paper card bundles and mounts', false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
