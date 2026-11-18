@@ -286,8 +286,11 @@ const TASKS = {
             await tabTo(page, plate, 'the card');
             const face = () => page.evaluate(`${plate}?.getAttribute('aria-pressed')`);
             const front = await face();
+            if (front !== 'false') throw new Error(`the card did not start on its front (aria-pressed ${front})`);
             const flip = await step('Space on the card', () => nvda.press('Space'));
-            if ((await changed(face, front)) === front) throw new Error('Space did not flip the card');
+            // The same card must turn over; a card that is gone is not a flip.
+            const back = await changed(face, front);
+            if (back !== 'true') throw new Error(`Space did not flip the card (aria-pressed ${back ?? 'gone'})`);
             // Only the back has "because" and 1/100 (1 over 100, not the front's 1 over 1000).
             expect('the answer is read out, maths included', /\bbecause\b|1 over 100(?!0)|one hundredth/i.test(flip));
         },
@@ -390,6 +393,8 @@ try {
 }
 
 console.log(`\n${misses.length} expectation(s) missed${misses.length ? `:\n  ${misses.join('\n  ')}` : ''}`);
-console.log(`${failed.length} task(s) could not finish${failed.length ? `:\n  ${failed.join('\n  ')}` : ''}`);
+// A task whose screenshot also failed has two lines but is one task.
+const failedTasks = new Set(failed.map((f) => f.slice(0, f.indexOf(':'))));
+console.log(`${failedTasks.size} task(s) could not finish${failed.length ? `:\n  ${failed.join('\n  ')}` : ''}`);
 console.log(`transcript: ${join(OUT, 'transcript.md')}`);
 process.exit(failed.length || Object.keys(transcript).length !== wanted.length ? 1 : 0);
