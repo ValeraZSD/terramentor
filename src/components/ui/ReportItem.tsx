@@ -95,7 +95,7 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
     // "Report it") is gone, so the dialog has nowhere to hand focus back and
     // Undo takes it. A report that arrives any other way takes nothing.
     const [filedHere, setFiledHere] = useState(false);
-    useScreenItem(itemRef, shown, { inStream, listed, hideKey });
+    useScreenItem(itemRef, shown, { inStream, listed, hideKey, surface });
     useEffect(() => { if (itemRef) void useItemReports.getState().load([itemRef]); }, [itemRef]);
     // The line under the verdict opens THIS dialog, through the same setter
     // as the flag, so `onOpenChange` hears it (a timed drill holds its clock).

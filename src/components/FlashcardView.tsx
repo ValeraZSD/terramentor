@@ -13,9 +13,11 @@ import { useReviewQueue } from '../hooks/useReviewQueue';
 import { useFlashcardKeys } from '../hooks/useFlashcardKeys';
 import { useStudyClock } from '../hooks/useStudyClock';
 import { computeNextInterval, formatInterval, requeueAt, isStaleUndo, retryOrNew, ReviewRating, UnsentRating } from '../utils/srs';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
+import { useConfirmPress } from '../hooks/useConfirmPress';
 
 interface Props {
     flashcards: Flashcard[];
@@ -53,7 +55,10 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     // `flashcards` is owned by the caller and only refetched when the session
     // closes, so the local override is what keeps the card on screen honest.
     const currentCard = stored ? { ...stored, ...(edits[stored.id] ?? {}) } : stored;
+    // A topic's cards belong to the course open in the panel.
+    const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
+    const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.
     useStudyClock(
@@ -69,7 +74,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             // Built inside the try: a card whose stored state the scheduler
             // cannot read throws here, and outside it the lock stayed on for
             // the rest of the session.
-            const { update, snapshot } = retryOrNew(unsent, currentCard, rating);
+            const { update, snapshot } = retryOrNew(unsent, currentCard, rating, retention);
             const saved = await api.updateFlashcard(currentCard.id, update);
             unsent.current = null;
             // The saved row is folded into `edits` for the same reason the
@@ -130,7 +135,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => handleRate(RATING_ORDER[i]),
+        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
         onUndo: () => void handleUndo(),
     });
 
@@ -200,7 +205,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                 onKeyDown={onActivateKey(() => queue.setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
-                aria-label={t("Flip flashcard")}
+                // Named by the card's own words, not "Flip flashcard": a label
+                // replaces the content, and the content is the card.
+                aria-pressed={queue.flipped}
                 className="flex-1 min-h-[12.5rem] cursor-pointer select-none rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
             >
                 {/* One surface in the theme's colour on both sides — accent is
@@ -246,8 +253,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                             <RatingButton
                                 key={rating}
                                 rating={rating}
-                                when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
-                                onClick={() => handleRate(rating)}
+                                when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
+                                onClick={() => confirmRate.press(rating, () => handleRate(rating))}
+                                armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}
                                 className="flex-1"
                             />

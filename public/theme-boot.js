@@ -14,10 +14,35 @@
 // so a new build's copy is picked up on the next load.
 (function () {
     try {
+        var root = document.documentElement;
+        var mq = function (q) { return !!(window.matchMedia && window.matchMedia(q).matches); };
+        // Settings → Accessibility: motion and text spacing, as attributes
+        // the stylesheet reads (`src/utils/accessibility.ts` writes this
+        // cache and owns the attributes). Motion that follows the system is
+        // resolved here, so an animation never starts on the first frame of
+        // a load that should have none.
+        try {
+            var a = JSON.parse(localStorage.getItem('terramentor-a11y') || '{}');
+            var motion = a.motion === 'reduce' || a.motion === 'full' ? a.motion
+                : (mq('(prefers-reduced-motion: reduce)') ? 'reduce' : 'full');
+            root.setAttribute('data-motion', motion);
+            if (a.letterSpacing && a.letterSpacing !== 'normal') root.setAttribute('data-letter-spacing', a.letterSpacing);
+            if (a.wordSpacing && a.wordSpacing !== 'normal') root.setAttribute('data-word-spacing', a.wordSpacing);
+            if (a.lineSpacing && a.lineSpacing !== 'normal') root.setAttribute('data-line-spacing', a.lineSpacing);
+        } catch (e) { /* no cache: the stylesheet's defaults */ }
         var cached = localStorage.getItem('terramentor-theme');
         if (!cached) return;
         var t = JSON.parse(cached);
-        var root = document.documentElement;
+        // A theme that follows the system paints the mode the system asks
+        // for on THIS load; the store cached both modes for that reason.
+        if (t.themeChoice === 'system' && t.otherVars) {
+            var wanted = mq('(prefers-color-scheme: dark)') ? 'dark' : 'light';
+            if (wanted !== t.theme) {
+                t.theme = wanted;
+                t.themeVars = t.otherVars;
+                t.themeSurface = t.otherSurface;
+            }
+        }
         if (t.theme) {
             root.classList.toggle('dark', t.theme === 'dark');
             root.setAttribute('data-theme', t.theme);
@@ -50,7 +75,7 @@
         var surface = t.themeSurface;
         var meta = document.querySelector('meta[name="theme-color"]');
         if (surface && meta) meta.setAttribute('content', surface);
-        // The icon is a setting too (Settings → General → App icon), and
+        // The icon is a setting too (Settings → General → Appearance → Colours → Icon), and
         // the tab paints long before the store has read it: without this
         // line every load shows the shipped mark and then swaps to the
         // chosen one. Same cache, same reasoning as the theme above;

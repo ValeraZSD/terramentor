@@ -357,9 +357,10 @@ export function updateConnection(id, { model, apiKey, baseUrl, region } = {}) {
     if (apiKey !== undefined && k.key !== 'none') {
         const key = String(apiKey || '').trim();
         storeKey(row, key, key ? apiKeyOriginOf(base) : '');
-    } else if (base !== row.base_url && row.key_origin) {
-        // A key belongs to the address it was typed for: moved without a new
-        // one, it stays behind (a region is a separate account).
+    } else if (row.key_origin && apiKeyOriginOf(base) !== row.key_origin) {
+        // A key belongs to the origin it was typed for: moved to another one
+        // without a new key, it stays behind (a region is a separate account).
+        // A path-only edit on the same origin keeps it.
         storeKey(row, '', '');
     }
     if (activeId === id) useConnection(id, { keepCurrent: false });

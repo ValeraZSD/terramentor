@@ -65,18 +65,29 @@ export function visualFeedbackPath() {
     return FILE;
 }
 
+/**
+ * Write one line. Returns whether it landed: false for a full file and for a
+ * volume that refuses the write. It never throws, because the callers sit in
+ * the middle of something worth more than the log (a rebuild the model has
+ * already produced), and a log that cannot be written must not take it down.
+ */
 function append(record) {
-    ensureDir();
     try {
-        if (fs.existsSync(FILE) && fs.statSync(FILE).size > MAX_FILE_BYTES) return false;
-    } catch { /* a stat failure is not a reason to lose the record */ }
-    fs.appendFileSync(FILE, `${JSON.stringify(record)}\n`, 'utf8');
-    return true;
+        ensureDir();
+        try {
+            if (fs.existsSync(FILE) && fs.statSync(FILE).size > MAX_FILE_BYTES) return false;
+        } catch { /* a stat failure is not a reason to lose the record */ }
+        fs.appendFileSync(FILE, `${JSON.stringify(record)}\n`, 'utf8');
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
  * Record that a drawing was reported. Returns the id, which the client hands
- * back once the rebuild lands so the two halves end up on one record.
+ * back once the rebuild lands so the two halves end up on one record, or null
+ * when nothing was written (the file is full or cannot be written).
  */
 export function recordVisualFeedback({
     kind, language, spec, feedback, surface, nodeId, messageId, theme, provider, model, appVersion,
@@ -98,8 +109,7 @@ export function recordVisualFeedback({
         spec: clip(spec, MAX_SPEC),
     };
     for (const key of Object.keys(record)) if (record[key] === undefined) delete record[key];
-    append(record);
-    return id;
+    return append(record) ? id : null;
 }
 
 /**

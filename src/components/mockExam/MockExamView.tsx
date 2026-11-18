@@ -10,13 +10,16 @@ import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { uiLocale } from '../../utils/locale';
 import AddPaperDialog from './AddPaperDialog';
 import MockSittingScreen from './MockSittingScreen';
+import { CourseStartPanel } from './CourseMock';
 import { Panel } from './Panel';
-import type { MockExamList, MockListSitting } from './mockExamTypes';
+import type { CourseListSitting, MockExamList, MockListSitting } from './mockExamTypes';
 import { useDuration } from './mockFormat';
+import { runningSittings } from './courseMockState';
 
 /**
  * Mock exam: a real past paper, written by hand with the app as the clock,
- * then marked part by part against the worked solution (server/mockExams.js).
+ * then marked part by part against the worked solution (server/mockExams.js);
+ * or a draw from the course's own questions, answered on screen (CourseMock).
  *
  * One screen, three moments: pick a paper and start; the sitting itself
  * (clock, marking, result: MockSittingScreen); and the earlier mocks. A mock
@@ -29,6 +32,7 @@ export default function MockExamView({ projectId }: { projectId: number }) {
     const [failed, setFailed] = useState(false);
     const [open, setOpen] = useState<number | null>(null);
     const [adding, setAdding] = useState(false);
+    const [source, setSource] = useState<'course' | 'paper' | null>(null);
 
     const load = useCallback(() => {
         api.getMockExams(projectId)
@@ -39,18 +43,14 @@ export default function MockExamView({ projectId }: { projectId: number }) {
 
     // Closing the tab or the app pauses every running clock, whether the
     // learner is on its clock screen or back on this list; it waits there with
-    // Resume. Going back to the list inside the app does not pause: the time
-    // runs on as it would at the exam. The server ignores a pause once the
-    // writing is over.
+    // Resume. Going Back from a past paper's clock inside the app does not
+    // pause: the time runs on as it would at the exam (a course mock pauses
+    // when its screen closes, CourseMock.tsx). The server ignores a pause once
+    // the writing is over.
     const running = useRef<number[]>([]);
+    useEffect(() => { running.current = runningSittings(data, open); }, [data, open]);
     useEffect(() => {
-        running.current = [
-            ...(data?.papers.flatMap(p => p.sittings.filter(s => s.status === 'writing' && s.running).map(s => s.id)) ?? []),
-            ...(open != null ? [open] : []),
-        ];
-    }, [data, open]);
-    useEffect(() => {
-        const leave = () => { for (const id of new Set(running.current)) void api.pauseMockOnLeave(id).catch(() => {}); };
+        const leave = () => { for (const id of running.current) void api.pauseMockOnLeave(id).catch(() => {}); };
         window.addEventListener('pagehide', leave);
         return () => window.removeEventListener('pagehide', leave);
     }, []);
@@ -62,17 +62,31 @@ export default function MockExamView({ projectId }: { projectId: number }) {
         return <MockSittingScreen sittingId={open} onClose={closeSitting} />;
     }
 
+    // Where the questions come from, until chosen: the course when its real
+    // exam is on screen, the past papers when it is on paper, else whichever exists.
+    const exam = data?.course.exam;
+    const from = source ?? (exam ? (exam.onScreen ? 'course' : 'paper') : data && data.papers.length > 0 ? 'paper' : 'course');
+
     return (
         <div className="flex-1 overflow-auto">
-            <div className="mx-auto w-full max-w-3xl px-4 py-6 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam")}</h2>
-                    {data && data.papers.length > 0 && (
-                        <Button variant="quiet" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setAdding(true)}>
-                            {t("Add a past paper")}
-                        </Button>
+            <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-8 space-y-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="flex-1 min-w-0 text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam")}</h2>
+                    {data && (
+                        <SegmentedControl label={t("Questions from")} value={from} onChange={setSource}
+                            options={[
+                                { value: 'course', label: t("This course") },
+                                { value: 'paper', label: t("A past paper") },
+                            ]} />
                     )}
                 </div>
+                {data && from === 'paper' && data.papers.length > 0 && (
+                    <div className="flex justify-end -mt-2">
+                        <Button variant="quiet" size="sm" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setAdding(true)}>
+                            {t("Add a past paper")}
+                        </Button>
+                    </div>
+                )}
 
                 {failed && (
                     <Panel>
@@ -82,7 +96,11 @@ export default function MockExamView({ projectId }: { projectId: number }) {
                 )}
                 {!data && !failed && <Panel><div className="h-24" aria-busy="true" /></Panel>}
 
-                {data && data.papers.length === 0 && (
+                {data && from === 'course' && (
+                    <CourseStartPanel projectId={projectId} course={data.course} onStarted={setOpen} onChanged={load} />
+                )}
+
+                {data && from === 'paper' && data.papers.length === 0 && (
                     <Panel>
                         <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("Practise with a past paper")}</h3>
                         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300 max-w-prose">
@@ -96,7 +114,7 @@ export default function MockExamView({ projectId }: { projectId: number }) {
                     </Panel>
                 )}
 
-                {data && data.papers.length > 0 && (
+                {data && from === 'paper' && data.papers.length > 0 && (
                     // Keyed on the paper count: a paper just added becomes the one picked.
                     <StartPanel key={data.papers.length} data={data} onStarted={setOpen} onError={(m) => addToast('error', m)} />
                 )}
@@ -195,7 +213,7 @@ function StartPanel({ data, onStarted, onError }: {
     );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
     return (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 min-h-[3.5rem]">
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</span>
@@ -209,28 +227,33 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
     const fmt = useNumberFormat();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
-    const rows = useMemo(() => data.papers
-        .flatMap(p => p.sittings.map(s => ({ s, title: p.title })))
-        .sort((a, b) => b.s.startedAt.localeCompare(a.s.startedAt)), [data]);
+    const rows = useMemo(() => [
+        ...data.papers.flatMap(p => p.sittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: p.title }))),
+        ...data.courseSittings.map(s => ({ s: s as MockListSitting | CourseListSitting, title: t("From this course") })),
+    ].sort((a, b) => b.s.startedAt.localeCompare(a.s.startedAt)), [data, t]);
     const dateFmt = useMemo(() => new Intl.DateTimeFormat(uiLocale(), { day: 'numeric', month: 'short' }), []);
     if (rows.length === 0) return null;
 
-    const outcome = (s: MockListSitting) => {
+    const outcome = (s: MockListSitting | CourseListSitting) => {
         if (s.status !== 'done') return t("Not finished");
+        if ('source' in s) return t("{{right}} of {{total}} right", { right: fmt(s.right ?? 0), total: fmt(s.total) });
         if (s.grade != null) return t("grade {{grade}}", { grade: fmt(s.grade, { decimals: 1 }) });
         return t("{{earned}} of {{total}} points", { earned: fmt(s.earned), total: fmt(s.total) });
     };
-    const discard = async (id: number) => {
+    const discard = async (s: MockListSitting | CourseListSitting) => {
+        const id = s.id;
         const ok = await showConfirm({
             title: t("Discard this mock?"),
-            message: t("Its time and any points you gave are deleted. The paper stays."),
+            message: 'source' in s
+                ? t("Its answers and time are deleted. A new mock draws its questions again.")
+                : t("Its time and any points you gave are deleted. The paper stays."),
             confirmLabel: t("Discard"),
             variant: 'danger',
         });
         if (!ok) return;
         api.discardMock(id).then(onChanged).catch(e => addToast('error', e.message));
     };
-    const pending = (s: MockListSitting) => {
+    const pending = (s: MockListSitting | CourseListSitting) => {
         if (s.status === 'marking') return t("Grade it");
         if (s.timeUp) return t("Time is up");
         return s.running ? t("Clock running") : t("Resume");
@@ -258,7 +281,7 @@ function EarlierMocks({ data, onOpen, onChanged }: { data: MockExamList; onOpen:
                             <ChevronRight className="w-4 h-4 shrink-0 text-slate-400" aria-hidden="true" />
                         </button>
                         {s.status !== 'done' && (
-                            <IconButton size="sm" label={t("Discard this mock")} icon={<Trash2 className="w-4 h-4" />} onClick={() => discard(s.id)} />
+                            <IconButton size="sm" label={t("Discard this mock")} icon={<Trash2 className="w-4 h-4" />} onClick={() => discard(s)} />
                         )}
                     </li>
                 ))}
