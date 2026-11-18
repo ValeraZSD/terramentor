@@ -83,7 +83,10 @@ export default function ServingEndpointsPicker({
                     wrong and offers to ask again. */}
                 {!endpointsLoading && endpointsError !== null && (
                     <div className="flex flex-wrap items-center gap-3">
-                        <p role="alert" className="text-sm text-slate-700 dark:text-slate-200">{endpointsError}</p>
+                        {/* The app's error red, one step darker in light: this
+                            line sits on the grey Explain panel (#f3f3f3), where
+                            red-600 is 4.35:1 and red-700 is 5.8:1. */}
+                        <p role="alert" className="text-sm text-red-700 dark:text-red-400">{endpointsError}</p>
                         <Button size="sm" onClick={() => loadServingEndpoints()}>{tr("Try again")}</Button>
                     </div>
                 )}
