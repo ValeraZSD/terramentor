@@ -284,7 +284,10 @@ const TASKS = {
             expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(all));
             expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(all));
             await tabTo(page, plate, 'the card');
-            const face = () => page.evaluate(`${plate}?.getAttribute('aria-pressed')`);
+            // The plate flips in place, so it is marked before Space and only that element is read after:
+            // another pressed element cannot stand in for it, and a replaced plate reads as gone.
+            await page.evaluate(`${plate}?.setAttribute('data-sr-flip', '')`);
+            const face = () => page.evaluate(`(() => { const p = document.querySelector('[data-sr-flip]'); return p?.isConnected ? p.getAttribute('aria-pressed') : null; })()`);
             const front = await face();
             if (front !== 'false') throw new Error(`the card did not start on its front (aria-pressed ${front})`);
             const flip = await step('Space on the card', () => nvda.press('Space'));
