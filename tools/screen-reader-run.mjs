@@ -254,8 +254,10 @@ const TASKS = {
                 await tabTo(page, check, 'the Check button');
                 verdict = await step('Space on Check', () => nvda.press('Space'));
             }
-            // An answered question locks its options: the page shows a result, whatever NVDA said.
-            if (!(await changed(() => page.evaluate(`!!${option}?.disabled`), false))) throw new Error('the question shows no result after it was answered');
+            // A graded question marks its key "Correct answer:" (options are also disabled while
+            // grading is pending, so that is not the sign): the page shows a result, whatever NVDA said.
+            const graded = () => page.evaluate(`[...document.querySelectorAll('[data-answer-option] .sr-only')].some((s) => /Correct answer:/.test(s.textContent))`);
+            if (!(await changed(graded, false))) throw new Error('the question shows no result after it was answered');
             expect('a verdict is spoken (right or wrong)', /correct|right|wrong|not quite|incorrect|well done/i.test(verdict));
         },
     },
@@ -312,14 +314,14 @@ const TASKS = {
             const dropped = await step('Space: drop', () => nvda.press('Space'));
             expect('the drop is announced', /dropped|moved/i.test(dropped));
             // The move itself is checked on the page; the speech above is only the expectations.
-            // Same rows, other order, and the picked-up row now after the one that followed it.
+            // Same rows, other order, and the picked-up row itself further down (Down was pressed).
+            // Its child rows move with it, so the row after it in the list is not the measure.
             const before = was.split(',');
             const after = (await changed(order, was)).split(',').filter(Boolean);
             if (!was || !after.length || !pickedAt) throw new Error('the outline is empty');
             if (after.join() === was) throw new Error('the outline order did not change after the drop');
             if ([...after].sort().join() !== [...before].sort().join()) throw new Error(`the outline lost or gained rows on the drop (${before.length} -> ${after.length})`);
-            const next = before[before.indexOf(pickedAt) + 1];
-            if (next && after.indexOf(pickedAt) < after.indexOf(next)) throw new Error('the picked-up row did not move down past the row after it');
+            if (after.indexOf(pickedAt) <= before.indexOf(pickedAt)) throw new Error('the picked-up row did not move down');
         },
     },
 };
