@@ -35,7 +35,6 @@ const ENTITIES = {
 
 // Numeric character references in both bases (template fields carry `&#x27;`).
 // `fromCodePoint`, because `fromCharCode` truncates astral characters.
-const NUMERIC_ENTITY = /&#(x[0-9a-f]+|\d+);/gi;
 function decodeNumericEntity(_, digits) {
     const code = digits[0].toLowerCase() === 'x'
         ? parseInt(digits.slice(1), 16)
@@ -44,11 +43,20 @@ function decodeNumericEntity(_, digits) {
     try { return String.fromCodePoint(code); } catch { return _; }
 }
 
-function decodeEntities(str) {
-    let out = String(str);
-    for (const [ent, ch] of Object.entries(ENTITIES)) out = out.split(ent).join(ch);
-    return out.replace(NUMERIC_ENTITY, decodeNumericEntity);
+// ONE pass over the text. Decoding one entity after another would turn the
+// `&amp;lt;` of a literal `&lt;` (a web-development deck) into `&lt;` and then
+// into `<`: text the author never wrote.
+const ENTITY_RE = /&(?:#(x[0-9a-f]+|\d+)|[a-z]+);/gi;
+function decodeEntity(whole, digits) {
+    return digits ? decodeNumericEntity(whole, digits) : (ENTITIES[whole] ?? whole);
 }
+
+function decodeEntities(str) {
+    return String(str).replace(ENTITY_RE, decodeEntity);
+}
+
+/** Text that is already decoded, safe to pass through `decodeEntities` once more unchanged. */
+const keepEntities = (str) => str.replace(/&/g, '&amp;');
 
 const IMG_RE = /<img\b[^>]*>/gi;
 const A_RE = /<a\b[^>]*>([\s\S]*?)<\/\s*a\s*>/gi;
@@ -163,7 +171,9 @@ function attr(tag, name) {
  */
 export function stripAnkiHtml(html) {
     if (typeof html !== 'string') return { text: '', images: [], sounds: [] };
-    let s = html;
+    // A style or script element's body is code, not card text: removing only the
+    // tags would leave its CSS or JavaScript source on the card.
+    let s = html.replace(/<\s*(style|script)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, ' ');
 
     const images = (s.match(IMG_RE) || []).map(tag => ({
         kind: 'image', file: attr(tag, 'src'), alt: attr(tag, 'alt') || '',
@@ -186,7 +196,10 @@ export function stripAnkiHtml(html) {
         const url = linkTarget(attr(whole, 'href'));
         // An unusable target keeps the words: a label is still information.
         if (!url) return inner;
-        return `[${linkLabel(inner)}](${url})`;
+        // The label and the target were decoded once already; the decode that
+        // runs over the whole field below would decode them again, so a literal
+        // `&lt;` or `&amp;` in either must go back in as `&amp;lt;` / `&amp;amp;`.
+        return `[${keepEntities(linkLabel(inner))}](${keepEntities(url)})`;
     });
     // The bolded target word in an example sentence, kept as `**…**` for
     // `src/utils/cardText.ts` (not markdown: see that file).
@@ -196,10 +209,11 @@ export function stripAnkiHtml(html) {
     s = s.replace(/<\/?(?:anki-mathjax|span|div|font)\b[^>]*>/gi, m => (/^<\/?div/i.test(m) ? '\n' : ''));
     s = s.replace(/<\s*br\s*\/?\s*>/gi, '\n');
     s = s.replace(/<\/\s*(?:p|li|tr|h[1-6])\s*>/gi, '\n');
+    // Table cells on one row are separate words, not one run-together one.
+    s = s.replace(/<\/\s*(?:td|th)\s*>\s*(?=<\s*(?:td|th)\b)/gi, ' ');
     s = s.replace(/<[^>]+>/g, '');
 
-    for (const [ent, ch] of Object.entries(ENTITIES)) s = s.split(ent).join(ch);
-    s = s.replace(NUMERIC_ENTITY, decodeNumericEntity);
+    s = decodeEntities(s);
 
     // Collapse the whitespace HTML leaves behind, but keep paragraph breaks.
     s = s.replace(/[ \t ]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
@@ -292,7 +306,13 @@ const hasContent = (v) => !!(v?.text || refsOf(v).length);
  */
 export function notesToCards({ decks, noteTypes, cardTemplates, cardRows, noteRows }) {
     const cardsByNote = new Map();
-    for (const c of cardRows) {
+    for (const row of cardRows) {
+        // A card pulled into a filtered deck (custom study) is only on loan: its
+        // `did` is the filtered deck and its `due` the position there, while
+        // `odid` and `odue` keep the deck and the order the author gave it.
+        const c = Number(row.odid) > 0
+            ? { ...row, did: row.odid, due: row.odue ?? row.due }
+            : row;
         if (!cardsByNote.has(c.nid)) cardsByNote.set(c.nid, []);
         cardsByNote.get(c.nid).push(c);
     }

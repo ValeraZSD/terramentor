@@ -77,8 +77,11 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                             <p className="text-sm text-slate-500 dark:text-slate-400 break-words">
                                 {appVersion
                                     ? [
-                                        appVersion.commitShort && `commit ${appVersion.commitShort}`,
-                                        `${appVersion.deployment} install`,
+                                        // Identifiers, as the diagnostics block prints them: a
+                                        // sentence round them ("desktop install") would be English
+                                        // under every interface language.
+                                        appVersion.commitShort,
+                                        appVersion.deployment,
                                         `Node ${appVersion.node}`,
                                     ].filter(Boolean).join(' \u00b7 ')
                                     : tr("This server is too old to report its version.")}

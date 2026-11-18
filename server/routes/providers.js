@@ -44,7 +44,13 @@ app.post('/api/searxng/test', async (req, res) => {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        const cleanUrl = url.replace(/\/+$/, '') + '/healthz';
+        // Built from the parsed address: a pasted trailing space or a query
+        // string must not end up inside the path.
+        const probe = new URL(parsed.href);
+        probe.pathname = `${probe.pathname.replace(/\/+$/, '')}/healthz`;
+        probe.search = '';
+        probe.hash = '';
+        const cleanUrl = probe.href;
         // localEndpointFetch: local is the normal case, a cloud metadata
         // address never is, and a redirect is answered, not followed.
         const response = await localEndpointFetch()(cleanUrl, {
@@ -217,7 +223,7 @@ app.get('/api/search/keys', (req, res) => {
     res.json(searchKeysStatus());
 });
 app.put('/api/search/keys/:provider', (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     const { key } = req.body || {};
@@ -226,7 +232,7 @@ app.put('/api/search/keys/:provider', (req, res) => {
     res.json({ success: true, hasKey: saved });
 });
 app.delete('/api/search/keys/:provider', (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     setSearchBackendKey(req.params.provider, '');
@@ -237,7 +243,7 @@ app.delete('/api/search/keys/:provider', (req, res) => {
 // POST, not GET: it spends one search against the learner's own quota, so it
 // happens when they ask for it and never on a page load.
 app.post('/api/search/keys/:provider/test', wrap(async (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     res.json(await testSearchBackend(req.params.provider));
@@ -286,14 +292,19 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
             headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
             signal: controller.signal,
         });
-        if (!upstream.ok) return res.json({ available: false, endpoints: [] });
+        // Only "there is no such route" is the endpoint saying it has no list.
+        // A timeout, a refused key, no credit left or a 5xx is a read that did
+        // not happen: it is told apart (502), so the panel asks again later
+        // rather than printing that the endpoint publishes nothing.
+        if (upstream.status === 404 || upstream.status === 405) return res.json({ available: false, endpoints: [] });
+        if (!upstream.ok) return res.status(502).json({ error: endpointError('The endpoint', { httpStatus: upstream.status }) });
         const json = await upstream.json();
         const raw = Array.isArray(json?.data?.endpoints) ? json.data.endpoints : [];
         if (!raw.length) return res.json({ available: false, endpoints: [] });
         // Only the fields the panel draws, one row per slug it can send back.
         res.json({ available: true, model, endpoints: servingEndpointRows(raw) });
-    } catch {
-        res.json({ available: false, endpoints: [] });
+    } catch (e) {
+        res.status(502).json({ error: endpointError('The endpoint', e) });
     } finally {
         clearTimeout(timer);
     }

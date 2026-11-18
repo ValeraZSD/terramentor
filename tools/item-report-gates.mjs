@@ -1146,7 +1146,7 @@ ok('…the feed card and the lesson set it aside only when not done yet, and giv
 // asks before it says nothing was changed, and a saved report reads as filed.
 ok('a failed send looks the report up: a saved one is filed as on success; otherwise it says which it knows',
     /const saved = await api\.itemReportTarget\(itemRef\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(control)
-    && /if \(saved && !saved\.undoneAt\) \{\s*useItemReports\.getState\(\)\.setReport\(saved\.ref, saved\);\s*onReported\(saved\);/.test(control)
+    && /if \(saved && !saved\.undoneAt\) \{\s*useItemReports\.getState\(\)\.setReport\(saved\.ref, saved\);\s*if \(alive\.current\) onReported\(saved\);/.test(control)
     && /setFailed\(saved === undefined \? 'unknown' : 'none'\)/.test(control)
     && /t\("Couldn't tell whether the report was sent\. Sending it again will not file it twice\."\)/.test(control)
     && /const saved = await api\.itemReportTarget\(proposal\.ref\)\.then\(tg => tg\.report, \(\) => undefined\);/.test(proposals),

@@ -46,6 +46,8 @@
  * stage's own fade — fading their parts over their own clock would be wrong.
  */
 
+import { motionReduced } from '../../utils/accessibility';
+
 /** The stage's own rise-and-fade (index.css `vb-arrive`). */
 export const ARRIVAL_STAGE_MS = 420;
 /** Before the first part starts, so the stage has begun to show. */
@@ -996,7 +998,7 @@ export function stampArrivalOrder(el: HTMLElement, kind?: string): number {
     // inline below (it has to out-rank the library's own stylesheet), so it
     // is not set up at all.
     let reducedMotion = false;
-    try { reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* no matchMedia */ }
+    try { reducedMotion = motionReduced(); } catch { /* no document */ }
 
     // Every gap is a TIME: a plain one is the step, and the one after a part
     // that draws itself is that part's whole draw, so the next thing starts on

@@ -30,7 +30,7 @@
 // one run), and refuses anything else, a "Fix this" rebuild included.
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -318,6 +318,41 @@ console.log('\n--- tasks.resultUnusable ---');
     check('a repair still running is refused', tasks.resultUnusable(running.id).ok === false);
     tasks.cancelTask(running.id);
     check('an unknown id is refused', tasks.resultUnusable('nope').ok === false);
+}
+
+// ---- the report log: a log that cannot be written never takes a rebuild down ---
+console.log('\n--- the visual feedback log ---');
+{
+    process.env.VAULT_ROOT = join(scratch, 'vault');
+    const fb = await import(pathToFileURL(join(root, 'server', 'visualFeedback.js')).href);
+    const logPath = fb.visualFeedbackPath();
+    check('the log is under the scratch vault', logPath.startsWith(scratch), logPath);
+    if (logPath.startsWith(scratch)) {
+        const report = { kind: 'p5', spec: 'circle(1)', feedback: 'the axes do not move', surface: 'chat' };
+        const attempt = (fn) => { try { return fn(); } catch (err) { return `threw: ${err.code || err.message}`; } };
+
+        const id = fb.recordVisualFeedback(report);
+        check('a report is written and its id handed back', /^vf_[0-9a-f]{16}$/.test(id) && fb.visualFeedbackSummary().count === 1, String(id));
+        check('the outcome is a second line of the same record', fb.recordVisualOutcome(id, { accepted: true }) === true && fb.visualFeedbackSummary().count === 1);
+
+        // Past the size cap the writer stops: it must say nothing was written,
+        // not hand back an id for a line that does not exist.
+        writeFileSync(logPath, Buffer.alloc(8 * 1024 * 1024 + 1, 'x'));
+        const refused = attempt(() => fb.recordVisualFeedback(report));
+        check('a full log writes nothing and returns no id', refused === null, String(refused));
+        check('...nor an outcome line, and says so', attempt(() => fb.recordVisualOutcome(id, { accepted: true })) === false);
+        fb.clearVisualFeedback();
+
+        // A volume that refuses the write (here: the log's folder is a file).
+        rmSync(join(scratch, 'vault', 'feedback'), { recursive: true, force: true });
+        writeFileSync(join(scratch, 'vault', 'feedback'), 'not a folder');
+        const unwritable = attempt(() => fb.recordVisualFeedback(report));
+        check('a write the volume refuses returns no id instead of throwing', unwritable === null, String(unwritable));
+        check('...and an outcome line neither throws, so the rebuild it follows survives it',
+            attempt(() => fb.recordVisualOutcome(id, { error: 'x', accepted: false })) === false);
+    }
+    const visualsRoute = readFileSync(join(root, 'server', 'routes', 'visuals.js'), 'utf8');
+    check('the report route does not say "saved" when no line was written', /if \(!id\) return res\.status\(\d{3}\)/.test(visualsRoute));
 }
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* the OS will */ }

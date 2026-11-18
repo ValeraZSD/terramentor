@@ -399,7 +399,12 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 const kept = [];
                 for (const m of media[side] || []) {
                     const found = mediaByName?.get(m.name);
-                    if (found) kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '' });
+                    if (!found) continue;
+                    // The row is what makes a stored blob referenced: without it the picture
+                    // does not load and the media sweep deletes the bytes.
+                    prep(`INSERT OR IGNORE INTO media_files (project_id, hash, filename, mime, kind, size, description, described_by)
+                        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)`).run(projectId, found.hash, found.filename ?? m.name, found.mime, found.kind, found.size);
+                    kept.push({ hash: found.hash, kind: found.kind, name: m.name, alt: m.alt || '' });
                 }
                 if (kept.length) out[side] = kept;
             }

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { FIELD_BASE, cx } from '../ui/vocabulary';
-import { prettyUnit } from './formats';
+import { prettyUnit, submitOnEnter } from './formats';
 import type { AnswerInputProps } from './AnswerInput';
 
 /**
@@ -23,7 +23,7 @@ import type { AnswerInputProps } from './AnswerInput';
  *    derivation is several lines; a number is never more than one, and a
  *    five-line box asking for "9.81" tells the learner to write an essay.
  */
-export default function NumericInput({ question, value, onChange, disabled, result }: AnswerInputProps) {
+export default function NumericInput({ question, value, onChange, disabled, result, onSubmit }: AnswerInputProps) {
     const { t } = useTranslation();
     const shown = result ? result.answer : value;
     const unit = prettyUnit(question.unit).trim();
@@ -35,6 +35,7 @@ export default function NumericInput({ question, value, onChange, disabled, resu
                 autoComplete="off"
                 value={shown}
                 onChange={e => onChange(e.target.value)}
+                onKeyDown={result ? undefined : submitOnEnter(onSubmit)}
                 // A graded answer is READ-ONLY, not DISABLED. `disabled` dims the
                 // field to 45% (FIELD_BASE), and what it dims is the number the
                 // learner typed — sitting right beside the key they are being

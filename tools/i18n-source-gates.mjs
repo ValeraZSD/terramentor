@@ -450,5 +450,59 @@ for (const [name, where, sample, fires] of PRE_FIX) {
     check(`${name} (${where}) is still detected`, fires(sample) ? [] : [`the rule no longer matches: ${sample}`]);
 }
 
+// --- 8. words round a value, and an error a screen prints as it is -----------
+console.log('--- words that stay English round a value ---');
+{
+    // The About row is "ab12cd3 · desktop · Node 22": identifiers. A template
+    // literal that glues an English word on ("commit …", "… install") is English
+    // under every interface language.
+    const about = readFileSync(join(srcDir, 'components/settings/AboutSection.tsx'), 'utf8');
+    // A template literal, or a quoted word joined to the value with `+`.
+    const GLUED = /`[^`\n]*\$\{appVersion\.(?:commitShort|deployment)\}[^`\n]*`|(?:'[^'\n]*[A-Za-z][^'\n]*'|"[^"\n]*[A-Za-z][^"\n]*")\s*\+\s*appVersion\.(?:commitShort|deployment)\b|appVersion\.(?:commitShort|deployment)\s*\+\s*(?:'[^'\n]*[A-Za-z][^'\n]*'|"[^"\n]*[A-Za-z][^"\n]*")/g;
+    const gluedIn = (src) => [...decomment(src).matchAll(GLUED)].map((m) => m[0]);
+    check('the glue rule sees a template literal, and a word joined with +, on either side',
+        ['`commit ${appVersion.commitShort}`', '`${appVersion.deployment} install`', "'commit ' + appVersion.commitShort", 'appVersion.deployment + " install"']
+            .filter((sample) => gluedIn(sample).length !== 1));
+    check('...and passes the bare identifiers', gluedIn('[appVersion.commitShort, appVersion.deployment, `Node ${appVersion.node}`]'));
+    const glued = gluedIn(about);
+    check('the About version row glues no English word onto the commit or the install kind', glued);
+
+    // `PracticeCard` prints a scan error's message as the problem text, so the
+    // message must come out of i18n at call time. Run the real throw with a
+    // translator that marks what passes through it.
+    const { createRequire } = await import('node:module');
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { pathToFileURL } = await import('node:url');
+    const require = createRequire(import.meta.url);
+    const esbuild = require('esbuild');
+    const scratch = mkdtempSync(join(tmpdir(), 'i18n-source-gates-'));
+    try {
+        const outfile = join(scratch, 'warp.mjs');
+        await esbuild.build({
+            entryPoints: [join(srcDir, 'utils/scan/warp.ts')],
+            bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent',
+            plugins: [{
+                name: 'i18n-stub',
+                setup(b) {
+                    b.onResolve({ filter: /(^|\/)i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
+                    b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: "export default { t: (key) => '<<' + key + '>>' };", loader: 'js' }));
+                },
+            }],
+        });
+        const { warpQuad } = await import(pathToFileURL(outfile).href);
+        const line = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 20 }, { x: 30, y: 30 }];
+        let message = null;
+        try { warpQuad({ width: 40, height: 40, data: new Uint8ClampedArray(40 * 40 * 4) }, line, { width: 20, height: 20 }); }
+        catch (e) { message = e.message; }
+        check('a scan whose corners form no page says so through i18n, not in bare English',
+            message === '<<Drag the four corners onto the corners of your page.>>' ? [] : [`got ${JSON.stringify(message)}`]);
+        check('…and that key exists in en.json',
+            en['Drag the four corners onto the corners of your page.'] ? [] : ['missing']);
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -272,7 +272,7 @@ async function openSearch(s) {
     s.window.document.body.appendChild(host);
     const root = s.mountSearch(host);
     const doc = s.window.document;
-    await s.act(async () => { doc.querySelector('button[aria-label="Search"]').click(); });
+    await s.act(async () => { doc.querySelector('button[aria-label^="Search…"]').click(); });
     const input = () => doc.querySelector('input[type="text"]');
     const type = async (text) => {
         await s.act(async () => {

@@ -12,6 +12,7 @@ import ChoiceInput from './answer/ChoiceInput';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useTapGuard } from '../hooks/useTapGuard';
 import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { useStudyClock } from '../hooks/useStudyClock';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
@@ -160,6 +161,11 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
         onClose();
     }, [onClose]);
 
+    // Dismiss on a backdrop TAP, as `Modal` does: a drag that selects text in
+    // the answer box and lifts over the overlay would otherwise close the
+    // dialog and discard the draft.
+    const backdrop = useTapGuard(close, true);
+
     // `Modal`'s contract (focus in and back, Tab kept inside, topmost-only
     // Escape, the counted scroll lock) — it had only an Escape of its own.
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -185,6 +191,8 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     // ---- answering -----------------------------------------------------------
     async function submit(answer: string) {
         if (!probe || !question || busy) return;
+        // A banner from an earlier failed save is about that save, not this one.
+        setError(null);
         setBusy(true);
         try {
             const res = await api.answerPlacement(probe.id, question.index, answer);
@@ -202,6 +210,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
      *  the same motion deliberately: "I don't know" is a legitimate answer that
      *  simply seeds nothing, not a branch that needs its own bookkeeping. */
     function advance() {
+        setError(null);
         setVerdict(null);
         setDraft('');
         setPicked('');
@@ -213,6 +222,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
     async function finish() {
         if (!probe) return;
+        setError(null);
         setBusy(true);
         try {
             const res = await api.finishPlacement(probe.id);
@@ -228,6 +238,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
     }
 
     async function discard() {
+        setError(null);
         setBusy(true);
         try {
             const res = await api.discardPlacement(projectId);
@@ -246,7 +257,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
 
     return (
         <div className={`fixed inset-0 z-50 flex items-end sm:items-start justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
-            onClick={close}>
+            {...backdrop}>
             {/* The dialog never scrolls as a whole: the header and every
                 phase's footer stay put and only the body between them
                 scrolls, so a long explanation cannot push "Next" below the
