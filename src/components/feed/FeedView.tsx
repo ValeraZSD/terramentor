@@ -23,6 +23,8 @@ import { Button } from '../ui/Button';
 import { findNode, getNodePath } from '../../utils/tree';
 import { feedCardActivity, type StudyActivity } from '../../utils/studyTime';
 import { useStudyClock } from '../../hooks/useStudyClock';
+import { ContentLang } from '../../utils/contentLang';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * The home page: a vertical learning feed, read like a book.
@@ -193,7 +195,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         if (!next) return;
         const el = cardRefs.current.get(next.key);
         if (!el) return;
-        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        const reduced = motionReduced();
         el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
         el.focus({ preventScroll: true });
     }, []);
@@ -676,6 +678,10 @@ function runDone(cards: ChapterCard[], i: number, done: Record<string, boolean>)
 }
 
 function renderChapterCard(card: ChapterCard, done: boolean, onDone: (key: string) => void, labelled = true, labelDone = done, offerEarlier = true) {
+    return <ContentLang projectId={card.projectId}>{chapterCard(card, done, onDone, labelled, labelDone, offerEarlier)}</ContentLang>;
+}
+
+function chapterCard(card: ChapterCard, done: boolean, onDone: (key: string) => void, labelled: boolean, labelDone: boolean, offerEarlier: boolean) {
     switch (card.kind) {
         case 'lesson':
             return <LessonCard card={card} done={done} onDone={onDone} offerEarlier={offerEarlier} />;
@@ -689,6 +695,11 @@ function renderChapterCard(card: ChapterCard, done: boolean, onDone: (key: strin
 }
 
 function renderStandalone(card: StandaloneCard, done: boolean, onDone: (key: string) => void) {
+    const projectId = card.kind === 'flashcard' ? card.card.project_id : 'projectId' in card ? card.projectId : null;
+    return <ContentLang projectId={projectId}>{standaloneCard(card, done, onDone)}</ContentLang>;
+}
+
+function standaloneCard(card: StandaloneCard, done: boolean, onDone: (key: string) => void) {
     switch (card.kind) {
         case 'flashcard':
             return <FlashcardFeedCard card={card} done={done} onDone={onDone} />;

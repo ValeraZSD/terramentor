@@ -248,12 +248,12 @@ function UpdatedNote() {
 function ProgressRing({ percent }: { percent: number | null }) {
     const r = 6.5, c = 2 * Math.PI * r;
     return (
-        <svg viewBox="0 0 16 16" className={`w-4 h-4 ${percent == null ? 'motion-safe:animate-spin' : ''}`} aria-hidden="true">
+        <svg viewBox="0 0 16 16" className={`w-4 h-4 ${percent == null ? 'motion-on:animate-spin' : ''}`} aria-hidden="true">
             <g transform="rotate(-90 8 8)">
                 <circle cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" className="stroke-slate-300 dark:stroke-slate-600" />
                 <circle
                     cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" strokeLinecap="round"
-                    className="stroke-accent motion-safe:transition-[stroke-dashoffset] motion-safe:duration-1000 motion-safe:ease-linear"
+                    className="stroke-accent motion-on:transition-[stroke-dashoffset] motion-on:duration-1000 motion-on:ease-linear"
                     strokeDasharray={c}
                     strokeDashoffset={c * (1 - (percent ?? 25) / 100)}
                 />

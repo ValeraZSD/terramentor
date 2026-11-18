@@ -188,13 +188,53 @@ const TM = (() => {
     }
 
     const app = document.getElementById('app');
+    // The first screen that has a landing place (data-autofocus) is read when
+    // it appears, though nothing in the view held focus yet, as long as the
+    // frame itself has the keyboard.
+    let landed = false;
+    function announce(el) {
+        const line = document.getElementById('tm-announce');
+        if (!line || !el) return;
+        const name = el.getAttribute('aria-label');
+        // Text node by text node, so a topic and a front do not run together,
+        // leaving out what is hidden from a screen reader (step numbers).
+        const parts = [];
+        const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+            const words = n.nodeValue.replace(/\s+/g, ' ').trim();
+            if (words && !n.parentElement.closest('[aria-hidden="true"]')) parts.push(words);
+        }
+        const text = parts.join(' ');
+        line.textContent = name ? `${name}. ${text}` : text;
+    }
     function mount(...children) {
-        const keep = document.activeElement && app.contains(document.activeElement) ? document.activeElement.dataset.focus : null;
+        const had = document.activeElement && app.contains(document.activeElement) ? document.activeElement : null;
+        const keep = had ? had.dataset.focus : null;
         app.replaceChildren();
         append(app, children);
+        const first = !landed && !!app.querySelector('[data-autofocus]');
+        if (first) landed = true;
+        // Focus moves only while this view's document has it: a screen that
+        // lands while the learner types in the host's own composer, first
+        // screen included, never pulls the keyboard out of it.
+        if (!document.hasFocus() || (!first && !had)) {
+            // That first screen is still heard: its landing place is read out
+            // once from a status line outside the view, which nothing else
+            // writes, so later re-renders are not read out.
+            if (first) announce(app.querySelector('[data-autofocus]'));
+            return;
+        }
         // The same control again after a re-render keeps the keyboard where it was.
-        const again = keep ? app.querySelector(`[data-focus="${CSS.escape(keep)}"]`) : null;
-        if (again) again.focus();
+        let again = keep ? app.querySelector(`[data-focus="${CSS.escape(keep)}"]`) : null;
+        // A button the new screen disables (Previous on the first question, Up
+        // on the top step) cannot take focus: its enabled neighbour does.
+        if (again && again.disabled) again = [...again.parentElement.children].find(el => el.matches('button:not([disabled])')) || null;
+        // A control the new screen no longer has: the screen's own landing
+        // place (data-autofocus), else its first control, so the keyboard is
+        // never dropped on the page and a screen reader hears the new screen.
+        // The region is not live, or each re-render would read out whole.
+        const target = again || app.querySelector('[data-autofocus]') || app.querySelector('button:not([disabled]), input, textarea');
+        if (target) target.focus();
     }
 
     function showError(err) {

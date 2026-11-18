@@ -127,7 +127,9 @@ export default function DeckDashboard() {
                     <IconButton onClick={() => setReloadKey(k => k + 1)} title={t("Refresh")} label={t("Refresh deck statistics")} icon={<RefreshCw className="h-5 w-5" />} />
                 </div>
 
-                <CardsPanel projectId={currentProjectId} showStages />
+                {/* The panel keeps its own counts, so Refresh has to reach it, and a
+                    session ending in it has to refresh the header's "met so far". */}
+                <CardsPanel projectId={currentProjectId} showStages reloadKey={reloadKey} onSessionEnd={() => setReloadKey(k => k + 1)} />
 
                 <ProjectStudyTimeSection projectId={currentProjectId} reloadKey={reloadKey} />
 

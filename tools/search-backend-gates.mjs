@@ -25,7 +25,7 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 const B = new URL('../server/', import.meta.url).href;
 const {
     SEARCH_BACKENDS, SECRET_SEARCH_KEYS, searchKeysStatus, setSearchBackendKey,
-    tavilyParse, braveParse, jinaParse,
+    tavilyParse, braveParse, jinaParse, testSearchBackend, makeThrottledQueue,
 } = await import(B + 'searchBackends.js');
 const { isSecretSettingKey } = await import(B + 'auth.js');
 const db = (await import(B + 'database.js')).default;
@@ -126,10 +126,84 @@ console.log('\n--- the routes follow the /api/ai/key pattern ---');
 ok('GET /api/search/keys exists', indexSrc.includes("app.get('/api/search/keys'"));
 ok('PUT /api/search/keys/:provider exists', indexSrc.includes("app.put('/api/search/keys/:provider'"));
 ok('DELETE /api/search/keys/:provider exists', indexSrc.includes("app.delete('/api/search/keys/:provider'"));
-ok('an unknown provider is a 400, not a stored row', /SEARCH_BACKENDS\[req\.params\.provider\]/.test(indexSrc));
+ok('an unknown provider is a 400, not a stored row', /Object\.hasOwn\(SEARCH_BACKENDS, req\.params\.provider\)/.test(indexSrc) && !/SEARCH_BACKENDS\[/.test(indexSrc));
 ok('the status route answers searchKeysStatus() (booleans only)', indexSrc.includes('res.json(searchKeysStatus())'));
 ok('the generic settings dump still strips secrets via isSecretSettingKey', indexSrc.includes('!isSecretSettingKey(s.key)'));
 ok('the generic settings writer still refuses secret keys', /isSecretSettingKey\(req\.params\.key\)/.test(indexSrc));
+
+console.log('\n--- a name that is not a backend never reaches the key store ---');
+// "constructor" and "__proto__" are found on every object's prototype chain,
+// so a bare truthiness check on SEARCH_BACKENDS[name] let them through and
+// wrote a credential literally named "undefined".
+for (const name of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    let storeThrew = false;
+    try { setSearchBackendKey(name, 'junk-key'); } catch { storeThrew = true; }
+    ok(`${name} is refused by setSearchBackendKey`, storeThrew);
+    let testThrew = false;
+    try { await testSearchBackend(name); } catch { testThrew = true; }
+    ok(`${name} is refused by testSearchBackend`, testThrew);
+}
+{
+    const { createServer } = await import('node:http');
+    const { createApp } = await import(B + 'app.js');
+    const server = createServer(createApp());
+    const port = await new Promise(done => server.listen(0, '127.0.0.1', () => done(server.address().port)));
+    const call = (path, init = {}) => fetch(`http://127.0.0.1:${port}${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init.headers || {}) } });
+    for (const name of ['constructor', '__proto__', 'toString']) {
+        const put = await call(`/api/search/keys/${name}`, { method: 'PUT', body: JSON.stringify({ key: 'junk-key' }) });
+        check(`…and no credential named "undefined" was left by the PUT on ${name}`, getSecret('undefined'), '');
+        const del = await call(`/api/search/keys/${name}`, { method: 'DELETE' });
+        const test = await call(`/api/search/keys/${name}/test`, { method: 'POST', body: '{}' });
+        check(`PUT, DELETE and test on /api/search/keys/${name} are all 400`, `${put.status} ${del.status} ${test.status}`, '400 400 400');
+    }
+    const known = await call('/api/search/keys/jina', { method: 'PUT', body: JSON.stringify({ key: 'jina_yyy' }) });
+    ok('a real backend still saves through the route', known.status === 200 && (await known.json()).hasKey === true);
+
+    // The Test button's probe: built from the parsed address, so a pasted
+    // trailing space or a query string does not end up in the path.
+    const asked = [];
+    const stub = createServer((req, res) => { asked.push(req.url); res.writeHead(200); res.end('OK'); });
+    const stubPort = await new Promise(done => stub.listen(0, '127.0.0.1', () => done(stub.address().port)));
+    const probe = async (url) => { asked.length = 0; const r = await call('/api/searxng/test', { method: 'POST', body: JSON.stringify({ url }) }); return { body: await r.json(), asked: [...asked] }; };
+    const base = `http://127.0.0.1:${stubPort}`;
+    const plain = await probe(`${base}/`);
+    ok('the SearXNG test probes /healthz at the address given', plain.body.ok === true && plain.asked.join() === '/healthz', plain);
+    const spaced = await probe(`${base}/ `);
+    ok('…also when the pasted address ends in a space', spaced.body.ok === true && spaced.asked.join() === '/healthz', spaced);
+    const nested = await probe(`${base}/search/?lang=en `);
+    ok('…and keeps a path but not a query string', nested.body.ok === true && nested.asked.join() === '/search/healthz', nested);
+    stub.close();
+    server.close();
+}
+
+console.log('\n--- Brave\'s one-a-second queue waits between requests, not before the first ---');
+{
+    ok('the queue is exported for this gate', typeof makeThrottledQueue === 'function');
+    if (typeof makeThrottledQueue === 'function') {
+        // A fake clock: `sleep` moves it, and so does a task by its own length,
+        // so the instants below are exact and no timer is read.
+        const SPACING = 1000;
+        const clock = { t: 0 };
+        const slept = [];
+        const queue = makeThrottledQueue(SPACING, {
+            now: () => clock.t,
+            sleep: async (ms) => { slept.push(ms); clock.t += ms; },
+        });
+        const started = [];
+        const lengths = [300, 30, 0];
+        const done = await Promise.all(lengths.map((ms, i) => queue(async () => { started.push(clock.t); clock.t += ms; return i + 1; })));
+        check('the tasks all run, in order', done.join(), '1,2,3');
+        check('the first starts at once, with no wait before it', started[0], 0);
+        check('each later one starts a full spacing after the one before it ENDED, however long that took', started.join(), '0,1300,2330');
+        check('…and waits only the spacing, never a second one', slept.join(), '1000,1000');
+        let failedFirst = null;
+        const sturdy = makeThrottledQueue(10);
+        const lost = sturdy(async () => { throw new Error('boom'); }).catch(e => { failedFirst = e.message; });
+        const after = await sturdy(async () => 'still runs');
+        await lost;
+        ok('a failing task does not stop the queue', failedFirst === 'boom' && after === 'still runs');
+    }
+}
 
 console.log('\n--- the fan-out reaches a hosted engine only with its key ---');
 const aiSearchRegion = aiSrc.slice(aiSrc.indexOf('export async function webSearch'));

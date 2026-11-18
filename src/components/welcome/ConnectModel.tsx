@@ -218,7 +218,7 @@ export default function ConnectModel({ onStatus }: {
                                 <span className="block text-sm font-medium text-slate-800 dark:text-slate-100">
                                     {opt.label}
                                 </span>
-                                <span className="block text-sm text-slate-500 dark:text-slate-400">{opt.desc}</span>
+                                <span className="block text-sm text-slate-600 dark:text-slate-300">{opt.desc}</span>
                             </span>
                         </label>
                     ))}

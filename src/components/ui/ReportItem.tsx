@@ -236,6 +236,12 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
     const [note, setNote] = useState('');
     const [rewrite, setRewrite] = useState(true);
     const [busy, setBusy] = useState(false);
+    // Cancel stays live while a report is in flight and cannot stop it. A
+    // report that lands after the dialog is gone is still stored (it WAS
+    // filed, so the flag shows it) but is not announced to the host: it must
+    // not pull focus onto Undo or move a session on after a cancel.
+    const alive = useRef(true);
+    useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
     // Said inside the dialog: a toast sits under a dialog opened over the
     // mastery check or a drill, and the typed note must survive a failed send.
     const [failed, setFailed] = useState<'none' | 'unknown' | null>(null);
@@ -254,12 +260,13 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
             let filed = report;
             // Only where the server offered it: with AI off a new question
             // or card cannot be written, and the box was not shown.
-            if (rewrite && target?.canRewrite && report.canRewrite && !report.rewrite) {
+            // A cancelled dialog starts no rewrite (an AI job nobody is waiting on).
+            if (alive.current && rewrite && target?.canRewrite && report.canRewrite && !report.rewrite) {
                 try { filed = (await api.rewriteItemReport(report.id)).report; }
                 catch { addToast('error', t("Reported, but a new one couldn't be started.")); }
             }
             useItemReports.getState().setReport(filed.ref, filed);
-            onReported(filed);
+            if (alive.current) onReported(filed);
         } catch {
             // The answer may be what was lost, with the report filed: asked,
             // a saved report reads as filed; nothing saved means nothing
@@ -267,7 +274,7 @@ function ReportItemDialog({ itemRef, surface, hideKey, onClose, onReported }: {
             const saved = await api.itemReportTarget(itemRef).then(tg => tg.report, () => undefined);
             if (saved && !saved.undoneAt) {
                 useItemReports.getState().setReport(saved.ref, saved);
-                onReported(saved);
+                if (alive.current) onReported(saved);
                 return;
             }
             setFailed(saved === undefined ? 'unknown' : 'none');

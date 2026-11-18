@@ -12,13 +12,19 @@ function getSetting(key, fallback) {
     }
 }
 
+/** A stored number, or the fallback when the row is missing or not a number. A 0 is kept. */
+function numberSetting(key, fallback) {
+    const value = parseFloat(getSetting(key, String(fallback)));
+    return Number.isFinite(value) ? value : fallback;
+}
+
 /** Resolved configuration for the mastery / completion gate. */
 function getGateConfig() {
     const mode = getSetting('mastery_gate_mode', 'enforced');
     return {
         mode: ['off', 'advisory', 'enforced'].includes(mode) ? mode : 'enforced',
-        threshold: parseFloat(getSetting('mastery_threshold', '0.85')) || 0.85,
-        checkPass: parseFloat(getSetting('mastery_check_pass', '0.8')) || 0.8,
+        threshold: numberSetting('mastery_threshold', 0.85),
+        checkPass: numberSetting('mastery_check_pass', 0.8),
         checkSize: masteryCheckSize(getSetting),
         decayDays: parseInt(getSetting('decay_days', '14'), 10) || 14,
     };
