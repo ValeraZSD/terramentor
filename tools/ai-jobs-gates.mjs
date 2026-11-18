@@ -146,6 +146,18 @@ jobs.setJobRoute('questions', [{ connectionId: idB, model: 'model-b2', effort: '
     check('...and the effort chosen for that entry rides on the wire', B.hits[0]?.json?.reasoning?.effort === 'minimal', JSON.stringify(B.hits[0]?.json?.reasoning));
 }
 
+{
+    reset();
+    // The model picker writes the active rows and not the connection's row; a
+    // blank-model entry on the connection in use must still send what was picked.
+    jobs.setJobRoute('questions', [{ connectionId: idA, model: '', effort: '' }]);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_openai_model', 'model-a-picked')").run();
+    await ask({ operation: 'questions' });
+    check('an entry with no model on the connection in use sends the model just picked in Settings', A.hits[0]?.json?.model === 'model-a-picked', A.hits[0]?.json?.model);
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_openai_model', 'model-a')").run();
+    conns.reconcile();
+}
+
 section('a failure the next model could fix moves to it, in order');
 jobs.setJobRoute('questions', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
 for (const [plan, what, aHits] of [
@@ -474,6 +486,23 @@ jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]
     check('...and the description names the model that read it, not the first choice',
         modelOf(row?.generated_by) === 'eyes', String(row?.generated_by));
     jobs.setJobRoute('vision', [{ connectionId: idA, model: 'model-a', effort: '' }]);
+}
+
+section('a saved list keeps each place\'s identity');
+{
+    const uuids = () => db.prepare(`SELECT position, uuid, model FROM ai_job_routes WHERE job = 'checks' ORDER BY position`).all();
+    jobs.setJobRoute('checks', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    const first = uuids();
+    check('every place has a uuid', first.length === 2 && first.every(r => typeof r.uuid === 'string' && r.uuid.length > 0), JSON.stringify(first));
+    jobs.setJobRoute('checks', [{ connectionId: idA, model: 'model-a', effort: '' }, { connectionId: idB, model: 'model-b', effort: '' }]);
+    const again = uuids();
+    check('saving the same list again keeps every uuid', again.map(r => r.uuid).join() === first.map(r => r.uuid).join(), JSON.stringify(again));
+    jobs.setJobRoute('checks', [{ connectionId: idB, model: 'model-b2', effort: '' }]);
+    const shorter = uuids();
+    check('a shorter list rewrites place 1 in place and drops place 2',
+        shorter.length === 1 && shorter[0].uuid === first[0].uuid && shorter[0].model === 'model-b2', JSON.stringify(shorter));
+    check('...and the job reads the new list', JSON.stringify(jobs.getJobRoutes().checks) === JSON.stringify([{ connectionId: idB, model: 'model-b2', effort: '' }]));
+    jobs.setJobRoute('checks', []);
 }
 
 section('the lists keep themselves honest');

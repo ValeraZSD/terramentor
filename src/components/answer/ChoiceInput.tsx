@@ -7,6 +7,9 @@ import { useTranslation } from 'react-i18next';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
 import { choiceColumns } from './choiceLayout';
+import { useStore } from '../../store';
+import { DOUBLE_PRESS_MS } from '../../hooks/useConfirmPress';
+import { usePointerVerb } from '../../utils/platform';
 
 const norm = (s: string) => s.toLowerCase().trim();
 
@@ -46,6 +49,7 @@ const visualLength = (option: string) => option
  */
 export default function ChoiceInput({ question, value, onChange, onCommit, disabled, result }: AnswerInputProps) {
     const { t } = useTranslation();
+    const pointerVerb = usePointerVerb();
     const pair = question.type === 'true_false';
     const options = pair ? ['True', 'False'] : (question.options ?? []);
 
@@ -105,9 +109,18 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
         return 'border-slate-200 dark:border-slate-600 can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5';
     };
 
+    // Confirm before grading (Settings → Accessibility): where a press would
+    // grade at once, the first press only selects and the second, on the same
+    // answer, grades. Where there is a Check button already, nothing changes.
+    const confirm = useStore(s => s.a11y.confirmAnswers) && !!onCommit;
+    // When the shown answer was selected: a second press sooner than
+    // DOUBLE_PRESS_MS is the same shaky click landing twice.
+    const chosenAt = useRef(0);
     const choose = (option: string) => {
         if (disabled || result) return;
         onChange(option);
+        if (confirm && value !== option) { chosenAt.current = Date.now(); return; }
+        if (confirm && Date.now() - chosenAt.current < DOUBLE_PRESS_MS) return;
         onCommit?.(option);
     };
 
@@ -179,6 +192,13 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
                     );
                 })}
             </div>
+            {/* Said for as long as the mode applies, not only once something is
+                chosen, so the options never move when the line appears. */}
+            {confirm && !result && (
+                <p className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
+                    {value ? t("{{pointerVerb}} the same answer again to check it.", { pointerVerb }) : t("{{pointerVerb}} an answer twice to check it.", { pointerVerb })}
+                </p>
+            )}
         </div>
     );
 }

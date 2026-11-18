@@ -27,7 +27,7 @@
  */
 import db, { NOW_ISO } from './database.js';
 import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
-import { settingsForConnection } from './aiConnections.js';
+import { reconcile, settingsForConnection } from './aiConnections.js';
 
 /** Every job, in the order the settings screen lists them. */
 export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
@@ -70,8 +70,15 @@ let stmts = null;
 const q = () => stmts ||= {
     all: db.prepare('SELECT job, connection_id, model, effort FROM ai_job_routes ORDER BY job, position'),
     conn: db.prepare('SELECT model FROM ai_connections WHERE id = ?'),
-    clearJob: db.prepare('DELETE FROM ai_job_routes WHERE job = ?'),
-    put: db.prepare('INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)'),
+    // A place in a list is the row named by (job, position) (a row from before
+    // uuids existed gets its uuid derived from them, server/syncTables.js; a
+    // new row gets a random one), so a save rewrites each place in place and
+    // keeps its uuid: a delete and re-insert would give every place a new
+    // identity on every save, with nothing changed.
+    put: db.prepare(`INSERT INTO ai_job_routes (job, position, connection_id, model, effort) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(job, position) DO UPDATE SET connection_id = excluded.connection_id,
+        model = excluded.model, effort = excluded.effort`),
+    dropFrom: db.prepare('DELETE FROM ai_job_routes WHERE job = ? AND position >= ?'),
     clearAll: db.prepare('DELETE FROM ai_job_routes'),
     note: db.prepare(`INSERT INTO ai_job_fallbacks (job, at, place, model, kind, status) VALUES (?, ${NOW_ISO}, ?, ?, ?, ?)
         ON CONFLICT(job) DO UPDATE SET at = excluded.at, place = excluded.place, model = excluded.model,
@@ -119,8 +126,8 @@ export function setJobRoute(job, route) {
         return { connectionId, model, effort };
     });
     db.transaction(() => {
-        q().clearJob.run(job);
         entries.forEach((e, i) => q().put.run(job, i, e.connectionId, e.model, e.effort));
+        q().dropFrom.run(job, entries.length);
         // A note is about the list it happened on. New backups change the list
         // of every job that has none of its own.
         if (job !== BACKUPS) q().forget.run(job);
@@ -199,6 +206,10 @@ export function chainFor(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
     if (envOverride()) return stamped([first], job, false);
+    // An entry with no model of its own is "the connection's saved model", and
+    // for the connection in use the model picker writes the active rows, not
+    // the row: let the row catch up before it is read.
+    reconcile();
     const routes = getJobRoutes();
     const listed = routes[job] || [];
     const own = listed.map(entrySettings).filter(Boolean);

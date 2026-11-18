@@ -8,6 +8,7 @@ import { visualOrigin } from '../../utils/taskPlace';
 import { readVisualPalette } from './palette';
 import { stampArrivalOrder, settleArrival, ARRIVAL_STAGE_MS } from './arrival';
 import ExportVisualModal from './ExportVisualModal';
+import { textTwinFor, twinHasBody, type TextTwin } from './textTwin';
 import { useStore, themeKeyOf } from '../../store';
 import { api } from '../../api';
 import { copyText } from '../../utils/clipboard';
@@ -16,11 +17,41 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 import { TextArea } from '../ui/Field';
+import { FOCUS_RING } from '../ui/vocabulary';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { useElementWidth } from '../../hooks/useElementWidth';
 
 /** Kinds rendered inside a sandboxed iframe, whose pixels the page cannot read. */
 const IFRAME_KINDS: ReadonlySet<string> = new Set(['p5', 'widget']);
+// Kinds whose stage holds controls (an animation's pause button, a sketch, a
+// widget): `role="img"` would make every control inside it presentational,
+// so these stages are a named group instead.
+const INTERACTIVE_KINDS: ReadonlySet<string> = new Set(['animation', 'p5', 'widget']);
+
+/**
+ * The text twin, for a screen reader and an agent reading the page: the
+ * chart's rows as a table, the diagram's arrows as a list (see textTwin.ts).
+ * Visually hidden; the stage points at it with `aria-describedby`.
+ */
+function TwinText({ id, twin }: { id: string; twin: TextTwin }) {
+    const shown = twin.table?.rows.length ?? twin.lines?.length ?? 0;
+    const total = twin.table?.total ?? shown;
+    return (
+        <div id={id} className="sr-only" data-text-twin>
+            {twin.table ? (
+                <table>
+                    <thead><tr>{twin.table.columns.map(c => <th key={c} scope="col">{c}</th>)}</tr></thead>
+                    <tbody>
+                        {twin.table.rows.map((row, i) => <tr key={i}>{row.map((v, j) => <td key={j}>{v}</td>)}</tr>)}
+                    </tbody>
+                </table>
+            ) : (
+                <ul>{twin.lines?.map((line, i) => <li key={i}>{line}</li>)}</ul>
+            )}
+            {total > shown && <p>{`(${shown} of ${total})`}</p>}
+        </div>
+    );
+}
 
 /**
  * The toolbar buttons, sized as TARGETS rather than as text.
@@ -904,6 +935,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
             : tr("Drawing (SVG)");
 
     const label = VISUAL_KIND_LABELS[kind] ?? kind;
+    const twin = useMemo(() => textTwinFor(kind, activeCode), [kind, activeCode]);
+    const twinId = `visual-twin-${blockId}`;
     const sourceVisible = showSource || status === 'error';
     const undrawnNoun = kind === 'p5' ? tr("simulation") : tr("animation");
 
@@ -1156,11 +1189,20 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
                 </div>
             )}
 
+            {/* An image read through its text twin: named by its kind and
+                title, described by the twin below it (labels, values, steps),
+                so a diagram's contents reach a screen reader as text. A stage
+                holding controls is a group instead. Focusable, because a wide
+                one scrolls sideways on a phone. */}
             <div
                 ref={containerRef}
-                role="img"
-                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
+                role={INTERACTIVE_KINDS.has(kind) ? 'group' : 'img'}
+                aria-label={twin.title ? `${label}: ${twin.title}` : label}
+                aria-describedby={status === 'ok' && twinHasBody(twin) ? twinId : undefined}
+                tabIndex={status === 'ok' ? 0 : -1}
+                className={`visual-block-stage overflow-x-auto p-2 sm:p-3 bg-white dark:bg-slate-900 ${FOCUS_RING} ${status === 'ok' ? '' : 'hidden'} ${arriving ? 'vb-arrive' : ''}`}
             />
+            {status === 'ok' && twinHasBody(twin) && <TwinText id={twinId} twin={twin} />}
 
             {/* A brief (or a widget spec) that is not built. Not an error and
                 not styled as one: while the reply is live this is the NORMAL

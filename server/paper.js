@@ -172,24 +172,6 @@ export function validatePaperExercise(raw) {
  * the card renders as one run-on wall of text.
  *
  * Rather than weaken the shared helper (its behaviour is load-bearing for every
- * quiz path), restore the newlines here — and only OUTSIDE math spans, since a
- * `\n` that matters as LaTeX is by definition inside `$…$` or `$$…$$`. Tabs and
- * form feeds are deliberately NOT restored: markdown has no use for them, while
- * `\times`, `\theta`, `\text` and `\frac` are constant, so the collision there
- * is worth losing in the other direction.
- */
-/**
- * Put real line breaks back into prose that came through escapeLatexBackslashes.
- *
- * That helper deliberately escapes `\n`, `\t` and `\f` inside JSON strings,
- * because a local model writes LaTeX with single backslashes and `\nabla`,
- * `\times`, `\frac` would otherwise be silently eaten by JSON.parse as control
- * characters. For a one-line quiz question that trade is right. For a paper
- * exercise it inverts: the brief and the worked solution are multi-paragraph
- * markdown, so EVERY intended line break arrives as a literal backslash-n and
- * the card renders as one run-on wall of text.
- *
- * Rather than weaken the shared helper (its behaviour is load-bearing for every
  * quiz path), restore the newlines here — resolving the one genuine ambiguity,
  * `\n` meaning "newline" versus `\n` starting a LaTeX command, by looking at
  * what actually follows the backslash.
@@ -326,9 +308,16 @@ const READ_PAGE_PROMPT =
 // the exercise brief it is handed is in the project's language — so an
 // English-only pattern silently fails open for every non-English learner, which
 // is the exact failure the whole two-stage split exists to prevent.
+//
+// The same patterns also run over a learner's own transcribed page, so a verb
+// alone ("я не могу", "I don't see") is never enough: it is how a worked answer
+// starts ("я не могу сократить дробь", "I don't see why the terms cancel"). The
+// English, Ukrainian and Russian ones name the image they cannot see, directly
+// ("I can't see the picture") or after up to four words of the same sentence
+// ("I can't see anything in the image", "Я не бачу нічого на зображенні").
 const NO_IMAGE_PATTERNS = [
     // English
-    /\b(?:i (?:can(?:not|'t)|am unable to|do not|don't) (?:see|view|access|process|read|analy[sz]e)|no image (?:was )?(?:provided|attached|found)|unable to (?:see|view|process|access) (?:the |any )?image|as an ai(?: language)? model|i don't have the ability to (?:see|view))/i,
+    /\b(?:(?:i (?:can(?:not|['’]t)|do not|don['’]t)|i(?: am|['’]m) unable to|unable to) (?:see|view|access|process|read|open|analy[sz]e|make out)\s+(?:(?:[a-z'’]+\s+){0,4}?(?:in|on|from|of)\s+)?(?:(?:the|any|this|that|an?|your|attached|uploaded)\s+)*(?:image|photo|picture|page|attachment|file|scan|handwriting)s?\b(?!\s+(?:number|name|size))|no image (?:was )?(?:provided|attached|found)|as an ai(?: language)? model|i don['’]t have the ability to (?:see|view))/i,
     // Dutch
     /\b(?:ik kan (?:de |het )?(?:afbeelding|beeld|foto)? ?niet (?:zien|bekijken|openen|verwerken|lezen)|geen (?:afbeelding|foto) (?:ontvangen|gevonden|aangeleverd)|als (?:een )?ai[- ]?(?:taal)?model)/i,
     // German
@@ -346,9 +335,9 @@ const NO_IMAGE_PATTERNS = [
     // Romanian
     /(?:nu (?:pot|reu[șs]esc s[ăa]) (?:vedea|v[ăa]d|accesa|accesez|procesa|procesez|citi|citesc)|nu v[ăa]d (?:nicio )?imagine|nicio imagine (?:nu a fost )?(?:furnizat[ăa]|g[ăa]sit[ăa])|ca (?:un )?model (?:lingvistic|de ia))/i,
     // Ukrainian
-    /(?:я не (?:можу|бачу) (?:побачити|переглянути|обробити|прочитати)?\s*(?:зображенн|фото|картинк)?|зображенн\p{L}* не (?:надано|знайдено)|як (?:мовна )?модель шту)/iu,
+    /(?:я не (?:можу|бачу)\s+(?:(?:побачити|переглянути|обробити|прочитати)\s+)?(?:\p{L}+\s+){0,4}?(?:зображенн|фото|картинк|знімк|сторінк|файл)|зображенн\p{L}* не (?:надано|знайдено)|як (?:мовна )?модель шту)/iu,
     // Russian
-    /(?:я не (?:могу|вижу) (?:увидеть|просмотреть|обработать|прочитать)?\s*(?:изображени|фото|картинк)?|изображени\p{L}* не (?:предоставлено|найдено)|как (?:языкова́?я )?модель ии|как ии[- ]модель)/iu,
+    /(?:я не (?:могу|вижу)\s+(?:(?:увидеть|просмотреть|обработать|прочитать)\s+)?(?:\p{L}+\s+){0,4}?(?:изображени|фото|картинк|снимк|страниц|файл)|изображени\p{L}* не (?:предоставлено|найдено)|как (?:языкова́?я )?модель ии|как ии[- ]модель)/iu,
 ];
 
 function looksLikeNoImage(text) {
@@ -359,10 +348,12 @@ function looksLikeNoImage(text) {
  *  the difference between "retake the photo" and a grade invented from nothing. */
 export function isUnreadable(text) {
     const t = String(text || '').trim();
-    if (t.length < 12) return true;
-    if (/^BLANK PAGE\.?$/i.test(t)) return true;
-    if (looksLikeNoImage(t)) return true;
-    return false;
+    return t.length < 12 || isBlankOrRefusal(t);
+}
+
+/** The reader's own "nothing here" and a model's "I can't see it", with no length rule. */
+function isBlankOrRefusal(t) {
+    return /^BLANK PAGE\.?$/i.test(t) || looksLikeNoImage(t);
 }
 
 /**
@@ -554,7 +545,12 @@ export async function gradePaperAttempt({ nodeId, feedItemId = null, exercise, i
     if (!grade) {
         return { status: 'error', imageHash: hash, transcription, error: 'The model did not return a usable grade.' };
     }
-    if (isUnreadable(transcription)) {
+    // A short answer is a real answer, so the one-pass marker's transcription is
+    // not length-checked: it is unreadable when it is empty (a marker that never
+    // read the page leaves it out), blank or a refusal, and the marker's own
+    // `readable` veto below speaks for the rest. A transcription the reader wrote
+    // on the fallback path was length-checked above.
+    if (!transcription.trim() || isBlankOrRefusal(transcription.trim())) {
         return {
             status: 'unreadable',
             imageHash: hash,

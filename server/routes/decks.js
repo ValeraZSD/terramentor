@@ -1,5 +1,7 @@
 // Deck projects: the deck view, its queue, teaching and deck settings.
-import { buildDeckData, getNewPerDay, setNewPerDay, studyQueue } from '../decks.js';
+import {
+    buildDeckData, getNewPerDay, getRetention, retentionForecast, setNewPerDay, setRetention, studyQueue,
+} from '../decks.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -86,10 +88,29 @@ app.put('/api/projects/:projectId/deck/settings', (req, res) => {
     const { projectId } = req.params;
     if (!requireProject(req, res)) return;
     try {
+        let retention = getRetention(projectId);
+        if (req.body?.retention != null) {
+            retention = setRetention(projectId, req.body.retention);
+            if (retention == null) {
+                return res.status(400).json({ error: 'retention must be a number from 0.7 to 0.97' });
+            }
+        }
         const newPerDay = req.body?.newPerDay != null
             ? setNewPerDay(projectId, req.body.newPerDay)
             : getNewPerDay(projectId);
-        res.json({ newPerDay });
+        res.json({ newPerDay, retention });
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// What each recall target would cost this course in answers a day, shown before
+// one is saved. A simulation through the scheduler; no model, nothing written.
+app.get('/api/projects/:projectId/deck/retention-forecast', (req, res) => {
+    const { projectId } = req.params;
+    if (!requireProject(req, res)) return;
+    try {
+        res.json(retentionForecast(Number(projectId)));
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }

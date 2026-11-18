@@ -72,7 +72,7 @@ they open the address, sign in, and add it to the home screen.
 | `copy.sh new <name> [--ai-key-file F]` | creates the volume and network, sets the password before the first start, starts the copy, adds its site to the proxy |
 | `copy.sh list` | every copy, running or stopped, with its address |
 | `copy.sh backup <name>` / `--all` | an online backup of each copy into `TM_BACKUP_DIR/<name>/` |
-| `copy.sh restore <name> <archive>` | reads the archive, stops the copy, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
+| `copy.sh restore <name> <archive> [--no-backup]` | reads the archive, backs the copy up as it is (needs `TM_BACKUP_DIR`), stops it, puts the backup in place, starts it; a backup that fails its check leaves the copy running on its own library |
 | `copy.sh update <name>` / `--all` | recreates the container from `TM_IMAGE`; the library stays |
 | `copy.sh remove <name> [--yes]` | backs the copy up first, then removes it, its volume, network and key |
 
@@ -239,7 +239,13 @@ Nightly, from root's crontab:
 off the server too: a backup on the same disk as the library survives a
 mistake, not a lost server.
 
-A restore is `copy.sh restore <name> <archive>`. Try one before you need one;
+A restore is `copy.sh restore <name> <archive>`. It first backs the copy up as
+it is, beside its other backups (and prints that archive's path), so a restore
+from the wrong archive is undone by restoring that one. That needs
+`TM_BACKUP_DIR` set in `hosted/.env`, also on a new server. A library whose
+last restore never finished is not backed up (it cannot be, and this restore
+is the repair); for one too damaged to back up, `--no-backup` goes on without
+the backup. Try one before you need one;
 `hosted/rehearse.sh` deletes a project, restores the backup and checks it is
 back.
 

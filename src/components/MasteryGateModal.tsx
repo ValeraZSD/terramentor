@@ -5,7 +5,7 @@ import { QuizQuestion, DrawnQuestion } from '../types';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
-import { formatOf, defaultAnswer } from './answer/formats';
+import { formatOf, answerHint, defaultAnswer } from './answer/formats';
 import { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useStore } from '../store';
@@ -120,6 +120,7 @@ export default function MasteryGateModal({
     // review screen offers a video search ("Basics" alone is a useless query).
     const projectName = useStore(s => s.projects.find(p => p.id === projectId)?.name ?? null);
     const runtime = useStore(s => aiRuntime(s.aiProvider, s.aiModel));
+    const forgiveSpelling = useStore(s => s.forgiveSpelling);
     const runtimeRef = useRef(runtime);
     runtimeRef.current = runtime;
 
@@ -734,8 +735,8 @@ export default function MasteryGateModal({
                                                     value={answers[currentQ] || ''}
                                                     onChange={(answer) => handleAnswer(currentQ, answer)}
                                                 />
-                                                {formatOf(q).hint && (
-                                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t(formatOf(q).hint!)}</p>
+                                                {answerHint(q, forgiveSpelling) && (
+                                                    <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">{t(answerHint(q, forgiveSpelling)!)}</p>
                                                 )}
                                             </>
                                         )}

@@ -1,11 +1,99 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import ColorField, { ACCENT_COLORS, THEME_TINTS } from '../ui/ColorField';
+import SegmentedControl from '../ui/SegmentedControl';
 import { tintSwatch } from '../../utils/themeRamp';
+import { AppIconColour, AppIconShape, IconPreview } from './AppIconPanel';
+
+type Target = 'page' | 'accent' | 'icon';
+
+/** A colour's chip inside a segment. Its inset edge is darker than a palette
+ *  chip's (`SWATCH_EDGE`, 12%): at 16px that edge vanished, and a white page
+ *  on the switch's grey track read as nothing at all. A SQUARE, like the chips
+ *  below it: a round white one beside a word read as an unticked radio button.
+ *  16px, the size the icon's own preview is drawn at.
+ *
+ *  `page` draws it as a tiny window, a darker strip along its top: the page's
+ *  usual colour is white, and a plain white square beside a word is a
+ *  checkbox, which no amount of edge contrast changed. */
+function Dot({ hex, page = false }: { hex: string; page?: boolean }) {
+    return (
+        <span
+            aria-hidden="true"
+            className="relative w-4 h-4 rounded overflow-hidden shrink-0 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.35)] dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.4)]"
+            style={{ background: hex }}
+        >
+            {page && <span className="absolute inset-x-0 top-0 h-1 bg-black/35 dark:bg-white/40" />}
+        </span>
+    );
+}
 
 /**
- * The tint palette alone; the row it sits in supplies its name and its line.
+ * Settings → General → Appearance → Colours: the page, the accent and the app
+ * icon's tile, chosen in ONE palette.
+ *
+ * They were three palettes, two open and one inside a disclosure, which spent
+ * about 330px of the card on 48 chips and still hid the third. The three are
+ * already one family — the same sixteen names in the same slots, each at its
+ * own rung (`palette-order-gates.mjs`) — so one palette with a switch above it
+ * offers exactly what the three did. The switch carries each target's current
+ * colour, so all three values stay visible while only one is being changed.
+ *
+ * The switch starts on the page every time the screen opens; which target was
+ * last edited is not worth a stored setting. It spans the row and its segments
+ * share it equally, so it never breaks into loose pills: "Icon", not "App
+ * icon", because the longest translation of the latter ("Icono de la
+ * aplicación") pushed the third segment onto a line of its own on a phone.
+ *
+ * Each target's one line sits under the switch, in the same place for all of
+ * them, so it is read before a colour is pressed rather than beside the value
+ * field after.
+ *
+ * The segments say "Page" and "Accent"; their FULL names name the palette for
+ * a screen reader (the group round it) and are each segment's tooltip, since
+ * the palette itself is called only "Colour" whichever target it serves.
+ */
+export function ColourChooser() {
+    const { t: tr } = useTranslation();
+    const [target, setTarget] = useState<Target>('page');
+    const theme = useStore(s => s.theme);
+    const themeTint = useStore(s => s.themeTint);
+    const accentColor = useStore(s => s.accentColor);
+    const appIcon = useStore(s => s.appIcon);
+    const line = target === 'page' ? tr("White is no tint at all.")
+        : target === 'accent' ? tr("Projects keep their own colour.")
+        : null;
+    const name: Record<Target, string> = {
+        page: tr("Page colour"),
+        accent: tr("Accent colour"),
+        icon: tr("App icon"),
+    };
+    return (
+        <div className="w-full">
+            <SegmentedControl
+                label={tr("Colours")}
+                value={target}
+                onChange={setTarget}
+                block
+                options={[
+                    { value: 'page', title: name.page, label: <span className="inline-flex items-center gap-2"><Dot page hex={tintSwatch(theme, themeTint)} />{tr("Page")}</span> },
+                    { value: 'accent', title: name.accent, label: <span className="inline-flex items-center gap-2"><Dot hex={accentColor} />{tr("Accent")}</span> },
+                    { value: 'icon', title: name.icon, label: <span className="inline-flex items-center gap-2"><span className="inline-flex rounded ring-1 ring-black/35 dark:ring-white/40"><IconPreview icon={appIcon} size={16} variant="tile" /></span>{tr("Icon")}</span> },
+                ]}
+            />
+            {line && <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">{line}</p>}
+            <div className="mt-4" role="group" aria-label={name[target]}>
+                {target === 'page' && <ThemeTintField />}
+                {target === 'accent' && <AccentField />}
+                {target === 'icon' && <><AppIconColour /><AppIconShape /></>}
+            </div>
+        </div>
+    );
+}
+
+/**
+ * The tint palette alone; the switch above it supplies its name and its line.
  *
  * THE CHIPS ARE DRESSED FOR THE MODE YOU ARE IN. The sixteen tints are stored
  * as pastels because a pastel is the LIGHT register — they are generated at one
@@ -37,13 +125,11 @@ export function ThemeTintField() {
             onChange={setThemeTint}
             colors={THEME_TINTS}
             swatch={pageOf}
-            hint={tr("White is no tint at all.")}
         />
     );
 }
 
-/** The accent palette alone — its name and its one line come from the
- *  `SettingRow` that holds it, like every other setting on the page. */
+/** The accent palette alone; its name and its line come from the switch above it. */
 export function AccentField() {
     const accentColor = useStore(s => s.accentColor);
     const setAccentColor = useStore(s => s.setAccentColor);

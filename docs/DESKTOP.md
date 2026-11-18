@@ -107,7 +107,7 @@ macOS), then the pointer file, then the per-user folder above.
 The app updates itself, in two presses:
 
 1. When a check finds a newer version (Settings → Library & about → About → *Check now*,
-   or *Check daily*), a button appears at the top of the window: **Update to**
+   or *Check automatically*, which asks every four hours, and on waking when the last answer is over an hour old), a button appears at the top of the window: **Update to**
    and the new version's number (**Update available** on the nightly channel). Resting the pointer on it shows what the new version changes;
    on a phone, a tap opens a dialog with the same list. Press it and the new
    version downloads in the background. The press first asks GitHub once more,
@@ -294,7 +294,7 @@ Design decisions worth knowing before changing it:
 - **The window is not the process.** A native app dies with its window; a
   server does not know a tab closed. So the page heartbeats
   (`src/hooks/useDesktop.ts` → `POST /api/desktop/ping`) and the server stops
-  itself when every window has been silent for 45 s (`server/desktop.js`).
+  itself when every window has been silent for 90 s (`server/desktop.js`).
   The rule is wall-clock, not "the browser process I spawned exited", because
   Chromium hands off to a running instance and exits at once, and because a
   phone over Tailscale is a window too.

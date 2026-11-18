@@ -154,7 +154,14 @@ const refuses = (key, value) => {
     try { got = SETTINGS[key].validate(value); } catch (e) { refused = e instanceof SettingValueError; got = e; }
     check(`${key} refuses ${JSON.stringify(value)}`, refused, `stored ${JSON.stringify(got)}`);
 };
-takes('theme', 'dark'); refuses('theme', 'purple');
+takes('theme', 'dark'); takes('theme', 'system'); refuses('theme', 'purple');
+// Settings → Accessibility: every row the section writes, in the shape it sends.
+takes('contrast', 'more'); takes('contrast', 'system'); refuses('contrast', 'high');
+takes('motion', 'reduce'); takes('motion', 'full'); refuses('motion', 'off');
+for (const k of ['letter_spacing', 'word_spacing', 'line_spacing']) { takes(k, 'widest'); refuses(k, '2em'); }
+for (const k of ['reading_line', 'read_aloud', 'card_audio_autoplay', 'confirm_answers']) { takes(k, 'true'); takes(k, 'false'); refuses(k, 'on'); }
+takes('speech_rate', '140'); refuses('speech_rate', '20'); refuses('speech_rate', '300');
+takes('drill_time_scale', 'off');
 takes('theme_tint', '#1e293b'); refuses('theme_tint', 'red; background: url(x)');
 takes('theme_surfaces', JSON.stringify({ mode: 'dark', tint: '#000000', background: '#0f172a', theme: '#0f172a' }));
 refuses('theme_surfaces', '[1,2]'); refuses('theme_surfaces', '{nope');

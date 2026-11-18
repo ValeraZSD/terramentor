@@ -234,11 +234,27 @@ export function tintSwatch(mode: ThemeMode, tint: string): string {
     return readTint(tint, 'light').strength === 0 ? themeRamp('light', tint)['100'] : tint;
 }
 
+/**
+ * MORE CONTRAST: the middle of the ramp moves toward the text end, so muted
+ * text, borders and dividers stand further off the page while the page and the
+ * cards keep their colour. Each rung takes a darker (light mode) or lighter
+ * (dark mode) rung's value; the surfaces (`white`-`100` light, `800`-`900`
+ * dark) are untouched, so nothing a reader recognises the page by changes.
+ * Muted text on white goes from 4.8:1 (slate-500) to 7.6:1 (slate-600's value).
+ */
+const MORE_CONTRAST: Record<ThemeMode, Partial<Record<Rung, Rung>>> = {
+    light: { '200': '300', '300': '400', '400': '600', '500': '600', '600': '800' },
+    dark: { '400': '300', '500': '300', '600': '400', '700': '600' },
+};
+
 /** The same thing as the CSS variables it is written to — one object the store
  *  can spread onto a style, cache in `localStorage` and hand to the boot script,
  *  so nothing has to reimplement the arithmetic before the first paint. */
-export function themeVars(mode: ThemeMode, tint: string | null | undefined): Record<string, string> {
-    const ramp = themeRamp(mode, tint);
+export function themeVars(mode: ThemeMode, tint: string | null | undefined, moreContrast = false): Record<string, string> {
+    const base = themeRamp(mode, tint);
+    const ramp = moreContrast ? { ...base, ...Object.fromEntries(
+        Object.entries(MORE_CONTRAST[mode]).map(([rung, from]) => [rung, base[from as Rung]]),
+    ) } as Record<Rung, string> : base;
     const vars: Record<string, string> = {};
     for (const rung of RUNGS) {
         const [r, g, b] = hexToRgb(ramp[rung]) as [number, number, number];

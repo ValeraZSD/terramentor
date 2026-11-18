@@ -36,7 +36,9 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
     const accentStyle = accent && { ...accent, borderLeftColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
 
     return (
-        <section
+        // An article, not a section: a named section is a landmark, and the
+        // stream holds several cards on the same topic under the same name.
+        <article
             ref={ref}
             style={accentStyle}
             aria-label={nodeTitle || projectName || t("Feed card")}
@@ -78,7 +80,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
                 )}
                 {children}
             </div>
-        </section>
+        </article>
     );
 });
 

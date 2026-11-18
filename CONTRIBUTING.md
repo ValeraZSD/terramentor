@@ -68,8 +68,9 @@ Things that will be declined regardless of quality:
   honest rather than motivating.
 - **Telemetry, analytics, crash reporting.** The no-outbound-traffic claim in `SECURITY.md` is
   verifiable and must stay that way. The one exception, and the shape any future outbound
-  feature has to take: the update check is a **button**, plus a **daily poll that ships off**,
-  it sends the version and nothing else, and it is named in `SECURITY.md` with a procedure for
+  feature has to take: the update check is a **button**, plus an **automatic check that ships off**,
+  it sends the version and nothing about you (the only other header is the ETag GitHub
+  returned last time, held in memory), and it is named in `SECURITY.md` with a procedure for
   catching it lying. An unconditional ping, an install identifier, or anything counted per user
   is still declined.
 - **A required cloud service** for any core loop.
@@ -302,7 +303,7 @@ signing job runs in a GitHub environment that holds the key: `release-nightly` s
 own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
 the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+that move (`latest`, the minor and major lines, or `nightly`) move last. The image's exact-version tag
 is pushed before the approval, so rejecting a stable run leaves that one image tag behind
 (nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
 job after the release is public; if that job fails, the release stays installable (installs

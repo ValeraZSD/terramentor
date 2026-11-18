@@ -27,6 +27,8 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     const addToast = useStore(s => s.addToast);
     const codeRunner = useStore(s => s.codeRunner);
     const setCodeRunner = useStore(s => s.setCodeRunner);
+    const forgiveSpelling = useStore(s => s.forgiveSpelling);
+    const setForgiveSpelling = useStore(s => s.setForgiveSpelling);
 
     // Mastery & gating
     const [gateMode, setGateMode] = useState<'off' | 'advisory' | 'enforced'>('enforced');
@@ -207,6 +209,20 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
             {/* YOUR FEED — the home stream's dials (src/components/settings/FeedSettingsPanel.tsx). */}
             <section className={active ? 'mb-8' : 'hidden'}>
                 <FeedSettingsPanel active={active} />
+            </section>
+
+            {/* TYPED ANSWERS — spelling slips forgiven on request
+                (server/answerFormats.js, spellingSlipOf). Off by default:
+                in a language course the spelling is often the skill. */}
+            <section className={active ? 'mb-8' : 'hidden'}>
+                <SettingGroup title={tr("Typed answers")}>
+                    <SettingRow
+                        label={tr("Forgive spelling slips")}
+                        htmlFor="setting-forgive-spelling"
+                        hint={tr("One small slip in a longer word counts as right, and the right spelling is shown. A wrong letter in place of another still counts as wrong. Leave this off when spelling is what you are learning.")}
+                        control={<Switch id="setting-forgive-spelling" label={tr("Forgive spelling slips")} checked={forgiveSpelling} onChange={(on) => void setForgiveSpelling(on)} />}
+                    />
+                </SettingGroup>
             </section>
 
             {/* CODE ANSWERS — run on this device (src/runner/), or judged by the

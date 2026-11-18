@@ -17,7 +17,8 @@
 //      learner would be, not yet knowing their own) while recall is drawn from
 //      the TRUE ones — the exact mismatch the optimiser exists to close.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -383,6 +384,41 @@ console.log('\n--- retention report ---');
     const repDefault = retentionReport(DEFAULT_W, data);
     check('under the DEFAULT parameters this learner is over-promised (expected > observed) — the readout says so',
         repDefault.expected > repDefault.observed, `${repDefault.expected.toFixed(3)} vs ${repDefault.observed.toFixed(3)}`);
+}
+
+// Every worker the server starts is a file that exists where its URL points.
+// A `new URL('./x.js', import.meta.url)` resolves against the file that holds
+// it, so moving a handler into server/routes/ moved its worker's address too,
+// and the optimizer then failed on every press with a module-not-found error.
+// The scan reads server/*.js and server/routes/*.js and matches only the inline
+// single-quoted `new Worker(new URL('...', import.meta.url))` form.
+{
+    const serverDir = new URL('../server/', import.meta.url);
+    const files = ['', 'routes/'].flatMap(sub => readdirSync(new URL(sub, serverDir))
+        .filter(f => f.endsWith('.js')).map(f => new URL(sub + f, serverDir)));
+    const workers = files.flatMap(file => [...readFileSync(file, 'utf8')
+        .matchAll(/new Worker\(\s*new URL\(\s*'([^']+)'\s*,\s*import\.meta\.url\s*\)/g)]
+        .map(m => ({ file, target: new URL(m[1], file) })));
+    check('the server starts at least one worker (the optimizer)', workers.some(w => w.target.href.endsWith('/fsrsOptimizerWorker.js')));
+    for (const w of workers) {
+        check(`worker ${fileURLToPath(w.target).replace(/.*[\\/]server[\\/]/, 'server/')} exists`, existsSync(w.target));
+    }
+    // A file that exists can still fail to start (a broken import, a payload it
+    // no longer reads), so the optimiser's worker is booted once on an empty
+    // history: it must answer with a result, not an error or a silent exit.
+    const optimizerWorker = workers.find(w => w.target.href.endsWith('/fsrsOptimizerWorker.js'));
+    if (optimizerWorker) {
+        const { Worker } = await import('node:worker_threads');
+        const booted = await new Promise((resolve) => {
+            const worker = new Worker(optimizerWorker.target, { workerData: { sequences: [], options: { steps: 1 } } });
+            const timer = setTimeout(() => { worker.terminate(); resolve('no answer in 10 s'); }, 10_000);
+            const done = (v) => { clearTimeout(timer); resolve(v); };
+            worker.on('message', (m) => { if (m.result) done('result'); else if (m.error) done(`error: ${m.error}`); });
+            worker.on('error', (e) => done(`error: ${e.message}`));
+            worker.on('exit', () => done('exited without a result'));
+        });
+        check('the optimiser worker boots and answers with a result', booted === 'result', booted);
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

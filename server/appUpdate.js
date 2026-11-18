@@ -225,7 +225,13 @@ async function rangeRead(fetchImpl, url, start, end, signal) {
                 // A body the server already dropped rejects the cancel; the
                 // answer is still "no ranges", not a network failure.
                 await res.body?.cancel().catch(() => {});
-                throw new UpdateError('no-range', `The download server answered ${res.status} to a partial request.`);
+                // A busy file host (408, 429 or any 5xx) is a hiccup on this
+                // request: it is retried like a dropped connection and must not
+                // turn a few MB of delta into the whole package. Every other
+                // answer (a 200 that ignores Range, a 416, a 400/403/404/501
+                // that will not change) means no ranges: the whole zip.
+                const busy = res.status === 408 || res.status === 429 || (res.status >= 500 && res.status !== 501);
+                throw new UpdateError(busy ? 'network' : 'no-range', `The download server answered ${res.status} to a partial request.`);
             }
             const buf = Buffer.from(await res.arrayBuffer());
             if (buf.length !== end - start + 1) throw new UpdateError('network', 'A part of the download arrived cut short.');
@@ -469,18 +475,25 @@ async function stageByRanges({ core, asset, ref, appRoot, nextDir, fetchImpl, si
     const reuseBytes = plan.reuse.reduce((n, f) => n + f.size, 0);
     let checked = 0, next = 0, since = 0;
     onProgress({ step: 'checking', received: 0, total: reuseBytes, mode: 'delta' });
+    // One worker failing stops the rest, and the step ends only when all eight
+    // have: `Promise.all` would reject at once and leave seven still linking
+    // files into the staging folder, where a second try then races them.
+    let failure = null;
     const worker = async () => {
-        while (next < plan.reuse.length) {
-            if (signal.aborted) throw signal.reason;
-            const f = plan.reuse[next++];
-            const local = join(appRoot, ...f.path.split('/'));
-            const ok = existsSync(local) && statSync(local).size === f.size && await core.sha256File(local) === f.sha256;
-            if (ok) reuse(appRoot, nextDir, f.path); else toFetch.push(f);
-            checked += f.size;
-            if (++since >= 50) { since = 0; onProgress({ step: 'checking', received: checked, total: reuseBytes, mode: 'delta' }); }
-        }
+        try {
+            while (next < plan.reuse.length && !failure) {
+                if (signal.aborted) throw signal.reason;
+                const f = plan.reuse[next++];
+                const local = join(appRoot, ...f.path.split('/'));
+                const ok = existsSync(local) && statSync(local).size === f.size && await core.sha256File(local) === f.sha256;
+                if (ok) reuse(appRoot, nextDir, f.path); else toFetch.push(f);
+                checked += f.size;
+                if (++since >= 50) { since = 0; onProgress({ step: 'checking', received: checked, total: reuseBytes, mode: 'delta' }); }
+            }
+        } catch (e) { failure ??= { error: e }; }
     };
     await Promise.all(Array.from({ length: 8 }, worker));
+    if (failure) throw failure.error;
     // Resume: a file already staged with the right hash stays.
     const todo = [];
     for (const f of toFetch) {

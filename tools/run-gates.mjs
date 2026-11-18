@@ -19,7 +19,7 @@
  * rather than passing or failing.
  *
  *   node tools/run-gates.mjs            all suites
- *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses
+ *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses and the axe browser scan
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -38,6 +38,8 @@ const self = 'run-gates.mjs'; // this file matches the glob it defines — skip 
 
 const suites = readdirSync(toolsDir)
     .filter((f) => f.endsWith('-gates.mjs') && f !== self)
+    // The browser scan of every screen is the slowest suite; --quick leaves it out with the harnesses.
+    .filter((f) => !(quick && f === 'axe-gates.mjs'))
     .sort()
     .map((f) => join(toolsDir, f));
 
@@ -59,8 +61,11 @@ for (const script of targets) {
     const run = spawnSync(process.execPath, [script], {
         cwd: repoRoot,
         encoding: 'utf8',
-        timeout: 180_000,
+        // The axe suite may build dist/ and opens some eighty screens in a browser.
+        timeout: label === 'tools/axe-gates.mjs' ? 900_000 : 180_000,
         killSignal: 'SIGKILL',
+        // A failing axe run prints every element it names.
+        maxBuffer: 64 * 1024 * 1024,
         env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
     const ms = Date.now() - t0;
