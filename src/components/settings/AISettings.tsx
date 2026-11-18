@@ -122,6 +122,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // is fetched when the panel is opened, never when Settings is.
     const [servingEndpoints, setServingEndpoints] = useState<ServingEndpoint[] | null>(null);
     const [endpointsLoading, setEndpointsLoading] = useState(false);
+    const [endpointsError, setEndpointsError] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(() => {
         try {
             // No built-in default: `server/ai.js` deliberately has none either, and
@@ -268,7 +269,8 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // on screen must be about; an answer for another is dropped, and a list that
     // was open is asked again for the new one. A request that failed is no
     // answer: the list stays unasked, so opening it again retries, rather than
-    // saying the endpoint has nothing to publish.
+    // saying the endpoint has nothing to publish. The failure itself is said,
+    // with a button that asks again, so the section does not end in silence.
     const endpointsKey = `${activeConnection?.id ?? ''}|${openaiModel}`;
     const endpointsFor = useRef(endpointsKey);
     const endpointsPending = useRef<string | null>(null);
@@ -279,11 +281,18 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         if (endpointsPending.current === asked) return;
         endpointsPending.current = asked;
         setEndpointsLoading(true);
+        setEndpointsError(null);
         try {
             const result = await api.getServingEndpoints(openaiModel || undefined);
-            if (endpointsFor.current === asked) setServingEndpoints(result.available ? result.endpoints : []);
-        } catch {
-            if (endpointsFor.current === asked) setServingEndpoints(null);
+            if (endpointsFor.current === asked) {
+                setServingEndpoints(result.available ? result.endpoints : []);
+                setEndpointsError(null);
+            }
+        } catch (e) {
+            if (endpointsFor.current === asked) {
+                setServingEndpoints(null);
+                setEndpointsError(e instanceof Error && e.message ? e.message : tr("Could not read it"));
+            }
         } finally {
             if (endpointsPending.current === asked) {
                 endpointsPending.current = null;
@@ -294,6 +303,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     useEffect(() => {
         endpointsFor.current = endpointsKey;
         setServingEndpoints(null);
+        setEndpointsError(null);
         if (endpointsWanted.current && activeConnection?.kind === 'openrouter') void loadServingEndpoints();
     }, [endpointsKey]);
 
@@ -682,6 +692,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                 providerSort={providerSort}
                                 servingEndpoints={servingEndpoints}
                                 endpointsLoading={endpointsLoading}
+                                endpointsError={endpointsError}
                                 loadServingEndpoints={loadServingEndpoints}
                                 chooseProviderSort={chooseProviderSort}
                                 toggleProvider={toggleProvider}

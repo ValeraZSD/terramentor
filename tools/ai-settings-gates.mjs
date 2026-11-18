@@ -193,6 +193,25 @@ endpointsFor = () => { throw new Error('The endpoint timed out'); };
 await setOpen(true);
 ok('a failed read does not say the endpoint publishes no list', !said(NO_LIST) && slugs() === '', said(NO_LIST) ? 'says it' : slugs());
 ok('and nothing is left showing as asking', !said('Asking the endpoint'));
+// Unasked is not silent: the section says the read failed and offers to ask.
+const retryButton = () => [...(details()?.querySelectorAll('button') ?? [])].find((b) => b.textContent.trim() === 'Try again');
+ok('the failure is said, in the server\'s words', said('The endpoint timed out'), (details()?.textContent ?? '').slice(-160));
+ok('with a Try again button beside it', !!retryButton());
+endpointsFor = () => rowsFor('a1');
+const callsBefore = endpointCalls.length;
+await click(retryButton());
+ok('Try again asks again and draws the list', endpointCalls.length === callsBefore + 1 && slugs() === 'a1', `${endpointCalls.length - callsBefore} request(s), ${slugs()}`);
+ok('and the failure line is gone', !said('The endpoint timed out') && !retryButton());
+// A failure for one model is not carried to the next.
+await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
+endpointsFor = (m) => { if (m === 'model-a') throw new Error('The endpoint timed out'); return rowsFor('b1'); };
+await setOpen(true);
+await click(doc.getElementById('pick-b'));
+ok('another model drops the old model\'s failure', !said('The endpoint timed out') && slugs() === 'b1', slugs());
+// Closing and opening again also asks again.
+await mount({ ai_enabled: 'true', ai_provider: 'openai', ai_openai_model: 'model-a' });
+endpointsFor = () => { throw new Error('The endpoint timed out'); };
+await setOpen(true);
 endpointsFor = () => rowsFor('a1');
 await setOpen(false);
 await setOpen(true);

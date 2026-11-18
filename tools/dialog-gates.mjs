@@ -434,6 +434,19 @@ section('a connection saved in the Add dialog is reported however the dialog clo
     check('the answer lands on the open dialog: the model step', !!doc.querySelector('[role="dialog"] button[aria-haspopup="listbox"]') || [...doc.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent === 'Done'));
     press('Escape');
     check('and closing it then reports the saved connection once', closed === 1 && done.length === 1 && done[0][0] === 8, `${closed} close(s), ${JSON.stringify(done)}`);
+
+    // Back leaves the form as surely as the X does: started from the list of
+    // providers, it is offered, and it waits for the save like the X.
+    mountAdd({ open: false });
+    globalThis.__api.addConnection = () => new Promise((r) => { answer = r; });
+    mountAdd({});
+    const ollamaTile = [...doc.querySelectorAll('[role="dialog"] button')].find((b) => /Ollama/.test(b.textContent));
+    await act(async () => { ollamaTile?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    const back = () => [...doc.querySelectorAll('[role="dialog"] button')].find((b) => b.textContent.trim() === 'Back');
+    check('picked from the list, the form offers Back', !!back() && !back().disabled);
+    await connect();
+    check('and Back is disabled while "Test and connect" is out', !!back() && back().disabled, back() ? `disabled=${back().disabled}` : 'no Back');
+    await act(async () => { answer({ id: 9, activeId: 9, test: { ok: true, models: 0, listed: true } }); });
     mountAdd({ open: false });
     delete globalThis.__api;
 }
