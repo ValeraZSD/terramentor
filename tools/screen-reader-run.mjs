@@ -346,7 +346,8 @@ try {
     // Inside the try: if NVDA does not start, the scratch library is still removed
     // and the transcript still says why.
     try {
-        await nvda.start({ capture: 'initial' });
+        // Every phrase an action causes: 'initial' keeps only the first one of each action.
+        await nvda.start({ capture: true });
     } catch (err) {
         transcript.start = { name: 'start NVDA', steps: [], expect: [], error: err.message };
         throw err;
