@@ -285,7 +285,9 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
             // repeats the dock's own capsule — because two chips side by side
             // on a bare bar ran into each other and could not be told apart.
             // The dock is still the container; the tint only draws the seam.
-            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
+            // min-h, not h: with the larger setting its buttons are 44px tall,
+            // and a fixed 36px chip let the dock's rail cut them to 36.
+            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 min-h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
                 ${task.status === 'queued' ? 'opacity-70' : ''}`}
             // Scoped here, on the chip's own root, so everything accented
             // inside it — the progress token, the focus rings — says which

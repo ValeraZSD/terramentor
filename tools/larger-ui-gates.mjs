@@ -480,6 +480,7 @@ const ROWS = `(() => {
                 // its title keeps: a deep row must not push either out.
                 over: Math.round(row.scrollWidth - row.clientWidth),
                 titleW: Math.round(title.getBoundingClientRect().width),
+                pad: parseFloat(getComputedStyle(row).paddingLeft),
                 rowW: Math.round(b.width),
                 rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
                 text: title.textContent.trim().slice(0, 30),
@@ -607,7 +608,11 @@ for (const [state, m] of Object.entries(seen)) {
         // a 280px tree with the switch on.
         const deepest = Math.max(...m.rows.filter((r) => r.list === 'tree').map((r) => r.depth));
         check(`${state}: the tree shows the chain down to depth ${DEEPEST}`, state.includes(' phone ') || deepest === DEEPEST, `deepest ${deepest}`);
-        const squeezed = m.rows.filter((r) => r.over > 1 || r.titleW < MIN_TITLE * r.rem - 1);
+        // A title under MIN_TITLE is the indent's fault only where the row is
+        // indented: an unindented row in a narrow tree at 160% has no more to
+        // give (the tree's width answers for that, and `over` still counts).
+        const basePad = Object.fromEntries(['tree', 'outline'].map((l) => [l, Math.min(...m.rows.filter((r) => r.list === l).map((r) => r.pad))]));
+        const squeezed = m.rows.filter((r) => r.over > 1 || (r.titleW < MIN_TITLE * r.rem - 1 && r.pad > basePad[r.list] + 1));
         check(`${state}: every title keeps ${MIN_TITLE}rem inside its row, at every depth`, squeezed.length === 0,
             list(squeezed, (r) => `${r.list} depth ${r.depth} "${r.text}": title ${r.titleW}px in a ${r.rowW}px row, ${r.over}px past it`));
         const wrong = m.rows.filter((r) => r.first !== 'column');

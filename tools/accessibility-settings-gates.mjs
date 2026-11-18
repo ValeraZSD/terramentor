@@ -415,7 +415,8 @@ section('8. larger text and buttons: one switch, two floors');
         /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute right-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
         && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-right: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
     check('the course tree is wide enough for a 44px column, a title and a grip, never past 30% of its row',
-        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css));
+        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css)
+        && /html\[data-larger-ui\] \{\s*--row-tree-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);\s*--row-outline-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));

@@ -495,6 +495,16 @@ html[data-larger-ui] [data-fold-spacer] {
 html[data-larger-ui] [data-course-sidebar] {
   min-width: min(17.5rem, 30%);
 }
+/* So a tree that narrow (160% text on an 800px window) is shorter than a
+   chapter row: its 44px column, badge, 44px title and percentage ran the
+   title 13px out of the row. The percentage drops to a second line, at the
+   row's end, and only when the row has no room for it. */
+html[data-larger-ui] [data-sidebar-row] {
+  flex-wrap: wrap;
+}
+html[data-larger-ui] [data-sidebar-row] > [data-row-progress] {
+  margin-left: auto;
+}
 /* A phase's tick bar (dashboard/PhaseProgress.tsx) is one 12px row that hides
    its overflow, so a long phase cannot widen the page. With the floor every
    tick is 44px each way, and a 100-topic phase no longer fits one row: the
@@ -525,9 +535,12 @@ html[data-larger-ui] [data-tick-bar] {
   --row-tree-reserve: 9.75rem;
   --row-outline-reserve: 13rem;
 }
+/* With the setting on, the 44px column is var(--target-floor), which stays
+   44px when an 80% interface size makes 2.75rem only 35px: a reserve in rem
+   alone let a level 6 row take 5px of its title back. */
 html[data-larger-ui] {
-  --row-tree-reserve: 11.5rem;
-  --row-outline-reserve: 15.5rem;
+  --row-tree-reserve: calc(8.75rem + var(--target-floor));
+  --row-outline-reserve: calc(12.75rem + var(--target-floor));
 }/* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
