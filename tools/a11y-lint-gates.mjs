@@ -166,11 +166,11 @@ check('a jsx-a11y rule named without its prefix is still read as that rule',
 
 /** Whether a .js file holds JSX: an element (`<a `, `<my-el/>`, `<svg:g>`) where an expression starts, or a fragment `<>`.
  *  The position rule keeps a comparison such as `a<b ` from reading as a tag. */
-const hasJsx = (text) => /(?:^|[=(,?:{}[;&|>]|\b(?:return|default|case|else|yield|await|throw))\s*<[A-Za-z][\w.:-]*[\s/>]|<\/?>/m.test(text);
+const hasJsx = (text) => /(?:^|[=(,?:{}[;&|>]|\b(?:return|default|case|else|yield|await|throw|void|typeof))\s*<[A-Za-z][\w.:-]*[\s/>]|<\/?>/m.test(text);
 check('JSX is seen in a .js file, hyphenated and fragment elements and after a keyword too; plain JS is not',
     hasJsx('export const C = () => <my-element aria-labeledby="x" />;') && hasJsx('const F = () => <>x</>;')
     && hasJsx('const D = () => <div>x</div>;') && hasJsx('export default <img src="x.png" />;')
-    && hasJsx('function E() { throw <p>x</p>; }') && !hasJsx('for (let i = 0; i<length; i++) if (a<b || a < b) x();')
+    && hasJsx('function E() { throw <p>x</p>; }') && hasJsx('void <img src="x.png" />;') && hasJsx('typeof <p>x</p>;') && !hasJsx('for (let i = 0; i<length; i++) if (a<b || a < b) x();')
     && !hasJsx(readFileSync(join(ROOT, 'src', 'sw-template.js'), 'utf8')));
 
 // Comments that switch a jsx-a11y rule off where they stand.
