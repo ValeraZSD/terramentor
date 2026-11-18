@@ -322,6 +322,17 @@ const MEASURE = `(() => {
         textRuns++;
         if (size < minText) text.push({ text: n.nodeValue.trim().slice(0, 40), size: (size / rem).toFixed(3) + 'rem', where: where(el) });
     }
+    // What a field shows (its value, else its placeholder; a select's chosen
+    // option) is painted text but no text node, so the walk above never sees
+    // it: a 44px field could show its value at 10px.
+    for (const el of document.querySelectorAll('input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), textarea, select')) {
+        const value = el.matches('select') ? (el.selectedOptions[0]?.textContent ?? '') : (el.value || el.placeholder || '');
+        if (!value.trim() || !shown(el, true)) continue;
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        if (el.closest('[data-gate-probe]')) { if (el.dataset.probe === 'valueText') probe.valueFont = { small: size < minText }; continue; }
+        textRuns++;
+        if (size < minText) text.push({ text: 'field: ' + value.trim().slice(0, 33), size: (size / rem).toFixed(3) + 'rem', where: where(el) });
+    }
     // In forced colours every control wears a frame (its outline). An
     // ancestor that clips its overflow and does not scroll must leave that
     // frame whole: a title button 4px wider than its truncating heading kept
@@ -395,6 +406,9 @@ const PROBE = `(() => {
     box.style.cssText = 'position:fixed;left:-400px;top:0;width:300px;--f:max(2.75rem,44px)';
     box.innerHTML = '<button type="button" data-probe="small" class="w-5 h-5 p-0">x</button>'
         + '<span data-probe="text" class="text-3xs">probe</span>'
+        // A full-size field whose value is drawn at 10px (set inline, so the
+        // setting does not raise it): only the text count can catch it.
+        + '<input data-probe="valueText" value="probe" style="display:block;width:100%;height:max(3rem, 48px);font-size:0.625rem">'
         + '<button type="button" data-probe="tall" class="min-h-16 w-full">tall</button>'
         // A drill's answer: 3rem asked, and never under 44px at 80%.
         + '<button type="button" data-probe="answer" class="min-h-12 w-full border-2">answer</button>'
@@ -490,6 +504,7 @@ for (const [state, m] of Object.entries(seen)) {
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
         !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));
+    check(`${state}: a 44px field showing its value at 10px is seen as small text`, p.valueFont?.small === true && p.valueText?.small === false, JSON.stringify([p.valueFont, p.valueText]));
     // Clipping counts: the clipped spill is 24px tall whatever the setting.
     check(`${state}: a switch whose spill is clipped, by itself or by a box round it, is seen as too small`,
         p.clipped?.small === true && p.wrapped?.small === true, JSON.stringify([p.clipped, p.wrapped]));

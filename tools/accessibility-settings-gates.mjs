@@ -223,15 +223,41 @@ section('8. larger text and buttons: one switch, two floors');
     // for more than the floor in that direction.
     const rules = [...css.matchAll(/html\[data-larger-ui\] :is\(([^)]*(?:\([^)]*\)[^)]*)*)\):not\(([^{]*)\)\s*\{([^}]*)\}/g)];
     const [hRule, wRule] = rules;
-    const kinds = ['button', 'select', 'summary', 'a[href]', 'input', '[role="button"]', '[role="tab"]', '[role="option"]'];
+    // Whole entries of the :is() list, split at top-level commas only, so
+    // `[role="button"]` never stands in for a missing `button` and
+    // `input:not(...)` stays one entry.
+    const entries = (list) => {
+        const out = [];
+        let depth = 0, from = 0;
+        for (let i = 0; i <= list.length; i++) {
+            const c = list[i];
+            if (c === '(') depth++;
+            else if (c === ')') depth--;
+            else if ((c === ',' && depth === 0) || i === list.length) { out.push(list.slice(from, i).trim()); from = i + 1; }
+        }
+        return out;
+    };
+    const kinds = ['button', 'select', 'summary', 'a[href]', '[role="button"]', '[role="tab"]', '[role="option"]'];
+    const covers = (list) => { const e = entries(list); return kinds.every(s => e.includes(s)) && e.some(s => /^input(?::|$)/.test(s)); };
+    check('a rule that lost the native button is caught',
+        covers('button, select, summary, a[href], input, [role="button"], [role="tab"], [role="option"]')
+        && !covers('select, summary, a[href], input, [role="button"], [role="tab"], [role="option"]'));
     check('every control kind is held to the floor each way, never under 44px at any interface size',
-        rules.length === 2 && rules.every(r => kinds.every(s => r[1].includes(s)))
+        rules.length === 2 && rules.every(r => covers(r[1]))
         && /^\s*min-height:\s*var\(--target-floor\);\s*$/.test(hRule[3]) && /^\s*min-width:\s*var\(--target-floor\);\s*$/.test(wRule[3])
         && /--target-floor:\s*max\(2\.75rem, 44px\)/.test(root), `${rules.length} rules`);
     // Only a link in a sentence; a chip drawn in an answer sits in .prose
     // under `not-prose` and is a control like any other.
     check('a link inside running text is left its line (WCAG 2.5.5), a chip in an answer is not',
         rules.length === 2 && rules.every(r => /:is\(p, blockquote, \.prose\) a:not\(\.not-prose \*\)/.test(r[2])));
+    // larger-ui-gates measures a copy of the phase bar; this pins the copy to
+    // the real one: the dashboard's bar wears the hook the grid rule reads,
+    // and its topics are the bar's own children.
+    const phase = code(read('src/components/dashboard/PhaseProgress.tsx'));
+    check('the dashboard phase bar wears the hook the 44px grid rule reads',
+        /<div data-tick-bar className=\{`flex h-3 w-full overflow-hidden /.test(phase)
+        && /data-tick-bar[\s\S]{0,300}?>\s*\{milestone\.segments\.map\(\(segment, i\) => \(\s*<div\s[\s\S]{0,300}?role="button"/.test(phase)
+        && /html\[data-larger-ui\] \[data-tick-bar\] \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(var\(--target-floor\), 1fr\)\);/.test(css));
     const switchTsx = read('src/components/ui/Switch.tsx');
     check('a switch keeps its track; its target already spills to 44px',
         rules.length === 2 && rules.every(r => /\[role="switch"\]/.test(r[2]))
@@ -281,7 +307,9 @@ section('8. larger text and buttons: one switch, two floors');
     };
     const openingElements = (src) => {
         const out = [];
-        for (const m of src.matchAll(/(?:^|[\s({>])<([A-Za-z][\w.]*)(?=[\s/>])/g)) {
+        // After space, a bracket, a tag's end, or a compact operator:
+        // `{ready?<button ... />:null}`, `ok&&<a ...>`, `[<li .../>,<li .../>]`.
+        for (const m of src.matchAll(/(?:^|[\s({[>?:&|,])<([A-Za-z][\w.]*)(?=[\s/>])/g)) {
             let j = m.index + m[0].length;
             const attrs = {};
             while (j < src.length && src[j] !== '>') {
@@ -329,7 +357,10 @@ section('8. larger text and buttons: one switch, two floors');
             '<button type="button" className = "min-w-[22rem]">',
             '<div data-role="row" className="min-w-[23rem]" role = {"tab"} />',
             '<div role={/* in a list */ "option"} className="min-w-[26rem]" />',
-        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem],min-w-[26rem]');
+            '{ready?<button className="min-w-[27rem]" />:null}',
+            '{ready ? null:<button className="min-w-[28rem]" />}',
+            '{ok&&<button className="min-w-[29rem]" />}',
+        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem],min-w-[26rem],min-w-[27rem],min-w-[28rem],min-w-[29rem]');
     check('...and a wide div, a string after a control, or a class outside className does not',
         tallClasses('min-w', [
             '<div className="min-w-[15rem]">{x}</div>',
