@@ -373,6 +373,9 @@ let searchSeq = 0;
  *  or open a study scope on the page after it (A → B → A included, where the
  *  project id alone says the stale continuation is still current). */
 let routeSeq = 0;
+/** Which loadPaceData call is the newest. A save or a removal bumps it too, so
+ *  a pace answer asked for before the plan changed is not drawn after it. */
+let paceSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
 /** The study hub is asked for on two paths at once (StudyDashboard's effect and
@@ -2628,6 +2631,7 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
+            paceSeq++;
             // The allocator's English warnings are not shown. The pace ones
             // ("Pace is very intense…"): the plan panel's verdict says whether
             // the date works, measured against the learner's own pace. "Some
@@ -2647,8 +2651,9 @@ export const useStore = create<AppState>((set, get) => ({
     removeSchedule: async (projectId) => {
         try {
             await api.removeSchedule(projectId);
+            paceSeq++;
             await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
+            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null, paceLoading: false }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
             return true;
         } catch (e: any) {
@@ -2658,13 +2663,14 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadPaceData: async (projectId) => {
+        const seq = ++paceSeq;
         set({ paceLoading: true });
+        const current = () => seq === paceSeq && get().currentProjectId === projectId;
         try {
             const pace = await api.getProjectPace(projectId);
-            if (get().currentProjectId !== projectId) return;
-            set({ paceData: pace, paceLoading: false });
+            if (current()) set({ paceData: pace, paceLoading: false });
         } catch {
-            if (get().currentProjectId === projectId) set({ paceLoading: false });
+            if (current()) set({ paceLoading: false });
         }
     },
 
