@@ -244,32 +244,88 @@ section('8. larger text and buttons: one switch, two floors');
     // The floor replaces a control's own min-height/min-width, so every class
     // in the app that asks for 44px or more must be spared by its rule.
     const remPx = v => { const m = /^([0-9.]+)(rem|px)$/.exec(v); return m ? Number(m[1]) * (m[2] === 'rem' ? 16 : 1) : null; };
-    // Only a class on a control counts: the rule cannot match a layout box,
-    // and a `min-w-[9.5rem]` on a div once had to be spared to pass. The
-    // element is the nearest JSX tag opened before the class; it is a control
-    // by its tag or by a role the floor names.
+    // Only a class a control declares counts: the rule cannot match a layout
+    // box, and a `min-w-[9.5rem]` on a div once had to be spared to pass.
+    // Each JSX opening element is read whole (its braces, strings and template
+    // literals skipped over, so `=>` and `x > 1` do not end it); it is a
+    // control by its tag or by a role the floor names, in any attribute
+    // order, and only the tokens in its own `className` value count.
     const CONTROL_TAG = /^(button|a|select|summary|input|Button|IconButton|LinkButton|Link|NavLink)$/;
     const CONTROL_ROLE = /\brole=\{?["'`](button|tab|option|menuitem\w*|radio|checkbox)["'`]/;
-    const onControl = (src, at) => {
-        const opens = [...src.slice(0, at).matchAll(/(?:^|[\s({>])<([A-Za-z][\w.]*)/g)];
-        const last = opens[opens.length - 1];
-        return !!last && (CONTROL_TAG.test(last[1]) || CONTROL_ROLE.test(src.slice(last.index, at)));
+    // From an opening `{` or quote at `i`, the index just past its close.
+    const skip = (src, i) => {
+        const open = src[i];
+        if (open !== '{') {
+            for (let j = i + 1; j < src.length; j++) {
+                if (src[j] === '\\') j++;
+                else if (src[j] === open) return j + 1;
+                else if (open === '`' && src[j] === '$' && src[j + 1] === '{') j = skip(src, j + 1) - 1;
+            }
+            return src.length;
+        }
+        for (let j = i + 1; j < src.length; j++) {
+            const c = src[j];
+            if (c === '}') return j + 1;
+            if (c === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) j = comment(src, j) - 1;
+            else if (c === '{' || c === '"' || c === "'" || c === '`') j = skip(src, j) - 1;
+        }
+        return src.length;
+    };
+    // A comment between attributes or in an expression ("the card's own
+    // words") holds quotes that open nothing.
+    const comment = (src, i) => {
+        const end = src[i + 1] === '/' ? src.indexOf('\n', i) : src.indexOf('*/', i) + 1;
+        return end <= 0 ? src.length : end + 1;
+    };
+    const openingElements = (src) => {
+        const out = [];
+        for (const m of src.matchAll(/(?:^|[\s({>])<([A-Za-z][\w.]*)(?=[\s/>])/g)) {
+            const start = m.index + m[0].length;
+            let j = start, className = null;
+            while (j < src.length && src[j] !== '>') {
+                if (src.startsWith('className=', j) && /\s/.test(src[j - 1])) {
+                    const v = j + 'className='.length;
+                    const end = skip(src, v);
+                    className = src.slice(v, end);
+                    j = end;
+                } else if (src[j] === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) j = comment(src, j);
+                else if (src[j] === '{' || src[j] === '"' || src[j] === "'") j = skip(src, j);
+                else j++;
+            }
+            const attrs = src.slice(start, j);
+            out.push({ tag: m[1], className, control: CONTROL_TAG.test(m[1]) || CONTROL_ROLE.test(attrs) });
+        }
+        return out;
     };
     const tallClasses = (prop, sources = SRC.map(f => read(f))) => {
         const out = new Set();
         for (const src of sources) {
-            for (const m of src.matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
-                const v = m[1];
-                const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
-                if (px !== null && px > 44 && onControl(src, m.index)) out.add(`${prop}-${v}`);
+            for (const el of openingElements(src)) {
+                if (!el.control || !el.className) continue;
+                for (const m of el.className.matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
+                    const v = m[1];
+                    const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
+                    if (px !== null && px > 44) out.add(`${prop}-${v}`);
+                }
             }
         }
-        return [...out];
+        return [...out].sort();
     };
-    check('the spared-class scan reads controls only: a wide button counts, a wide div does not',
-        tallClasses('min-w', ['<button type="button" className="min-w-[15rem]">', '<div role="option" className="min-w-[16rem]">'])
-            .join() === 'min-w-[15rem],min-w-[16rem]'
-        && tallClasses('min-w', ['<div className="min-w-[15rem]">{x}</div>', 'const c = useRef<HTMLDivElement>(null); <p className="min-w-[17rem]" />']).length === 0);
+    check('the spared-class scan reads what a control declares: a wide button or option counts, in any attribute order',
+        tallClasses('min-w', [
+            '<button type="button" className="min-w-[15rem]">',
+            '<div role="option" className="min-w-[16rem]">',
+            '<div className="min-w-[17rem]" role="option" />',
+            '<div\n  role="button"\n  // named by the card\'s own words\n  className="min-w-[21rem]"\n>',
+            '<button className={cx(\'a\', big && `min-w-[18rem] ${x > 1 ? "b" : ""}`)} onClick={() => go(x > 1)}>',
+        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem]');
+    check('...and a wide div, a string after a control, or a class outside className does not',
+        tallClasses('min-w', [
+            '<div className="min-w-[15rem]">{x}</div>',
+            'const c = useRef<HTMLDivElement>(null); <p className="min-w-[17rem]" />',
+            'const action = <button />; const example = "min-w-[15rem]";',
+            '<button title="min-w-[19rem]" onClick={() => setW("min-w-[20rem]")}>',
+        ]).length === 0);
     const spared = (cls, not) => cls.includes('[')
         ? not.includes(`[class*="${cls}"]`) || (cls.startsWith('min-h-') && not.includes('[class*="min-h-["]'))
         : not.includes(`.${cls}`);
