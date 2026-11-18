@@ -20,6 +20,7 @@ import {
 import { CalendarViewMode, CalendarDay } from '../../types';
 import { Chip } from '../ui/Chip';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useToday } from '../../hooks/useToday';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
@@ -29,7 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { CalendarNav } from './CalendarNav';
 import { useCalendarKeys, useCalendarFocusOnOpen } from './calendarKeys';
 import { isNarrowCalendar, isCompactCalendar, isWeekGrid, chipsNameCourse } from './calendarLayout';
-import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } from '../../utils/locale';
+import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel, fullDateLabel } from '../../utils/locale';
 
 /**
  * THE calendar. One component, two scopes.
@@ -150,7 +151,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     // Read every render, and a dependency of the scaffolds below: they bake
     // `isToday` into each day, so a calendar left open across midnight would
     // keep ringing yesterday while the late groups (also keyed on this) had
-    // already moved to the new day.
+    // already moved to the new day. `useToday` is what renders at midnight
+    // (and when the page is shown again) with nothing else changing.
+    useToday();
     const today = todayStr();
     const scaffolds = useMemo(() => {
         const buildFor = (offset: number): CalendarDay[] => {
@@ -680,6 +683,9 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             <button
                                 type="button"
                                 data-day-open
+                                /* Named by the whole date: the digits alone
+                                   repeat when the next month's first days show. */
+                                aria-label={fullDateLabel(day.date)}
                                 title={tr("Open this day")}
                                 onClick={e => { e.stopPropagation(); openDay(day.date); }}
                                 /* A flex box, so the number sits where the old span did

@@ -73,6 +73,27 @@ function rangeFormat(locale: string, year: boolean): RangeFormat {
     return fmt;
 }
 
+const fullDateFormats = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * A calendar day in full, "Tuesday 18 November 2026", in the interface
+ * language: the name of a control that shows only the day's number, so a
+ * screen reader does not hear "1" twice in a month that shows the next one's
+ * first days. `iso` is a `YYYY-MM-DD` day at UTC midnight. One formatter per
+ * language, since a month grid asks for 42 at once.
+ */
+export function fullDateLabel(iso: string): string {
+    const d = new Date(`${iso}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return '';
+    const locale = uiLocale();
+    let fmt = fullDateFormats.get(locale);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+        fullDateFormats.set(locale, fmt);
+    }
+    return fmt.format(d);
+}
+
 /**
  * The narrowest weekday label, by ISO day (1 = Monday … 7 = Sunday) — for the
  * seven-tickbox study week, where the row has to fit on a phone.

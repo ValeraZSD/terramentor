@@ -992,6 +992,15 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             // The button itself carries no margin, so today's filled circle stays put.
             && ![...curr().querySelectorAll('button[data-day-open]')].some(b => /(?:^|\s)-m[xl]-/.test(b.className)),
             dayNumber('2026-11-10')?.className);
+        // Its name is the whole date: the digits alone said "1, button" twice
+        // in a month that also shows the next month's first days.
+        const dayNames = [...curr().querySelectorAll('button[data-day-open]')].map(b => b.getAttribute('aria-label') ?? '');
+        check('month: each day number is named by its full date, no two alike',
+            /November/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '')
+            && /\b10\b/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '') && /2026/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '')
+            && dayNames.every(n => !/^\d+$/.test(n.trim()) && n.length > 0) && new Set(dayNames).size === dayNames.length,
+            `${dayNumber('2026-11-10')?.getAttribute('aria-label')}; ${new Set(dayNames).size} names for ${dayNames.length} days`);
+        check('month: the day number is in the Tab order', dayNumber('2026-11-10')?.tabIndex === 0, String(dayNumber('2026-11-10')?.tabIndex));
         await click(dayNumber('2026-11-10'), 'a day number in the month');
         check('month: pressing the day number opens that day as a week',
             radio('Week')?.getAttribute('aria-checked') === 'true' && !!curr().querySelector('[data-date="2026-11-10"]'),
@@ -1136,12 +1145,28 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         const marked = (date) => /bg-accent\/\[0\.07\]/.test(host2.querySelector(`[data-panel="curr"] [data-date="${date}"]`)?.className ?? '');
         check('before midnight the 4th is the marked day', marked('2026-11-04') && !marked('2026-11-05'),
             `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
+        // Nothing else changes here: no store write, no click. A laptop woken
+        // from sleep shows the page again, and that alone moves the mark.
         NOW = new Date(2026, 10, 5, 0, 5).getTime();
-        await view.act(async () => { view.useStore.setState({ tree: [...view.useStore.getState().tree] }); }); await settle();
-        check('after midnight the marked day moves to the 5th, in the same open view',
+        await view.act(async () => { doc.dispatchEvent(new window.Event('visibilitychange')); }); await settle();
+        check('after midnight the marked day moves to the 5th when the page is shown again, nothing else changing',
             marked('2026-11-05') && !marked('2026-11-04'), `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
         NOW = new Date(2026, 10, 4, 12).getTime();
         unmount2(); host2.remove();
+        // Left open on screen: the view's own timer renders the new day just
+        // after midnight. Mounted 0.2 s before it, so the timer is due in 1.2 s.
+        NOW = new Date(2026, 10, 4, 23, 59, 59, 800).getTime();
+        const host4 = doc.createElement('div'); doc.body.append(host4);
+        const unmount4 = view.mount(host4, { kind: 'project', projectId: 9 });
+        await settle();
+        const marked4 = (date) => /bg-accent\/\[0\.07\]/.test(host4.querySelector(`[data-panel="curr"] [data-date="${date}"]`)?.className ?? '');
+        const before4 = marked4('2026-11-04') && !marked4('2026-11-05');
+        NOW = new Date(2026, 10, 5, 0, 0, 1).getTime();
+        await view.act(async () => { await new Promise(r => setTimeout(r, 1500)); }); await settle();
+        check('a view left open across midnight marks the new day by itself',
+            before4 && marked4('2026-11-05') && !marked4('2026-11-04'), `before ${before4}; after ${marked4('2026-11-04')} / ${marked4('2026-11-05')}`);
+        NOW = new Date(2026, 10, 4, 12).getTime();
+        unmount4(); host4.remove();
 
         // -- an empty library ---------------------------------------------------------
         g.__calendarRange = () => ({ projects: [], tasks: [] });

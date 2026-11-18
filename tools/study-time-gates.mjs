@@ -638,7 +638,7 @@ section('5. the page left open past midnight');
     mkdirSync(cache, { recursive: true });
     const pageScratch = mkdtempSync(join(cache, 'study-clock-gates-'));
     const outfile = join(pageScratch, 'page.cjs');
-    await esbuild.build({
+    const built = esbuild.build({
         plugins: [{
             name: 'clock-stubs',
             setup(b) {
@@ -669,6 +669,8 @@ section('5. the page left open past midnight');
         bundle: true, format: 'cjs', platform: 'node', outfile,
         jsx: 'automatic', packages: 'external', logLevel: 'silent',
     });
+    // A failed build still removes its scratch folder.
+    await built.catch((e) => { rmSync(pageScratch, { recursive: true, force: true }); throw e; });
 
     const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
     const { window } = dom;
@@ -705,6 +707,12 @@ section('5. the page left open past midnight');
         eq('…and the figure shown is the new day\'s, not yesterday\'s', host.textContent, '0');
         await page.act(async () => { await page.flushStudyTime(); }); await settle();
         eq('…and once it has the new day it stops asking', sent.length, 2);
+
+        // A server whose day stays behind the device's (another time zone, a
+        // wrong clock): asked once for the device's new day, not every flush.
+        NOW = new Date(2026, 10, 6, 0, 5).getTime(); // the server still answers the 5th
+        for (let i = 0; i < 3; i++) { await page.act(async () => { await page.flushStudyTime(); }); await settle(); }
+        eq('a server that keeps naming another day is asked once per device day, not on every flush', sent.length, 3);
         unmount();
     } finally {
         for (const [k, d] of Object.entries(saved)) {
