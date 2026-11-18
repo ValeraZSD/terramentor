@@ -777,7 +777,8 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
     const LATE = [101, 102, 103, 104, 105];
     // LOCAL noon: `todayStr()` reads local getters, and UTC noon is already
     // the 5th in UTC+12 to +14.
-    const NOW = new Date(2026, 10, 4, 12).getTime();
+    // `let`: one check moves the clock past midnight with the view still open.
+    let NOW = new Date(2026, 10, 4, 12).getTime();
 
     // The store and the API, replaced. The view reads both through these two
     // module paths and nothing else here.
@@ -971,6 +972,41 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
             `drawn: ${monthIds.filter(id => LATE.includes(id))}`);
         check('month: today\'s cell holds the overdue group', /^4 overdue/.test(group('overdue')?.textContent.trim() ?? ''),
             group('overdue')?.textContent ?? 'none');
+        // A cell holding task chips and late groups is not itself a button: a
+        // button role flattens the real buttons inside it for a screen reader and
+        // doubles every Tab stop. The cell stays a pointer target and its day
+        // number is the button.
+        check('month: no cell is role="button", and no button sits inside one',
+            !curr().querySelector('[role="button"]') && [...curr().querySelectorAll('button')].every(b => !b.closest('[role="button"]')),
+            `${curr().querySelectorAll('[role="button"]').length} role=button elements`);
+        const dayNumber = (date) => curr().querySelector(`[data-date="${date}"] button[data-day-open]`);
+        check('month: every cell\'s day number is a real button',
+            curr().querySelectorAll('[data-date]').length > 0
+            && [...curr().querySelectorAll('[data-date]')].every(c => c.querySelector('button[data-day-open]')),
+            `${curr().querySelectorAll('button[data-day-open]').length} of ${curr().querySelectorAll('[data-date]').length}`);
+        // A button's own line box sat the number ~4px lower than the span it
+        // replaced, and its ring touched the digits: a flex box with side padding.
+        check('month: the day number keeps its place and its ring clears the digits',
+            /\binline-flex\b/.test(dayNumber('2026-11-10')?.className ?? '')
+            && /\bpx-0\.5\b/.test(dayNumber('2026-11-10')?.firstElementChild?.className ?? '')
+            && /group-focus-visible\/day:outline\b/.test(dayNumber('2026-11-10')?.firstElementChild?.className ?? '')
+            // The button itself carries no margin, so today's filled circle stays put.
+            && ![...curr().querySelectorAll('button[data-day-open]')].some(b => /(?:^|\s)-m[xl]-/.test(b.className)),
+            dayNumber('2026-11-10')?.className);
+        // Its name is the whole date: the digits alone said "1, button" twice
+        // in a month that also shows the next month's first days.
+        const dayNames = [...curr().querySelectorAll('button[data-day-open]')].map(b => b.getAttribute('aria-label') ?? '');
+        check('month: each day number is named by its full date, no two alike',
+            /November/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '')
+            && /\b10\b/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '') && /2026/.test(dayNumber('2026-11-10')?.getAttribute('aria-label') ?? '')
+            && dayNames.every(n => !/^\d+$/.test(n.trim()) && n.length > 0) && new Set(dayNames).size === dayNames.length,
+            `${dayNumber('2026-11-10')?.getAttribute('aria-label')}; ${new Set(dayNames).size} names for ${dayNames.length} days`);
+        check('month: the day number is in the Tab order', dayNumber('2026-11-10')?.tabIndex === 0, String(dayNumber('2026-11-10')?.tabIndex));
+        await click(dayNumber('2026-11-10'), 'a day number in the month');
+        check('month: pressing the day number opens that day as a week',
+            radio('Week')?.getAttribute('aria-checked') === 'true' && !!curr().querySelector('[data-date="2026-11-10"]'),
+            `week: ${radio('Week')?.getAttribute('aria-checked')}`);
+        await click(radio('Month'));
         // The cell itself opens its day as a WEEK on a desktop: the group's
         // press must not reach it.
         await click(group('overdue'), 'an overdue group on today (month)');
@@ -1105,7 +1141,33 @@ console.log('\n--- late work: one group on today, a Day list, a course filter --
         check('selecting a late topic brings back today, its group ringed',
             /\bring-accent\b/.test(g2sel?.className ?? ''), g2sel ? g2sel.className : 'today not on screen');
         await view.act(async () => { view.useStore.setState({ selectedNodeId: null }); }); await settle();
+        // Left open across midnight: the ring moves to the new day with the next
+        // render, as the overdue group already does, without the learner paging.
+        const marked = (date) => /bg-accent\/\[0\.07\]/.test(host2.querySelector(`[data-panel="curr"] [data-date="${date}"]`)?.className ?? '');
+        check('before midnight the 4th is the marked day', marked('2026-11-04') && !marked('2026-11-05'),
+            `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
+        // Nothing else changes here: no store write, no click. A laptop woken
+        // from sleep shows the page again, and that alone moves the mark.
+        NOW = new Date(2026, 10, 5, 0, 5).getTime();
+        await view.act(async () => { doc.dispatchEvent(new window.Event('visibilitychange')); }); await settle();
+        check('after midnight the marked day moves to the 5th when the page is shown again, nothing else changing',
+            marked('2026-11-05') && !marked('2026-11-04'), `${marked('2026-11-04')} / ${marked('2026-11-05')}`);
+        NOW = new Date(2026, 10, 4, 12).getTime();
         unmount2(); host2.remove();
+        // Left open on screen: the view's own timer renders the new day just
+        // after midnight. Mounted 0.2 s before it, so the timer is due in 1.2 s.
+        NOW = new Date(2026, 10, 4, 23, 59, 59, 800).getTime();
+        const host4 = doc.createElement('div'); doc.body.append(host4);
+        const unmount4 = view.mount(host4, { kind: 'project', projectId: 9 });
+        await settle();
+        const marked4 = (date) => /bg-accent\/\[0\.07\]/.test(host4.querySelector(`[data-panel="curr"] [data-date="${date}"]`)?.className ?? '');
+        const before4 = marked4('2026-11-04') && !marked4('2026-11-05');
+        NOW = new Date(2026, 10, 5, 0, 0, 1).getTime();
+        await view.act(async () => { await new Promise(r => setTimeout(r, 1500)); }); await settle();
+        check('a view left open across midnight marks the new day by itself',
+            before4 && marked4('2026-11-05') && !marked4('2026-11-04'), `before ${before4}; after ${marked4('2026-11-04')} / ${marked4('2026-11-05')}`);
+        NOW = new Date(2026, 10, 4, 12).getTime();
+        unmount4(); host4.remove();
 
         // -- an empty library ---------------------------------------------------------
         g.__calendarRange = () => ({ projects: [], tasks: [] });
