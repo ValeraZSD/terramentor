@@ -121,17 +121,18 @@ check(`oxlint read the client sources (${files} files)`, files > 100);
  */
 function directives(text) {
     const found = [];
-    text.split('\n').forEach((line, i) => {
-        for (const m of line.matchAll(/(?:\/\/|\/\*)\s*(?:eslint|oxlint)-disable(?:-next-line|-line)?(?![\w-])([^\n]*)/g)) {
-            const body = m[1].split(/\*\/|--/)[0];
-            found.push({ line: i + 1, rules: body.match(/[\w@/-]+\/[\w-]+|[\w-]+/g) ?? [] });
-        }
-    });
+    // A block comment may hold the directive on a later line than its opener.
+    for (const m of text.matchAll(/(?:\/\/[ \t]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])([^\n]*)/g)) {
+        const body = m[2].split(/\*\/|--/)[0];
+        const at = m.index + m[0].indexOf(m[1]);
+        found.push({ line: text.slice(0, at).split('\n').length, rules: body.match(/[\w@/-]+\/[\w-]+|[\w-]+/g) ?? [] });
+    }
     return found;
 }
 check('a directive in a comment is read, the same words in a string are not',
     directives("const tip = 'add eslint-disable jsx-a11y/alt-text to hide it';\n").length === 0
     && JSON.stringify(directives('  {/* eslint-disable-next-line jsx-a11y/no-autofocus */}\n')) === '[{"line":1,"rules":["jsx-a11y/no-autofocus"]}]'
+    && JSON.stringify(directives('x;\n{/*\n  eslint-disable-next-line jsx-a11y/alt-text\n*/}\n')) === '[{"line":3,"rules":["jsx-a11y/alt-text"]}]'
     && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]');
 
 // Comments that switch a jsx-a11y rule off where they stand.

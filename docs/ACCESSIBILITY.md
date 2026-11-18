@@ -317,7 +317,7 @@ has nothing the criterion is about.
 | 1.4.4 Resize Text | Not evaluated | Text size goes to 160% and browser zoom is allowed; 200% is not tested. |
 | 1.4.5 Images of Text | Supports | Text, maths included, is real text. |
 | 1.4.10 Reflow | Not evaluated | Phone layouts are scanned at 390 px wide; 320 px is not tested. |
-| 1.4.11 Non-text Contrast | Partially supports | Only text and accent fills are measured; borders and icons are not. |
+| 1.4.11 Non-text Contrast | Not evaluated | Only text and accent fills are measured; borders and icons are not. |
 | 1.4.12 Text Spacing | Not evaluated | The widest spacing setting meets these values; no screen is checked for clipped text at it. |
 | 1.4.13 Content on Hover or Focus | Not evaluated | Tooltips are the browser's own; the atlas's hover card has not been checked. |
 | 2.4.5 Multiple Ways | Supports | The header, search (Ctrl+K, or Cmd+K on a Mac) and the atlas index. |
@@ -329,7 +329,7 @@ has nothing the criterion is about.
 | 3.1.2 Language of Parts | Partially supports | Course text carries its course's language; assistant answers do not. |
 | 3.2.3 Consistent Navigation | Supports | The header and its tabs are the same on every screen. |
 | 3.2.4 Consistent Identification | Supports | One set of shared controls, held by `control-gates.mjs`. |
-| 3.3.3 Error Suggestion | Partially supports | Not yet reviewed form by form. |
+| 3.3.3 Error Suggestion | Not evaluated | Not yet reviewed form by form. |
 | 3.3.4 Error Prevention (Legal, Financial, Data) | Supports | Deleting asks first; a card rating and an assistant change can be undone. |
 | 3.3.8 Accessible Authentication (Minimum) | Supports | Password fields accept pasting and password managers; there is no puzzle. |
 | 4.1.3 Status Messages | Partially supports | A review session's cards and answers, feed verdicts and assistant answers are announced; a rating, Undo, a topic's own card list, and drill and quiz results are not. |

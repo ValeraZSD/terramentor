@@ -95,6 +95,13 @@ let current;
 
 const spoken = async () => (await nvda.spokenPhraseLog()).map((s) => s.trim()).filter(Boolean);
 
+/** `read()` until it differs from `was`, for up to `ms`; the last value read. */
+async function changed(read, was, ms = 5000) {
+    let now = await read();
+    for (const end = Date.now() + ms; now === was && Date.now() < end; now = await read()) await sleep(250);
+    return now;
+}
+
 /** One step: what NVDA said from the moment `act` started until it went quiet. */
 async function step(label, act) {
     await nvda.clearSpokenPhraseLog();
@@ -213,7 +220,7 @@ const TASKS = {
             const rated = await shown();
             const graded = await step('Space on Good', () => nvda.press('Space'));
             // The rating itself is checked on the page; what NVDA said about it is the expectation.
-            const next = await shown();
+            const next = await changed(shown, rated);
             if (next && next === rated) throw new Error('Space on Good left the same card on screen');
             expect('the next card (or the end of the session) is read out',
                 next ? heard(graded, next.slice(0, 80)) : graded.length > 0);
@@ -288,8 +295,7 @@ const TASKS = {
             const dropped = await step('Space: drop', () => nvda.press('Space'));
             expect('the drop is announced', /dropped|moved/i.test(dropped));
             // The move itself is checked on the page; the speech above is only the expectations.
-            await sleep(800);
-            if (!was || (await order()) === was) throw new Error('the outline order did not change after the drop');
+            if (!was || (await changed(order, was)) === was) throw new Error('the outline order did not change after the drop');
         },
     },
 };
