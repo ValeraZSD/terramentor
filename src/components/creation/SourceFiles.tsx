@@ -16,6 +16,8 @@ import { Button, IconButton } from '../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../ui/Popover';
 import { cx, FOCUS_RING } from '../ui/vocabulary';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
+import type { NumberOptions } from '../../utils/numberFormat';
 
 /** One file in the dialog: being read, read, or refused before it was sent. */
 export interface SourceFile {
@@ -32,8 +34,11 @@ export interface SourceFile {
 /** The per-file cap the server enforces (`MAX_FILE_BYTES`, server/extract.js). */
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-const humanSize = (bytes: number) =>
-    bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+/** The digits follow the interface language (`fmt`); KB and MB are the symbols. */
+const humanSize = (bytes: number, fmt: (value: number, options?: NumberOptions) => string) =>
+    bytes < 1024 * 1024
+        ? `${fmt(Math.max(1, Math.round(bytes / 1024)))} KB`
+        : `${fmt(bytes / 1024 / 1024, { decimals: 1 })} MB`;
 
 /** A file the run can build from: read, with text in it. */
 export const usableSource = (f: SourceFile) => f.status === 'done' && !!f.doc?.ok && !f.doc.noText;
@@ -230,6 +235,7 @@ export default function SourceFiles({ files, onAdd, onRemove }: {
 
 function SourceRow({ file, onRemove }: { file: SourceFile; onRemove: () => void }) {
     const { t } = useTranslation();
+    const fmt = useNumberFormat();
     const doc = file.doc;
     let icon = <Loader2 className="h-4 w-4 shrink-0 animate-spin text-slate-500 dark:text-slate-400" aria-hidden="true" />;
     let line: ReactNode = t("Reading…");
@@ -289,7 +295,7 @@ function SourceRow({ file, onRemove }: { file: SourceFile; onRemove: () => void 
             <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                     <span className={cx('min-w-0 truncate text-sm font-medium', leftOut ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100')}>{file.name}</span>
-                    {failed && <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{humanSize(file.size)}</span>}
+                    {failed && <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{humanSize(file.size, fmt)}</span>}
                 </div>
                 {line && <p className={cx('text-sm', tone)} title={title}>{line}</p>}
             </div>

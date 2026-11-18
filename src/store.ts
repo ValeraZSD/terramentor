@@ -402,6 +402,9 @@ const messageOf = (e: unknown): string => {
     return typeof message === 'string' ? message : String(e);
 };
 
+/** Which `setUiLanguage` pick is the newest (see the store action). */
+let uiLanguagePick = 0;
+
 /**
  * Where each setting's writes stand. A setter shows its value at once and
  * stores it after; if the store refuses, the value goes back to the last one
@@ -1455,8 +1458,13 @@ export const useStore = create<AppState>((set, get) => ({
         // feedback, and a setting that only lands after a round trip reads as
         // a control that did nothing.
         const before = get().uiLanguage;
+        const pick = ++uiLanguagePick;
         set({ uiLanguage: code });
         await applyUiLanguage(resolveLanguagePreference(code));
+        // Only the newest pick is stored. The applier drops an older pick whose
+        // chunk lands late, so if that older pick still saved it would be the
+        // last write: the screen in one language and the server holding another.
+        if (pick !== uiLanguagePick) return;
         await saveSetting(get, 'ui_language', code, before, code, value => {
             set({ uiLanguage: value });
             void applyUiLanguage(resolveLanguagePreference(value));

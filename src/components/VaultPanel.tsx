@@ -11,6 +11,7 @@ import { IconButton, IconLink } from './ui/Button';
 import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
+import { useNumberFormat } from '../hooks/useNumberFormat';
 
 // Anything binary that the server can't read as text is rejected on upload and
 // surfaced as a "failed" doc, so we intentionally don't restrict selection here
@@ -26,8 +27,13 @@ function extOf(name: string): string {
 function humanSize(bytes?: number | null): string {
     if (bytes === undefined || bytes === null) return '';
     if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    // Through num(), like humanChars below: toFixed() always writes a point,
+    // whatever separator the reader chose.
+    // Whole kilobytes up to 999: a size that rounds to 1,000 KB or more reads as
+    // megabytes, so a grouping separator never appears in a kilobyte figure.
+    const kb = Math.round(bytes / 1024);
+    if (kb < 1000) return `${num(kb, { decimals: 0 })} KB`;
+    return `${num(bytes / 1024 / 1024, { decimals: 1 })} MB`;
 }
 
 // Compact "12,340 chars" for the amount of text extracted from a file.
@@ -121,6 +127,9 @@ export default function VaultPanel({
     projectId, nodeId, stagedFiles, onStagedFilesChange, className = '',
 }: VaultPanelProps) {
     const { t: tr } = useTranslation();
+    // The sizes and counts below are written through `num()`, which reads the
+    // number style outside React; subscribing here re-renders them when it changes.
+    useNumberFormat();
     const addToast = useStore(s => s.addToast);
     const showConfirm = useStore(s => s.showConfirm);
     const staging = !!onStagedFilesChange;
@@ -365,7 +374,7 @@ export default function VaultPanel({
                                                         : doc.recovery_status === 'recovered'
                                                             ? (() => {
                                                                 const { method, recovered, cancelled } = recoveryDetail(doc.recovery_meta);
-                                                                return <span className="text-emerald-500" title={`${tr("Recovered formulas on {{count}} pages via {{method}}", { count: recovered, method: method === 'vision' ? tr("a vision model") : method === 'mixed' ? tr("a vision model and OCR") : 'OCR' })}${cancelled ? tr(" — stopped early, some pages were not re-read") : ''}`}> {tr("· math recovered")}{method === 'ocr' ? tr("(OCR)") : ''}{cancelled ? tr("(partial)") : ''}</span>;
+                                                                return <span className="text-emerald-500" title={`${tr("Recovered formulas on {{count}} pages via {{method}}", { count: recovered, method: method === 'vision' ? tr("a vision model") : method === 'mixed' ? tr("a vision model and OCR") : 'OCR' })}${cancelled ? tr(" — stopped early, some pages were not re-read") : ''}`}> {tr("· math recovered")}{method === 'ocr' ? ` ${tr("(OCR)")}` : ''}{cancelled ? ` ${tr("(partial)")}` : ''}</span>;
                                                             })()
                                                         : doc.recovery_status === 'failed'
                                                             ? (() => {

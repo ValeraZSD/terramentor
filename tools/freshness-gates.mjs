@@ -619,6 +619,114 @@ console.log('\n--- installing a new build (the handover) -----------------------
         const relative = mod.documentShell(new JSDOM('<script type="module" src="assets/index-A1.js"></script>', { url: 'http://localhost/' }).window.document);
         check('a relative src still reads as the path the worker lists', JSON.stringify(relative), JSON.stringify(['/assets/index-A1.js']));
     }
+
+    {
+        // The prompt that owns the stale handler unmounts when the app locks
+        // (a 401, Log out) and mounts again after the login. The watcher starts
+        // once per page, so the handler of the SECOND mount has to be the one
+        // that is called, or the banner never shows on a page that was locked.
+        const freshEntry = join(scratch, 'fresh-entry.ts');
+        writeFileSync(freshEntry, `export { watchFreshness, checkFreshness, canReloadNow, holdReload } from ${JSON.stringify(join(repoRoot, 'src/utils/freshness.ts'))};`);
+        const freshOut = join(scratch, 'fresh-bundle.mjs');
+        buildSync({ entryPoints: [freshEntry], outfile: freshOut, bundle: true, format: 'esm', target: 'es2022', logLevel: 'silent' });
+        const freshUrl = pathToFileURL(freshOut).href;
+
+        let serverBuild = 'build-a';
+        globalThis.window = Object.assign(emitter(), { setInterval: () => 0 });
+        globalThis.document = Object.assign(emitter(), { visibilityState: 'visible', activeElement: null });
+        globalThis.fetch = async () => ({ ok: true, json: async () => ({ buildId: serverBuild }) });
+
+        const mod = await import(`${freshUrl}?watch=${Math.random()}`);
+        const calls = { first: 0, second: 0 };
+        mod.watchFreshness(() => { calls.first++; });
+        await new Promise((r) => setTimeout(r, 20));          // the baseline read
+        mod.watchFreshness(() => { calls.second++; });         // the prompt mounted again
+        serverBuild = 'build-b';
+        await mod.checkFreshness(true);
+        check('a handler from a mount that is gone is not called', calls.first, 0);
+        check('the newest mounted handler hears about the new build', calls.second, 1);
+        await mod.checkFreshness(true);
+        check('...once per build', calls.second, 1);
+
+        // The build changes WHILE the prompt is unmounted (the lock screen is
+        // up; /api/build is public, so the check still runs). Nobody can be told
+        // then, and the mismatch is not raised again once it has been noted, so
+        // it has to be held until the prompt mounts again.
+        const gone = { calls: 0 };
+        const unmount = mod.watchFreshness(() => { gone.calls++; });
+        unmount?.();                                           // the app locks
+        serverBuild = 'build-c';
+        await mod.checkFreshness(true);
+        check('a build that changes while the prompt is unmounted calls nobody', gone.calls, 0);
+        const remounted = { calls: 0 };
+        mod.watchFreshness(() => { remounted.calls++; });      // the login: it mounts again
+        check('...the prompt that mounts next is told at once', remounted.calls, 1);
+        const later = { calls: 0 };
+        mod.watchFreshness(() => { later.calls++; });
+        check('...and told only once', later.calls, 0);
+
+        // canReloadNow against real DOM elements. A focused control whose value
+        // is not something typed ("on" on a checkbox, "100" on a slider) must
+        // not hold the reload; a field with text in it must.
+        const { JSDOM } = (await import('node:module')).createRequire(import.meta.url)('jsdom');
+        const doc = new JSDOM('<!doctype html><body></body>').window.document;
+        const focused = (tag, { type, value, editable } = {}) => {
+            const el = doc.createElement(tag);
+            if (type !== undefined) el.setAttribute('type', type);
+            if (value !== undefined) el.value = value;
+            if (editable) {
+                el.textContent = value ?? '';
+                Object.defineProperty(el, 'isContentEditable', { value: true });   // jsdom has no layout of its own
+            }
+            globalThis.document.activeElement = el;
+            return mod.canReloadNow();
+        };
+        check('a text box with text in it holds the reload', focused('input', { type: 'text', value: 'half a note' }), false);
+        check('...an input with no type is a text box', focused('input', { value: 'half a note' }), false);
+        for (const type of ['search', 'email', 'url', 'tel', 'password', 'number']) {
+            check(`...so does ${type}`, focused('input', { type, value: type === 'number' ? '12' : 'x' }), false);
+        }
+        check('...a textarea with text in it', focused('textarea', { value: 'half a note' }), false);
+        check('...an editable div with text in it', focused('div', { editable: true, value: 'half a note' }), false);
+        check('an empty text box does not', focused('input', { type: 'text', value: '' }), true);
+        check('...nor a whitespace-only textarea', focused('textarea', { value: '  ' }), true);
+        check('...nor an empty editable div', focused('div', { editable: true, value: '' }), true);
+        for (const type of ['checkbox', 'radio', 'range', 'button', 'file', 'color']) {
+            check(`a focused ${type} input does not hold it`, focused('input', { type, ...(type === 'button' ? { value: 'Save' } : {}) }), true);
+        }
+        // A number box reads '' for "1e" while it is half typed, though the person
+        // has typed something; the browser says so through `validity.badInput`.
+        {
+            const half = doc.createElement('input');
+            half.setAttribute('type', 'number');
+            Object.defineProperty(half, 'validity', { value: { badInput: true } });   // jsdom does not parse a number box
+            globalThis.document.activeElement = half;
+            check('...a number box holding a half-typed number', mod.canReloadNow(), false);
+        }
+        check('a focused button does not', focused('button', { value: 'Save' }), true);
+        globalThis.document.activeElement = null;
+        check('a registered hold still does', (() => { const release = mod.holdReload('a stream'); const held = mod.canReloadNow(); release(); return held; })(), false);
+        check('...and lets go on release', mod.canReloadNow(), true);
+    }
+}
+
+console.log('\n--- the update banner is placed top centre, under the header -------');
+
+{
+    // The banner shows exactly when a reload is held back: a review session, an
+    // assistant answer, unsaved text. Those screens keep their rating buttons,
+    // the composer and the task dock at the bottom centre, so the banner is a
+    // fixed top-centre card under the header and never anchored to the bottom.
+    const prompt = readFileSync(join(repoRoot, 'src', 'components', 'UpdatePrompt.tsx'), 'utf8');
+    const wrapper = prompt.match(/className="(fixed [^"]*)"/)?.[1] ?? '';
+    ok('the banner is a fixed overlay', wrapper !== '');
+    ok('it is not anchored to the bottom of the screen', !/\bbottom-\S+/.test(wrapper) && !/paddingBottom/.test(prompt), wrapper);
+    ok('it is anchored to the top, below the 3.5rem header',
+        /\btop-0\b/.test(wrapper) && /paddingTop:\s*'calc\(3\.5rem \+ var\(--safe-top\)/.test(prompt), wrapper);
+    // Centred on the app column, like the task dock: centred on the window, it
+    // straddles a docked assistant and covers the start of its text.
+    ok('it stops at a docked assistant (right edge = --assistant-w), not the window edge',
+        /\bleft-0\b/.test(wrapper) && !/\binset-x-0\b/.test(wrapper) && /right:\s*'var\(--assistant-w, 0px\)'/.test(prompt), wrapper);
 }
 
 console.log('\n--- the container build can reach the plugins ------------------------');
