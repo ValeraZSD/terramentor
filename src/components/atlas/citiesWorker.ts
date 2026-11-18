@@ -1,8 +1,9 @@
 /**
  * The cities, cut off the page's thread.
  *
- * Every country of a whole library is seconds of work (2.2 s on 2,491 topics
- * in 129 countries), and on the main thread that is seconds of a map that does
+ * Every country of a whole library is seconds of work (2.2 s in the page on
+ * 2,491 topics in 129 countries; `buildCities` alone is 1.0 s in Node, see
+ * `globeCities.ts`), and on the main thread that is seconds of a map that does
  * not turn. The page hands over the territories and the topics once per atlas
  * and gets every country's cities back in one message (`cityBuild.ts`).
  */

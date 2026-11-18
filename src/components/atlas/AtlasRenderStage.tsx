@@ -171,8 +171,11 @@ export default function AtlasRenderStage({
                     recorderRef.current = format.extension === 'gif'
                         ? recordCanvasGif(canvas, outputFps(settings))
                         : recordCanvas(canvas, outputFps(settings), format);
-                } catch (e: any) {
-                    live.current.onFailed(e?.message || tr("This browser would not start a recording."));
+                } catch (e) {
+                    console.warn('Recording could not start:', e);
+                    // The thrown text is English and a browser's own wording;
+                    // the learner is told in their language.
+                    live.current.onFailed(tr("This browser would not start a recording."));
                     return;
                 }
                 openingTimer = window.setTimeout(() => {
@@ -197,8 +200,9 @@ export default function AtlasRenderStage({
                     if (!rec) return;
                     try {
                         live.current.onDone(await rec.stop());
-                    } catch (e: any) {
-                        live.current.onFailed(e?.message || tr("The recording could not be saved."));
+                    } catch (e) {
+                        console.warn('Recording could not be saved:', e);
+                        live.current.onFailed(tr("The recording could not be saved."));
                     }
                 }, CLOSING_HOLD_MS);
             });
