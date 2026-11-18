@@ -4,18 +4,26 @@ Last reviewed: 18 November 2026. This page describes the code on `main` on that 
 
 ## In short
 
-- **Seeing.** Settings → General → Text & interface size makes everything up to 160% larger.
-  Settings → Accessibility → Contrast → Higher gives darker text and stronger lines.
-- **Reading.** Settings → Accessibility has wider letter, word and line spacing, a reading line
-  under the line you point at, and Read aloud with your computer's own voices.
+- **Seeing.** In the app, Settings → General → Text & interface size makes everything up to
+  160% larger. Settings → Accessibility → Contrast → Higher gives darker text and stronger
+  lines. Zoom beyond that has not been tested.
+- **Reading.** Settings → Accessibility has wider letter, word and line spacing and a reading
+  line (a band under the line you point at, like a ruler). Read aloud speaks cards, questions,
+  lessons, notes and assistant answers with your computer's own voices, at 50 to 200% speed.
+  No screen has been checked for cut-off text at the widest spacing.
 - **Keyboard only.** Studying, card review and quizzes work from the keyboard, and lists and
-  cards move without a drag. Resizing the sidebar and the detail panel still needs a mouse.
+  cards move without a drag. Resizing the sidebar and the detail panel still needs a mouse. In
+  a card review a digit key rates the card even when a button has focus; Confirm before
+  grading makes every answer and rating take two presses.
 - **Screen reader.** Card review, quiz answers and maths are read out; this is checked with
   NVDA, and no other screen reader has been tried. Results of drills and quizzes are shown but
   not read out yet.
 - **Time and attention.** Motion → Reduced stops movement. Timed drills can have two or three
-  times as long, or no clock; quizzes have no clock. The app sends no reminders or
-  notifications. Notices on screen still close by themselves after 4 seconds (8 for an error).
+  times as long, or no clock; quizzes have no clock; a mock exam's clock is optional and can
+  be paused. In a drill, a right answer moves on by itself after a short pause. The app sends
+  no reminders or notifications. Notices on screen close by themselves after 4 seconds (8 for
+  an error) unless the pointer or focus is on them. Animations a model writes are not checked
+  for flashing.
 - **Something does not work for you?** See [Reporting a barrier](#reporting-a-barrier).
 
 The rest of this page has the detail: what helps, what does not work yet, how it is checked,
@@ -43,8 +51,8 @@ The [conformance report](#conformance-report-wcag-22) at the end goes through ev
 **Settings → Accessibility** has four groups:
 
 - Seeing: Contrast (Standard, Higher, or System) and Motion (Full, Reduced, or System).
-  Higher gives darker text and stronger borders and lines. Reduced stops every movement in the
-  app; the ring that fades out round a dropped item stays.
+  Higher gives darker text and stronger borders and lines. Reduced stops movement in the app;
+  only the ring that fades out round a dropped item stays.
 - Reading: letter, word and line spacing, each in three steps. The widest step uses at least
   the spacing that WCAG 1.4.12 names. Reading line puts a band under the line you point at in
   lessons and notes.
@@ -188,13 +196,14 @@ started by hand or when its own files change; it is not part of every build. It 
 Windows machine where a screen reader may take over the screen and the speakers for several
 minutes, which is why it runs on a CI runner and not in `npm test`.
 
-Latest result, 18 November 2026, NVDA 2026.3:
+Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
 
-- Card review: after Reveal answer NVDA reads the answer ("A lens"); a rating moves on and
-  the next question is read. In browse mode it also reads, and can press, the page behind
+- Card review: after Reveal answer NVDA reads the answer ("A lens"); a rating is not confirmed
+  aloud, but the next question is read. In browse mode it also reads, and can press, the page behind
   the review.
 - Quiz: an option is read with its text and its pressed state, and choosing one is answered
-  by "Correct". The first option is 26 presses of Tab from the top of the page.
+  by "Correct". The first option is 26 presses of Tab from the top of the page; Skip to content shortens
+  that.
 - Maths: ten to the power minus two is read as "10 to the negative 2 power" and one
   thousandth as "1 over 1000". In a topic's own card list, turning a card over says only "pressed".
 - Reordering: the handle explains how to move it, and each move ("is over Light and
@@ -263,7 +272,7 @@ most of it fails. Not applicable: the app has nothing the criterion is about.
 | 1.3.3 Sensory Characteristics | Supports | Instructions name controls by their words, for example "drag or use arrow keys". |
 | 1.4.1 Use of Color | Partially supports | On a phone's month calendar, dots tell courses apart by colour alone. |
 | 1.4.2 Audio Control | Supports | Card recordings have a play and stop button; playing by themselves can be switched off. |
-| 2.1.1 Keyboard | Partially supports | Resizing the sidebar and the detail panel needs a mouse; reordering, dialogs and the atlas use the keyboard. |
+| 2.1.1 Keyboard | Partially supports | Resizing the sidebar and the detail panel needs a mouse; reordering and dialogs use the keyboard; the atlas map moves and zooms by keyboard, and its topics are picked from its index. |
 | 2.1.2 No Keyboard Trap | Supports | Dialogs keep and return focus; Escape then Tab leaves the code editor. |
 | 2.1.4 Character Key Shortcuts | Supports | Single-key shortcuts can be switched off in Settings → Accessibility. |
 | 2.2.1 Timing Adjustable | Partially supports | Drill clocks scale or switch off; notices close after 4 to 8 seconds unless hovered or focused. |
