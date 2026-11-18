@@ -162,9 +162,12 @@ const LEGACY_THEMES = {
  */
 export function manifestColors(stored = {}) {
     const legacy = LEGACY_THEMES[String(stored.mode)];
-    const mode = legacy ? legacy.mode : 'light';
     let row = stored.painted ?? null;
     if (typeof row === 'string') { try { row = JSON.parse(row); } catch { row = null; } }
+    // 'system' (and no row at all, which also follows the system) is decided on
+    // the device, so the mode is the one the app last painted there.
+    const followsSystem = stored.mode == null || stored.mode === '' || stored.mode === 'system';
+    const mode = legacy ? legacy.mode : followsSystem && row?.mode === 'dark' ? 'dark' : 'light';
     // An explicit tint wins over the legacy one, exactly as on the client.
     const tint = hex6(stored.tint) || legacy?.tint || DEFAULT_TINT;
     const background = row && hex6(row.background), theme = row && hex6(row.theme);

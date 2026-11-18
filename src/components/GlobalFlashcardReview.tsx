@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { onActivateKey } from '../utils/a11y';
 import { usePortalAccent } from '../hooks/usePortalAccent';
+import { focusIsLost } from '../utils/a11y';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { usePhysicalKeyboard } from '../utils/platform';
 import { api } from '../api';
@@ -25,15 +25,20 @@ import { RatingButton } from './flashcards/RatingButton';
 import ReportItem, { reportedLine } from './ui/ReportItem';
 import { cardRef } from '../utils/itemReports';
 import { useItemReports, useReportOn } from '../utils/itemReportStore';
+import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { RATING_ORDER, RATING_STYLES as DIFFICULTY_CONFIG } from './flashcards/ratingStyles';
+import { ContentLang } from '../utils/contentLang';
+import ReadAloudButton from './ui/ReadAloudButton';
+import { useConfirmPress } from '../hooks/useConfirmPress';
 
 interface EnrichedFlashcard extends Flashcard {
     node_title?: string;
     categoryTitle?: string;
     categoryId?: number | null;
-    // Present only in the cross-project session (GET /api/flashcards/due).
+    // Present only in the cross-project session (GET /api/flashcards/due); project_id also gives the language its text is read in.
+    project_id?: number;
     project_name?: string;
     project_color?: string;
 }
@@ -176,7 +181,7 @@ function SessionSurface({ className = '', label, children }: { className?: strin
 type ChipTone = 'neutral' | 'accent' | 'easy' | 'medium' | 'hard';
 
 const CHIP_TONE: Record<ChipTone, string> = {
-    neutral: 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400',
+    neutral: 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
     accent: 'bg-accent/20 dark:bg-accent/25 text-accent-fg',
     easy: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400',
     medium: 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400',
@@ -212,7 +217,9 @@ const difficultyLabel = (d: number): string => (d >= 3 ? k("Hard") : d >= 2 ? k(
 export default function GlobalFlashcardReview({ projectId, fetchCards, title, onClose, onComplete }: Props) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const hasKeyboard = usePhysicalKeyboard();
+    // Keycaps are named only when the keys do something (`key_shortcuts`).
+    const keyShortcuts = useStore(s => s.keyShortcuts);
+    const hasKeyboard = usePhysicalKeyboard() && keyShortcuts;
     const sessionLabel = title ?? t("Flashcard Review");
 
     const [cards, setCards] = useState<EnrichedFlashcard[]>([]);
@@ -266,6 +273,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     };
 
     const currentCard = cards[queue.index];
+    // Each card on its own course's target: a mixed session holds several.
+    const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
     // A card reported as wrong is out of the session: a model-written one is
     // gone, the learner's own is set aside until they edit it. It is not rated
@@ -275,6 +284,22 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     const currentReport = useReportOn(currentRef);
     const reportHolds = !!currentReport && currentReport.rewrite?.state !== 'edited';
 
+    // Focus follows the session for a keyboard: the flip takes away the Reveal
+    // button that held it, so it moves to the ratings; a rating brings the next
+    // card's Reveal button. Only from where the session left it (the ratings,
+    // nowhere, or the session surface, which takes focus as it opens),
+    // never out of a control the learner moved to.
+    const revealRef = useRef<HTMLButtonElement>(null);
+    const cardTextRef = useRef<HTMLDivElement>(null);
+    const readAloud = useStore(s => s.a11y.readAloud);
+    const ratingsRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const active = document.activeElement;
+        const lost = focusIsLost(active);
+        if (queue.flipped) { if (lost) ratingsRef.current?.focus(); }
+        else if (lost || ratingsRef.current?.contains(active)) revealRef.current?.focus();
+    }, [queue.flipped, currentCard?.id]);
+
     const handleRate = useCallback(async (rating: ReviewRating) => {
         if (!currentCard || writing.current || reportHolds) return;
         writing.current = true;
@@ -283,7 +308,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             // Built inside the try: a card whose stored state the scheduler
             // cannot read throws here, and outside it the lock stayed on for
             // the rest of the session.
-            const { update, snapshot } = retryOrNew(unsent, currentCard, rating);
+            const { update, snapshot } = retryOrNew(unsent, currentCard, rating, retention);
             const saved = await api.updateFlashcard(currentCard.id, update);
             unsent.current = null;
             // Keep the local row in step with the server, or a second rating of
@@ -305,7 +330,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
             writing.current = false;
             setSaving(false);
         }
-    }, [currentCard, queue, addToast, reportHolds]);
+    }, [currentCard, queue, addToast, reportHolds, retention]);
 
     /**
      * Take back the last rating — the one control that makes a mis-tap
@@ -393,13 +418,14 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
         if (ref && useItemReports.getState().byRef[ref]) void useItemReports.getState().refresh([ref]);
     }, []);
 
+    const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
     useFlashcardKeys({
         // The editor owns the keyboard while it is open, or typing a card's
         // answer would flip the card under the dialog and rate it "1".
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => handleRate(RATING_ORDER[i]),
+        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
         onUndo: handleUndo,
     });
 
@@ -620,11 +646,11 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                 </div>
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                     <div className={`text-xs text-slate-500 dark:text-slate-400 ${hasKeyboard ? 'block' : 'hidden'}`}>
-                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-3xs">Space</kbd> {t("flip")}
+                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-3xs">Space</kbd> {t("flip")}
                         <span className="mx-1">•</span>
-                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-3xs">1-4</kbd> {t("rate")}
+                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-3xs">1-4</kbd> {t("rate")}
                         <span className="mx-1">•</span>
-                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-3xs">Z</kbd> {t("undo")}
+                        <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded text-3xs">Z</kbd> {t("undo")}
                     </div>
                     {/* Undo. Rendered only when there IS a step back — a control
                         that is permanently there and permanently disabled is
@@ -673,8 +699,10 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                     <Button
                         {...SESSION_TOOL}
                         onClick={() => setEndedEarly(true)}
+                        // No aria-label: it would read "End this review session"
+                        // over a visible "End session" that a voice user says.
+                        // Below `sm:` the label is hidden and the title names it.
                         title={t("End this review session")}
-                        aria-label={t("End this review session")}
                         icon={<CircleStop className="w-4 h-4" aria-hidden="true" />}
                     >
                         <span className="hidden sm:inline">{t("End session")}</span>
@@ -745,20 +773,23 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         card is a div with a tabindex, so clicking it drew a
                         hard focus box around the whole thing. Keyboard users
                         still get a visible ring. */}
-                    {/* The plate is one big button (flip), which may not hold
-                        another: the flag sits over its top-right corner as a
-                        sibling, and the chip row leaves it the room. */}
+                    {/* The plate is CONTENT, not a button: a screen reader reads a
+                        button's children as one name, so wrapping the card in a
+                        "Flip flashcard" button hid the card's own words. A click
+                        on it still flips, for the pointer; the keyboard and a
+                        screen reader flip with the footer's Reveal answer
+                        button or Space. The flag sits over its top-right corner
+                        as a sibling, and the chip row leaves it the room. */}
                     <div className="relative flex-1 min-h-0 flex flex-col">
-                    <div className="absolute right-1.5 top-1 z-10 sm:right-3 sm:top-2.5">
+                    <div className="absolute right-1.5 top-1 z-10 flex items-center gap-1 sm:right-3 sm:top-2.5">
+                        <ReadAloudButton key={`${currentCard.id}-${queue.flipped}`} target={cardTextRef} size="md" />
                         <ReportItem key={currentCard.id} itemRef={currentRef} surface="review" hideKey={!queue.flipped} />
                     </div>
                     <div
+                        ref={cardTextRef}
+                        data-review-card
                         onClick={() => queue.setFlipped(!queue.flipped)}
-                        onKeyDown={onActivateKey(() => queue.setFlipped(!queue.flipped))}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={t("Flip flashcard")}
-                        className="cursor-pointer select-none flex-1 min-h-0 flex flex-col rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                        className="cursor-pointer select-none flex-1 min-h-0 flex flex-col rounded-2xl"
                     >
                         <div className={`flex flex-1 min-h-0 flex-col rounded-2xl border-2 transition-colors duration-300 bg-white dark:bg-slate-800 shadow-lg shadow-slate-200/50 dark:shadow-slate-900/30 ${queue.flipped
                             ? 'border-accent/40'
@@ -769,7 +800,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 sat ON the card's first line the moment the
                                 content scrolled under them, and they were
                                 costing 48px of top padding to clear. */}
-                            <div className="flex shrink-0 items-center justify-between gap-2 pl-3 pr-12 pt-2.5 sm:pl-5 sm:pr-14 sm:pt-4">
+                            <div data-read-skip className={`flex shrink-0 items-center justify-between gap-2 pl-3 pt-2.5 sm:pl-5 sm:pt-4 ${readAloud ? 'pr-24 sm:pr-28' : 'pr-12 sm:pr-14'}`}>
                                 <CardChip tone={queue.flipped ? 'accent' : 'neutral'}>
                                     {queue.flipped ? t("Answer") : t("Question")}
                                 </CardChip>
@@ -796,7 +827,10 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                 centring quietly stops applying instead of
                                 pushing content out of both ends. */}
                             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-10 sm:py-6">
-                                <div className="flex min-h-full flex-col justify-center">
+                                {/* Polite live region: each new card, and its
+                                    answer on the flip, is read out once. */}
+                                <div className="flex min-h-full flex-col justify-center" aria-live="polite">
+                                    <ContentLang projectId={currentCard.project_id ?? projectId}>
                                     <CardFace
                                         front={currentCard.front}
                                         back={currentCard.back}
@@ -807,6 +841,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                         autoPlay
                                         size="review"
                                     />
+                                    </ContentLang>
                                 </div>
                             </div>
                         </div>
@@ -835,24 +870,37 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                         </>
                     ) : (
                         <>
-                        <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                            {queue.flipped ? (
-                                t("How well did you know this?")
-                            ) : (
-                                hasKeyboard ? (
-                                    <>{t("Click the card or press")}{' '}<kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-xs">Space</kbd> {t("to reveal the answer")}</>
-                                ) : (
-                                    t("Tap the card to reveal the answer")
-                                )
-                            )}
+                        {/* Before the flip the Reveal answer button says what to
+                            do (and the header shows its key), so the line stays
+                            empty: it only holds its height for the question
+                            the ratings answer. */}
+                        <p className="text-center text-xs sm:text-sm text-slate-500 dark:text-slate-400" aria-hidden={!queue.flipped}>
+                            {queue.flipped ? t("How well did you know this?") : ' '}
                         </p>
-                        <div className={`grid grid-cols-4 gap-2 sm:gap-3 transition-opacity ${queue.flipped ? '' : 'invisible opacity-0'}`} aria-hidden={!queue.flipped}>
+                        {/* Before the flip, Reveal answer covers the row the
+                            ratings will fill: the same place under the thumb,
+                            and a real button for a keyboard or a screen reader
+                            (the plate above is content, not a control). */}
+                        <div className="relative">
+                        {/* The card's full width (an easy target on a phone), but
+                            an outline, not a fill: the card is what the learner
+                            looks at, and a green bar under every question
+                            shouted over it. */}
+                        {!queue.flipped && (
+                            <Button ref={revealRef} variant="neutral" size="lg" block onClick={() => queue.setFlipped(true)}
+                                className="absolute inset-0 z-10 h-full">
+                                {t("Reveal answer")}
+                            </Button>
+                        )}
+                        <div ref={ratingsRef} role="group" aria-label={t("How well did you know this?")} tabIndex={-1}
+                            className={`grid grid-cols-4 gap-2 sm:gap-3 transition-opacity outline-none ${queue.flipped ? '' : 'invisible opacity-0'}`} aria-hidden={!queue.flipped}>
                             {RATING_ORDER.map((rating, idx) => (
                                 <RatingButton
                                     key={rating}
                                     rating={rating}
-                                    when={formatInterval(computeNextInterval(currentCard, rating).intervalDays, t)}
-                                    onClick={() => handleRate(rating)}
+                                    when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
+                                    onClick={() => confirmRate.press(rating, () => handleRate(rating))}
+                                    armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                     disabled={!queue.flipped || saving}
                                     tabIndex={queue.flipped ? 0 : -1}
                                     // The digit is a KEYCAP, not a rank — it
@@ -866,6 +914,7 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
                                     keycap={hasKeyboard ? String(idx + 1) : undefined}
                                 />
                             ))}
+                        </div>
                         </div>
                         </>
                     )}

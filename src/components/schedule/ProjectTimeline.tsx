@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { onActivateKey } from '../../utils/a11y';
+import { FOCUS_RING } from '../ui/vocabulary';
 import { useStore } from '../../store';
 import { buildGanttData, todayStr } from '../../utils/tree';
 import { pretty } from '../../utils/scheduleAxis';
@@ -160,10 +160,9 @@ export default function ProjectTimeline() {
                     <div
                         className="min-w-0 flex items-center gap-1.5 cursor-pointer"
                         style={{ paddingLeft: `${Math.min(row.depth, 5) * 14}px` }}
+                        // The whole cell selects for the pointer; the title is the
+                        // button, so the fold button beside it is not nested in one.
                         onClick={() => selectNode(row.id)}
-                        onKeyDown={onActivateKey(() => selectNode(row.id))}
-                        role="button"
-                        tabIndex={0}
                     >
                         {row.hasChildren ? (
                             <button
@@ -180,7 +179,8 @@ export default function ProjectTimeline() {
                             <span className="w-6 shrink-0" />
                         )}
                         <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(row.status, late, row.readyToProve)}`} aria-hidden="true" />
-                        <span className="min-w-0 flex-1">
+                        <button type="button" data-row className={`min-w-0 flex-1 text-left rounded ${FOCUS_RING}`}
+                            onClick={e => { e.stopPropagation(); selectNode(row.id); }}>
                             <span className={`block truncate text-sm ${late ? 'text-red-600 dark:text-red-400 font-medium' : 'text-slate-700 dark:text-slate-200'} ${row.hasChildren ? 'font-medium' : ''}`}>
                                 {row.title}
                             </span>
@@ -189,7 +189,7 @@ export default function ProjectTimeline() {
                             <span className="block text-2xs leading-tight text-slate-500 dark:text-slate-400 tabular-nums truncate">
                                 {row.readyToProve ? `${dates} · ${t("Ready to prove")}` : dates}
                             </span>
-                        </span>
+                        </button>
                     </div>
 
                     <Lane geom={geom} today={today} className="h-6 mt-1 md:mt-0">

@@ -30,7 +30,8 @@
  * surface with hairlines between the rows. Group captions are how a long page
  * stays skimmable — the eye reads six captions, not thirty labels.
  */
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { SettingHintContext } from './settingHint';
 
 /**
  * A GROUP'S CAPTION IS NOT SHOUTED.
@@ -180,7 +181,9 @@ function useStacksWhenTight(enabled: boolean) {
     return { row, control, stacked: enabled && stacked };
 }
 
-export function SettingRow({ label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+export function SettingRow({ id, label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+    /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
+    id?: string;
     label: React.ReactNode;
     hint?: React.ReactNode;
     /** The long explanation, closed, under the name. Sits in the LEFT column
@@ -198,6 +201,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
     const Name = htmlFor ? 'label' : 'span';
     const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control);
     const under = block || stacked;
+    const hintId = useId();
     const name = (
         <Name
             {...(htmlFor ? { htmlFor } : {})}
@@ -208,7 +212,8 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
     );
 
     return (
-        <div className={`px-4 py-3 ${className}`}>
+        <SettingHintContext.Provider value={hint ? hintId : undefined}>
+        <div id={id} className={`px-4 py-3 ${className}`}>
             {/* THE CONTROL NEVER DROPS BELOW THE NAME.
                 `flex-wrap` with a fixed 192px name column breaks the row
                 whenever the name's column plus the control exceeds the card,
@@ -235,7 +240,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
                 <div className="min-w-0 flex-1">
                     {name}
                     {hint && (
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
+                        <p id={hintId} className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
                     )}
                     {detail && <SettingNote className="mt-0.5">{detail}</SettingNote>}
                 </div>
@@ -253,6 +258,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
             )}
             {more && <div className="mt-3">{more}</div>}
         </div>
+        </SettingHintContext.Provider>
     );
 }
 

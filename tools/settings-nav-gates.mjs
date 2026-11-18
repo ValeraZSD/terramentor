@@ -13,7 +13,7 @@
 // Google's apps) does the same thing instead: a LIST of sections, each a row with
 // what it holds, that opens the section as a page of its own; on a wide window the
 // list sits beside the open section (Material's list-detail layout). So:
-//   narrow (Settings' own width < TWO_PANE_REM) -> /settings is a list of six rows;
+//   narrow (Settings' own width < TWO_PANE_REM) -> /settings is a list of seven rows;
 //       a row PUSHES /settings#<id>, the browser/phone back returns to the list,
 //       and the header's arrow goes UP to the list even from a deep link.
 //   wide -> a rail beside the section, General when none is named; choosing in the
@@ -164,15 +164,15 @@ async function show(width, url, before = []) {
 }
 
 const PHONE = 390, PC = 1200;
-const SIX = ['general', 'learning', 'ai', 'web', 'devices', 'library'];
+const SEVEN = ['general', 'accessibility', 'learning', 'ai', 'web', 'devices', 'library'];
 
 if (bundle) {
     // -----------------------------------------------------------------------
-    section('a phone opens Settings on a LIST of the six sections');
+    section('a phone opens Settings on a LIST of the seven sections');
     {
         const s = await show(PHONE, '/settings');
         const rows = s.rows();
-        check('six rows, in order', JSON.stringify(rows.map(r => r.dataset.section)) === JSON.stringify(SIX),
+        check('seven rows, in order', JSON.stringify(rows.map(r => r.dataset.section)) === JSON.stringify(SEVEN),
             JSON.stringify(rows.map(r => r.dataset.section)));
         check('no tab rail on a phone', s.tabs().length === 0, `${s.tabs().length} tabs`);
         check('no section is open under the list', s.visible().length === 0, JSON.stringify(s.visible()));
@@ -195,7 +195,7 @@ if (bundle) {
         check('focus moves to that title (the row pressed is gone; focus must not fall to the body)',
             s.focused()?.tagName === 'H1', s.focused()?.tagName);
         await s.back();
-        check('the browser/phone back returns to the list', s.hash() === '' && s.rows().length === 6, `${s.hash()} rows=${s.rows().length}`);
+        check('the browser/phone back returns to the list', s.hash() === '' && s.rows().length === 7, `${s.hash()} rows=${s.rows().length}`);
         check('…with no section left open', s.visible().length === 0, JSON.stringify(s.visible()));
         check('…and focus on the row just left', s.focused()?.dataset?.section === 'ai',
             `${s.focused()?.tagName} ${s.focused()?.dataset?.section ?? ''}`);
@@ -207,7 +207,7 @@ if (bundle) {
         const i2 = s.idx();
         const took = await s.appBack();
         check('the arrow is taken by Settings', took === true);
-        check('it lands on the list', s.hash() === '' && s.rows().length === 6, `${s.hash()} rows=${s.rows().length}`);
+        check('it lands on the list', s.hash() === '' && s.rows().length === 7, `${s.hash()} rows=${s.rows().length}`);
         check('by going back, not by stacking another entry', s.depth() === d2 && s.idx() === i2 - 1,
             `length ${d2} -> ${s.depth()}, index ${i2} -> ${s.idx()}`);
         const tookOnList = await s.appBack();
@@ -221,7 +221,7 @@ if (bundle) {
         check('the section opens', JSON.stringify(s.visible()) === '["DevicesSettings"]', JSON.stringify(s.visible()));
         const depth = s.depth();
         const took = await s.appBack();
-        check('the arrow goes up to the list, not back out of Settings', took === true && s.path() === '/settings' && s.hash() === '' && s.rows().length === 6,
+        check('the arrow goes up to the list, not back out of Settings', took === true && s.path() === '/settings' && s.hash() === '' && s.rows().length === 7,
             `${s.path()}${s.hash()} rows=${s.rows().length}`);
         check('…replacing the deep link, so the history keeps no dead step', s.depth() === depth, `${depth} -> ${s.depth()}`);
         await s.back();
@@ -269,7 +269,7 @@ if (bundle) {
     {
         const s = await show(PC, '/settings');
         const tabs = s.tabs();
-        check('six tabs, in order', JSON.stringify(tabs.map(t => t.dataset.section)) === JSON.stringify(SIX),
+        check('seven tabs, in order', JSON.stringify(tabs.map(t => t.dataset.section)) === JSON.stringify(SEVEN),
             JSON.stringify(tabs.map(t => t.dataset.section)));
         check('no phone list on a PC', s.rows().length === 0);
         check('General is open and marked current', JSON.stringify(s.visible()) === '["GeneralSettings"]'
@@ -314,7 +314,7 @@ section('the layout branches on Settings\' own width, never the viewport');
 
 section('every link into Settings names a section that exists');
 {
-    const ids = new Set([...SIX, 'data', 'search']);  // the two old names are rewritten
+    const ids = new Set([...SEVEN, 'data', 'search']);  // the two old names are rewritten
     const files = [];
     const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) { if (f !== 'locales') walk(p); } else if (/\.(tsx?|mjs)$/.test(f)) files.push(p); } };
     walk(join(root, 'src'));

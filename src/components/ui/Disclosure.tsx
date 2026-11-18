@@ -71,7 +71,7 @@ const SUMMARY_BASE = `cursor-pointer [touch-action:manipulation] ${FOCUS_RING} $
  * `<details>` directly.
  */
 const CHEVRON_TURN =
-    'transition-transform duration-200 ease-out motion-reduce:transition-none [details[open]>summary>&]:rotate-90';
+    'transition-transform duration-200 ease-out motion-off:transition-none [details[open]>summary>&]:rotate-90';
 
 /**
  * WHAT "OPEN" LOOKS LIKE, MEASURED.

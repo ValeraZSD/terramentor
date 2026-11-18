@@ -3,7 +3,6 @@ import db from '../database.js';
 import { contentDisposition } from '../httpHeaders.js';
 import { decidePaperVision } from '../paper.js';
 import { findStagedMedia } from '../ankiImport.js';
-import fs from 'node:fs';
 import { mediaStorage } from '../vaultStorage.js';
 import {
     cancelDescribeSweep, describeMedia, describeProgress, describeStats, listDescriptions,
@@ -54,11 +53,29 @@ app.get('/api/media/:hash', (req, res) => {
     }
     res.setHeader('Content-Type', row.mime);
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // `private`: this sits behind the password gate and serves the learner's own
+    // pictures and recordings, so a shared cache in front of the app (a reverse
+    // proxy, a hosted deployment) must not keep a copy for a request that never
+    // passed the gate. The browser's own cache is the one that matters here.
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
     res.setHeader('Content-Disposition', contentDisposition(row.filename || hash));
-    fs.createReadStream(filePath)
-        .on('error', () => { if (!res.headersSent) res.status(500).end(); })
-        .pipe(res);
+    // `sendFile` answers byte-range requests (206), which Safari needs before it
+    // will play or seek a clip, and it closes the file when the client goes away
+    // or the read fails half way. A hand-piped stream did neither.
+    res.sendFile(filePath, { dotfiles: 'allow' }, (err) => {
+        if (!err || res.headersSent) return;
+        // The headers above promised a year of caching, and a type, for a file that
+        // is not coming; an error must not be kept or typed as one.
+        res.removeHeader('Cache-Control');
+        res.removeHeader('Content-Type');
+        res.removeHeader('Content-Disposition');
+        // `send` knows why it refused: a range past the end is a 416 that carries
+        // `Content-Range` (the player's cue to ask again), a failed precondition a 412.
+        const status = Number.isInteger(err.status) && err.status >= 400 ? err.status : 500;
+        if (err.headers) res.set(err.headers);
+        if (status === 416 || status === 412) return res.status(status).end();
+        res.status(status).json({ error: status === 404 ? 'That file is missing from the media store.' : 'That file could not be read.' });
+    });
 });
 
 /** What is known ABOUT a file — the description the tutor and a screen reader read. */

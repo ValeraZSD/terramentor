@@ -37,6 +37,7 @@ import { landView, flatHomeYaw } from './homeView';
 import { OCEAN, SphereLine, Terrain, buildTerrain } from './globeTerritories';
 import { Locate, Maximize2, Minimize2, Minus, Plus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { motionReduced } from '../../utils/accessibility';
 
 /**
  * The atlas: the library as a planet, drawn as a globe (Terra) or unrolled
@@ -430,7 +431,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
      */
     // A sheet does not drift: a map that moves by itself is a map you cannot read.
     const [spinning, setSpinning] = useState(
-        () => !flat && !driftSpent && !(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches),
+        () => !flat && !driftSpent && !motionReduced(),
     );
     // The first planet of the session spends the drift, whether it finished
     // or a hand stopped it: the next visit opens on a still planet.
@@ -467,7 +468,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     const drawnRef = useRef<{ placed: Placed[]; detail: number }>({ placed: [], detail: 0 });
 
     const reduceMotion = useMemo(
-        () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+        () => motionReduced(),
         [],
     );
 

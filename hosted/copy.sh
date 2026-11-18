@@ -9,10 +9,14 @@
 #   hosted/copy.sh backup <name> | --all
 #       An online backup of each copy into $TM_BACKUP_DIR/<name>/<time>.tar.gz.
 #       Run nightly from cron (docs/HOSTING.md).
-#   hosted/copy.sh restore <name> <archive.tar.gz>
-#       Reads the archive first, then stops the copy, puts the backup in place
-#       of its library and starts it. A failed check restarts it on its own
-#       library; only a restore that failed partway leaves it stopped.
+#   hosted/copy.sh restore <name> <archive.tar.gz> [--no-backup]
+#       Reads the archive first and backs the copy up as it is (kept beside
+#       its other backups; needs TM_BACKUP_DIR), then stops it, puts the backup
+#       in place of its library and starts it. A failed check restarts it on
+#       its own library; only a restore that failed partway leaves it stopped.
+#       No backup is taken of a library whose last restore never finished
+#       (it cannot be backed up, and this restore is the repair), nor with
+#       --no-backup, for a library too damaged to back up.
 #   hosted/copy.sh remove <name> [--yes]
 #       Backs the copy up first, then removes it, its volume and its network.
 #   hosted/copy.sh update <name> | --all
@@ -108,22 +112,26 @@ copies() { docker ps -a --filter label=terramentor.copy --format '{{.Label "terr
 # run already holds it (undo_new after a failed apply) goes straight on.
 PROXY_HELD=""
 proxy_apply() {
-    local mine="" n
+    local mine="" n list
     if [ -z "$PROXY_HELD" ]; then
         wait_lock _proxy
         PROXY_HELD=1
         mine=1
     fi
+    # Read once: a `remove` deletes its container before it waits for this
+    # lock, so a second read could drop a network the first one listed, and
+    # compose refuses a service on a network the file never declares.
+    list="$(copies)"
     {
         echo "# Written by copy.sh from the copies that exist. Do not edit."
         echo "services:"
         echo "  caddy:"
         echo "    networks:"
         echo "      - default"
-        for n in $(copies); do echo "      - $(network "$n")"; done
+        for n in $list; do echo "      - $(network "$n")"; done
         echo "networks:"
         echo "  default:"
-        for n in $(copies); do
+        for n in $list; do
             echo "  $(network "$n"):"
             echo "    external: true"
         done
@@ -278,6 +286,9 @@ cmd_update() {
         proxy_apply
         wait_up "$n"
         echo "updated: $n"
+        # Released per copy: held to the end of an --all run, it made the
+        # nightly backup of every copy already updated wait and fail.
+        unlock "$n"
     done
 }
 
@@ -290,8 +301,10 @@ cmd_list() {
 # Prints the archive's path as its last line, or fails with nothing kept. Every
 # step is checked by hand: `set -e` does not apply inside a function called
 # from `||` or `$( )`, which is how --all and remove call this one.
+# With "keep-all" the old archives are not thinned: the backup a restore takes
+# first must not delete the archive it is about to restore.
 backup_one() {
-    local name="$1"
+    local name="$1" thin="${2:-}"
     : "${TM_BACKUP_DIR:?set TM_BACKUP_DIR in hosted/.env}"
     exists "$name" || { echo "copy.sh: no copy called $name" >&2; return 1; }
     local stamp dir out tmp ok=1
@@ -326,7 +339,9 @@ backup_one() {
     # Keep the newest TM_BACKUP_KEEP; the names sort by time, and only checked
     # archives are ever here.
     # NUL-separated all the way, so a TM_BACKUP_DIR with spaces stays whole.
-    find "$out" -maxdepth 1 -type f -name '*.tar.gz' -print0 | sort -z | head -z -n "-$TM_BACKUP_KEEP" | xargs -0 -r rm -f
+    if [ "$thin" != keep-all ]; then
+        find "$out" -maxdepth 1 -type f -name '*.tar.gz' -print0 | sort -z | head -z -n "-$TM_BACKUP_KEEP" | xargs -0 -r rm -f
+    fi
     echo "$out/$stamp.tar.gz"
 }
 
@@ -351,15 +366,30 @@ cmd_backup() {
 }
 
 cmd_restore() {
-    local name="${1:-}" archive="${2:-}"
+    local name="${1:-}" archive="${2:-}" keep="${3:-}"
     valid_name "$name"
-    [ -f "$archive" ] || die "usage: restore <name> <archive.tar.gz>"
+    [ -f "$archive" ] && { [ -z "$keep" ] || [ "$keep" = --no-backup ]; } || die "usage: restore <name> <archive.tar.gz> [--no-backup]"
     exists "$name" || die "no copy called $name (create it with new, then restore into it)"
     lock "$name"
     # Read before the copy stops: a file that is no backup leaves it running.
     local listing
     listing="$(tar tzf - < "$archive" 2>/dev/null)" || die "$archive is not a readable archive; $name was not touched"
     [ "$(grep -cE '^(\./)?\.backup-[^/]+/terramentor\.db$' <<< "$listing")" = 1 ] || die "$archive is not one backup made by copy.sh; $name was not touched"
+    # The library as it is now, kept before anything replaces it: a restore
+    # from the wrong archive must be one more restore away from undone.
+    # Not taken when there is nothing worth keeping: a restore that never
+    # finished leaves a library hostedCli refuses to back up (and restoring is
+    # the repair), and --no-backup is for one SQLite cannot back up at all.
+    local before state=0
+    docker run --rm --network none -v "$(volume "$name")":/data "$TM_IMAGE" node server/hostedCli.js restore-state >/dev/null 2>&1 || state=$?
+    if [ "$keep" = --no-backup ]; then
+        echo "no backup of $name's library before the restore (--no-backup)"
+    elif [ "$state" = 3 ]; then
+        echo "no backup of $name's library before the restore: its last restore never finished"
+    else
+        before="$(backup_one "$name" keep-all)" && [ -s "$before" ] || die "the backup of $name before the restore failed; $name was not touched (restore with --no-backup to go on without it)"
+        echo "its library before the restore: $before"
+    fi
     docker stop "$(container "$name")" >/dev/null
     # hostedCli marks the library before it starts replacing it and clears the
     # mark only when every part is in place, so even a killed restore leaves
@@ -412,5 +442,5 @@ case "${1:-}" in
     restore) shift; cmd_restore "$@" ;;
     remove) shift; cmd_remove "$@" ;;
     update) shift; cmd_update "$@" ;;
-    *) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+    *) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

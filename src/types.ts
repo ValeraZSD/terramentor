@@ -43,6 +43,16 @@ export interface DeckData {
     stages: DeckStage[];
     matureDays: number;
     currentStageId: number | null;
+    /** The recall target its cards are scheduled for (`getRetention`), not observed recall. */
+    desiredRetention: number;
+}
+
+/** GET /api/projects/:id/deck/retention-forecast: answers a day each target would ask for. */
+export interface RetentionForecast {
+    current: number;
+    newPerDay: number;
+    days: number;
+    choices: { retention: number; perDay: number }[];
 }
 
 export interface Project {
@@ -108,6 +118,9 @@ export interface Project {
      *  default for an import, on for anything authored here, and the learner's
      *  to change (PUT /api/projects/:id/teaching). */
     teaches?: boolean;
+    /** The share of its cards the learner wants to still know when each comes
+     *  up (FSRS desired retention); 0.9 unless the course set its own. */
+    desired_retention?: number;
     /** Total cards, and how many have ever been studied. Progress is this ratio
      *  for a project that is not being taught: its nodes are never hand-marked
      *  complete, so the leaf-status counters read 0% forever. */

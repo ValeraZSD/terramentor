@@ -6,6 +6,7 @@ import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
 import { Chip } from './ui/Chip';
+import { FOCUS_RING } from './ui/vocabulary';
 import { centresSearch, fitHeader, type HeaderFit } from '../utils/headerFit';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
@@ -30,6 +31,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useTranslation } from 'react-i18next';
+import { ContentLang } from '../utils/contentLang';
 
 const ASSISTANT_WIDTH_KEY = 'assistant.width';
 
@@ -87,6 +89,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     // tree (the project dashboard's "ask about this project") open it with a
     // question already in the composer.
     const assistantOpen = useStore(s => s.assistantOpen);
+    // While a mock exam is answered the header, the notices and the assistant
+    // step aside: the exam draws its own bar (mockExam/ExamFrame). The header
+    // is hidden, not unmounted, so its measured fit survives the round trip.
+    const examFocus = useStore(s => s.examFocus);
     const openAssistant = useStore(s => s.openAssistant);
     const closeAssistant = useStore(s => s.closeAssistant);
     const [assistantWidth, setAssistantWidth] = useState(storedAssistantWidth);
@@ -97,7 +103,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     // ask about, and a modal that hides it makes you close the answer to look at
     // the question. Narrow screens have no room for two columns, so there it
     // stays an overlay.
-    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen;
+    // An exam hides the assistant, so nothing makes room for it then.
+    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen && !examFocus;
 
     const resizeAssistant = (px: number) => {
         setAssistantWidth(px);
@@ -256,6 +263,39 @@ export default function Layout({ children }: { children: ReactNode }) {
         { key: 'atlas' as const, label: t("Atlas") },
     ];
 
+    // Where the learner is, in words: the window's title (read out on every
+    // move by a screen reader, and what a tab or a task switcher shows) and
+    // the page's h1 where no screen draws one of its own.
+    const place = view === 'workspace' ? currentProject?.name
+        : view === 'settings' ? t("Settings")
+            : globalTabs.find((g) => g.key === view)?.label;
+    const mainRef = useRef<HTMLElement | null>(null);
+    // A new page says where it is: the tab title, one polite announcement (a
+    // client-side route change is silent to a screen reader otherwise), and
+    // focus in the content when the control that was pressed went away with the
+    // old page. Focus that still lives somewhere (a tab, the tree, a dialog)
+    // stays where it is.
+    const [arrived, setArrived] = useState('');
+    useEffect(() => {
+        document.title = place ? `${place} · Terramentor` : 'Terramentor';
+    }, [place]);
+    // Announced and focused on a MOVE only: a renamed course or a new interface
+    // language changes the words, not where the learner is. A course's name
+    // arrives after its id, so the words are read when they are known.
+    const where = `${view}:${view === 'workspace' ? currentProjectId ?? '' : ''}`;
+    const announced = useRef('');
+    useEffect(() => {
+        if (!place || announced.current === where) return;
+        const first = !announced.current;
+        announced.current = where;
+        if (first) return;
+        setArrived(place);
+        const active = document.activeElement;
+        if ((!active || active === document.body) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+            mainRef.current?.focus({ preventScroll: true });
+        }
+    }, [place, where]);
+
     // What the bar shows at its OWN width (`fitHeader`): centred search, then
     // the icons' spare room to the rail, then the search as its icon, then a
     // "More" menu for the tabs that still do not fit. Every input is a natural
@@ -384,6 +424,17 @@ export default function Layout({ children }: { children: ReactNode }) {
     return (
         <div className="h-full flex bg-slate-100 dark:bg-slate-900" style={accentStyle}>
         <div className="flex-1 min-w-0 flex flex-col">
+            {/* The first stop for Tab: past the header and its tab strip,
+                straight to the screen. Hidden until it has focus. */}
+            <a
+                data-skip-link
+                href="#main-content"
+                onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}
+                className={`sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
+            >
+                {t("Skip to content")}
+            </a>
+            <div className="sr-only" aria-live="polite" aria-atomic="true">{arrived}</div>
             {/* Three columns in normal flow — an absolutely centred search
                 would paint on top of the tab strip on a phone. Instead the
                 sides split the row with `basis-0`, so they take an equal half
@@ -404,7 +455,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
                 under its status bar the bar's colour runs up behind the clock and
                 its row starts below it, the same 56px as the assistant's header. */}
-            <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
+            <header ref={headerRef} className={`h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 ${examFocus ? 'hidden' : 'flex'} items-center gap-2 safe-px-2 sm:safe-px-4 shrink-0`}>
                 <div ref={leftRef} className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
@@ -499,7 +550,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-on:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
@@ -555,11 +606,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                 reached from other devices and has no password. Below it, once,
                 that macOS is running a temporary copy of the app. */}
             <ExposedBanner />
-            <UpdateNotice />
-            <AppPlacementNotice />
+            {!examFocus && <UpdateNotice />}
+            {!examFocus && <AppPlacementNotice />}
 
-            <main className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0">
-                {children}
+            <main ref={mainRef} id="main-content" tabIndex={-1} className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0 outline-none">
+                {/* Today, Projects and Calendar have a tab strip where a title
+                    would be; Atlas and Settings draw their own h1. */}
+                {isGlobalView && view !== 'atlas' && place && <h1 className="sr-only">{place}</h1>}
+                {/* Inside a course, its text is in its own language. */}
+                <ContentLang projectId={view === 'workspace' ? currentProjectId : null}>{children}</ContentLang>
             </main>
 
             <ToastContainer />
@@ -618,8 +673,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             <CompletionSummary />
 
             {/* Global background-AI task bar (replaces the old single-purpose
-                floating creation card — creation is one chip among the rest). */}
-            <TaskDock />
+                floating creation card — creation is one chip among the rest).
+                Kept out of an exam; the tasks run on and show again after. */}
+            {!examFocus && <TaskDock />}
 
             {/* Every AI project creation's screen, and the reattach after a
                 reload — at the root, because a run is reached from the dock on
@@ -630,7 +686,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Outside the app column, so a docked assistant takes real layout space
             rather than painting over the page. */}
         <AssistantDrawer
-            open={assistantOpen}
+            open={assistantOpen && !examFocus}
             onClose={closeAssistant}
             docked={assistantDocked}
             width={assistantWidth}

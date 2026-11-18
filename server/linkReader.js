@@ -2,7 +2,10 @@
 //
 // The learner pastes a link on Projects (or the assistant prepares one) and a
 // short course is built from what is behind it. This module reads it and does
-// nothing else: no database, no model. Three kinds of link:
+// nothing else: it writes nothing and asks no model. (It does import the
+// entity decoder from lessonSources.js, and loading that file loads the
+// database module and the model layer too; the reader itself never uses them.)
+// Three kinds of link:
 //
 //   - a web page: its MAIN text, headings and paragraphs of the article, never
 //     the menus, cookie banner, sidebar, footer or scripts around it. Written
@@ -28,7 +31,7 @@
 // a title.
 
 import { safeFetch } from './netSafety.js';
-import { readCappedText } from './httpBody.js';
+import { readCappedText, decodeText } from './httpBody.js';
 import { MAX_FILE_BYTES } from './extract.js';
 import { decodeEntities } from './lessonSources.js';
 
@@ -137,8 +140,10 @@ const fail = (link, reason, { kind = link.kind || 'page', title = '' } = {}) => 
 /** The caller's signal and the request's own deadline, whichever comes first. */
 const deadline = (signal) => (signal ? AbortSignal.any([signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]) : AbortSignal.timeout(FETCH_TIMEOUT_MS));
 
-/** A thrown fetch as a reason the screen can say. */
-function thrownReason(err, signal) {
+/** A thrown fetch as a reason the screen can say. `page` is a web page read:
+ *  only there is "save it as a file" a way on, so only there a failed
+ *  certificate is `blocked` (a video read keeps `network`). */
+function thrownReason(err, signal, { page = false } = {}) {
     if (signal?.aborted) return 'cancelled';
     const msg = String(err?.message || '');
     if (err?.name === 'TimeoutError' || /timed? ?out|took longer/i.test(msg)) return 'timeout';
@@ -146,6 +151,10 @@ function thrownReason(err, signal) {
     if (/too many redirects/i.test(msg)) return 'site_error';
     if (/larger than \d+ bytes/i.test(msg)) return 'too_large';
     if (/could not resolve|ENOTFOUND/i.test(msg) || err?.cause?.code === 'ENOTFOUND') return 'no_such_site';
+    // An expired or self-signed certificate, or a name the certificate does
+    // not cover, fails the same way on every try: "try again" is wrong for it,
+    // and the way on is the one for a site that will not let the app in.
+    if (page && /^(?:CERT_|ERR_TLS_|UNABLE_TO_|DEPTH_ZERO|SELF_SIGNED)/.test(String(err?.cause?.code || err?.code || ''))) return 'blocked';
     return 'network';
 }
 
@@ -225,7 +234,7 @@ async function readPage(link, { lang, signal }) {
             signal: deadline(signal),
         });
     } catch (err) {
-        return fail(link, thrownReason(err, signal));
+        return fail(link, thrownReason(err, signal, { page: true }));
     }
     if (!res.ok) {
         await res.body?.cancel?.().catch(() => {});
@@ -234,7 +243,7 @@ async function readPage(link, { lang, signal }) {
     }
     const type = (res.headers.get('content-type') || '').toLowerCase();
     try {
-        if (/text\/html|application\/xhtml/.test(type)) return pageResult(link, await readCappedText(res, PAGE_BYTES));
+        if (/text\/html|application\/xhtml/.test(type)) return pageResult(link, await readCappedText(res, PAGE_BYTES, { sniffCharset: true }));
         const declared = Number(res.headers.get('content-length'));
         if (declared > MAX_FILE_BYTES) {
             await res.body?.cancel?.().catch(() => {});
@@ -251,7 +260,7 @@ async function readPage(link, { lang, signal }) {
         // A page served under a wrong type still reads as one, and no more of
         // it than of a page that said what it was.
         if (/^\s*<(?:!doctype html|html|head|body)\b/i.test(buffer.subarray(0, 512).toString('latin1'))) {
-            return pageResult(link, new TextDecoder('utf-8').decode(buffer.subarray(0, PAGE_BYTES)));
+            return pageResult(link, decodeText(buffer.subarray(0, PAGE_BYTES), type));
         }
         if (READABLE_FILE.test(filename) || /^text\//.test(type)) {
             const name = READABLE_FILE.test(filename) ? filename : `${filename || link.host}.txt`;
@@ -259,7 +268,7 @@ async function readPage(link, { lang, signal }) {
         }
         return fail(link, 'unsupported');
     } catch (err) {
-        return fail(link, thrownReason(err, signal));
+        return fail(link, thrownReason(err, signal, { page: true }));
     }
 }
 
@@ -314,6 +323,8 @@ function pageResult(link, html) {
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 /** Elements whose content is never prose: skipped whole, at the tag. */
 const RAW = new Set(['script', 'style', 'textarea', 'title', 'noscript', 'template', 'svg', 'math', 'iframe', 'xmp', 'object', 'canvas', 'video', 'audio', 'select']);
+/** The RAW elements an HTML page may write as a self-closed tag. */
+const FOREIGN = new Set(['svg', 'math']);
 /** Page furniture wherever it is. */
 const FURNITURE = new Set(['nav', 'aside', 'footer', 'button', 'dialog', 'menu']);
 const BLOCK = new Set([
@@ -325,6 +336,9 @@ const BLOCK = new Set([
 const CLOSES_P = new Set([...BLOCK].filter(t => !['li', 'dt', 'dd', 'tr', 'thead', 'tbody', 'caption', 'figcaption', 'summary', 'body', 'html'].includes(t)));
 const ROLE_FURNITURE = /^(?:navigation|banner|contentinfo|complementary|search|dialog|alertdialog|menu|menubar)$/i;
 const CLASS_FURNITURE = /(?:^|[\s_-])(?:cookie|consent|gdpr|banner|navbar|nav|menu|sidebar|breadcrumbs?|footer|share|sharing|social|newsletter|subscribe|signup|advert|ads?|promo|related|recommended|comments?|popup|modal|skip-link|toolbar|masthead)(?:$|[\s_-])/i;
+
+/** Class names a code highlighter puts on the wrapper of a code block. */
+const CODE_WRAPPER = /(?:^|[\s_-])(?:code|codeblock|highlight|highlighter|prism|hljs)[_-]toolbar(?=$|[\s_-])/gi;
 
 const attrOf = (attrs, name) => {
     const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(attrs || '');
@@ -357,6 +371,10 @@ function parseHtml(html) {
             if (n && n !== root) cur = n.parent;
             continue;
         }
+        // `<svg ... />` and `<math ... />` close themselves (foreign elements
+        // honour the slash, where a `<script ... />` does not): there is no
+        // `</svg` to look for, and the next one belongs to some other icon.
+        if (FOREIGN.has(tag) && /\/\s*$/.test(m[3])) continue;
         if (RAW.has(tag)) {
             // Searched in the page itself: a lower-cased copy is not the same
             // length when the page holds an "İ", and its offsets then cut
@@ -452,12 +470,13 @@ function textBlocks(root, whole) {
     };
     const furniture = (el) => {
         if (whole && el.tag === 'header') return true;
-        const cls = `${attrOf(el.attrs, 'class') || ''} ${attrOf(el.attrs, 'id') || ''}`;
+        // Prism's "code-toolbar" wraps the code block itself, not a toolbar of the page.
+        const cls = `${attrOf(el.attrs, 'class') || ''} ${attrOf(el.attrs, 'id') || ''}`.replace(CODE_WRAPPER, ' ');
         // A wrapper whose class only MENTIONS a sidebar ("has-sidebar") holds
         // the article: never more than half the text is furniture.
         return CLASS_FURNITURE.test(cls) && el.len < 0.5 * root.len;
     };
-    const walk = (node, kind, inLink) => {
+    const walk = (node, kind, inLink, inCode = false) => {
         for (const c of node.children) {
             if (!isElement(c)) {
                 if (!buf) buf = { kind, text: '', link: 0 };
@@ -466,7 +485,11 @@ function textBlocks(root, whole) {
                 if (inLink) buf.link += t.replace(/\s+/g, '').length;
                 continue;
             }
-            if (hiddenOrFurniture(c) || furniture(c)) continue;
+            // A highlighter's spans and wrappers carry class names like
+            // "comment" and "toolbar" for the CODE's sake, so a class is never
+            // read as page furniture at or inside a code block.
+            const code = inCode || c.tag === 'pre' || c.tag === 'code';
+            if (hiddenOrFurniture(c) || (!code && furniture(c))) continue;
             // A printed book's page number ("{ix}", Project Gutenberg's
             // `pagenum`) is not its text, nor part of a chapter's name.
             if (hasClass(c, 'pagenum')) continue;
@@ -490,12 +513,12 @@ function textBlocks(root, whole) {
             }
             if (c.tag === 'td' || c.tag === 'th') {
                 if (buf) buf.text += ' ';
-                walk(c, kind, inLink);
+                walk(c, kind, inLink, code);
                 if (buf) buf.text += ' ';
                 continue;
             }
             if (!BLOCK.has(c.tag)) {
-                walk(c, kind, inLink || c.tag === 'a');
+                walk(c, kind, inLink || c.tag === 'a', code);
                 continue;
             }
             flush();
@@ -504,7 +527,7 @@ function textBlocks(root, whole) {
                     : c.tag === 'pre' ? 'pre'
                         : c.tag === 'blockquote' ? 'quote'
                             : kind === 'item' || kind === 'quote' || /^h\d$/.test(kind) ? kind : 'para';
-            walk(c, next, inLink);
+            walk(c, next, inLink, code);
             flush();
         }
     };
