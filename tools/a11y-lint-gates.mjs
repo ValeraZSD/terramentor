@@ -138,10 +138,12 @@ check('every finding is a jsx-a11y rule (none is a file oxlint could not parse)'
 function directives(text) {
     const found = [];
     // A block comment may hold the directive, and its rules, on later lines than its opener.
-    // oxlint trims any whitespace after `//` (a no-break space too), but a line comment ends at the line.
-    for (const m of text.matchAll(/(\/\/[^\S\r\n]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/g)) {
+    // oxlint trims Rust whitespace before a directive: JavaScript's \s plus U+0085 (NEL). A line
+    // comment ends at any JavaScript line terminator: \r, \n, U+2028 (\p{Zl}) and U+2029 (\p{Zp}).
+    for (const m of text.matchAll(/(\/\/(?:[^\S\r\n\p{Zl}\p{Zp}]|\x85)*|\/\*(?:\s|\x85)*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/gu)) {
         const from = m.index + m[0].length;
-        const end = m[1].startsWith('//') ? text.indexOf('\n', from) : text.indexOf('*/', from);
+        const lineEnd = text.slice(from).search(/[\r\n\p{Zl}\p{Zp}]/u);
+        const end = m[1].startsWith('//') ? (lineEnd < 0 ? -1 : from + lineEnd) : text.indexOf('*/', from);
         // A description follows "--", or a lone "-" with space around it, as oxlint reads it.
         const body = text.slice(from, end < 0 ? text.length : end).split(/--|\s-\s/)[0];
         const at = m.index + m[0].indexOf(m[2]);
@@ -157,7 +159,11 @@ check('a directive in a comment is read, the same words in a string are not',
     && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]'
     && JSON.stringify(directives('// oxlint-disable-next-line - temporary\n')) === '[{"line":1,"rules":[]}]'
     && JSON.stringify(directives(`//${String.fromCharCode(0xa0)}oxlint-disable-next-line jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":["jsx-a11y/alt-text"]}]'
-    && directives('//\noxlint-disable-next-line jsx-a11y/alt-text\n').length === 0);
+    && directives('//\noxlint-disable-next-line jsx-a11y/alt-text\n').length === 0
+    && JSON.stringify(directives(`//${String.fromCharCode(0x85)}oxlint-disable-next-line jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":["jsx-a11y/alt-text"]}]'
+    && directives(`//${String.fromCharCode(0x2028)}oxlint-disable-next-line jsx-a11y/alt-text\n`).length === 0
+    && directives(`//${String.fromCharCode(0x2029)}oxlint-disable-next-line jsx-a11y/alt-text\n`).length === 0
+    && JSON.stringify(directives(`// oxlint-disable-next-line${String.fromCharCode(0x2028)}jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":[]}]');
 
 /** A directive's rule as the jsx-a11y rule oxlint will switch off (it accepts `alt-text` alone), or null. */
 const a11yRule = (r) => (known.includes(r) ? r : known.includes(`jsx-a11y/${r}`) ? `jsx-a11y/${r}` : null);
