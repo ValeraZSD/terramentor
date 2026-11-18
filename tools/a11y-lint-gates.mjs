@@ -38,6 +38,7 @@
  * ignore them, so a barrier with such a comment over it would pass unseen.
  * Each one in `src/` is listed in SUPPRESSED with its reason; any other fails.
  */
+import { parse } from '@babel/parser';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -131,20 +132,24 @@ check('every finding is a jsx-a11y rule (none is a file oxlint could not parse)'
 
 /**
  * Disable directives in `text`, as { line, rules } (rules empty = every rule).
- * A directive counts only where it opens a comment (`// eslint-disable…`,
- * `/* oxlint-disable…`, `{/* … *\/}` in JSX), as oxlint reads it; the same
- * words elsewhere, such as inside a string a component shows, are not one.
+ * The file is parsed, so only real comments are read (`// …`, `/* … *\/`, `{/* … *\/}`
+ * in JSX): the same words in a string or JSX text are not a directive, and a line
+ * comment ends wherever JavaScript says it does (U+2028 and U+2029 included).
+ * As oxlint does, the directive must open the comment after Rust whitespace,
+ * which is JavaScript's \s plus U+0085 (NEL).
  */
-function directives(text) {
+function directives(text, file = 'x.tsx') {
+    const plugins = file.endsWith('.tsx') ? ['jsx', 'typescript'] : ['jsx'];
+    const { comments } = parse(text, { sourceType: 'unambiguous', plugins, errorRecovery: true });
     const found = [];
-    // A block comment may hold the directive, and its rules, on later lines than its opener.
-    // oxlint trims any whitespace after `//` (a no-break space too), but a line comment ends at the line.
-    for (const m of text.matchAll(/(\/\/[^\S\r\n]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/g)) {
-        const from = m.index + m[0].length;
-        const end = m[1].startsWith('//') ? text.indexOf('\n', from) : text.indexOf('*/', from);
+    for (const c of comments) {
+        const lead = /^(?:\s|\x85)*/u.exec(c.value)[0].length;
+        const m = /^((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/.exec(c.value.slice(lead));
+        if (!m) continue;
         // A description follows "--", or a lone "-" with space around it, as oxlint reads it.
-        const body = text.slice(from, end < 0 ? text.length : end).split(/--|\s-\s/)[0];
-        const at = m.index + m[0].indexOf(m[2]);
+        const body = c.value.slice(lead + m[0].length).split(/--|\s-\s/)[0];
+        // The line the directive itself is on: a block comment may start it on a later line than `/*`.
+        const at = c.start + 2 + lead;
         found.push({ line: text.slice(0, at).split('\n').length, rules: body.match(/[\w@/-]+\/[\w-]+|[\w-]+/g) ?? [] });
     }
     return found;
@@ -157,7 +162,13 @@ check('a directive in a comment is read, the same words in a string are not',
     && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]'
     && JSON.stringify(directives('// oxlint-disable-next-line - temporary\n')) === '[{"line":1,"rules":[]}]'
     && JSON.stringify(directives(`//${String.fromCharCode(0xa0)}oxlint-disable-next-line jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":["jsx-a11y/alt-text"]}]'
-    && directives('//\noxlint-disable-next-line jsx-a11y/alt-text\n').length === 0);
+    && directives("//\nconst t = 'oxlint-disable-next-line jsx-a11y/alt-text';\n").length === 0
+    && JSON.stringify(directives(`//${String.fromCharCode(0x85)}oxlint-disable-next-line jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":["jsx-a11y/alt-text"]}]'
+    && directives(`const tip = "//${String.fromCharCode(0x85)}oxlint-disable-next-line jsx-a11y/alt-text";\n`).length === 0
+    && directives('const url = "https://x.test//eslint-disable";\nconst P = () => <p>// eslint-disable</p>;\n').length === 0
+    && directives(`//${String.fromCharCode(0x2028)}const t = 'oxlint-disable-next-line jsx-a11y/alt-text';\n`).length === 0
+    && directives(`//${String.fromCharCode(0x2029)}const t = 'oxlint-disable-next-line jsx-a11y/alt-text';\n`).length === 0
+    && JSON.stringify(directives(`// oxlint-disable-next-line${String.fromCharCode(0x2028)}x;\n`)) === '[{"line":1,"rules":[]}]');
 
 /** A directive's rule as the jsx-a11y rule oxlint will switch off (it accepts `alt-text` alone), or null. */
 const a11yRule = (r) => (known.includes(r) ? r : known.includes(`jsx-a11y/${r}`) ? `jsx-a11y/${r}` : null);
@@ -181,7 +192,15 @@ for (const f of sources) {
     const text = readFileSync(join(ROOT, f), 'utf8');
     // A blanket directive matters only where there is JSX for a jsx-a11y rule to see.
     const jsx = /\.(jsx|tsx)$/.test(f) || hasJsx(text);
-    for (const { line, rules } of directives(text)) {
+    let found;
+    try {
+        found = directives(text, f);
+    } catch (err) {
+        // A file the scan cannot read is never passed unread.
+        stray.push(`        ${f}  could not be parsed: ${err.message}`);
+        continue;
+    }
+    for (const { line, rules } of found) {
         if (!rules.length && jsx) stray.push(`        ${f}:${line}  every rule`);
         for (const rule of rules.map(a11yRule).filter(Boolean)) {
             if (!SUPPRESSED[f]?.[rule]) stray.push(`        ${f}:${line}  ${rule}`);
