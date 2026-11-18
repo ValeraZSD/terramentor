@@ -78,7 +78,8 @@ system temp folder); the app reaches OpenRouter through the env overrides
   which grants one every 60/`--rpm` seconds across all workers (default 16;
   the free tier allows 20 a minute). That wait runs inside the app's own
   per-request timeout, so only `--parallel` models run at once (default
-  rpm / 3, a wait under about 20 s). A free-model run stops granting after
+  rpm / 3, a wait under about 20 s). `--shards N` splits one model's cases
+  over N workers, for a slow model. A free-model run stops granting after
   `--daily` requests, which defaults to what the key's free daily quota has
   left; a paid run has no default cap.
 - **Resuming.** Results go to `<dir>/<model>.jsonl`, one line per case. A case
