@@ -33,9 +33,13 @@
  * Before anything is trusted, oxlint is run on a planted <img> with no alt and
  * a <div onClick> with no key handler, and must report both: a run that read
  * no files, or a config oxlint ignored, would otherwise read as a clean tree.
+ *
+ * oxlint obeys `eslint-disable … jsx-a11y/…` comments and has no switch to
+ * ignore them, so a barrier with such a comment over it would pass unseen.
+ * Each one in `src/` is listed in SUPPRESSED with its reason; any other fails.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -45,6 +49,12 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const CONFIG = join(ROOT, 'tools', 'oxlint-a11y.json');
 const ALLOWLIST = join(ROOT, 'tools', 'a11y-lint-allowlist.json');
 const STYLE_ONLY = ['jsx-a11y/prefer-tag-over-role', 'jsx-a11y/no-redundant-roles'];
+/** Inline jsx-a11y suppressions allowed, per file and rule, with the reason. */
+const SUPPRESSED = {
+    'src/components/answer/FillInInput.tsx': {
+        'jsx-a11y/no-autofocus': 'the answer box takes focus only when the question surface asks for it',
+    },
+};
 const require = createRequire(import.meta.url);
 const OXLINT = join(dirname(require.resolve('oxlint/package.json')), 'bin', 'oxlint');
 const { acceptAllowlist } = await import(pathToFileURL(join(ROOT, 'tools', 'lib', 'axeScreens.mjs')).href);
@@ -102,12 +112,32 @@ try {
 
 const { counts, diagnostics, files } = lint(['src']);
 check(`oxlint read the client sources (${files} files)`, files > 100);
+
+// Comments that switch a jsx-a11y rule off where they stand.
+const stray = [];
+for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
+    const f = `src/${String(rel).replace(/\\/g, '/')}`;
+    if (!/\.(jsx|tsx)$/.test(f)) continue; // jsx-a11y finds nothing outside JSX
+    readFileSync(join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
+        if (!/(eslint|oxlint)-disable/.test(line)) return;
+        for (const rule of line.match(/jsx-a11y\/[\w-]+/g) ?? []) {
+            if (!SUPPRESSED[f]?.[rule]) stray.push(`        ${f}:${i + 1}  ${rule}`);
+        }
+        if (/(eslint|oxlint)-disable(-next-line|-line)?\s*(\*\/|--|$)/.test(line.trim())) stray.push(`        ${f}:${i + 1}  every rule`);
+    });
+}
+check('no jsx-a11y rule is switched off by a comment outside SUPPRESSED', !stray.length, stray.join('\n'));
 console.log(`\n${diagnostics.length} finding(s) in ${Object.keys(counts).length} file(s)`);
 
 const file = existsSync(ALLOWLIST) ? JSON.parse(readFileSync(ALLOWLIST, 'utf8')) : { allowed: {} };
 const allowed = file.allowed ?? {};
 
 if (accept) {
+    // A run whose own checks failed cannot be trusted to lower the allowlist.
+    if (fail) {
+        console.log('\nnot writing the allowlist: a check above failed');
+        process.exit(1);
+    }
     // A file with no findings now is written as an empty entry, so acceptAllowlist drops it.
     const now = Object.fromEntries(Object.keys(allowed).map((f) => [f, {}]));
     Object.assign(now, counts);
