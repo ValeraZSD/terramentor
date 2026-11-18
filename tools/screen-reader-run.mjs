@@ -159,6 +159,11 @@ async function tabTo(page, expr, what, max = 80) {
         await sleep(250);
         stops.push((await spoken()).join(' '));
     }
+    if (await focused()) {
+        current.steps.push({ label: `Tab to ${what} (${max} presses)`, said: stops });
+        console.log(`  Tab to ${what}: ${max} presses`);
+        return max;
+    }
     current.steps.push({ label: `Tab to ${what}: not reached in ${max} presses`, said: stops });
     throw new Error(`Tab never reached ${what} in ${max} presses`);
 }
@@ -204,8 +209,14 @@ const TASKS = {
             const added = words(await textOf(page, `document.querySelector('[data-review-card] [aria-live]')`)).filter((w) => !before.has(w));
             expect('the answer is read out after the flip', heard(flip, added.join(' ')));
             await tabTo(page, RATING_GOOD, 'the Good rating');
+            const shown = () => textOf(page, `document.querySelector('[data-review-card] [aria-live]')`);
+            const rated = await shown();
             const graded = await step('Space on Good', () => nvda.press('Space'));
-            expect('grading says something (next card or the session end)', graded.length > 0);
+            // The rating itself is checked on the page; what NVDA said about it is the expectation.
+            const next = await shown();
+            if (next && next === rated) throw new Error('Space on Good left the same card on screen');
+            expect('the next card (or the end of the session) is read out',
+                next ? heard(graded, next.slice(0, 80)) : graded.length > 0);
         },
     },
     quiz: {
@@ -268,17 +279,26 @@ const TASKS = {
             expect('the item says how to move it', /press space or enter|arrow keys/i.test(at));
             // NVDA beeps rather than speaks the switch, so nothing is heard here.
             await step('NVDA+Space: focus mode, so keys reach the page', () => nvda.perform(NVDAKeyCodeCommands.toggleBetweenBrowseAndFocusMode));
+            const order = () => page.evaluate(`[...document.querySelectorAll('main [data-node-id]')].map((e) => e.getAttribute('data-node-id')).join(',')`);
+            const was = await order();
             const up = await step('Space: pick up', () => nvda.press('Space'));
             expect('picking up is announced', /picked up/i.test(up));
             const moved = await step('Down arrow', () => nvda.press('Down'));
-            expect('the new place is announced', /is over|position|not over/i.test(moved));
+            expect('the new place is announced', /is over|position/i.test(moved));
             const dropped = await step('Space: drop', () => nvda.press('Space'));
             expect('the drop is announced', /dropped|moved/i.test(dropped));
+            // The move itself is checked on the page; the speech above is only the expectations.
+            await sleep(800);
+            if (!was || (await order()) === was) throw new Error('the outline order did not change after the drop');
         },
     },
 };
 
 const wanted = Object.keys(TASKS).filter((n) => !only || n.includes(only));
+if (!wanted.length) {
+    console.error(`--only ${only} matches no task (${Object.keys(TASKS).join(', ')})`);
+    process.exit(1);
+}
 // A task whose screen does not open is that task's failure: the others still run.
 const unopened = {};
 const states = Object.fromEntries(wanted.map((n) => [n, async (page, ctx) => {
@@ -287,8 +307,15 @@ const states = Object.fromEntries(wanted.map((n) => [n, async (page, ctx) => {
 const failed = [];
 const scratch = mkdtempSync(join(tmpdir(), 'screen-reader-'));
 const t0 = Date.now();
-await nvda.start({ capture: 'initial' });
 try {
+    // Inside the try: if NVDA does not start, the scratch library is still removed
+    // and the transcript still says why.
+    try {
+        await nvda.start({ capture: 'initial' });
+    } catch (err) {
+        transcript.start = { name: 'start NVDA', steps: [], expect: [], error: err.message };
+        throw err;
+    }
     await visit('fixture', scratch, [{ states: wanted }], { width: 1280, height: 800, scale: 1 }, findBrowser(value('--browser')), async (_entry, name, page) => {
         current = transcript[name] = { name, steps: [], expect: [] };
         console.log(`\n${name}`);
