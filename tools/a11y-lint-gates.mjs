@@ -138,7 +138,8 @@ check('every finding is a jsx-a11y rule (none is a file oxlint could not parse)'
 function directives(text) {
     const found = [];
     // A block comment may hold the directive, and its rules, on later lines than its opener.
-    for (const m of text.matchAll(/(\/\/[ \t]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/g)) {
+    // oxlint trims any whitespace after `//` (a no-break space too), but a line comment ends at the line.
+    for (const m of text.matchAll(/(\/\/[^\S\r\n]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/g)) {
         const from = m.index + m[0].length;
         const end = m[1].startsWith('//') ? text.indexOf('\n', from) : text.indexOf('*/', from);
         // A description follows "--", or a lone "-" with space around it, as oxlint reads it.
@@ -154,7 +155,9 @@ check('a directive in a comment is read, the same words in a string are not',
     && JSON.stringify(directives('x;\n{/*\n  eslint-disable-next-line jsx-a11y/alt-text\n*/}\n')) === '[{"line":3,"rules":["jsx-a11y/alt-text"]}]'
     && JSON.stringify(directives('/* eslint-disable-next-line no-debugger,\n   jsx-a11y/alt-text */\n')) === '[{"line":1,"rules":["no-debugger","jsx-a11y/alt-text"]}]'
     && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]'
-    && JSON.stringify(directives('// oxlint-disable-next-line - temporary\n')) === '[{"line":1,"rules":[]}]');
+    && JSON.stringify(directives('// oxlint-disable-next-line - temporary\n')) === '[{"line":1,"rules":[]}]'
+    && JSON.stringify(directives(`//${String.fromCharCode(0xa0)}oxlint-disable-next-line jsx-a11y/alt-text\n`)) === '[{"line":1,"rules":["jsx-a11y/alt-text"]}]'
+    && directives('//\noxlint-disable-next-line jsx-a11y/alt-text\n').length === 0);
 
 /** A directive's rule as the jsx-a11y rule oxlint will switch off (it accepts `alt-text` alone), or null. */
 const a11yRule = (r) => (known.includes(r) ? r : known.includes(`jsx-a11y/${r}`) ? `jsx-a11y/${r}` : null);
