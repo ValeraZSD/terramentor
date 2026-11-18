@@ -125,11 +125,30 @@ async function focusBrowser(page) {
     throw new Error(`NVDA never reached the browser window ("${title}")`);
 }
 
-/** Tab, as a learner would, until `expr` has focus; each stop NVDA named is kept. */
+/**
+ * Tab, as a learner would, until `expr` has focus; each stop NVDA named is kept.
+ * When the page already put focus there, NVDA's browse cursor may still be
+ * elsewhere (Space acts on the cursor, not the focus): Tab away and back so
+ * NVDA follows the focus onto it.
+ */
 async function tabTo(page, expr, what, max = 80) {
     const stops = [];
+    const focused = () => page.evaluate(`(() => { const e = ${expr}; return !!e && (document.activeElement === e || e.contains(document.activeElement)); })()`);
+    if (await focused()) {
+        await nvda.clearSpokenPhraseLog();
+        await nvda.press('Tab');
+        await sleep(250);
+        await nvda.press('Shift+Tab');
+        await sleep(250);
+        stops.push((await spoken()).join(' '));
+        if (await focused()) {
+            current.steps.push({ label: `Tab and Shift+Tab, back to ${what} (it had focus already)`, said: stops });
+            console.log(`  ${what} had focus already`);
+            return 0;
+        }
+    }
     for (let i = 0; i < max; i++) {
-        if (await page.evaluate(`(() => { const e = ${expr}; return !!e && (document.activeElement === e || e.contains(document.activeElement)); })()`)) {
+        if (await focused()) {
             current.steps.push({ label: `Tab to ${what} (${i} presses)`, said: stops });
             console.log(`  Tab to ${what}: ${i} presses`);
             return i;
@@ -212,21 +231,23 @@ const TASKS = {
             await page.go(`/project/${ids.project}/tree/${ids.cards}`, 'Details');
             await page.waitFor(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
             await page.press(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
-            await page.waitFor(`document.querySelector('.katex math, math')`, 'the maths card');
+            const review = byText('button', '/^Review these cards/');
+            await page.waitFor(review, 'Review these cards');
+            await page.press(review, 'Review these cards');
+            // The topic's cards in the order they were written: the maths card first.
+            await page.waitFor(`document.querySelector('[data-review-card] .katex')`, 'the maths card in review');
             await sleep(800);
         },
         run: async (page) => {
-            const plate = `(document.querySelector('.katex')?.closest('[role="button"], button, [data-review-card], [data-card-face]'))`;
-            const at = await step('focus the card', async () => { await tabTo(page, plate, 'the maths card', 120); await nvda.perform(NVDAKeyCodeCommands.reportCurrentFocus); });
-            const browse = await step('browse mode over the card', async () => {
-                await nvda.perform(NVDAKeyCodeCommands.exitFocusMode, { capture: false });
-                for (let i = 0; i < 6; i++) await nvda.next();
+            await tabTo(page, REVEAL, 'Reveal answer');
+            const read = await step('browse mode, up from Reveal answer over the card', async () => {
+                for (let i = 0; i < 8; i++) await nvda.previous();
             });
-            const all = `${at} | ${browse}`;
-            expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(all));
-            expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(all));
-            const flip = await step('Space on the card', async () => { await tabTo(page, plate, 'the maths card'); await nvda.press('Space'); });
-            expect('flipping says something', flip.length > 0);
+            expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(read));
+            expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(read));
+            await tabTo(page, REVEAL, 'Reveal answer');
+            const flip = await step('Space on Reveal answer', () => nvda.press('Space'));
+            expect('the answer is read out, maths included', /to the|superscript|over|fraction/i.test(flip));
         },
     },
     'keyboard-reorder': {
@@ -239,8 +260,8 @@ const TASKS = {
             const handle = `document.querySelector('main [aria-roledescription="sortable"]')`;
             const at = await step('focus the first sortable item', async () => { await tabTo(page, handle, 'the first sortable item', 120); await nvda.perform(NVDAKeyCodeCommands.reportCurrentFocus); });
             expect('the item says how to move it', /press space or enter|arrow keys/i.test(at));
-            const mode = await step('NVDA+Space: focus mode, so keys reach the page', () => nvda.perform(NVDAKeyCodeCommands.toggleBetweenBrowseAndFocusMode));
-            if (!/focus mode/i.test(mode)) await step('NVDA+Space again', () => nvda.perform(NVDAKeyCodeCommands.toggleBetweenBrowseAndFocusMode));
+            // NVDA beeps rather than speaks the switch, so nothing is heard here.
+            await step('NVDA+Space: focus mode, so keys reach the page', () => nvda.perform(NVDAKeyCodeCommands.toggleBetweenBrowseAndFocusMode));
             const up = await step('Space: pick up', () => nvda.press('Space'));
             expect('picking up is announced', /picked up/i.test(up));
             const moved = await step('Down arrow', () => nvda.press('Down'));
