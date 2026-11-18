@@ -182,7 +182,7 @@ the checks on every pull request.
 
 **Lint rules for the source.** `tools/a11y-lint-gates.mjs` runs oxlint's `jsx-a11y` rules over
 `src/`. Findings beyond `tools/a11y-lint-allowlist.json` fail it, and that list may only
-shrink. On the date above it allows 96 findings in 48 files. Many are a rule that cannot see
+shrink. On the date above it allows 96 findings in 49 files. Many are a rule that cannot see
 what a shared component renders, such as a `role="switch"` on the app's checkbox, which is a
 real checkbox underneath. Two rules that ask for a different tag rather than flag a barrier are
 off, with the reason in the gate. A comment that switches a rule off in one place fails it too,
