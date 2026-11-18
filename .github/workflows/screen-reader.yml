@@ -1,0 +1,60 @@
+name: Screen reader
+
+# NVDA, driven through Guidepup, over a flashcard review, a quiz question, a
+# maths card and a keyboard reorder (tools/screen-reader-run.mjs). What NVDA
+# spoke is kept as the run's artifact. A screen reader needs a browser on
+# screen and in front, so this runs on a CI runner only: by hand, or when the
+# run itself changes. It is not part of every build.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/screen-reader.yml
+      - tools/screen-reader-run.mjs
+
+permissions:
+  contents: read
+
+jobs:
+  nvda:
+    name: NVDA on Windows
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # NVDA itself (a portable copy) and the settings Guidepup drives it with.
+      # Versions pinned; neither package runs an install script.
+      - name: Set up NVDA
+        run: |
+          npx -y @guidepup/setup@0.29.3 setup --ci
+          npx -y @guidepup/setup@0.29.3 install
+
+      - name: Guidepup
+        run: npm install --no-save --ignore-scripts @guidepup/guidepup@0.40.0
+
+      - name: Build
+        run: npm run build
+
+      - name: What NVDA says
+        run: node tools/screen-reader-run.mjs --out screen-reader
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: screen-reader-transcript
+          path: screen-reader/

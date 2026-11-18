@@ -212,7 +212,21 @@ const mentioned = (name) => new RegExp(`(?:^|[^a-zA-Z0-9@/._-])${name.replace(/[
 
 // --- 1. used but not declared (the phantom case) ---------------------------
 
-const undeclared = [...used.keys()].filter((n) => !declared.has(n)).sort();
+/**
+ * Imported by a tool that installs the package for itself, so it stays out of
+ * every install of the app. Each names the one file allowed to import it.
+ */
+const INSTALLED_BY_ITS_TOOL = {
+    '@guidepup/guidepup': {
+        file: 'tools/screen-reader-run.mjs',
+        why: 'drives NVDA on the Windows runner of .github/workflows/screen-reader.yml, which installs it; '
+            + 'never run on a desktop, so never part of `npm ci`',
+    },
+};
+const undeclared = [...used.keys()].filter((n) => !declared.has(n)).filter((n) => {
+    const own = INSTALLED_BY_ITS_TOOL[n];
+    return !own || [...used.get(n)].some((f) => f.replace(/\\/g, '/') !== own.file);
+}).sort();
 for (const name of undeclared) {
     failures.push(`phantom dependency: ${name} is imported by `
         + `${[...used.get(name)].slice(0, 3).join(', ')} but is in neither dependencies nor devDependencies`);
