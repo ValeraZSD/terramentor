@@ -250,8 +250,10 @@ section('8. larger text and buttons: one switch, two floors');
     // literals skipped over, so `=>` and `x > 1` do not end it); it is a
     // control by its tag or by a role the floor names, in any attribute
     // order, and only the tokens in its own `className` value count.
+    // Attributes are read by their exact name (`data-role` is not `role`),
+    // with or without spaces round the `=`.
     const CONTROL_TAG = /^(button|a|select|summary|input|Button|IconButton|LinkButton|Link|NavLink)$/;
-    const CONTROL_ROLE = /\brole=\{?["'`](button|tab|option|menuitem\w*|radio|checkbox)["'`]/;
+    const CONTROL_ROLE = /^\{?\s*["'`](button|tab|option|menuitem\w*|radio|checkbox)["'`]\s*\}?$/;
     // From an opening `{` or quote at `i`, the index just past its close.
     const skip = (src, i) => {
         const open = src[i];
@@ -280,20 +282,25 @@ section('8. larger text and buttons: one switch, two floors');
     const openingElements = (src) => {
         const out = [];
         for (const m of src.matchAll(/(?:^|[\s({>])<([A-Za-z][\w.]*)(?=[\s/>])/g)) {
-            const start = m.index + m[0].length;
-            let j = start, className = null;
+            let j = m.index + m[0].length;
+            const attrs = {};
             while (j < src.length && src[j] !== '>') {
-                if (src.startsWith('className=', j) && /\s/.test(src[j - 1])) {
-                    const v = j + 'className='.length;
-                    const end = skip(src, v);
-                    className = src.slice(v, end);
-                    j = end;
-                } else if (src[j] === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) j = comment(src, j);
-                else if (src[j] === '{' || src[j] === '"' || src[j] === "'") j = skip(src, j);
-                else j++;
+                const c = src[j];
+                if (c === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) { j = comment(src, j); continue; }
+                if (c === '{' || c === '"' || c === "'") { j = skip(src, j); continue; }
+                const name = /\s/.test(src[j - 1]) && /^[A-Za-z_][\w:.-]*/.exec(src.slice(j, j + 64));
+                if (!name) { j++; continue; }
+                j += name[0].length;
+                const eq = /^\s*=\s*/.exec(src.slice(j, j + 64));
+                if (!eq) { attrs[name[0]] = true; continue; }
+                j += eq[0].length;
+                const end = skip(src, j);
+                attrs[name[0]] = src.slice(j, end);
+                j = end;
             }
-            const attrs = src.slice(start, j);
-            out.push({ tag: m[1], className, control: CONTROL_TAG.test(m[1]) || CONTROL_ROLE.test(attrs) });
+            const className = typeof attrs.className === 'string' ? attrs.className : null;
+            const role = typeof attrs.role === 'string' ? attrs.role : '';
+            out.push({ tag: m[1], className, control: CONTROL_TAG.test(m[1]) || CONTROL_ROLE.test(role) });
         }
         return out;
     };
@@ -318,13 +325,17 @@ section('8. larger text and buttons: one switch, two floors');
             '<div className="min-w-[17rem]" role="option" />',
             '<div\n  role="button"\n  // named by the card\'s own words\n  className="min-w-[21rem]"\n>',
             '<button className={cx(\'a\', big && `min-w-[18rem] ${x > 1 ? "b" : ""}`)} onClick={() => go(x > 1)}>',
-        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem]');
+            '<button type="button" className = "min-w-[22rem]">',
+            '<div data-role="row" className="min-w-[23rem]" role = {"tab"} />',
+        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem]');
     check('...and a wide div, a string after a control, or a class outside className does not',
         tallClasses('min-w', [
             '<div className="min-w-[15rem]">{x}</div>',
             'const c = useRef<HTMLDivElement>(null); <p className="min-w-[17rem]" />',
             'const action = <button />; const example = "min-w-[15rem]";',
             '<button title="min-w-[19rem]" onClick={() => setW("min-w-[20rem]")}>',
+            '<div data-role="button" className="min-w-[24rem]" />',
+            '<div title="role=\'button\'" className="min-w-[25rem]" />',
         ]).length === 0);
     const spared = (cls, not) => cls.includes('[')
         ? not.includes(`[class*="${cls}"]`) || (cls.startsWith('min-h-') && not.includes('[class*="min-h-["]'))
