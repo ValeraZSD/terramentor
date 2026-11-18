@@ -208,7 +208,9 @@ new location is written into it.
 app starts: the window is a Chromium app window and its state is chosen at
 launch, not from inside the page. With no Chromium-based browser installed (Edge, Chrome,
 Brave, Vivaldi, Chromium) the app
-opens in your default browser instead, which ignores this choice.
+opens in your default browser instead, which ignores this choice. On Linux these browsers
+also count when they are installed from Flathub; the app starts them with `flatpak run` and
+lets that run reach only the window's own profile folder.
 
 ### No tray icon elsewhere
 
