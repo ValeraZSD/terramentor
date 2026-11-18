@@ -39,7 +39,7 @@ export function topicStatusLines(topic: AtlasTopic, num: (n: number) => string):
     if (topic.attempts > 0) {
         lines.push({
             key: k("{{round}}% · {{attempts}} answered"),
-            values: { round: Math.round(topic.mastery * 100), attempts: topic.attempts },
+            values: { round: Math.round(topic.mastery * 100), attempts: num(topic.attempts) },
         });
     }
     const cards = topic.cards ?? 0;
