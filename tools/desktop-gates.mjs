@@ -225,7 +225,11 @@ console.log('\n--- which browser opens the window ---');
     ok('Windows: every candidate is checked in Program Files, x86 and the user profile',
         cands.filter((c) => c.includes('msedge.exe')).length === 3);
     ok('macOS: Chrome first', browserCandidates('darwin')[0].includes('Google Chrome'));
-    ok('Linux: bare names, resolved on PATH', browserCandidates('linux').every((c) => !c.includes('/')));
+    const linux = browserCandidates('linux', { HOME: '/home/u' });
+    const firstFlatpak = linux.findIndex((c) => c.includes('/'));
+    ok('Linux: bare names, resolved on PATH, before any Flatpak',
+        firstFlatpak > 0 && linux.slice(0, firstFlatpak).every((c) => !c.includes('/')));
+    ok('Linux: every later candidate is a Flatpak export', linux.slice(firstFlatpak).every((c) => /\/flatpak\/exports\/bin\/[^/]+$/.test(c)));
     ok('Firefox is never a candidate (no --app mode)', !browserCandidates('win32', winEnv).concat(browserCandidates('darwin'), browserCandidates('linux')).some((c) => /firefox/i.test(c)));
 
     const onlyChrome = (p) => p.replace(/\\/g, '/') === 'C:/PF/Google/Chrome/Application/chrome.exe';
@@ -241,6 +245,29 @@ console.log('\n--- which browser opens the window ---');
         findBrowser({ platform: 'darwin', env: {}, exists: macHas('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') }),
         '/Applications/Google Chrome.app');
     check('Linux: PATH lookup', (whichOnPath('chromium', { PATH: ['/nope', '/usr/bin'].join(delimiter) }, (p) => p.replace(/\\/g, '/') === '/usr/bin/chromium') || '').replace(/\\/g, '/'), '/usr/bin/chromium');
+
+    // A Linux machine whose only Chromium-family browser is one of these used
+    // to get a plain tab in the default browser: the launcher knew none of them.
+    const linuxHas = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+    const linuxFind = (env, ...paths) => (findBrowser({ platform: 'linux', env: { PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter), ...env }, exists: linuxHas(...paths) }) || '').replace(/\\/g, '/');
+    check('Linux: Arch\'s AUR Brave, installed as `brave`', linuxFind({}, '/usr/bin/brave'), '/usr/bin/brave');
+    check('Linux: Brave from Flathub, installed for every user', linuxFind({ HOME: '/home/u' }, '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/var/lib/flatpak/exports/bin/com.brave.Browser');
+    check('Linux: Chromium from Flathub, installed for one user (that folder is often not on PATH)',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium'),
+        '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium');
+    check('Linux: …under XDG_DATA_HOME when that is set', linuxFind({ HOME: '/home/u', XDG_DATA_HOME: '/data/u' }, '/data/u/flatpak/exports/bin/com.google.Chrome'),
+        '/data/u/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: a relative XDG_DATA_HOME is ignored (invalid by the XDG spec)',
+        linuxFind({ HOME: '/home/u', XDG_DATA_HOME: 'rel' }, '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome'),
+        '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: the per-user install before the system one, for the same browser',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser', '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser');
+    ok('Linux: with no HOME, only the system Flatpak folder is searched',
+        browserCandidates('linux', {}).filter((c) => c.includes('/')).every((c) => c.startsWith('/var/lib/flatpak/exports/bin/')));
+    check('Linux: a browser on PATH wins over a Flatpak one', linuxFind({ HOME: '/home/u' }, '/usr/bin/chromium', '/var/lib/flatpak/exports/bin/com.google.Chrome'),
+        '/usr/bin/chromium');
 
     const args = browserArgs('http://127.0.0.1:3001', '/data/browser-profile');
     check('app mode', args[0], '--app=http://127.0.0.1:3001');
@@ -1193,6 +1220,19 @@ console.log('\n--- macOS: the browser is started through `open` ---');
             { cmd: 'C:\\PF\\msedge.exe', args: browserArgs(url, 'C:\\p', 'window'), byExit: false });
         check('Linux: the browser itself, unchanged', lib.browserCommand('/usr/bin/chromium', url, '/p', 'fullscreen', 'linux'),
             { cmd: '/usr/bin/chromium', args: browserArgs(url, '/p', 'fullscreen'), byExit: false });
+        // The sandbox of Flathub's Brave cannot see ~/.local/share/Terramentor,
+        // where the profile lives: the run is granted that one folder.
+        const lp = '/home/u/.local/share/Terramentor/browser-profile';
+        check('Linux: a Flatpak browser through `flatpak run`, granted the profile folder only',
+            lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, lp, 'window', 'linux'),
+            { cmd: 'flatpak', args: ['run', `--filesystem=${lp}`, 'com.brave.Browser', ...browserArgs(url, lp, 'window')], byExit: false });
+        // Flatpak reads the text after a `:` as a mode: an unescaped one would
+        // grant `/home/u/My` and leave the profile out of the sandbox.
+        const colon = lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, '/home/u/My:Lib\\x/browser-profile', 'window', 'linux');
+        check('Linux: a `:` or `\\` in the library path is escaped for Flatpak only', [colon.args[1], colon.args.find((a) => a.startsWith('--user-data-dir='))],
+            ['--filesystem=/home/u/My\\:Lib\\\\x/browser-profile', '--user-data-dir=/home/u/My:Lib\\x/browser-profile']);
+        check('Linux: a program merely NAMED like an app id is not run through Flatpak',
+            lib.browserCommand('/usr/bin/com.brave.Browser', url, lp, 'window', 'linux').cmd, '/usr/bin/com.brave.Browser');
     }
     const darwin = browserCandidates('darwin', { HOME: '/Users/x' });
     ok('macOS: the candidates are app bundles, in /Applications and the user\'s own Applications',
