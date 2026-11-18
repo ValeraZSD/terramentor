@@ -109,6 +109,12 @@ button:focus-visible, .field:focus-visible {
 /* A block the script focuses (a result, a card) is a reading position for a
    screen reader, not a control: no ring after a click, a ring after a key. */
 [tabindex="-1"]:focus:not(:focus-visible) { outline: none; }
+/* After a key it is the app's ring, set off from the block so the text and the
+   options inside it never touch the line. */
+[tabindex="-1"]:focus-visible {
+    outline: 2px solid var(--tm-ring);
+    outline-offset: 6px;
+}
 @media (hover: hover) {
     .button:not(:disabled):hover, .option:not(:disabled):hover, .piece:not(:disabled):hover,
     .gap:not(:disabled):hover, .icon-button:not(:disabled):hover { background: var(--tm-bg-2); }

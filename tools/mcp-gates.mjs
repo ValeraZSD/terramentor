@@ -1569,6 +1569,11 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         // stylesheet draws no focus ring after a click, and the browser's own after a key.
         const viewCss = readFileSync(join(repoRoot, 'mcp', 'views', 'view.css'), 'utf8');
         ok('a block focused by the script gets a focus ring only after a key', /\[tabindex="-1"\]:focus:not\(:focus-visible\)\s*\{\s*outline:\s*none;?\s*\}/.test(viewCss));
+        // The block's own text and options run to its edge, so the ring after a
+        // key is the app's colour and stands off the block instead of touching them.
+        const blockRing = /\[tabindex="-1"\]:focus-visible\s*\{([^}]*)\}/.exec(viewCss)?.[1] ?? '';
+        ok('the ring after a key is the app\'s ring and stands clear of the block',
+            /outline:\s*2px solid var\(--tm-ring\)/.test(blockRing) && Number(/outline-offset:\s*(\d+)px/.exec(blockRing)?.[1] ?? 0) >= 4, blockRing.trim());
     } finally {
         checkKeys.close();
     }
