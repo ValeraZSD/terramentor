@@ -223,6 +223,7 @@ export default function ModelPicker({
             // A safety net: if focus is on the trigger while the list is open,
             // Escape must still shut it rather than fall through to the page.
             e.preventDefault();
+            e.stopPropagation();
             close();
         } else if (e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey) {
             // Type-to-open, the way a native select behaves — except here the
@@ -245,7 +246,9 @@ export default function ModelPicker({
             case 'PageDown': e.preventDefault(); setActive(Math.min(n - 1, active + 8)); break;
             case 'PageUp': e.preventDefault(); setActive(Math.max(0, active - 8)); break;
             case 'Enter': e.preventDefault(); if (rows[active]) commit(rows[active].model); break;
-            case 'Escape': e.preventDefault(); close(); break;
+            // Stopped here: a dialog the picker sits in hears Escape on the document,
+            // and one press must shut the list only, not the dialog under it.
+            case 'Escape': e.preventDefault(); e.stopPropagation(); close(); break;
             case 'Tab': close(false); break;
         }
     };

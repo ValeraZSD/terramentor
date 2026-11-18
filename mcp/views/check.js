@@ -112,12 +112,14 @@
             [next[i], next[i + d]] = [next[i + d], next[i]];
             setAnswer(next, true);
         };
+        // An item is named by its text and which of its equals it is, so two steps with the same words keep their own focus.
+        const key = (item, i) => `${item}-${a.slice(0, i).filter(x => x === item).length}`;
         return h('ol', { class: 'sequence', 'aria-label': t('Your order') }, a.map((item, i) => h('li', { class: 'step' },
             h('span', { class: 'step-n', 'aria-hidden': 'true' }, String(i + 1)),
             h('span', { class: 'step-text' }, item),
             h('span', { class: 'step-moves' },
-                h('button', { type: 'button', class: 'icon-button', 'aria-label': t('Move up'), title: t('Move up'), disabled: i === 0, 'data-focus': `up-${item}`, onClick: () => move(i, -1) }, icon('up')),
-                h('button', { type: 'button', class: 'icon-button', 'aria-label': t('Move down'), title: t('Move down'), disabled: i === a.length - 1, 'data-focus': `down-${item}`, onClick: () => move(i, 1) }, icon('down'))))));
+                h('button', { type: 'button', class: 'icon-button', 'aria-label': t('Move up'), title: t('Move up'), disabled: i === 0, 'data-focus': `up-${key(item, i)}`, onClick: () => move(i, -1) }, icon('up')),
+                h('button', { type: 'button', class: 'icon-button', 'aria-label': t('Move down'), title: t('Move down'), disabled: i === a.length - 1, 'data-focus': `down-${key(item, i)}`, onClick: () => move(i, 1) }, icon('down'))))));
     }
 
     function assembleInput(q, a) {
@@ -186,19 +188,21 @@
         const q = state.questions[state.index];
         const last = state.index === total - 1;
         counter = h('span', { class: 'muted' }, t('{{answeredCount}}/{{length}} answered', { answeredCount: answeredCount(), length: total }));
-        const bar = h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': total, 'aria-valuenow': state.index + 1 }, h('div', { class: 'bar-fill' }));
+        const bar = h('div', { class: 'bar', role: 'progressbar', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }), 'aria-valuemin': 0, 'aria-valuemax': total, 'aria-valuenow': state.index + 1 }, h('div', { class: 'bar-fill' }));
         bar.firstChild.style.setProperty('width', `${((state.index + 1) / total) * 100}%`);
-        const go = (d) => { state.index += d; render(); };
+        // A new question is read from its own block: focus on Next again would say only "Next".
+        const go = (d) => { state.index += d; render(); document.querySelector('.question')?.focus(); };
         return [
             header(),
             h('div', { class: 'meta-row' }, h('span', {}, t('Question {{n}} of {{total}}', { n: state.index + 1, total })), counter),
             bar,
-            h('section', { class: 'question', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }) },
+            h('section', { class: 'question', tabindex: -1, 'data-autofocus': '', 'aria-label': t('Question {{n}} of {{total}}', { n: state.index + 1, total }) },
                 h('p', { class: 'stem' }, q.question),
                 input(q, state.answers[state.index])),
             h('footer', { class: 'actions' },
                 h('button', { type: 'button', class: 'button', disabled: state.index === 0, 'data-focus': 'previous', onClick: () => go(-1) }, t('Previous')),
                 last
+                    // Its own key: focus never follows Next onto it, so a held Enter cannot submit.
                     ? h('button', { type: 'button', class: 'button primary', 'data-focus': 'submit', disabled: state.busy, onClick: submit }, t('Submit mastery check'))
                     : h('button', { type: 'button', class: 'button', 'data-focus': 'next', onClick: () => go(1) }, t('Next'))),
         ];
@@ -281,7 +285,7 @@
             : t('You need at least {{round}}% to pass this mastery check.', { round: r.passPct });
         return [
             header(),
-            h('section', { class: `outcome ${r.passed ? 'is-pass' : 'is-fail'}` },
+            h('section', { class: `outcome ${r.passed ? 'is-pass' : 'is-fail'}`, tabindex: -1, 'data-autofocus': '' },
                 h('span', { class: 'outcome-mark', 'aria-hidden': 'true' }, icon(r.passed ? 'check' : 'cross')),
                 h('div', {},
                     h('h2', { class: 'outcome-title' }, r.passed ? t('Mastery check passed') : t('Not Yet Mastered')),
@@ -297,13 +301,16 @@
     const shown = (v) => (Array.isArray(v) ? v.join(' → ') : String(v ?? ''));
 
     function reviewList(r) {
-        return h('ol', { class: 'review-list' }, (r.items || []).map((item, i) => {
+        // The count is the list's own: r.total is what the score was judged on,
+        // fewer than the questions listed when one did not count.
+        const items = r.items || [];
+        return h('ol', { class: 'review-list' }, items.map((item, i) => {
             const q = state.questions[i] || {};
             const answered = Array.isArray(item.answer) ? item.answer.length > 0 : String(item.answer ?? '').trim() !== '';
             return h('li', { class: `review-item ${item.correct ? 'is-right' : 'is-wrong'}` },
                 h('div', { class: 'review-head' },
                     h('span', { class: 'mark' }, icon(item.correct ? 'check' : 'cross'), item.correct ? t('Correct') : t('Wrong')),
-                    h('span', { class: 'muted' }, t('Question {{n}} of {{total}}', { n: i + 1, total: r.total }))),
+                    h('span', { class: 'muted' }, t('Question {{n}} of {{total}}', { n: i + 1, total: items.length }))),
                 h('p', { class: 'stem small' }, q.question || ''),
                 h('p', {}, h('span', { class: 'label' }, t('Your answer:')), ' ', answered ? shown(item.answer) : t('(no answer)')),
                 item.correct ? null : h('p', {}, h('span', { class: 'label' }, t('Correct answer:')), ' ', shown(item.correctAnswer)),
@@ -312,20 +319,23 @@
     }
 
     function render() {
-        const error = state.error ? h('p', { class: 'notice notice-error', role: 'alert' }, state.error) : null;
+        const error = state.error ? h('p', { class: 'notice notice-error', role: 'alert', tabindex: -1 }, state.error) : null;
         state.error = '';
         switch (state.phase) {
             case 'waiting':
             case 'loading':
                 return mount(h('p', { class: 'muted loading' }, t('Loading…')));
             case 'message':
-                return mount(header(), h('p', { class: 'notice' }, state.message || ''));
+                return mount(header(), h('p', { class: 'notice', tabindex: -1, 'data-autofocus': '' }, state.message || ''));
             case 'grading':
-                return mount(header(), h('p', { class: 'muted loading' }, t('Checking every answer…')));
+                return mount(header(), h('p', { class: 'muted loading', tabindex: -1, 'data-autofocus': '' }, t('Checking every answer…')));
             case 'result':
-                return mount(...resultScreen(), error);
+                mount(...resultScreen(), error);
+                break;
             default:
-                return mount(...answering(), error);
+                mount(...answering(), error);
         }
+        // After a failed Submit or Complete the learner is at the notice, not at the first control.
+        if (error) error.focus();
     }
 })();

@@ -27,6 +27,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { api, newAttemptId } from '../api';
 import { onFrameActivity } from '../utils/frameActivity';
+import { todayStr } from '../utils/tree';
 import {
     createStudyClock, sumForDay,
     type StudyEntry, type StudyLayer, type StudyTarget,
@@ -51,6 +52,8 @@ let sending: { batch: Batch; done: Promise<void> } | null = null;
 let unsent: Batch | null = null;
 /** The server's own total for the learner's day, as of the last answer. */
 let today: { date: string; ms: number } | null = null;
+/** The device date an empty flush last asked for a new day on. */
+let askedOn: string | null = null;
 
 const listeners = new Set<() => void>();
 const changed = () => { for (const l of listeners) l(); };
@@ -85,6 +88,17 @@ function arrive() {
  */
 function flush({ keepalive = false, ask = false } = {}): Promise<void> {
     if (sending) return sending.done;
+    // The server's total is for the day it last named. A page left open past
+    // midnight with nothing counted yet has nothing to send, so it would keep
+    // showing yesterday's total as today's; ask, and the answer names the new day.
+    // Once per device date: a server whose day stays different (another time
+    // zone, a wrong clock) would otherwise be asked on every flush, all day.
+    // A failed ask is kept in `unsent` and goes again on the next flush.
+    const deviceDay = todayStr();
+    if (today && today.date !== deviceDay && askedOn !== deviceDay) {
+        ask = true;
+        askedOn = deviceDay;
+    }
     let batch = unsent;
     if (!batch) {
         const entries = clock.take();

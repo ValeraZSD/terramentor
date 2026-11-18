@@ -32,7 +32,7 @@
 //      pauses it, a widget's frame reports its use, and the old dead table and
 //      route are gone — the last proved by booting a SECOND process.
 
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -622,6 +622,105 @@ console.log(JSON.stringify({ has, rows, st }));
     };
     eq('an EMPTY old table is dropped on boot', boot(oldLib(0)), { has: false, rows: null, st: true });
     eq('an old table with ROWS in it is left alone (nothing is thrown away unread)', boot(oldLib(2)), { has: true, rows: 2, st: true });
+}
+
+// ============================================================================
+section('5. the page left open past midnight');
+// The header's "studied today" is the server's total for the day it last named,
+// plus what is counted since. A page that stays open over midnight with nothing
+// counted yet has nothing to send, so it kept showing yesterday's total as
+// today's until the first counted entry went out. The real hook is bundled into
+// jsdom with the API replaced and the device clock moved across midnight.
+{
+    const { JSDOM } = require('jsdom');
+    // Inside the repo's node_modules, so the bundle's `require('react')` resolves.
+    const cache = join(repoRoot, 'node_modules', '.cache');
+    mkdirSync(cache, { recursive: true });
+    const pageScratch = mkdtempSync(join(cache, 'study-clock-gates-'));
+    const outfile = join(pageScratch, 'page.cjs');
+    const built = esbuild.build({
+        plugins: [{
+            name: 'clock-stubs',
+            setup(b) {
+                b.onResolve({ filter: /^\.\.\/api$/ }, (a) => /[\\/]useStudyClock\.ts$/.test(a.importer)
+                    ? { path: 'api', namespace: 'stub' } : undefined);
+                b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
+                    resolveDir: repoRoot, loader: 'js',
+                    contents: `export const api = { sendStudyTime: (body) => globalThis.__send(body) };
+                               export const newAttemptId = () => 'flush-' + (++globalThis.__flushes);`,
+                }));
+            },
+        }],
+        stdin: {
+            contents: `
+                import * as React from 'react';
+                import { createRoot } from 'react-dom/client';
+                import { useStudyTimeToday, flushStudyTime } from './src/hooks/useStudyClock';
+                export { flushStudyTime };
+                function Probe() { return React.createElement('p', null, String(useStudyTimeToday())); }
+                export function mount(el) {
+                    const r = createRoot(el);
+                    React.act(() => r.render(React.createElement(Probe)));
+                    return () => React.act(() => r.unmount());
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repoRoot, loader: 'tsx',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile,
+        jsx: 'automatic', packages: 'external', logLevel: 'silent',
+    });
+    // A failed build still removes its scratch folder.
+    await built.catch((e) => { rmSync(pageScratch, { recursive: true, force: true }); throw e; });
+
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
+    const { window } = dom;
+    const g = globalThis;
+    const GLOBALS = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT', 'Date', '__send', '__flushes'];
+    const saved = Object.fromEntries(GLOBALS.map(k => [k, Object.getOwnPropertyDescriptor(g, k)]));
+    let NOW = new Date(2026, 10, 4, 23, 50).getTime();
+    const RealDate = Date;
+    class PinnedDate extends RealDate {
+        constructor(...a) { super(...(a.length ? a : [NOW])); }
+        static now() { return NOW; }
+    }
+    const sent = [];
+    try {
+        Object.assign(g, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true, Date: PinnedDate, __flushes: 0 });
+        // The server names the learner's day: 2 hr on the 4th, then nothing yet on the 5th.
+        g.__send = async (body) => {
+            sent.push(body);
+            return NOW < new RealDate(2026, 10, 5).getTime()
+                ? { date: '2026-11-04', todayMs: 2 * 3600_000 } : { date: '2026-11-05', todayMs: 0 };
+        };
+        const page = require(outfile);
+        const settle = async () => { for (let i = 0; i < 4; i++) await page.act(async () => { await new Promise(r => setTimeout(r, 0)); }); };
+        const host = window.document.createElement('div'); window.document.body.append(host);
+        const unmount = page.mount(host);
+        await settle();
+        eq('the page asks once on opening and shows the server\'s total', host.textContent, String(2 * 3600_000));
+        await page.act(async () => { await page.flushStudyTime(); }); await settle();
+        eq('a flush with nothing counted, on the same day, sends nothing', sent.length, 1);
+
+        NOW = new Date(2026, 10, 5, 0, 5).getTime();
+        await page.act(async () => { await page.flushStudyTime(); }); await settle();
+        eq('past midnight the next flush asks for the new day even with nothing counted', sent.length, 2);
+        eq('…and the figure shown is the new day\'s, not yesterday\'s', host.textContent, '0');
+        await page.act(async () => { await page.flushStudyTime(); }); await settle();
+        eq('…and once it has the new day it stops asking', sent.length, 2);
+
+        // A server whose day stays behind the device's (another time zone, a
+        // wrong clock): asked once for the device's new day, not every flush.
+        NOW = new Date(2026, 10, 6, 0, 5).getTime(); // the server still answers the 5th
+        for (let i = 0; i < 3; i++) { await page.act(async () => { await page.flushStudyTime(); }); await settle(); }
+        eq('a server that keeps naming another day is asked once per device day, not on every flush', sent.length, 3);
+        unmount();
+    } finally {
+        for (const [k, d] of Object.entries(saved)) {
+            if (d) Object.defineProperty(g, k, d); else delete g[k];
+        }
+        window.close();
+        rmSync(pageScratch, { recursive: true, force: true });
+    }
 }
 
 try { db.close(); } catch { /* already closed */ }

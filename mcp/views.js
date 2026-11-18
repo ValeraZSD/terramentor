@@ -124,7 +124,9 @@ export function viewHtml(kind) {
         `<style>${style}</style>`,
         '</head>',
         '<body>',
-        '<main id="app" aria-live="polite"></main>',
+        '<main id="app"></main>',
+        // Read out once when a first screen cannot take focus (bridge.js mount).
+        '<p id="tm-announce" class="sr-only" role="status"></p>',
         `<script type="application/json" id="tm-strings">${words}</script>`,
         `<script>${script}</script>`,
         '</body>',
