@@ -156,6 +156,14 @@ const a11yRule = (r) => (known.includes(r) ? r : known.includes(`jsx-a11y/${r}`)
 check('a jsx-a11y rule named without its prefix is still read as that rule',
     a11yRule('alt-text') === 'jsx-a11y/alt-text' && a11yRule('jsx-a11y/alt-text') === 'jsx-a11y/alt-text' && a11yRule('no-debugger') === null);
 
+/** Whether a .js file holds JSX: an element (`<a `, `<my-el/>`, `<svg:g>`) where an expression starts, or a fragment `<>`.
+ *  The position rule keeps a comparison such as `a<b ` from reading as a tag. */
+const hasJsx = (text) => /(?:^|[=(,?:{}[;&|>]|\breturn)\s*<[A-Za-z][\w.:-]*[\s/>]|<\/?>/m.test(text);
+check('JSX is seen in a .js file, hyphenated and fragment elements too; plain JS is not',
+    hasJsx('export const C = () => <my-element aria-labeledby="x" />;') && hasJsx('const F = () => <>x</>;')
+    && hasJsx('const D = () => <div>x</div>;') && !hasJsx('for (let i = 0; i<length; i++) if (a<b || a < b) x();')
+    && !hasJsx(readFileSync(join(ROOT, 'src', 'sw-template.js'), 'utf8')));
+
 // Comments that switch a jsx-a11y rule off where they stand.
 const stray = [];
 for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
@@ -164,7 +172,7 @@ for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
     if (!/\.(jsx|tsx|js)$/.test(f)) continue;
     const text = readFileSync(join(ROOT, f), 'utf8');
     // A blanket directive matters only where there is JSX for a jsx-a11y rule to see.
-    const jsx = !f.endsWith('.js') || /<\/?[A-Za-z][\w.]*[\s/>]/.test(text);
+    const jsx = !f.endsWith('.js') || hasJsx(text);
     for (const { line, rules } of directives(text)) {
         if (!rules.length && jsx) stray.push(`        ${f}:${line}  every rule`);
         for (const rule of rules.map(a11yRule).filter(Boolean)) {
