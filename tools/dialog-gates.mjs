@@ -1288,6 +1288,21 @@ section('the review session and the phone assistant are the same kind of dialog'
         && /useDialogFocus\(isOpen, dialogRef/.test(read('src/components/Modal.tsx')));
     check('an answer\'s Sources line opens the same preview, not a second one',
         /<DocumentTextDialog\b/.test(read('src/components/SourceList.tsx')));
+    // A name on a plain <span> is ignored by screen readers (a generic element
+    // takes none), so "Step 1 of 4" never reached them; an image role gives it
+    // somewhere to attach and the visible "1 / 4" stays the picture of it.
+    const stepCounter = (read('src/components/welcome/WelcomeFlow.tsx').match(/<span\b[^>]*aria-label=\{t\("Step \{\{n\}\} of \{\{total\}\}"[^>]*>/) || [''])[0];
+    check('the welcome step counter is named through a role that takes a name',
+        /\brole="img"/.test(stepCounter), stepCounter);
+    // A JSX line break between two expressions renders nothing, so the deck
+    // count and its "· N sections" read "1,100· 22 sections".
+    const deckRow = (read('src/components/AnkiImportModal.tsx').match(/\{num\(d\.count\)\}[\s\S]{0,800}?·\x20\{\{stages\}\} sections/) || [''])[0];
+    check('the import preview puts a space between a deck\'s count and its sections',
+        deckRow !== '' && /\{num\(d\.count\)\}[\s\S]*?(?:' '|\{' '\}|\{" "\})[\s\S]*?t\("· \{\{stages\}\}/.test(deckRow), deckRow.slice(0, 160));
+    // The media row has the same break between the icon counts and "· N KB".
+    const mediaRow = (read('src/components/AnkiImportModal.tsx').match(/<\/span>\s*(?:\{' '\}\s*)?\{t\("·\x20\{\{bytes\}\} kept on this machine/) || [''])[0];
+    check('the import media row puts a space between its counts and the size',
+        mediaRow !== '' && /\{' '\}/.test(mediaRow), mediaRow);
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));
