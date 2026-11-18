@@ -155,6 +155,38 @@ section('a date marked "cannot move" is read-only in the panel and has no Remove
     w.close();
 }
 {
+    // Untick, type a new date, tick again, one Save: the typed date goes, locked.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 9, name: 'Biology', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 9, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => {
+        const set = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set;
+        set.call(deadlineField(), '2027-03-01');
+        deadlineField().dispatchEvent(new w.Event('input', { bubbles: true }));
+        await settle();
+    });
+    await g.act(async () => { box()?.click(); await settle(); });
+    check('re-ticking keeps the typed date in the field', deadlineField()?.value === '2027-03-01' && deadlineField()?.readOnly === true,
+        `${deadlineField()?.value} readOnly ${deadlineField()?.readOnly}`);
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('…and Save sends it with the mark on', calls.length === 1 && calls[0][1]?.deadline === '2027-03-01' && calls[0][1]?.deadlineFixed === true,
+        JSON.stringify(calls));
+    w.close();
+}
+{
     // The mark untouched, a study day changed, and the date locked meanwhile
     // (another device): Save must not send the stale "not locked" it opened with.
     const { w, g, host } = page((url) => /\/pace$/.test(url)

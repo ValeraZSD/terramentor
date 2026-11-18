@@ -121,13 +121,15 @@ export default function ScheduleModal() {
     const hasDate = !!(project.start_date && project.deadline);
     const verdict: PaceVerdict | null = hasDate ? pace?.verdict ?? null : null;
     // The date stays where it is while it carries the mark, here as on the
-    // server: taking the mark off is what lets it move. A locked date is the
-    // saved one, whatever was typed before the lock arrived.
+    // server: taking the mark off is what lets it move. While the learner has
+    // not touched the mark, a locked date is the saved one, whatever was typed
+    // before the lock arrived; untick, type, tick again keeps the typed date
+    // (a write that names the mark may move it).
     const deadlineLocked = savedFixed && fixed;
-    const end = deadlineLocked ? (project.deadline || '') : deadline;
+    const end = deadlineLocked && fixedDraft === null ? (project.deadline || '') : deadline;
     const datesEdited = start !== (project.start_date || today) || end !== (project.deadline || '');
-    const dirty = datesEdited
-        || fixed !== savedFixed
+    const markEdited = fixed !== savedFixed;
+    const dirty = datesEdited || markEdited
         || [...days].sort().join() !== [...savedDays].sort().join();
     const reversed = !!start && !!end && start > end;
     // Seven cells share a phone row: a language whose short day names run
@@ -161,14 +163,15 @@ export default function ScheduleModal() {
 
     async function remove() {
         if (!projectId) return;
+        // Before the confirm: the panel may close and reopen while it asks.
+        const s = session.current;
         const confirmed = await showConfirm({
             title: t("Remove schedule"),
             message: t("Remove this project's dates? Its topics lose their planned days. Your progress is not affected."),
             confirmLabel: t("Remove schedule"),
             variant: 'warning',
         });
-        if (!confirmed) return;
-        const s = session.current;
+        if (!confirmed || session.current !== s) return;
         setBusy('remove');
         const ok = await removeSchedule(projectId);
         setBusy(null);
@@ -195,11 +198,14 @@ export default function ScheduleModal() {
                 // Its rate is the saved date's: with other dates typed it
                 // would price a plan it does not make, and Save lays the
                 // topics out over the typed dates anyway.
-                if (datesEdited) return null;
-                // With another edit open (study days, the mark), laying the
-                // topics out IS saving it (the one write path), so the button
-                // says it saves. A window that starts later is laid out from
-                // its start, not from today.
+                // A changed mark alone is saved without laying anything out
+                // (the server writes the mark by itself), so "Save and plan"
+                // would not plan: the offer returns once the mark is saved.
+                if (datesEdited || markEdited) return null;
+                // With the study days edited, laying the topics out IS saving
+                // them (the one write path), so the button says it saves. A
+                // window that starts later is laid out from its start, not
+                // from today.
                 const from = project.start_date || today;
                 const to = date;
                 return {
@@ -226,9 +232,10 @@ export default function ScheduleModal() {
                     run: () => { setOpen(false); openPlacement(project.id, project.name); },
                 };
             case 'move_date': {
-                // The saved mark, before the verdict is re-read: its button
-                // would focus a field that no longer moves.
-                if (savedFixed) return null;
+                // The mark as the box shows it, before the verdict is re-read:
+                // ticked, the button would focus a field that does not move;
+                // unticked, the field is free and the offer is back.
+                if (fixed) return null;
                 const { recent, best } = v.ranges;
                 const span = (r: { from: string; to: string }) => ({ from: shortDay(r.from, today), to: shortDay(r.to, today) });
                 return {
