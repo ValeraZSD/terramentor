@@ -4,6 +4,7 @@ import { useStore, type Theme } from '../../store';
 import { LANGUAGES, k } from '../../i18n';
 import { themeRamp } from '../../utils/themeRamp';
 import { Select } from '../ui/Field';
+import Switch from '../ui/Switch';
 
 // Shared by Settings → General and the welcome screen (components/welcome/),
 // which asks the same two questions of a new learner.
@@ -50,61 +51,82 @@ function themePreview(mode: Theme, tint: string) {
     };
 }
 
-/** The two mode cards. The whole card — preview AND name row — sits on that
- *  mode's own palette at the tint currently chosen, so each box reads as what
- *  pressing it would give you. */
+/** The two mode cards, and whether the mode follows the system. The whole card
+ *  — preview AND name row — sits on that mode's own palette at the tint
+ *  currently chosen, so each box reads as what pressing it would give you.
+ *
+ *  "Match your system" is a switch under the pair, not a third card (iOS draws
+ *  it the same way): a card is a picture of a mode, and "whichever the system
+ *  says" has no picture. With it on, the card lit is the mode in use now;
+ *  pressing a card picks that mode and turns the switch off. */
 export function ThemeCards() {
     const { t: tr } = useTranslation();
     const theme = useStore(s => s.theme);
+    const themeChoice = useStore(s => s.themeChoice);
     const themeTint = useStore(s => s.themeTint);
     const setTheme = useStore(s => s.setTheme);
+    const following = themeChoice === 'system';
     return (
-        <div className="grid grid-cols-2 gap-3">
-            {THEME_META.map(({ id, label, icon: Icon }) => {
-                const p = themePreview(id, themeTint);
-                const selected = theme === id;
-                return (
-                    <button
-                        key={id}
-                        type="button"
-                        onClick={() => setTheme(id)}
-                        aria-pressed={selected}
-                        aria-label={tr("{{label}} theme", { label: tr(label) })}
-                        // The selected card is always the CURRENT mode's, so its mark
-                        // is the accent as solved for this page (`accent-fg`), never
-                        // the solid: the solid is only ever darkened, and a near-black
-                        // accent drew the Dark card's border and tick black on black.
-                        className={`text-left rounded-xl border-2 overflow-hidden transition ${selected
-                            ? 'border-accent-fg ring-2 ring-accent-fg/30'
-                            : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
-                    >
-                        {/* Sized for a card that spans half the row: at 10px
-                            type a card that wide is mostly empty paper. */}
-                        <div className="p-3 space-y-2.5" style={{ backgroundColor: p.page }}>
-                            {/* Rendered example — the same content in both, styled per mode. */}
-                            <div className="rounded-lg border p-3 space-y-2" style={{ backgroundColor: p.surface, borderColor: p.border }}>
-                                <div className="flex items-center gap-2">
-                                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }} />
-                                    <span className="text-sm font-semibold leading-none" style={{ color: p.text }}>{tr("Cell biology")}</span>
+        <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+                {THEME_META.map(({ id, label, icon: Icon }) => {
+                    const p = themePreview(id, themeTint);
+                    const selected = theme === id;
+                    return (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setTheme(id)}
+                            aria-pressed={selected}
+                            // The selected card is always the CURRENT mode's, so its mark
+                            // is the accent as solved for this page (`accent-fg`), never
+                            // the solid: the solid is only ever darkened, and a near-black
+                            // accent drew the Dark card's border and tick black on black.
+                            className={`text-left rounded-xl border-2 overflow-hidden transition ${selected
+                                ? 'border-accent-fg ring-2 ring-accent-fg/30'
+                                : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
+                        >
+                            {/* Sized for a card that spans half the row: at 10px
+                                type a card that wide is mostly empty paper. */}
+                            {/* The button is named by the mode's name row below, the
+                                words it shows. The example above it is a picture of
+                                the mode, so hidden from that name: "Cell biology, 3
+                                of 8 topics" is not a word a voice user would say to
+                                choose a theme. */}
+                            <div className="p-3 space-y-2.5" style={{ backgroundColor: p.page }}>
+                                {/* Rendered example — the same content in both, styled per mode. */}
+                                <div className="rounded-lg border p-3 space-y-2" style={{ backgroundColor: p.surface, borderColor: p.border }} aria-hidden="true">
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }} />
+                                        <span className="text-sm font-semibold leading-none" style={{ color: p.text }}>{tr("Cell biology")}</span>
+                                    </div>
+                                    <p className="text-xs leading-snug" style={{ color: p.muted }}>{tr("3 of 8 topics")}</p>
+                                    <div className="text-xs leading-snug" style={{ color: p.text }}>
+                                        {tr("• Mitochondria make")}{' '}
+                                        <span className="px-1 py-px rounded font-mono" style={{ backgroundColor: p.code, color: p.text }}>{tr("ATP")}</span>
+                                    </div>
+                                    <span className="inline-block text-2xs font-medium px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }}>{tr("Mastered")}</span>
                                 </div>
-                                <p className="text-xs leading-snug" style={{ color: p.muted }}>{tr("3 of 8 topics")}</p>
-                                <div className="text-xs leading-snug" style={{ color: p.text }}>
-                                    {tr("• Mitochondria make")}{' '}
-                                    <span className="px-1 py-px rounded font-mono" style={{ backgroundColor: p.code, color: p.text }}>{tr("ATP")}</span>
+                                {/* Name row — themed to match its card. */}
+                                <div className="flex items-center justify-between px-0.5">
+                                    <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: p.text }}>
+                                        <Icon className="w-4 h-4" style={{ color: p.muted }} /> {tr(label)}
+                                    </span>
+                                    {selected && <Check className="w-4 h-4 text-accent-fg" />}
                                 </div>
-                                <span className="inline-block text-2xs font-medium px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: 'rgb(var(--accent-rgb))' }}>{tr("Mastered")}</span>
                             </div>
-                            {/* Name row — themed to match its card. */}
-                            <div className="flex items-center justify-between px-0.5">
-                                <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: p.text }}>
-                                    <Icon className="w-4 h-4" style={{ color: p.muted }} /> {tr(label)}
-                                </span>
-                                {selected && <Check className="w-4 h-4 text-accent-fg" />}
-                            </div>
-                        </div>
-                    </button>
-                );
-            })}
+                        </button>
+                    );
+                })}
+            </div>
+            <div className="flex items-center justify-between gap-3 px-0.5">
+                <span aria-hidden="true" className="text-sm text-slate-700 dark:text-slate-200">{tr("Match your system")}</span>
+                <Switch
+                    checked={following}
+                    onChange={on => void setTheme(on ? 'system' : theme)}
+                    label={tr("Match your system")}
+                />
+            </div>
         </div>
     );
 }

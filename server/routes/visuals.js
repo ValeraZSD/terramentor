@@ -202,6 +202,10 @@ app.post('/api/visual-feedback', (req, res) => {
         kind, language, spec, feedback, surface, nodeId, messageId, theme,
         provider: ai?.provider, model: ai?.model, appVersion: appVersion()?.version,
     });
+    // No id means no line was written (the log is full, or the volume refused
+    // it). Handing back an id anyway would tell the learner their report was kept
+    // and tie a later outcome to a record that does not exist.
+    if (!id) return res.status(507).json({ error: 'The report log is full or cannot be written, so this report was not saved.' });
     res.json({ id });
 });
 

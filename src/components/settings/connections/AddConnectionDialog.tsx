@@ -188,6 +188,16 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
         } finally { setBusy(false); }
     };
 
+    // Closed any way but a button of the last step (the X, the backdrop, Escape):
+    // a connection this run already saved is still there, so the list and the
+    // page above must be told, or they go on showing none and the next try
+    // saves a second copy. A sign-in finished here (`choosingFor`) was saved
+    // before the dialog opened and is told through the panel's own close.
+    const dismiss = () => {
+        if (savedId != null && !choosingFor) onDone(savedId, { testIt: false });
+        onClose();
+    };
+
     const finish = async (use: boolean) => {
         if (savedId == null) return;
         if (choosingFor && !model) { setError(t("Choose a model first.")); return; }
@@ -228,7 +238,7 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
     const footer = step === 'form' ? (
         <>
             {!editing && !initialKind && (
-                <Button variant="quiet" className="mr-auto" onClick={() => setStep('pick')} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
+                <Button variant="quiet" className="mr-auto" onClick={() => setStep('pick')} disabled={busy} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />}>{t("Back")}</Button>
             )}
             {kind === 'chatgpt' ? (
                 <Button variant="primary" onClick={chatgpt} busy={busy} icon={<LogIn className="w-4 h-4" aria-hidden="true" />}>
@@ -260,7 +270,9 @@ export default function AddConnectionDialog({ open, onClose, kinds, initialKind 
 
     return (
         // The choice is two columns of lists; a form is one column of fields.
-        <Modal isOpen={open} onClose={onClose} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'} footer={footer}>
+        // Not closable while a call is out: the answer of a test or a save lands
+        // on the dialog that asked, and one closed under it reports nothing.
+        <Modal isOpen={open} onClose={dismiss} closable={!busy} title={title} maxWidth={step === 'pick' ? 'max-w-3xl' : 'max-w-xl'} footer={footer}>
             {step === 'pick' && (
                 <div className="space-y-4">
                     <p className="text-sm text-slate-600 dark:text-slate-300">

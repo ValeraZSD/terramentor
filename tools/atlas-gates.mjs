@@ -1355,6 +1355,35 @@ const labels = [
     ['13.2 2toDrive Coach Period', '2toDrive Coach Period'],
     // Left alone: a number that is part of the name, and a plain title.
     ['12 Angry Men', '12 Angry Men'],
+    // A keyword followed by an ordinary word is a name, not a position, and a
+    // hyphen with no space is part of the word.
+    ['Unit Tests: Writing Good Ones', 'Unit Tests: Writing Good Ones'],
+    ['Day Trading - Risk', 'Day Trading - Risk'],
+    ['Lesson Plans: Structure', 'Lesson Plans: Structure'],
+    ['Lesson Mix: Rhythm', 'Lesson Mix: Rhythm'],
+    // The numeral branch takes a well-formed numeral only, in capitals too.
+    ['LESSON MIX: RHYTHM', 'LESSON MIX: RHYTHM'],
+    ['Unit CIVIC: War', 'Unit CIVIC: War'],
+    ['Part DIV: Foo', 'Part DIV: Foo'],
+    ['Stage MIX - Foo', 'Stage MIX - Foo'],
+    ['3-Phase Power Systems', '3-Phase Power Systems'],
+    ['2-Factor Authentication', '2-Factor Authentication'],
+    ['H2-Blockers In Practice', 'H2-Blockers In Practice'],
+    // ...while a real number, letter or numeral label still goes.
+    ['Unit 3: Writing Good Ones', 'Writing Good Ones'],
+    ['Day 12 - Risk', 'Risk'],
+    ['Lesson IV. - Risk', 'Risk'],
+    ['Lesson IV: Risk', 'Risk'],
+    ['Part A: Risk', 'Risk'],
+    // A spelled-out number, a lower-case numeral and a dotted letter label go too.
+    ['Chapter One: Intro', 'Intro'],
+    ['Week Two - Basics', 'Basics'],
+    ['Hoofdstuk een: Intro', 'Intro'],
+    ['Part iv: Foo', 'Foo'],
+    ['Chapter B2.1: Foo', 'Foo'],
+    ['3 - Risk', 'Risk'],
+    ['3- Risk', 'Risk'],
+    ['3) Risk', 'Risk'],
     ['Chapter 4', 'Chapter 4'],
     ['3D Modelling', '3D Modelling'],
     ['Physics', 'Physics'],

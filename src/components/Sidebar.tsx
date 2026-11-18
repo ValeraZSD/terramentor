@@ -14,6 +14,7 @@ import {
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
+import { useDragA11y, useDragKeyboard, nodeTitle, keyBelongsToDrag } from '../hooks/useDragA11y';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
@@ -184,14 +185,16 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-row-title
-                    aria-label={node.title}
                     aria-current={isSelected ? 'true' : undefined}
                     className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
                 >
                     {/* A topic with notes under it shows its percentage, but a
                         ready one shows the shield: the notes are its material,
                         not parts of it to finish. */}
-                    <span className="shrink-0">
+                    {/* The row is named by the text it shows, so the
+                        percentage beside the title is hidden from that name rather
+                        than read as a word a voice user would have to say. */}
+                    <span className="shrink-0" aria-hidden="true">
                         {hasChildren && !node.is_note && !isRoot && !untaught && !readyToProve ? (
                             <span className={`text-xs font-medium ${getStatusColor()}`}>
                                 {node.progress?.percentage || 0}%
@@ -207,7 +210,9 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     </span>
 
                     {isRoot && !isNote && !untaught && (
-                        <span className={`text-xs ml-auto ${getStatusColor()}`}>
+                        // The course row is tinted with the course colour, where
+                        // the status greys fall under 4.5:1.
+                        <span className="text-xs ml-auto font-medium text-slate-700 dark:text-slate-200" aria-hidden="true">
                             {node.progress?.percentage || 0}%
                         </span>
                     )}
@@ -254,6 +259,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const sidebarRef = useRef<HTMLDivElement>(null);
     const resizing = useRef(false);
     const [activeId, setActiveId] = useState<number | null>(null);
+    // Read by the tree's key listener, which is not re-registered per drag.
+    const dragging = useRef(false);
+    dragging.current = activeId != null;
     const [overId, setOverId] = useState<number | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
 
@@ -267,8 +275,10 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
         // Touch: press-and-hold so a normal swipe scrolls and only a deliberate
         // long-press starts a reorder.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(nodeTitle);
 
     // Flattened, currently-visible rows. During a drag we drop the active node's
     // own subtree so it can never be nested inside itself (and doesn't shift).
@@ -381,6 +391,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             // body would make ↓ then Enter after a click anywhere open a topic
             // nobody saw being chosen.
             if (!sidebarRef.current?.contains(document.activeElement)) return;
+            // During a keyboard drag (useDragKeyboard) every key is the drag's:
+            // moving the cursor or folding a node under it would end the drag
+            // somewhere else, and Escape there cancels the drag, not the
+            // selection. On a resting handle only Space and Enter (they pick it
+            // up); its arrows still move through the tree.
+            const onHandle = !!(document.activeElement as HTMLElement | null)?.closest('[data-drag-handle]');
+            if (keyBelongsToDrag(e.key, onHandle, dragging.current)) return;
 
             const visibleNodes = getVisibleNodes(tree, expanded);
             if (visibleNodes.length === 0) return;
@@ -470,6 +487,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             <div className="flex-1 overflow-auto py-2" data-sidebar-node-list>
                 <DndContext
                     sensors={sensors}
+                    accessibility={dragA11y}
                     collisionDetection={closestCenter}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}

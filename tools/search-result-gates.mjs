@@ -88,7 +88,7 @@ async function open(results) {
     api.search = async () => results;
     const doc = w.document;
     mount(doc.getElementById('root'));
-    await act(async () => { doc.querySelector('button[aria-label="Search"]').click(); });
+    await act(async () => { doc.querySelector('button[aria-label^="Search…"]').click(); });
     const input = doc.querySelector('input[type="text"]');
     await act(async () => {
         Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set.call(input, 'lim');

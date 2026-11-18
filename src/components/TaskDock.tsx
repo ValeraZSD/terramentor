@@ -8,6 +8,7 @@ import { KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useTranslation } from 'react-i18next';
 import i18n, { k } from '../i18n';
 import { useAccentVars } from '../hooks/useAccentVars';
+import { motionReduced } from '../utils/accessibility';
 
 /**
  * A CHIP IS COLOURED BY ITS OWN PROJECT, never by the page it is floating over.
@@ -92,10 +93,10 @@ const EXIT_MS = EXIT_FADE_MS + EXIT_COLLAPSE_MS;
 
 /** Whether the reader has asked for less movement. Read at the moment it
  *  matters, never cached — and it has to be read in JS rather than left to a
- *  `motion-reduce:` class, because these transitions are inline styles (they
+ *  `motion-off:` class, because these transitions are inline styles (they
  *  carry per-property delays) and an inline style beats any class. */
 function reducedMotion(): boolean {
-    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+    return motionReduced();
 }
 
 /**

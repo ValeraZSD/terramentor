@@ -167,12 +167,14 @@ const DICTIONARY = set('dictionary woordenboek wörterbuch dictionnaire dicciona
 /**
  * An exam that belongs to ONE language names it: "IELTS Academic" is English.
  * Not the school-leaving exams that cover every subject (ЕГЭ, ЗНО,
- * staatsexamen), and not Goethe, who is also a poet.
+ * staatsexamen), and not Goethe, who is also a poet. Nor an acronym that is
+ * also an ordinary technical word (CAE, CPE, FCE, TCF, TEF): those name a
+ * language only beside one, which LEVEL below handles.
  */
 const EXAM_LANGUAGE = {
-    ielts: 'en', toefl: 'en', toeic: 'en', fce: 'en', cae: 'en', cpe: 'en',
+    ielts: 'en', toefl: 'en', toeic: 'en',
     jlpt: 'ja', hsk: 'zh', topik: 'ko',
-    delf: 'fr', dalf: 'fr', tcf: 'fr', tef: 'fr',
+    delf: 'fr', dalf: 'fr',
     dele: 'es', siele: 'es',
     testdaf: 'de',
     nt2: 'nl', inburgering: 'nl', inburgeringsexamen: 'nl',
@@ -238,7 +240,10 @@ function readField(text) {
 
     for (const { t } of toks) {
         // "nt2" whole, "hsk4" without its level.
-        const exam = EXAM_LANGUAGE[t] ?? EXAM_LANGUAGE[t.replace(/\d+$/, '')];
+        // Own keys only: "constructor" is a word in a course about classes, and
+        // on a plain object it would answer with Object's constructor function.
+        const key = Object.hasOwn(EXAM_LANGUAGE, t) ? t : t.replace(/\d+$/, '');
+        const exam = Object.hasOwn(EXAM_LANGUAGE, key) ? EXAM_LANGUAGE[key] : null;
         if (!exam) continue;
         strong.add(exam);
         if (!named.includes(exam)) named.push(exam);

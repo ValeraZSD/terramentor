@@ -8,8 +8,9 @@
 // as a DETACHED process running from a copy of the runtime under
 // `.update/runner/`, because nothing can rename a folder while a program inside
 // it is running — and the folders this moves are the ones the app runs from.
-// The copy holds this file, updateCore.js and server/version.js (for the
-// version comparison), laid out as in the app so the imports below resolve.
+// The copy holds this file, updateCore.js, server/version.js (for the version
+// comparison) and server/instanceKey.js (to tell the new version from anything
+// else on its ports), laid out as in the app so the imports below resolve.
 //
 // What it trusts. The server staged `.update/next` beside the release's signed
 // manifest (`.update/manifest.json` and its `.sig`) and wrote `.update/ready.json`.

@@ -173,7 +173,9 @@ export function validateUrlTemplate(value) {
 export function buildProviderUrl(manifest, { query, lang = '' }) {
     return String(manifest.urlTemplate).replace(PLACEHOLDER_RE, (_, name) => {
         if (name === 'query') return encodeURIComponent(String(query || ''));
-        if (name === 'lang') return encodeURIComponent(String(lang || ''));
+        // English when no language is set, as on the client: an empty one
+        // would build "https://.wikipedia.org/…".
+        if (name === 'lang') return encodeURIComponent(String(lang || 'en'));
         return '';
     });
 }
@@ -291,7 +293,10 @@ export function syncBuiltinProviders() {
         INSERT INTO search_providers (id, kind, manifest, enabled, builtin)
         VALUES (?, ?, ?, ?, 1)
         ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, manifest = excluded.manifest
+        WHERE builtin = 1
     `);
+    // (A row the learner added under an id a later release ships stays theirs:
+    // the WHERE leaves it alone, so their link is not repointed at ours.)
     // Withdrawn built-ins are deleted, not left behind. Enabled/disabled is the
     // user's choice and is preserved above; whether a built-in EXISTS is not,
     // and a row nobody ships any more is a broken link the learner cannot get

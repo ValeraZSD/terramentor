@@ -1,0 +1,4 @@
+{
+  "about": "Failing elements allowed per screen and axe rule. Numbers only go down: see tools/axe-gates.mjs.",
+  "allowed": {}
+}

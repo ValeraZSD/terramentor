@@ -344,6 +344,32 @@ try {
     const guardAt = appSrc.indexOf("app.use('/api', hostedGuard)");
     const authAt = appSrc.indexOf('mount(authApi.routes)');
     ok('the hosted guard is mounted before the public auth routes', guardAt > 0 && guardAt < authAt);
+
+    // hosted/copy.sh: the proxy's network file is written from ONE read of the
+    // copies (a remove running alongside deletes its container between two
+    // reads, and compose refuses a network the file lists but never declares),
+    // and a restore backs the copy up before it stops it.
+    const copySh = readFileSync(join(repoRoot, 'hosted', 'copy.sh'), 'utf8').replace(/^\s*#.*$/gm, '');
+    const body = (fn) => copySh.slice(copySh.indexOf(`${fn}() {`), copySh.indexOf('\n}', copySh.indexOf(`${fn}() {`)));
+    const apply = body('proxy_apply');
+    ok('copy.sh proxy_apply reads the copy list once', apply.length > 0 && (apply.match(/\$\(copies\)/g) || []).length === 1);
+    const restore = body('cmd_restore');
+    const backupAt = restore.indexOf('backup_one "$name" keep-all'), stopAt = restore.indexOf('docker stop');
+    ok('copy.sh restore backs the copy up, keeping every archive, before it stops it', backupAt > 0 && stopAt > backupAt);
+    ok('…and a backup that fails stops the restore (the statement ends in `|| die`)',
+        /before="\$\(backup_one "\$name" keep-all\)" && \[ -s "\$before" \] \|\| die /.test(restore));
+    // A library whose last restore never finished cannot be backed up (hostedCli
+    // refuses), and restoring is the repair: restore-state decides, before the
+    // backup, and --no-backup is the way past a library too damaged to back up.
+    const stateAt = restore.indexOf('hostedCli.js restore-state');
+    ok('copy.sh restore skips the backup of a library with an unfinished restore (restore-state exit 3, checked first)',
+        stateAt > 0 && stateAt < backupAt && /"\$state" = 3/.test(restore));
+    ok('copy.sh restore takes --no-backup, and a failed backup names that flag', /"\$keep" = --no-backup/.test(restore) && /restore with --no-backup/.test(restore));
+    // An update of every copy lets go of each copy as it finishes: held to the
+    // end, the nightly backup of the copies already done waited and failed.
+    const update = body('cmd_update');
+    const loop = update.slice(update.indexOf('for n in $names; do'), update.indexOf('done', update.indexOf('for n in $names; do')));
+    ok('copy.sh update releases each copy\'s lock inside its loop', /(^|\s)lock "\$n"/.test(loop) && loop.includes('unlock "$n"'));
 } finally {
     for (const dir of scratchRoots) rmSync(dir, { recursive: true, force: true });
 }

@@ -7,14 +7,13 @@ import Slider from '../ui/Slider';
 import Stepper from '../ui/Stepper';
 import { IconButton } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
-import { ExpandableSection } from '../ui/Disclosure';
 import {
     AppIcon, DEFAULT_APP_ICON, IconStyle, IconVariant, MAX_RADIUS, MIN_RADIUS,
     iconLegibility, iconSvg, svgDataUrl,
 } from '../../utils/appIcon';
 
 /**
- * Settings → General → Appearance → "App icon".
+ * Settings → General → Appearance → Colours → "App icon".
  *
  * Three choices over one picture: which cut of the mark, what colour its tile
  * is, and how round that tile is. There is no fourth control for the INK — the
@@ -22,7 +21,13 @@ import {
  * same bargain the accent makes (`adjustForContrast`), and the only two
  * sensible answers are the two `inkFor` picks between.
  *
- * ONE preview, beside the heading, and it is the real icon: the same function
+ * The tile's colour is one of the three targets of the Colours row
+ * (`ColourChooser` in ColourFields.tsx), so it is chosen in the same palette,
+ * in the same place, as the page and the accent. The cut and the corners are
+ * not colours; they show under that palette only while the icon is the target.
+ *
+ * ONE large preview, beside the cut (the switch's 16px one is too small to show
+ * the cut), and it is the real icon: the same function
  * the tab and the manifest draw from, at the colour and corner currently
  * chosen. A card per style would spend a third of the panel drawing the same
  * mark twice, which is what a preview of a preview looks like.
@@ -48,12 +53,12 @@ import {
  * asserts it, and the one light option is there to prove the ink flips).
  *
  * The NAMES and their ORDER are `ACCENT_COLORS`', slot for slot, so the three
- * colour rows on the Appearance card are one family read at three rungs
+ * palettes behind the Appearance card's Colours switch are one family read at three rungs
  * (`palette-order-gates.mjs`). Here the achromatic pair can be what it says —
  * a tile has no label text to carry, so Ink is true black and Paper is true
  * white. The shipped default tile is Ink itself, black with a white mark.
  */
-const ICON_BACKGROUNDS = [
+export const ICON_BACKGROUNDS = [
     '#0c4a6e', // Sky
     '#1e3a8a', // Blue
     '#312e81', // Indigo
@@ -91,7 +96,7 @@ const STYLE_LABELS: Record<IconStyle, string> = {
  * and "Simple" as the same picture. This one is the `tile` cut, which is what
  * the choice is actually about.
  */
-function IconPreview({ icon, size, variant, title }: {
+export function IconPreview({ icon, size, variant, title }: {
     icon: AppIcon; size: number; variant: IconVariant; title?: string;
 }) {
     return (
@@ -107,35 +112,47 @@ function IconPreview({ icon, size, variant, title }: {
     );
 }
 
-export default function AppIconPanel() {
+/** The tile's palette — the Colours row's third target. Its name comes from
+ *  the switch above it, like the page's and the accent's. */
+export function AppIconColour() {
+    const { t: tr } = useTranslation();
+    const background = useStore(s => s.appIcon.background);
+    const setAppIcon = useStore(s => s.setAppIcon);
+    const legibility = iconLegibility(background);
+    return (
+        <ColorField
+            value={background}
+            onChange={next => void setAppIcon({ background: next })}
+            colors={ICON_BACKGROUNDS}
+            names={PALETTE_NAMES}
+            hint={legibility < FAINT_BELOW
+                ? tr("The mark is faint on this colour ({{ratio}}:1).", { ratio: legibility.toFixed(1) })
+                : undefined}
+        />
+    );
+}
+
+/** The icon's two choices that are not a colour, and what a change reaches.
+ *  Drawn under the palette while the icon is the target. */
+export function AppIconShape() {
     const { t: tr } = useTranslation();
     const icon = useStore(s => s.appIcon);
     const setAppIcon = useStore(s => s.setAppIcon);
 
-    const legibility = iconLegibility(icon.background);
     const isDefault = icon.style === DEFAULT_APP_ICON.style
         && icon.background === DEFAULT_APP_ICON.background
         && icon.radius === DEFAULT_APP_ICON.radius;
 
     return (
-        // A DISCLOSURE, not an open panel. Three controls and a caveat is a
-        // screenful, and the icon is the one appearance choice most readers
-        // never touch — so the closed row is the whole setting for them: the
-        // live mark and its name. The preview is the real
-        // icon at the colour and corner currently chosen, so the row answers
-        // "what is it now?" without being opened. A <summary> is not a button,
-        // which is why it sits outside the control vocabulary's scope like
-        // every other disclosure on this page.
-        <ExpandableSection
-            variant="row"
-            lead={<IconPreview icon={icon} size={40} variant="tile" />}
-            title={tr("App icon")}
-            flushBody
-        >
-            <div className="px-4 pb-4 pt-3">
-                {/* Both cuts are one picture at tab size (the grid is sub-pixel
-                    at 16px), so the choice is only about the big tile — which is
-                    exactly the size the preview in the summary is drawn at. */}
+        <>
+            {/* Both cuts are one picture at tab size (the grid is sub-pixel
+                at 16px), so the choice is only about the big tile — which is
+                exactly the size the preview beside it is drawn at. */}
+            {/* TWO ROWS, never one. Squeezed into one row, the corners' name
+                stood above a row whose other pieces were centred, and its
+                stepper and reset lined up with nothing else on the card. */}
+            <div className="mt-4 flex items-center gap-3">
+                <IconPreview icon={icon} size={40} variant="tile" />
                 <SegmentedControl
                     label={tr("App icon")}
                     value={icon.style}
@@ -145,25 +162,14 @@ export default function AppIconPanel() {
                         label: tr(STYLE_LABELS[style]),
                     }))}
                 />
+            </div>
 
-                <div className="mt-4">
-                    <ColorField
-                        value={icon.background}
-                        onChange={background => void setAppIcon({ background })}
-                        colors={ICON_BACKGROUNDS}
-                        names={PALETTE_NAMES}
-                        label={tr("Background")}
-                        hint={legibility < FAINT_BELOW
-                            ? tr("The mark is faint on this colour ({{ratio}}:1).", { ratio: legibility.toFixed(1) })
-                            : undefined}
-                    />
-                </div>
-
-                {/* ROUNDNESS — the same three-controls-over-one-number row as the
-                    interface size below: drag it, nudge it, or put it back. */}
-                <div className="mt-4">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white mb-2">{tr("Corners")}</p>
-                    <div className="flex flex-wrap items-center gap-3">
+            {/* ROUNDNESS — built exactly as the interface size row above (name,
+                then track, stepper and reset across the full width), so its
+                stepper and reset stand under that row's. */}
+            <div className="mt-4">
+                <span className="block text-sm font-medium text-slate-900 dark:text-white mb-3">{tr("Corners")}</span>
+                <div className="flex flex-wrap items-center gap-3 w-full">
                     <Slider
                         min={MIN_RADIUS}
                         max={MAX_RADIUS}
@@ -183,20 +189,19 @@ export default function AppIconPanel() {
                         label={tr("Corners")}
                         suffix="%"
                     />
-                        <IconButton
-                            variant="neutral"
-                            onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
-                            disabled={isDefault}
-                            label={tr("Restore the default icon")}
-                            icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
-                        />
-                    </div>
+                    <IconButton
+                        variant="neutral"
+                        onClick={() => void setAppIcon(DEFAULT_APP_ICON)}
+                        disabled={isDefault}
+                        label={tr("Restore the default icon")}
+                        icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                    />
                 </div>
-
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">
-                    {tr("The tab changes now, and on a desktop install so do the Start Menu, desktop and Startup shortcuts — the tray icon follows the next time the app starts. The program file's own icon is built in and keeps what it was packaged with, as does an already-installed web app until the system refreshes it.")}
-                </p>
             </div>
-        </ExpandableSection>
+
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-3">
+                {tr("The tab changes now, and on a desktop install so do the Start Menu, desktop and Startup shortcuts — the tray icon follows the next time the app starts. The program file's own icon is built in and keeps what it was packaged with, as does an already-installed web app until the system refreshes it.")}
+            </p>
+        </>
     );
 }

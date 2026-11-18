@@ -26,6 +26,7 @@
  * this class: `nearest` does nothing when the element is already visible, so a
  * rail in a sticky header never moves the page.
  */
+import { motionReduced } from './accessibility';
 
 export type ScrollWithinBlock = 'start' | 'center' | 'nearest';
 
@@ -112,6 +113,8 @@ export function scrollIntoViewWithin(
 
     const next = Math.max(0, Math.min(target, limit));
     if (Math.abs(next - scroller.scrollTop) < 1) return true;
-    scroller.scrollTo({ top: next, behavior });
+    // An explicit 'smooth' wins over the stylesheet's `scroll-behavior`, so
+    // reduced motion is honoured here, once, for every caller.
+    scroller.scrollTo({ top: next, behavior: motionReduced() ? 'auto' : behavior });
     return true;
 }
