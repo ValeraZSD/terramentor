@@ -1,4 +1,4 @@
-// tools/project-forms-gates.mjs — the schedule dialog, the import zone and the pace pill say what is true.
+// tools/project-forms-gates.mjs — the plan panel, the import zone and the pace line say what is true.
 //
 // Run:  node tools/project-forms-gates.mjs
 //
@@ -109,9 +109,11 @@ section('the schedule dialog starts from the project it opens on');
     // opens on the defaults, not on the project before it, then fills in.
     await open(1, [dated, undated]);
     await open(3);
-    check('a project the store does not hold yet opens on the defaults, not the last project\'s',
-        dates()[1]?.value === '' && !!dates()[0]?.value && dates()[0].value !== '2026-11-01' && days() === 5,
-        `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
+    // The plan panel shows nothing until it holds the project, so there is no
+    // field that could carry the last project's dates.
+    check('a project the store does not hold yet shows no fields, never the last project\'s',
+        dates().length === 0 && days() === 0,
+        `${dates().length} date fields: ${dates().map(d => d.value).join(', ')}`);
     const maths = { id: 3, name: 'Maths', kind: 'curriculum', start_date: '2026-12-01', deadline: '2027-03-01', study_days: '[6]' };
     await g.act(async () => { g.useStore.setState({ projects: [dated, undated, maths] }); await settle(); });
     check('...and fills in when the project arrives', dates()[1]?.value === '2027-03-01' && dates()[0]?.value === '2026-12-01' && days() === 1,
@@ -192,26 +194,29 @@ section('choosing the same file again after a failed import works');
 }
 
 // ---------------------------------------------------------------------------
-section('a pace under half a day behind is not "On plan" in amber');
+section('the course header names the verdict, never the plan\'s day count');
 {
+    // The header once counted days against the plan, and a drift under half a
+    // day read "On plan" in amber. It now shows the verdict on the learner's
+    // own pace; the old plan fields are still in the payload and must not leak.
     const { w, g, host } = page();
+    const verdict = {
+        unit: 'topics', band: 'under_pace', early: false, open: 3, deadline: '2026-11-08', daysLeft: 7,
+        needed: 3, recent: 1, best: 4, bestStretch: null, fits: null, weeksOfData: 8, quietWeeks: 0,
+        ranges: { recent: null, best: null }, owner: 'learner', fixed: false, offers: [],
+    };
     g.useStore.setState({
         paceData: {
             hasSchedule: true, paceStatus: 'falling_behind', expectedProgress: 40, actualProgress: 34,
-            startDate: '2026-11-01', deadline: '2026-11-08', drift: 6, totalDays: 7,
+            startDate: '2026-11-01', deadline: '2026-11-08', drift: 6, totalDays: 7, verdict,
         },
     });
-    g.mount(host, g.h(g.PaceIndicator, { full: false }));
+    g.mount(host, g.h(g.PaceIndicator, { full: true }));
     const text = host.textContent;
-    check('the compact pill does not say "On plan"', !/On plan/.test(text), text);
-    check('...it says the same words as its tooltip', /Slightly behind schedule/.test(text) && host.querySelector('[title]')?.getAttribute('title') === 'Slightly behind schedule', text);
-    // Critical needs more drift than that, so a window short enough that it
-    // still rounds to under half a day.
-    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'critical', expectedProgress: 60, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-03', drift: 20, totalDays: 2 } }); await settle(); });
-    check('critical, under half a day: the same words, not "On plan"', !/On plan/.test(host.textContent) && /Slightly behind schedule/.test(host.textContent), host.textContent);
-    // Ahead by under half a day is on plan, and still says so.
-    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: true, paceStatus: 'ahead', expectedProgress: 34, actualProgress: 40, startDate: '2026-11-01', deadline: '2026-11-08', drift: -6, totalDays: 7 } }); await settle(); });
-    check('ahead, under half a day: still "On plan"', /On plan/.test(host.textContent), host.textContent);
+    check('the header shows the verdict and its reason', /Under pace/.test(text) && /Needs 3 a week/.test(text), text);
+    check('...and no day count or "On plan"', !/On plan|days? (behind|ahead)|\d+d (behind|ahead)/.test(text), text);
+    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: false, verdict: { ...verdict, band: 'no_date' } } }); await settle(); });
+    check('a course with no date shows nothing there', host.textContent === '', host.textContent);
     w.close();
 }
 
