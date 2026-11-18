@@ -558,21 +558,34 @@ const ROWS = `(() => {
 // focuses the first shown row's title; 'grip' focuses its grip (after a key
 // press, so the focus is a keyboard one) and measures. A list out of view (the
 // phone's closed tree drawer) is 'none'.
+// 'title' focuses the row's title and records where the title starts BEFORE
+// any key is pressed; 'where' says where Tab put the focus ('grip', 'row' for
+// another control of the row, 'out'); 'grip' measures what Tab reached and
+// never moves the focus itself, so a grip Tab cannot reach fails.
 const GRIP = (sel, step) => `(() => {
-    const row = [...document.querySelectorAll(${JSON.stringify(sel)})].find((r) => {
-        const b = r.getBoundingClientRect();
-        return b.width > 1 && b.right > 0 && b.left < innerWidth && !r.closest('[inert], [aria-hidden="true"]') && r.querySelector('[data-drag-handle]');
-    });
-    if (!row) return 'none';
-    const title = row.querySelector('[data-row="title"]');
-    if (${JSON.stringify(step)} === 'title') { title.focus(); return true; }
-    const before = Math.round(title.getBoundingClientRect().left);
-    const grip = row.querySelector('[data-drag-handle]');
-    grip.focus();
-    const b = grip.getBoundingClientRect();
-    const out = { w: Math.round(b.width), h: Math.round(b.height), visible: grip.matches(':focus-visible'),
-        moved: Math.round(title.getBoundingClientRect().left) - before };
-    grip.blur();
+    if (${JSON.stringify(step)} === 'title') {
+        const row = [...document.querySelectorAll(${JSON.stringify(sel)})].find((r) => {
+            const b = r.getBoundingClientRect();
+            return b.width > 1 && b.right > 0 && b.left < innerWidth && !r.closest('[inert], [aria-hidden="true"]') && r.querySelector('[data-drag-handle]');
+        });
+        if (!row) return 'none';
+        const title = row.querySelector('[data-row="title"]');
+        title.focus();
+        // In the row's own frame: focusing the grip may scroll a narrow board
+        // sideways, which moves the whole row, not the title within it.
+        window.__grip = { row, title, before: Math.round(title.getBoundingClientRect().left - row.getBoundingClientRect().left) };
+        return true;
+    }
+    const { row, title, before } = window.__grip;
+    const at = document.activeElement;
+    const grip = at?.matches('[data-drag-handle]') && row.contains(at) ? at : null;
+    if (${JSON.stringify(step)} === 'where') return grip ? 'grip' : row.contains(at) ? 'row' : 'out';
+    const out = grip
+        ? { reached: true, w: Math.round(grip.getBoundingClientRect().width), h: Math.round(grip.getBoundingClientRect().height),
+            visible: grip.matches(':focus-visible'), moved: Math.round(title.getBoundingClientRect().left - row.getBoundingClientRect().left) - before }
+        : { reached: false, at: at ? (at.getAttribute('aria-label') || at.textContent || at.tagName).trim().slice(0, 40) : 'nothing' };
+    at?.blur();
+    delete window.__grip;
     return out;
 })()`;
 // In High Contrast a row's fold chevron takes the text colour, in either app
@@ -637,7 +650,12 @@ try {
             m.grips = {};
             for (const [list, sel] of [['tree', '[data-sidebar-row]'], ['outline', '[data-tree-item-id]']]) {
                 if (await page.evaluate(GRIP(sel, 'title')) === 'none') { m.grips[list] = 'none'; continue; }
-                for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+                // Tab on from the title, past any other control of the row,
+                // until the focus reaches the grip or leaves the row.
+                for (let i = 0; i < 6; i++) {
+                    for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+                    if (await page.evaluate(GRIP(sel, 'where')) !== 'row') break;
+                }
                 m.grips[list] = await page.evaluate(GRIP(sel, 'grip'));
             }
         }
@@ -737,9 +755,9 @@ for (const [state, m] of Object.entries(seen)) {
         check(`${state}: a grip is measured in a list in view (${measured.join(', ') || 'none'})`, measured.length > 0);
         for (const list of measured) {
             const g = m.grips[list];
-            check(`${state}: a ${list} row's grip shows when the keyboard reaches it, and the title stays put`,
-                g && g.visible && g.w > 1 && g.h > 1 && g.moved === 0,
-                g ? `${g.w}x${g.h}px, focus-visible ${g.visible}, title moved ${g.moved}px` : 'the grip took no focus');
+            check(`${state}: Tab from a ${list} row's title reaches its grip, which shows, and the title stays put`,
+                g.reached && g.visible && g.w > 1 && g.h > 1 && g.moved === 0,
+                g.reached ? `${g.w}x${g.h}px, focus-visible ${g.visible}, title moved ${g.moved}px` : `Tab reached "${g.at}", not the grip`);
         }
     }
     if (m.chevron) check(`${state}: a fold chevron takes the text colour in both app themes`,
