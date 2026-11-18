@@ -110,8 +110,9 @@ Each of these is in the code on the date above.
 - The outline tree has arrow keys but is not marked up as a tree. A topic's status (done, in
   progress, overdue, skipped) is an icon with no text, and the status button does not say the
   current status.
-- The month calendar's days are buttons named only by their number, today is marked only by
-  colour and a ring, and on a phone a day's dots tell courses apart by colour alone.
+- The month calendar's days are buttons named by their full date, but the grid is not
+  exposed as a table of weeks, today is marked only by colour and a ring, and on a phone a
+  day's dots tell courses apart by colour alone.
 - Drill verdicts, a quiz's "Question N of M", quiz results and the mastery check's result are
   shown but not announced.
 - During a card review, keyboard focus stays in the session, but a screen reader's browse mode
