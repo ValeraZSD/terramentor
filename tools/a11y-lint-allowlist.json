@@ -31,10 +31,6 @@
     "src/components/AuthGate.tsx": {
       "jsx-a11y/no-autofocus": 2
     },
-    "src/components/BulkGenerateModal.tsx": {
-      "jsx-a11y/click-events-have-key-events": 1,
-      "jsx-a11y/no-static-element-interactions": 1
-    },
     "src/components/calendar/CalendarNav.tsx": {
       "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/no-static-element-interactions": 1
