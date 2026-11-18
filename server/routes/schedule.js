@@ -166,13 +166,39 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     if (lockError) return res.status(400).json({ error: lockError });
 
     try {
+        const reply = (extra) => {
+            const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+            const nodes = db.prepare(`
+                SELECT id, project_id, parent_id, title, description, notes, status,
+                       is_note, position, scheduled_start, scheduled_end, estimated_weight,
+                       completed_at, created_at, updated_at
+                FROM nodes WHERE project_id = ?
+            `).all(id);
+            res.json({ success: true, project: updatedProject, nodes, ...extra });
+        };
+
+        // Only the mark changes (the same window and study days): it is written
+        // alone. Laying the topics out again on the way had nothing to change,
+        // and refused the mark outright when no study day was left before the
+        // date (an exam tomorrow, a Saturday).
+        const stored = db.prepare('SELECT start_date, deadline, study_days, deadline_fixed FROM projects WHERE id = ?').get(id);
+        if (deadlineFixed !== undefined && stored
+            && stored.start_date === startDate && stored.deadline === deadline
+            && readStudyDays(stored.study_days).join() === days.join()
+            && !!stored.deadline_fixed !== deadlineFixed) {
+            db.prepare('UPDATE projects SET deadline_fixed = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(deadlineFixed ? 1 : 0, id);
+            return reply({ warnings: [], stats: null });
+        }
+
         const result = allocateSchedule(id, startDate, deadline, days);
         if (!result.success) return res.status(400).json({ error: result.error });
 
         // The ONE write path for a window. A course already under way has its
         // open topics laid out from today to the deadline, never from the
         // window's start: that dated open work in the past, so a plan made
-        // this minute read as days overdue. Closed topics keep their dates.
+        // this minute read as days overdue. A window that starts today or
+        // later is laid out from its own start (the learner put the work
+        // there). Closed topics keep their dates.
         const relaid = startDate < studyToday() ? relayOpenTopics(id, { deadline, studyDays: days }) : null;
         if (relaid && !relaid.success) return res.status(400).json({ error: relaid.error });
 
@@ -186,15 +212,7 @@ app.post('/api/projects/:id/schedule', (req, res) => {
             }
         })();
 
-        const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
-        const nodes = db.prepare(`
-            SELECT id, project_id, parent_id, title, description, notes, status,
-                   is_note, position, scheduled_start, scheduled_end, estimated_weight,
-                   completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
-        `).all(id);
-
-        res.json({ success: true, project: updatedProject, nodes, warnings: result.warnings, stats: result.stats });
+        reply({ warnings: result.warnings, stats: result.stats });
     } catch (err) {
         console.error('[Schedule] Error:', err);
         res.status(500).json({ error: clientError(err) });
@@ -258,7 +276,7 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
         // A date marked "cannot move" is not removed either: the mark comes
         // off first, as it must before any other change to the date.
         const lockError = lockedDeadlineError(id, null, undefined);
-        if (lockError) return res.status(409).json({ error: lockError });
+        if (lockError) return res.status(400).json({ error: lockError });
         // Window, node dates and baseline go; the study week stays (see
         // `removeSchedule` in server/scheduling.js).
         const { nodesCleared } = removeSchedule(id);

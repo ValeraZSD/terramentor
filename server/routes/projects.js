@@ -162,11 +162,11 @@ app.put('/api/projects/:id', (req, res) => {
     // A lock is on a date: none without one, and clearing the date clears it
     // (a lock left on an empty date refused every later date).
     const nextDeadline = deadline !== undefined ? deadline : before.deadline;
-    if (deadline_fixed === true && !nextDeadline) {
+    if (deadline_fixed === true && !isScheduleDate(nextDeadline)) {
         return res.status(400).json({ error: 'Only a project with a deadline can mark it as fixed.' });
     }
     if (deadline_fixed !== undefined) { updates.push('deadline_fixed = ?'); values.push(deadline_fixed ? 1 : 0); }
-    else if (deadline === null) updates.push('deadline_fixed = 0');
+    else if (deadline === null || deadline === '') updates.push('deadline_fixed = 0');
     if (start_date !== undefined) { updates.push('start_date = ?'); values.push(start_date); }
     if (deadline !== undefined) { updates.push('deadline = ?'); values.push(deadline); }
     // Normalised on the way IN, not just on the way out. Storing a client
