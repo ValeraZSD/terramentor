@@ -215,7 +215,9 @@ export function browserCandidates(platform, env = {}) {
     // Then the same browsers installed from Flathub. A Flatpak browser has no
     // program under any of the names above, only its app id in Flatpak's
     // exports folder: the per-user one (often not on PATH) and the system one.
-    const dataHome = env.XDG_DATA_HOME || (env.HOME ? posix.join(env.HOME, '.local', 'share') : '');
+    // A relative XDG_DATA_HOME is invalid by the XDG spec and Flatpak ignores it.
+    const xdg = String(env.XDG_DATA_HOME || '');
+    const dataHome = xdg.startsWith('/') ? xdg : (env.HOME ? posix.join(env.HOME, '.local', 'share') : '');
     const exportDirs = [...(dataHome ? [posix.join(dataHome, 'flatpak', 'exports', 'bin')] : []), '/var/lib/flatpak/exports/bin'];
     const flatpaks = [];
     for (const id of FLATPAK_BROWSERS) for (const dir of exportDirs) flatpaks.push(posix.join(dir, id));
@@ -313,7 +315,10 @@ export function browserCommand(browser, url, profileDir, windowMode = DEFAULT_WI
     const args = browserArgs(url, profileDir, windowMode);
     if (platform === 'darwin') return { cmd: 'open', args: ['-n', '-a', browser, '--args', ...args], byExit: true };
     const flatpak = platform === 'win32' ? null : flatpakAppId(browser);
-    if (flatpak) return { cmd: 'flatpak', args: ['run', `--filesystem=${profileDir}`, flatpak, ...args], byExit: false };
+    // Flatpak reads `--filesystem=PATH[:MODE]`, so a `:` or `\` in the library
+    // path is escaped the way Flatpak writes them itself (unparse_filesystem_flags).
+    const granted = String(profileDir).replace(/[\\:]/g, '\\$&');
+    if (flatpak) return { cmd: 'flatpak', args: ['run', `--filesystem=${granted}`, flatpak, ...args], byExit: false };
     return { cmd: browser, args, byExit: false };
 }
 

@@ -257,6 +257,14 @@ console.log('\n--- which browser opens the window ---');
         '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium');
     check('Linux: …under XDG_DATA_HOME when that is set', linuxFind({ HOME: '/home/u', XDG_DATA_HOME: '/data/u' }, '/data/u/flatpak/exports/bin/com.google.Chrome'),
         '/data/u/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: a relative XDG_DATA_HOME is ignored (invalid by the XDG spec)',
+        linuxFind({ HOME: '/home/u', XDG_DATA_HOME: 'rel' }, '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome'),
+        '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: the per-user install before the system one, for the same browser',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser', '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser');
+    ok('Linux: with no HOME, only the system Flatpak folder is searched',
+        browserCandidates('linux', {}).filter((c) => c.includes('/')).every((c) => c.startsWith('/var/lib/flatpak/exports/bin/')));
     check('Linux: a browser on PATH wins over a Flatpak one', linuxFind({ HOME: '/home/u' }, '/usr/bin/chromium', '/var/lib/flatpak/exports/bin/com.google.Chrome'),
         '/usr/bin/chromium');
 
@@ -1217,6 +1225,11 @@ console.log('\n--- macOS: the browser is started through `open` ---');
         check('Linux: a Flatpak browser through `flatpak run`, granted the profile folder only',
             lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, lp, 'window', 'linux'),
             { cmd: 'flatpak', args: ['run', `--filesystem=${lp}`, 'com.brave.Browser', ...browserArgs(url, lp, 'window')], byExit: false });
+        // Flatpak reads the text after a `:` as a mode: an unescaped one would
+        // grant `/home/u/My` and leave the profile out of the sandbox.
+        const colon = lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, '/home/u/My:Lib\\x/browser-profile', 'window', 'linux');
+        check('Linux: a `:` or `\\` in the library path is escaped for Flatpak only', [colon.args[1], colon.args.find((a) => a.startsWith('--user-data-dir='))],
+            ['--filesystem=/home/u/My\\:Lib\\\\x/browser-profile', '--user-data-dir=/home/u/My:Lib\\x/browser-profile']);
         check('Linux: a program merely NAMED like an app id is not run through Flatpak',
             lib.browserCommand('/usr/bin/com.brave.Browser', url, lp, 'window', 'linux').cmd, '/usr/bin/com.brave.Browser');
     }
