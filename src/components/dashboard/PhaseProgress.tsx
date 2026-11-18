@@ -131,7 +131,7 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
            tick shrink to nothing, and `overflow-hidden` guarantees that even an
            absurd phase can never push the page wide. */
         return (
-            <div className={`flex h-3 w-full overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
+            <div data-tick-bar className={`flex h-3 w-full overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
                 : milestone.segments.length > 24 ? 'gap-px' : 'gap-0.5'}`}
             >
                 {milestone.segments.map((segment, i) => (

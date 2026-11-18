@@ -495,6 +495,12 @@ html[data-larger-ui] [data-fold-spacer] {
 html[data-larger-ui] [data-course-sidebar] {
   min-width: min(17.5rem, 30%);
 }
+/* A phase's tick bar (dashboard/PhaseProgress.tsx) hides its overflow so a
+   long phase cannot widen the page, which also cut each tick's 44px floor
+   back to the bar's 12px. The bar itself takes the floor's height. */
+html[data-larger-ui] [data-tick-bar] {
+  height: var(--target-floor);
+}
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
