@@ -42,7 +42,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -120,8 +120,13 @@ try {
 
 // oxlint drops whatever its own bulk file lists before it reports: a second, unreviewed allowlist.
 check('there is no oxlint-suppressions.json beside the sources', !existsSync(join(ROOT, 'oxlint-suppressions.json')));
+// Every source file under src/, read from the disk: what oxlint must have read, and where directives are looked for.
+const sources = readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && /\.(jsx?|tsx?|mjs|cjs|mts|cts)$/.test(e.name))
+    .map((e) => relative(ROOT, join(e.parentPath, e.name)).replace(/\\/g, '/'));
 const { counts, diagnostics, files, other } = lint(['src']);
-check(`oxlint read the client sources (${files} files)`, files > 100);
+// A file oxlint skipped (an ignore file it still obeys) would lower the allowlist on --accept for an unchanged finding.
+check(`oxlint read every source file under src/ (${files} of ${sources.length})`, sources.length > 100 && files === sources.length);
 check('every finding is a jsx-a11y rule (none is a file oxlint could not parse)', !other.length, other.join('\n'));
 
 /**
@@ -158,21 +163,21 @@ check('a jsx-a11y rule named without its prefix is still read as that rule',
 
 /** Whether a .js file holds JSX: an element (`<a `, `<my-el/>`, `<svg:g>`) where an expression starts, or a fragment `<>`.
  *  The position rule keeps a comparison such as `a<b ` from reading as a tag. */
-const hasJsx = (text) => /(?:^|[=(,?:{}[;&|>]|\breturn)\s*<[A-Za-z][\w.:-]*[\s/>]|<\/?>/m.test(text);
-check('JSX is seen in a .js file, hyphenated and fragment elements too; plain JS is not',
+const hasJsx = (text) => /(?:^|[=(,?:{}[;&|>]|\b(?:return|default|case|else|yield|await|throw))\s*<[A-Za-z][\w.:-]*[\s/>]|<\/?>/m.test(text);
+check('JSX is seen in a .js file, hyphenated and fragment elements and after a keyword too; plain JS is not',
     hasJsx('export const C = () => <my-element aria-labeledby="x" />;') && hasJsx('const F = () => <>x</>;')
-    && hasJsx('const D = () => <div>x</div>;') && !hasJsx('for (let i = 0; i<length; i++) if (a<b || a < b) x();')
+    && hasJsx('const D = () => <div>x</div>;') && hasJsx('export default <img src="x.png" />;')
+    && hasJsx('function E() { throw <p>x</p>; }') && !hasJsx('for (let i = 0; i<length; i++) if (a<b || a < b) x();')
     && !hasJsx(readFileSync(join(ROOT, 'src', 'sw-template.js'), 'utf8')));
 
 // Comments that switch a jsx-a11y rule off where they stand.
 const stray = [];
-for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
-    const f = `src/${String(rel).replace(/\\/g, '/')}`;
-    // oxlint parses JSX in .js files too; a .ts file cannot hold JSX.
-    if (!/\.(jsx|tsx|js)$/.test(f)) continue;
+for (const f of sources) {
+    // oxlint parses JSX in .js, .mjs and .cjs files too; a .ts file cannot hold JSX.
+    if (!/\.(jsx|tsx|js|mjs|cjs)$/.test(f)) continue;
     const text = readFileSync(join(ROOT, f), 'utf8');
     // A blanket directive matters only where there is JSX for a jsx-a11y rule to see.
-    const jsx = !f.endsWith('.js') || hasJsx(text);
+    const jsx = /\.(jsx|tsx)$/.test(f) || hasJsx(text);
     for (const { line, rules } of directives(text)) {
         if (!rules.length && jsx) stray.push(`        ${f}:${line}  every rule`);
         for (const rule of rules.map(a11yRule).filter(Boolean)) {
