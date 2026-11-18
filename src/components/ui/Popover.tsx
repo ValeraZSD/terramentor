@@ -474,12 +474,12 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
 /** One row of a menu: an icon and a label, padded, with the app's focus ring.
  *  A link when it has `href` (opens in a new tab), else a button.
  *
- *  Every menu in the app draws its rows with this — a `MenuPopover`'s, and the
- *  older hand-placed ones (the project card's, `DropdownMenu`'s), which once had
- *  rows of their own: flush to the panel's edge, 36px, a different hover. Those
- *  have no arrow keys, so `roving={false}` leaves their rows plain buttons with
- *  their own Tab stop and no menu role (a `menuitem` promises the arrow keys a
- *  `MenuPopover` provides and they do not). */
+ *  Every menu in the app draws its rows with this, inside a `MenuPopover` (the
+ *  project card's and `DropdownMenu`'s included), whose arrow keys, Home/End and
+ *  first-row focus find a row by its `menuitem` role. Leave `roving` on there:
+ *  `roving={false}` is only for a row outside a `MenuPopover`, where it stays a
+ *  plain button with its own Tab stop and no menu role (a `menuitem` promises
+ *  the arrow keys that only a `MenuPopover` provides). */
 export function MenuItem({ icon, children, href, onSelect, tone = 'default', roving = true, current = false }: {
     icon?: ReactNode;
     children: ReactNode;
@@ -515,9 +515,9 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
         : <button role={role} tabIndex={tabIndex} aria-current={ariaCurrent} type="button" onClick={onSelect} className={cls}>{body}</button>;
 }
 
-/** The panel of a hand-placed menu (`DropdownMenu`, the project card's): the
- *  same material and inset as `MenuPopover`'s, so a menu is one shape wherever
- *  it opens. `MENU_SURFACE` is the material alone, for a panel that scrolls
+/** The panel of a menu: `MenuPopover` draws it, and anything hand-placed that
+ *  must look like one takes the same material and inset, so a menu is one shape
+ *  wherever it opens. `MENU_SURFACE` is the material alone, for a panel that scrolls
  *  INSIDE its frame (`Select`'s list). */
 export const MENU_SURFACE = 'rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
 export const MENU_PANEL = `p-1 ${MENU_SURFACE}`;

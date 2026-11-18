@@ -5,6 +5,7 @@ import { splitWordReading, hasRichCardText, contextSentence, stripCardMarkup } f
 const bareLine = (s: string) => stripCardMarkup(s).replace(/\s+/g, ' ').trim().toLowerCase();
 import CardExtra from './CardExtra';
 import CardMedia, { CardMediaSides, CardAudioProvider, AudioClipButton, type CardMediaRef } from './CardMedia';
+import { useContentLang } from '../utils/contentLang';
 
 interface Props {
     front: string;
@@ -61,6 +62,7 @@ interface Props {
  */
 export default function CardFace({ front, back, extra, extraFront, flipped, media, autoPlay = false, size = 'review' }: Props) {
     const review = size === 'review';
+    const lang = useContentLang();
     // A review session is read at arm's length for an hour at a time, and
     // answers may carry furigana whose ruby is a fraction of the body size —
     // so the body size is what decides whether the reading is legible at all.
@@ -152,9 +154,12 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
 
     return (
         <CardAudioProvider items={sideAudio} autoPlay={autoPlay}>
-        <div className={`flex w-full min-w-0 flex-col items-center text-center ${review ? 'gap-4' : 'gap-3'}`}>
+        <div lang={lang} className={`flex w-full min-w-0 flex-col items-center text-center ${review ? 'gap-4' : 'gap-3'}`}>
             {/* The question — on the front as the prompt, on the back as the
-                thing the answer belongs to. */}
+                thing the answer belongs to. On the back, Read aloud skips it
+                and reads only the answer (as Anki and Quizlet do): the learner
+                heard the question a moment ago. `contents` keeps the gap. */}
+            <div data-read-skip={flipped || undefined} className="contents">
             <p className={`${big} max-w-lg text-slate-800 dark:text-slate-100 ${reading || rubyWord ? 'leading-[2.1]' : ''} ${frontClips.length ? 'inline-flex flex-wrap items-center justify-center gap-x-2' : ''}`}>
                 <span>
                     {rubyWord
@@ -169,6 +174,7 @@ export default function CardFace({ front, back, extra, extraFront, flipped, medi
             </p>
 
             {contextRows}
+            </div>
 
             {flipped && (
                 <>

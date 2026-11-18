@@ -30,7 +30,7 @@ export default function MasteryTuningPanel({ active }: { active: boolean }) {
             const r = await api.optimizeMastery();
             setLast(r);
             addToast('success', r.accepted ? tr("Topic progress tuned") : tr("Defaults kept"), r.accepted
-                ? tr("Learning rate {{p_T}}, slip {{p_S}} — fitted to your own attempts.", { p_T: r.params.p_T.toFixed(2), p_S: r.params.p_S.toFixed(2) })
+                ? tr("Learning rate {{p_T}}, slip {{p_S}} — fitted to your own attempts.", { p_T: num(r.params.p_T, { decimals: 2 }), p_S: num(r.params.p_S, { decimals: 2 }) })
                 : (r.reason || ''));
             await load();
         } catch (e: any) {
@@ -52,7 +52,7 @@ export default function MasteryTuningPanel({ active }: { active: boolean }) {
     const enough = !!status && status.attempts >= status.minAttempts;
     const fitted = !!status?.params;
     const pct = (n: number) => `${Math.round(n * 100)}%`;
-    const fmt = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : n.toFixed(3));
+    const fmt = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? '—' : num(n, { decimals: 3 }));
 
     return (
         <TuningBlock

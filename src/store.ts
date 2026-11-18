@@ -13,6 +13,7 @@ import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate,
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
+import { type A11yPrefs, A11Y_KEYS, applyA11yToDom, cachedA11yPrefs, readA11yPrefs, resolveContrast, storedA11yValue, systemPrefersDark, watchSystemPreferences } from './utils/accessibility';
 import i18n from './i18n';
 // A cycle, and a safe one: each side reads the other only inside functions.
 import { openCreationRunForTask } from './components/creation/creationRuns';
@@ -21,6 +22,7 @@ import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
 import { taskPlace } from './utils/taskPlace';
+import { setSingleKeyShortcuts } from './utils/escapeKey';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import { loadedRunner } from './runner/load';
 import {
@@ -47,6 +49,12 @@ export type Theme = 'light' | 'dark';
 /** How the mastery check modal closed its topic, for the surface that opened it. */
 export type MasteryGateResolved = (how: { outcome: 'completed' | 'skipped'; proven: boolean }) => void;
 export const THEME_IDS: readonly Theme[] = ['light', 'dark'];
+/** What the reader picks: a mode, or whatever the system asks for. */
+export type ThemeChoice = Theme | 'system';
+export const THEME_CHOICES: readonly ThemeChoice[] = ['system', 'light', 'dark'];
+/** The mode a choice paints right now. */
+export const resolveTheme = (choice: ThemeChoice): Theme =>
+    choice === 'system' ? (systemPrefersDark() ? 'dark' : 'light') : choice;
 
 /** What the four old names become. Warm's tint is SOLVED, not guessed: it is
  *  the colour whose generated ramp lands within 2.4/441 of the cream that
@@ -112,6 +120,12 @@ const THEME_STORAGE_KEY = 'terramentor-theme';
 
 interface ThemeCache {
     theme?: Theme;
+    /** 'system' when the mode follows the system; then `otherVars` and
+     *  `otherSurface` hold the other mode, so the boot script can paint
+     *  whichever the system asks for on this load. */
+    themeChoice?: ThemeChoice;
+    otherVars?: Record<string, string>;
+    otherSurface?: string;
     /** The tint, and the twelve variables it generates. BOTH, because the boot
      *  script in index.html runs before any module is parsed: it can apply a
      *  map of already-computed values, and it cannot import a ramp generator.
@@ -152,6 +166,15 @@ const initialTheme = (): Theme => {
     return cached && THEME_IDS.includes(cached) ? cached : 'light';
 };
 
+const initialThemeChoice = (): ThemeChoice => {
+    const cached = readThemeCache().themeChoice;
+    return cached && THEME_CHOICES.includes(cached) ? cached : initialTheme();
+};
+
+/** More contrast, resolved; set with the accessibility preferences and read by
+ *  every paint of the theme. */
+let contrastMore = false;
+
 /** …and the tint that went with it. An unparseable one is no tint, never a
  *  half-applied one: `themeRamp` returns the base ramp for anything it cannot
  *  read, so the app is the untinted app rather than a guess. */
@@ -191,17 +214,39 @@ const applyAccentVars = (hex: string, theme: Theme, tint: string) => {
  * `index.css`: that block stays as the untinted fallback for the moment before
  * any script runs, and for anything rendering outside this document.
  */
-const applyThemeToDom = (theme: Theme, tint: string) => {
+const applyThemeToDom = (theme: Theme, tint: string, choice: ThemeChoice = theme) => {
     const root = document.documentElement;
     root.classList.toggle('dark', isDarkTheme(theme));
     root.setAttribute('data-theme', theme);
-    const vars = themeVars(theme, tint);
+    const vars = themeVars(theme, tint, contrastMore);
     for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
     const surface = themeColorFor(theme, tint);
-    patchThemeCache({ theme, themeTint: tint, themeVars: vars, themeSurface: surface });
+    const other: Theme = theme === 'dark' ? 'light' : 'dark';
+    patchThemeCache({
+        theme, themeChoice: choice, themeTint: tint, themeVars: vars, themeSurface: surface,
+        otherVars: choice === 'system' ? themeVars(other, tint, contrastMore) : undefined,
+        otherSurface: choice === 'system' ? themeColorFor(other, tint) : undefined,
+    });
     applyThemeColorMeta(surface);
     rememberPaintedSurfaces(theme, tint, surface);
 };
+
+/**
+ * The accessibility preferences onto the page, and the theme they colour (more
+ * contrast is a different ramp). Also what runs when the system's own answers
+ * change (dark mode at sunset, high contrast switched on), for every choice
+ * that follows the system.
+ */
+const repaintA11y = (get: () => AppState) => {
+    const { a11y, themeChoice, themeTint, accentColor } = get();
+    applyA11yToDom(a11y);
+    contrastMore = resolveContrast(a11y.contrast) === 'more';
+    const mode = resolveTheme(themeChoice);
+    if (mode !== get().theme) useStore.setState({ theme: mode });
+    applyThemeToDom(mode, themeTint, themeChoice);
+    applyAccentVars(accentColor, mode, themeTint);
+};
+let stopSystemWatch: (() => void) | null = null;
 
 /**
  * WHAT A PHONE PAINTS BEFORE THIS CODE HAS RUN AT ALL.
@@ -432,7 +477,13 @@ const saveExpansionState = (expanded: Record<number, boolean>) => {
 
 interface AppState {
     view: View;
+    /** The mode on screen: the choice, or what the system asks for when the
+     *  choice is to follow it. */
     theme: Theme;
+    /** What the reader chose (Settings → General). */
+    themeChoice: ThemeChoice;
+    /** Settings → Accessibility (`utils/accessibility.ts`). */
+    a11y: A11yPrefs;
     /** The colour every surface is tinted toward. `#ffffff` is no tint at all —
      *  see `src/utils/themeRamp.ts`. */
     themeTint: string;
@@ -520,6 +571,8 @@ interface AppState {
      *  state: living inside the calendar component would reset it to Monday on
      *  every navigation and cost a permanent toolbar toggle. */
     weekStartDay: WeekStartDay;
+    /** Single-key shortcuts (`a`, the calendar letters, Space, 1-4, `z`) on or off. */
+    keyShortcuts: boolean;
     /** What colour means on the atlas: how much is proven, or which course a
      *  topic belongs to. A preference rather than view state — a map you have
      *  chosen to read by course should still read that way tomorrow. */
@@ -762,7 +815,9 @@ interface AppState {
     closeCompletion: (seen?: boolean) => void;
 
     setView: (view: View) => void;
-    setTheme: (theme: Theme) => void;
+    setTheme: (theme: ThemeChoice) => void;
+    /** One accessibility preference, applied at once and then stored. */
+    setA11y: <K extends keyof A11yPrefs>(field: K, value: A11yPrefs[K]) => Promise<void>;
     /** The colour the surfaces take. Applied before it is stored, like the
      *  theme, the accent and the language: the change is the confirmation. */
     setThemeTint: (tint: string) => void;
@@ -781,6 +836,7 @@ interface AppState {
     setSidebarWidth: (width: number) => Promise<void>;
     setDetailPanelWidth: (width: number) => Promise<void>;
     setWeekStartDay: (day: WeekStartDay) => Promise<void>;
+    setKeyShortcuts: (on: boolean) => Promise<void>;
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
@@ -929,6 +985,8 @@ function writeNodes() {
 export const useStore = create<AppState>((set, get) => ({
     view: 'today',
     theme: initialTheme(),
+    themeChoice: initialThemeChoice(),
+    a11y: cachedA11yPrefs(),
     themeTint: initialThemeTint(),
     accentColor: DEFAULT_ACCENT_COLOR,
     appIcon: DEFAULT_APP_ICON,
@@ -959,6 +1017,7 @@ export const useStore = create<AppState>((set, get) => ({
     sidebarWidth: 256,
     detailPanelWidth: 420,
     weekStartDay: 1,
+    keyShortcuts: true,
     atlasColorMode: 'course',
     atlasSurface: 'map',
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
@@ -1152,16 +1211,28 @@ export const useStore = create<AppState>((set, get) => ({
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
 
-    setTheme: async (theme) => {
-        const before = get().theme;
-        const paint = (mode: Theme) => {
-            set({ theme: mode });
-            applyThemeToDom(mode, get().themeTint);
+    setTheme: async (choice) => {
+        const before = get().themeChoice;
+        const paint = (value: ThemeChoice) => {
+            const mode = resolveTheme(value);
+            set({ theme: mode, themeChoice: value });
+            applyThemeToDom(mode, get().themeTint, value);
             // Accent text brightness depends on the light/dark axis, so re-apply it.
             applyAccentVars(get().accentColor, mode, get().themeTint);
         };
-        paint(theme);
-        await saveSetting(get, 'theme', theme, before, theme, paint);
+        paint(choice);
+        await saveSetting(get, 'theme', choice, before, choice, paint);
+    },
+
+    setA11y: async (field, value) => {
+        const before = get().a11y[field];
+        const paint = (v: typeof value) => {
+            const a11y = { ...get().a11y, [field]: v };
+            set({ a11y });
+            repaintA11y(get);
+        };
+        paint(value);
+        await saveSetting(get, A11Y_KEYS[field], storedA11yValue(value), before, value, paint);
     },
 
     setThemeTint: async (tint) => {
@@ -1169,7 +1240,7 @@ export const useStore = create<AppState>((set, get) => ({
         const before = get().themeTint;
         const paint = (value: string) => {
             set({ themeTint: value });
-            applyThemeToDom(get().theme, value);
+            applyThemeToDom(get().theme, value, get().themeChoice);
             // The page the accent's TEXT is read on just changed, so what clears AA
             // on it did too. Without this the link colour stayed whatever the last
             // tint asked for until a reload.
@@ -1316,6 +1387,13 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'week_start_day', String(day), before, day, value => set({ weekStartDay: value }));
     },
 
+    setKeyShortcuts: async (on) => {
+        const before = get().keyShortcuts;
+        const paint = (value: boolean) => { set({ keyShortcuts: value }); setSingleKeyShortcuts(value); };
+        paint(on);
+        await saveSetting(get, 'key_shortcuts', on ? 'true' : 'false', before, on, paint);
+    },
+
     setNumberFormat: async (style) => {
         // Applied before it is stored, like the theme and the language: the
         // change IS the feedback, and every number on screen is the preview.
@@ -1408,8 +1486,13 @@ export const useStore = create<AppState>((set, get) => ({
             // opened by this build does not have to be written to be right.
             // Anything unrecognised is light, as before.
             const legacy = LEGACY_THEMES[String(settings.theme)];
-            const theme: Theme = legacy?.theme
-                ?? (THEME_IDS.includes(settings.theme as Theme) ? settings.theme as Theme : 'light');
+            // No row follows the system, as 'system' does; anything else
+            // unrecognised is light, as before.
+            const themeChoice: ThemeChoice = legacy?.theme
+                ?? (settings.theme == null || settings.theme === '' ? 'system'
+                    : THEME_CHOICES.includes(settings.theme as ThemeChoice) ? settings.theme as ThemeChoice : 'light');
+            const theme: Theme = resolveTheme(themeChoice);
+            const a11y = readA11yPrefs(settings);
             // An explicit tint wins over the legacy one: a learner who has
             // chosen a colour since the migration is not sent back to cream.
             const themeTint = parseCssColor(settings.theme_tint)
@@ -1465,7 +1548,9 @@ export const useStore = create<AppState>((set, get) => ({
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
-            set({ theme, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
+            const keyShortcuts = settings.key_shortcuts !== 'false';
+            setSingleKeyShortcuts(keyShortcuts);
+            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
@@ -1476,8 +1561,8 @@ export const useStore = create<AppState>((set, get) => ({
             // the next manifest fetch will answer with, so a load that changes
             // nothing writes nothing.
             seedPaintedSurfaces(settings.theme_surfaces);
-            applyThemeToDom(theme, themeTint);
-            applyAccentVars(accentColor, theme, themeTint);
+            repaintA11y(get);
+            if (!stopSystemWatch) stopSystemWatch = watchSystemPreferences(() => repaintA11y(get));
             applyIcon(appIcon);
             applyUiScale(uiScale);
             // The server's choice wins over this device's cache — a language picked

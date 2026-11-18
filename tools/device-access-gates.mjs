@@ -315,6 +315,16 @@ let phoneCookie = '';
         pressed.push(`${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body: {} })).status}`);
     }
     ok('a connected device may not download, install or set up updates', pressed.every((p) => p.endsWith(' 403')), pressed.join(', '));
+    // Passing the app on to the tailnet and the Tailscale switch change the
+    // computer's own setup: the same owner-only rule as the controls above.
+    const servedBefore = cli.served.length;
+    const tsOnPhone = [];
+    for (const [method, path, body] of [['POST', '/api/devices/tailscale/serve', {}], ['PUT', '/api/devices/tailscale', { on: true }]]) {
+        tsOnPhone.push(`${path} ${(await call(path, { method, from: PHONE, cookie: phoneCookie, body })).status}`);
+    }
+    ok('a connected device may not pass the app on to the tailnet or flip the Tailscale switch',
+        tsOnPhone.every((p) => p.endsWith(' 403')) && cli.served.length === servedBefore, tsOnPhone.join(', '));
+    ok('…while this computer still reaches the switch', (await call('/api/devices/tailscale', { method: 'PUT', body: { on: true } })).status === 200);
     const panel = await call('/api/updates', { from: PHONE, cookie: phoneCookie });
     ok('…but reads the update panel, which says it may not press', panel.status === 200 && panel.body?.controls === false, JSON.stringify(panel.body?.controls));
     ok('…while this computer may', (await call('/api/updates')).body?.controls === true);

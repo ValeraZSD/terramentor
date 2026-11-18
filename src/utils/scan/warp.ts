@@ -13,6 +13,8 @@
 // every output pixel, then (for written work only) flatten the lighting with an
 // adaptive threshold.
 
+import i18n from '../../i18n';
+
 export type Point = { x: number; y: number };
 export type Quad = [Point, Point, Point, Point];
 export type ScanMode = 'document' | 'photo';
@@ -166,7 +168,10 @@ export function warpQuad(
     // Solve dst -> src: we iterate over OUTPUT pixels and pull from the source,
     // which leaves no unwritten holes (forward-mapping would).
     const h = computeHomography(dstQuad, quad);
-    if (!h) throw new Error('Those corners do not form a valid quadrilateral — drag them back onto the page.');
+    // The screen shows this message as it is. A utility cannot use the hook, so it
+    // reads `i18n.t` at call time; the sentence is the one the adjust step already
+    // shows above the corners.
+    if (!h) throw new Error(i18n.t("Drag the four corners onto the corners of your page."));
 
     const out = new ImageData(width, height);
     const rgb = [0, 0, 0];

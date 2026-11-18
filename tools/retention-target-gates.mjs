@@ -144,7 +144,8 @@ const want80 = globalThis.__hint(newCard(1), 0.8);
 const want90 = globalThis.__hint(newCard(1), 0.9);
 check('the fixture tells the targets apart (Easy on a new card)', want80 !== want90, `${want80} vs ${want90}`);
 for (const [kind, flip] of [
-    ['feed', (doc) => click(doc.querySelector('[aria-label="Reveal answer"]'))],
+    // The card face itself: a toggle named by the card's own words, no label.
+    ['feed', (doc) => click(doc.querySelector('[role="button"][aria-pressed]'))],
     ['global', () => key(' ')],
     ['view', () => key(' ')],
 ]) {

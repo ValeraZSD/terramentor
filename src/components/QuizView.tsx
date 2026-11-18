@@ -114,7 +114,9 @@ export default function QuizView({ quiz, onClose }: Props) {
     const currentReport = currentRef ? reports[currentRef] ?? null : null;
     // Nothing of this topic is left to grade: the sitting can only be left.
     const nothingLeft = !questions.some((q, idx) => !q.isGhost && !isReported(idx));
-    const allAnswered = questions.every((_, idx) => isReported(idx) || answers[idx] !== undefined);
+    // An ordering left as served is already an answer (`defaultAnswer` grades
+    // that order), so it must not hold Submit back.
+    const allAnswered = questions.every((q, idx) => isReported(idx) || answers[idx] !== undefined || defaultAnswer(q) !== '');
 
     // Answering is time on the topic the question is ABOUT — a ghost question
     // from a fading topic is time on that topic — and reading the results,

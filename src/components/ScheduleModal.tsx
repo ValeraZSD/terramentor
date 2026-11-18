@@ -124,20 +124,28 @@ export default function ScheduleModal() {
     // the project object). Depending on `project` re-ran this whenever the projects
     // array was refetched (e.g. NodeTree's 3s poll), silently resetting the user's
     // in-progress Start Date / Deadline edits.
+    const known = projects.some(pr => pr.id === scheduleModalProjectId);
     useEffect(() => {
         if (!showScheduleModal) return;
         const p = projects.find(pr => pr.id === scheduleModalProjectId);
-        if (!p) return;
-        if (p.start_date) setStartDate(p.start_date);
-        if (p.deadline) setDeadline(p.deadline);
-        if (p.study_days) {
+        // Every field is set, with its default for a project that has no value:
+        // this dialog stays mounted, so a field left alone would keep what the
+        // last project (or a schedule since removed) had put there. A project
+        // the store does not hold yet (a refetch in flight) gets the defaults
+        // too, and fills in when it arrives (`known` below).
+        setStartDate(p?.start_date || todayStr());
+        setDeadline(p?.deadline || '');
+        let days = [1, 2, 3, 4, 5];
+        if (p?.study_days) {
             try {
                 const parsed = JSON.parse(p.study_days);
-                if (Array.isArray(parsed) && parsed.length > 0) setStudyDays(parsed);
+                if (Array.isArray(parsed) && parsed.length > 0) days = parsed;
             } catch { }
         }
+        setStudyDays(days);
+        setError('');
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showScheduleModal, scheduleModalProjectId]);
+    }, [showScheduleModal, scheduleModalProjectId, known]);
 
     // WORK leaves, not structural ones: the server dates a leaf only if it is
     // not a slice of an imported deck's card order (`isWork`, scheduling.js), so

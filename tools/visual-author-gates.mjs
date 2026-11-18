@@ -252,7 +252,30 @@ await new Promise(r => setTimeout(r, 10));
 check('raising the limit starts the queued task without a restart', t2.status === 'running');
 g1.release({}); g2.release({});
 await new Promise(r => setTimeout(r, 10));
-check('a nonsense limit falls back to 1', (tasksMod.setConcurrencyProvider(() => NaN), true));
+// The provider switch that nothing in the queue hears about: Settings changes
+// what the limit function answers while a task already waits behind the full
+// slot count, and no task is created or finished to make the queue look again.
+limit = 1;
+const g3 = gate(), g4 = gate();
+const t3 = tasksMod.createTask({ kind: 'test', label: 'three', run: () => g3.p }).task;
+const t4 = tasksMod.createTask({ kind: 'test', label: 'four', run: () => g4.p }).task;
+await new Promise(r => setTimeout(r, 10));
+check('a task waits behind the running one at a limit of 1', t3.status === 'running' && t4.status === 'queued');
+limit = 3;
+// The queue looks again on a one-second timer: wait for it, up to a deadline
+// that a slow runner will not pass, instead of a fixed sleep.
+for (let waited = 0; t4.status !== 'running' && waited < 5000; waited += 50) await new Promise(r => setTimeout(r, 50));
+check('a limit that rises while a task waits starts it, with nothing else arriving or finishing', t4.status === 'running', t4.status);
+g3.release({}); g4.release({});
+await new Promise(r => setTimeout(r, 10));
+tasksMod.setConcurrencyProvider(() => NaN);
+const g5 = gate(), g6 = gate();
+const t5 = tasksMod.createTask({ kind: 'test', label: 'five', run: () => g5.p }).task;
+const t6 = tasksMod.createTask({ kind: 'test', label: 'six', run: () => g6.p }).task;
+await new Promise(r => setTimeout(r, 10));
+check('a nonsense limit falls back to 1: one task runs, the next waits', t5.status === 'running' && t6.status === 'queued', `${t5.status}, ${t6.status}`);
+g5.release({}); g6.release({});
+await new Promise(r => setTimeout(r, 10));
 const conc = (await import('../server/ai.js')).aiConcurrency;
 process.env.AI_CONCURRENCY = '';
 check('the default provider (ollama) is serial', conc() === 1);

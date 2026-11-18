@@ -103,7 +103,7 @@ export const newAttemptId = () => Math.random().toString(16).slice(2).padEnd(16,
 });
 
 const toasts = [];
-globalThis.__store = { addToast: (...a) => toasts.push(a) };
+globalThis.__store = { addToast: (...a) => toasts.push(a), a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } };
 /** What the next updateFlashcard call does: a function (id, data) => Promise. */
 let respond = null;
 const calls = [];

@@ -17,20 +17,23 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadQuizzes();
-  }, [projectId]);
-
-  const loadQuizzes = async () => {
+    // A slow answer for the project the learner just left must not land over
+    // the one they are on now.
+    let cancelled = false;
     setLoading(true);
-    try {
-      const data = await api.getProjectQuizzes(projectId);
-      setQuizzes(data);
-    } catch (error) {
-      console.error('Failed to load quizzes:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setQuizzes([]);
+    (async () => {
+      try {
+        const data = await api.getProjectQuizzes(projectId);
+        if (!cancelled) setQuizzes(data);
+      } catch (error) {
+        if (!cancelled) console.error('Failed to load quizzes:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   if (loading) {
     return (
@@ -71,7 +74,10 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
                 ? quiz.best_score >= 80 ? 'text-emerald-500' : quiz.best_score >= 60 ? 'text-amber-500' : 'text-red-500'
                 : 'text-slate-400';
 
-              const quizDate = quiz.title.replace(/^Quiz\s*-\s*/i, '').trim();
+              // The stored title is usually the topic's own name, already the
+              // heading: say it once.
+              const subTitle = quiz.title.replace(/^Quiz\s*-\s*/i, '').trim();
+              const showSubTitle = !!subTitle && subTitle !== (quiz.node_title ?? '').trim();
 
               return (
                 <div
@@ -83,8 +89,8 @@ export default function ProjectQuizzesList({ projectId, onSelectQuiz, onClose }:
                       {quiz.node_title || t("Unknown topic")}
                     </p>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
-                      {quizDate && <span>{quizDate}</span>}
-                      {quizDate && <span>•</span>}
+                      {showSubTitle && <span>{subTitle}</span>}
+                      {showSubTitle && <span>•</span>}
                       <span>{t("{{length}} questions", { count: quiz.questions.length, length: quiz.questions.length })}</span>
                       <span>•</span>
                       <span>{quiz.attempt_count || 0} {t("attempts")}</span>

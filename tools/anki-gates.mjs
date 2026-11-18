@@ -192,6 +192,29 @@ check('an empty emphasis leaves no stray markers',
 check('line breaks survive as newlines', stripAnkiHtml('a<br>b').text === 'a\nb');
 check('entities are decoded', stripAnkiHtml('caf&eacute;&nbsp;au &amp; lait').text.includes('&') === true);
 check('numeric entities are decoded', stripAnkiHtml('A&#66;C').text === 'ABC');
+// Decoded in ONE pass: the `&amp;` of a literal `&lt;` must not be decoded and
+// then read again as the start of another entity.
+check('an escaped entity is decoded once, not twice (&amp;lt; is the text "&lt;")',
+    stripAnkiHtml('&amp;lt;div&amp;gt;').text === '&lt;div&gt;', stripAnkiHtml('&amp;lt;div&amp;gt;').text);
+check('an escaped numeric entity stays literal (&amp;#66; is the text "&#66;")',
+    stripAnkiHtml('&amp;#66;').text === '&#66;', stripAnkiHtml('&amp;#66;').text);
+check('a single-level entity still decodes (&lt;b&gt;)',
+    stripAnkiHtml('&lt;b&gt; &amp; &quot;x&quot;').text === '<b> & "x"');
+check('table cells on one row are separate words',
+    stripAnkiHtml('<table><tr><td>cat</td><td>dog</td></tr></table>').text === 'cat dog',
+    JSON.stringify(stripAnkiHtml('<table><tr><td>cat</td><td>dog</td></tr></table>').text));
+check('table cells written on separate lines are one space apart, with no stray space at the line end',
+    stripAnkiHtml('<table><tr>\n<td>cat</td>\n  <td>dog</td>\n</tr></table>').text === 'cat dog',
+    JSON.stringify(stripAnkiHtml('<table><tr>\n<td>cat</td>\n  <td>dog</td>\n</tr></table>').text));
+check('a link label and a link target are decoded once, like the rest of the field',
+    stripAnkiHtml('<a href="https://e.com/?a=1&amp;amp;b=2">&amp;lt;b&amp;gt;</a>').text === '[&lt;b&gt;](https://e.com/?a=1&amp;b=2)',
+    JSON.stringify(stripAnkiHtml('<a href="https://e.com/?a=1&amp;amp;b=2">&amp;lt;b&amp;gt;</a>').text));
+check('a link with an ordinary entity in label and target still decodes it',
+    stripAnkiHtml('<a href="https://e.com/?a=1&amp;b=2">Tom &amp; Jerry</a>').text === '[Tom & Jerry](https://e.com/?a=1&b=2)',
+    JSON.stringify(stripAnkiHtml('<a href="https://e.com/?a=1&amp;b=2">Tom &amp; Jerry</a>').text));
+check('style and script bodies are not card text',
+    stripAnkiHtml('<style>.a { color: red }</style>word<script>var x = 1;</script>').text === 'word',
+    JSON.stringify(stripAnkiHtml('<style>.a { color: red }</style>word<script>var x = 1;</script>').text));
 check('images are collected by filename, not left as markup',
     (() => { const r = stripAnkiHtml('see <img src="a.png"> here'); return r.images.length === 1 && r.images[0].file === 'a.png' && !r.text.includes('img'); })());
 check('an image alt is kept — the only description written by a human',
@@ -306,6 +329,62 @@ check('Anki scheduling comes across',
     JSON.stringify(r11.cards[0].sched));
 check('tags come across', r11.cards[0].tags.includes('kana'));
 check('the project name is suggested from the deck', suggestProjectName(r11) === 'Japanese');
+
+// A card in a filtered deck (custom study) has `did` = the filtered deck and the
+// author's deck in `odid`; its `due` is the position in the filtered deck, the
+// author's in `odue`. It must import under the author's deck and order.
+{
+    const pF = join(scratch, 'filtered11.sqlite');
+    buildSchema11(pF, {
+        models: { 100: { name: 'Basic', flds: [{ name: 'Front' }, { name: 'Back' }] } },
+        decks: { 1: { name: 'Default' }, 2: { name: 'Spanish' }, 9: { name: 'Filtered Deck 1', dyn: 1 } },
+        notes: [
+            { id: 1, mid: 100, did: 2, flds: `casa${SEP}house` },
+            { id: 2, mid: 100, did: 2, flds: `perro${SEP}dog` },
+            { id: 3, mid: 100, did: 2, flds: `gato${SEP}cat` },
+            { id: 4, mid: 100, did: 2, flds: `luz${SEP}light` },
+        ],
+    });
+    {
+        const c = new Database(pF);
+        c.prepare('UPDATE cards SET type = 0, due = 5 WHERE nid = 2').run();
+        c.prepare('UPDATE cards SET type = 0, due = 3, did = 9, odid = 2, odue = 7 WHERE nid = 1').run();
+        // On loan with no `odue`: the position in the filtered deck is all there is.
+        c.prepare('UPDATE cards SET type = 0, due = 4, did = 9, odid = 2, odue = NULL WHERE nid = 3').run();
+        // A studied card on loan: back in its own deck, still no new-card order.
+        c.prepare('UPDATE cards SET type = 2, due = 19000, did = 9, odid = 2, odue = 19001 WHERE nid = 4').run();
+        c.close();
+    }
+    const rF = await parseApkg(await zipApkg({ 'collection.anki2': readFileSync(pF), media: Buffer.from('{}') }));
+    const casa = rF.cards.find(c => c.front === 'casa');
+    check('a card in a filtered deck imports under the deck it came from',
+        casa?.deck === 'Spanish', casa?.deck);
+    check('a card in a filtered deck keeps the author\'s new-card order',
+        casa?.order === 7, String(casa?.order));
+    const byFront = (f) => rF.cards.find(c => c.front === f);
+    check('a card on loan with no odue falls back to its position in the filtered deck',
+        byFront('gato')?.deck === 'Spanish' && byFront('gato')?.order === 4,
+        JSON.stringify([byFront('gato')?.deck, byFront('gato')?.order]));
+    check('a studied card on loan returns to its own deck and has no new-card order',
+        byFront('luz')?.deck === 'Spanish' && byFront('luz')?.order === null,
+        JSON.stringify([byFront('luz')?.deck, byFront('luz')?.order]));
+}
+// A hand-built `cards` table without odid/odue is a collection with no filtered decks, not a refusal.
+{
+    const pN = join(scratch, 'noloan11.sqlite');
+    buildSchema11(pN, {
+        models: { 100: { name: 'Basic', flds: [{ name: 'Front' }, { name: 'Back' }] } },
+        decks: { 1: { name: 'Default' }, 2: { name: 'Spanish' } },
+        notes: [{ id: 1, mid: 100, did: 2, flds: `casa${SEP}house` }],
+    });
+    {
+        const c = new Database(pN);
+        c.exec('ALTER TABLE cards DROP COLUMN odid; ALTER TABLE cards DROP COLUMN odue;');
+        c.close();
+    }
+    const rN = await parseApkg(await zipApkg({ 'collection.anki2': readFileSync(pN), media: Buffer.from('{}') }));
+    check('a cards table with no odid or odue still reads', rN.cards.length === 1 && rN.cards[0]?.deck === 'Spanish', JSON.stringify(rN.cards.map(c => c.deck)));
+}
 
 // ---- schema 18 + zstd + the legacy stub ------------------------------------
 console.log('\n--- a deck exported by a modern Anki (schema 18, zstd) ---');
