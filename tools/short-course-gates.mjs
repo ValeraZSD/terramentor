@@ -858,6 +858,19 @@ ok('a dropped file is read: kind file, its own name, staged', bookRead.ok === tr
 ok('a book is too big, and says whether a model is there to write it', bookRead.size === 'too-big' && bookRead.ai === true, [bookRead.size, bookRead.ai]);
 ok('its chapters are offered, each with its words', bookRead.chapters?.length === 3 && bookRead.chapters.every(ch => ch.words > 10000 && /Chapter/.test(ch.title)), bookRead.chapters);
 ok('and the file as the New course dialog takes it, for a full course', bookRead.staged?.id === bookRead.stagedId && bookRead.staged.ok === true, bookRead.staged);
+{
+    // A browser sends the name as UTF-8; read as latin1 it becomes the course's name as mojibake.
+    const namedForm = new FormData();
+    namedForm.append('file', new Blob([chapter('NAMED_FILE_MARK', 1200)], { type: 'text/markdown' }), 'Урок з фізики één.md');
+    const namedRead = await (await fetch(`${base}/api/short-courses/read-file`, { method: 'POST', body: namedForm })).json();
+    ok('a file named in Ukrainian or Dutch keeps its name when it is read', namedRead.ok === true && namedRead.file === 'Урок з фізики één.md', [namedRead.ok, namedRead.file, namedRead.title]);
+    if (namedRead.stagedId) await api('DELETE', `/api/short-courses/read/${namedRead.stagedId}`);
+    // The same multer default sits under the paper photo and the chat attachment uploads.
+    for (const route of ['server/routes/paper.js', 'server/routes/attachments.js']) {
+        const source = readFileSync(join(ROOT, route), 'utf8');
+        ok(`${route} reads an uploaded file's name as UTF-8`, /multer\(\{[^}]*defParamCharset:\s*'utf8'/.test(source));
+    }
+}
 ok('picking no chapter is refused', (await api('POST', '/api/short-courses', { stagedId: bookRead.stagedId, parts: [] })).status === 400);
 {
     // The assistant's card goes straight to Create: a whole book is still not one short course.
