@@ -6,9 +6,10 @@
  *   node tools/screen-reader-run.mjs [--out DIR] [--only NAME] [--browser PATH]
  *
  * The invented course from tools/docs-fixture.mjs is built in a scratch
- * library and served from `dist/` (run `npm run build` first). NVDA then works
- * through four tasks the way a blind learner would, with its own keys only
- * (Tab, Space, the arrows, browse-mode reading), never a click:
+ * library and served from `dist/` (run `npm run build` first). Each task's
+ * screen is opened by the browser driver (a click on Study, a tab, a button);
+ * from there NVDA works the way a blind learner would, with its own keys only
+ * (Tab, Space, the arrows, browse-mode reading):
  *
  *   flashcard-review   the review session: read the card, reveal the answer, grade it
  *   quiz               a lesson's question: choose an option, hear the verdict
@@ -193,14 +194,14 @@ const TASKS = {
             await sleep(800);
         },
         run: async (page) => {
-            const card = await textOf(page, `document.querySelector('[data-review-card]')`);
+            const card = await textOf(page, `document.querySelector('[data-review-card] [aria-live]')`);
             const first = await readFromTop(10);
             expect('browse mode reaches the card text within the first 10 items', heard(first, card.slice(0, 80)));
             await tabTo(page, REVEAL, 'Reveal answer');
             const flip = await step('Space on Reveal answer', () => nvda.press('Space'));
             // The answer is whatever the card shows now that it did not before.
             const before = new Set(words(card));
-            const added = words(await textOf(page, `document.querySelector('[data-review-card]')`)).filter((w) => !before.has(w));
+            const added = words(await textOf(page, `document.querySelector('[data-review-card] [aria-live]')`)).filter((w) => !before.has(w));
             expect('the answer is read out after the flip', heard(flip, added.join(' ')));
             await tabTo(page, RATING_GOOD, 'the Good rating');
             const graded = await step('Space on Good', () => nvda.press('Space'));
