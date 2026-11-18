@@ -113,18 +113,38 @@ try {
 const { counts, diagnostics, files } = lint(['src']);
 check(`oxlint read the client sources (${files} files)`, files > 100);
 
+/**
+ * Disable directives in `text`, as { line, rules } (rules empty = every rule).
+ * A directive counts only where it opens a comment (`// eslint-disable…`,
+ * `/* oxlint-disable…`, `{/* … *\/}` in JSX), as oxlint reads it; the same
+ * words elsewhere, such as inside a string a component shows, are not one.
+ */
+function directives(text) {
+    const found = [];
+    text.split('\n').forEach((line, i) => {
+        for (const m of line.matchAll(/(?:\/\/|\/\*)\s*(?:eslint|oxlint)-disable(?:-next-line|-line)?(?![\w-])([^\n]*)/g)) {
+            const body = m[1].split(/\*\/|--/)[0];
+            found.push({ line: i + 1, rules: body.match(/[\w@/-]+\/[\w-]+|[\w-]+/g) ?? [] });
+        }
+    });
+    return found;
+}
+check('a directive in a comment is read, the same words in a string are not',
+    directives("const tip = 'add eslint-disable jsx-a11y/alt-text to hide it';\n").length === 0
+    && JSON.stringify(directives('  {/* eslint-disable-next-line jsx-a11y/no-autofocus */}\n')) === '[{"line":1,"rules":["jsx-a11y/no-autofocus"]}]'
+    && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]');
+
 // Comments that switch a jsx-a11y rule off where they stand.
 const stray = [];
 for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
     const f = `src/${String(rel).replace(/\\/g, '/')}`;
     if (!/\.(jsx|tsx)$/.test(f)) continue; // jsx-a11y finds nothing outside JSX
-    readFileSync(join(ROOT, f), 'utf8').split('\n').forEach((line, i) => {
-        if (!/(eslint|oxlint)-disable/.test(line)) return;
-        for (const rule of line.match(/jsx-a11y\/[\w-]+/g) ?? []) {
-            if (!SUPPRESSED[f]?.[rule]) stray.push(`        ${f}:${i + 1}  ${rule}`);
+    for (const { line, rules } of directives(readFileSync(join(ROOT, f), 'utf8'))) {
+        if (!rules.length) stray.push(`        ${f}:${line}  every rule`);
+        for (const rule of rules.filter((r) => r.startsWith('jsx-a11y/'))) {
+            if (!SUPPRESSED[f]?.[rule]) stray.push(`        ${f}:${line}  ${rule}`);
         }
-        if (/(eslint|oxlint)-disable(-next-line|-line)?\s*(\*\/|--|$)/.test(line.trim())) stray.push(`        ${f}:${i + 1}  every rule`);
-    });
+    }
 }
 check('no jsx-a11y rule is switched off by a comment outside SUPPRESSED', !stray.length, stray.join('\n'));
 console.log(`\n${diagnostics.length} finding(s) in ${Object.keys(counts).length} file(s)`);
