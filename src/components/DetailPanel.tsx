@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { useIsMobile } from '../hooks/useMediaQuery';
+import { useIconOnlyClose } from '../hooks/useIconOnlyClose';
 import { usePointerVerb } from '../utils/platform';
 import { findNode, todayStr, parseDate, isLeafNode, structuralChildren, leafStatus, isReadyToProve } from '../utils/tree';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
@@ -28,7 +29,7 @@ function formatDateShort(dateStr: string): string {
 }
 
 export default function DetailPanel() {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const selectedNodeId = useStore(s => s.selectedNodeId);
     const tree = useStore(s => s.tree);
     const updateNode = useStore(s => s.updateNode);
@@ -40,6 +41,11 @@ export default function DetailPanel() {
     const projectName = useStore(s => s.projects.find(p => p.id === s.currentProjectId)?.name ?? null);
     const isMobile = useIsMobile();
     const pointerVerb = usePointerVerb();
+    const largerUi = useStore(s => s.a11y.largerUi);
+    const headerRow = useRef<HTMLDivElement>(null);
+    // A phone's header with larger buttons: Close as just the X when that is
+    // what lets the row fit one line (hooks/useIconOnlyClose.ts).
+    const iconOnlyClose = useIconOnlyClose(headerRow, isMobile && largerUi, i18n.language);
 
     const openAssistant = useStore(s => s.openAssistant);
 
@@ -242,7 +248,7 @@ export default function DetailPanel() {
                     Editing is a mode; nothing else in this header is needed
                     during it. */}
                 {!isMobile && !editingTitle && <Breadcrumbs />}
-                <div className="flex flex-wrap items-center gap-1">
+                <div ref={headerRow} className="flex flex-wrap items-center gap-1">
                 {editingTitle ? (
                     <input
                         value={title}
@@ -265,7 +271,9 @@ export default function DetailPanel() {
                            least 8rem: when the title and the buttons do not fit
                            on one line (a phone, a 420px panel), the buttons go
                            to a second line instead of squeezing the title to an
-                           ellipsis or pushing Close past the panel's edge. 8rem
+                           ellipsis or pushing Close past the panel's edge. On a
+                           phone Close first gives up its word for the X, when
+                           that is what keeps the row one line. 8rem
                            is a width the larger-UI floor keeps (index.css).
                            With the setting off the row stays one line. */
                         className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
@@ -317,8 +325,11 @@ export default function DetailPanel() {
                 {/* Video explanations of this exact topic, one tap away — the
                     search people were doing by hand. */}
                 {!editingTitle && <ExternalSearchButton title={node.title} context={projectName} variant="icon" />}
-                {isMobile ? (
+                {isMobile && iconOnlyClose ? (
+                    <IconButton data-close="icon" size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-5 h-5" />} />
+                ) : isMobile ? (
                     <Button
+                        data-close="word"
                         size="sm"
                         variant="quiet"
                         onClick={() => selectNode(null)}
@@ -329,7 +340,7 @@ export default function DetailPanel() {
                         {t("Close")}
                     </Button>
                 ) : (
-                    <IconButton size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-4 h-4" />} />
+                    <IconButton data-close="icon" size="sm" onClick={() => selectNode(null)} label={t("Close detail panel")} icon={<X className="w-4 h-4" />} />
                 )}
                 </div>
             </div>
