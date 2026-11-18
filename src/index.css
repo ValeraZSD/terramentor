@@ -476,8 +476,8 @@ html[data-larger-ui] :is(
    a title and nothing to tell two rows apart. The tree row keeps a little
    padding so wrapped titles in neighbouring rows do not run together; a
    topic's spacer takes the fold button's width, so it still sits under its
-   chapter; and the course tree is at least 17.5rem wide, since two 44px
-   buttons stand before every title. */
+   chapter; and the course tree is at least 17.5rem wide, since a 44px
+   column (and a chapter's badge) stands before every title. */
 html[data-larger-ui] [data-larger-wraps] {
   white-space: normal;
   overflow-wrap: break-word;
@@ -495,6 +495,16 @@ html[data-larger-ui] [data-fold-spacer] {
 html[data-larger-ui] [data-course-sidebar] {
   min-width: min(17.5rem, 30%);
 }
+/* So a tree that narrow (160% text on an 800px window) is shorter than a
+   chapter row: its 44px column, badge, 44px title and percentage ran the
+   title 13px out of the row. The percentage drops to a second line, at the
+   row's end, and only when the row has no room for it. */
+html[data-larger-ui] [data-sidebar-row] {
+  flex-wrap: wrap;
+}
+html[data-larger-ui] [data-sidebar-row] > [data-row-progress] {
+  margin-left: auto;
+}
 /* A phase's tick bar (dashboard/PhaseProgress.tsx) is one 12px row that hides
    its overflow, so a long phase cannot widen the page. With the floor every
    tick is 44px each way, and a 100-topic phase no longer fits one row: the
@@ -506,6 +516,31 @@ html[data-larger-ui] [data-tick-bar] {
   grid-template-columns: repeat(auto-fit, minmax(var(--target-floor), 1fr));
   grid-auto-rows: var(--target-floor);
   height: auto;
+}
+/* One level of the course tree and the outline: the row's first column
+   (fold chevron or status mark) and the gap after it at normal size, so a
+   sub-topic's column stands under its parent's title button. The same step
+   with the larger setting, where the column is 44px: a step that wide left
+   a third level one word per line. */
+:root {
+  --row-indent-tree: 1.5rem;
+  --row-indent-outline: 1.375rem;
+  /* A card's rows stand one level in from its header, as a tree topic does
+     under its chapter. */
+  --row-outline-start: var(--row-indent-outline);
+  /* The most a row's indent may take is its list's width less this reserve:
+     the column, the percentage, the ⋮, the row's own padding and margins,
+     and 5rem of title. Past it a deeper row stops stepping in, or a level 8
+     row ran its title out of a 280px tree. */
+  --row-tree-reserve: 9.75rem;
+  --row-outline-reserve: 13rem;
+}
+/* With the setting on, the 44px column is var(--target-floor), which stays
+   44px when an 80% interface size makes 2.75rem only 35px: a reserve in rem
+   alone let a level 6 row take 5px of its title back. */
+html[data-larger-ui] {
+  --row-tree-reserve: calc(8.75rem + var(--target-floor));
+  --row-outline-reserve: calc(12.75rem + var(--target-floor));
 }
 /* A block of a short phase is wide enough to carry its topic's name. Each
    block is its own container, so the name shows by the block's real width
@@ -591,6 +626,18 @@ html[data-larger-ui] [data-switch-spill] {
      rail's own px-* utility still wins. */
   :where(.rail-scroll) {
     padding: 1px;
+  }
+  /* A drawing keeps its own colours here, so the tree's grey chevrons stayed
+     faint, and a chapter's badge, a white folder on the course colour, lost
+     its fill and showed nothing. Both take the text colour; the badge gets a
+     frame, so a chapter still reads as one. `:root :is()` weighs more than
+     the dark theme's `.dark .dark:text-*` (two classes), which kept the
+     chevrons grey in dark. */
+  :root :is([data-row-chevron], [data-course-badge] > svg) {
+    color: CanvasText;
+  }
+  [data-course-badge] {
+    border: 1px solid CanvasText;
   }
   [aria-current="page"],
   [aria-current="true"],

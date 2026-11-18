@@ -514,24 +514,153 @@ const PROBE = `(() => {
 })()`;
 const UNPROBE = `document.querySelector('[data-gate-probe]')?.remove()`;
 
+// The rows of the course tree and the outline: where each title's first
+// letter starts, per depth, and what stands first in the row.
+const ROWS = `(() => {
+    const firstLetter = (el) => {
+        const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => n.textContent.trim() ? 1 : 3 });
+        const t = w.nextNode();
+        if (!t) return null;
+        const i = t.textContent.search(/\\S/);
+        const r = document.createRange();
+        r.setStart(t, i); r.setEnd(t, i + 1);
+        return r.getClientRects()[0]?.left ?? null;
+    };
+    const rows = [];
+    for (const [list, sel] of [['tree', '[data-sidebar-row]'], ['outline', '[data-tree-item-id]']]) {
+        for (const row of document.querySelectorAll(sel)) {
+            const b = row.getBoundingClientRect();
+            const title = row.querySelector('[data-row="title"]');
+            if (b.width < 1 || !title || row.dataset.depth == null) continue;
+            const first = row.firstElementChild;
+            const col = row.querySelector(':scope > [data-row-fold], :scope > [data-fold-spacer]');
+            rows.push({ list, depth: +row.dataset.depth, x: Math.round((firstLetter(title) ?? NaN) - b.left),
+                col: col ? Math.round(col.getBoundingClientRect().left - b.left) : NaN,
+                box: Math.round(title.getBoundingClientRect().left - b.left),
+                grip: Math.round(row.querySelector('[data-drag-handle]')?.getBoundingClientRect().width ?? 0),
+                // How far the row's content runs past its box, and the room
+                // its title keeps: a deep row must not push either out.
+                over: Math.round(row.scrollWidth - row.clientWidth),
+                titleW: Math.round(title.getBoundingClientRect().width),
+                pad: parseFloat(getComputedStyle(row).paddingLeft),
+                rowW: Math.round(b.width),
+                rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
+                text: title.textContent.trim().slice(0, 30),
+                first: first?.hasAttribute('data-row-fold') || first?.hasAttribute('data-fold-spacer') ? 'column' : first?.hasAttribute('data-drag-handle') ? 'grip' : (first?.tagName ?? 'none').toLowerCase() });
+        }
+    }
+    return rows;
+})()`;
+
+// The grip is the keyboard's way to drag a row: hidden until focused, it must
+// then show, after the title (whose start stays put). No pointer ever sees it,
+// so the 44px floor (a pointer target's) is not asked of it. `step` 'title'
+// focuses the first shown row's title; 'grip' focuses its grip (after a key
+// press, so the focus is a keyboard one) and measures. A list out of view (the
+// phone's closed tree drawer) is 'none'.
+// 'title' focuses the row's title and records where the title starts BEFORE
+// any key is pressed; 'where' says where Tab put the focus ('grip', 'row' for
+// another control of the row, 'out'); 'grip' measures what Tab reached and
+// never moves the focus itself, so a grip Tab cannot reach fails.
+const GRIP = (sel, step) => `(() => {
+    if (${JSON.stringify(step)} === 'title') {
+        const row = [...document.querySelectorAll(${JSON.stringify(sel)})].find((r) => {
+            const b = r.getBoundingClientRect();
+            return b.width > 1 && b.right > 0 && b.left < innerWidth && !r.closest('[inert], [aria-hidden="true"]') && r.querySelector('[data-drag-handle]');
+        });
+        if (!row) return 'none';
+        const title = row.querySelector('[data-row="title"]');
+        title.focus();
+        // In the row's own frame: focusing the grip may scroll a narrow board
+        // sideways, which moves the whole row, not the title within it.
+        window.__grip = { row, title, before: Math.round(title.getBoundingClientRect().left - row.getBoundingClientRect().left) };
+        return true;
+    }
+    const { row, title, before } = window.__grip;
+    const at = document.activeElement;
+    const grip = at?.matches('[data-drag-handle]') && row.contains(at) ? at : null;
+    if (${JSON.stringify(step)} === 'where') return grip ? 'grip' : row.contains(at) ? 'row' : 'out';
+    const out = grip
+        ? { reached: true, w: Math.round(grip.getBoundingClientRect().width), h: Math.round(grip.getBoundingClientRect().height),
+            visible: grip.matches(':focus-visible'), moved: Math.round(title.getBoundingClientRect().left - row.getBoundingClientRect().left) - before }
+        : { reached: false, at: at ? (at.getAttribute('aria-label') || at.textContent || at.tagName).trim().slice(0, 40) : 'nothing' };
+    at?.blur();
+    delete window.__grip;
+    return out;
+})()`;
+// In High Contrast a row's fold chevron takes the text colour, in either app
+// theme: dark's own grey (a two-class utility) outweighed a one-attribute rule.
+const CHEVRON = `(() => {
+    const chev = [...document.querySelectorAll('[data-row-chevron]')].find((c) => c.getBoundingClientRect().width > 1);
+    if (!chev) return null;
+    const ref = document.createElement('span');
+    ref.style.color = 'CanvasText';
+    document.body.append(ref);
+    const root = document.documentElement, was = root.classList.contains('dark');
+    const out = { want: getComputedStyle(ref).color };
+    for (const dark of [false, true]) { root.classList.toggle('dark', dark); out[dark ? 'dark' : 'light'] = getComputedStyle(chev).color; }
+    root.classList.toggle('dark', was);
+    ref.remove();
+    return out;
+})()`;
+
 const AXE_TARGETS = `(async () => {
     if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
     const r = await window.axe.run(document, { runOnly: { type: 'rule', values: ['target-size'] }, resultTypes: ['violations'] });
     return r.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' ')));
 })()`;
 
+const DEEPEST = 9;
+const MIN_TITLE = 5;
+// ROWS_DUMP=<file>: write every state's measured rows there, for per-depth numbers.
+if (process.env.ROWS_DUMP) process.on('exit', () => writeFileSync(process.env.ROWS_DUMP, JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.rows])))));
 const seen = {};
 const scratch = mkdtempSync(join(tmpdir(), 'larger-ui-gates-'));
 if (shots) mkdirSync(shots, { recursive: true });
 const t0 = Date.now();
 try {
-    const { prepare } = await import(pathToFileURL(FIXTURE).href);
+    const { prepare: course } = await import(pathToFileURL(FIXTURE).href);
+    // A topic with a topic under it, beside topics without: a row with a fold
+    // chevron and a row with a status mark at one depth, in the tree and in a
+    // card. Added at the end of the first chapter: the topics the screens
+    // study from stay leaves.
+    const prepare = async (ctx) => {
+        const ids = await course(ctx);
+        const nodes = (await ctx.api.get(`/api/projects/${ids.project}/nodes`)).json ?? [];
+        const chapter = nodes.find((n) => n.parent_id == null);
+        if (!chapter) throw new Error('larger-ui-gates: the course has no chapter');
+        const add = async (parent_id, title) => {
+            const r = await ctx.api.post('/api/nodes', { project_id: ids.project, parent_id, title });
+            if (r.status >= 300) throw new Error(`larger-ui-gates: add ${title}: ${r.status} ${JSON.stringify(r.json)}`);
+            return r.json.id;
+        };
+        let deep = await add(await add(chapter.id, 'Kinds of telescope mount'), 'Equatorial mounts');
+        // A chain down to depth 9, past where the indent would push a row
+        // out of a narrow tree.
+        for (let depth = 3; depth <= DEEPEST; depth++) deep = await add(deep, `Level ${depth} worked example`);
+        return ids;
+    };
     await visit('fixture', scratch, [{ states: Object.keys(states) }], SIZES.desktop, browserPath, async (_entry, state, page) => {
         await page.evaluate(PROBE);
         const m = await page.evaluate(MEASURE);
+        m.rows = /^(outline|topic) /.test(state) ? await page.evaluate(ROWS) : null;
         m.axe = state.endsWith(' on') ? await page.evaluate(AXE_TARGETS) : [];
-        seen[state] = m;
         await page.evaluate(UNPROBE);
+        if (state.startsWith('topic ')) {
+            m.grips = {};
+            for (const [list, sel] of [['tree', '[data-sidebar-row]'], ['outline', '[data-tree-item-id]']]) {
+                if (await page.evaluate(GRIP(sel, 'title')) === 'none') { m.grips[list] = 'none'; continue; }
+                // Tab on from the title, past any other control of the row,
+                // until the focus reaches the grip or leaves the row.
+                for (let i = 0; i < 6; i++) {
+                    for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+                    if (await page.evaluate(GRIP(sel, 'where')) !== 'row') break;
+                }
+                m.grips[list] = await page.evaluate(GRIP(sel, 'grip'));
+            }
+        }
+        if (state.includes(' contrast ')) m.chevron = await page.evaluate(CHEVRON);
+        seen[state] = m;
         if (shots) writeFileSync(join(shots, `${state.replace(/ /g, '_')}.png`), await page.png());
     }, prepare, states);
 } finally {
@@ -563,6 +692,77 @@ for (const [state, m] of Object.entries(seen)) {
     if (state.includes(' contrast ')) check(`${state}: only the open title wears a high-contrast frame (${m.titles.all} titles)`,
         m.titles.framed.length === 0 && (!state.startsWith('topic ') || m.titles.all >= 5), list(m.titles.framed, (x) => `framed at rest  "${x}"`));
     check(`${state}: the screen rendered (${m.examined.controls} controls, ${m.examined.text} text runs)`, m.examined.controls >= 5 && m.examined.text >= 5);
+    if (m.rows) {
+        // A title starts at one x per depth, whatever stands before it (a fold
+        // chevron or a status mark): with the switch on, a topic's 20px spacer
+        // beside a 44px chevron put two titles of one level 28px apart.
+        const lists = [...new Set(m.rows.map((r) => r.list))];
+        const spread = [];
+        for (const name of lists) for (const depth of new Set(m.rows.filter((r) => r.list === name).map((r) => r.depth))) {
+            const at = m.rows.filter((r) => r.list === name && r.depth === depth);
+            const xs = at.map((r) => r.x);
+            if (Math.max(...xs) - Math.min(...xs) > 1 || xs.some(Number.isNaN)) spread.push(`${name} depth ${depth}: ${at.map((r) => `${r.x}px "${r.text}"`).join(', ')}`);
+        }
+        const nested = m.rows.filter((r) => r.list === 'outline' && r.depth > 0).length;
+        check(`${state}: the outline shows a nested topic and the course tree is measured (${m.rows.length} rows)`,
+            nested > 0 && (state.includes(' phone ') || m.rows.some((r) => r.list === 'tree')));
+        check(`${state}: titles at one depth start at one x`, spread.length === 0, list(spread, (x) => x));
+        // Each level steps in by the column and its gap, so a sub-topic's
+        // chevron or mark stands under its parent's title. A chapter's title
+        // follows its badge, so the tree starts this at depth 2. With the
+        // switch on the step stays the same and the 44px column overhangs it.
+        if (!on) {
+            const misplaced = [];
+            for (const r of m.rows) {
+                if (r.depth < (r.list === 'tree' ? 2 : 1)) continue;
+                const parent = m.rows.find((p) => p.list === r.list && p.depth === r.depth - 1);
+                // Short of the step only at the list's cap column, and only if
+                // a row there holds a title within one step of MIN_TITLE: one
+                // more step would have squeezed it (the cap below).
+                const cap = Math.max(...m.rows.filter((p) => p.list === r.list).map((p) => p.col));
+                if (parent && r.col < parent.box - 1 && Math.abs(r.col - cap) <= 1
+                    && m.rows.some((p) => p.list === r.list && Math.abs(p.col - cap) <= 1 && p.titleW < MIN_TITLE * p.rem + (parent.box - parent.col) + 1)) continue;
+                if (parent &&!(Math.abs(r.col - parent.box) <= 1)) misplaced.push(`${r.list} "${r.text}" column at ${r.col}px, parent's title at ${parent.box}px`);
+            }
+            check(`${state}: a sub-topic's column stands under its parent's title`, misplaced.length === 0, list(misplaced, (x) => x));
+        }
+        // The row itself is what a mouse or a finger drags. A grip in every
+        // row was a blank slot before the title (touch) or after it (mouse,
+        // hidden but still holding 44px with the switch on); it shows only
+        // while a keyboard has it.
+        // A deep row keeps its title readable inside the row: each level
+        // steps in until the title would get narrower than MIN_TITLE, then
+        // the indent stops growing. Without the cap a level 8 row ran out of
+        // a 280px tree with the switch on.
+        const deepest = Math.max(...m.rows.filter((r) => r.list === 'tree').map((r) => r.depth));
+        check(`${state}: the tree shows the chain down to depth ${DEEPEST}`, state.includes(' phone ') || deepest === DEEPEST, `deepest ${deepest}`);
+        // A title under MIN_TITLE is the indent's fault only where the row is
+        // indented: an unindented row in a narrow tree at 160% has no more to
+        // give (the tree's width answers for that, and `over` still counts).
+        const basePad = Object.fromEntries(['tree', 'outline'].map((l) => [l, Math.min(...m.rows.filter((r) => r.list === l).map((r) => r.pad))]));
+        const squeezed = m.rows.filter((r) => r.over > 1 || (r.titleW < MIN_TITLE * r.rem - 1 && r.pad > basePad[r.list] + 1));
+        check(`${state}: every title keeps ${MIN_TITLE}rem inside its row, at every depth`, squeezed.length === 0,
+            list(squeezed, (r) => `${r.list} depth ${r.depth} "${r.text}": title ${r.titleW}px in a ${r.rowW}px row, ${r.over}px past it`));
+        const wrong = m.rows.filter((r) => r.first !== 'column');
+        check(`${state}: every row starts with its fold chevron or status mark`, wrong.length === 0,
+            list(wrong, (r) => `${r.list} "${r.text}" starts with ${r.first}`));
+        const shown = m.rows.filter((r) => r.grip > 1);
+        check(`${state}: no row holds room for a grip until it is focused`, shown.length === 0,
+            list(shown, (r) => `${r.list} "${r.text}" grip ${r.grip}px wide`));
+    }
+    if (m.grips) {
+        const measured = ['tree', 'outline'].filter((l) => m.grips[l] !== 'none');
+        check(`${state}: a grip is measured in a list in view (${measured.join(', ') || 'none'})`, measured.length > 0);
+        for (const list of measured) {
+            const g = m.grips[list];
+            check(`${state}: Tab from a ${list} row's title reaches its grip, which shows, and the title stays put`,
+                g.reached && g.visible && g.w > 1 && g.h > 1 && g.moved === 0,
+                g.reached ? `${g.w}x${g.h}px, focus-visible ${g.visible}, title moved ${g.moved}px` : `Tab reached "${g.at}", not the grip`);
+        }
+    }
+    if (m.chevron) check(`${state}: a fold chevron takes the text colour in both app themes`,
+        m.chevron.light === m.chevron.want && m.chevron.dark === m.chevron.want,
+        `light ${m.chevron.light}, dark ${m.chevron.dark}, text ${m.chevron.want}`);
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
         !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));
