@@ -6,6 +6,7 @@ import { Project, ScheduleOverviewRow } from '../../types';
 import { parseDate, todayStr } from '../../utils/tree';
 import { daysBetween, pretty } from '../../utils/scheduleAxis';
 import { dateRangeLabel } from '../../utils/locale';
+import { paceHeadline } from '../../utils/pace';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 
@@ -117,11 +118,16 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
         const days = Math.abs(Math.round(((p.drift || 0) / 100) * (p.totalDays || 0)));
         // A whole sentence per `count` key: word order and plural forms are the
         // translator's and `Intl.PluralRules`'.
+        // A drift under half a day rounds to 0 but can still be flagged behind
+        // (the server's band is in points, not days), so it takes
+        // `paceHeadline`'s words instead of "0 days behind".
         const label = p.paceStatus === 'on_track'
             ? t("On track")
-            : p.paceStatus === 'ahead'
-                ? t("{{n}} days ahead", { count: days, n: num(days) })
-                : t("{{n}} days behind", { count: days, n: num(days) });
+            : days === 0
+                ? paceHeadline(p.paceStatus, 0, t)
+                : p.paceStatus === 'ahead'
+                    ? t("{{n}} days ahead", { count: days, n: num(days) })
+                    : t("{{n}} days behind", { count: days, n: num(days) });
         return { label, tone: PACE_TONE[p.paceStatus] || PACE_TONE.on_track, why };
     })();
 

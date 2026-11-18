@@ -292,14 +292,19 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
             headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
             signal: controller.signal,
         });
-        if (!upstream.ok) return res.json({ available: false, endpoints: [] });
+        // Only "there is no such route" is the endpoint saying it has no list.
+        // A timeout, a refused key, no credit left or a 5xx is a read that did
+        // not happen: it is told apart (502), so the panel asks again later
+        // rather than printing that the endpoint publishes nothing.
+        if (upstream.status === 404 || upstream.status === 405) return res.json({ available: false, endpoints: [] });
+        if (!upstream.ok) return res.status(502).json({ error: endpointError('The endpoint', { httpStatus: upstream.status }) });
         const json = await upstream.json();
         const raw = Array.isArray(json?.data?.endpoints) ? json.data.endpoints : [];
         if (!raw.length) return res.json({ available: false, endpoints: [] });
         // Only the fields the panel draws, one row per slug it can send back.
         res.json({ available: true, model, endpoints: servingEndpointRows(raw) });
-    } catch {
-        res.json({ available: false, endpoints: [] });
+    } catch (e) {
+        res.status(502).json({ error: endpointError('The endpoint', e) });
     } finally {
         clearTimeout(timer);
     }

@@ -26,9 +26,9 @@ export const pretty = (d: string) =>
 export interface Axis { from: string; to: string }
 
 /**
- * The axis must span every project window AND every scheduled-topic extent, or
+ * The axis must span the project's window AND its scheduled-topic extent, or
  * a project whose topics drifted outside its window would have that drift
- * drawn off-screen — which is the one thing the board must never hide.
+ * drawn off-screen — which is the one thing the timeline must never hide.
  */
 export function buildAxis(spans: (string | null | undefined)[][], today: string): Axis | null {
     const dates: string[] = [];
@@ -39,10 +39,10 @@ export function buildAxis(spans: (string | null | undefined)[][], today: string)
     const min = parseDate(sorted[0]);
     const max = parseDate(sorted[sorted.length - 1]);
     // SNAP TO MONTH BOUNDARIES rather than padding by N days. With day padding
-    // the axis origin moved every time any project moved by a day, which
-    // re-scaled the whole board and slid EVERY bar sideways — a one-day nudge
-    // to one project visibly shifted the other seven. Snapping means the axis
-    // only changes when an edit crosses a month, so edits stay local.
+    // the axis origin moved every time a date moved by a day, which
+    // re-scaled the whole timeline and slid EVERY bar sideways — a one-day
+    // nudge to one topic visibly shifted all the others. Snapping means the
+    // axis only changes when an edit crosses a month, so edits stay local.
     return {
         from: formatDate(new Date(Date.UTC(min.getUTCFullYear(), min.getUTCMonth(), 1))),
         to: formatDate(new Date(Date.UTC(max.getUTCFullYear(), max.getUTCMonth() + 1, 0))),
