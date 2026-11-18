@@ -244,17 +244,32 @@ section('8. larger text and buttons: one switch, two floors');
     // The floor replaces a control's own min-height/min-width, so every class
     // in the app that asks for 44px or more must be spared by its rule.
     const remPx = v => { const m = /^([0-9.]+)(rem|px)$/.exec(v); return m ? Number(m[1]) * (m[2] === 'rem' ? 16 : 1) : null; };
-    const tallClasses = (prop) => {
+    // Only a class on a control counts: the rule cannot match a layout box,
+    // and a `min-w-[9.5rem]` on a div once had to be spared to pass. The
+    // element is the nearest JSX tag opened before the class; it is a control
+    // by its tag or by a role the floor names.
+    const CONTROL_TAG = /^(button|a|select|summary|input|Button|IconButton|LinkButton|Link|NavLink)$/;
+    const CONTROL_ROLE = /\brole=\{?["'`](button|tab|option|menuitem\w*|radio|checkbox)["'`]/;
+    const onControl = (src, at) => {
+        const opens = [...src.slice(0, at).matchAll(/(?:^|[\s({>])<([A-Za-z][\w.]*)/g)];
+        const last = opens[opens.length - 1];
+        return !!last && (CONTROL_TAG.test(last[1]) || CONTROL_ROLE.test(src.slice(last.index, at)));
+    };
+    const tallClasses = (prop, sources = SRC.map(f => read(f))) => {
         const out = new Set();
-        for (const f of SRC) {
-            for (const m of read(f).matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
+        for (const src of sources) {
+            for (const m of src.matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
                 const v = m[1];
                 const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
-                if (px !== null && px > 44) out.add(`${prop}-${v}`);
+                if (px !== null && px > 44 && onControl(src, m.index)) out.add(`${prop}-${v}`);
             }
         }
         return [...out];
     };
+    check('the spared-class scan reads controls only: a wide button counts, a wide div does not',
+        tallClasses('min-w', ['<button type="button" className="min-w-[15rem]">', '<div role="option" className="min-w-[16rem]">'])
+            .join() === 'min-w-[15rem],min-w-[16rem]'
+        && tallClasses('min-w', ['<div className="min-w-[15rem]">{x}</div>', 'const c = useRef<HTMLDivElement>(null); <p className="min-w-[17rem]" />']).length === 0);
     const spared = (cls, not) => cls.includes('[')
         ? not.includes(`[class*="${cls}"]`) || (cls.startsWith('min-h-') && not.includes('[class*="min-h-["]'))
         : not.includes(`.${cls}`);
@@ -262,9 +277,12 @@ section('8. larger text and buttons: one switch, two floors');
     const tallW = tallClasses('min-w').filter(c => !spared(c, wRule?.[2] ?? ''));
     check('a control that asks for more than the floor keeps its own size', rules.length === 2 && tallH.length === 0 && tallW.length === 0,
         [...tallH, ...tallW].join(', '));
-    check('a tickbox keeps its box; its input spills to 44px round it',
+    // Sized and placed explicitly, from the floor: `width: auto` leaves an
+    // input its own size in an engine that treats it as replaced, and 2.75rem
+    // is 35px at an 80% interface size. The browser gate measures it at 80%.
+    check('a tickbox keeps its box; its input spills to the floor round it',
         /<span data-checkbox className=/.test(read('src/components/Checkbox.tsx'))
-        && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: min\(0px, calc\(\(100% - 2\.75rem\) \/ 2\)\);\s*width: auto;\s*height: auto;/.test(css));
+        && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: auto;\s*left: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*top: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*width: max\(100%, var\(--target-floor\)\);\s*height: max\(100%, var\(--target-floor\)\);/.test(css));
     // Larger text in a narrow column cut tree and outline titles to a word or
     // two; with the switch on they wrap instead, and only the tree row (not
     // every [data-node-id]: cards, the calendar, the timeline) loses padding.
@@ -280,8 +298,13 @@ section('8. larger text and buttons: one switch, two floors');
     // spacer stayed 20px, so topics slid left of their chapter.
     check('a topic still sits under its chapter: the spacer is as wide as the fold button',
         /<span data-fold-spacer className="w-5 shrink-0" \/>/.test(sidebar) && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
-    check('the course tree is wide enough for two 44px buttons and a title',
-        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: 17\.5rem;/.test(css));
+    // The show button is the floor wide and sits 0.25rem in: 3.25rem left
+    // typed text 5.6px under it at an 80% interface size.
+    check('a password field keeps room for its show button at every interface size',
+        /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute right-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
+        && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-right: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
+    check('the course tree is wide enough for two 44px buttons and a title, never past 30% of its row',
+        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));
