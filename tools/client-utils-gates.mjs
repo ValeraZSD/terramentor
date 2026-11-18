@@ -344,7 +344,7 @@ try {
         // The store, with the server and the language applier replaced: what is
         // under test is which pick it WRITES, not how a chunk loads.
         const stubs = [
-            [/(^|\/)api$/, 'export const api = globalThis.__api;'],
+            [/(^|\/)api$/, 'export const api = globalThis.__api;\nexport const goToSiteSignIn = () => {};'],
             [/(^|\/)i18n$/, `export default { t: (k) => k, language: 'en' };
                 export const setUiLanguage = (code) => globalThis.__apply(code);
                 export const resolveLanguagePreference = (code) => code;
