@@ -1,6 +1,7 @@
 import { ArrowUpRight, History } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AtlasTopic } from '../../types';
+import { k } from '../../i18n';
 import { topicDotStatus } from './topicStatus';
 
 const STATUS_DOT: Record<string, string> = {
@@ -8,6 +9,15 @@ const STATUS_DOT: Record<string, string> = {
     in_progress: 'bg-amber-500',
     skipped: 'bg-slate-400',
     not_started: 'bg-slate-300 dark:bg-slate-600',
+};
+
+/** The dot's words: a colour alone says nothing to a screen reader or to a
+ *  reader who cannot tell emerald from amber. */
+const STATUS_WORD: Record<string, string> = {
+    completed: k("Proven"),
+    in_progress: k("In progress"),
+    skipped: k("Skipped"),
+    not_started: k("Not started"),
 };
 
 /**
@@ -24,6 +34,7 @@ export default function TopicRow({ topic, detail, onOpen }: {
     onOpen: () => void;
 }) {
     const { t: tr } = useTranslation();
+    const dot = topicDotStatus(topic);
     return (
         <button
             data-row
@@ -32,8 +43,9 @@ export default function TopicRow({ topic, detail, onOpen }: {
         >
             <span
                 aria-hidden="true"
-                className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[topicDotStatus(topic)] || STATUS_DOT.not_started}`}
+                className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[dot] || STATUS_DOT.not_started}`}
             />
+            <span className="sr-only">{tr(STATUS_WORD[dot] || STATUS_WORD.not_started)}</span>
             <span className="min-w-0 flex-1">
                 <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
                     {topic.title}

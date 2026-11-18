@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useTapGuard } from '../hooks/useTapGuard';
+import { useNumberFormat } from '../hooks/useNumberFormat';
 import { AlertTriangle, X, Copy, Check, ChevronDown } from 'lucide-react';
 import type { AITaskFailure } from '../types';
 import { useTranslation } from 'react-i18next';
@@ -30,7 +32,6 @@ import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
  * guessed at, because a confident wrong diagnosis is worse than a gap.
  */
 
-const ms = (n: number | null) => (n == null ? null : n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`);
 const when = (iso: string | null) => {
     if (!iso) return null;
     try { return new Date(iso).toLocaleString(uiLocale()); } catch { return iso; }
@@ -53,6 +54,11 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
     onOpenOrigin?: () => void;
 }) {
     const { t } = useTranslation();
+    const fmt = useNumberFormat();
+    // The number follows the interface language, the unit comes from the locale.
+    const ran = (n: number | null) => (n == null ? null
+        : n < 1000 ? t("{{ms}}ms", { ms: fmt(n) })
+            : t("{{n}} s", { n: fmt(n / 1000, { decimals: 1 }) }));
     const [showRaw, setShowRaw] = useState(false);
     const [copied, setCopied] = useState(false);
     const cause = plainCause(failure);
@@ -79,6 +85,10 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
     // `Modal`'s contract: focus in and back, Tab kept inside, topmost only.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, dialogRef, { onEscape: () => onClose() });
+    // A backdrop TAP, not any click that lands there: this dialog exists to be
+    // copied from, and a selection dragged out of the record lifts over the
+    // backdrop (see `Modal`).
+    const backdrop = useTapGuard(onClose, true);
 
     // PORTALLED TO document.body, and it has to be.
     //
@@ -94,7 +104,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
     return createPortal(
         <div
             className={`fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center ${SHEET_OVERLAY}`}
-            onClick={onClose}
+            {...backdrop}
             role="presentation"
         >
             <div
@@ -140,7 +150,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
                         <Row label={t("HTTP status")} value={failure.httpStatus} />
                         <Row label={t("Attempts")} value={failure.attempts} />
                         <Row label={t("Error code")} value={failure.code} />
-                        <Row label={t("Ran for")} value={ms(failure.elapsedMs)} />
+                        <Row label={t("Ran for")} value={ran(failure.elapsedMs)} />
                         {/* How far it got: the difference between "the model never
                             answered" and "it answered for 40 seconds then broke". */}
                         <Row
