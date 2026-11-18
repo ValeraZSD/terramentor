@@ -7,7 +7,8 @@
  *   node tools/model-bench/run.mjs --models free --out <dir>
  *   node tools/model-bench/run.mjs --models z-ai/glm-5.3-flash,other/model --out <dir>
  *   options: --rpm 16          requests per minute across ALL workers (free tier: 20)
- *            --parallel N      models run at once (default rpm / 3)
+ *            --parallel N      workers run at once (default rpm / 3)
+ *            --shards N        split each model's cases over N workers (default 1)
  *            --daily 900       stop granting requests after this many in this run
  *                              (free models: defaults to the key's free quota left)
  *            --cases a,b       only these case ids
@@ -123,12 +124,16 @@ function pump() {
     }
 }
 
-function runModel(m) {
+// --shards N splits one model's cases over N workers (every N-th case each),
+// all appending to the model's one results file.
+const SHARDS = Math.floor(positive('shards', args.shards ?? 1));
+
+function runModel(m, shard) {
     return new Promise((resolve) => {
         const file = path.join(OUT, `${m.id.replace(/[/:]/g, '__')}${args.label ? '@' + args.label : ''}.jsonl`);
         const child = fork(path.join(HERE, 'worker.mjs'), [], {
             env: { ...process.env, BENCH_MODEL: m.id, BENCH_VISION: m.vision ? '1' : '', BENCH_ZDR: m.zdr ? '1' : '',
-                BENCH_FILE: file, BENCH_CASES: args.cases ? String(args.cases) : '',
+                BENCH_FILE: file, BENCH_CASES: args.cases ? String(args.cases) : '', BENCH_SHARD: `${shard}/${SHARDS}`,
                 BENCH_RETRY_ERRORS: args['retry-errors'] ? '1' : '', BENCH_REV: REV || '' },
             stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
         });
@@ -140,14 +145,24 @@ function runModel(m) {
     });
 }
 
-const queue = [...models];
+const queue = models.flatMap(m => Array.from({ length: SHARDS }, (_, k) => ({ m, k })));
+const dead = new Set();   // models whose worker said the run cannot go on
 const results = [];
 await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, async () => {
-    while (queue.length && !stopped) results.push(await runModel(queue.shift()));
+    while (queue.length && !stopped) {
+        const { m, k } = queue.shift();
+        if (dead.has(m.id)) continue;
+        const r = await runModel(m, k);
+        if (r.code === 3) dead.add(m.id);
+        results.push(r);
+    }
 }));
-for (const d of results) {
-    const rows = existsSync(d.file) ? readFileSync(d.file, 'utf8').trim().split('\n').filter(Boolean).length : 0;
-    console.log(`${d.model.padEnd(52)} exit ${d.code}${d.code === 3 ? ' (stopped: see the line above)' : ''}  rows ${rows}`);
+for (const m of models) {
+    const rs = results.filter(r => r.model === m.id);
+    if (!rs.length) continue;
+    const file = rs[0].file;
+    const rows = existsSync(file) ? new Set(readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l).case; } catch { return null; } })).size : 0;
+    console.log(`${m.id.padEnd(52)} exit ${rs.map(r => r.code).join(',')}${dead.has(m.id) ? ' (stopped: see the line above)' : ''}  cases on disk ${rows}`);
 }
-if (queue.length) console.log(`not started: ${queue.map(m => m.id).join(', ')}`);
+if (queue.length) console.log(`not started: ${[...new Set(queue.map(t => t.m.id))].join(', ')}`);
 console.log(`requests granted this run: ${used}${stopped ? `  (stopped: ${stopped})` : ''}`);

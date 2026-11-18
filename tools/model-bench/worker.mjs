@@ -16,6 +16,8 @@ const VISION = process.env.BENCH_VISION === '1';
 const ONLY = (process.env.BENCH_CASES || '').split(',').filter(Boolean);
 const RETRY_ERRORS = process.env.BENCH_RETRY_ERRORS === '1';
 const REV = process.env.BENCH_REV || null;
+// "k/n": this worker takes every n-th case starting at k (one model, n workers).
+const [SHARD, SHARDS] = (process.env.BENCH_SHARD || '0/1').split('/').map(Number);
 
 const scratch = startLibrary(MODEL, process.env.OPENROUTER_API_KEY);
 const LOG = FILE.replace(/\.jsonl$/, '.app.log');
@@ -50,7 +52,8 @@ if (existsSync(FILE)) {
 }
 
 let exitCode = 0;
-for (const c of cases) {
+for (const [i, c] of cases.entries()) {
+    if (i % SHARDS !== SHARD) continue;
     if (ONLY.length && !ONLY.includes(c.id)) continue;
     const prev = done.get(c.id);
     if (prev && !(RETRY_ERRORS && prev.transient)) continue;
