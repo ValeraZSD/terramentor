@@ -37,15 +37,16 @@ jobs:
       - name: Install
         run: npm ci
 
-      # NVDA itself (a portable copy) and the settings Guidepup drives it with.
+      # Guidepup first: `setup install` fetches the NVDA build that matches it.
       # Versions pinned; neither package runs an install script.
+      - name: Guidepup
+        run: npm install --no-save --ignore-scripts @guidepup/guidepup@0.40.0
+
+      # NVDA itself (a portable copy) and the settings Guidepup drives it with.
       - name: Set up NVDA
         run: |
           npx -y @guidepup/setup@0.29.3 setup --ci
           npx -y @guidepup/setup@0.29.3 install
-
-      - name: Guidepup
-        run: npm install --no-save --ignore-scripts @guidepup/guidepup@0.40.0
 
       - name: Build
         run: npm run build
