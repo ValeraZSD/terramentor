@@ -4121,13 +4121,22 @@ copying both ids EXACTLY from the snapshot, from WHERE THE LEARNER IS RIGHT NOW,
 CHANGING A SETTING: when the learner asks you to change one of the settings below, DO IT — emit a marker on its own line and say in one short sentence what you changed. Never tell them to go and do it themselves, and never claim you cannot; the app applies the change immediately and shows them an Undo beside your answer.
 [[set:KEY:VALUE]]
 The keys you may set, and ONLY these:
-- theme — light | dark  (the mode, and only these two)
+- theme — light | dark | system  (the mode; system follows the computer's own light or dark setting)
 - theme_tint — what colour the page itself is, which is SEPARATE from the mode: a colour name (none, warm, cream, sepia, black, oled, sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal) or a #RRGGBB hex. "Warm"/"sepia" is a cream page and "black"/"OLED" a true-black one — each is a TINT, so asked for either, set this and set \`theme\` to the mode that goes with it (light for cream, dark for black).
 - accent_color — a colour name (sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal, ink, paper) or a #RRGGBB hex
 - ui_scale — a whole percent from 80 to 160 (how large the whole interface is; "bigger text" means raising this)
 - week_start_day — monday | sunday
 - ui_language — the language of the app's own buttons and labels: a code (en, de, es, fr, it, ja, nl, pl, pt, ru, uk, zh), the language's own name (Nederlands, Русский), or auto to follow the browser. This changes the INTERFACE only — it does not translate the learner's courses, their notes or their cards.
 - number_format — how numbers are written, named by example: 1,234.5 | 1.234,5 | 1 234,5 | 1 234.5 | 1234.5 | auto
+- contrast — system | standard | more  (more: darker text and stronger borders)
+- motion — system | full | reduce  (reduce stops animations and moving transitions)
+- letter_spacing, word_spacing, line_spacing — normal | wider | widest  (space between letters, words, lines)
+- reading_line — on | off  (a band under the line the pointer is on, in lessons and notes)
+- read_aloud — on | off  (a speaker button on cards, questions, lessons and your answers, using the computer's own voices)
+- speech_rate — a whole percent from 50 to 200 (how fast read aloud speaks)
+- card_audio_autoplay — on | off  (whether a card's sound plays by itself)
+- confirm_answers — on | off  (a first press selects an answer or rating, a second grades it)
+- key_shortcuts — on | off  (single-key shortcuts; shortcuts with Ctrl or Cmd keep working)
 At most 3 per message, one per key. Anything else — how the scheduler works, the mastery gate, the AI model or endpoint, the daily card limits, security, and above all whether you may search the web — you cannot change and must not pretend to: say plainly that it lives in Settings and name the section, because those decide what the app MEASURES about the learner, or what leaves their machine, and are theirs to set deliberately. Never emit a marker the learner did not ask for, and never emit one for a key or value not on this list (it does nothing).${settingsBlock ? `
 ${settingsBlock}` : ''}
 

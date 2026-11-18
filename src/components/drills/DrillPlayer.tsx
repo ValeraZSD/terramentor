@@ -9,6 +9,8 @@ import { cardRef, drillRef } from '../../utils/itemReports';
 import { useItemReports } from '../../utils/itemReportStore';
 import { Check, X, Loader2, RotateCcw, Target, Timer, Trophy } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useConfirmPress } from '../../hooks/useConfirmPress';
+import { usePointerVerb } from '../../utils/platform';
 import { Button } from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -39,6 +41,7 @@ type Phase = 'intro' | 'playing' | 'results';
  */
 export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     const { t } = useTranslation();
+    const pointerVerb = usePointerVerb();
     const bank = spec.items;
     // An item the learner reports as wrong leaves the drill: it is not dealt
     // into a round, and a round it was answered in is scored without it here
@@ -197,9 +200,13 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         }
     }, [currentItem, mode, clearTimers, advance, order, pos]);
 
-    const gradeChoice = (option: string) => {
+    // Confirm before grading (Settings → Accessibility): the first press on an
+    // option selects it, the second on the same one grades. Keyed by the item
+    // on screen, so nothing stays selected into the next one.
+    const pick = useConfirmPress<number>(currentItem ? `${pos}:${drillItemKey(currentItem)}` : null);
+    const gradeChoice = (option: string, idx: number) => {
         if (feedback || checking || !currentItem) return;
-        grade(option, answersMatch(option, currentItem.answer));
+        pick.press(idx, () => grade(option, answersMatch(option, currentItem.answer)));
     };
 
     const gradeType = async () => {
@@ -529,7 +536,9 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                         {options.map((option, idx) => {
                             const isAnswer = answersMatch(option, currentItem.answer);
                             const isPicked = feedback?.given === option;
-                            let cls = 'border-slate-200 dark:border-slate-600 hover:border-accent/60 hover:bg-accent/5';
+                            let cls = pick.armed === idx
+                                ? 'border-accent bg-accent/10'
+                                : 'border-slate-200 dark:border-slate-600 hover:border-accent/60 hover:bg-accent/5';
                             if (feedback) {
                                 cls = isAnswer ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20'
                                     : isPicked ? 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20'
@@ -540,7 +549,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                     key={idx}
                                     type="button"
                                     data-answer-option
-                                    onClick={() => gradeChoice(option)}
+                                    onClick={() => gradeChoice(option, idx)}
+                                    aria-pressed={pick.confirm && !feedback ? pick.armed === idx : undefined}
                                     disabled={!!feedback}
                                     className={`flex items-center gap-3 min-h-12 rounded-xl border-2 text-base font-medium text-slate-800 dark:text-slate-100 transition ${longOptions ? 'px-3.5 py-3 text-left' : 'px-4 py-3 justify-center text-center'} ${cls}`}
                                 >
@@ -553,6 +563,17 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                 </button>
                             );
                         })}
+                        {/* The same line the questions show, there for the whole
+                            mode so the options never move when it changes. It
+                            stays (hidden) through the verdict, or the panel
+                            under the grid jumps up as it appears. */}
+                        {pick.confirm && (
+                            <p data-confirm-line className={`col-span-full text-xs text-slate-600 dark:text-slate-300 ${feedback ? 'invisible' : ''}`} aria-live="polite">
+                                {pick.armed !== null
+                                    ? t("{{pointerVerb}} the same answer again to check it.", { pointerVerb })
+                                    : t("{{pointerVerb}} an answer twice to check it.", { pointerVerb })}
+                            </p>
+                        )}
                     </div>
                 ) : (
                     <div>

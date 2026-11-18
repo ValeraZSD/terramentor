@@ -38,7 +38,8 @@ try {
                 + " import { markdownRehypePlugins } from './src/utils/markdownSanitize';"
                 + " import MathText from './src/components/MathText';"
                 + " import { fixMarkdownMathTypography, sanitizeMathText } from './src/utils/mathText';"
-                + ' export { fixMarkdownMathTypography, sanitizeMathText };'
+                + " import { toPlainText } from './src/utils/plainMath';"
+                + ' export { fixMarkdownMathTypography, sanitizeMathText, toPlainText };'
                 + ' export const inline = (content) => renderToStaticMarkup(createElement(MathText, { content }));'
                 // The markdown pipeline's own plugin lists (Markdown.tsx), without its fenced visuals.
                 + ' export const lesson = (content) => renderToStaticMarkup(createElement(ReactMarkdown, {'
@@ -50,7 +51,7 @@ try {
         loader: { '.css': 'empty' },
         define: { 'import.meta.env.DEV': 'false' },
     });
-    const { inline, lesson, sanitizeMathText, fixMarkdownMathTypography } = require(out);
+    const { inline, lesson, sanitizeMathText, fixMarkdownMathTypography, toPlainText } = require(out);
     const { document } = new JSDOM('').window;
 
     let pass = 0, fail = 0;
@@ -154,6 +155,67 @@ try {
     check('repairing once rewrites, twice changes nothing more', once.includes(DOLLAR) && sanitizeMathText(once) === once, once);
     const mdOnce = fixMarkdownMathTypography('Cash falls by $\\$20,000$.');
     check('… in a lesson too', mdOnce.includes(DOLLAR) && fixMarkdownMathTypography(mdOnce) === mdOnce, mdOnce);
+
+    // An escape means the same thing in every funnel: `\_` in a text group is
+    // the character, and a `\$` in prose is a dollar, never a formula's edge.
+    section('escapes are honoured by the repairs');
+    check('an escaped underscore in a text group is left as written',
+        sanitizeMathText('$\\text{max\\_speed}$') === '$\\text{max\\_speed}$', sanitizeMathText('$\\text{max\\_speed}$'));
+    check('… and an escaped caret',
+        sanitizeMathText('$\\text{\\^e}$') === '$\\text{\\^e}$', sanitizeMathText('$\\text{\\^e}$'));
+    const caret = read(inline('$\\text{\\^e}$ is a letter.'));
+    check('a text group with an escaped caret draws', caret.formulas === 1 && caret.errors === 0, shown(caret));
+    const escScript = sanitizeMathText('$\\text{a\\_b W/m^2}$');
+    check('a real script beside an escaped one is still lifted out',
+        escScript === '$\\text{a\\_b W/m}^{2}$', escScript);
+    const snake = read(inline('$\\text{max\\_speed}$ is the limit.'));
+    check('a text group with an escaped underscore draws', snake.formulas === 1 && snake.errors === 0, shown(snake));
+
+    const rent = 'Rent is \\$1,200 and food \\$300.';
+    check('prose with two escaped dollars is not read as a formula (comma, lesson)',
+        fixMarkdownMathTypography(rent) === rent, JSON.stringify(fixMarkdownMathTypography(rent)));
+    const rentUnit = 'Pay \\$5 now or \\$ m later.';
+    check('… nor is a unit bound across it', fixMarkdownMathTypography(rentUnit) === rentUnit, JSON.stringify(fixMarkdownMathTypography(rentUnit)));
+    const rentStop = 'Spend \\$5 here, never \\$.';
+    check('… nor a joiner put after it', fixMarkdownMathTypography(rentStop) === rentStop, JSON.stringify(fixMarkdownMathTypography(rentStop)));
+    const rentRead = read(lesson(rent));
+    check('… so the lesson prints the amounts as written', rentRead.text === 'Rent is $1,200 and food $300.', shown(rentRead));
+    check('a real formula after an escaped dollar still gets its comma fix',
+        fixMarkdownMathTypography('It costs \\$5 and $25,000$ more.') === 'It costs \\$5 and $25{,}000$ more.',
+        fixMarkdownMathTypography('It costs \\$5 and $25,000$ more.'));
+
+    const money = sanitizeMathText('Total: \\$5 \\times 3 = \\$15');
+    check('an undelimited money formula has its dollars rewritten', !money.includes('\\$') && money.includes(DOLLAR), money);
+    const moneyRead = read(inline('Total: \\$5 \\times 3 = \\$15'));
+    check('… and reads as one formula with both prices',
+        moneyRead.formulas === 1 && moneyRead.errors === 0 && moneyRead.text.replace(/\s/g, '') === 'Total:$5×3=$15', shown(moneyRead));
+    check('… repairing it again changes nothing more', sanitizeMathText(money) === money, sanitizeMathText(money));
+
+    section('an exported caption (plain text)');
+    check('two escaped dollars in prose come out as dollars', toPlainText('Pay \\$20 or \\$30 now') === 'Pay $20 or $30 now', toPlainText('Pay \\$20 or \\$30 now'));
+    check('an amount written as a formula keeps its dollar and drops its braces',
+        toPlainText('Costs $\\$20{,}000$ today') === 'Costs $20,000 today', toPlainText('Costs $\\$20{,}000$ today'));
+    check('two amounts written as formulas stay two amounts',
+        toPlainText('$\\$5$ or $\\$10$') === '$5 or $10', toPlainText('$\\$5$ or $\\$10$'));
+    check('a formula after an escaped dollar is still flattened',
+        toPlainText('Save \\$5 on $x^2$') === 'Save $5 on x²', toPlainText('Save \\$5 on $x^2$'));
+    check('a dollar a display span keeps is not read as a delimiter',
+        toPlainText('$$\\$5$$ then $$\\$6$$') === '$5 then $6', toPlainText('$$\\$5$$ then $$\\$6$$'));
+    check('degrees written as a superscript circle read as a degree sign',
+        toPlainText('the angle is $30^\\circ$') === 'the angle is 30°' && toPlainText('$90^{\\circ}$') === '90°',
+        `${toPlainText('the angle is $30^\\circ$')} / ${toPlainText('$90^{\\circ}$')}`);
+    check('… and a temperature keeps its unit', toPlainText('$25^\\circ C$') === '25° C', toPlainText('$25^\\circ C$'));
+    // Control: passes on the code before the dollar handling, kept so a change to
+    // the superscript table cannot slip by unseen.
+    check('control: an ordinary superscript is unchanged', toPlainText('$x^2$') === 'x²' && toPlainText('$x^{n+1}$') === 'xⁿ⁺¹');
+    const price = 'It costs $5 and \\$10 more, or $20.';
+    check('prose with a bare dollar, an escaped one and a bare one holds no formula',
+        toPlainText(price) === 'It costs $5 and $10 more, or $20.', toPlainText(price));
+    check('a display span may end in an escaped dollar',
+        toPlainText('$$x = 5\\$$$ ok') === 'x = 5$ ok', toPlainText('$$x = 5\\$$$ ok'));
+    const pua = 'Icon  and $x^2$ and \\$5';
+    check('a private-use character in the text comes out as itself',
+        toPlainText(pua) === 'Icon  and x² and $5', JSON.stringify(toPlainText(pua)));
 
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exitCode = fail ? 1 : 0;

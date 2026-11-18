@@ -17,6 +17,7 @@ import { useProjectRetention } from '../utils/projectRetention';
 import { useTranslation } from 'react-i18next';
 import { RATING_ORDER } from './flashcards/ratingStyles';
 import { RatingButton } from './flashcards/RatingButton';
+import { useConfirmPress } from '../hooks/useConfirmPress';
 
 interface Props {
     flashcards: Flashcard[];
@@ -57,6 +58,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     // A topic's cards belong to the course open in the panel.
     const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
+    const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.
     useStudyClock(
@@ -133,7 +135,7 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => handleRate(RATING_ORDER[i]),
+        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
         onUndo: () => void handleUndo(),
     });
 
@@ -203,7 +205,9 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                 onKeyDown={onActivateKey(() => queue.setFlipped(f => !f))}
                 role="button"
                 tabIndex={0}
-                aria-label={t("Flip flashcard")}
+                // Named by the card's own words, not "Flip flashcard": a label
+                // replaces the content, and the content is the card.
+                aria-pressed={queue.flipped}
                 className="flex-1 min-h-[12.5rem] cursor-pointer select-none rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
             >
                 {/* One surface in the theme's colour on both sides — accent is
@@ -250,7 +254,8 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
                                 key={rating}
                                 rating={rating}
                                 when={formatInterval(computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}
-                                onClick={() => handleRate(rating)}
+                                onClick={() => confirmRate.press(rating, () => handleRate(rating))}
+                                armed={confirmRate.confirm ? confirmRate.armed === rating : undefined}
                                 disabled={saving}
                                 className="flex-1"
                             />

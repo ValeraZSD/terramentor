@@ -27,7 +27,7 @@ export default function Reveal({ open, axis = 'y', children, className = '' }: {
     const x = axis === 'x';
     return (
         <div
-            className={`grid transition-[grid-template-columns,grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${x
+            className={`grid transition-[grid-template-columns,grid-template-rows,opacity] duration-200 ease-out motion-off:transition-none ${x
                 ? (open ? 'grid-cols-[1fr] opacity-100' : 'grid-cols-[0fr] opacity-0')
                 : (open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')} ${className}`}
             aria-hidden={!open}

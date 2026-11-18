@@ -439,6 +439,93 @@ section('a streaming reply never shows the request it ends with');
     check('no tools: the guard is a pass-through', out === 'search_web: with no tools this is just text\n', JSON.stringify(out));
 }
 
+section('a partial last line streams unless it could still become a lookup line');
+// Models write a paragraph as one long line, so holding every unfinished line
+// until its newline shows the answer a paragraph at a time. Only a line that
+// STARTS like a lookup line may wait.
+{
+    const streamed = (...chunks) => {
+        let out = '';
+        const guard = createTailGuard({ tools: tailTools, onChunk: t => { out += t; } });
+        for (const c of chunks) guard.feed(c);
+        return { out, guard };
+    };
+    check('a prose line is shown as it streams, before its newline',
+        streamed('The answer so far.\nThe weather in', ' Rotterdam is').out === 'The answer so far.\nThe weather in Rotterdam is');
+    check('the first words of an answer are shown at once', streamed('Hello wor').out === 'Hello wor');
+    check('a line that merely starts with a tool\'s first letters is released once it is not a name',
+        streamed('Searching the web is not a tool call, it is a verb.').out === 'Searching the web is not a tool call, it is a verb.');
+    check('a name followed by a word, not a colon, is prose', streamed('search_web is the tool').out === 'search_web is the tool');
+    check('a colon after a name that is not this turn\'s is prose', streamed('send_email: hi').out === 'send_email: hi');
+    check('a numbered line of prose is shown', streamed('1.5 million people live there').out === '1.5 million people live there');
+    check('a line still shaped like a lookup is held at every point of its growth',
+        ['s', 'sea', 'search_', 'search_web', 'search_web ', 'search_web:', 'search_web: ai news', '- search_web(', '2. Find_In_Lib', '  ', '- ']
+            .every(p => streamed(p).out === ''));
+    check('a call line whose argument is too long to be one is shown',
+        streamed(`search_web: ${'long prose '.repeat(30)}`).out.startsWith('search_web: long prose'));
+    check('a run of call-shaped lines is released the moment prose starts after it',
+        streamed('Answer.\nsearch_web: maybe\nHello').out === 'Answer.\nsearch_web: maybe\nHello');
+    check('control (holds before and after): a held request is still never shown, however finely the stream is cut', (() => {
+        const text = 'The answer.\n\nIt has two parts.\nsearch_web: ai news september 2026\nfind_in_library: driving theory';
+        for (const size of [1, 2, 5, 11]) {
+            let out = '';
+            const guard = createTailGuard({ tools: tailTools, onChunk: t => { out += t; } });
+            for (let i = 0; i < text.length; i += size) guard.feed(text.slice(i, i + size));
+            const ended = guard.end();
+            if (ended.tailCalls.length !== 2 || out !== 'The answer.\n\nIt has two parts.\n') return false;
+        }
+        return true;
+    })());
+    // No continuation of a line the guard let through may parse as a request:
+    // once shown it cannot be taken back. Checked on every prefix of lines that
+    // sit on the 200-character, quote, bracket and dot edges of parseCallLine.
+    const edge = (open, n, close = '') => `${open}${'x'.repeat(n)}${close}`;
+    const corpus = [
+        'search_web: ai news', '- search_web(ai news)', '2. Find_In_Library: "driving theory".',
+        edge('search_web: ', 200), edge('search_web: ', 201), edge('search_web: "', 200, '".'), edge('search_web: (', 200, ')'),
+        edge('search_web: "     ', 198, '"'), edge("search_web: '   ", 200, ')'), 'search_web is the tool', 'send_email: hi',
+    ];
+    const shownEarly = [];
+    for (const line of corpus) {
+        const isCall = extractToolTail(line, tailTools).calls.length > 0;
+        for (let n = 1; n <= line.length && isCall; n++) {
+            if (streamed(line.slice(0, n)).out !== '') { shownEarly.push(`${n} of ${line.slice(0, 30)}`); break; }
+        }
+    }
+    check('no prefix of a line that is a request is ever shown', shownEarly.length === 0, JSON.stringify(shownEarly));
+    check('control (holds before and after): the same cut stream of plain prose arrives whole', (() => {
+        const text = 'search is a word\nsearch_web: with a tail that prose follows\nand then more prose, 1. two\nread';
+        for (const size of [1, 3, 7]) {
+            let out = '';
+            const guard = createTailGuard({ tools: tailTools, onChunk: t => { out += t; } });
+            for (let i = 0; i < text.length; i += size) guard.feed(text.slice(i, i + size));
+            guard.end();
+            if (out !== text) return false;
+        }
+        return true;
+    })());
+}
+
+section('a lookup line repeated in one reply runs once');
+{
+    let runs = 0;
+    const rows = [];
+    const { perCall } = await runToolCalls({
+        wanted: [{ tool: 'search_web', arg: 'rust 2026' }, { tool: 'search_web', arg: 'Rust 2026' }],
+        tools: [tool('search_web', async () => { runs++; return { items: [], count: 0, summary: '2 pages' }; })],
+        calls: rows, items: [], context: [],
+    });
+    check('the lookup ran once', runs === 1, `runs=${runs}`);
+    check('it has one row, and the row is finished (nothing spins for ever)',
+        rows.length === 1 && rows[0].state === 'done' && rows[0].summary === '2 pages', JSON.stringify(rows));
+    check('control (holds before and after): the result split stays one entry per requested call', perCall.length === 2 && perCall[1].summary === '2 pages', JSON.stringify(perCall));
+    const twice = extractToolTail('Answer.\nsearch_web: rust 2026\nsearch_web: rust 2026', tailTools);
+    const late = [];
+    await runToolCalls({ wanted: twice.calls, tools: [tool('search_web', async () => ({ items: [], count: 0 }))], calls: late, items: [], context: [] });
+    check('a reply that ends with the same line twice leaves no running row',
+        twice.calls.length === 2 && late.length === 1 && late.every(c => c.state === 'done'), JSON.stringify(late));
+}
+
 // ---- 6. the three empties a search can return ------------------------------
 
 section('a search says which of the three empties it was');
@@ -683,6 +770,30 @@ streamReplies.push(
     check('a tool the turn was not given is named as absent', notes.includes('No tool named "browse_web"'));
     check('nothing ran and nothing was fabricated', calls.length === 0 && items.length === 0);
     check('the turn still ends in an answer', res.fullText === 'Answered from what I have.');
+}
+
+// b1) a library lookup for a course whose name is a template word runs; the
+// same word as a web search is malformed
+streamReplies.length = 0;
+streamReplies.push(
+    [
+        toolCallFrame('call_lib', 'find_in_library', '{"query":"Test"}'),
+        toolCallFrame('call_web', 'search_web', '{"query":"Test"}', 1),
+        { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ],
+    [
+        { choices: [{ delta: { content: 'You do have a Test course.' } }] },
+        { choices: [{ delta: {}, finish_reason: 'stop' }] },
+    ],
+);
+{
+    const libRuns = [];
+    const libTool = tool('find_in_library', async q => { libRuns.push(q); return { items: [], count: 1, context: 'Course: Test', summary: '1 course' }; });
+    const { calls } = await runNative({ tools: [libTool, streamTool] });
+    const told = (requests.at(-1)?.messages || []).filter(m => m.role === 'tool');
+    check('the native loop runs a library lookup for a course called Test', libRuns.length === 1 && libRuns[0] === 'Test', JSON.stringify({ libRuns, calls }));
+    check('while the same word as a web search is answered as malformed',
+        calls.length === 1 && told.find(m => m.tool_call_id === 'call_web')?.content.includes('malformed'), JSON.stringify(told));
 }
 
 // b2) a tool that THROWS: the role:"tool" result says it failed, never "nothing came back"
@@ -944,6 +1055,18 @@ check('a real query that CONTAINS one of the words is kept',
     !isPlaceholderQuery('placeholder text in html forms') && !isPlaceholderQuery('sql query optimisation') && !isPlaceholderQuery('example of the doppler effect'));
 check('the text protocol drops it too',
     parseToolCalls('search_web: placeholder\nsearch_web: ohm law', chatTools({ web: true })).map(c => c.arg).join('|') === 'ohm law');
+// The placeholder words guard the web search only: a course or deck the
+// learner named "Test", "Example" or "Input" is a real thing to look up.
+check('a library lookup for a course called Test is a call',
+    parseToolCalls('find_in_library: Test\nproject_state: Example\nlist_documents: Input', BOTH).map(c => `${c.tool}:${c.arg}`).join('|')
+    === 'find_in_library:Test|project_state:Example|list_documents:Input',
+    JSON.stringify(parseToolCalls('find_in_library: Test\nproject_state: Example', BOTH)));
+check('control (holds before and after): the same word as a web search is still refused',
+    parseToolCalls('search_web: test', BOTH).length === 0);
+// A schema word that is never a name is refused for every tool, not only the web search.
+check('a library lookup for an echoed schema word is not a call',
+    parseToolCalls('find_in_library: query\nfind_in_library: <query>\nlist_documents: string\nproject_state: null\nfind_in_library: n/a', BOTH).length === 0,
+    JSON.stringify(parseToolCalls('find_in_library: query\nfind_in_library: <query>\nlist_documents: string\nproject_state: null\nfind_in_library: n/a', BOTH)));
 check('the native rule says a setting change needs no lookup',
     /change a setting[^.]*needs? no lookup/i.test(nativeToolRule(chatTools({ web: true }))));
 
@@ -955,12 +1078,26 @@ const { readSettable, settingKeysIn, settingsBefore, assistantSettingsBlock } = 
 const fromRows = (rows) => (key, fallback) => (key in rows ? rows[key] : fallback);
 const empty = readSettable(fromRows({}));
 check('an empty library reads as the defaults, each a value the marker accepts',
-    empty.theme === 'light' && empty.theme_tint === 'none' && empty.ui_scale === 100
+    empty.theme === 'system' && empty.theme_tint === 'none' && empty.ui_scale === 100
     && empty.week_start_day === 'monday' && empty.ui_language === 'auto' && empty.number_format === 'auto'
     && /^#[0-9a-f]{6}$/i.test(empty.accent_color), JSON.stringify(empty));
 const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', week_start_day: '0', ui_scale: '125' }));
 check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.week_start_day === 'sunday' && set.ui_scale === 125, JSON.stringify(set));
 check('a legacy named theme reads as its mode', readSettable(fromRows({ theme: 'black' })).theme === 'dark' && readSettable(fromRows({ theme: 'warm' })).theme === 'light');
+check('an empty library reads the accessibility rows as the app shows them',
+    empty.contrast === 'system' && empty.motion === 'system' && empty.letter_spacing === 'normal'
+    && empty.read_aloud === 'off' && empty.card_audio_autoplay === 'on' && empty.key_shortcuts === 'on'
+    && empty.speech_rate === 100 && empty.confirm_answers === 'off', JSON.stringify(empty));
+const a11ySet = readSettable(fromRows({ motion: 'reduce', line_spacing: 'widest', read_aloud: 'true', card_audio_autoplay: 'false', key_shortcuts: 'false', speech_rate: '140' }));
+check('stored accessibility rows are read back as marker values',
+    a11ySet.motion === 'reduce' && a11ySet.line_spacing === 'widest' && a11ySet.read_aloud === 'on'
+    && a11ySet.card_audio_autoplay === 'off' && a11ySet.key_shortcuts === 'off' && a11ySet.speech_rate === 140, JSON.stringify(a11ySet));
+check('every presentation row Settings → Accessibility writes is one the assistant may set',
+    ['contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'speech_rate',
+        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts'].every(k => k in empty));
+check('the drill time limit is a learning row, not offered', !('drill_time_scale' in empty));
+check('aliases for the accessibility rows are recorded under their row',
+    settingKeysIn('[[set:reduce motion:on]] [[set:shortcuts:off]] [[set:read_aloud:on]]').join(',') === 'motion,key_shortcuts,read_aloud');
 check('the keys a message set are found, aliases and all, once each',
     settingKeysIn('Done.\n[[set:theme:dark]]\n[[set:page colour:black]]\n[[set:theme:light]]').join(',') === 'theme,theme_tint');
 check('a key off the whitelist is not recorded', settingKeysIn('[[set:mastery_gate_mode:off]]').length === 0);

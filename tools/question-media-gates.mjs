@@ -203,10 +203,11 @@ const stemSrc = readFileSync(join(repoRoot, 'src/components/QuestionStem.tsx'), 
 check('QuestionStem renders CardMedia', /<CardMedia\b/.test(stemSrc));
 check('…through the validator, not the raw prop', /parseMediaList\(\s*media\s*\)/.test(stemSrc));
 check('…on both stem paths, not only the visual one',
-    // One return for the no-media case and one wrapper carrying both; if the
+    // The no-media case is the words alone and one wrapper carries both; if the
     // picture were rendered inside the `hasVisual` branch only, a photo question
-    // with plain text would silently lose it.
-    /if \(!pictures\.length\) return words;/.test(stemSrc));
+    // with plain text would silently lose it. (Read aloud wraps the result, so
+    // the choice is now an expression rather than an early return.)
+    /if \(!pictures\.length\) return words;|= !pictures\.length \? words : \(/.test(stemSrc));
 
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 try { rmSync(cacheDir, { recursive: true, force: true }); } catch { /* a build cache */ }

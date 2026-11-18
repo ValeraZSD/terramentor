@@ -80,13 +80,15 @@ export const hasRuledSources = (text) => /\r?\n---\r?\nSources: /.test(String(te
  * answer, where the app ACTS on `[[set:key:value]]` without a press and reads a
  * ```card fence as the assistant's proposal. So: no newline (a fence needs a
  * line of its own), no backtick, no control character, and brackets escaped,
- * which also keeps it from closing a `[label](url)` link early.
+ * which also keeps it from closing a `[label](url)` link early. The backslash
+ * is escaped first: a title ending in one would otherwise turn the escape in
+ * front of its next bracket into a literal backslash and leave the bracket live.
  */
 export const inertTitle = (title) => String(title)
     .replace(/[\u0000-\u001f\u007f`]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/([[\]])/g, '\\$1');
+    .replace(/([\\[\]])/g, '\\$1');
 
 /**
  * Where a document entry of a stored Sources line points: the title as

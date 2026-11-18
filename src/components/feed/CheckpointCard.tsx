@@ -176,6 +176,13 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
     const statusKnown = live !== null || !done;
     const skipped = skippedHere || (statusKnown && card.nodeStatus === 'skipped');
     const completed = !skipped && (done || card.nodeStatus === 'completed');
+    // The project's deadline can already be behind us (the server counts days
+    // to it without a floor): "-12 days to the project deadline" is not a
+    // sentence, so a passed deadline drops the count, and with it the " ·"
+    // the lead-in carries to join the two.
+    const deadlinePassed = !!card.deadline && card.deadline.daysLeft < 0;
+    const deadlineLead = ready ? t("Ready to prove ·") : card.isOverdue ? t("This topic is behind schedule ·") : '';
+    const deadlineLine = deadlinePassed ? deadlineLead.replace(/\s*·\s*$/, '') : deadlineLead;
     // Closed without proof: marked done here, or found completed while the
     // gate is on and the evidence does not pass.
     const unproven = overrodeHere
@@ -243,13 +250,13 @@ export default function CheckpointCard({ card: composed, done, onDone }: Props) 
             {/* Late and already known well enough to pass: this card IS the
                 check that closes it, so it says that, not "behind schedule"
                 in red (`isReadyToProve`, src/utils/tree.ts). */}
-            {card.deadline && (
+            {card.deadline && (!deadlinePassed || deadlineLine) && (
                 <p className={`text-xs mb-3 ${card.isOverdue && !ready
                     ? 'text-red-700 dark:text-red-400'
                     : 'text-slate-500 dark:text-slate-400'}`}
                 >
-                    {ready ? t("Ready to prove ·") : card.isOverdue ? t("This topic is behind schedule ·") : ''}
-                    {t("{{count}} days to the project deadline", { count: card.deadline.daysLeft })}
+                    {deadlineLine}
+                    {!deadlinePassed && <>{deadlineLine && ' '}{t("{{count}} days to the project deadline", { count: card.deadline.daysLeft })}</>}
                 </p>
             )}
 

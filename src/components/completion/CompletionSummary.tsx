@@ -6,7 +6,7 @@ import { useStore, themeKeyOf } from '../../store';
 import { useTapGuard } from '../../hooks/useTapGuard';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
-import { uiLocale } from '../../utils/locale';
+import { uiLocale, dateRangeLabel } from '../../utils/locale';
 import { formatStudyTime } from '../../utils/studyTime';
 import { accentSolidTriplet } from '../../utils/color';
 import { useAccentVars } from '../../hooks/useAccentVars';
@@ -150,9 +150,12 @@ export default function CompletionSummary() {
 
     const fileAsCompleted = async () => {
         setFiling(true);
-        await updateProject(project.id, { status: 'completed' });
+        const filed = await updateProject(project.id, { status: 'completed' });
         setFiling(false);
-        closeCompletion();
+        // A failed write already toasted. Closing would mark this screen seen and
+        // leave the project Active, and a screen that is shown once never offers
+        // itself again: stay open so the press can be repeated.
+        if (filed) closeCompletion();
     };
 
     return createPortal((
@@ -226,7 +229,7 @@ export default function CompletionSummary() {
                         <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
                             <ActivityBars
                                 buckets={timeline.buckets}
-                                bucketDays={timeline.days}
+                                name={dateRangeLabel(new Date(`${span.firstDay}T00:00:00Z`), new Date(`${span.lastDay}T00:00:00Z`))}
                                 label={(start, value) => timeline.measure === 'time'
                                     ? (value > 0
                                         ? t("{{date}}: {{time}}", { date: text.shortDate(start), time: text.duration(value) })
@@ -379,9 +382,10 @@ function Crest({ icon }: { icon: string }) {
 const NARROW_BELOW = 8;
 const NARROW_BAR_PX = 26;
 
-function ActivityBars({ buckets, bucketDays, label }: {
+function ActivityBars({ buckets, name, label }: {
     buckets: { start: string; count: number }[];
-    bucketDays: number;
+    /** The chart's name: the period it covers. Each bar names its own day. */
+    name: string;
     label: (start: string, count: number) => string;
 }) {
     const peak = Math.max(1, ...buckets.map(b => b.count));
@@ -396,7 +400,7 @@ function ActivityBars({ buckets, bucketDays, label }: {
             className={`flex items-stretch gap-[3px] ${narrow ? 'justify-center' : ''}`}
             style={{ height: '4.25rem' }}
             role="group"
-            aria-label={String(bucketDays)}
+            aria-label={name}
         >
             {buckets.map(bucket => {
                 const description = label(bucket.start, bucket.count);

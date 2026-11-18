@@ -817,6 +817,36 @@ rmSync(scratch, { recursive: true, force: true });
     check('the dashboard\'s Start Studying goes through it too',
         /studyProject\(currentProjectId\)/.test(read('src/components/StudyDashboard.tsx')));
 
+    // The deck page's statistics all come from one reload key.
+    const dash = read('src/components/deck/DeckDashboard.tsx');
+    // The tag is cut out whole (an arrow's ">" ends no tag here), so the order
+    // of its props does not matter.
+    const panelTag = dash.match(/<CardsPanel\b[\s\S]*?\/>/)?.[0] ?? '';
+    check('Refresh on the deck page reaches the cards panel it contains',
+        /\breloadKey=\{reloadKey\}/.test(panelTag));
+    check('a session ending in the cards panel refreshes the page header',
+        /\bonSessionEnd=\{\(\) => setReloadKey\(/.test(panelTag));
+    // The receiving end: the panel recounts when the key moves, and says so
+    // when a session closes. Without these the props above would go nowhere.
+    check('the cards panel recounts when its reloadKey moves',
+        /useEffect\(\(\) => \{[^}]*seenReloadKey\.current === reloadKey[^}]*load\(\{ silent: true \}\)[^}]*\}, \[reloadKey, load\]\)/.test(panel));
+    check('...and tells the page when a session ends',
+        /const endSession = \(\) => \{[\s\S]*?onSessionEnd\?\.\(\)/.test(panel));
+
+    // The strip's block name is the stage list's sentence, translated.
+    const strip = read('src/components/deck/DeckStageStrip.tsx');
+    check('a strip block\'s name is built from the translated "cards met" key',
+        /t\("\{\{title\}\}: \{\{fmt\}\} of \{\{fmt2\}\} cards met"/.test(strip));
+    check('…and its due part from the translated due key, not a template string',
+        /t\("· \{\{fmt\}\} due"/.test(strip) && !/cards met`|, \$\{fmt\(stage\.due\)\} due/.test(strip));
+
+    // A stage row's separators each carry the space JSX would drop.
+    const stages = read('src/components/deck/DeckStages.tsx');
+    for (const sep of ['mature', 'due', 'new']) {
+        check(`a stage row writes the space before "· N ${sep}"`,
+            new RegExp(`\\{' '\\}(<span[^>]*>)?\\{tr\\("· \\{\\{fmt\\}\\} ${sep}"`).test(stages));
+    }
+
     // What the atlas topic card says.
     const { topicStatusLines } = await bundle('src/components/atlas/topicStatus.ts');
     const num = (n) => String(n);

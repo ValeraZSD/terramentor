@@ -294,7 +294,7 @@ Design decisions worth knowing before changing it:
 - **The window is not the process.** A native app dies with its window; a
   server does not know a tab closed. So the page heartbeats
   (`src/hooks/useDesktop.ts` → `POST /api/desktop/ping`) and the server stops
-  itself when every window has been silent for 45 s (`server/desktop.js`).
+  itself when every window has been silent for 90 s (`server/desktop.js`).
   The rule is wall-clock, not "the browser process I spawned exited", because
   Chromium hands off to a running instance and exits at once, and because a
   phone over Tailscale is a window too.

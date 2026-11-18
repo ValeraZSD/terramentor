@@ -1,5 +1,6 @@
 import { InputHTMLAttributes } from 'react';
 import { cx } from './vocabulary';
+import { useSettingHint } from './settingHint';
 
 interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange' | 'className'> {
     value: number;
@@ -25,6 +26,7 @@ interface Props extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'va
  */
 export default function Slider({ value, min, max, step = 1, onChange, label, valueText, className, ...rest }: Props) {
     const pct = max > min ? ((value - min) / (max - min)) * 100 : 0;
+    const rowHint = useSettingHint();
     return (
         <input
             type="range"
@@ -35,6 +37,7 @@ export default function Slider({ value, min, max, step = 1, onChange, label, val
             onChange={e => onChange(Number(e.target.value))}
             aria-label={label}
             aria-valuetext={valueText}
+            aria-describedby={rowHint}
             style={{ ['--fill' as string]: `${pct}%` }}
             className={cx('app-slider', className)}
             {...rest}

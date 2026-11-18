@@ -12,6 +12,12 @@
 //   1. No file under `src/` imports a lucide icon whose name is a sparkle, a
 //      star cluster or a wand (`Sparkles`, `Sparkle`, `WandSparkles`,
 //      `PencilSparkles`, `Stars`, `Wand2`, their `…Icon` / `Lucide…` aliases).
+//      Every way of reaching one counts: a named or namespace import from the
+//      package or any path inside it, an icon's own file, `require()` and
+//      `import()`, lucide's `icons` map, and `DynamicIcon`'s `name`. A use of
+//      the package this scan cannot follow (a default import, `import().then`,
+//      an icon picked by a variable or string) fails closed: the file counts
+//      as importing every icon, so only named imports pass unread.
 //      The forbidden set is read from the installed `lucide-react`, so an icon
 //      a later lucide adds under such a name is caught without editing this.
 //   2. No `✨` in `src/` outside the emoji picker's own table
@@ -87,18 +93,62 @@ export function lucideImports(source) {
             if (name) names.push(name);
         }
     }
-    // `import * as Icons from 'lucide-react'` then `Icons.Sparkles`, or
-    // `const { Sparkles: Mark } = Icons`.
-    for (const ns of src.matchAll(/import\s+\*\s+as\s+(\w+)\s+from\s*['"]lucide-react['"]/g)) {
-        for (const use of src.matchAll(new RegExp(`\\b${ns[1]}\\.(\\w+)`, 'g'))) names.push(use[1]);
-        for (const d of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${ns[1]}\\b`, 'g'))) {
-            for (const part of withoutComments(d[1]).split(',')) {
-                const name = part.trim().split(/\s*[:=]\s*/)[0].replace(/^\.\.\./, '').trim();
-                if (name) names.push(name);
-            }
-        }
+    // Destructured straight off a require() or a dynamic import():
+    // `const { Sparkles } = require('lucide-react')`, `= await import(...)`.
+    for (const m of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${LOAD}`, 'g'))) names.push(...destructured(m[1]));
+    // One icon per file: `import Sparkles from 'lucide-react/dist/esm/icons/sparkles'`
+    // (or any import, export or load of such a path) is the icon its file is named for.
+    for (const m of src.matchAll(/['"]lucide-react\/(?:[^'"]*\/)?([a-z0-9-]+)(?:\.[cm]?js)?(?:\?[^'"]*)?['"]/g)) names.push(pascal(m[1]));
+    // A whole-module object: `import * as Icons from 'lucide-react[/icons]'`,
+    // `const Icons = require(...)` or `await import(...)`, or lucide's own
+    // `icons` map (`import { icons as I } from 'lucide-react'`); then
+    // `Icons.Sparkles`, `Icons['Sparkles']` or `const { Sparkles: Mark } = Icons`.
+    const objects = [
+        ...[...src.matchAll(new RegExp(`import\\s+\\*\\s+as\\s+([\\w$]+)\\s+from\\s*${MODULE}`, 'g'))].map(m => m[1]),
+        ...[...src.matchAll(new RegExp(`(?:const|let|var)\\s+([\\w$]+)\\s*=\\s*${LOAD}`, 'g'))].map(m => m[1]),
+        ...[...src.matchAll(new RegExp(`import\\s+(?:type\\s+)?\\{([^}]*)\\}\\s*from\\s*${MODULE}`, 'g'))]
+            .flatMap(m => withoutComments(m[1]).split(','))
+            .map(part => part.trim().split(/\s+as\s+/))
+            .filter(([name]) => name === 'icons')
+            .map(([name, alias]) => (alias || name).trim()),
+    ];
+    for (const obj of new Set(objects)) {
+        const ns = obj.replace(/\$/g, '\\$');
+        for (const use of src.matchAll(new RegExp(`(?<![\\w$])${ns}\\s*(?:\\??\\.\\s*(\\w+)|(?:\\?\\.)?\\[\\s*['"\`](\\w+)['"\`]\\s*\\])`, 'g'))) names.push(use[1] || use[2]);
+        for (const d of src.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${ns}(?![\\w$])`, 'g'))) names.push(...destructured(d[1]));
     }
+    // lucide's DynamicIcon and dynamicIconImports take the file name:
+    // `<DynamicIcon name="sparkles" />`, `dynamicIconImports['wand-sparkles']`.
+    if (/['"]lucide-react\/dynamic(?:IconImports)?(?:\.m?js)?['"]|\bdynamicIconImports\b/.test(src)) {
+        for (const m of src.matchAll(/<DynamicIcon\b[^<]*?\bname\s*=\s*\{?\s*['"`]([a-z0-9-]+)['"`]/g)) names.push(pascal(m[1]));
+        for (const m of src.matchAll(/\bdynamicIconImports\s*\[\s*['"`]([a-z0-9-]+)['"`]\s*\]/g)) names.push(pascal(m[1]));
+    }
+    // Fail closed. A named list and an icon's own file are the only uses of the
+    // package read exactly above. Any other mention of it (a default or
+    // namespace import, require(), `import().then(...)`, the `icons` map,
+    // DynamicIcon, `L[key]`) can reach an icon through an alias, a variable or
+    // a string this scan cannot follow, so the file counts as importing every icon.
+    const rest = src
+        .replace(new RegExp(`(?:import|export)\\s+(?:type\\s+)?\\{([^}]*)\\}\\s*from\\s*${MODULE}`, 'g'), (whole, list) =>
+            withoutComments(list).split(',').some(part => BY_STRING.has(part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0].trim())) ? whole : ' ')
+        .replace(/(?:import|export)\s+[\w$]+\s+from\s*['"]lucide-react\/(?:[^'"]*\/)?icons\/[a-z0-9-]+(?:\.[cm]?js)?(?:\?[^'"]*)?['"]/g, ' ');
+    if (new RegExp(MODULE).test(rest)) names.push(ALL);
     return names;
+}
+
+/** Imports that choose an icon by a string, which no scan can read. */
+const BY_STRING = new Set(['icons', 'DynamicIcon', 'dynamicIconImports']);
+/** `'lucide-react'` or any path inside it, quoted. */
+const MODULE = `['"]lucide-react(?:\\/[^'"]*)?['"]`;
+/** `require(MODULE)` or `[await] import(MODULE)`. */
+const LOAD = `\\(?\\s*(?:await\\s+)?(?:require|import)\\s*\\(\\s*${MODULE}\\s*\\)`;
+/** lucide's file names are its icon names in kebab case: `wand-sparkles` is `WandSparkles`. */
+const pascal = (kebab) => kebab.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+/** The source names of a `{ A: B, C = 1, ...rest }` destructuring. */
+function destructured(list) {
+    return withoutComments(list).split(',')
+        .map(part => part.trim().split(/\s*[:=]\s*/)[0].replace(/^\.\.\./, '').trim())
+        .filter(Boolean);
 }
 
 // The detector catches the shapes it claims to catch (a gate that sees nothing proves nothing).
@@ -109,14 +159,55 @@ const sample = [
     "import * as Icons from 'lucide-react'; const I = Icons.Stars; const { Wand2: W, Check } = Icons;",
     "import { Compass, History } from 'lucide-react';",
 ].join('\n');
-const seen = lucideImports(sample).filter(forbidden);
+// The names a scan reads (a namespace import is also, as a whole, every icon: see `*`).
+const named = (n) => n !== ALL && forbidden(n);
+const seen = lucideImports(sample).filter(named);
 ok('detector: finds a plain, a renamed, a re-exported, a namespaced and a destructured sparkle',
     seen.join(',') === 'Sparkles,WandSparkles,Sparkle,Stars,Wand2', `got ${seen.join(',') || 'nothing'}`);
 const commented = lucideImports(
     "import * as Icons from 'lucide-react'; const { /* icon */ Sparkles, Check = 'a//b', Stars } = Icons;",
-).filter(forbidden);
+).filter(named);
 ok('detector: a comment or a string inside a destructuring hides no sparkle',
     commented.join(',') === 'Sparkles,Stars', `got ${commented.join(',') || 'nothing'}`);
+const otherForms = [
+    ["import Mark from 'lucide-react/dist/esm/icons/wand-sparkles';", 'WandSparkles'],
+    ["import * as I from 'lucide-react/icons'; const m = I.Sparkle;", 'Sparkle'],
+    ["import { icons as all } from 'lucide-react'; const m = all['Sparkles'];", 'Sparkles'],
+    ["import { icons } from 'lucide-react'; const { Stars } = icons;", 'Stars'],
+    ["import { DynamicIcon } from 'lucide-react/dynamic'; const m = <DynamicIcon name=\"sparkles\" />;", 'Sparkles'],
+    ["import dynamicIconImports from 'lucide-react/dynamicIconImports'; dynamicIconImports['pencil-sparkles']();", 'PencilSparkles'],
+    ["const { Sparkles } = require('lucide-react');", 'Sparkles'],
+    ["const L = await import('lucide-react'); const m = L.WandSparkles;", 'WandSparkles'],
+];
+for (const [code, name] of otherForms) {
+    const got = lucideImports(code);
+    ok(`detector: finds ${name} in ${code.slice(0, 60)}`, got.includes(name), `got ${got.join(',') || 'nothing'}`);
+}
+ok('detector: an icon\'s own file adds no false sparkle',
+    !lucideImports("import Compass from 'lucide-react/dist/esm/icons/compass'; import { History } from 'lucide-react/dist/esm/icons/history';").some(forbidden));
+// What the scans above cannot follow fails closed: the file counts as importing every icon.
+const unreadable = [
+    "import('lucide-react').then(m => m.Sparkles);",
+    "import('lucide-react').then(({ Sparkles }) => Sparkles);",
+    "import * as L from 'lucide-react'; const x = L?.Sparkles;",
+    "import * as L from 'lucide-react'; const x = L?.['Sparkles'];",
+    "import * as L from 'lucide-react'; const k = 'Sparkles'; const x = L[k];",
+    "import * as $L from 'lucide-react'; const x = $L.Sparkles;",
+    "import { icons } from 'lucide-react'; const x = icons; x.Sparkles;",
+    "import { icons } from 'lucide-react'; Object.entries(icons);",
+    "const { Sparkles } = (await import('lucide-react'));",
+    "import Mark from 'lucide-react/dist/cjs/icons/sparkles.cjs';",
+    "import Mark from 'lucide-react/dist/esm/icons/sparkles.js?inline';",
+    "import { DynamicIcon } from 'lucide-react'; const m = <DynamicIcon name=\"sparkles\" />;",
+    "import Lucide from 'lucide-react';",
+];
+for (const code of unreadable) {
+    ok(`detector: counts as every icon: ${code.slice(0, 60)}`, lucideImports(code).some(forbidden), `got ${lucideImports(code).join(',') || 'nothing'}`);
+}
+ok('detector: a name="sparkles" form attribute in a file without lucide stays quiet',
+    lucideImports('<input name="sparkles" />').length === 0, `got ${lucideImports('<input name="sparkles" />').join(',') || 'nothing'}`);
+ok('detector: only <DynamicIcon>\'s own name is an icon name, not another tag\'s',
+    !lucideImports("import { DynamicIcon } from 'lucide-react/dynamic'; <input name=\"stars\" />; <DynamicIcon name=\"check\" />;").includes('Stars'));
 ok('detector: a whole-module re-export of lucide counts as importing every icon',
     lucideImports("export * from 'lucide-react';").some(forbidden));
 ok('detector: passes History and Compass, a commented-out import and a comment naming Sparkles',
