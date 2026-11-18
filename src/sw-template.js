@@ -95,6 +95,9 @@ function isBypassed(url) {
         url.pathname === '/sandbox.html' ||
         // The frame a learner's code runs behind (server/runnerFrame.js), the same way.
         url.pathname === '/runner.html' ||
+        // A site's own pages (server/site/): sign-in, devices. They name the
+        // person, so one must never become the cached shell the next one sees.
+        url.pathname === '/site' || url.pathname.startsWith('/site/') ||
         url.pathname.startsWith('/@') ||        // /@vite, /@react-refresh, /@fs/...
         url.pathname.startsWith('/src/') ||     // dev: unbundled source modules
         url.pathname.startsWith('/node_modules') ||

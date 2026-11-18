@@ -9,6 +9,7 @@ import {
 import {
     addDevice, claimPairingOffer, deviceName, removeDevicesExcept, tailscaleLoginOf, tailscaleOwner, tailscaleTrustOn,
 } from '../devices.js';
+import { isSiteLibrary } from '../siteLibrary.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -22,6 +23,8 @@ const app = routeTable('auth');
 // Unauthenticated-safe: tells the client whether a gate exists and whether this
 // caller is already past it, so the UI can decide to show the login screen.
 app.get('/api/auth/status', async (req, res) => {
+    // A site library: the front desk signed this person in, and signs them out.
+    if (isSiteLibrary()) return res.json({ enabled: true, authenticated: !!req.sitePerson, site: true });
     const enabled = isAuthEnabled();
     // Another machine reaching an app with no password meets a gate too: the
     // screen it is shown says how to connect it (server/devices.js), with the

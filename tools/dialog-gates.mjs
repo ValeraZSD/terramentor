@@ -135,7 +135,16 @@ if (HEAD) {
 const from = (f) => HEAD ? join(headDir, `${f}.tsx`).replace(/\\/g, '/') : `./src/components/${f}`;
 
 const stubs = {
-    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => (o && o.count != null ? k.replace('{{count}}', o.count) : k), i18n: { language: 'en' } });`,
+    // Every call with options is kept in `__tCalls`, for a case that needs to see
+    // what a sentence was handed (a number the reader's style must have written).
+    'react-i18next': `export const useTranslation = () => ({ t: (k, o) => { if (o) (globalThis.__tCalls ??= []).push([k, o]); return o && o.count != null ? k.replace('{{count}}', o.count) : k; }, i18n: { language: 'en' } });`,
+    // The real helpers, with the four that make a file or reach the server
+    // replaceable by a case (\`globalThis.__exp\`): jsdom cannot rasterise an SVG.
+    'exportVisual': `import * as real from '${join(root, 'src/utils/exportVisual.ts').replace(/\\/g, '/')}';
+        const pick = (name) => (...a) => (globalThis.__exp?.[name] ?? real[name])(...a);
+        export const { captionFromBrief, gifDelayCs, gifFrameCount, fileSlug, findExportable, DEFAULT_GIF_FPS } = real;
+        export const downloadBlob = pick('downloadBlob'), exportAnimationGif = pick('exportAnimationGif'),
+            exportStillPng = pick('exportStillPng'), previewFrame = pick('previewFrame');`,
     'i18n': `export default { t: (k) => k, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
     // The fields the components read, and a `hideConfirm` the gate supplies.
     'store': `import { useSyncExternalStore } from 'react';
@@ -164,6 +173,7 @@ const stubPlugin = {
         b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub' }));
         b.onResolve({ filter: /^(\.\.\/)+i18n$/ }, () => ({ path: 'i18n', namespace: 'stub' }));
         b.onResolve({ filter: /^(\.\.\/)+api$/ }, () => ({ path: 'api', namespace: 'stub' }));
+        b.onResolve({ filter: /^(\.\.\/)+utils\/exportVisual$/ }, () => ({ path: 'exportVisual', namespace: 'stub' }));
         b.onResolve({ filter: /^\.\.?\/(\.\.\/)*(Markdown|MathText)$/ }, () => ({ path: 'Markdown', namespace: 'stub' }));
         // The mastery check's answer key highlights code; the Prism registry it
         // loads does not survive a CJS bundle, and no case here shows code.
@@ -201,7 +211,8 @@ await esbuild.build({
             export { OutlineBriefPanel, MaterialPassPanel } from '${from('ExternalAuthoring')}';
             export { default as ModelPicker } from '${from('ModelPicker')}';
             export { default as AddConnectionDialog } from '${from('settings/connections/AddConnectionDialog')}';
-            export { focusableIn } from './src/hooks/useDialogFocus';`,
+            export { focusableIn } from './src/hooks/useDialogFocus';
+            export { setNumberPreference } from './src/utils/numberFormat';`,
         resolveDir: root,
         loader: 'tsx',
     },
@@ -721,6 +732,134 @@ await holdsTheContract('Task failure', mountedSurface((onClose) => h(surfaces.Ta
 await holdsTheContract('Save a visual', propSurface(surfaces.ExportVisualModal, {
     kind: 'mermaid', code: 'graph TD; A-->B', stage: null, palette: { bg: '#ffffff', fg: '#0f172a', muted: '#64748b', border: '#e2e8f0' },
 }));
+section('Save a visual: Escape stops an encode, a late caption draft is dropped, the words and the loop length are the reader\'s');
+{
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const stage = doc.createElement('div');
+    const svg = doc.createElementNS(SVG_NS, 'svg');
+    const anim = doc.createElementNS(SVG_NS, 'animate');
+    anim.setAttribute('attributeName', 'x');
+    anim.setAttribute('dur', '3.5s');
+    svg.append(anim);
+    stage.append(svg);
+    doc.body.append(stage);
+
+    const el = doc.createElement('div'); doc.body.append(el);
+    const r = createRoot(el);
+    let closed = 0;
+    let stageNow = stage;
+    const draw = (open) => act(() => r.render(h(React.Fragment, null,
+        h(surfaces.ExportVisualModal, {
+            open, onClose: () => { closed++; }, kind: 'mermaid', code: 'graph TD; A-->B', stage: stageNow,
+            palette: { bg: '#ffffff', fg: '#0f172a', muted: '#64748b', border: '#e2e8f0' },
+        }), h(ConfirmDialog))));
+    const dlg = () => doc.querySelector('[aria-labelledby="export-visual-title"]');
+    const button = (label) => [...(dlg()?.querySelectorAll('button') ?? [])].find(b => b.textContent.trim() === label);
+    const warn = console.warn;
+    console.warn = () => { };
+    // No canvas backend: the preview is decorative and skips itself.
+    window.HTMLCanvasElement.prototype.getContext = () => null;
+    try {
+        // Escape while a GIF is being made.
+        let signal = null, release = () => { };
+        globalThis.__exp = {
+            exportAnimationGif: (_t, opts) => new Promise((_res, rej) => {
+                signal = opts.signal;
+                release = () => rej(new Error('cancelled'));
+                signal.addEventListener('abort', release);
+            }),
+        };
+        closed = 0;
+        draw(true);
+        act(() => { button('Save GIF')?.click(); });
+        await settle();
+        check('control: the encode is running (the footer button says Stop)', !!button('Stop'));
+        press('Escape');
+        await settle();
+        check('Escape while a GIF is being encoded stops the encode', signal?.aborted === true, `aborted=${signal?.aborted}`);
+        check('…and leaves the dialog open, like the Stop button', closed === 0 && !!dlg(), `${closed} close(s)`);
+        press('Escape');
+        check('the next Escape closes it', closed === 1, `${closed} close(s)`);
+        draw(false);
+        // A build that was never stopped (the pre-fix dialog) is let go, so
+        // the cases below start from a dialog that is not still encoding.
+        await act(async () => { release(); await new Promise(res => setTimeout(res, 10)); });
+
+        // A caption draft that comes back after the dialog was closed and reopened.
+        let answer = null;
+        globalThis.__api = { captionVisual: () => new Promise((res) => { answer = res; }) };
+        const framedFields = async () => {
+            act(() => { dlg().querySelector('input[name="export-frame"][type="radio"]:not(:checked)')?.click(); });
+            await settle();
+            return { title: dlg().querySelector('input:not([type="radio"])'), caption: dlg().querySelector('textarea') };
+        };
+        draw(true);
+        await framedFields();
+        act(() => { button('Draft with AI')?.click(); });
+        check('control: the draft was asked for', answer !== null);
+        draw(false);
+        draw(true);
+        const after = await framedFields();
+        await act(async () => { answer?.({ title: 'Old title', caption: 'Old caption' }); await new Promise(res => setTimeout(res, 10)); });
+        check('a draft that arrives after the dialog was closed does not fill the reopened one',
+            after.title?.value === '' && after.caption?.value === '', `title "${after.title?.value}", caption "${after.caption?.value}"`);
+        check('…and the reopened dialog is not left "Drafting…"', !!button('Draft with AI') && !button('Drafting…'));
+        draw(false);
+
+        // A failure shows the sentence in the reader's language, not the encoder's.
+        globalThis.__exp = { exportAnimationGif: async () => { throw new Error('the drawing could not be rasterized.'); } };
+        draw(true);
+        act(() => { button('Save GIF')?.click(); });
+        await settle();
+        const text = dlg()?.textContent ?? '';
+        check('a failed encode says "The file could not be made.", not the encoder\'s own lower-case message',
+            text.includes('The file could not be made.') && !text.includes('rasterized'), text.slice(-120));
+        draw(false);
+
+        // Escape while a PNG is being made: it cannot be interrupted part-way,
+        // but no file may arrive after the reader stopped it.
+        const still = doc.createElement('div');
+        still.append(doc.createElementNS(SVG_NS, 'svg'));
+        stageNow = still;
+        const downloads = [];
+        let finishPng = () => { };
+        globalThis.__exp = {
+            exportStillPng: () => new Promise((res) => { finishPng = () => res(new window.Blob(['x'])); }),
+            downloadBlob: (_b, name) => { downloads.push(name); },
+        };
+        const savePng = async (stop) => {
+            draw(true);
+            act(() => { button('Save PNG')?.click(); });
+            await settle();
+            if (stop) { press('Escape'); await settle(); }
+            await act(async () => { finishPng(); await new Promise(res => setTimeout(res, 10)); });
+        };
+        await savePng(true);
+        check('a PNG that was stopped with Escape is not downloaded when it finishes', downloads.length === 0, JSON.stringify(downloads));
+        draw(false);
+        await savePng(false);
+        check('control: a PNG that was not stopped is downloaded', downloads.length === 1, JSON.stringify(downloads));
+        draw(false);
+        stageNow = stage;
+
+        // The loop length is written in the reader's number style.
+        act(() => surfaces.setNumberPreference('1.234,5'));
+        globalThis.__tCalls = [];
+        draw(true);
+        const loop = (globalThis.__tCalls ?? []).find(([k]) => k.startsWith('One loop'));
+        check('the loop length follows the reader\'s number style (3,5 s, not 3.5 s)', loop?.[1]?.loopSeconds === '3,5', JSON.stringify(loop?.[1]));
+        draw(false);
+    } finally {
+        act(() => surfaces.setNumberPreference('auto'));
+        console.warn = warn;
+        globalThis.__exp = undefined;
+        globalThis.__api = undefined;
+        act(() => r.unmount());
+        el.remove();
+        stage.remove();
+    }
+}
+
 await holdsTheContract('Drill', mountedSurface((onClose) => h(surfaces.DrillModal, {
     onClose,
     spec: { title: 'Kana', modes: ['choice'], items: [{ prompt: 'あ', answer: 'a' }, { prompt: 'い', answer: 'i' }, { prompt: 'う', answer: 'u' }, { prompt: 'え', answer: 'e' }] },
@@ -1149,6 +1288,21 @@ section('the review session and the phone assistant are the same kind of dialog'
         && /useDialogFocus\(isOpen, dialogRef/.test(read('src/components/Modal.tsx')));
     check('an answer\'s Sources line opens the same preview, not a second one',
         /<DocumentTextDialog\b/.test(read('src/components/SourceList.tsx')));
+    // A name on a plain <span> is ignored by screen readers (a generic element
+    // takes none), so "Step 1 of 4" never reached them; an image role gives it
+    // somewhere to attach and the visible "1 / 4" stays the picture of it.
+    const stepCounter = (read('src/components/welcome/WelcomeFlow.tsx').match(/<span\b[^>]*aria-label=\{t\("Step \{\{n\}\} of \{\{total\}\}"[^>]*>/) || [''])[0];
+    check('the welcome step counter is named through a role that takes a name',
+        /\brole="img"/.test(stepCounter), stepCounter);
+    // A JSX line break between two expressions renders nothing, so the deck
+    // count and its "· N sections" read "1,100· 22 sections".
+    const deckRow = (read('src/components/AnkiImportModal.tsx').match(/\{num\(d\.count\)\}[\s\S]{0,800}?·\x20\{\{stages\}\} sections/) || [''])[0];
+    check('the import preview puts a space between a deck\'s count and its sections',
+        deckRow !== '' && /\{num\(d\.count\)\}[\s\S]*?(?:' '|\{' '\}|\{" "\})[\s\S]*?t\("· \{\{stages\}\}/.test(deckRow), deckRow.slice(0, 160));
+    // The media row has the same break between the icon counts and "· N KB".
+    const mediaRow = (read('src/components/AnkiImportModal.tsx').match(/<\/span>\s*(?:\{' '\}\s*)?\{t\("·\x20\{\{bytes\}\} kept on this machine/) || [''])[0];
+    check('the import media row puts a space between its counts and the size',
+        mediaRow !== '' && /\{' '\}/.test(mediaRow), mediaRow);
     const done = read('src/components/completion/CompletionSummary.tsx');
     check('the finished-project screen takes the hook and keeps landing on its one action',
         /useDialogFocus\(!!data, dialogRef, \{ initialFocus: primaryRef/.test(done) && !/addEventListener\('keydown'/.test(done));
