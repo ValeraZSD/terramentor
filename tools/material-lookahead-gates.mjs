@@ -283,7 +283,7 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
 
     requestNode(jumped);   // what GET /api/feed?nodeId= does for the page that is open
     const bankOf = () => db.prepare(`SELECT COUNT(*) AS n FROM quizzes WHERE node_id = ?`).get(jumped).n;
-    for (let waited = 0; waited < 6000 && bankOf() === 0; waited += 100) await new Promise(r => setTimeout(r, 100));
+    for (let waited = 0; waited < 20000 && bankOf() === 0; waited += 100) await new Promise(r => setTimeout(r, 100));
     ok('the burst asked the model for the jumped-to topic\'s check',
         quizAsks.some(a => a.includes('Parallel circuits')), true);
     ok('…and stored it as that topic\'s bank before the learner reached it', bankOf() > 0, true);
@@ -305,7 +305,10 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
     requestNode(short);
     const skipped = () => !!JSON.parse(db.prepare(`SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'plan'`).get(short).meta || '{}').skippedCheck;
     const asksFor = () => quizAsks.filter(a => a.includes('Short circuits')).length;
-    for (let waited = 0; waited < 6000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
+    // 20 s, not 6: a slow Windows runner has spent longer than 6 s in the
+    // burst's back-off before the write was asked for at all. The loop exits
+    // as soon as the skip is recorded, so a fast machine waits no longer.
+    for (let waited = 0; waited < 20000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
     await new Promise(r => setTimeout(r, 500));
     ok('a bank written short is recorded as skipped', skipped(), true);
     ok('…and the model is asked for it once, not on every burst', asksFor(), 1);
