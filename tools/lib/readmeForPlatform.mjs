@@ -9,9 +9,10 @@
 //   @end
 //
 // __VERSION__ becomes the version and __SYSTEM__ the system's name. Blocks do
-// not nest. A marker naming anything but the three systems, an
-// @only without its @end and an @end without its @only throw, so a typo
-// fails the build rather than shipping one system's steps to another.
+// not nest. A marker naming anything but the three systems, an @only without
+// its @end, an @end without its @only and any other line opening with @
+// throw, so a typo fails the build rather than shipping one system's steps
+// to another.
 
 export const PLATFORMS = ['windows', 'macos', 'linux'];
 
@@ -19,7 +20,7 @@ export const PLATFORMS = ['windows', 'macos', 'linux'];
 export const PLATFORM_OF = { win32: 'windows', darwin: 'macos', linux: 'linux' };
 
 /** The name the title gives each system (`__SYSTEM__`). */
-export const LABEL ={ windows: 'Windows', macos: 'macOS', linux: 'Linux' };
+export const LABEL = {windows: 'Windows', macos: 'macOS', linux: 'Linux' };
 
 export function readmeForPlatform(template, platform, version) {
     if (!PLATFORMS.includes(platform)) throw new Error(`README: unknown system "${platform}"`);
@@ -28,6 +29,11 @@ export function readmeForPlatform(template, platform, version) {
     let only = null; // the systems of the open block, or null outside one
     template.split(/\r?\n/).forEach((line, i) => {
         const at = `desktop/README.txt line ${i + 1}`;
+        // A line opening with @ is a marker or a mistake: "@ONLY macos" or an
+        // indented "@only" would otherwise ship as text, block and all.
+        if (line.trimStart().startsWith('@') && !/^@(only|end)(\s|$)/.test(line)) {
+            throw new Error(`${at}: "${line.trim()}" is not a marker (@only <systems> or @end, lowercase, at the line start)`);
+        }
         const marker = /^@(only|end)\b(.*)$/.exec(line);
         if (!marker) {
             if (only === null || only.includes(platform)) out.push(line);

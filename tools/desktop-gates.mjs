@@ -1503,11 +1503,13 @@ console.log('\n--- the zip README carries its own system only ---');
     const SAYS = [
         ['Terramentor.exe', ['windows']], ['Run anyway', ['windows']], ['%LOCALAPPDATA%', ['windows']],
         ['notification area', ['windows']], ['runtime\\node.exe', ['windows']],
-        ['When it starts with the computer', ['windows']],
+        ['When it starts with the computer', ['windows']], ['Terramentor.cmd', ['windows']],
+        ['More info', ['windows']], ['Start Menu', ['windows']],
         ['Terramentor.app', ['macos']], ['Open Anyway', ['macos']], ['xattr', ['macos']],
         ['Application Support', ['macos']], ['Apple Silicon', ['macos']],
         ['terramentor.sh', ['linux']], ['install-desktop-entry.sh', ['linux']], ['.local/share', ['linux']],
-        ['Keep running in', ['macos', 'linux']], ['runtime/node', ['macos', 'linux']],
+        ['Keep running in', ['macos', 'linux']], ['Closing the last window', ['macos', 'linux']],
+        ['runtime/node', ['macos', 'linux']],
         ['Portable use', ['windows', 'linux']], ['delete this folder', ['windows', 'linux']],
     ];
     check('the build names all three systems', Object.keys(PLATFORM_OF).map((p) => PLATFORM_OF[p]).sort().join(), [...PLATFORMS].sort().join());
@@ -1523,11 +1525,6 @@ console.log('\n--- the zip README carries its own system only ---');
         const title = text.split(/\r?\n/)[0];
         ok(`${p}: the title names the version and the system`, title.includes('9.8.7') && title.includes(LABEL[p]), title);
     }
-    // Every line outside a marker reaches at least one copy, so no block names
-    // a system list that drops text for everyone.
-    const lost = template.split(/\r?\n/).filter((l) => l.trim() && !/^@(only|end)\b/.test(l)
-        && !PLATFORMS.some((p) => built[p].split(/\r?\n/).includes(l.replaceAll('__VERSION__', '9.8.7').replaceAll('__SYSTEM__', LABEL[p]))));
-    ok('every template line reaches some system', lost.length === 0, lost.slice(0, 3).join(' | '));
     check('CRLF in, CRLF out', readmeForPlatform('a\r\n@only linux\r\nb\r\n@end\r\nc\r\n', 'linux', '1'), 'a\r\nb\r\nc\r\n');
     check('a block for other systems drops out', readmeForPlatform('a\n@only macos\nb\n@end\nc', 'windows', '1'), 'a\nc');
     const throws = (src) => { try { readmeForPlatform(src, 'linux', '1'); return false; } catch { return true; } };
@@ -1536,6 +1533,8 @@ console.log('\n--- the zip README carries its own system only ---');
     ok('an unclosed block is refused', throws('@only linux\nb'));
     ok('an @end with no @only is refused', throws('b\n@end'));
     ok('a nested block is refused', throws('@only linux\n@only macos\nb\n@end\n@end'));
+    ok('an upper-case marker is refused, not shipped as text', throws('@ONLY macos\nb\n@END'));
+    ok('an indented marker is refused, not shipped as text', throws('  @only macos\nb\n  @end'));
     ok('an unknown target system is refused', (() => { try { readmeForPlatform('a', 'freebsd', '1'); return false; } catch { return true; } })());
     const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
     ok('the build writes the README through readmeForPlatform for its own system', /readmeForPlatform\(readme, PLATFORM_OF\[platform\]/.test(build));

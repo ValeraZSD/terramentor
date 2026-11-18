@@ -147,8 +147,9 @@ cpSync(join(repoRoot, 'server'), join(appDir, 'server'), {
     },
 });
 // README.txt is left out as well: it is the template of the zip's top-level
-// README (written below for this system, with the version filled in), and a second, raw copy in
-// desktop/ read "Terramentor __VERSION__" inside every 1.0.0 zip.
+// README (written below for this system, with the version filled in), and a
+// second, raw copy in desktop/ read "Terramentor __VERSION__" inside every
+// 1.0.0 zip.
 cpSync(join(repoRoot, 'desktop'), join(appDir, 'desktop'), {
     recursive: true,
     filter: (src) => {
