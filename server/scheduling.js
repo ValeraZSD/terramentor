@@ -133,11 +133,15 @@ let lockStmt = null;
 /**
  * Why a write may not move this project's deadline, or null when it may. A date
  * the learner marked "cannot move" (`deadline_fixed`) moves only in a write
- * that also takes the mark off (`unlock === false`). Writing the same date
+ * that states the mark itself (`lock` true or false). Writing the same date
  * again is not a move.
  */
-export function lockedDeadlineError(projectId, deadline, unlock) {
-    if (deadline === undefined || unlock === false) return null;
+export function lockedDeadlineError(projectId, deadline, lock) {
+    // A write that NAMES the lock decides it (the plan panel, where the date
+    // can only be edited after unticking it, and re-ticking it keeps the new
+    // date locked). Only a write that does not mention it (the card's editor,
+    // an older client) is held to the stored mark.
+    if (deadline === undefined || lock !== undefined) return null;
     lockStmt ??= db.prepare('SELECT deadline, deadline_fixed FROM projects WHERE id = ?');
     const row = lockStmt.get(projectId);
     if (!row || !row.deadline_fixed || (deadline ?? null) === row.deadline) return null;

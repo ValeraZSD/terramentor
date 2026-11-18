@@ -109,7 +109,7 @@ app.put('/api/projects/:id', (req, res) => {
     const updates = [];
     const values = [];
 
-    const before = db.prepare('SELECT name, description, content_language FROM projects WHERE id = ?').get(req.params.id);
+    const before = db.prepare('SELECT name, description, content_language, deadline FROM projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Project not found' });
     const fieldError = projectFieldError({ name, description, color, icon, position });
     if (fieldError) return res.status(400).json({ error: fieldError });
@@ -159,7 +159,14 @@ app.put('/api/projects/:id', (req, res) => {
     }
     const lockError = lockedDeadlineError(req.params.id, deadline, deadline_fixed);
     if (lockError) return res.status(400).json({ error: lockError });
+    // A lock is on a date: none without one, and clearing the date clears it
+    // (a lock left on an empty date refused every later date).
+    const nextDeadline = deadline !== undefined ? deadline : before.deadline;
+    if (deadline_fixed === true && !nextDeadline) {
+        return res.status(400).json({ error: 'Only a project with a deadline can mark it as fixed.' });
+    }
     if (deadline_fixed !== undefined) { updates.push('deadline_fixed = ?'); values.push(deadline_fixed ? 1 : 0); }
+    else if (deadline === null) updates.push('deadline_fixed = 0');
     if (start_date !== undefined) { updates.push('start_date = ?'); values.push(start_date); }
     if (deadline !== undefined) { updates.push('deadline = ?'); values.push(deadline); }
     // Normalised on the way IN, not just on the way out. Storing a client

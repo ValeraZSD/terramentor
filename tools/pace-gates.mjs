@@ -503,6 +503,23 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             && r.json.project?.deadline === ahead(21) && r.json.project?.deadline_fixed === 0, show(r.json.project));
         r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(21), studyDays: [1, 2, 3, 4, 5], deadlineFixed: true });
         check('…and a schedule write may set the lock', r.status === 200 && r.json.project?.deadline_fixed === 1, show(r.json.project));
+        // The panel's path: untick, change the date, tick again, one Save.
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(28), studyDays: [1, 2, 3, 4, 5], deadlineFixed: true });
+        check('a write that names the lock may move the date and keep it locked', r.status === 200
+            && r.json.project?.deadline === ahead(28) && r.json.project?.deadline_fixed === 1, show(r.json.project));
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(21), studyDays: [1, 2, 3, 4, 5], deadlineFixed: false });
+        const bare = mkProject('No date yet');
+        r = await send('PUT', `/api/projects/${bare}`, { deadline_fixed: true });
+        check('a lock needs a date', r.status === 400
+            && db.prepare('SELECT deadline_fixed AS f FROM projects WHERE id = ?').get(bare).f === 0, show(r));
+        const cleared = mkProject('Dated then cleared');
+        db.prepare('UPDATE projects SET start_date = ?, deadline = ?, deadline_fixed = 1 WHERE id = ?').run(ago(5), ahead(10), cleared);
+        r = await send('PUT', `/api/projects/${cleared}`, { start_date: null, deadline: null, deadline_fixed: false });
+        r = await send('PUT', `/api/projects/${cleared}`, { deadline_fixed: true });
+        check('…and once its date is cleared, no lock can be set on nothing', r.status === 400, show(r));
+        db.prepare('UPDATE projects SET start_date = ?, deadline = ?, deadline_fixed = 1 WHERE id = ?').run(ago(5), ahead(10), cleared);
+        r = await send('PUT', `/api/projects/${cleared}`, { start_date: null, deadline: null });
+        check('clearing a locked date by a write that names no lock is refused (it is a move)', r.status === 400, show(r));
         // A course already under way: the window began 30 days ago. Laying every
         // topic out from the window's start would date open work in the past,
         // the "overdue on the day you planned it" fault.
