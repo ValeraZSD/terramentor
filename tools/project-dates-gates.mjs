@@ -92,6 +92,12 @@ const project = {
 const row = {
     id: 7, openLeaves: 3, firstScheduledStart: day(-10), lastScheduledEnd: day(30),
     pace: { paceStatus: 'falling_behind', expectedProgress: 40, actualProgress: 30, drift: -10, totalDays: 40 },
+    // The date judged against the learner's own pace: what the strip shows.
+    verdict: {
+        unit: 'topics', band: 'under_pace', early: false, open: 3, deadline: day(30), daysLeft: 30,
+        needed: 0.7, recent: 0, best: 2, bestStretch: null, fits: null, weeksOfData: 8, quietWeeks: 3,
+        ranges: { recent: null, best: null }, owner: 'learner', fixed: false, offers: [],
+    },
 };
 
 /** One strip, mounted; `write` decides what the store's writes answer. */
@@ -210,9 +216,14 @@ section('a screen reader hears the dates and the pace, not only a verb');
     const b = s.strip();
     const year = project.deadline.slice(0, 4);
     check('the strip has no aria-label hiding its text', !b.hasAttribute('aria-label'), b.getAttribute('aria-label') ?? '');
-    check('its text (its accessible name) carries the action, the range and the pace',
-        /Change the dates for/.test(b.textContent) && b.textContent.includes(year) && /days behind/.test(b.textContent), b.textContent);
-    check('…and the pace\'s reason, which was only a tooltip', /the plan expects/.test(b.textContent), b.textContent);
+    check('its text (its accessible name) carries the action, the range and the verdict',
+        /Change the dates for/.test(b.textContent) && b.textContent.includes(year) && /Under pace/.test(b.textContent), b.textContent);
+    // The reason was once only a tooltip; it is now a line of visible text.
+    const reason = s.w.document.querySelector('[data-verdict-line]');
+    check('…and the verdict\'s reason is visible text on the card, not a tooltip',
+        !!reason && /Needs .+ a week/.test(reason.textContent) && /Nothing closed for 3 weeks/.test(reason.textContent)
+            && ![...s.w.document.querySelectorAll('[title]')].some(e => /Needs/.test(e.getAttribute('title'))),
+        reason?.textContent ?? 'no [data-verdict-line]');
     s.close();
 }
 

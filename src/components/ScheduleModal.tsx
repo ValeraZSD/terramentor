@@ -1,296 +1,138 @@
-import { useState, useMemo, useEffect, useId, useRef } from 'react';
-import { useStore } from '../store';
-import { useDialogFocus } from '../hooks/useDialogFocus';
-import { todayStr, addDays, parseDate, getWorkLeaves } from '../utils/tree';
-import { Calendar, Target, Zap, AlertTriangle, CheckCircle, X, RefreshCw, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { k } from '../i18n';
-import { uiLocale, isoDayLabel } from '../utils/locale';
-import { paceHeadline as buildPaceHeadline } from '../utils/pace';
-import { countsInCards } from '../utils/projectShape';
+import { X } from 'lucide-react';
+import { useStore } from '../store';
+import { api } from '../api';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import { todayStr } from '../utils/tree';
+import { isoDayLabel } from '../utils/locale';
+import type { PaceData, PaceOffer, PaceVerdict } from '../types';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
-import ProgressBar, { type ProgressTone } from './ui/ProgressBar';
-
-interface SchedulePreset {
-    id: string;
-    label: string;
-    emojiStr: string;
-    studyDays: number[];
-    /** What a preset IS: how many topics a study day should carry. It picks the
-     *  deadline that lands that pace; the scheduler reads days, never hours. */
-    targetTopicsPerDay: number;
-    color: string;
-    bgColor: string;
-    borderColor: string;
-    description: string;
-    /** The study week alone: what the preset still sets once a deadline is fixed. */
-    week: string;
-}
-
-const PRESETS: SchedulePreset[] = [
-    {
-        id: 'casual',
-        label: k("Casual"),
-        emojiStr: '🌿',
-        // Three days a week, not five. A preset is a study WEEK plus a target
-        // pace, and against a deadline the learner has already fixed the week is
-        // the only half that can still change anything — so two presets sharing
-        // Mon-Fri showed the same "~0.5/day" twice and made the choice look inert.
-        studyDays: [1, 3, 5],
-        targetTopicsPerDay: 1.0,
-        color: 'text-emerald-700 dark:text-emerald-300',
-        bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
-        borderColor: 'border-emerald-200 dark:border-emerald-800',
-        description: k("1 topic/day · Mon/Wed/Fri"),
-        week: k("Mon/Wed/Fri"),
-    },
-    {
-        id: 'standard',
-        label: k("Standard"),
-        emojiStr: '📘',
-        studyDays: [1, 2, 3, 4, 5],
-        targetTopicsPerDay: 2.0,
-        color: 'text-blue-700 dark:text-blue-300',
-        bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-        borderColor: 'border-blue-200 dark:border-blue-800',
-        description: k("2 topics/day · Weekdays"),
-        week: k("Weekdays"),
-    },
-    {
-        id: 'intensive',
-        label: k("Intensive"),
-        emojiStr: '🔥',
-        studyDays: [1, 2, 3, 4, 5, 6],
-        targetTopicsPerDay: 3.0,
-        color: 'text-red-700 dark:text-red-300',
-        bgColor: 'bg-red-50 dark:bg-red-900/20',
-        borderColor: 'border-red-200 dark:border-red-800',
-        description: k("3 topics/day · Mon-Sat"),
-        week: k("Mon-Sat"),
-    },
-];
-
-function computePresetDeadline(
-    startDate: string,
-    leafCount: number,
-    studyDaysPerWeek: number,
-    targetTopicsPerDay: number
-): string {
-    if (leafCount === 0 || studyDaysPerWeek === 0) return '';
-    const totalStudyDays = Math.ceil(leafCount / targetTopicsPerDay);
-    const calendarDays = Math.ceil(totalStudyDays * (7 / studyDaysPerWeek));
-    return addDays(startDate, Math.max(calendarDays, 7));
-}
+import Checkbox from './Checkbox';
+import WeeklyChart from './plan/WeeklyChart';
+import { VerdictPill, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
 
 /**
- * How hard a pace is, in the only unit this app measures: topics per study day.
- * The thresholds are `allocateSchedule`'s own warning bands, so the dialog and
- * the server can never disagree about whether a plan is intense.
+ * The plan of one course: will the date work, what can be done if not, and the
+ * date itself. It replaced a dialog that judged the date against the dates it
+ * had written itself (so "Recalibrate" turned 75 days behind into 12 ahead with
+ * nothing studied) and offered three fixed paces nobody had measured.
+ *
+ * Everything it says comes from one verdict (`GET /api/projects/:id/pace`,
+ * server/paceModel.js): the pace the date needs, the learner's recent pace and
+ * their best four weeks. Offers are the server's, in its order; each states
+ * what it does before it is pressed. A date marked "Exam date, cannot move" is
+ * read-only here and is never offered a move.
+ *
+ * Writes go through ONE path, `POST /api/projects/:id/schedule` (the store's
+ * `scheduleProject`): the dates, the study days and the mark together, and the
+ * server lays a course under way out from today.
  */
-function paceLevel(topicsPerDay: number): { level: 'intense' | 'moderate' | 'comfortable'; label: string } {
-    if (topicsPerDay > 3) return { level: 'intense', label: k("Intense pace") };
-    if (topicsPerDay > 2) return { level: 'moderate', label: k("Moderate pace") };
-    return { level: 'comfortable', label: k("Comfortable pace") };
-}
-
 export default function ScheduleModal() {
     const { t } = useTranslation();
-    const showScheduleModal = useStore(s => s.showScheduleModal);
-    const scheduleModalProjectId = useStore(s => s.scheduleModalProjectId);
-    const setShowScheduleModal = useStore(s => s.setShowScheduleModal);
-    const scheduleProject = useStore(s => s.scheduleProject);
+    const num = useNumberFormat();
+    const open = useStore(s => s.showScheduleModal);
+    const projectId = useStore(s => s.scheduleModalProjectId);
+    const setOpen = useStore(s => s.setShowScheduleModal);
     const projects = useStore(s => s.projects);
-    const tree = useStore(s => s.tree);
-    const paceData = useStore(s => s.paceData);
-    const currentProjectId = useStore(s => s.currentProjectId);
-    const recalibrateSchedule = useStore(s => s.recalibrateSchedule);
+    const scheduleProject = useStore(s => s.scheduleProject);
     const removeSchedule = useStore(s => s.removeSchedule);
     const showConfirm = useStore(s => s.showConfirm);
+    const openPlacement = useStore(s => s.openPlacement);
+    const setWorkspaceView = useStore(s => s.setWorkspaceView);
+    const project = projects.find(p => p.id === projectId);
 
-    const project = projects.find(p => p.id === scheduleModalProjectId);
-
-    const [startDate, setStartDate] = useState(todayStr());
+    const today = todayStr();
+    const [start, setStart] = useState(today);
     const [deadline, setDeadline] = useState('');
-    const [studyDays, setStudyDays] = useState<number[]>([1, 2, 3, 4, 5]);
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState('');
-    const [activePreset, setActivePreset] = useState<string | null>(null);
-    const [actionLoading, setActionLoading] = useState<null | 'recalibrate' | 'remove'>(null);
+    const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
+    const [fixed, setFixed] = useState(false);
+    const [pace, setPace] = useState<PaceData | null>(null);
+    const [busy, setBusy] = useState<null | 'save' | 'plan' | 'remove'>(null);
 
-    // Initialise the form only when the modal opens (keyed on the project id, NOT
-    // the project object). Depending on `project` re-ran this whenever the projects
-    // array was refetched (e.g. NodeTree's 3s poll), silently resetting the user's
-    // in-progress Start Date / Deadline edits.
-    useEffect(() => {
-        if (!showScheduleModal) return;
-        const p = projects.find(pr => pr.id === scheduleModalProjectId);
-        if (!p) return;
-        if (p.start_date) setStartDate(p.start_date);
-        if (p.deadline) setDeadline(p.deadline);
-        if (p.study_days) {
-            try {
-                const parsed = JSON.parse(p.study_days);
-                if (Array.isArray(parsed) && parsed.length > 0) setStudyDays(parsed);
-            } catch { }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showScheduleModal, scheduleModalProjectId]);
-
-    // WORK leaves, not structural ones: the server dates a leaf only if it is
-    // not a slice of an imported deck's card order (`isWork`, scheduling.js), so
-    // counting the stages here recommended a deadline for work nobody would be
-    // given. ONE number behind the header, the three presets and the pace box.
-    const leafCount = useMemo(() => getWorkLeaves(tree).length, [tree]);
-
-    // A project measured in CARDS (the grid card's rule) is planned as a window
-    // and nothing else — `allocateCardWindow` dates no topic — so the topic
-    // count, the topics-per-day presets and Recalibrate have nothing to say to
-    // it. It is priced in cards per study day instead.
-    const num = useNumberFormat();
-    const cardCount = project?.card_count ?? 0;
-    const cardsOnly = !!project && countsInCards({ teaches: project.teaches, topics: project.topic_count, cards: cardCount });
-    const cardsToMeet = t("{{n}} cards to meet by the deadline", { count: cardCount, n: num(cardCount) });
-
-    /**
-     * This box classifies on topics per day, not on "utilization" (the share of
-     * your study time the work demands): that needs hours per topic, which
-     * nothing measures, so a headline such as "Over capacity" would be
-     * arithmetic on an invented number presented as a finding. Topics/day says
-     * less and is true.
-     */
-    const paceIndicator = useMemo(() => {
-        if (!deadline || !startDate || leafCount === 0) return null;
-        const start = parseDate(startDate);
-        const end = parseDate(deadline);
-        const totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        if (totalDays <= 0) return null;
-        const validDays = Math.max(1, Math.round(totalDays * (studyDays.length / 7)));
-
-        const topicsPerDay = leafCount / validDays;
-        const { level, label } = paceLevel(topicsPerDay);
-
-        const color = level === 'intense' ? 'text-red-500' : level === 'moderate' ? 'text-amber-500' : 'text-emerald-500';
-        const bg = level === 'intense' ? 'bg-red-50 dark:bg-red-900/20' : level === 'moderate' ? 'bg-amber-50 dark:bg-amber-900/20' : 'bg-emerald-50 dark:bg-emerald-900/20';
-        const emoji = level === 'intense' ? '🔴' : level === 'moderate' ? '🟡' : '🟢';
-
-        return {
-            level, color, bg, label, emoji,
-            topicsPerDay: Math.round(topicsPerDay * 10) / 10,
-            studyDayCount: validDays,
-            totalDays,
-        };
-    }, [startDate, deadline, studyDays, leafCount]);
-
-    /** The card-measured plan in its own unit: cards met per study day, the line
-     *  the pace is judged against. No verdict band — nothing in the app has
-     *  measured what a sustainable number of cards a day is. */
-    const cardPace = useMemo(() => {
-        if (!cardsOnly || !deadline || !startDate || cardCount === 0) return null;
-        const totalDays = Math.ceil((parseDate(deadline).getTime() - parseDate(startDate).getTime()) / (1000 * 60 * 60 * 24));
-        if (totalDays <= 0) return null;
-        const studyDayCount = Math.max(1, Math.round(totalDays * (studyDays.length / 7)));
-        return { perDay: Math.round((cardCount / studyDayCount) * 10) / 10, studyDayCount, totalDays };
-    }, [cardsOnly, startDate, deadline, studyDays, cardCount]);
-
-    const presetDeadlines = useMemo(() => {
-        const result: Record<string, string> = {};
-        for (const preset of PRESETS) {
-            result[preset.id] = computePresetDeadline(startDate, leafCount, preset.studyDays.length, preset.targetTopicsPerDay);
-        }
-        return result;
-    }, [startDate, leafCount]);
-
-    // When a deadline is already fixed (e.g. an exam date), a preset can only
-    // change the study DAYS - it must not silently push the exam out. So each
-    // preset then reports the pace its week would actually produce against that
-    // deadline, which is the number the learner is choosing between.
-    const presetPace = useMemo(() => {
-        const result: Record<string, { label: string; tone: string } | null> = {};
-        const start = deadline ? parseDate(startDate) : null;
-        const end = deadline ? parseDate(deadline) : null;
-        const totalDays = start && end ? Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) : 0;
-        for (const p of PRESETS) {
-            if (!deadline || leafCount === 0 || totalDays <= 0) { result[p.id] = null; continue; }
-            const validDays = Math.max(1, Math.round(totalDays * (p.studyDays.length / 7)));
-            const perDay = leafCount / validDays;
-            const { level } = paceLevel(perDay);
-            result[p.id] = {
-                label: t("~{{perDay}}/day", { perDay: Math.round(perDay * 10) / 10 }),
-                tone: level === 'intense' ? 'text-red-500' : level === 'moderate' ? 'text-amber-500' : 'text-emerald-500',
-            };
-        }
-        return result;
-        // `t` is listed because the label is a translated string: without it the
-        // pace stayed in whatever language was set when the dialog first opened.
-    }, [startDate, deadline, leafCount, t]);
-
-    useEffect(() => {
-        // A preset is its study days AND the deadline they were chosen to hit.
-        // Matching on the days alone cannot work now that hours are gone: Casual
-        // and Standard are both Mon-Fri and differ only in the pace, i.e. in the
-        // deadline. A hand-picked deadline simply matches no preset, which is the
-        // truth rather than a highlight on whichever one sorted first.
-        const daysMatch = (p: SchedulePreset) =>
-            JSON.stringify([...p.studyDays].sort()) === JSON.stringify([...studyDays].sort());
-        const matching = PRESETS.find(p => daysMatch(p) && deadline === presetDeadlines[p.id]);
-        setActivePreset(matching?.id ?? null);
-    }, [studyDays, deadline, presetDeadlines]);
-
-    // `Modal`'s contract: a name, focus in, Tab kept inside, Escape only while
-    // this is the topmost dialog (the Remove schedule confirm opens over it, and
-    // one press closes one dialog), the counted scroll lock, focus back to the
-    // button that opened it. It had none of it but the Escape.
     const dialogRef = useRef<HTMLDivElement>(null);
+    const deadlineRef = useRef<HTMLInputElement>(null);
     const titleId = useId();
-    useDialogFocus(showScheduleModal, dialogRef, { onEscape: () => setShowScheduleModal(false) });
+    // The panel is read first and edited second: opening on the start-date
+    // field put a caret and a selected "07" in the middle of the verdict.
+    const closeRef = useRef<HTMLButtonElement>(null);
+    useDialogFocus(open, dialogRef, { onEscape: () => setOpen(false), initialFocus: closeRef });
 
-    // Seven labels from one source, so the row cannot be half English again.
-    const DAY_LABELS = [1, 2, 3, 4, 5, 6, 7].map(iso => ({ iso, label: isoDayLabel(iso) }));
+    const savedDays = (() => {
+        try {
+            const d = JSON.parse(project?.study_days || '[1,2,3,4,5]');
+            return Array.isArray(d) && d.length ? (d as number[]) : [1, 2, 3, 4, 5];
+        } catch { return [1, 2, 3, 4, 5]; }
+    })();
+    const savedFixed = !!project?.deadline_fixed;
 
-    function toggleStudyDay(iso: number) {
-        setStudyDays(prev => prev.includes(iso) ? prev.filter(d => d !== iso) : [...prev, iso].sort());
+    // The form is filled when the panel opens for a project, keyed on its id:
+    // the projects list is re-read often, and filling on every read reset what
+    // was being typed.
+    useEffect(() => {
+        if (!open || !project) return;
+        setStart(project.start_date || today);
+        setDeadline(project.deadline || '');
+        setDays(savedDays);
+        setFixed(savedFixed);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, projectId]);
+
+    // Only the newest request may fill the panel: closing on one course and
+    // opening another let the first answer land late under the second name.
+    const paceRequest = useRef(0);
+    const loadPace = () => {
+        if (!projectId) return;
+        const n = ++paceRequest.current;
+        api.getProjectPace(projectId).then(
+            d => { if (paceRequest.current === n) setPace(d); },
+            () => { if (paceRequest.current === n) setPace(null); },
+        );
+    };
+    useEffect(() => {
+        paceRequest.current++;
+        setPace(null);
+        if (open) loadPace();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, projectId]);
+
+    if (!open || !project) return null;
+
+    const hasDate = !!(project.start_date && project.deadline);
+    const verdict: PaceVerdict | null = hasDate ? pace?.verdict ?? null : null;
+    const dirty = start !== (project.start_date || today)
+        || deadline !== (project.deadline || '')
+        || fixed !== savedFixed
+        || [...days].sort().join() !== [...savedDays].sort().join();
+    const reversed = !!start && !!deadline && start > deadline;
+    // The date stays where it is while it carries the mark, here as on the
+    // server: taking the mark off is what lets it move.
+    const deadlineLocked = savedFixed && fixed;
+    const canSave = dirty && !!start && !!deadline && !reversed && days.length > 0 && busy === null;
+
+    async function save() {
+        if (!projectId || !canSave) return;
+        setBusy('save');
+        const ok = await scheduleProject(projectId, { startDate: start, deadline, studyDays: days, deadlineFixed: fixed });
+        setBusy(null);
+        if (ok) loadPace();
     }
 
-    function applyPreset(preset: SchedulePreset) {
-        setStudyDays([...preset.studyDays]);
-        // Only propose a deadline when none is set. If one already exists (e.g.
-        // an exam date) keep it - the preset then only sets the study week, and
-        // the chip under it says what pace that produces.
-        if (!deadline) setDeadline(presetDeadlines[preset.id]);
-        setError('');
+    async function planWeekly() {
+        if (!projectId || !project?.start_date || !project.deadline) return;
+        setBusy('plan');
+        const ok = await scheduleProject(projectId, {
+            startDate: project.start_date, deadline: project.deadline, studyDays: savedDays, deadlineFixed: savedFixed,
+        });
+        setBusy(null);
+        if (ok) loadPace();
     }
 
-    function formatDeadlineShort(dateStr: string): string {
-        if (!dateStr) return '';
-        // parseDate yields a UTC-midnight Date; format in UTC so the label can't
-        // drift to the previous day in negative-offset timezones.
-        return parseDate(dateStr).toLocaleDateString(uiLocale(), { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    }
-
-    async function handleSubmit() {
-        if (!scheduleModalProjectId) return;
-        if (!startDate || !deadline) { setError('Please set both start date and deadline.'); return; }
-        if (studyDays.length === 0) { setError('Please select at least one study day.'); return; }
-        setSubmitting(true);
-        setError('');
-        const success = await scheduleProject(scheduleModalProjectId, { startDate, deadline, studyDays });
-        setSubmitting(false);
-        if (success) setShowScheduleModal(false);
-    }
-
-    async function handleRecalibrate() {
-        if (!scheduleModalProjectId) return;
-        setActionLoading('recalibrate');
-        await recalibrateSchedule(scheduleModalProjectId);
-        setActionLoading(null);
-        setShowScheduleModal(false);
-    }
-
-    async function handleRemove() {
-        if (!scheduleModalProjectId) return;
+    async function remove() {
+        if (!projectId) return;
         const confirmed = await showConfirm({
             title: t("Remove schedule"),
             message: t("Remove this project's dates? Its topics lose their planned days. Your progress is not affected."),
@@ -298,67 +140,82 @@ export default function ScheduleModal() {
             variant: 'warning',
         });
         if (!confirmed) return;
-        setActionLoading('remove');
-        await removeSchedule(scheduleModalProjectId);
-        setActionLoading(null);
-        setShowScheduleModal(false);
+        setBusy('remove');
+        const ok = await removeSchedule(projectId);
+        setBusy(null);
+        if (ok) setOpen(false);
     }
 
-    if (!showScheduleModal) return null;
-
-    const isEditing = !!(project?.start_date && project?.deadline);
-    const busy = submitting || actionLoading !== null;
-
-    // Live pace for THIS project (paceData tracks the current workspace project).
-    const pace = (isEditing && paceData?.hasSchedule && scheduleModalProjectId === currentProjectId)
-        ? paceData
-        : null;
-    const paceOffsetDays = (pace && pace.drift != null && pace.totalDays)
-        ? -Math.round((pace.drift / 100) * pace.totalDays)
-        : 0;
-    const paceStatusText: Record<string, string> = {
-        ahead: 'text-emerald-600 dark:text-emerald-400',
-        on_track: 'text-blue-600 dark:text-blue-400',
-        falling_behind: 'text-amber-600 dark:text-amber-400',
-        critical: 'text-red-600 dark:text-red-400',
-        no_schedule: 'text-slate-500 dark:text-slate-400',
-        no_tasks: 'text-slate-500 dark:text-slate-400',
+    const offerRow = (offer: PaceOffer, v: PaceVerdict) => {
+        const date = v.deadline ? shortDay(v.deadline, today) : '';
+        switch (offer.kind) {
+            // A deck has no topics to choose between or to lay out: what it
+            // can do is meet new cards, which the sentence above already prices.
+            case 'fit_subset':
+                if (v.unit === 'cards') return null;
+                return {
+                    key: offer.kind,
+                    title: t("Study the {{n}} topics that fit", { count: offer.count, n: num(offer.count) }),
+                    body: t("At your best pace {{fits}} of the {{open}} fit before {{date}}. Pick them in the outline and skip the rest.", {
+                        count: offer.count, fits: num(offer.count), open: num(v.open), date,
+                    }),
+                    action: t("Choose topics"),
+                    run: () => { setWorkspaceView('tree'); setOpen(false); },
+                };
+            case 'plan_weekly':
+                if (v.unit === 'cards') return null;
+                return {
+                    key: offer.kind,
+                    // The same rounding as "That is N a week" above: the
+                    // offer's own whole-number ceiling read 9 beside an 8.
+                    title: t("Plan {{n}} a week", { n: num(perWeek(v.needed)) }),
+                    body: t("Lays the {{open}} open topics out from today to {{date}}, on your study days.", { open: num(v.open), date }),
+                    action: t("Plan it"),
+                    // With an edit open, laying the topics out IS saving it
+                    // (the one write path re-lays from today), so the button
+                    // saves what was typed rather than going dead with no
+                    // reason given.
+                    run: dirty ? save : planWeekly,
+                    disabled: dirty && !canSave,
+                    busy: busy === 'plan' || (dirty && busy === 'save'),
+                };
+            case 'check_known':
+                return {
+                    key: offer.kind,
+                    title: t("Check what you already know"),
+                    body: t("A topic you pass is closed without studying it."),
+                    action: t("Start check"),
+                    run: () => { setOpen(false); openPlacement(project.id, project.name); },
+                };
+            case 'move_date': {
+                const { recent, best } = v.ranges;
+                const span = (r: { from: string; to: string }) => ({ from: shortDay(r.from, today), to: shortDay(r.to, today) });
+                return {
+                    key: offer.kind,
+                    title: t("Move the date"),
+                    body: recent
+                        ? t("At your recent pace everything is done between {{from}} and {{to}}.", span(recent))
+                        : best
+                            ? t("At your best pace everything is done between {{from}} and {{to}}.", span(best))
+                            : t("Pick a date your pace can reach."),
+                    action: t("Change date"),
+                    run: () => deadlineRef.current?.focus(),
+                };
+            }
+            // Pausing the other courses needs one plan across the library,
+            // which does not exist yet: it is not offered until it does.
+            default:
+                return null;
+        }
     };
-    const paceBarFill: Record<string, ProgressTone> = {
-        ahead: 'success',
-        on_track: 'info',
-        falling_behind: 'warning',
-        critical: 'danger',
-        no_schedule: 'neutral',
-        no_tasks: 'neutral',
-    };
-    // Recalibrating spreads the open TOPICS from today; a card-measured plan has
-    // none (the server refuses it), so behind is fixed by changing the dates.
-    const paceNeedsRecalibrate = !cardsOnly && (pace?.paceStatus === 'falling_behind' || pace?.paceStatus === 'critical');
+    const offers = verdict ? verdict.offers.map(o => offerRow(o, verdict)).filter(o => o != null) : [];
 
-    // Single, non-redundant pace headline. The raw server `message` (used on the
-    // dashboard) repeats the day count already shown as the offset badge and
-    // tacks on "consider recalibrating" — which duplicates the Recalibrate
-    // button beside it. Here we derive one clean phrase from the same offset.
-    const paceOffsetAbs = Math.abs(paceOffsetDays);
-    const isBehind = pace?.paceStatus === 'falling_behind' || pace?.paceStatus === 'critical';
-    // One translated sentence for every surface that says how far off the plan
-    // a project is: this copy built its own English with an appended "s".
-    const headline = !pace ? '' : buildPaceHeadline(pace.paceStatus, paceOffsetAbs, t, { terse: true });
-    const PaceTrendIcon = !pace
-        ? null
-        : pace.paceStatus === 'ahead'
-            ? TrendingUp
-            : pace.paceStatus === 'on_track'
-                ? CheckCircle
-                : TrendingDown;
-    // Gap between where the plan expects you and where you are (points of progress).
-    const paceGap = pace ? pace.expectedProgress - pace.actualProgress : 0;
+    const label = 'text-sm font-medium text-slate-700 dark:text-slate-300';
 
     return (
         <div
             className="fixed inset-0 z-50 flex items-center justify-center safe-p-0 bg-black/50"
-            onClick={(e) => { if (e.target === e.currentTarget) setShowScheduleModal(false); }}
+            onClick={e => { if (e.target === e.currentTarget) setOpen(false); }}
         >
             <div
                 ref={dialogRef}
@@ -366,257 +223,132 @@ export default function ScheduleModal() {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
-                className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 ${DIALOG_SHELL} outline-none`}
+                data-dialog="plan"
+                className={`bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 ${DIALOG_SHELL} outline-none`}
             >
-                <div className="shrink-0 px-6 pt-6 pb-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center">
-                                <Calendar className="w-5 h-5 text-accent-fg" />
-                            </div>
-                            <div>
-                                <h2 id={titleId} className="text-lg font-semibold text-slate-900 dark:text-white">
-                                    {isEditing ? t("Edit Schedule") : t("Set the schedule")}
-                                </h2>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">
-                                    {project?.name || t("Set your study timeline")}
-                                </p>
-                            </div>
-                        </div>
-                        <IconButton size="sm" onClick={() => setShowScheduleModal(false)} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
+                <div className="shrink-0 flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-slate-200 dark:border-slate-700">
+                    <div className="min-w-0">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">{t("Plan")}</p>
+                        {/* Two lines at most: a long course name took three on a
+                            phone, a fifth of the screen above a scrolling body. */}
+                        <h2 id={titleId} title={project.name} className="text-lg font-semibold text-slate-900 dark:text-white line-clamp-2">{project.name}</h2>
                     </div>
-                    {(cardsOnly ? cardCount > 0 : leafCount > 0) && (
-                        <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
-                            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                                <Target className="w-4 h-4" />
-                                {cardsOnly
-                                    ? <span>{cardsToMeet}</span>
-                                    : <span><strong>{leafCount}</strong> {t("topics to schedule")}</span>}
-                            </div>
-                        </div>
-                    )}
+                    <IconButton ref={closeRef} size="sm" onClick={() => setOpen(false)} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} className="-mr-1.5" />
                 </div>
 
-                <div className={`${DIALOG_BODY} px-6 pb-4 space-y-5`}>
-                    {pace && (
-                        <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40">
-                            <div className="flex items-center justify-between gap-2 mb-2.5">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                    {PaceTrendIcon && (
-                                        <PaceTrendIcon className={`w-4 h-4 shrink-0 ${paceStatusText[pace.paceStatus] || paceStatusText.no_schedule}`} />
-                                    )}
-                                    <span className={`text-sm font-semibold truncate ${paceStatusText[pace.paceStatus] || paceStatusText.no_schedule}`}>
-                                        {headline}
-                                    </span>
-                                </div>
-                                {paceNeedsRecalibrate && (
-                                    <Button
-                                        size="sm"
-                                        onClick={handleRecalibrate}
-                                        disabled={busy}
-                                        className="shrink-0"
-                                        title={t("Reschedule remaining topics from today")}
-                                        icon={<RefreshCw className={`w-4 h-4 ${actionLoading === 'recalibrate' ? 'animate-spin' : ''}`} aria-hidden="true" />}
-                                    >
-                                        {t("Recalibrate")}
-                                    </Button>
-                                )}
-                            </div>
-                            <div className="space-y-1.5">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-2xs text-slate-500 dark:text-slate-400 w-16 shrink-0">{t("Expected")}</span>
-                                    <ProgressBar value={pace.expectedProgress} tone="neutral" decorative className="flex-1" />
-                                    <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{pace.expectedProgress}%</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-2xs text-slate-500 dark:text-slate-400 w-16 shrink-0">{t("Completed")}</span>
-                                    <ProgressBar value={pace.actualProgress} tone={paceBarFill[pace.paceStatus] || paceBarFill.no_schedule} decorative className="flex-1" />
-                                    <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400 w-9 text-right">{pace.actualProgress}%</span>
-                                </div>
-                                {isBehind && paceGap > 0 && (
-                                    <p className="text-2xs text-slate-500 dark:text-slate-400 pl-[4.5rem]">
-                                        {t("{{paceGap}}% gap to close", { paceGap })}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    )}
-                    {/* The presets are paces in TOPICS a day; a card-measured
-                        project has no topics to pace. */}
-                    {!cardsOnly && (
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                            {t("Quick Setup")}
-                        </label>
-                        {/* Against a fixed deadline the three cards differ in
-                            their WEEK only, so Casual's three days carry more
-                            per day than Intensive's six. True, and it reads as
-                            a bug under "1 topic/day" and "3 topics/day", so the
-                            cards then show the week alone and this says why. */}
-                        {deadline && leafCount > 0 && (
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
-                                {t("The deadline is set, so a preset only changes your study days: fewer days means more topics on each.")}
+                <div className={`${DIALOG_BODY} px-6 py-5 space-y-6`}>
+                    {verdict && (
+                        <section aria-labelledby={`${titleId}-verdict`} className="space-y-2">
+                            <VerdictPill verdict={verdict} t={t} />
+                            <h3 id={`${titleId}-verdict`} className="text-xl font-semibold text-slate-900 dark:text-white">
+                                {verdictHeadline(verdict, t, today)}
+                            </h3>
+                            <p className="text-sm text-slate-600 dark:text-slate-300 max-w-prose">
+                                {verdictSentences(verdict, t, num, today).join(' ')}
                             </p>
-                        )}
-                        <div className="grid grid-cols-3 gap-2">
-                            {PRESETS.map(preset => {
-                                const isActive = activePreset === preset.id;
-                                const dl = presetDeadlines[preset.id];
-                                const fit = presetPace[preset.id];
-                                return (
-                                    <button data-tile="pace-preset"
-                                        key={preset.id}
-                                        onClick={() => applyPreset(preset)}
-                                        className={`relative p-3 rounded-xl border-2 text-left transition-all ${isActive
-                                                ? `${preset.borderColor} ${preset.bgColor} ring-2 ring-offset-1 ring-current`
-                                                : 'border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                                            }`}
-                                    >
-                                        {isActive && (
-                                            <div className={`absolute top-1.5 right-1.5 w-4 h-4 rounded-full ${preset.id === 'casual' ? 'bg-emerald-500' : preset.id === 'standard' ? 'bg-blue-500' : 'bg-red-500'
-                                                } flex items-center justify-center`}>
-                                                <CheckCircle className="w-3 h-3 text-white" />
-                                            </div>
-                                        )}
-                                        <div className="text-lg mb-1">{preset.emojiStr}</div>
-                                        <p className={`text-sm font-semibold ${isActive ? preset.color : 'text-slate-800 dark:text-slate-100'}`}>
-                                            {t(preset.label)}
-                                        </p>
-                                        <p className="text-2xs text-slate-500 dark:text-slate-400 mt-0.5 leading-tight">
-                                            {fit ? t(preset.week) : t(preset.description)}
-                                        </p>
-                                        {leafCount > 0 && (
-                                            fit ? (
-                                                <p className={`text-2xs font-medium mt-1.5 ${fit.tone}`}>
-                                                    {fit.label}
-                                                </p>
-                                            ) : dl ? (
-                                                <p className={`text-2xs font-medium mt-1.5 ${isActive ? preset.color : 'text-slate-500 dark:text-slate-400'}`}>
-                                                    {t("done ~{{deadlineShort}}", { deadlineShort: formatDeadlineShort(dl) })}
-                                                </p>
-                                            ) : null
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
+                        </section>
+                    )}
+                    {!hasDate && (
+                        <p className="text-sm text-slate-600 dark:text-slate-300 max-w-prose">
+                            {t("Pick the date you want this course done by. The app then compares it with your own pace.")}
+                        </p>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor={`${titleId}-start`} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Start Date")}</label>
-                            <TextInput
-                                id={`${titleId}-start`}
-                                type="date"
-                                value={startDate}
-                                onChange={e => setStartDate(e.target.value)}
-                            />
-                        </div>
-                        <div>
-                            <label htmlFor={`${titleId}-deadline`} className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{t("Deadline")}</label>
-                            <TextInput
-                                id={`${titleId}-deadline`}
-                                type="date"
-                                value={deadline}
-                                onChange={e => setDeadline(e.target.value)}
-                                min={startDate}
-                            />
-                        </div>
-                    </div>
+                    {verdict && pace?.learnerPace && pace.learnerPace.weeksOfData > 0 && (
+                        <WeeklyChart pace={pace.learnerPace} needed={verdict.needed} band={verdict.band} unit={verdict.unit} />
+                    )}
 
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t("Study Days")}</label>
-                        <div className="flex justify-evenly">
-                            {DAY_LABELS.map(({ iso, label }) => (
+                    {offers.length > 0 && (
+                        <section aria-labelledby={`${titleId}-offers`}>
+                            <h3 id={`${titleId}-offers`} className={`${label} mb-2`}>{t("What you can do")}</h3>
+                            <ul className="rounded-xl border border-slate-200 dark:border-slate-700 divide-y divide-slate-200 dark:divide-slate-700">
+                                {offers.map(o => (
+                                    <li key={o.key} data-offer={o.key} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                                        <div className="min-w-[12rem] flex-1">
+                                            <p className="text-sm font-medium text-slate-900 dark:text-white">{o.title}</p>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">{o.body}</p>
+                                        </div>
+                                        <Button onClick={o.run} disabled={o.disabled || busy !== null} busy={o.busy} className="shrink-0 min-w-[9rem]">
+                                            {o.action}
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+
+                    <section aria-labelledby={`${titleId}-dates`} className="space-y-3">
+                        <h3 id={`${titleId}-dates`} className={label}>{t("Dates")}</h3>
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
+                            <div>
+                                <label htmlFor={`${titleId}-start`} className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t("Start Date")}</label>
+                                <TextInput id={`${titleId}-start`} type="date" value={start} max={deadline || undefined}
+                                    aria-invalid={reversed || undefined} onChange={e => setStart(e.target.value)} />
+                            </div>
+                            <div>
+                                <label htmlFor={`${titleId}-deadline`} className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t("Deadline")}</label>
+                                <TextInput ref={deadlineRef} id={`${titleId}-deadline`} type="date" value={deadline} min={start || undefined}
+                                    // Read-only, not disabled: a disabled field greys the
+                                    // very date the mark protects until it cannot be read.
+                                    readOnly={deadlineLocked} aria-invalid={reversed || undefined}
+                                    aria-describedby={deadlineLocked ? `${titleId}-locked` : undefined}
+                                    onChange={e => setDeadline(e.target.value)} />
+                            </div>
+                        </div>
+                        <label className="flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+                            <Checkbox checked={fixed} onChange={setFixed} disabled={!deadline} className="mt-0.5" aria-describedby={fixed ? `${titleId}-locked` : undefined} />
+                            <span>
+                                {t("Exam date, cannot move")}
+                                {/* Only while ticked: "untick it" beside an empty box
+                                    told the reader to do what was already done.
+                                    Hidden from the label's name, read once as the
+                                    box's description (a reference reads hidden text). */}
+                                {fixed && (
+                                    <span id={`${titleId}-locked`} aria-hidden="true" className="block text-xs text-slate-500 dark:text-slate-400">
+                                        {t("The app never offers to move it. Untick it to change the date.")}
+                                    </span>
+                                )}
+                            </span>
+                        </label>
+                        {reversed && (
+                            <p role="alert" className="text-sm text-red-700 dark:text-red-400">{t("The deadline is before the start.")}</p>
+                        )}
+                    </section>
+
+                    <section aria-labelledby={`${titleId}-days`}>
+                        <h3 id={`${titleId}-days`} className={`${label} mb-2`}>{t("Study Days")}</h3>
+                        {/* Seven columns that share the width: a wrapping row
+                            left Sunday alone on a second line on a phone. */}
+                        <div className="grid grid-cols-7 gap-1.5 max-w-sm">
+                            {[1, 2, 3, 4, 5, 6, 7].map(iso => (
                                 <button
                                     key={iso}
                                     type="button"
                                     data-day-toggle
-                                    aria-pressed={studyDays.includes(iso)}
-                                    onClick={() => toggleStudyDay(iso)}
-                                    className={`w-10 h-10 rounded-lg text-sm font-medium transition-all ${studyDays.includes(iso)
+                                    aria-pressed={days.includes(iso)}
+                                    onClick={() => setDays(d => d.includes(iso) ? d.filter(x => x !== iso) : [...d, iso].sort())}
+                                    className={`w-full h-10 touch:h-11 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${days.includes(iso)
                                         ? 'bg-accent/10 text-accent-fg ring-1 ring-inset ring-accent/50'
-                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600'
-                                        }`}
+                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-200 dark:can-hover:hover:bg-slate-600'}`}
                                 >
-                                    {label}
+                                    {isoDayLabel(iso)}
                                 </button>
                             ))}
                         </div>
-                    </div>
-
-                    {/* No hours-per-day slider. It set a project column the
-                        allocator multiplied in and divided straight back out, so
-                        it never moved a date; what it did do was let this dialog
-                        price the work in hours at an invented 1.5h per topic.
-                        How long a topic takes is the learner's to judge. */}
-
-                    {cardPace && (
-                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 text-sm text-slate-500 dark:text-slate-400">
-                            <div className="font-medium text-slate-700 dark:text-slate-200">
-                                {t("~{{perDay}} cards per study day", { perDay: num(cardPace.perDay) })}
-                            </div>
-                            <div>
-                                {t("{{cards}} cards · {{studyDayCount}} study days · {{totalDays}} days in all", {
-                                    cards: num(cardCount), studyDayCount: num(cardPace.studyDayCount), totalDays: num(cardPace.totalDays),
-                                })}
-                            </div>
-                        </div>
-                    )}
-
-                    {!cardsOnly && paceIndicator && (
-                        <div className={`p-3 rounded-lg ${paceIndicator.bg} flex items-start gap-2`}>
-                            <span className="text-lg leading-none mt-0.5">{paceIndicator.emoji}</span>
-                            <div className="min-w-0">
-                                <div className={`text-sm font-medium ${paceIndicator.color}`}>{t(paceIndicator.label)}</div>
-                                <div className="text-sm text-slate-500 dark:text-slate-400">
-                                    ~<strong>{paceIndicator.topicsPerDay}</strong> {t("topics per study day")}
-                                </div>
-                                <div className="text-sm text-slate-500 dark:text-slate-400">
-                                    {t("{{leafCount}} topics · {{studyDayCount}} study days · {{totalDays}} days in all", { leafCount, studyDayCount: paceIndicator.studyDayCount, totalDays: paceIndicator.totalDays })}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {error && (
-                        <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm rounded-lg">
-                            <AlertTriangle className="w-4 h-4 shrink-0" />
-                            {error}
-                        </div>
-                    )}
+                    </section>
                 </div>
 
                 <div className="shrink-0 px-6 py-4 bg-slate-50 dark:bg-slate-700/30 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-3">
                     <div>
-                        {isEditing && (
-                            <Button
-                                variant="quiet"
-                                onClick={handleRemove}
-                                disabled={busy}
-                                title={t("Remove schedule from this project")}
-                                aria-label={t("Remove schedule from this project")}
-                                className="touch:min-w-11"
-                                icon={<Trash2 className={`w-4 h-4 ${actionLoading === 'remove' ? 'animate-pulse' : ''}`} aria-hidden="true" />}
-                            >
-                                <span className="hidden sm:inline">{t("Remove schedule")}</span>
+                        {hasDate && !savedFixed && (
+                            <Button variant="quiet" onClick={remove} disabled={busy !== null} busy={busy === 'remove'}>
+                                {t("Remove schedule")}
                             </Button>
                         )}
                     </div>
-                    <div className="flex items-center gap-3">
-                    <Button variant="quiet" onClick={() => setShowScheduleModal(false)}>
-                        {t("Cancel")}
+                    <Button variant="primary" onClick={save} disabled={!canSave} busy={busy === 'save'}>
+                        {t("Save")}
                     </Button>
-                    <Button
-                        variant="primary"
-                        onClick={handleSubmit}
-                        disabled={busy || !deadline || studyDays.length === 0}
-                        busy={submitting}
-                    >
-                        {submitting ? t("Generating...") : isEditing ? t("Regenerate Schedule") : t("Generate Schedule")}
-                    </Button>
-                    </div>
                 </div>
             </div>
         </div>

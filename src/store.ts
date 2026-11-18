@@ -909,7 +909,6 @@ interface AppState {
     setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
-    recalibrateSchedule: (projectId: number) => Promise<boolean>;
     removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
@@ -2621,41 +2620,15 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
+            // The allocator's English pace warnings ("Pace is very intense…")
+            // are not shown: the plan panel's verdict says whether the date
+            // works, measured against the learner's own pace.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            get().addToast('success', i18n.t('Schedule generated successfully'));
-            set({ showScheduleModal: false });
+            get().addToast('success', i18n.t('Plan saved'));
             return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to generate schedule'), e.message);
-            return false;
-        }
-    },
-
-    recalibrateSchedule: async (projectId) => {
-        try {
-            const result = await api.recalibrateSchedule(projectId);
-            if (!result.success) {
-                if (result.suggestedDeadline) get().addToast('info', i18n.t('Deadline Suggestion'), i18n.t('Consider extending deadline to {{date}}', { date: result.suggestedDeadline }));
-                get().addToast('error', i18n.t('Recalibration failed'), result.error);
-                return false;
-            }
-            if (result.unchanged) { get().addToast('success', i18n.t('All tasks completed!')); return true; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
-            await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            // Recalibrating (from a workspace) reshapes the feed's focus — rebuild
-            // the stream if the user is currently on the home page.
-            if (get().view === 'today') await get().loadFeed();
-            get().addToast('success', i18n.t('Schedule recalibrated from today'));
-            return true;
-        } catch (e: any) {
-            get().addToast('error', i18n.t('Failed to recalibrate schedule'), e.message);
             return false;
         }
     },

@@ -1133,11 +1133,9 @@ export const api = {
                 startDate: config.startDate,
                 deadline: config.deadline,
                 studyDays: config.studyDays,
+                deadlineFixed: config.deadlineFixed,
             }),
         }),
-
-    recalibrateSchedule: (projectId: number) =>
-        request<ScheduleResult>(`/projects/${projectId}/recalibrate`, { method: 'POST' }),
 
     getProjectPace: (projectId: number) =>
         request<PaceData>(`/projects/${projectId}/pace`),

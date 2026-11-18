@@ -105,7 +105,7 @@ export default function ProjectsGrid() {
         } catch { /* the cards keep their dates; the pills wait for the next load */ }
     }, []);
     const scheduleKey = [...projects].sort((a, b) => a.id - b.id)
-        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.completed_topic_count}:${p.progress_fraction}`)
+        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.deadline_fixed}:${p.completed_topic_count}:${p.progress_fraction}`)
         .join(',');
     useEffect(() => { void loadSchedule(); }, [loadSchedule, scheduleKey]);
 
