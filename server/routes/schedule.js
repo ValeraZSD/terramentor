@@ -255,6 +255,10 @@ app.delete('/api/projects/:id/schedule', (req, res) => {
     if (!requireProject(req, res)) return;
 
     try {
+        // A date marked "cannot move" is not removed either: the mark comes
+        // off first, as it must before any other change to the date.
+        const lockError = lockedDeadlineError(id, null, undefined);
+        if (lockError) return res.status(409).json({ error: lockError });
         // Window, node dates and baseline go; the study week stays (see
         // `removeSchedule` in server/scheduling.js).
         const { nodesCleared } = removeSchedule(id);

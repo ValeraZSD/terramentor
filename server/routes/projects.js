@@ -61,7 +61,7 @@ app.get('/api/projects/:id', (req, res) => {
     // here made one archived project's detail 133 kB of a 134 kB reply.
     const project = db.prepare(`
         SELECT id, name, description, summary, color, icon, position, ai_generating,
-               start_date, deadline, study_days, status,
+               start_date, deadline, deadline_fixed, study_days, status,
                created_at, updated_at
         FROM projects WHERE id = ?
     `).get(req.params.id);

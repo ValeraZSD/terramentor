@@ -768,7 +768,8 @@ export function relayOpenTopics(projectId, { deadline, studyDays }) {
 
 /** Writes a re-lay: open topics get their new dates, closed ones keep theirs. */
 export function writeRelay(projectId, assignments) {
-    const setDates = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`);
+    // A note is never scheduled (the leaf rule), whatever layout is handed in.
+    const setDates = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_note = 0`);
     const clear = db.prepare(`UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?`);
     db.transaction(() => {
         clear.run(projectId);
