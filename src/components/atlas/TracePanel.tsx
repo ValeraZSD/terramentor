@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { IconButton } from '../ui/Button';
 import Reveal from '../ui/Reveal';
 import { uiLocale } from '../../utils/locale';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Course, CourseTrace, JourneyTimeline, journeyTimeline } from './coursePaths';
 import { CHROME_SURFACE } from './chromeSurface';
 import { PROGRESS_TRACK } from '../ui/ProgressBar';
@@ -101,6 +102,7 @@ export default function TracePanel({
     onOpenSettings, closeRef,
 }: Props) {
     const { t: tr } = useTranslation();
+    const num = useNumberFormat();
     const steps = trace?.journey.length ?? 0;
     const stepAt = step == null ? steps : step;
     const headId = trace && stepAt > 0 ? trace.journey[stepAt - 1] : null;
@@ -164,7 +166,7 @@ export default function TracePanel({
                 tr("Nothing finished here yet — this course's topics are the lit ones.")
             ) : step == null ? (
                 <>
-                    {tr("{{steps}} finished", { steps })}
+                    {tr("{{steps}} finished", { steps: num(steps) })}
                     {/* The bar already ends on "Last <date>"; the same date
                         twice in one panel is one too many. */}
                     {!timeline && trace.points.get(trace.journey[steps - 1])?.topic.completedAt
@@ -185,8 +187,8 @@ export default function TracePanel({
                     {/* "4/36" is a count to LOOK at; said aloud it is two numbers
                         with no noun, so a screen reader gets the sentence. */}
                     <span className="tabular-nums">
-                        <span aria-hidden="true">{stepAt}/{steps}</span>
-                        <span className="sr-only">{tr("Step {{at}} of {{steps}}", { at: stepAt, steps })}</span>
+                        <span aria-hidden="true">{num(stepAt)}/{num(steps)}</span>
+                        <span className="sr-only">{tr("Step {{at}} of {{steps}}", { at: num(stepAt), steps: num(steps) })}</span>
                     </span>
                     {head?.completedAt && (
                         <span className="tabular-nums text-slate-500 dark:text-slate-400">
@@ -348,7 +350,7 @@ export default function TracePanel({
                 // The path is shorter than the course's proven count and the
                 // learner is owed the reason rather than left to notice it.
                 <p className="px-1 pt-1 text-2xs leading-tight text-slate-500 dark:text-slate-400">
-                    {tr("{{undated}} finished with no date, so not on the path", { undated: trace.undated })}
+                    {tr("{{undated}} finished with no date, so not on the path", { undated: num(trace.undated) })}
                 </p>
             )}
         </div>

@@ -20,7 +20,8 @@ import { SANDBOX_THEME_JS } from './sandboxTheme';
  * (so `WIDGET_CONTRACT_VERSION` is deliberately NOT bumped for this):
  *
  *   1. The host's variables are written at `:root:root`, a specificity a build
- *      cannot reach, and the build's own `--w-*` declarations are deleted.
+ *      cannot reach, and the build's own declarations of those names are deleted
+ *      (its other `--w-*` variables are its own and stay).
  *   2. Every colour the build states LITERALLY — CSS, inline `style=`, SVG
  *      `fill=`/`stroke=`, a canvas context — goes through the app's achromatic-ink /
  *      chromatic-meaning rule (`palette.ts`, via its twin `sandboxTheme.ts`).
@@ -98,10 +99,11 @@ export function widgetThemeCss(p: VisualPalette): string {
  * `palette.ts` over one table of inputs. The DOM wiring is in `widgetThemePrelude`.
  *
  * Depends on `SANDBOX_THEME_JS` being concatenated ahead of it (`__vtParse`,
- * `__vtToHex`, `__vtAdapt`, `__VT_NAMED`).
+ * `__vtToHex`, `__vtAdapt`, `__vtAlpha`, `__vtWithAlpha`, `__VT_NAMED`).
  */
 export const WIDGET_THEME_JS = `
 var __WT_ROLE = {'color':'text','caret-color':'text','-webkit-text-fill-color':'text','background':'fill','background-color':'fill','fill':'fill','stop-color':'fill'};
+var __WT_HOST_VAR = /^--w-(?:bg|fg|muted|border|accent|accent-2|series-\\d+)$/;
 var __WT_COLOR_RE = /#[0-9a-f]{8}(?![0-9a-f])|#[0-9a-f]{6}(?![0-9a-f])|#[0-9a-f]{4}(?![0-9a-f])|#[0-9a-f]{3}(?![0-9a-f])|rgba?\\([^)]*\\)|\\b(?:black|white|red|green|blue|yellow|orange|purple|gray|grey|silver|lime|cyan|aqua|magenta|fuchsia|navy|teal|olive|maroon|pink|brown|gold|darkgray|darkgrey|lightgray|lightgrey)\\b/gi;
 
 /** The set of colours the host itself handed the widget, as normalised hex. */
@@ -136,7 +138,52 @@ function __wtAdapt(raw, pal, role) {
 /** A full-canvas fill is the widget's backdrop, the way background() is a sketch's. */
 var __wtAssumedBg = '#ffffff';
 
-/** Rewrite every colour in one declaration list; drop any --w-* the build declares. */
+/** A declaration's property name, lower-cased; '' when it is not a declaration. */
+function __wtProp(decl) {
+    var c = decl.indexOf(':');
+    return c < 0 ? '' : decl.slice(0, c).trim().toLowerCase();
+}
+
+/**
+ * A declaration in a form that survives the browser re-serialising it: colours
+ * as hex plus alpha, no spaces. A script that sets one property makes the
+ * browser rewrite the whole attribute (white comes back as rgb(255, 255, 255)).
+ */
+function __wtCanon(decl) {
+    var c = decl.indexOf(':');
+    if (c < 0) return decl.replace(/\\s+/g, '').toLowerCase();
+    var value = decl.slice(c + 1).replace(__WT_COLOR_RE, function (lit) {
+        var rgb = __vtParse(lit);
+        return rgb ? __vtToHex(rgb) + '@' + __vtAlpha(lit) : lit;
+    });
+    return __wtProp(decl) + ':' + value.replace(/\\s+/g, '').toLowerCase();
+}
+
+/**
+ * The text a re-theme derives from.
+ *
+ * The build's ORIGINAL, so remapping never compounds; except where a script has
+ * changed the text since this pass last wrote it (a bar's height, an indicator's
+ * position), because going back to the original would undo that state. A style
+ * attribute is merged declaration by declaration: what the pass wrote and the
+ * script left alone returns to its original, what the script wrote stays.
+ */
+function __wtSource(orig, written, cur, byDeclaration) {
+    if (orig === undefined) return cur;
+    if (written === undefined || cur === written) return orig;
+    if (!byDeclaration) return cur;
+    var was = {}, base = {}, w = String(written).split(';'), o = String(orig).split(';');
+    for (var i = 0; i < w.length; i++) { var wk = __wtProp(w[i]); if (wk) was[wk] = __wtCanon(w[i]); }
+    for (var j = 0; j < o.length; j++) { var ok = __wtProp(o[j]); if (ok) base[ok] = o[j]; }
+    var parts = String(cur).split(';');
+    for (var k = 0; k < parts.length; k++) {
+        var pk = __wtProp(parts[k]);
+        if (pk && base[pk] !== undefined && was[pk] === __wtCanon(parts[k])) parts[k] = base[pk];
+    }
+    return parts.join(';');
+}
+
+/** Rewrite every colour in one declaration list; drop the --w-* variables the host defines. */
 function __wtDeclarations(text, pal) {
     var parts = String(text).split(';');
     for (var i = 0; i < parts.length; i++) {
@@ -145,7 +192,10 @@ function __wtDeclarations(text, pal) {
         var prop = decl.slice(0, c), name = prop.trim().toLowerCase();
         // Not a property name (a selector's pseudo-class, a URL) — leave it be.
         if (!/^(--[\\w-]+|-?[a-z][a-z-]*)$/.test(name)) continue;
-        if (name.indexOf('--w-') === 0) { parts[i] = ''; continue; }
+        // Only the variables the host defines. A build's own --w-radius or
+        // --w-gap is its own and is read back by its own var(); deleting it
+        // would break the layout of a build that worked.
+        if (__WT_HOST_VAR.test(name)) { parts[i] = ''; continue; }
         var role = __WT_ROLE[name] || 'stroke';
         var value = decl.slice(c + 1);
         var next = value.replace(__WT_COLOR_RE, function (lit) {
@@ -214,9 +264,12 @@ var __wtPalette = ${JSON.stringify(widgetPalette(p))};
             enumerable: d.enumerable,
             get: function () { return d.get.call(this); },
             set: function (v) {
+                // __wtRaw is the fill colour the backdrop check below reads, so
+                // only a fill writes it, and an assignment that is not a colour
+                // clears it: after a gradient the old string no longer applies.
                 // A gradient or pattern object is not a colour — pass it on.
+                if (name === 'fillStyle') this.__wtRaw = typeof v === 'string' ? v : undefined;
                 if (typeof v !== 'string') { d.set.call(this, v); return; }
-                this.__wtRaw = v;
                 var next = __wtAdapt(v, __wtPalette, role);
                 d.set.call(this, next || v);
             },
@@ -246,11 +299,20 @@ var __wtPalette = ${JSON.stringify(widgetPalette(p))};
                     // of the picture and is kept; a grey one was "the page".
                     if (chroma < 0.16) {
                         var d = Object.getOwnPropertyDescriptor(C.prototype, 'fillStyle');
-                        if (d && d.set) d.set.call(this, __wtPalette.bg);
+                        // The opacity the author stated stays: a trail fade or a
+                        // dim laid over the frame is translucent on purpose.
+                        if (d && d.set) d.set.call(this, __vtWithAlpha(__wtPalette.bg, __vtAlpha(raw)));
                     }
                 }
             }
             return fillRect.call(this, x, y, w, h);
+        };
+        // restore() brings back a fill this wrapper never saw assigned, so what
+        // it last recorded no longer says what the context will paint with.
+        var restore = C.prototype.restore;
+        C.prototype.restore = function () {
+            this.__wtRaw = undefined;
+            return restore.apply(this, arguments);
         };
     });
     if (window.CanvasGradient) safely(function () {
@@ -265,24 +327,28 @@ var __wtPalette = ${JSON.stringify(widgetPalette(p))};
     // Re-derived from the build's ORIGINAL text every time, never from the last
     // remap: remapping an already-remapped stylesheet compounds, so after two
     // theme changes the colours would be a function of the route taken rather
-    // than of the theme arrived at.
-    function original(el, read) {
-        if (el.__wtOrig === undefined) el.__wtOrig = read(el);
-        return el.__wtOrig;
-    }
+    // than of the theme arrived at. The exception is text the widget's own
+    // script has changed since (__wtOrigW is what this pass last wrote): that
+    // is state, and re-deriving from the load-time text would put it back.
     function apply() {
         var styles = document.querySelectorAll('style');
         for (var i = 0; i < styles.length; i++) {
             if (styles[i].id === '__w-theme') continue;
-            var src = original(styles[i], function (e) { return e.textContent; });
+            var sheetNow = styles[i].textContent;
+            var src = __wtSource(styles[i].__wtOrig, styles[i].__wtOrigW, sheetNow, false);
+            styles[i].__wtOrig = src;
             var css = __wtCssRemap(src, __wtPalette);
-            if (css !== styles[i].textContent) styles[i].textContent = css;
+            if (css !== sheetNow) styles[i].textContent = css;
+            styles[i].__wtOrigW = styles[i].textContent;
         }
         var inline = document.querySelectorAll('[style]');
         for (var j = 0; j < inline.length; j++) {
-            var raw = original(inline[j], function (e) { return e.getAttribute('style') || ''; });
+            var styleNow = inline[j].getAttribute('style') || '';
+            var raw = __wtSource(inline[j].__wtOrig, inline[j].__wtOrigW, styleNow, true);
+            inline[j].__wtOrig = raw;
             var next = __wtDeclarations(raw, __wtPalette);
-            if (next !== inline[j].getAttribute('style')) inline[j].setAttribute('style', next);
+            if (next !== styleNow) inline[j].setAttribute('style', next);
+            inline[j].__wtOrigW = inline[j].getAttribute('style') || '';
         }
         // Inline SVG states its colours as presentation attributes, which are
         // neither CSS nor canvas and would otherwise be the one drawing surface
@@ -295,9 +361,14 @@ var __wtPalette = ${JSON.stringify(widgetPalette(p))};
                 var at = attrs[a], cur = el.getAttribute(at);
                 if (cur === null) continue;
                 var key = '__wtAttr_' + at;
-                if (el[key] === undefined) el[key] = cur;
-                var to = __wtAdapt(el[key], __wtPalette, at === 'fill' ? 'fill' : 'stroke');
-                if (to && to !== cur) el.setAttribute(at, to);
+                // Same rule as the style text above: a value the script set
+                // since this pass wrote is the new original.
+                el[key] = __wtSource(el[key], el[key + 'W'], cur, false);
+                // Back to the original where nothing adapts it on this theme,
+                // not only forward to an adapted colour.
+                var to = __wtAdapt(el[key], __wtPalette, at === 'fill' ? 'fill' : 'stroke') || el[key];
+                if (to !== cur) el.setAttribute(at, to);
+                el[key + 'W'] = el.getAttribute(at);
             }
         }
     }

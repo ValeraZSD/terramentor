@@ -191,21 +191,44 @@ function lessThanAsText(line: string): string {
         `"${label.replace(/<(?=[A-Za-z!/?])/g, (lt, at: number) => (KEPT_TAG.test(label.slice(at)) ? lt : '#lt;'))}"`);
 }
 
+/**
+ * Where the diagram itself starts: past blank lines, a `---` front-matter
+ * block, and `%%` comments or `%%{init}%%` directives (which may span lines).
+ * The first line there says what kind of diagram it is.
+ */
+function diagramStart(lines: string[]): number {
+    let i = 0;
+    while (i < lines.length && !lines[i].trim()) i++;
+    if (lines[i]?.trim() === '---') {
+        i++;
+        while (i < lines.length && lines[i].trim() !== '---') i++;
+        i++;
+    }
+    for (; i < lines.length; i++) {
+        const t = lines[i].trim();
+        if (!t) continue;
+        if (!t.startsWith('%%')) return i;
+        if (t.startsWith('%%{')) while (i < lines.length && !lines[i].includes('}%%')) i++;
+    }
+    return lines.length;
+}
+
 export function sanitizeMermaid(src: string): string {
     const lines = stripMermaidFetches(src).split(/\r?\n/);
-    const firstKeyword = (lines.find((l) => l.trim()) || '').trim();
-    const isFlowchart = /^(flowchart|graph)\b/.test(firstKeyword);
+    const start = diagramStart(lines);
+    const isFlowchart = /^(flowchart|graph)\b/.test((lines[start] || '').trim());
 
-    return lines
+    const out: string[] = [];
+    lines.forEach((line, at) => {
         // Drop cosmetic directives small models mangle (invalid props, bad syntax).
-        .filter((l) => !/^\s*(style|linkStyle)\s+\S/.test(l))
-        .map((line) => {
-            // <br/> renders as literal text under securityLevel:'strict' — flatten it.
-            let s = line.replace(/<br\s*\/?>/gi, ' ');
-            if (isFlowchart && !/^\s*(flowchart|graph|subgraph|end|direction)\b/.test(s)) {
-                s = lessThanAsText(quoteEdgeLabels(quoteNodeLabels(s)));
-            }
-            return s;
-        })
-        .join('\n');
+        if (/^\s*(style|linkStyle)\s+\S/.test(line)) return;
+        // <br/> renders as literal text under securityLevel:'strict' — flatten it.
+        let s = line.replace(/<br\s*\/?>/gi, ' ');
+        // The header above the diagram is configuration, not labels.
+        if (isFlowchart && at >= start && !/^\s*(flowchart|graph|subgraph|end|direction)\b/.test(s)) {
+            s = lessThanAsText(quoteEdgeLabels(quoteNodeLabels(s)));
+        }
+        out.push(s);
+    });
+    return out.join('\n');
 }
