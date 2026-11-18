@@ -211,8 +211,12 @@ const MEASURE = `(() => {
             if (pos === 'absolute' && s.position === 'static' && !holds) continue;
             pos = s.position;
             if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+            // The client box in viewport pixels: the rect is drawn (it carries
+            // every transform), clientWidth and the borders are not, so they are
+            // scaled by how much the box is drawn larger or smaller than laid out.
             const k = a.getBoundingClientRect();
-            const box = { l: k.left + a.clientLeft, t: k.top + a.clientTop, r: k.left + a.clientLeft + a.clientWidth, b: k.top + a.clientTop + a.clientHeight };
+            const sx = a.offsetWidth ? k.width / a.offsetWidth : 1, sy = a.offsetHeight ? k.height / a.offsetHeight : 1;
+            const box = { l: k.left + a.clientLeft * sx, t: k.top + a.clientTop * sy, r: k.left + (a.clientLeft + a.clientWidth) * sx, b: k.top + (a.clientTop + a.clientHeight) * sy };
             if (each(a, s, box)) return;
         }
     };
@@ -223,8 +227,8 @@ const MEASURE = `(() => {
     };
     // The pressable area: the control, and what it holds that takes the
     // pointer, as far as it shows. A part spilling past a box that clips it,
-    // inside the control or round it, is cut back to that box. A box that
-    // scrolls is left out round the control: what it hides can be scrolled to.
+    // inside the control or round it, is cut back to that box. Round the
+    // control, a box that scrolls cuts only to its scrollport's size.
     const area = (el) => {
         const r = el.getBoundingClientRect();
         const q = { l: r.left, t: r.top, r: r.right, b: r.bottom };
@@ -242,16 +246,16 @@ const MEASURE = `(() => {
         };
         for (const c of el.querySelectorAll('*')) if (getComputedStyle(c).pointerEvents !== 'none') grow(c);
         if (el.matches('input[type="checkbox"], input[type="radio"]')) for (const label of el.labels || []) grow(label);
-        // Scrolled into view, a control leaves its scroller and every box round
-        // that scroller behind on the axis it scrolls: only boxes nearer clip.
-        const free = { x: false, y: false };
+        // A scroller can bring any part of what it holds into its scrollport,
+        // but never more than fits there at once: along the axis it scrolls,
+        // the area is capped at what showed up to that box, and from there on
+        // it is the scrollport, which the boxes round the scroller still cut.
+        const cap = { x: Infinity, y: Infinity };
         clippers(el, (a, s, box) => {
-            for (const axis of ['x', 'y']) {
-                if (scrolls(s, axis)) free[axis] = true;
-                if (!free[axis]) cutTo(q, s, box, axis);
-            }
+            if (scrolls(s, 'x')) { cap.x = Math.min(cap.x, q.r - q.l); q.l = box.l; q.r = box.r; } else cutTo(q, s, box, 'x');
+            if (scrolls(s, 'y')) { cap.y = Math.min(cap.y, q.b - q.t); q.t = box.t; q.b = box.b; } else cutTo(q, s, box, 'y');
         });
-        return { w: Math.max(0, q.r - q.l), h: Math.max(0, q.b - q.t) };
+        return { w: Math.max(0, Math.min(cap.x, q.r - q.l)), h: Math.max(0, Math.min(cap.y, q.b - q.t)) };
     };
     const CONTROLS = 'button, select, summary, a[href], input:not([type="hidden"]), textarea, [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"], [role="slider"]';
     const targets = [];
@@ -272,7 +276,7 @@ const MEASURE = `(() => {
         if (!shown(el) && !el.matches('input[type="checkbox"], input[type="radio"]')) continue;
         if (el.matches('input[type="checkbox"], input[type="radio"]') && (el.closest('[inert], [aria-hidden="true"]') || !el.getClientRects().length)) continue;
         const a = area(el);
-        if (el.closest('[data-gate-probe]')) { probe[el.dataset.probe] = { small: a.w < minTarget || a.h < minTarget, h: Math.round(a.h), minH: px(getComputedStyle(el).minHeight) }; continue; }
+        if (el.closest('[data-gate-probe]')) { probe[el.dataset.probe] = { small: a.w < minTarget || a.h < minTarget, w: Math.round(a.w), h: Math.round(a.h), minH: px(getComputedStyle(el).minHeight) }; continue; }
         controls++;
         const key = where(el) + ' | ' + name(el);
         const cs = getComputedStyle(el);
@@ -363,7 +367,7 @@ const MEASURE = `(() => {
 const PROBE = `(() => {
     const box = document.createElement('div');
     box.setAttribute('data-gate-probe', '');
-    box.style.cssText = 'position:fixed;left:-400px;top:0;width:300px';
+    box.style.cssText = 'position:fixed;left:-400px;top:0;width:300px;--f:max(2.75rem,44px)';
     box.innerHTML = '<button type="button" data-probe="small" class="w-5 h-5 p-0">x</button>'
         + '<span data-probe="text" class="text-3xs">probe</span>'
         + '<button type="button" data-probe="tall" class="min-h-16 w-full">tall</button>'
@@ -380,7 +384,21 @@ const PROBE = `(() => {
         // A tab wider than a box that hides its overflow: that cannot scroll.
         + '<div style="overflow:hidden;width:60px;padding:4px 0;white-space:nowrap"><button type="button" data-probe="hidden" class="outline-none" style="width:200px">tab</button></div>'
         // A tab in full view inside its rail, the rail in a box narrower than it.
-        + '<div style="overflow:hidden;width:40px"><div style="overflow-x:auto;width:120px;padding:4px;white-space:nowrap"><button type="button" data-probe="outer" class="outline-none" style="width:60px">tab</button><span style="display:inline-block;width:200px"></span></div></div>';
+        + '<div style="overflow:hidden;width:40px"><div style="overflow-x:auto;width:120px;padding:4px;white-space:nowrap"><button type="button" data-probe="outer" class="outline-none" style="width:60px">tab</button><span style="display:inline-block;width:200px"></span></div></div>'
+        // Sizes in --f, the floor (44px at 100% text). A button twice the floor
+        // in a box that hides overflow, drawn at half size: 1.4 floors wide
+        // shows 0.7 of a floor, 2.6 wide shows the whole drawn floor.
+        + '<div style="transform:scale(0.5);transform-origin:0 0;overflow:hidden;width:calc(var(--f) * 1.4);height:calc(var(--f) * 2)"><button type="button" data-probe="scaled" class="p-0" style="width:calc(var(--f) * 2);height:calc(var(--f) * 2)">s</button></div>'
+        + '<div style="transform:scale(0.5);transform-origin:0 0;overflow:hidden;width:calc(var(--f) * 2.6);height:calc(var(--f) * 2)"><button type="button" data-probe="scaledFits" class="p-0" style="width:calc(var(--f) * 2);height:calc(var(--f) * 2)">s</button></div>'
+        // A button 1.4 floors wide in a sideways scroller 0.7 wide shows 0.7
+        // of a floor at any scroll position; in one 3 floors wide, all of it.
+        + '<div style="overflow-x:auto;width:calc(var(--f) * 0.7)"><button type="button" data-probe="narrowRail" class="p-0" style="width:calc(var(--f) * 1.4);height:calc(var(--f) * 1.1)">n</button></div>'
+        + '<div style="overflow-x:auto;width:calc(var(--f) * 3)"><button type="button" data-probe="wideRail" class="p-0" style="width:calc(var(--f) * 1.4);height:calc(var(--f) * 1.1)">w</button></div>'
+        // A 100-topic phase: dashboard/PhaseProgress.tsx's tick bar, its
+        // classes copied. Its last topic must be pressable at the floor.
+        + '<div data-tick-bar class="flex h-3 w-full overflow-hidden gap-0">'
+        + Array.from({ length: 100 }, (_, i) => '<div role="button" tabindex="0" data-probe="' + (i === 99 ? 'lastTick' : 'tick') + '" class="h-full min-w-0 flex-1 rounded-sm"></div>').join('')
+        + '</div>';
     document.body.appendChild(box);
 })()`;
 const UNPROBE = `document.querySelector('[data-gate-probe]')?.remove()`;
@@ -440,6 +458,10 @@ for (const [state, m] of Object.entries(seen)) {
     // Clipping counts: the clipped spill is 24px tall whatever the setting.
     check(`${state}: a switch whose spill is clipped, by itself or by a box round it, is seen as too small`,
         p.clipped?.small === true && p.wrapped?.small === true, JSON.stringify([p.clipped, p.wrapped]));
+    check(`${state}: a box drawn at half size cuts at its drawn size`,
+        p.scaled?.small === true && p.scaledFits?.small === false, JSON.stringify([p.scaled, p.scaledFits]));
+    check(`${state}: a target wider than its scroller counts at the scrollport's width`,
+        p.narrowRail?.small === true && p.wideRail?.small === false, JSON.stringify([p.narrowRail, p.wideRail]));
     if (state.includes(' contrast ')) {
         check(`${state}: a sideways rail that cuts its tab's top and bottom frame is caught`, /top .*bottom/.test(p.railCut ?? ''), JSON.stringify(p.railCut));
         check(`${state}: a box that hides overflow sideways and cuts a tab's frame is caught`, /right/.test(p.hiddenCut ?? ''), JSON.stringify(p.hiddenCut));
@@ -458,6 +480,7 @@ for (const [state, m] of Object.entries(seen)) {
     check(`${state}: a button that asks for 4rem keeps it`, p.tall?.minH >= 4 * m.rem - 0.5, JSON.stringify(p.tall));
     check(`${state}: a 3rem answer keeps 3rem and the 44px floor`, p.answer && !p.answer.small && p.answer.minH >= 3 * m.rem - 0.5, JSON.stringify(p.answer));
     check(`${state}: a switch's spill reaches the floor`, p.spill?.small === false, JSON.stringify(p.spill));
+    check(`${state}: the last topic of a 100-topic phase bar is pressable at the floor`, p.lastTick?.small === false, JSON.stringify(p.lastTick));
     const off = seen[state.replace(/ on$/, ' off')];
     const shrunk = off ? Object.entries(m.mins).filter(([k, v]) => v && off.mins[k] && (off.mins[k][0] - v[0] > 0.5 || off.mins[k][1] - v[1] > 0.5))
         .map(([k, v]) => `min ${off.mins[k].map(Math.round).join('x')} -> ${v.map(Math.round).join('x')}  ${k}`) : [];
