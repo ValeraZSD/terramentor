@@ -117,8 +117,11 @@ export function fullDateLabel(iso: string): string {
  */
 export function isoDayShort(iso: number): string {
     // 2021-08-01 was a Sunday, so ISO 1 (Monday) is the 2nd.
+    // The abbreviation's own dot goes ("lun." "niedz."): on a button it is
+    // noise, and Polish Sunday touched its edges at phone width.
     return new Intl.DateTimeFormat(uiLocale(), { weekday: 'short', timeZone: 'UTC' })
-        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
+        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))))
+        .replace(/\.$/, '');
 }
 
 /**

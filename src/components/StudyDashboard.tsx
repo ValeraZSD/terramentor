@@ -350,8 +350,8 @@ export default function StudyDashboard() {
                         </h2>
                         {/* The icon (w-10) plus the gap (gap-3), in rem like them —
                             a px indent drifted off the title under `ui_scale`.
-                            Progress only: the pace ("On track", "3 days behind")
-                            is the panel in the project's own header. */}
+                            Progress only: the verdict sits in the project's
+                            header and in the plan section below. */}
                         <p className="text-slate-500 dark:text-slate-400 mt-1 ml-[3.25rem]">
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>

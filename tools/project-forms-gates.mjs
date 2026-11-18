@@ -11,8 +11,10 @@
 //   - the import zone took a second file while one was importing (two copies),
 //     and never cleared its file input, so choosing the same file again after a
 //     failed import did nothing;
-//   - a pace under half a day behind rounded to "On plan" in amber in the
-//     workspace's compact pill, while its tooltip said "Slightly behind schedule".
+//   - the course header's pace said one thing in its words and another in its
+//     colour; it now shows the verdict alone (the band and one line).
+// A date marked "cannot move" is read-only in the panel, has no Remove, and a
+// Save sends the mark the box shows; a pace that cannot be read says so.
 // The REAL components and the real store are bundled into jsdom; the store's
 // writes are spies and the network is a fake `fetch`.
 import { createRequire } from 'node:module';
@@ -118,6 +120,38 @@ section('the schedule dialog starts from the project it opens on');
     await g.act(async () => { g.useStore.setState({ projects: [dated, undated, maths] }); await settle(); });
     check('...and fills in when the project arrives', dates()[1]?.value === '2027-03-01' && dates()[0]?.value === '2026-12-01' && days() === 1,
         `start "${dates()[0]?.value}", deadline "${dates()[1]?.value}", ${days()} days on`);
+    w.close();
+}
+
+// ---------------------------------------------------------------------------
+section('a date marked "cannot move" is read-only in the panel and has no Remove');
+{
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 7, name: 'Physics', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 7, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    const buttons = () => [...doc.querySelectorAll('button')].map(b => b.textContent.trim());
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    check('the locked deadline is read-only', deadlineField()?.readOnly === true, `readOnly ${deadlineField()?.readOnly}`);
+    check('...and the footer has no Remove schedule', !buttons().includes('Remove schedule'), buttons().join(' | '));
+    check('a pace that cannot be read says so, with a way to try again',
+        doc.querySelector('[role="dialog"] [role="alert"]')?.textContent.includes('Could not read your pace.') && buttons().includes('Try again'),
+        doc.querySelector('[role="dialog"]')?.textContent.slice(0, 200));
+    // Untick, then Save: the write names the lock as off, so the server lets it go.
+    await g.act(async () => { box()?.click(); await settle(); });
+    check('unticking frees the field', deadlineField()?.readOnly === false, `readOnly ${deadlineField()?.readOnly}`);
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('Save sends the mark the box shows', calls.length === 1 && calls[0][1]?.deadlineFixed === false, JSON.stringify(calls));
     w.close();
 }
 

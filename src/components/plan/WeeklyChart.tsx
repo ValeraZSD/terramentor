@@ -62,9 +62,11 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
 
     const nice = (() => {
         // Two grid lines at round numbers under the top: 0 and one more.
+        // Whole numbers only: a best week of 1 put a line at 0.5 labelled "1".
         const raw = top / 2;
+        if (raw < 1) return 1;
         const p = Math.pow(10, Math.floor(Math.log10(raw)));
-        return [1, 2, 5, 10].map(m => m * p).find(s => s >= raw * 0.8) ?? raw;
+        return [1, 2, 5, 10].map(m => m * p).find(s => s >= raw * 0.8) ?? Math.ceil(raw);
     })();
     const grid = [0, nice, nice * 2].filter(v => v <= top);
 

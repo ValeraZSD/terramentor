@@ -113,6 +113,15 @@ export function shortDay(date: string, today: string): string {
     });
 }
 
+/**
+ * One full stop where an abbreviated date ends a sentence: German, French,
+ * Russian, Ukrainian and Portuguese short months end in their own "." ("bis
+ * zum 17. Dez.."). An ellipsis is left alone.
+ */
+export function oneStop(sentence: string): string {
+    return sentence.replace(/(?<!\.)\.\.(?!\.)/g, '.');
+}
+
 type Num = (value: number, options?: { decimals?: number }) => string;
 const rate = (num: Num, x: number | null | undefined) => {
     const r = perWeek(x);
@@ -171,7 +180,7 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
     if (v.band === 'on_pace' && range) {
         out.push(t("Likely done between {{from}} and {{to}}.", { from: shortDay(range.from, today), to: shortDay(range.to, today) }));
     }
-    return out;
+    return out.map(oneStop);
 }
 
 /** The one line beside a pill on a card or in the course header; null when the pill says it all. */

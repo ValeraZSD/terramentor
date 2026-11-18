@@ -14,7 +14,7 @@ import { TextInput } from './ui/Field';
 import { DIALOG_BODY, DIALOG_SHELL } from './ui/Dialog';
 import Checkbox from './Checkbox';
 import WeeklyChart from './plan/WeeklyChart';
-import { VerdictPill, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
+import { VerdictPill, oneStop, perWeek, shortDay, verdictHeadline, verdictSentences } from './plan/verdict';
 
 /**
  * The plan of one course: will the date work, what can be done if not, and the
@@ -52,6 +52,7 @@ export default function ScheduleModal() {
     const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
     const [fixed, setFixed] = useState(false);
     const [pace, setPace] = useState<PaceData | null>(null);
+    const [paceFailed, setPaceFailed] = useState(false);
     const [busy, setBusy] = useState<null | 'save' | 'plan' | 'remove'>(null);
 
     const dialogRef = useRef<HTMLDivElement>(null);
@@ -90,14 +91,16 @@ export default function ScheduleModal() {
     const loadPace = () => {
         if (!projectId) return;
         const n = ++paceRequest.current;
+        setPaceFailed(false);
         api.getProjectPace(projectId).then(
             d => { if (paceRequest.current === n) setPace(d); },
-            () => { if (paceRequest.current === n) setPace(null); },
+            () => { if (paceRequest.current === n) { setPace(null); setPaceFailed(true); } },
         );
     };
     useEffect(() => {
         paceRequest.current++;
         setPace(null);
+        setPaceFailed(false);
         if (open) loadPace();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, projectId]);
@@ -111,6 +114,10 @@ export default function ScheduleModal() {
         || fixed !== savedFixed
         || [...days].sort().join() !== [...savedDays].sort().join();
     const reversed = !!start && !!deadline && start > deadline;
+    // Seven cells share a phone row: a language whose short day names run
+    // past four letters (Polish "niedz") takes the smaller size, all seven at once.
+    const dayNames = [1, 2, 3, 4, 5, 6, 7].map(isoDayShort);
+    const dayText = dayNames.some(n => n.length > 4) ? 'text-xs' : 'text-sm';
     // The date stays where it is while it carries the mark, here as on the
     // server: taking the mark off is what lets it move.
     const deadlineLocked = savedFixed && fixed;
@@ -159,29 +166,33 @@ export default function ScheduleModal() {
                 return {
                     key: offer.kind,
                     title: t("Study the {{n}} topics that fit", { count: offer.count, n: num(offer.count) }),
-                    body: t("At your best pace {{fits}} of the {{open}} fit before {{date}}. Pick them in the outline and skip the rest.", {
-                        count: offer.count, fits: num(offer.count), open: num(v.open), date,
-                    }),
+                    // The sentence above already says how many fit and by when.
+                    body: t("Choose in the outline what to study and skip the rest."),
                     action: t("Choose topics"),
                     run: () => { setWorkspaceView('tree'); setOpen(false); },
                 };
-            case 'plan_weekly':
+            case 'plan_weekly': {
                 if (v.unit === 'cards') return null;
+                // With an edit open, laying the topics out IS saving it (the
+                // one write path), so the sentence names the dates being typed
+                // and the button says it saves them. A window that starts later
+                // is laid out from its start, not from today.
+                const from = dirty ? start : (project.start_date || today);
+                const to = dirty && deadline ? shortDay(deadline, today) : date;
                 return {
                     key: offer.kind,
                     // The same rounding as "That is N a week" above: the
                     // offer's own whole-number ceiling read 9 beside an 8.
                     title: t("Plan {{n}} a week", { n: num(perWeek(v.needed)) }),
-                    body: t("Lays the {{open}} open topics out from today to {{date}}, on your study days.", { open: num(v.open), date }),
-                    action: t("Plan it"),
-                    // With an edit open, laying the topics out IS saving it
-                    // (the one write path re-lays from today), so the button
-                    // saves what was typed rather than going dead with no
-                    // reason given.
+                    body: from > today
+                        ? t("Lays the {{open}} open topics out from {{from}} to {{date}}, on your study days.", { open: num(v.open), from: shortDay(from, today), date: to })
+                        : t("Lays the {{open}} open topics out from today to {{date}}, on your study days.", { open: num(v.open), date: to }),
+                    action: dirty ? t("Save and plan") : t("Plan it"),
                     run: dirty ? save : planWeekly,
                     disabled: dirty && !canSave,
                     busy: busy === 'plan' || (dirty && busy === 'save'),
                 };
+            }
             case 'check_known':
                 return {
                     key: offer.kind,
@@ -240,6 +251,13 @@ export default function ScheduleModal() {
                 </div>
 
                 <div className={`${DIALOG_BODY} px-6 py-5 space-y-6`}>
+                    {hasDate && paceFailed && (
+                        // Without this the top of the panel was simply empty.
+                        <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
+                            <span>{t("Could not read your pace.")}</span>
+                            <Button size="sm" onClick={loadPace}>{t("Try again")}</Button>
+                        </div>
+                    )}
                     {verdict && (
                         <section aria-labelledby={`${titleId}-verdict`} className="space-y-2">
                             <VerdictPill verdict={verdict} t={t} />
@@ -269,7 +287,7 @@ export default function ScheduleModal() {
                                     <li key={o.key} data-offer={o.key} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                                         <div className="min-w-[12rem] flex-1">
                                             <p className="text-sm font-medium text-slate-900 dark:text-white">{o.title}</p>
-                                            <p className="text-sm text-slate-500 dark:text-slate-400">{o.body}</p>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400">{oneStop(o.body)}</p>
                                         </div>
                                         <Button onClick={o.run} disabled={o.disabled || busy !== null} busy={o.busy} className="shrink-0 min-w-[9rem]">
                                             {o.action}
@@ -293,7 +311,10 @@ export default function ScheduleModal() {
                                 <TextInput ref={deadlineRef} id={`${titleId}-deadline`} type="date" value={deadline} min={start || undefined}
                                     // Read-only, not disabled: a disabled field greys the
                                     // very date the mark protects until it cannot be read.
-                                    readOnly={deadlineLocked} aria-invalid={reversed || undefined}
+                                    // A flat grey well, so it does not look like the
+                                    // editable field beside it.
+                                    readOnly={deadlineLocked} className="read-only:bg-slate-100 dark:read-only:bg-slate-800 read-only:cursor-default"
+                                    aria-invalid={reversed || undefined}
                                     aria-describedby={deadlineLocked ? `${titleId}-locked` : undefined}
                                     onChange={e => setDeadline(e.target.value)} />
                             </div>
@@ -326,7 +347,8 @@ export default function ScheduleModal() {
                             halfway. A picked day is FILLED, as a picked Chip
                             is; an accent tint read as switched off. */}
                         <div className="grid grid-cols-7 gap-1.5">
-                            {[1, 2, 3, 4, 5, 6, 7].map(iso => {
+                            {dayNames.map((name, i) => {
+                                const iso = i + 1;
                                 const on = days.includes(iso);
                                 return (
                                     <button
@@ -338,11 +360,11 @@ export default function ScheduleModal() {
                                         // The ring stands off the button: on a filled
                                         // day an accent ring flush with the accent
                                         // fill read as one bigger button.
-                                        className={`${CONTROL_BASE} focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-slate-800 min-w-0 w-full h-10 touch:h-11 px-0 text-sm border ${on
+                                        className={`${CONTROL_BASE} focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-slate-800 min-w-0 w-full h-10 touch:h-11 px-0 ${dayText} border ${on
                                             ? 'bg-accent border-accent text-white can-hover:hover:bg-accent/90'
                                             : CONTROL_VARIANT.neutral}`}
                                     >
-                                        {isoDayShort(iso)}
+                                        {name}
                                     </button>
                                 );
                             })}

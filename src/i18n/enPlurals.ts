@@ -310,8 +310,6 @@ const enPlurals: Record<string, string> = {
     "and {{count}} more change_other": "and {{count}} more changes",
     "At most {{count}} files per message_one": "At most {{count}} file per message",
     "At most {{count}} files per message_other": "At most {{count}} files per message",
-    "At your best pace {{fits}} of the {{open}} fit before {{date}}. Pick them in the outline and skip the rest._one": "At your best pace {{fits}} of the {{open}} fits before {{date}}. Pick it in the outline and skip the rest.",
-    "At your best pace {{fits}} of the {{open}} fit before {{date}}. Pick them in the outline and skip the rest._other": "At your best pace {{fits}} of the {{open}} fit before {{date}}. Pick them in the outline and skip the rest.",
     "average of {{count}} quizzes_one": "average of {{count}} quiz",
     "average of {{count}} quizzes_other": "average of {{count}} quizzes",
     "Brings forward new cards and anything due in the next {{AHEAD_DAYS}} days. Answering early earns a shorter next interval._one": "Brings forward new cards and anything due in the next {{AHEAD_DAYS}} day. Answering early earns a shorter next interval.",
