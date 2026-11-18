@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LearnerPace, VerdictBand } from '../../types';
 import { useElementWidth } from '../../hooks/useElementWidth';
@@ -41,12 +41,15 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
     const width = useElementWidth(box);
     const rem = useRootFontSize();
     const [active, setActive] = useState<number | null>(null);
+    const lineNamesId = useId();
 
     // Oldest on the left, so the newest week sits where "now" is read.
     const weeks = useMemo(() => pace.weeks.slice(0, CHART_WEEKS).reverse(), [pace.weeks]);
     const best = pace.best ?? 0;
-    // A band with no needed line (on pace, done, no date) draws none, so it
-    // neither scales the chart nor pushes the best line's name aside.
+    // A band with no needed line (done, learning, passed, no date) draws
+    // none, so it neither scales the chart nor pushes the best line's name
+    // aside. On pace keeps its line, in green: the bars standing above it are
+    // what "on pace" means.
     const need = needed != null && NEEDED_STROKE[band] ? needed : 0;
     const top = Math.max(1, ...weeks.map(w => w.count), best, need) * 1.08;
 
@@ -137,6 +140,7 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                 role="group"
                 tabIndex={0}
                 aria-label={t("Your last {{n}} weeks. Use the arrow keys to read one week.", { count: weeks.length, n: num(weeks.length) })}
+                aria-describedby={lineNamesId}
                 onPointerMove={onMove}
                 onPointerDown={onMove}
                 onPointerLeave={e => { if (e.pointerType === 'mouse') setActive(null); }}
@@ -195,6 +199,14 @@ export default function WeeklyChart({ pace, needed, band, unit }: {
                     </div>
                 )}
             </div>
+            {/* The two lines' names, which the drawing hides: the weeks are
+                read against them. */}
+            <p id={lineNamesId} className="sr-only">
+                {[
+                    need > 0 && NEEDED_STROKE[band] ? t("Needed: {{n}} a week", { n: r(need) }) : null,
+                    best > 0 ? t("Your best month: {{n}} a week", { n: r(best) }) : null,
+                ].filter(Boolean).join('. ')}
+            </p>
             <p className="sr-only" aria-live="polite">
                 {shown && active != null ? `${weekLabel(active)}: ${countLabel(shown.count)}` : ''}
             </p>

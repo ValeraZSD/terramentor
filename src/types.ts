@@ -134,6 +134,10 @@ export interface Project {
     insights_generated_at?: string | null;
 }
 
+/** What `PUT /api/projects/:id` takes: the lock is written as a boolean and
+ *  read back as 0/1 (`Project.deadline_fixed`). */
+export type ProjectUpdate = Omit<Partial<Project>, 'deadline_fixed'> & { deadline_fixed?: boolean };
+
 export interface Node {
     id: number;
     /** Portable global identity (RFC-4122 v4); see Project.uuid. */

@@ -99,10 +99,13 @@ export function VerdictPill({ verdict, t, className = '' }: {
 /**
  * A weekly amount as it is read: whole numbers from 3 up ("25 a week"), one
  * decimal below that, where "0.4 a week" and "0 a week" say different things.
+ * Anything above zero stays above it: one topic left in half a year is 0.1, not
+ * "needs 0 a week".
  */
 export function perWeek(x: number | null | undefined): number {
     if (x == null || !Number.isFinite(x)) return 0;
-    return x >= 3 ? Math.round(x) : Math.round(x * 10) / 10;
+    if (x >= 3) return Math.round(x);
+    return x > 0 ? Math.max(0.1, Math.round(x * 10) / 10) : Math.round(x * 10) / 10;
 }
 
 /** "Dec 3", the year only when it is not this year. */
@@ -174,7 +177,8 @@ export function verdictSentences(v: PaceVerdict, t: TFunction, num: Num, today: 
     }
     if (v.band !== 'on_pace') out.push(t("Your best month was {{n}} a week.", { n: rate(num, v.best) }));
     if (v.band === 'out_of_reach' && v.fits != null) {
-        out.push(t("At that pace {{fits}} of the {{open}} fit.", { fits: num(v.fits), open: num(v.open) }));
+        // "You finish", so the verb never agrees with the number.
+        out.push(t("At that pace you finish {{fits}} of the {{open}} in time.", { fits: num(v.fits), open: num(v.open) }));
     }
     const range = v.ranges.recent;
     if (v.band === 'on_pace' && range) {

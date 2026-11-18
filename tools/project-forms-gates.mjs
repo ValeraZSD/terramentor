@@ -114,7 +114,7 @@ section('the schedule dialog starts from the project it opens on');
     // The plan panel shows nothing until it holds the project, so there is no
     // field that could carry the last project's dates.
     check('a project the store does not hold yet shows no fields, never the last project\'s',
-        dates().length === 0 && days() === 0,
+        dates().length === 0 && w.document.querySelectorAll('[data-day-toggle]').length === 0,
         `${dates().length} date fields: ${dates().map(d => d.value).join(', ')}`);
     const maths = { id: 3, name: 'Maths', kind: 'curriculum', start_date: '2026-12-01', deadline: '2027-03-01', study_days: '[6]' };
     await g.act(async () => { g.useStore.setState({ projects: [dated, undated, maths] }); await settle(); });
@@ -152,6 +152,29 @@ section('a date marked "cannot move" is read-only in the panel and has no Remove
     const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
     await g.act(async () => { saveBtn?.click(); await settle(); });
     check('Save sends the mark the box shows', calls.length === 1 && calls[0][1]?.deadlineFixed === false, JSON.stringify(calls));
+    w.close();
+}
+{
+    // The mark untouched, a study day changed, and the date locked meanwhile
+    // (another device): Save must not send the stale "not locked" it opened with.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const course = { id: 8, name: 'Chemistry', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 0 };
+    const calls = [];
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 8, projects: [course], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async (...a) => { calls.push(a); return true; },
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    await g.act(async () => { doc.querySelectorAll('[data-day-toggle]')[5]?.click(); await settle(); });
+    await g.act(async () => { g.useStore.setState({ projects: [{ ...course, deadline_fixed: 1 }] }); await settle(); });
+    const saveBtn = [...doc.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save');
+    await g.act(async () => { saveBtn?.click(); await settle(); });
+    check('a save that never touched the mark does not name it, so a lock set meanwhile stays',
+        calls.length === 1 && !('deadlineFixed' in calls[0][1]) && calls[0][1].deadline === '2027-02-01', JSON.stringify(calls));
     w.close();
 }
 
@@ -249,7 +272,8 @@ section('the course header names the verdict, never the plan\'s day count');
     const text = host.textContent;
     check('the header shows the verdict and its reason', /Under pace/.test(text) && /Needs 3 a week/.test(text), text);
     check('...and no day count or "On plan"', !/On plan|days? (behind|ahead)|\d+d (behind|ahead)/.test(text), text);
-    await g.act(async () => { g.useStore.setState({ paceData: { hasSchedule: false, verdict: { ...verdict, band: 'no_date' } } }); await settle(); });
+    // Still "has a schedule" and the old fields: only the verdict says no date.
+    await g.act(async () => { g.useStore.setState({ paceData: { ...g.useStore.getState().paceData, verdict: { ...verdict, band: 'no_date' } } }); await settle(); });
     check('a course with no date shows nothing there', host.textContent === '', host.textContent);
     w.close();
 }

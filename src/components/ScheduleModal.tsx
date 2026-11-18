@@ -50,7 +50,10 @@ export default function ScheduleModal() {
     const [start, setStart] = useState(today);
     const [deadline, setDeadline] = useState('');
     const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
-    const [fixed, setFixed] = useState(false);
+    // The mark as the learner set it, or null while they have not touched it:
+    // then it follows the project, and a save does not name it, so a lock set
+    // meanwhile (another device) is not undone by a draft that never saw it.
+    const [fixedDraft, setFixedDraft] = useState<boolean | null>(null);
     const [pace, setPace] = useState<PaceData | null>(null);
     const [paceFailed, setPaceFailed] = useState(false);
     const [busy, setBusy] = useState<null | 'save' | 'plan' | 'remove'>(null);
@@ -61,7 +64,9 @@ export default function ScheduleModal() {
     // The panel is read first and edited second: opening on the start-date
     // field put a caret and a selected "07" in the middle of the verdict.
     const closeRef = useRef<HTMLButtonElement>(null);
-    useDialogFocus(open, dialogRef, { onEscape: () => setOpen(false), initialFocus: closeRef });
+    // Started when the dialog exists: opened before its project arrived, the
+    // hook found no container and never trapped focus.
+    useDialogFocus(open && !!project, dialogRef, { onEscape: () => setOpen(false), initialFocus: closeRef });
 
     const savedDays = (() => {
         try {
@@ -70,6 +75,7 @@ export default function ScheduleModal() {
         } catch { return [1, 2, 3, 4, 5]; }
     })();
     const savedFixed = !!project?.deadline_fixed;
+    const fixed = fixedDraft ?? savedFixed;
 
     // The form is filled when the panel opens for a project, keyed on its id:
     // the projects list is re-read often, and filling on every read reset what
@@ -81,9 +87,14 @@ export default function ScheduleModal() {
         setStart(project.start_date || today);
         setDeadline(project.deadline || '');
         setDays(savedDays);
-        setFixed(savedFixed);
+        setFixedDraft(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, projectId, known]);
+
+    // One opening of the panel. A write that ends after the panel was closed
+    // (or opened on another course) neither refreshes nor closes it.
+    const session = useRef(0);
+    useEffect(() => { session.current++; }, [open, projectId]);
 
     // Only the newest request may fill the panel: closing on one course and
     // opening another let the first answer land late under the second name.
@@ -109,36 +120,43 @@ export default function ScheduleModal() {
 
     const hasDate = !!(project.start_date && project.deadline);
     const verdict: PaceVerdict | null = hasDate ? pace?.verdict ?? null : null;
-    const dirty = start !== (project.start_date || today)
-        || deadline !== (project.deadline || '')
+    // The date stays where it is while it carries the mark, here as on the
+    // server: taking the mark off is what lets it move. A locked date is the
+    // saved one, whatever was typed before the lock arrived.
+    const deadlineLocked = savedFixed && fixed;
+    const end = deadlineLocked ? (project.deadline || '') : deadline;
+    const datesEdited = start !== (project.start_date || today) || end !== (project.deadline || '');
+    const dirty = datesEdited
         || fixed !== savedFixed
         || [...days].sort().join() !== [...savedDays].sort().join();
-    const reversed = !!start && !!deadline && start > deadline;
+    const reversed = !!start && !!end && start > end;
     // Seven cells share a phone row: a language whose short day names run
     // past four letters (Polish "niedz") takes the smaller size, all seven at once.
     const dayNames = [1, 2, 3, 4, 5, 6, 7].map(isoDayShort);
-    const dayText = dayNames.some(n => n.length > 4) ? 'text-xs' : 'text-sm';
-    // The date stays where it is while it carries the mark, here as on the
-    // server: taking the mark off is what lets it move.
-    const deadlineLocked = savedFixed && fixed;
-    const canSave = dirty && !!start && !!deadline && !reversed && days.length > 0 && busy === null;
+    const longDayNames = dayNames.some(n => n.length > 4);
+    const canSave = dirty && !!start && !!end && !reversed && days.length > 0 && busy === null;
 
     async function save() {
         if (!projectId || !canSave) return;
+        const s = session.current;
         setBusy('save');
-        const ok = await scheduleProject(projectId, { startDate: start, deadline, studyDays: days, deadlineFixed: fixed });
+        const ok = await scheduleProject(projectId, {
+            startDate: start, deadline: end, studyDays: days,
+            ...(fixedDraft !== null ? { deadlineFixed: fixedDraft } : {}),
+        });
         setBusy(null);
-        if (ok) loadPace();
+        if (ok && session.current === s) { setFixedDraft(null); loadPace(); }
     }
 
     async function planWeekly() {
         if (!projectId || !project?.start_date || !project.deadline) return;
+        const s = session.current;
         setBusy('plan');
         const ok = await scheduleProject(projectId, {
-            startDate: project.start_date, deadline: project.deadline, studyDays: savedDays, deadlineFixed: savedFixed,
+            startDate: project.start_date, deadline: project.deadline, studyDays: savedDays,
         });
         setBusy(null);
-        if (ok) loadPace();
+        if (ok && session.current === s) loadPace();
     }
 
     async function remove() {
@@ -150,10 +168,11 @@ export default function ScheduleModal() {
             variant: 'warning',
         });
         if (!confirmed) return;
+        const s = session.current;
         setBusy('remove');
         const ok = await removeSchedule(projectId);
         setBusy(null);
-        if (ok) setOpen(false);
+        if (ok && session.current === s) setOpen(false);
     }
 
     const offerRow = (offer: PaceOffer, v: PaceVerdict) => {
@@ -173,12 +192,16 @@ export default function ScheduleModal() {
                 };
             case 'plan_weekly': {
                 if (v.unit === 'cards') return null;
-                // With an edit open, laying the topics out IS saving it (the
-                // one write path), so the sentence names the dates being typed
-                // and the button says it saves them. A window that starts later
-                // is laid out from its start, not from today.
-                const from = dirty ? start : (project.start_date || today);
-                const to = dirty && deadline ? shortDay(deadline, today) : date;
+                // Its rate is the saved date's: with other dates typed it
+                // would price a plan it does not make, and Save lays the
+                // topics out over the typed dates anyway.
+                if (datesEdited) return null;
+                // With another edit open (study days, the mark), laying the
+                // topics out IS saving it (the one write path), so the button
+                // says it saves. A window that starts later is laid out from
+                // its start, not from today.
+                const from = project.start_date || today;
+                const to = date;
                 return {
                     key: offer.kind,
                     // The same rounding as "That is N a week" above: the
@@ -197,11 +220,15 @@ export default function ScheduleModal() {
                 return {
                     key: offer.kind,
                     title: t("Check what you already know"),
-                    body: t("A topic you pass is closed without studying it."),
+                    // A head start, never a pass: the topic's own check still decides.
+                    body: t("Topics you already know get a head start: a short review, then their mastery check."),
                     action: t("Start check"),
                     run: () => { setOpen(false); openPlacement(project.id, project.name); },
                 };
             case 'move_date': {
+                // The saved mark, before the verdict is re-read: its button
+                // would focus a field that no longer moves.
+                if (savedFixed) return null;
                 const { recent, best } = v.ranges;
                 const span = (r: { from: string; to: string }) => ({ from: shortDay(r.from, today), to: shortDay(r.to, today) });
                 return {
@@ -303,24 +330,27 @@ export default function ScheduleModal() {
                         <div className="grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] gap-3">
                             <div>
                                 <label htmlFor={`${titleId}-start`} className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t("Start Date")}</label>
-                                <TextInput id={`${titleId}-start`} type="date" value={start} max={deadline || undefined}
+                                {/* Held while a write is in flight: an edit made then
+                                    was shown as saved (and locked) when it was not. */}
+                                <TextInput id={`${titleId}-start`} type="date" value={start} max={end || undefined}
+                                    readOnly={busy !== null}
                                     aria-invalid={reversed || undefined} onChange={e => setStart(e.target.value)} />
                             </div>
                             <div>
                                 <label htmlFor={`${titleId}-deadline`} className="block text-xs text-slate-500 dark:text-slate-400 mb-1">{t("Deadline")}</label>
-                                <TextInput ref={deadlineRef} id={`${titleId}-deadline`} type="date" value={deadline} min={start || undefined}
+                                <TextInput ref={deadlineRef} id={`${titleId}-deadline`} type="date" value={end} min={start || undefined}
                                     // Read-only, not disabled: a disabled field greys the
                                     // very date the mark protects until it cannot be read.
                                     // A flat grey well, so it does not look like the
                                     // editable field beside it.
-                                    readOnly={deadlineLocked} className="read-only:bg-slate-100 dark:read-only:bg-slate-800 read-only:cursor-default"
+                                    readOnly={deadlineLocked || busy !== null} className="read-only:bg-slate-100 dark:read-only:bg-slate-800 read-only:cursor-default"
                                     aria-invalid={reversed || undefined}
                                     aria-describedby={deadlineLocked ? `${titleId}-locked` : undefined}
                                     onChange={e => setDeadline(e.target.value)} />
                             </div>
                         </div>
                         <label className="flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
-                            <Checkbox checked={fixed} onChange={setFixed} disabled={!deadline} className="mt-0.5" aria-describedby={fixed ? `${titleId}-locked` : undefined} />
+                            <Checkbox checked={fixed} onChange={setFixedDraft} disabled={!end || busy !== null} className="mt-0.5" aria-describedby={fixed ? `${titleId}-locked` : undefined} />
                             <span>
                                 {t("Exam date, cannot move")}
                                 {/* Only while ticked: "untick it" beside an empty box
@@ -356,11 +386,12 @@ export default function ScheduleModal() {
                                         type="button"
                                         data-day-toggle
                                         aria-pressed={on}
+                                        disabled={busy !== null}
                                         onClick={() => setDays(d => d.includes(iso) ? d.filter(x => x !== iso) : [...d, iso].sort())}
                                         // The ring stands off the button: on a filled
                                         // day an accent ring flush with the accent
                                         // fill read as one bigger button.
-                                        className={`${CONTROL_BASE} focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-slate-800 min-w-0 w-full h-10 touch:h-11 px-0 ${dayText} border ${on
+                                        className={`${CONTROL_BASE} focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-slate-800 min-w-0 w-full h-10 touch:h-11 px-0 ${longDayNames ? 'text-xs' : 'text-sm'} border ${on
                                             ? 'bg-accent border-accent text-white can-hover:hover:bg-accent/90'
                                             : CONTROL_VARIANT.neutral}`}
                                     >

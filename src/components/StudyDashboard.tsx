@@ -68,6 +68,8 @@ export default function StudyDashboard() {
 
     const handleRefresh = async () => {
         if (!currentProjectId) return;
+        // The verdict counts the same closed topics and met cards.
+        void useStore.getState().loadPaceData(currentProjectId);
         const result = await useStore.getState().loadDashboard(currentProjectId);
         if (!result.success) {
             addToast('error', tr("Failed to refresh dashboard"), result.error);
@@ -405,7 +407,10 @@ export default function StudyDashboard() {
                                     compact
                                     reloadKey={cardsKey}
                                     // Pace, progress and the plan count cards too.
-                                    onSessionEnd={() => void useStore.getState().loadDashboard(currentProjectId)}
+                                    onSessionEnd={() => {
+                                        void useStore.getState().loadPaceData(currentProjectId);
+                                        void useStore.getState().loadDashboard(currentProjectId);
+                                    }}
                                 />
                             ),
                         },
