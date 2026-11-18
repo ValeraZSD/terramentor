@@ -123,7 +123,11 @@ export default function RouteChunk<P extends object>({ name, load, props, fallba
 
     return (
         <ErrorBoundary
-            key={chunk.attempt}
+            // The route's name as well as the attempt: sibling routes share this
+            // one element in the router's tree, so after a crash on one of them
+            // a bare attempt count (0 for both) would keep the error on screen
+            // for the route the reader just moved to.
+            key={`${name}:${chunk.attempt}`}
             componentName={name}
             onError={(error) => { if (isChunkLoadError(error)) void checkFreshness(true); }}
             onReset={() => { remountChunk(name, load as Loader); rerender(); }}
