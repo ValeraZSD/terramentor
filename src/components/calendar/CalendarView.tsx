@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { onActivateKey } from '../../utils/a11y';
 import { api } from '../../api';
 import { useStore } from '../../store';
 import {
@@ -21,6 +20,7 @@ import {
 import { CalendarViewMode, CalendarDay } from '../../types';
 import { Chip } from '../ui/Chip';
 import { useIsMobile } from '../../hooks/useMediaQuery';
+import { useToday } from '../../hooks/useToday';
 import { useScrollToSelected } from '../../hooks/useScrollToSelected';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { useSwipeCarousel } from '../../hooks/useSwipeCarousel';
@@ -30,7 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { CalendarNav } from './CalendarNav';
 import { useCalendarKeys, useCalendarFocusOnOpen } from './calendarKeys';
 import { isNarrowCalendar, isCompactCalendar, isWeekGrid, chipsNameCourse } from './calendarLayout';
-import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel } from '../../utils/locale';
+import { uiLocale, monthName, dayHeaders as localeDayHeaders, dateRangeLabel, fullDateLabel } from '../../utils/locale';
 
 /**
  * THE calendar. One component, two scopes.
@@ -148,6 +148,13 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
 
     // ---- period scaffolds (prev | curr | next) ----------------------------
 
+    // Read every render, and a dependency of the scaffolds below: they bake
+    // `isToday` into each day, so a calendar left open across midnight would
+    // keep ringing yesterday while the late groups (also keyed on this) had
+    // already moved to the new day. `useToday` is what renders at midnight
+    // (and when the page is shown again) with nothing else changing.
+    useToday();
+    const today = todayStr();
     const scaffolds = useMemo(() => {
         const buildFor = (offset: number): CalendarDay[] => {
             if (viewMode === 'month') {
@@ -165,7 +172,7 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
             });
         };
         return { prev: buildFor(-1), curr: buildFor(0), next: buildFor(1) };
-    }, [viewYear, viewMonth, viewMode, weekStartDay, weekRefDate, studyDays]);
+    }, [viewYear, viewMonth, viewMode, weekStartDay, weekRefDate, studyDays, today]);
 
     // ---- tasks ------------------------------------------------------------
 
@@ -262,7 +269,6 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
     }, [isProject, picked, remote, tasks]);
 
     // Late work leaves its days and is owed TODAY (`splitLateTasks`).
-    const today = todayStr();
     const late = useMemo(() => splitLateTasks(shown, today), [shown, today]);
 
     const panels = useMemo(() => {
@@ -659,9 +665,6 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                             key={idx}
                             data-date={day.date}
                             onClick={() => openDay(day.date)}
-                            onKeyDown={onActivateKey(() => openDay(day.date))}
-                            role="button"
-                            tabIndex={0}
                             title={tr("Open this day")}
                             /* TODAY IS A MARKED DAY, NOT AN ALERT. A full-strength
                                accent ring on a red course reads as an error state,
@@ -673,11 +676,33 @@ export default function CalendarView({ scope }: { scope: CalendarScope }) {
                                reason. */
                             className={`group relative flex flex-col overflow-hidden border-b border-r border-slate-200 dark:border-slate-700 p-1 min-h-[60px] sm:min-h-[80px] cursor-pointer ${surface} ${dim ? 'opacity-60' : ''}`}
                         >
-                            <span className={`text-xs font-semibold mb-1 shrink-0 ${day.isToday
-                                ? 'bg-accent text-white w-5 h-5 rounded-full inline-flex items-center justify-center leading-none'
-                                : day.isCurrentMonth ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 font-normal'}`}>
-                                {parseDate(day.date).getUTCDate()}
-                            </span>
+                            {/* The cell is a pointer target; the keyboard's way into
+                                the day is its number, a real button, so the task
+                                chips and late groups inside the cell are not
+                                buttons nested in a button. */}
+                            <button
+                                type="button"
+                                data-day-open
+                                /* Named by the whole date: the digits alone
+                                   repeat when the next month's first days show. */
+                                aria-label={fullDateLabel(day.date)}
+                                title={tr("Open this day")}
+                                onClick={e => { e.stopPropagation(); openDay(day.date); }}
+                                /* A flex box, so the number sits where the old span did
+                                   (a button's own line box pushed it ~4px down). The
+                                   focus ring is an outline on the number, which may be
+                                   rounded where a raw button may not size itself
+                                   (control-gates): a padded box, its margin cancelling
+                                   the padding so the digits stay put, or a ring with a
+                                   gap around today's filled circle. */
+                                className="group/day self-start mb-1 shrink-0 inline-flex outline-none"
+                            >
+                                <span className={`text-xs font-semibold group-focus-visible/day:outline group-focus-visible/day:outline-2 group-focus-visible/day:outline-accent ${day.isToday
+                                    ? 'bg-accent text-white w-5 h-5 rounded-full inline-flex items-center justify-center leading-none group-focus-visible/day:outline-offset-1'
+                                    : `-mx-0.5 px-0.5 rounded ${day.isCurrentMonth ? 'text-slate-800 dark:text-slate-200' : 'text-slate-500 dark:text-slate-400 font-normal'}`}`}>
+                                    {parseDate(day.date).getUTCDate()}
+                                </span>
+                            </button>
 
                             {narrow ? (
                                 /* A phone cell is ~50px wide: a title is unreadable there,
