@@ -73,6 +73,10 @@ export default function MasteryGateModal({
     /** The smallest check the server judges, as the draw said (MIN_GATE_QUESTIONS). */
     const [minQ, setMinQ] = useState(4);
     const [loading, setLoading] = useState(false);
+    // Grading a submitted sitting: the questions stay on screen (a prose or
+    // code answer is a model call that can take many seconds), and the way out
+    // is held until the server has the result, so `onPassed` is not skipped.
+    const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     // A submit that did not reach the server. Kept apart from `error`, which
     // replaces the questions with a failure screen: the answers stay on screen
@@ -151,6 +155,9 @@ export default function MasteryGateModal({
         setCharCount(0);
         setThinkingChars(0);
         setLoadingModel(false);
+        // A redraw from a bank the last run wrote must not inherit that run's
+        // "checking every answer" progress.
+        setVerifying(null);
         setRawOutput(null);
         setShowRawOutput(false);
         setRetake(false);
@@ -430,7 +437,7 @@ export default function MasteryGateModal({
     const handleSubmit = useCallback(async () => {
         if (questions.length === 0) return;
 
-        setLoading(true);
+        setSubmitting(true);
         setSubmitError(null);
         try {
             const out = new Set(questions.flatMap((_, i) => (isReported(i) ? [i] : [])));
@@ -515,14 +522,16 @@ export default function MasteryGateModal({
             const reason = err instanceof Error ? err.message : String(err);
             setSubmitError(t("Your answers were not saved ({{reason}}). They are still here — press Submit to send them again.", { reason }));
         } finally {
-            setLoading(false);
+            setSubmitting(false);
         }
     }, [questions, answers, nodeId, projectId, onPassed, t, isReported]);
 
     // Counted among the questions still in the check: a reported one is
     // neither answered nor waiting for an answer.
     const keptCount = questions.filter((_, i) => !isReported(i)).length;
-    const answeredCount = questions.filter((_, i) => !isReported(i) && answers[i] !== undefined).length;
+    // An ordering left as served is already an answer (`defaultAnswer` grades
+    // that order), so it counts here and does not hold Submit back.
+    const answeredCount = questions.filter((q, i) => !isReported(i) && (answers[i] !== undefined || defaultAnswer(q) !== '')).length;
     const allAnswered = answeredCount === keptCount;
     // Every question reported: there is nothing to submit.
     const nothingLeft = questions.length > 0 && keptCount === 0;
@@ -564,13 +573,13 @@ export default function MasteryGateModal({
     // would go with it: half-answered, the X is the deliberate way out.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(isOpen, dialogRef, {
-        onEscape: () => { if (submitted || answeredCount === 0) leave(); },
+        onEscape: () => { if (!submitting && (submitted || answeredCount === 0)) leave(); },
     });
 
     // The check, and reading its results back, is time on this topic. Waiting
     // for its questions to be drawn or written is not.
     useStudyClock(
-        questionPhase || (submitted && !loading) ? { nodeId, activity: 'checks' } : null,
+        (questionPhase && !submitting) || (submitted && !loading) ? { nodeId, activity: 'checks' } : null,
         { enabled: isOpen, layer: 'session' },
     );
 
@@ -607,7 +616,7 @@ export default function MasteryGateModal({
                             )}
                         </div>
                     </div>
-                    <IconButton size="sm" onClick={leave} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
+                    <IconButton size="sm" onClick={leave} disabled={submitting} label={t("Close")} tooltip={false} icon={<X className="w-5 h-5" />} />
                 </div>
 
                 {/* Progress sits in the fixed chrome, above the scroll area, so it
@@ -627,7 +636,9 @@ export default function MasteryGateModal({
                     </div>
                 )}
 
-                <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
+                {/* inert while grading: the answers sent are the ones on screen,
+                    and the input and the report flag cannot change them. */}
+                <div inert={submitting} className="flex-1 min-h-0 overflow-auto px-6 py-4">
                     {loading && !submitted && (
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
@@ -958,21 +969,21 @@ export default function MasteryGateModal({
                             tucked under the row reads as an afterthought. */}
                         <div className="flex flex-wrap items-center gap-2">
                             {offerSkip && (
-                                <Button variant="quiet" onClick={onSkip}>
+                                <Button variant="quiet" onClick={onSkip} disabled={submitting}>
                                     {t("Skip topic")}
                                 </Button>
                             )}
                             {offerMarkAnyway && (
-                                <Button variant="quiet" onClick={onMarkAnyway}>
+                                <Button variant="quiet" onClick={onMarkAnyway} disabled={submitting}>
                                     {t("Mark done without the check")}
                                 </Button>
                             )}
                             <div className="ml-auto flex gap-2">
-                                <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0}>
+                                <Button onClick={() => setCurrentQ(Math.max(0, currentQ - 1))} disabled={currentQ === 0 || submitting}>
                                     {t("Previous")}
                                 </Button>
                                 {currentQ < questions.length - 1 ? (
-                                    <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)}>
+                                    <Button variant="primary" onClick={() => setCurrentQ(currentQ + 1)} disabled={submitting}>
                                         {t("Next")}
                                     </Button>
                                 ) : nothingLeft ? (
@@ -980,8 +991,8 @@ export default function MasteryGateModal({
                                         {t("Close")}
                                     </Button>
                                 ) : (
-                                    <Button variant="primary" onClick={handleSubmit} disabled={!allAnswered} busy={loading}>
-                                        {t("Submit mastery check")}
+                                    <Button variant="primary" onClick={handleSubmit} disabled={!allAnswered} busy={submitting}>
+                                        {submitting ? t("Checking the answer…") : t("Submit mastery check")}
                                     </Button>
                                 )}
                             </div>

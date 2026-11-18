@@ -71,7 +71,9 @@ export default function ScheduleModal() {
 
     // The form is filled when the panel opens for a project, keyed on its id:
     // the projects list is re-read often, and filling on every read reset what
-    // was being typed.
+    // was being typed. A project the store does not hold yet (a refetch in
+    // flight) fills the form when it arrives (`known`).
+    const known = !!project;
     useEffect(() => {
         if (!open || !project) return;
         setStart(project.start_date || today);
@@ -79,7 +81,7 @@ export default function ScheduleModal() {
         setDays(savedDays);
         setFixed(savedFixed);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, projectId]);
+    }, [open, projectId, known]);
 
     // Only the newest request may fill the panel: closing on one course and
     // opening another let the first answer land late under the second name.

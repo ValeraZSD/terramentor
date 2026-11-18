@@ -276,5 +276,15 @@ section('"The deadline is before the start." waits for a whole year');
     s.close();
 }
 
+section('the pill is the verdict, never the plan\'s day count');
+{
+    // The card once counted days ahead or behind the plan, and a drift under
+    // half a day read "0 days behind". It now names the verdict band.
+    const s = await show();
+    const text = s.strip().textContent;
+    check('no "days behind" or "days ahead" on the card', !/days? (behind|ahead)/.test(text), text);
+    s.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
