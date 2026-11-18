@@ -412,8 +412,8 @@ html[data-motion="reduce"] *:not(.drop-flash)::after {
 }
 
 /* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
-   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em), and
-   tools/axe-gates.mjs scans every screen at it for clipped text. On every
+   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em); no gate
+   yet opens a screen at it to look for clipped text. On every
    element, because a class that sets its own tracking or leading would
    otherwise keep it. Formulas and drawings are left alone: KaTeX places the
    parts of a fraction or a root by its own line height, and a diagram sizes

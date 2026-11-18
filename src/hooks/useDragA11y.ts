@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useState, type RefObject } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { KeyboardSensor, useSensor, type Announcements, type ScreenReaderInstructions, type UniqueIdentifier } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -70,6 +70,10 @@ export function slotOf(active: Spot, over: Spot | null): { position: number; tot
  */
 export function useDragA11y(nameOf: (id: UniqueIdentifier) => string | undefined, { positions = false } = {}): { announcements: Announcements; screenReaderInstructions: ScreenReaderInstructions } {
     const { t } = useTranslation();
+    // dnd-kit reports the item over its own place right after the pick-up, and
+    // that phrase replaces "Picked up" in the live region before a screen
+    // reader has said it. That first report repeats the pick-up instead.
+    const justPicked = useRef(false);
     return useMemo(() => {
         const name = (id: UniqueIdentifier) => nameOf(id) || t("this item");
         const slot = (active: Spot, over: Spot | null) => (positions ? slotOf(active, over) : null);
@@ -78,8 +82,14 @@ export function useDragA11y(nameOf: (id: UniqueIdentifier) => string | undefined
                 draggable: t("To move an item, press Space or Enter, use the arrow keys, then press Space or Enter again to drop it. Escape cancels."),
             },
             announcements: {
-                onDragStart: ({ active }) => t("Picked up {{item}}.", { item: name(active.id) }),
+                onDragStart: ({ active }) => {
+                    justPicked.current = true;
+                    return t("Picked up {{item}}.", { item: name(active.id) });
+                },
                 onDragOver: ({ active, over }) => {
+                    const first = justPicked.current;
+                    justPicked.current = false;
+                    if (first && over?.id === active.id) return t("Picked up {{item}}.", { item: name(active.id) });
                     const at = slot(active, over);
                     if (at) return t("{{item}} is at position {{position}} of {{total}}.", { item: name(active.id), ...at });
                     return over
@@ -87,13 +97,17 @@ export function useDragA11y(nameOf: (id: UniqueIdentifier) => string | undefined
                         : t("{{item}} is not over a place to drop it.", { item: name(active.id) });
                 },
                 onDragEnd: ({ active, over }) => {
+                    justPicked.current = false;
                     const at = slot(active, over);
                     if (at) return t("Dropped {{item}} at position {{position}} of {{total}}.", { item: name(active.id), ...at });
                     return over
                         ? t("Dropped {{item}} at {{place}}.", { item: name(active.id), place: name(over.id) })
                         : t("Dropped {{item}}.", { item: name(active.id) });
                 },
-                onDragCancel: ({ active }) => t("Moving {{item}} was cancelled.", { item: name(active.id) }),
+                onDragCancel: ({ active }) => {
+                    justPicked.current = false;
+                    return t("Moving {{item}} was cancelled.", { item: name(active.id) });
+                },
             },
         };
     }, [nameOf, positions, t]);
