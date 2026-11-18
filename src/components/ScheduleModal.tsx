@@ -6,7 +6,8 @@ import { api } from '../api';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { todayStr } from '../utils/tree';
-import { isoDayLabel } from '../utils/locale';
+import { isoDayShort } from '../utils/locale';
+import { CONTROL_BASE, CONTROL_VARIANT } from './ui/vocabulary';
 import type { PaceData, PaceOffer, PaceVerdict } from '../types';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -318,24 +319,33 @@ export default function ScheduleModal() {
                     </section>
 
                     <section aria-labelledby={`${titleId}-days`}>
-                        <h3 id={`${titleId}-days`} className={`${label} mb-2`}>{t("Study Days")}</h3>
-                        {/* Seven columns that share the width: a wrapping row
-                            left Sunday alone on a second line on a phone. */}
-                        <div className="grid grid-cols-7 gap-1.5 max-w-sm">
-                            {[1, 2, 3, 4, 5, 6, 7].map(iso => (
-                                <button
-                                    key={iso}
-                                    type="button"
-                                    data-day-toggle
-                                    aria-pressed={days.includes(iso)}
-                                    onClick={() => setDays(d => d.includes(iso) ? d.filter(x => x !== iso) : [...d, iso].sort())}
-                                    className={`w-full h-10 touch:h-11 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${days.includes(iso)
-                                        ? 'bg-accent/10 text-accent-fg ring-1 ring-inset ring-accent/50'
-                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 can-hover:hover:bg-slate-200 dark:can-hover:hover:bg-slate-600'}`}
-                                >
-                                    {isoDayLabel(iso)}
-                                </button>
-                            ))}
+                        <h3 id={`${titleId}-days`} className={`${label} mb-2`}>{t("Study days")}</h3>
+                        {/* Seven columns across the full width, edges in line
+                            with the date fields above: a wrapping row left
+                            Sunday alone on a phone, a short one stopped
+                            halfway. A picked day is FILLED, as a picked Chip
+                            is; an accent tint read as switched off. */}
+                        <div className="grid grid-cols-7 gap-1.5">
+                            {[1, 2, 3, 4, 5, 6, 7].map(iso => {
+                                const on = days.includes(iso);
+                                return (
+                                    <button
+                                        key={iso}
+                                        type="button"
+                                        data-day-toggle
+                                        aria-pressed={on}
+                                        onClick={() => setDays(d => d.includes(iso) ? d.filter(x => x !== iso) : [...d, iso].sort())}
+                                        // The ring stands off the button: on a filled
+                                        // day an accent ring flush with the accent
+                                        // fill read as one bigger button.
+                                        className={`${CONTROL_BASE} focus-visible:ring-offset-2 ring-offset-white dark:ring-offset-slate-800 min-w-0 w-full h-10 touch:h-11 px-0 text-sm border ${on
+                                            ? 'bg-accent border-accent text-white can-hover:hover:bg-accent/90'
+                                            : CONTROL_VARIANT.neutral}`}
+                                    >
+                                        {isoDayShort(iso)}
+                                    </button>
+                                );
+                            })}
                         </div>
                     </section>
                 </div>
