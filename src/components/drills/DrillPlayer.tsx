@@ -14,6 +14,7 @@ import { usePointerVerb } from '../../utils/platform';
 import { Button } from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import CardMedia, { CardAudioProvider, parseCardMedia } from '../CardMedia';
 
 interface Props {
     spec: DrillSpec;
@@ -221,7 +222,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         const mine = ++checkSeq.current;
         setChecking(true);
         try {
-            const q = `${spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
+            const q = `${currentItem.context || spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
             const res = await api.checkAnswer(q, currentItem.answer, given);
             if (checkSeq.current !== mine) return;
             grade(given, !!res.correct);
@@ -476,6 +477,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         .replace(/[{}^_]/g, '')
         .length;
     const promptLen = visibleLen(currentItem.prompt);
+    const promptMedia = currentItem.media ? parseCardMedia(currentItem.media).front : [];
     const promptLong = promptLen > 120;
     const promptSize =
         promptLen <= 24 ? 'text-4xl sm:text-5xl'
@@ -513,12 +515,21 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                             onOpenChange={onAsking}
                         />
                     </div>
-                    {spec.promptLabel && (
-                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
+                    {/* A card's own task line ("de или het?") is its question;
+                        the drill's generic label only stands in when it has none. */}
+                    {(currentItem.context || spec.promptLabel) && (
+                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
                     )}
-                    <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
+                    <div className={`mt-2 ${promptMedia.length ? 'mb-3' : 'mb-5'} font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
                         <MathText content={currentItem.prompt} />
                     </div>
+                    {/* A listening card's sound IS the question: played as the
+                        item opens, as in a review, with its button to replay. */}
+                    {promptMedia.length > 0 && (
+                        <CardAudioProvider key={`${pos}:${currentRef ?? ''}`} items={promptMedia.filter(m => m.kind === 'audio')} autoPlay>
+                            <CardMedia media={promptMedia} className="mb-5" />
+                        </CardAudioProvider>
+                    )}
                 </div>
 
                 {currentOut ? (

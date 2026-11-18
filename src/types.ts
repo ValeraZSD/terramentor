@@ -1898,6 +1898,14 @@ export interface DrillItem {
     note?: string;
     /** The card it was made from, in the flashcard drill: a report on it is a report on the card. */
     cardId?: number;
+    /** The only answers this item may borrow as wrong options, when set (the
+     *  flashcard drill: answers of cards of the same kind, never the whole deck). */
+    pool?: string[];
+    /** The line the card's author printed beside the question ("de или het?",
+     *  "переведите на русский"), shown in place of the drill's own label. */
+    context?: string;
+    /** The card's question-side media JSON (`flashcards.media`): a listening card's sound IS its question. */
+    media?: string;
 }
 
 export interface DrillSpec {

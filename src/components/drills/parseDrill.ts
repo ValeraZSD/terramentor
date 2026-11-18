@@ -141,27 +141,140 @@ export async function parseDrillSpec(fenceBody: string): Promise<DrillParseResul
  * node's flashcards into a recognition drill. The flashcards table IS a per-node
  * item bank — front→prompt, back→answer — so a scored, timed practice game exists
  * for any node with cards, with zero model calls. Distractors are sampled from
- * sibling answers by the player, so no generation is needed here either.
+ * sibling answers of the same kind (`cardOptionPools`), so no generation is
+ * needed here either.
  *
- * Its title and prompt are the APP's words, not an author's, so they come from
- * the caller's `t`: built here as English literals, the card shown on every
- * topic with cards read "Practice: <topic>" in a Russian interface.
+ * Its title is the APP's words, not an author's, so it comes from the caller's
+ * `t`: built here as an English literal, the card shown on every topic with
+ * cards read "Practice: <topic>" in a Russian interface. It has no generic
+ * question label: a card's front is already its question, and "What is this?"
+ * over "Listen. What did the speaker say?" asked two things at once. The
+ * card's own task line ("de или het?") stands there instead.
  */
 export function drillFromFlashcards(cards: Flashcard[], nodeTitle: string, t: TFunction): DrillSpec | null {
-    const items: DrillItem[] = cards
-        .map(c => ({ prompt: asString(c.front), answer: asString(c.back), cardId: c.id }))
-        .filter(it => it.prompt && it.answer);
-    if (items.length < 4) return null; // too few to make a worthwhile round
+    const usable = cards.filter(c => asString(c.front) && asString(c.back));
+    if (usable.length < 4) return null; // too few to make a worthwhile round
+    const pools = cardOptionPools(usable);
+    const items: DrillItem[] = usable.map((c, i) => {
+        const item: DrillItem = { prompt: asString(c.front), answer: asString(c.back), cardId: c.id, pool: pools[i] };
+        const context = asString(c.extra_front);
+        if (context) item.context = context;
+        if (frontMediaKinds(c.media).length) item.media = String(c.media);
+        return item;
+    });
     return {
         kind: 'recognition',
         title: t("Practice: {{topic}}", { topic: nodeTitle }),
-        promptLabel: t("What is this?"),
         modes: ['choice', 'type'],
         items,
         target: { count: Math.min(items.length, 20), secondsPerItem: null },
         source: 'flashcards',
         key: FLASHCARD_DRILL_KEY,
     };
+}
+
+/** The kinds of media on a card's question side ('audio', 'image'), sorted; [] for none or unreadable. */
+function frontMediaKinds(raw: unknown): string[] {
+    let obj: unknown = raw;
+    if (typeof raw === 'string') {
+        try { obj = JSON.parse(raw); } catch { return []; }
+    }
+    const front = (obj as { front?: unknown } | null)?.front;
+    if (!Array.isArray(front)) return [];
+    return [...new Set(front.map(m => (m && typeof m === 'object' ? asString((m as { kind?: unknown }).kind) : '')).filter(Boolean))].sort();
+}
+
+/** The writing system most of a text's letters are in ('cyrillic', 'latin', …), or 'number'/'other'. */
+function scriptOf(text: string): string {
+    const scripts: [string, RegExp][] = [
+        ['latin', /\p{Script=Latin}/u], ['cyrillic', /\p{Script=Cyrillic}/u], ['greek', /\p{Script=Greek}/u],
+        ['han', /\p{Script=Han}/u], ['kana', /[\p{Script=Hiragana}\p{Script=Katakana}]/u], ['hangul', /\p{Script=Hangul}/u],
+        ['arabic', /\p{Script=Arabic}/u], ['hebrew', /\p{Script=Hebrew}/u], ['devanagari', /\p{Script=Devanagari}/u],
+    ];
+    const counts = new Map<string, number>();
+    for (const ch of text) {
+        const hit = scripts.find(([, re]) => re.test(ch));
+        if (hit) counts.set(hit[0], (counts.get(hit[0]) ?? 0) + 1);
+    }
+    if (!counts.size) return /\d/.test(text) ? 'number' : 'other';
+    return [...counts].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/** A blank in a card's question ("___ bal"), the gap the answer fills. */
+const BLANK = /_{2,}/;
+
+/** What a cloze card's answer puts in the blank ("de" for "___ bal" → "de bal"), or null if it is not one. */
+function clozeFill(front: string, answer: string): { pre: string; post: string; fill: string } | null {
+    const m = BLANK.exec(front);
+    if (!m) return null;
+    const pre = front.slice(0, m.index);
+    const post = front.slice(m.index + m[0].length);
+    const a = answer.toLowerCase();
+    if (a.length <= pre.length + post.length || !a.startsWith(pre.toLowerCase()) || !a.endsWith(post.toLowerCase())) return null;
+    const fill = answer.slice(pre.length, answer.length - post.length).trim();
+    return fill ? { pre, post, fill } : null;
+}
+
+/**
+ * The wrong options each card may be shown with, in the flashcard drill.
+ *
+ * A topic's cards are not one kind: one course gives a topic listening cards
+ * (a sound, then the sentence), word cards both ways and de/het cards side by
+ * side. Wrong options drawn from the whole deck put "лошадь" and an explanation
+ * of the rule beside a Dutch sentence, and the right answer is the one option
+ * of its kind. So a card borrows only from cards that ask the same thing in
+ * the same shape: the same printed task line (or the same shared question, a
+ * listening card's "listen" line; or, with neither, a question in the same
+ * writing system and size), the same media on the question, and preferably an
+ * answer in the same writing system and size (a word or a sentence). A card
+ * gets fewer options rather than one of another kind; only a card alone of
+ * its kind borrows by shape from the rest of the topic.
+ *
+ * A card with a blank ("___ bal" → "de bal") asks for what goes IN the blank:
+ * its wrong options are its own question filled with what the other blanks of
+ * its kind take ("het bal"), never another card's word.
+ */
+function cardOptionPools(cards: Flashcard[]): string[][] {
+    const fronts = new Map<string, number>();
+    for (const c of cards) {
+        const f = asString(c.front).toLowerCase();
+        fronts.set(f, (fronts.get(f) ?? 0) + 1);
+    }
+    const shapeOf = (s: string) => `${scriptOf(s)}|${s.split(/\s+/).length > 3 ? 'sentence' : 'term'}`;
+    const info = cards.map(c => {
+        const front = asString(c.front);
+        const answer = asString(c.back);
+        const printed = asString(c.extra_front).toLowerCase();
+        // No printed task and a question of its own: the question's shape is
+        // the task ("мяч" asks the other way round from "de bal").
+        const task = printed || ((fronts.get(front.toLowerCase()) ?? 0) > 1 ? front.toLowerCase() : `q:${shapeOf(front)}`);
+        return { front, answer, task: `${task}|${frontMediaKinds(c.media).join(',')}`, shape: shapeOf(answer), cloze: clozeFill(front, answer) };
+    });
+    const WANTED = 3;
+    return info.map((me, i) => {
+        // A card with the same answer is no wrong option (synonyms, duplicates):
+        // left in, it would count towards a pool that offers nothing.
+        const mine = me.answer.toLowerCase().trim();
+        const others = info.filter((o, j) => j !== i && o.answer.toLowerCase().trim() !== mine);
+        if (me.cloze) {
+            const own = me.cloze.fill.toLowerCase();
+            const fills = new Set<string>();
+            for (const o of others) {
+                if (o.task !== me.task || !o.cloze) continue;
+                if (o.cloze.fill.toLowerCase() !== own) fills.add(o.cloze.fill);
+            }
+            if (fills.size) return [...fills].map(f => `${me.cloze!.pre}${f}${me.cloze!.post}`.trim());
+        }
+        // Same question, same shape first; then the rest of the same question
+        // (still the same kind of card); a card alone of its kind borrows by
+        // shape, and only a card alone of its shape from the whole topic.
+        const sameKind = others.filter(o => o.task === me.task);
+        const pool = [...new Set(sameKind.filter(o => o.shape === me.shape).map(o => o.answer))];
+        if (pool.length < WANTED) pool.push(...sameKind.filter(o => o.shape !== me.shape).map(o => o.answer));
+        if (pool.length) return [...new Set(pool)];
+        const sameShape = others.filter(o => o.shape === me.shape).map(o => o.answer);
+        return [...new Set(sameShape.length ? sameShape : others.map(o => o.answer))];
+    });
 }
 
 /** The one drill a topic's flashcards make — there is only ever one per topic. */
@@ -315,7 +428,8 @@ export function answersMatch(a: string, b: string): boolean {
 /**
  * Build the multiple-choice options for one item: the correct answer plus up to
  * `wanted` distractors — the item's own near-misses first, then unique answers
- * sampled from the rest of the bank — all shuffled. Never fewer than 2 options.
+ * sampled from its `pool` when it has one, else from the rest of the bank — all
+ * shuffled. Two options at least whenever the pool or bank holds another answer.
  */
 export function buildOptions(item: DrillItem, bank: DrillItem[], wanted = 3): string[] {
     const chosen: string[] = [];
@@ -325,9 +439,9 @@ export function buildOptions(item: DrillItem, bank: DrillItem[], wanted = 3): st
         if (v && !seen.has(key)) { seen.add(key); chosen.push(v); }
     };
     for (const d of item.distractors ?? []) push(d);
-    for (const other of shuffle(bank)) {
+    for (const other of item.pool ? shuffle(item.pool) : shuffle(bank).map(o => o.answer)) {
         if (chosen.length >= wanted) break;
-        push(other.answer);
+        push(other);
     }
     return shuffle([item.answer, ...chosen.slice(0, wanted)]);
 }
@@ -351,6 +465,10 @@ export function buildOptions(item: DrillItem, bank: DrillItem[], wanted = 3): st
  * is owed within a round, and a permanently fixed order would be memorised.
  */
 export function closedOptionSet(bank: DrillItem[], max = 4): string[] | null {
+    // Items that carry their own pool (the flashcard drill) have already been
+    // told which answers they may stand beside: four cards of four kinds are
+    // not one small vocabulary.
+    if (bank.some(item => item.pool)) return null;
     const seen = new Map<string, string>();
     const add = (v: string) => {
         const key = v.toLowerCase().trim();

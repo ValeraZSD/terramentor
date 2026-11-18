@@ -410,6 +410,93 @@ section('A drill keeps its last full round');
     check('the launcher reads the stored score back', /api\.getDrillScores\(spec\.nodeId\)/.test(launcher));
 }
 
+// --- the flashcard drill asks each card's own question -----------------------
+// A course gives one topic cards of several kinds: listening cards (a sound, then
+// the sentence), word cards both ways, de/het cards with a blank. The drill made
+// from them once showed a listening card with no sound under "What is this?" and
+// offered "лошадь", a rule explanation and "het podium" beside the one Dutch
+// sentence, so the answer was the only option of its kind. The fixture below is
+// that topic's shape.
+section('The flashcard drill keeps each card its question and its kind');
+{
+    const { drillFromFlashcards } = await import(pathToFileURL(out).href);
+    const audio = (n) => JSON.stringify({ front: [{ hash: String(n).repeat(64).slice(0, 64), kind: 'audio', name: `nl_${n}.mp3`, alt: '' }] });
+    const LISTEN = '🎧 Послушай. Что сказал диктор?';
+    let id = 1;
+    const card = (front, back, extra_front = null, media = null) => ({ id: id++, node_id: 1, front, back, extra_front, media });
+    const cards = [
+        card(LISTEN, 'Onder de tafel ligt een bal. Hij is rond.', null, audio(1)),
+        card(LISTEN, 'De bus komt. Hij is te laat.', null, audio(2)),
+        card(LISTEN, 'Op het podium speelt een orkest.', null, audio(3)),
+        card(LISTEN, 'Het paard loopt in de wei.', null, audio(4)),
+        card(LISTEN, 'We gaan vandaag naar het park.', null, audio(5)),
+        card('het paard', 'лошадь', 'переведите на русский'),
+        card('de bal', 'мяч', 'переведите на русский'),
+        card('de bus', 'автобус', 'переведите на русский'),
+        card('het park', 'парк', 'переведите на русский'),
+        card('лошадь', 'het paard', 'назовите слово вместе с артиклем'),
+        card('мяч', 'de bal', 'назовите слово вместе с артиклем'),
+        card('___ bal', 'de bal', 'de или het?'),
+        card('___ paard', 'het paard', 'de или het?'),
+        card('___ bus', 'de bus', 'de или het?'),
+        card('___ park', 'het park', 'de или het?'),
+        card('Каким местоимением заменяют предметы во множественном числе?', 'Ze, независимо от рода: de boeken → ze.'),
+        card('Каким местоимением заменяют de-слово, а каким het-слово?', 'De-слово — hij, het-слово — het: de tafel → hij, het boek → het.'),
+        card('Как hij и het выглядят в роли дополнения?', 'Hij → hem, het → het: ik zie hem (de sleutel), ik zie het (het boek).'),
+    ];
+    const spec = drillFromFlashcards(cards, 'hij вместо het', (s) => s);
+    const byFront = (f, a) => spec.items.find(it => it.prompt === f && (!a || it.answer === a));
+    const listen = byFront(LISTEN, 'Onder de tafel ligt een bal. Hij is rond.');
+    const listenAnswers = new Set(cards.filter(c => c.front === LISTEN).map(c => c.back));
+    const draws = (item) => Array.from({ length: 60 }, () => buildOptions(item, spec.items)).flat();
+
+    check('a listening card keeps its sound in the drill', !!listen?.media && JSON.parse(listen.media).front[0].kind === 'audio');
+    const strays = [...new Set(draws(listen))].filter(o => !listenAnswers.has(o));
+    check('a listening card is offered only other heard sentences', strays.length === 0, strays.join(' | '));
+    check('a listening card still gets four options', buildOptions(listen, spec.items).length === 4);
+
+    check('the card drill puts no generic label over a card\'s own question', !spec.promptLabel, spec.promptLabel);
+
+    const word = byFront('het paard');
+    check('a card keeps the task line its author printed', word?.context === 'переведите на русский');
+    const notRussian = [...new Set(draws(word))].filter(o => !/^[а-яё ,]+$/i.test(o));
+    check('a word to translate is offered only translations', notRussian.length === 0, notRussian.join(' | '));
+
+    const blank = byFront('___ bal');
+    const blankOpts = new Set(draws(blank));
+    check('a de/het blank is offered its own word with each article, nothing else',
+        blankOpts.size === 2 && blankOpts.has('de bal') && blankOpts.has('het bal'), [...blankOpts].join(' | '));
+
+    const rule = byFront('Каким местоимением заменяют de-слово, а каким het-слово?');
+    const ruleAnswers = new Set(cards.filter(c => c.front.startsWith('Как')).map(c => c.back));
+    const ruleStrays = [...new Set(draws(rule))].filter(o => !ruleAnswers.has(o));
+    check('a rule question is offered only the other rules, even if that makes three options',
+        ruleStrays.length === 0 && buildOptions(rule, spec.items).length === 3, ruleStrays.join(' | '));
+
+    id = 100;
+    const synonyms = drillFromFlashcards([
+        card('конь', 'het paard', 'назовите слово'), card('лошадь', 'het paard', 'назовите слово'),
+        card('шар', 'de bal', 'назовите слово'), card('мяч', 'de bal', 'назовите слово'),
+        card('автобус', 'de bus', 'перевод'),
+    ], 't', (s) => s);
+    const thin = synonyms.items.filter(it => buildOptions(it, synonyms.items).length < 2).map(it => it.prompt);
+    check('a card whose kind shares its answer still gets another option', thin.length === 0, thin.join(', '));
+    const fourBlanks = drillFromFlashcards([card('___ bal', 'de bal', 'de или het?'), card('___ paard', 'het paard', 'de или het?'),
+        card('___ bus', 'de bus', 'de или het?'), card('___ park', 'het park', 'de или het?')], 't', (s) => s);
+    check('four cards are not read as one small fixed vocabulary', closedOptionSet(fourBlanks.items) === null);
+
+    const ai = { prompt: 'x', answer: 'a' };
+    const bank = [ai, { prompt: 'y', answer: 'b' }, { prompt: 'z', answer: 'c' }];
+    check('a drill item with no pool still draws from the whole bank (AI drills)',
+        new Set(Array.from({ length: 40 }, () => buildOptions(ai, bank)).flat()).size === 3);
+
+    const player = readFileSync(fileURLToPath(new URL('../src/components/drills/DrillPlayer.tsx', import.meta.url)), 'utf8');
+    check('the player plays the card\'s question-side sound as the item opens',
+        /parseCardMedia\(currentItem\.media\)\.front/.test(player) && /<CardAudioProvider[^\n]*\sautoPlay>/.test(player));
+    check('the player shows the card\'s own task line before the drill\'s label',
+        /currentItem\.context \|\| spec\.promptLabel/.test(player));
+}
+
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
