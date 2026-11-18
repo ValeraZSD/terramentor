@@ -175,7 +175,8 @@ node tools/a11y-lint.mjs            # keyboard + screen reader
 
 Two accessibility checks gate inside `npm test`. `axe-gates.mjs` runs axe-core in a browser
 over the screens [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) lists (not every screen; on CI
-it runs only on Windows), and `a11y-lint-gates.mjs` runs oxlint's jsx-a11y rules over `src/`. Each
+it runs only on Windows). It needs Edge or Chrome: without one it prints SKIPPED and `npm test`
+still passes locally, so check for that line. `a11y-lint-gates.mjs` `a11y-lint-gates.mjs` runs oxlint's jsx-a11y rules over `src/`. Each
 has an allowlist that may only go down. What NVDA itself says is recorded by the **Screen
 reader** workflow on a Windows runner ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)).
 

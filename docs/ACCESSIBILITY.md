@@ -31,9 +31,9 @@ and a report against each WCAG 2.2 rule.
 
 ## The target
 
-Terramentor aims at [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It does not fully meet
-it yet. In W3C's words it is **partially conformant**: some parts of the app do not meet every
-success criterion.
+Terramentor aims at [WCAG 2.2](https://www.w3.org/TR/WCAG22/) level AA. It **does not conform
+yet**: some parts of the app itself do not meet every success criterion. The report below
+records how far it has come and what is still missing.
 
 The main reasons, each described under [Known gaps](#known-gaps):
 
@@ -166,7 +166,9 @@ not one; use the form above.
 
 ## How it is checked
 
-These run without a person and without a model. Each one fails when what it checks gets worse.
+These run without a person and without a model. Each gate fails when what it checks gets worse.
+The NVDA run is the exception for speech: what NVDA did not say is recorded as a miss, and only
+a page that did not do the thing fails it.
 
 **axe in a real browser.** `tools/axe-gates.mjs` builds the app, opens it in headless Edge or
 Chrome on an invented course, and runs [axe-core](https://github.com/dequelabs/axe-core) with
@@ -183,7 +185,7 @@ the checks on every pull request.
 
 **Lint rules for the source.** `tools/a11y-lint-gates.mjs` runs oxlint's `jsx-a11y` rules over
 `src/`. Findings beyond `tools/a11y-lint-allowlist.json` fail it, and that list may only
-shrink. On the date above it allows 96 findings in 49 files. Many are a rule that cannot see
+shrink; the file holds the current counts. Many are a rule that cannot see
 what a shared component renders, such as a `role="switch"` on the app's checkbox, which is a
 real checkbox underneath. Two rules that ask for a different tag rather than flag a barrier are
 off, with the reason in the gate. A comment that switches a rule off in one place fails it too,
@@ -203,7 +205,7 @@ Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
   aloud, but the next question is read. In browse mode it also reads, and can press, the page behind
   the review.
 - Quiz: an option is read with its text and its pressed state, and choosing one is answered
-  by "Correct". The first option is 26 presses of Tab from the top of the page; Skip to content shortens
+  by "Correct". The first option is 22 presses of Tab from the top of the page; Skip to content shortens
   that.
 - Maths: ten to the power minus two is read as "10 to the negative 2 power" and one
   thousandth as "1 over 1000". In a topic's own card list, turning a card over says only "pressed".
@@ -276,7 +278,7 @@ has nothing the criterion is about.
 | 1.2.2 Captions (Prerecorded) | Not applicable | The app has no video with sound of its own; linked videos play on their own site. |
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | Not applicable | The app has no prerecorded video of its own. |
 | 1.3.1 Info and Relationships | Partially supports | Headings, landmarks and labels are marked up; the outline tree and calendar grid are not. |
-| 1.3.2 Meaningful Sequence | Partially supports | Reading order follows the screen; in a card review, browse mode can reach the page behind. |
+| 1.3.2 Meaningful Sequence | Supports | Reading order follows the screen. (Browse mode reaching the page behind a card review is under Known gaps.) |
 | 1.3.3 Sensory Characteristics | Supports | Instructions name controls by their words, for example "drag or use arrow keys". |
 | 1.4.1 Use of Color | Partially supports | On a phone's month calendar, dots tell courses apart by colour alone. |
 | 1.4.2 Audio Control | Supports | Card recordings have a play and stop button; playing by themselves can be switched off. |
@@ -298,7 +300,7 @@ has nothing the criterion is about.
 | 3.2.1 On Focus | Supports | No control acts on focus alone. |
 | 3.2.2 On Input | Supports | Changing a setting does not move to another screen. |
 | 3.2.6 Consistent Help | Supports | The assistant is in the header of every screen; Report a problem is always in Settings. |
-| 3.3.1 Error Identification | Partially supports | Errors are shown in text; few are tied to their field for assistive technology. |
+| 3.3.1 Error Identification | Not evaluated | Errors are shown in text; whether each names its field has not been checked form by form. Few are tied to their field in code (a technique, not this criterion). |
 | 3.3.2 Labels or Instructions | Partially supports | The search box and the notes box rely on placeholder text. |
 | 3.3.7 Redundant Entry | Supports | No step was found that asks again for something already entered. |
 | 4.1.2 Name, Role, Value | Partially supports | Outline rows do not state their status; search results are not exposed as a list. |
@@ -323,7 +325,7 @@ has nothing the criterion is about.
 | 2.4.5 Multiple Ways | Supports | The header, search (Ctrl+K, or Cmd+K on a Mac) and the atlas index. |
 | 2.4.6 Headings and Labels | Supports | One main heading per screen; settings rows and fields are labelled. |
 | 2.4.7 Focus Visible | Partially supports | A ring shows keyboard focus; on an accent-coloured button it is the button's own colour. |
-| 2.4.11 Focus Not Obscured (Minimum) | Partially supports | Notices and the task dock are fixed and can cover the focused control. |
+| 2.4.11 Focus Not Obscured (Minimum) | Not evaluated | Pop-up notices and the task dock sit over the page and can cover part of the focused control; no state has been found yet where one hides it fully. |
 | 2.5.7 Dragging Movements | Partially supports | Lists have Move earlier and Move later; panel resizing and photo corners need a drag. |
 | 2.5.8 Target Size (Minimum) | Supports | axe reports no target-size failure on the scanned screens (a smaller target passes it when spaced apart). |
 | 3.1.2 Language of Parts | Partially supports | Course text carries its course's language; assistant answers do not. |
