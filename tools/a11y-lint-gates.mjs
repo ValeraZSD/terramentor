@@ -71,7 +71,8 @@ const check = (label, cond, extra = '') => {
 
 /** oxlint over `paths` (relative to `cwd`), as { file: { rule: count } } plus the raw findings. */
 function lint(paths, cwd = ROOT) {
-    const run = spawnSync(process.execPath, [OXLINT, '-c', CONFIG, '-f', 'json', ...paths], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    // --no-ignore: an .eslintignore must not drop files, and with them their findings, from the count.
+    const run = spawnSync(process.execPath, [OXLINT, '--no-ignore', '-c', CONFIG, '-f', 'json', ...paths], { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     let report;
     try {
         report = JSON.parse(run.stdout);
@@ -79,13 +80,20 @@ function lint(paths, cwd = ROOT) {
         throw new Error(`oxlint gave no report (exit ${run.status}):\n${(run.stdout + run.stderr).slice(-2000)}`);
     }
     const counts = {};
+    // A diagnostic with no jsx-a11y code (a file oxlint could not parse) is never counted or allowed.
+    const other = [];
     for (const d of report.diagnostics) {
-        const file = d.filename.replace(/\\/g, '/');
-        const rule = d.code.replace(/^jsx-a11y\((.+)\)$/, 'jsx-a11y/$1');
+        const file = String(d.filename ?? '?').replace(/\\/g, '/');
+        const m = /^jsx-a11y\((.+)\)$/.exec(d.code ?? '');
+        if (!m) {
+            other.push(`        ${file}:${d.labels?.[0]?.span?.line ?? '?'}  ${d.code ?? 'no rule'}: ${d.message}`);
+            continue;
+        }
+        const rule = `jsx-a11y/${m[1]}`;
         counts[file] ??= {};
         counts[file][rule] = (counts[file][rule] ?? 0) + 1;
     }
-    return { counts, diagnostics: report.diagnostics, files: report.number_of_files };
+    return { counts, diagnostics: report.diagnostics, files: report.number_of_files, other };
 }
 
 // The config: every rule oxlint has, less the two above.
@@ -110,8 +118,11 @@ try {
     rmSync(planted, { recursive: true, force: true });
 }
 
-const { counts, diagnostics, files } = lint(['src']);
+// oxlint drops whatever its own bulk file lists before it reports: a second, unreviewed allowlist.
+check('there is no oxlint-suppressions.json beside the sources', !existsSync(join(ROOT, 'oxlint-suppressions.json')));
+const { counts, diagnostics, files, other } = lint(['src']);
 check(`oxlint read the client sources (${files} files)`, files > 100);
+check('every finding is a jsx-a11y rule (none is a file oxlint could not parse)', !other.length, other.join('\n'));
 
 /**
  * Disable directives in `text`, as { line, rules } (rules empty = every rule).
@@ -121,10 +132,13 @@ check(`oxlint read the client sources (${files} files)`, files > 100);
  */
 function directives(text) {
     const found = [];
-    // A block comment may hold the directive on a later line than its opener.
-    for (const m of text.matchAll(/(?:\/\/[ \t]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])([^\n]*)/g)) {
-        const body = m[2].split(/\*\/|--/)[0];
-        const at = m.index + m[0].indexOf(m[1]);
+    // A block comment may hold the directive, and its rules, on later lines than its opener.
+    for (const m of text.matchAll(/(\/\/[ \t]*|\/\*\s*)((?:eslint|oxlint)-disable(?:-next-line|-line)?)(?![\w-])/g)) {
+        const from = m.index + m[0].length;
+        const end = m[1].startsWith('//') ? text.indexOf('\n', from) : text.indexOf('*/', from);
+        // A description follows "--", or a lone "-" with space around it, as oxlint reads it.
+        const body = text.slice(from, end < 0 ? text.length : end).split(/--|\s-\s/)[0];
+        const at = m.index + m[0].indexOf(m[2]);
         found.push({ line: text.slice(0, at).split('\n').length, rules: body.match(/[\w@/-]+\/[\w-]+|[\w-]+/g) ?? [] });
     }
     return found;
@@ -133,16 +147,27 @@ check('a directive in a comment is read, the same words in a string are not',
     directives("const tip = 'add eslint-disable jsx-a11y/alt-text to hide it';\n").length === 0
     && JSON.stringify(directives('  {/* eslint-disable-next-line jsx-a11y/no-autofocus */}\n')) === '[{"line":1,"rules":["jsx-a11y/no-autofocus"]}]'
     && JSON.stringify(directives('x;\n{/*\n  eslint-disable-next-line jsx-a11y/alt-text\n*/}\n')) === '[{"line":3,"rules":["jsx-a11y/alt-text"]}]'
-    && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]');
+    && JSON.stringify(directives('/* eslint-disable-next-line no-debugger,\n   jsx-a11y/alt-text */\n')) === '[{"line":1,"rules":["no-debugger","jsx-a11y/alt-text"]}]'
+    && JSON.stringify(directives('// oxlint-disable-line -- why\n')) === '[{"line":1,"rules":[]}]'
+    && JSON.stringify(directives('// oxlint-disable-next-line - temporary\n')) === '[{"line":1,"rules":[]}]');
+
+/** A directive's rule as the jsx-a11y rule oxlint will switch off (it accepts `alt-text` alone), or null. */
+const a11yRule = (r) => (known.includes(r) ? r : known.includes(`jsx-a11y/${r}`) ? `jsx-a11y/${r}` : null);
+check('a jsx-a11y rule named without its prefix is still read as that rule',
+    a11yRule('alt-text') === 'jsx-a11y/alt-text' && a11yRule('jsx-a11y/alt-text') === 'jsx-a11y/alt-text' && a11yRule('no-debugger') === null);
 
 // Comments that switch a jsx-a11y rule off where they stand.
 const stray = [];
 for (const rel of readdirSync(join(ROOT, 'src'), { recursive: true })) {
     const f = `src/${String(rel).replace(/\\/g, '/')}`;
-    if (!/\.(jsx|tsx)$/.test(f)) continue; // jsx-a11y finds nothing outside JSX
-    for (const { line, rules } of directives(readFileSync(join(ROOT, f), 'utf8'))) {
-        if (!rules.length) stray.push(`        ${f}:${line}  every rule`);
-        for (const rule of rules.filter((r) => r.startsWith('jsx-a11y/'))) {
+    // oxlint parses JSX in .js files too; a .ts file cannot hold JSX.
+    if (!/\.(jsx|tsx|js)$/.test(f)) continue;
+    const text = readFileSync(join(ROOT, f), 'utf8');
+    // A blanket directive matters only where there is JSX for a jsx-a11y rule to see.
+    const jsx = !f.endsWith('.js') || /<\/?[A-Za-z][\w.]*[\s/>]/.test(text);
+    for (const { line, rules } of directives(text)) {
+        if (!rules.length && jsx) stray.push(`        ${f}:${line}  every rule`);
+        for (const rule of rules.map(a11yRule).filter(Boolean)) {
             if (!SUPPRESSED[f]?.[rule]) stray.push(`        ${f}:${line}  ${rule}`);
         }
     }
