@@ -69,7 +69,15 @@ const stub = createServer((req, res) => {
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 20 } }));
     });
 });
-await new Promise(r => stub.listen(0, '127.0.0.1', r));
+// feedGen's isTransient reads "502"/"503"/"504" anywhere in an error's text,
+// the URL's port included: on such a port the stub's 400 for flashcards is
+// taken for a transient failure, retried, then backed off for 15 s, and the
+// "bank written short" section times out behind it. A port without them.
+for (;;) {
+    await new Promise(r => stub.listen(0, '127.0.0.1', r));
+    if (!/50[234]/.test(String(stub.address().port))) break;
+    await new Promise(r => stub.close(r));
+}
 process.env.AI_PROVIDER = 'openai';
 process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
 process.env.AI_MODEL = 'stub-model';
@@ -283,7 +291,7 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
 
     requestNode(jumped);   // what GET /api/feed?nodeId= does for the page that is open
     const bankOf = () => db.prepare(`SELECT COUNT(*) AS n FROM quizzes WHERE node_id = ?`).get(jumped).n;
-    for (let waited = 0; waited < 20000 && bankOf() === 0; waited += 100) await new Promise(r => setTimeout(r, 100));
+    for (let waited = 0; waited < 6000 && bankOf() === 0; waited += 100) await new Promise(r => setTimeout(r, 100));
     ok('the burst asked the model for the jumped-to topic\'s check',
         quizAsks.some(a => a.includes('Parallel circuits')), true);
     ok('…and stored it as that topic\'s bank before the learner reached it', bankOf() > 0, true);
@@ -305,10 +313,7 @@ console.log('\n--- a topic the learner jumped to gets its check written while th
     requestNode(short);
     const skipped = () => !!JSON.parse(db.prepare(`SELECT meta FROM feed_items WHERE node_id = ? AND kind = 'plan'`).get(short).meta || '{}').skippedCheck;
     const asksFor = () => quizAsks.filter(a => a.includes('Short circuits')).length;
-    // 20 s, not 6: a slow Windows runner has spent longer than 6 s in the
-    // burst's back-off before the write was asked for at all. The loop exits
-    // as soon as the skip is recorded, so a fast machine waits no longer.
-    for (let waited = 0; waited < 20000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
+    for (let waited = 0; waited < 6000 && !skipped() && asksFor() < 3; waited += 100) await new Promise(r => setTimeout(r, 100));
     await new Promise(r => setTimeout(r, 500));
     ok('a bank written short is recorded as skipped', skipped(), true);
     ok('…and the model is asked for it once, not on every burst', asksFor(), 1);
