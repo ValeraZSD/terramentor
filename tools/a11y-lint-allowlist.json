@@ -2,10 +2,9 @@
   "about": "jsx-a11y findings allowed per file and rule. Numbers only go down: see tools/a11y-lint-gates.mjs.",
   "allowed": {
     "src/components/AnkiImportModal.tsx": {
-      "jsx-a11y/click-events-have-key-events": 2,
+      "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/label-has-associated-control": 1,
-      "jsx-a11y/no-noninteractive-element-interactions": 1,
-      "jsx-a11y/no-static-element-interactions": 1
+      "jsx-a11y/no-noninteractive-element-interactions": 1
     },
     "src/components/answer/CodeInput.tsx": {
       "jsx-a11y/no-autofocus": 1
