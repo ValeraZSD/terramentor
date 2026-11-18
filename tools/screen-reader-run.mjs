@@ -118,7 +118,7 @@ async function focusBrowser(page) {
     for (let i = 0; i < 10; i++) {
         await nvda.perform(NVDAKeyCodeCommands.reportTitle);
         const heard = await nvda.lastSpokenPhrase();
-        if (heard.includes(title) || /Edge|Chrome/.test(heard)) return;
+        if ((title && heard.includes(title)) || /Edge|Chrome/.test(heard)) return;
         await nvda.perform({ keyCode: [WindowsKeyCodes.Escape], modifiers: [WindowsModifiers.Alt] }, { capture: false });
         await sleep(500);
     }
@@ -180,7 +180,7 @@ const heard = (said, text) => {
 };
 
 const REVEAL = byText('button', '/^Reveal answer/');
-const RATING_GOOD = `document.querySelector('button[data-rating="3"]') || ${byText('button[data-rating]', '/Good/')}`;
+const RATING_GOOD = byText('button[data-rating]', '/Good/');
 
 const TASKS = {
     'flashcard-review': {
@@ -198,8 +198,10 @@ const TASKS = {
             expect('browse mode reaches the card text within the first 10 items', heard(first, card.slice(0, 80)));
             await tabTo(page, REVEAL, 'Reveal answer');
             const flip = await step('Space on Reveal answer', () => nvda.press('Space'));
-            const answer = await textOf(page, `document.querySelector('[data-review-card]')`);
-            expect('the answer is read out after the flip', heard(flip, answer.replace(card, '').slice(0, 80)));
+            // The answer is whatever the card shows now that it did not before.
+            const before = new Set(words(card));
+            const added = words(await textOf(page, `document.querySelector('[data-review-card]')`)).filter((w) => !before.has(w));
+            expect('the answer is read out after the flip', heard(flip, added.join(' ')));
             await tabTo(page, RATING_GOOD, 'the Good rating');
             const graded = await step('Space on Good', () => nvda.press('Space'));
             expect('grading says something (next card or the session end)', graded.length > 0);
@@ -234,19 +236,22 @@ const TASKS = {
             const review = byText('button', '/^Review these cards/');
             await page.waitFor(review, 'Review these cards');
             await page.press(review, 'Review these cards');
-            // The topic's cards in the order they were written: the maths card first.
-            await page.waitFor(`document.querySelector('[data-review-card] .katex')`, 'the maths card in review');
+            // The topic's cards in the order they were written: the maths card first,
+            // on a plate that flips when pressed.
+            await page.waitFor(`document.querySelector('[role="button"][aria-pressed] .katex')`, 'the maths card in review');
             await sleep(800);
         },
         run: async (page) => {
-            await tabTo(page, REVEAL, 'Reveal answer');
-            const read = await step('browse mode, up from Reveal answer over the card', async () => {
-                for (let i = 0; i < 8; i++) await nvda.previous();
+            const plate = `document.querySelector('[role="button"][aria-pressed]')`;
+            const at = await step('focus the card', async () => { await tabTo(page, plate, 'the card', 120); await nvda.perform(NVDAKeyCodeCommands.reportCurrentFocus); });
+            const read = await step('browse mode, the next 6 items from the card', async () => {
+                for (let i = 0; i < 6; i++) await nvda.next();
             });
-            expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(read));
-            expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(read));
-            await tabTo(page, REVEAL, 'Reveal answer');
-            const flip = await step('Space on Reveal answer', () => nvda.press('Space'));
+            const all = `${at} | ${read}`;
+            expect('the powers are read as maths (e.g. "10 to the" or "superscript")', /to the|superscript|power|negative 2|minus 2/i.test(all));
+            expect('the fraction is read as a fraction', /over|fraction|1 1000|one thousandth/i.test(all));
+            await tabTo(page, plate, 'the card');
+            const flip = await step('Space on the card', () => nvda.press('Space'));
             expect('the answer is read out, maths included', /to the|superscript|over|fraction/i.test(flip));
         },
     },
@@ -273,7 +278,11 @@ const TASKS = {
 };
 
 const wanted = Object.keys(TASKS).filter((n) => !only || n.includes(only));
-const states = Object.fromEntries(wanted.map((n) => [n, TASKS[n].open]));
+// A task whose screen does not open is that task's failure: the others still run.
+const unopened = {};
+const states = Object.fromEntries(wanted.map((n) => [n, async (page, ctx) => {
+    try { await TASKS[n].open(page, ctx); } catch (err) { unopened[n] = err.message.split('\n')[0]; }
+}]));
 const failed = [];
 const scratch = mkdtempSync(join(tmpdir(), 'screen-reader-'));
 const t0 = Date.now();
@@ -283,6 +292,7 @@ try {
         current = transcript[name] = { name, steps: [], expect: [] };
         console.log(`\n${name}`);
         try {
+            if (unopened[name]) throw new Error(`the screen did not open: ${unopened[name]}`);
             await focusBrowser(page);
             await TASKS[name].run(page);
         } catch (err) {
@@ -295,22 +305,22 @@ try {
 } finally {
     try { await nvda.stop(); } catch { /* already gone */ }
     removeScratch(scratch);
+    // Written even when the run stopped part way: what was heard until then is the evidence.
+    const md = [
+        `# What NVDA said`, '',
+        `NVDA ${nvda.version ?? ''} through Guidepup, ${new Date().toISOString().slice(0, 10)}, ${((Date.now() - t0) / 1000).toFixed(0)} s.`,
+        'Each step lists every phrase NVDA spoke, in order. Tab steps list one line per key press.', '',
+    ];
+    for (const t of Object.values(transcript)) {
+        md.push(`## ${t.name}`, '');
+        for (const s of t.steps) md.push(`- **${s.label}**`, ...(s.said.length ? s.said.map((x) => `  - "${x}"`) : ['  - (nothing)']));
+        md.push('', ...t.expect.map((e) => `- ${e.ok ? 'ok' : 'MISS'}: ${e.label}`));
+        if (t.error) md.push(`- could not finish: ${t.error}`);
+        md.push('');
+    }
+    writeFileSync(join(OUT, 'transcript.md'), `${md.join('\n')}\n`);
+    writeFileSync(join(OUT, 'transcript.json'), `${JSON.stringify(transcript, null, 2)}\n`);
 }
-
-const md = [
-    `# What NVDA said`, '',
-    `NVDA ${nvda.version ?? ''} through Guidepup, ${new Date().toISOString().slice(0, 10)}, ${((Date.now() - t0) / 1000).toFixed(0)} s.`,
-    'Each step lists every phrase NVDA spoke, in order. Tab steps list one line per key press.', '',
-];
-for (const t of Object.values(transcript)) {
-    md.push(`## ${t.name}`, '');
-    for (const s of t.steps) md.push(`- **${s.label}**`, ...(s.said.length ? s.said.map((x) => `  - "${x}"`) : ['  - (nothing)']));
-    md.push('', ...t.expect.map((e) => `- ${e.ok ? 'ok' : 'MISS'}: ${e.label}`));
-    if (t.error) md.push(`- could not finish: ${t.error}`);
-    md.push('');
-}
-writeFileSync(join(OUT, 'transcript.md'), `${md.join('\n')}\n`);
-writeFileSync(join(OUT, 'transcript.json'), `${JSON.stringify(transcript, null, 2)}\n`);
 
 console.log(`\n${misses.length} expectation(s) missed${misses.length ? `:\n  ${misses.join('\n  ')}` : ''}`);
 console.log(`${failed.length} task(s) could not finish${failed.length ? `:\n  ${failed.join('\n  ')}` : ''}`);
