@@ -29,6 +29,7 @@ import {
     SHEET_SETTLE_MS, beginSheetDrag, cancelSheetDrag, moveSheetDrag, releaseSheetDrag, type SheetDrag,
 } from './atlas/sheetGesture';
 import { useRootFontSize } from '../hooks/useRootFontSize';
+import { motionReduced } from '../utils/accessibility';
 
 /**
  * The atlas: the whole library as one space instead of one tree per course.
@@ -869,7 +870,7 @@ export default function AtlasView() {
     };
     const sheetSettle = (open: boolean, px: number) => {
         setSheetOpen(open);
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { endSheetDrag(); return; }
+        if (motionReduced()) { endSheetDrag(); return; }
         sheetPx(px, true);
         settleTimer.current = window.setTimeout(endSheetDrag, SHEET_SETTLE_MS);
     };

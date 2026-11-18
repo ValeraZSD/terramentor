@@ -69,6 +69,7 @@ const stubs = {
         g.__st = { state: {
             addToast() { }, theme: 'light', searchProviders: [], projects: [], resources: [], nodes: [], currentProjectId: null,
             drillTimeScale: '1', setDrillTimeScale() { }, loadProjectData() { }, reorderNodes: async () => { },
+            a11y: { readAloud: false },
         }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },

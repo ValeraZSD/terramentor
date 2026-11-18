@@ -248,9 +248,12 @@ ok('a text file is a document, its text counted', notes?.ok && notes.kind === 'd
 ok('an SVG named .png is NOT a picture: it is the text it is', svg?.ok && svg.kind === 'document' && svg.fileType === 'text', JSON.stringify(svg));
 ok('a HEIC photo is refused, and the reason names the format', heic && heic.ok === false && heic.reason === 'unsupported' && /HEIC/.test(heic.error), JSON.stringify(heic));
 ok('a binary is refused with a reason', exe && exe.ok === false && exe.reason === 'unsupported' && exe.error, JSON.stringify(exe));
+ok('a file named in Ukrainian or Dutch is answered under its own name, not as latin1 mojibake',
+    (await one('Урок з фізики één.exe', BINARY))?.name === 'Урок з фізики één.exe');
 ok('a refused file leaves nothing behind', db.prepare('SELECT COUNT(*) AS n FROM chat_attachments').get().n === 3);
 ok('uploading asks the model nothing — nothing describes a picture in advance', !requests.some(r => r.messages), requests.length);
 ok('beside a picture, the upload says the chat model can see it', up.body?.modelSees === true, up.body?.modelSees);
+ok('a file named in UTF-8 (a browser\'s way) keeps its name', (await one('Конспект café.txt', Buffer.from('lecture words')))?.name === 'Конспект café.txt');
 ok('and says nothing about a model when no picture came', (await upload([{ name: 'plain.txt', bytes: Buffer.from('just words') }])).body?.modelSees === null);
 
 const tooMany = await upload(Array.from({ length: att.ATTACH_MAX_FILES + 1 }, (_, i) => ({ name: `n${i}.txt`, bytes: Buffer.from(`note ${i}`) })));
@@ -567,7 +570,7 @@ await esbuild.build({
         name: 'stub-store',
         setup(build) {
             build.onResolve({ filter: /\/store$/ }, () => ({ path: 'store-stub', namespace: 'stub' }));
-            build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: "export const THEME_IDS=['light','dark'];export const MIN_UI_SCALE=80;export const MAX_UI_SCALE=160;", loader: 'js' }));
+            build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: "export const THEME_IDS=['light','dark'];export const THEME_CHOICES=['light','dark','system'];export const MIN_UI_SCALE=80;export const MAX_UI_SCALE=160;", loader: 'js' }));
         },
     }],
 });

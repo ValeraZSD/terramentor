@@ -14,7 +14,8 @@
 import { useEffect, useState } from 'react';
 import { desktopApi, type DesktopStatus } from '../desktopApi';
 
-/** Must stay under server/desktop.js IDLE_MS (45s) with room for a missed tick. */
+/** Must stay under server/desktop.js IDLE_MS (90s) with room for a missed tick,
+ *  and a long-hidden window's timers fire only about once a minute. */
 const PING_MS = 10_000;
 
 const clientId = (() => {
@@ -37,10 +38,21 @@ function publish(s: DesktopStatus) {
     for (const l of listeners) l(s);
 }
 
+/** A probe that fails (the server still starting, a dropped request) is asked
+ *  again before the page settles on "not a desktop process": that answer is for
+ *  the life of the page, and a desktop server that never hears a ping stops
+ *  itself a few minutes later under an open window. 2 + 4 + 6 + 8 + 10 s. */
+const PROBE_TRIES = 6;
+const PROBE_RETRY_MS = 2_000;
+
 /** Start the heartbeat once per page, whatever mounts first. */
 function start() {
     if (started) return;
     started = true;
+    probe(1);
+}
+
+function probe(attempt: number) {
     desktopApi.details().then((s) => {
         publish(s);
         if (!s.desktop) return;
@@ -55,7 +67,10 @@ function start() {
         // A tab that was hidden for a long time may have had its timers throttled
         // past the idle limit; ping the moment it is visible again.
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tick(); });
-    }).catch(() => publish({ desktop: false }));
+    }).catch(() => {
+        if (attempt < PROBE_TRIES) setTimeout(() => probe(attempt + 1), PROBE_RETRY_MS * attempt);
+        else publish({ desktop: false });
+    });
 }
 
 /** The desktop facts, `null` until known. Re-fetch with `refresh()`. */

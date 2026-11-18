@@ -442,6 +442,21 @@ export function prepareLogFile(dir, { stat = statSync, rename = renameSync, mkdi
     return file;
 }
 
+/**
+ * The log file the launcher opens for the library `chooseDataDir` picked, or
+ * null when it must not make one. A pointer at a folder that is gone is the
+ * case: `prepareLogFile` makes `<folder>/logs` with `mkdir -p`, which makes the
+ * library folder itself, and the launcher prepares its log before it stops on
+ * the missing library. Launch one would stop, launch two would find a folder,
+ * call it present and open a NEW EMPTY library there, the same "reads as lost
+ * work" case `launcherInstanceKey` keeps out. The stop's own message still
+ * reaches the console, which is all a missing library needs.
+ */
+export function launcherLogFile(chosen, appRoot, deps) {
+    if (chosen?.missing) return null;
+    return prepareLogFile(chosen?.dir || join(appRoot, 'server'), deps);
+}
+
 const DESCRIPTION = 'Local-first mastery engine for self-directed learners';
 
 /**

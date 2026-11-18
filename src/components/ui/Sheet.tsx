@@ -129,7 +129,7 @@ export function BottomSheet({ title, onClose, onEscape, initialFocus, returnFocu
                     onPointerDown={stop}
                 >
                     <div
-                        className={cx('absolute inset-0 bg-black/50 transition-opacity duration-200 motion-reduce:transition-none', shown ? 'opacity-100' : 'opacity-0')}
+                        className={cx('absolute inset-0 bg-black/50 transition-opacity duration-200 motion-off:transition-none', shown ? 'opacity-100' : 'opacity-0')}
                         onClick={() => closeRef.current()}
                         aria-hidden="true"
                     />
@@ -144,7 +144,7 @@ export function BottomSheet({ title, onClose, onEscape, initialFocus, returnFocu
                             // body, so a "more below" cue never sits in it.
                             'sheet-shell relative flex w-full max-w-lg flex-col safe-pb-0 outline-none',
                             'rounded-t-2xl border border-b-0 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl',
-                            'transition-transform duration-200 ease-out motion-reduce:transition-none',
+                            'transition-transform duration-200 ease-out motion-off:transition-none',
                             shown ? 'translate-y-0' : 'translate-y-full',
                         )}
                         style={pulled ? { transform: `translateY(${pulled}px)`, transition: 'none' } : undefined}

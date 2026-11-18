@@ -84,6 +84,7 @@ const stubs = {
         g.__st = { state: {
             addToast() { }, theme: 'light', searchProviders: [], projects: [], currentProjectId: null,
             drillTimeScale: '1', setDrillTimeScale() { }, loadProjectData() { },
+            a11y: { readAloud: false, confirmAnswers: false, cardAudioAutoplay: true, readingLine: false, speechRate: 100 },
         }, subs: new Set() };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },

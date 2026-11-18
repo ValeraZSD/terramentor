@@ -15,7 +15,7 @@
  * code is always 0 unless a check itself failed to run.
  */
 import Database from 'better-sqlite3';
-import { sameOption, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption } from '../server/questionOptions.js';
+import { sameOptionCased, keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption } from '../server/questionOptions.js';
 import { linearCombinationFaults } from '../server/arithmetic.js';
 import { resolveDataPaths } from '../server/paths.js';
 
@@ -280,7 +280,7 @@ for (const q of questions) {
         // are one distractor wearing two hats, and a plain string set sees two.
         for (let i = 0; i < opts.length; i++) {
             for (let j = i + 1; j < opts.length; j++) {
-                if (sameOption(opts[i], opts[j])) {
+                if (sameOptionCased(opts[i], opts[j])) {
                     add('error', 'duplicate-options', q, `options ${i + 1} and ${j + 1} are the same value ("${opts[i]}" / "${opts[j]}")`);
                 }
             }
