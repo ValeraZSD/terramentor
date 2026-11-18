@@ -2631,7 +2631,8 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
-            paceSeq++;
+            // Only a change to the open course outdates the pace on screen.
+            if (projectId === get().currentProjectId) paceSeq++;
             // The allocator's English warnings are not shown. The pace ones
             // ("Pace is very intense…"): the plan panel's verdict says whether
             // the date works, measured against the learner's own pace. "Some
@@ -2651,7 +2652,7 @@ export const useStore = create<AppState>((set, get) => ({
     removeSchedule: async (projectId) => {
         try {
             await api.removeSchedule(projectId);
-            paceSeq++;
+            if (projectId === get().currentProjectId) paceSeq++;
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null, paceLoading: false }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));

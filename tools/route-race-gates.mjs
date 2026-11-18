@@ -529,6 +529,20 @@ section('a pace answer from before a plan change is not drawn after it');
     check('a load asked for before the plan was removed brings no verdict back', s.get().paceData === null && s.get().paceLoading === false,
         `${JSON.stringify(s.get().paceData)} loading ${s.get().paceLoading}`);
 }
+{
+    const s = freshStore();
+    const pace = deferred();
+    s.api.getProjectPace = pace.fn;
+    s.api.scheduleProject = async () => ({ success: true });
+    s.api.removeSchedule = async () => ({ success: true });
+    s.useStore.setState({ currentProjectId: 7, loadProjects: async () => { }, refreshNodes: async () => { }, loadDashboard: async () => { } });
+    const open = s.get().loadPaceData(7);
+    await s.get().scheduleProject(9, {}); await s.get().removeSchedule(9);
+    pace.calls[0].res({ tag: 'open-course' }); await open; await settle();
+    check('a plan saved or removed for ANOTHER course leaves the open course\'s answer standing',
+        s.get().paceData?.tag === 'open-course' && s.get().paceLoading === false,
+        `${JSON.stringify(s.get().paceData)} loading ${s.get().paceLoading}`);
+}
 
 // ---------------------------------------------------------------------------
 // addToast(type, message, details?) — the two update setters had the first two
