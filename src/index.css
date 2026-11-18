@@ -630,9 +630,10 @@ html[data-larger-ui] [data-switch-spill] {
   /* A drawing keeps its own colours here, so the tree's grey chevrons stayed
      faint, and a chapter's badge, a white folder on the course colour, lost
      its fill and showed nothing. Both take the text colour; the badge gets a
-     frame, so a chapter still reads as one. */
-  [data-row-chevron],
-  [data-course-badge] > svg {
+     frame, so a chapter still reads as one. `:root :is()` weighs more than
+     the dark theme's `.dark .dark:text-*` (two classes), which kept the
+     chevrons grey in dark. */
+  :root :is([data-row-chevron], [data-course-badge] > svg) {
     color: CanvasText;
   }
   [data-course-badge] {

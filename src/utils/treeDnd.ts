@@ -20,8 +20,27 @@ import { TreeNode } from '../types';
  * which is unambiguous and live — unlike guessing "inside" from a stale pointer.
  */
 
-// The outline's drawn indent, `--row-indent-outline` (1.375rem in index.css).
-export const INDENTATION_WIDTH = 22;
+// One level of drawn indent, in rem: `--row-indent-tree` and
+// `--row-indent-outline` in index.css. A drag steps one level per this many
+// rem at the CURRENT root size (`useRootFontSize()`): a fixed px step put the
+// row 14px ahead of the pointer per level at a 160% interface size.
+export const TREE_INDENT_REM = 1.5;
+export const OUTLINE_INDENT_REM = 1.375;
+// The outline's step at the 16px root size, the default for callers without one.
+export const INDENTATION_WIDTH = OUTLINE_INDENT_REM * 16;
+
+/**
+ * A row's drag listener, run only for a press inside the row's own elements.
+ * React bubbles a portalled child's events through the component that
+ * rendered it, so a press on an item of the row's ⋮ menu (a sheet on a phone,
+ * a popover on a desktop) reached the row: held 200ms, or moved 5px, it
+ * started a drag of the row and the item's click was dropped.
+ */
+export function ownPress<E extends { currentTarget: { contains(n: unknown): boolean }; target: unknown }>(
+    handler: ((e: E) => void) | undefined,
+): ((e: E) => void) | undefined {
+    return handler && ((e: E) => { if (e.currentTarget.contains(e.target)) handler(e); });
+}
 
 export interface FlatItem {
     id: number;

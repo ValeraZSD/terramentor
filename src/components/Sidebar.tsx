@@ -11,7 +11,9 @@ import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/
 import { hexToRgba } from '../utils/color';
 import {
     FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, illegalParent,
+    ownPress, TREE_INDENT_REM,
 } from '../utils/treeDnd';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
 import { useDragA11y, useDragKeyboard, nodeTitle, keyBelongsToDrag } from '../hooks/useDragA11y';
@@ -23,10 +25,6 @@ import { useTranslation } from 'react-i18next';
 import HeadStartMark from './HeadStartMark';
 import { IconButton } from './ui/Button';
 
-// How far the pointer moves (px) to nest a dragged row one level deeper or
-// shallower: the drawn indent, `--row-indent-tree` (1.5rem in index.css), so
-// a row lands under the pointer.
-const SIDEBAR_INDENT = 24;
 
 interface SidebarRowProps {
     item: FlatItem;
@@ -134,10 +132,10 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
     // title (hidden under a mouse, it still held its slot).
     const canHover = useCanHover();
     const rowDrag = {
-        onPointerDown: (e: React.PointerEvent) => {
+        onPointerDown: ownPress((e: React.PointerEvent) => {
             if (e.pointerType !== 'touch') (listeners?.onPointerDown as React.PointerEventHandler | undefined)?.(e);
-        },
-        onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
+        }),
+        onTouchStart: ownPress(listeners?.onTouchStart as React.TouchEventHandler | undefined),
     };
     const handle = (
         <button data-drag-handle
@@ -318,10 +316,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     }, [allFlatItems, activeId]);
     const flatIds = useMemo(() => flatItems.map(i => i.id), [flatItems]);
 
+    // A level is the drawn indent at the current text size, so a row lands
+    // under the pointer.
+    const indentPx = TREE_INDENT_REM * useRootFontSize();
     const projection = useMemo(() => {
         if (activeId == null || overId == null) return null;
-        return getProjection(flatItems, activeId, overId, dragOffsetX, null, SIDEBAR_INDENT);
-    }, [flatItems, activeId, overId, dragOffsetX]);
+        return getProjection(flatItems, activeId, overId, dragOffsetX, null, indentPx);
+    }, [flatItems, activeId, overId, dragOffsetX, indentPx]);
 
     // The row the dragged node would nest INSIDE (depth > 0). At depth 0 it lands
     // at the top level (its own project root), so there's no parent row to mark.

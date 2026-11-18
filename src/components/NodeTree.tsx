@@ -5,7 +5,8 @@ import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
-import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
+import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, OUTLINE_INDENT_REM } from '../utils/treeDnd';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { categoryOrderAfterDrop, categoryDropSide, moveChangesPlace } from '../utils/dragOrder';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
@@ -75,6 +76,9 @@ export default function NodeTree() {
     // The card a row is carried into, and where in its list it is drawn.
     const [host, setHost] = useState<BoardHost | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
+    // A level is the drawn indent at the current text size, so a row lands
+    // under the pointer.
+    const indentPx = OUTLINE_INDENT_REM * useRootFontSize();
     // Absolute pointer position at drag start, so the live pointer can be
     // rebuilt from dnd-kit's delta (no stale activatorEvent guessing).
     const startPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -164,7 +168,7 @@ export default function NodeTree() {
         const target = event.over;
         // Kept as whole indentation levels, so a drag re-renders the board when
         // the depth can change, not on every pixel.
-        setDragOffsetX(Math.round(event.delta.x / INDENTATION_WIDTH) * INDENTATION_WIDTH);
+        setDragOffsetX(Math.round(event.delta.x / indentPx) * indentPx);
         if (!target || (target.id === event.active.id && drag?.kind === 'card')) { setOver(null); return; }
         setOver({ kind: kindOf(target), id: target.id as number });
         if (drag?.kind !== 'row') return;
@@ -176,7 +180,7 @@ export default function NodeTree() {
     // What the cards draw while a row is dragged: its projected depth and the
     // row it would nest inside, on the card drawing it.
     const rowPlacement = drag?.kind === 'row' && over?.kind === 'row'
-        ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId)
+        ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId, indentPx)
         : null;
     const rowDragFor = (cardId: number): CardRowDrag | null => {
         if (drag?.kind !== 'row' || drawingCard !== cardId) return null;
@@ -218,7 +222,7 @@ export default function NodeTree() {
         }
 
         const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
-            { kind: kindOf(target), id: target.id as number }, event.delta.x);
+            { kind: kindOf(target), id: target.id as number }, event.delta.x, indentPx);
         if (!placed) return;
         if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
             flashAfterDrop(`node:${activeId}`);

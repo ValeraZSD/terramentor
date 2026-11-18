@@ -552,6 +552,45 @@ const ROWS = `(() => {
     return rows;
 })()`;
 
+// The grip is the keyboard's way to drag a row: hidden until focused, it must
+// then show, after the title (whose start stays put). No pointer ever sees it,
+// so the 44px floor (a pointer target's) is not asked of it. `step` 'title'
+// focuses the first shown row's title; 'grip' focuses its grip (after a key
+// press, so the focus is a keyboard one) and measures. A list out of view (the
+// phone's closed tree drawer) is 'none'.
+const GRIP = (sel, step) => `(() => {
+    const row = [...document.querySelectorAll(${JSON.stringify(sel)})].find((r) => {
+        const b = r.getBoundingClientRect();
+        return b.width > 1 && b.right > 0 && b.left < innerWidth && !r.closest('[inert], [aria-hidden="true"]') && r.querySelector('[data-drag-handle]');
+    });
+    if (!row) return 'none';
+    const title = row.querySelector('[data-row="title"]');
+    if (${JSON.stringify(step)} === 'title') { title.focus(); return true; }
+    const before = Math.round(title.getBoundingClientRect().left);
+    const grip = row.querySelector('[data-drag-handle]');
+    grip.focus();
+    const b = grip.getBoundingClientRect();
+    const out = { w: Math.round(b.width), h: Math.round(b.height), visible: grip.matches(':focus-visible'),
+        moved: Math.round(title.getBoundingClientRect().left) - before };
+    grip.blur();
+    return out;
+})()`;
+// In High Contrast a row's fold chevron takes the text colour, in either app
+// theme: dark's own grey (a two-class utility) outweighed a one-attribute rule.
+const CHEVRON = `(() => {
+    const chev = [...document.querySelectorAll('[data-row-chevron]')].find((c) => c.getBoundingClientRect().width > 1);
+    if (!chev) return null;
+    const ref = document.createElement('span');
+    ref.style.color = 'CanvasText';
+    document.body.append(ref);
+    const root = document.documentElement, was = root.classList.contains('dark');
+    const out = { want: getComputedStyle(ref).color };
+    for (const dark of [false, true]) { root.classList.toggle('dark', dark); out[dark ? 'dark' : 'light'] = getComputedStyle(chev).color; }
+    root.classList.toggle('dark', was);
+    ref.remove();
+    return out;
+})()`;
+
 const AXE_TARGETS = `(async () => {
     if (!window.axe) { (0, eval)(${JSON.stringify(AXE_SOURCE)}); }
     const r = await window.axe.run(document, { runOnly: { type: 'rule', values: ['target-size'] }, resultTypes: ['violations'] });
@@ -593,8 +632,17 @@ try {
         const m = await page.evaluate(MEASURE);
         m.rows = /^(outline|topic) /.test(state) ? await page.evaluate(ROWS) : null;
         m.axe = state.endsWith(' on') ? await page.evaluate(AXE_TARGETS) : [];
-        seen[state] = m;
         await page.evaluate(UNPROBE);
+        if (state.startsWith('topic ')) {
+            m.grips = {};
+            for (const [list, sel] of [['tree', '[data-sidebar-row]'], ['outline', '[data-tree-item-id]']]) {
+                if (await page.evaluate(GRIP(sel, 'title')) === 'none') { m.grips[list] = 'none'; continue; }
+                for (const type of ['keyDown', 'keyUp']) await page.send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
+                m.grips[list] = await page.evaluate(GRIP(sel, 'grip'));
+            }
+        }
+        if (state.includes(' contrast ')) m.chevron = await page.evaluate(CHEVRON);
+        seen[state] = m;
         if (shots) writeFileSync(join(shots, `${state.replace(/ /g, '_')}.png`), await page.png());
     }, prepare, states);
 } finally {
@@ -684,6 +732,19 @@ for (const [state, m] of Object.entries(seen)) {
         check(`${state}: no row holds room for a grip until it is focused`, shown.length === 0,
             list(shown, (r) => `${r.list} "${r.text}" grip ${r.grip}px wide`));
     }
+    if (m.grips) {
+        const measured = ['tree', 'outline'].filter((l) => m.grips[l] !== 'none');
+        check(`${state}: a grip is measured in a list in view (${measured.join(', ') || 'none'})`, measured.length > 0);
+        for (const list of measured) {
+            const g = m.grips[list];
+            check(`${state}: a ${list} row's grip shows when the keyboard reaches it, and the title stays put`,
+                g && g.visible && g.w > 1 && g.h > 1 && g.moved === 0,
+                g ? `${g.w}x${g.h}px, focus-visible ${g.visible}, title moved ${g.moved}px` : 'the grip took no focus');
+        }
+    }
+    if (m.chevron) check(`${state}: a fold chevron takes the text colour in both app themes`,
+        m.chevron.light === m.chevron.want && m.chevron.dark === m.chevron.want,
+        `light ${m.chevron.light}, dark ${m.chevron.dark}, text ${m.chevron.want}`);
     const p = m.probe;
     check(`${state}: a 20px button and a 10px label are ${on ? 'grown past the floors' : 'seen as too small'}`,
         !!(p.small && p.text) && p.small.small === !on && p.text.small === !on, JSON.stringify(p));

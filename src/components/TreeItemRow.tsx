@@ -7,7 +7,7 @@ import { isLeafNode, leafStatus, nextLeafStatus } from '../utils/tree';
 import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
-import type { FlatItem } from '../utils/treeDnd';
+import { ownPress, type FlatItem } from '../utils/treeDnd';
 import { useDropFlash } from '../hooks/useDropFlash';
 import { useSiblingMove } from '../hooks/useDragA11y';
 import {
@@ -141,8 +141,8 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
     // the larger setting, took width from every title (hidden under a mouse,
     // it still held its slot).
     const rowDrag = {
-        onMouseDown: listeners?.onMouseDown as React.MouseEventHandler | undefined,
-        onTouchStart: listeners?.onTouchStart as React.TouchEventHandler | undefined,
+        onMouseDown: ownPress(listeners?.onMouseDown as React.MouseEventHandler | undefined),
+        onTouchStart: ownPress(listeners?.onTouchStart as React.TouchEventHandler | undefined),
     };
     const handle = (
         <button data-drag-handle

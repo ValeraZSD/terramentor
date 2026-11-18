@@ -401,14 +401,8 @@ section('8. larger text and buttons: one switch, two floors');
     check('a topic still sits under its chapter: the spacer is as wide as the fold button, in the tree and the outline',
         [sidebar, outlineRow].every((src) => /<span data-fold-spacer className="w-5 shrink-0/.test(src))
         && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
-    // A drag nests one level per drawn indent: a smaller pointer step put the
-    // row 8px (tree) or 6px (outline) ahead of the pointer per level.
-    const remOf = (name) => +((css.match(new RegExp(`--${name}: ([\\d.]+)rem;`)) ?? [])[1] ?? NaN);
-    const pxOf = (src, name) => +((src.match(new RegExp(`const ${name} = (\\d+);`)) ?? [])[1] ?? NaN);
-    check('a drag steps one level per drawn indent, in the tree and the outline',
-        pxOf(sidebar, 'SIDEBAR_INDENT') === remOf('row-indent-tree') * 16
-        && pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH') === remOf('row-indent-outline') * 16,
-        `${pxOf(sidebar, 'SIDEBAR_INDENT')} / ${remOf('row-indent-tree')}rem, ${pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH')} / ${remOf('row-indent-outline')}rem`);
+    // A drag nests one level per drawn indent, at every text size: that is
+    // drag-order-gates' "a drag steps one drawn indent per level" section.
     // The show button is the floor wide and sits 0.25rem in: 3.25rem left
     // typed text 5.6px under it at an 80% interface size.
     check('a password field keeps room for its show button at every interface size',
