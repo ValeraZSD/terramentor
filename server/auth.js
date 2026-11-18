@@ -35,6 +35,7 @@ import { DEVICE_COOKIE, DEVICE_COOKIE_MAX_AGE_S, DEVICE_SETTING_KEYS, deviceName
 import { SESSION_TTL_MS, createSession, endAllSessions, endSession, useSession } from './authSessions.js';
 import { hostnameOf, isOwnMachineName } from './originGuard.js';
 import { operatorSetupToken } from './hosted.js';
+import { isSiteLibrary } from './siteLibrary.js';
 
 // Settings keys owned by this module. They must NEVER be exposed by the generic
 // `GET /api/settings` dump nor be writable through `PUT /api/settings/:key` —
@@ -376,6 +377,11 @@ export function isRequestAuthenticated(req) {
     return !!req.remoteAccess || hasPasswordCredential(req);
 }
 
+/** Did the site's front desk send this request with a good note (siteLibrary.js)? */
+function siteNoteHolder(req) {
+    return isSiteLibrary() && !!req?.sitePerson;
+}
+
 /**
  * Credentials that came from the PASSWORD: a session cookie or the API key as
  * a bearer. The API key is guarded by this rather than by any way in: a
@@ -387,6 +393,9 @@ export function isRequestAuthenticated(req) {
  * there to prevent; scripts and bots use the API key.
  */
 export function hasPasswordCredential(req) {
+    // In a site library the person signed in at the front desk with their
+    // password; the note it sent stands for that.
+    if (siteNoteHolder(req)) return true;
     const authz = req.headers.authorization || '';
     if (authz.startsWith('Bearer ')) {
         const token = authz.slice(7).trim();
@@ -703,6 +712,11 @@ export function clearSetupCode() {
  * (server/app.js) so they stay reachable while locked.
  */
 export function requireAuth(req, res, next) {
+    // A site library has no password of its own: the note is the only way in.
+    if (isSiteLibrary()) {
+        if (siteNoteHolder(req)) return next();
+        return res.status(401).json({ error: 'Sign in again', authRequired: true, site: true });
+    }
     if (!isAuthEnabled()) {
         if (!remoteSetupRequired(req)) return next();
         return res.status(401).json({ error: 'Set a password to use this app from another device', authRequired: true, setupRequired: true });

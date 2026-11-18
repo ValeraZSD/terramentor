@@ -132,6 +132,12 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     const feedLoading = useStore(s => s.feedLoading);
     const feedExhausted = useStore(s => s.feedExhausted);
     const feedDone = useStore(s => s.feedDone);
+    // A lesson opening on its questions is where the stream stops until they
+    // are answered or skipped: the cards after it ask those same questions
+    // again, after the part, and shown under the round they would be asked
+    // twice on one screen. Paging waits too (no sentinel below).
+    const roundAt = feedCards.findIndex(c => c.kind === 'lesson' && !!c.preQuestions?.length && !feedDone[c.key]);
+    const roundOpen = roundAt >= 0;
     const feedTransfers = useStore(s => s.feedTransfers);
     const feedPlacements = useStore(s => s.feedPlacements);
     const loadFeed = useStore(s => s.loadFeed);
@@ -215,7 +221,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         // extendFeed no-ops while one is in flight, and IntersectionObserver only
         // fires on a CHANGE in intersection — without this, a background pull
         // landing while the sentinel is already on screen would stall paging.
-    }, [extendFeed, feedExhausted, feedCards.length, feedLoading]);
+    }, [extendFeed, feedExhausted, feedCards.length, feedLoading, roundOpen]);
 
     // Which card is the reader actually on? The assistant is reachable from
     // here, and on this page there is no selected node to tell it what "this"
@@ -320,7 +326,8 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         void pullFeedUpdates();
     }, [aiConfigRev, pullFeedUpdates]);
 
-    const groups = useMemo(() => groupCards(feedCards), [feedCards]);
+    const shownCards = useMemo(() => (roundAt < 0 ? feedCards : feedCards.slice(0, roundAt + 1)), [feedCards, roundAt]);
+    const groups = useMemo(() => groupCards(shownCards), [shownCards]);
     // The topic's first lesson, still being written or failed to be: the page
     // shows that and nothing else until it lands.
     const pending = studying && lessonPending(feedCards, lessonWrite);
@@ -587,13 +594,13 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         {renderStandalone(group.card, !!feedDone[group.card.key], handleDone)}
                     </div>
                 ))}
-                <div ref={sentinelRef} aria-hidden="true" />
-                {feedLoading && feedCards.length > 0 && (
+                {roundAt < 0 && <div ref={sentinelRef} aria-hidden="true" />}
+                {roundAt < 0 && feedLoading && feedCards.length > 0 && (
                     <div className="flex justify-center py-4">
                         <Loader2 className="w-5 h-5 text-slate-400 animate-spin" />
                     </div>
                 )}
-                {feedExhausted && feedCards.length > 0 && (
+                {roundAt < 0 && feedExhausted && feedCards.length > 0 && (
                     generating ? (
                         // Reaching the end while the generator is mid-burst is not
                         // a dead end — the next lessons are minutes away and will

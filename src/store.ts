@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
-import { api } from './api';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
@@ -373,6 +373,9 @@ let searchSeq = 0;
  *  or open a study scope on the page after it (A → B → A included, where the
  *  project id alone says the stale continuation is still current). */
 let routeSeq = 0;
+/** Which loadPaceData call is the newest. A save or a removal bumps it too, so
+ *  a pace answer asked for before the plan changed is not drawn after it. */
+let paceSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
 /** The study hub is asked for on two paths at once (StudyDashboard's effect and
@@ -401,6 +404,9 @@ const messageOf = (e: unknown): string => {
     const message = (e as { message?: unknown } | null)?.message;
     return typeof message === 'string' ? message : String(e);
 };
+
+/** Which `setUiLanguage` pick is the newest (see the store action). */
+let uiLanguagePick = 0;
 
 /**
  * Where each setting's writes stand. A setter shows its value at once and
@@ -447,6 +453,11 @@ async function saveSetting<T>(
 let taskFeedStarted = false;
 /** Download presses whose answer has not come back (see refreshUpdates). */
 let downloadPressesInFlight = 0;
+/** Changes to the update toggle or channel not answered yet, and a count of
+ *  every one started: a background re-read sent before a change, or answered
+ *  while one is on the wire, carries the state from before it (refreshUpdates). */
+let updateWritesInFlight = 0;
+let updateWritesStarted = 0;
 
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
@@ -535,6 +546,8 @@ interface AppState {
     authTailscale: AuthTailscaleHint | null;
     /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
     authExposed: boolean;
+    /** This library is run by a shared site's front desk, which signs people in and out (`/api/auth/status` `site`). */
+    authSite: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -586,6 +599,8 @@ interface AppState {
      *  checked against the question's tests (src/runner/); off, the model
      *  judges them as before. On unless switched off. */
     codeRunner: boolean;
+    /** `forgive_spelling`: a fill-in answer a letter or two off a long word is marked right. */
+    forgiveSpelling: boolean;
     /** How numbers are WRITTEN: the thousands and decimal separators, as a
      *  style id from `utils/numberFormat`, or 'auto' to follow the interface
      *  language. Display only — what a learner may TYPE into a numeric answer
@@ -601,6 +616,8 @@ interface AppState {
     searchLoading: boolean;
     searchOpen: boolean;
     workspaceView: WorkspaceView;
+    /** A mock exam is being answered: the app's own chrome steps aside (ExamFrame). */
+    examFocus: boolean;
     showScheduleModal: boolean;
     scheduleModalProjectId: number | null;
     paceData: PaceData | null;
@@ -678,6 +695,8 @@ interface AppState {
      * repair happens once rather than on every page load.
      */
     repairFeedVisual: (key: string, originalCode: string, repairedCode: string) => void;
+    /** The opening round of a lesson card was answered or skipped: drop it, so a remount does not ask it again. */
+    settlePreQuestions: (key: string) => void;
     /**
      * Mark a card done locally + report to the server (lesson/question/recall).
      * Resolves false when the save failed — the card is then NOT done, and the
@@ -828,6 +847,7 @@ interface AppState {
     setAtlasSurface: (surface: AtlasSurface) => Promise<void>;
     setDrillTimeScale: (scale: DrillTimeScale) => Promise<void>;
     setCodeRunner: (on: boolean) => Promise<void>;
+    setForgiveSpelling: (on: boolean) => Promise<void>;
     /** Change some of the viewer's dials; the rest keep their values. */
     setAtlasSettings: (patch: Partial<AtlasSettings>) => Promise<void>;
     resetAtlasSettings: () => Promise<void>;
@@ -869,7 +889,7 @@ interface AppState {
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
     /** False when the server refused the edit; the toast has already said why. */
-    updateProject: (id: number, updates: Partial<Project>) => Promise<boolean>;
+    updateProject: (id: number, updates: ProjectUpdate) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
     createNode: (nodeData: Partial<Node>) => Promise<void>;
@@ -894,9 +914,9 @@ interface AppState {
     performSearch: (query: string) => Promise<void>;
     clearSearch: () => void;
     setWorkspaceView: (view: WorkspaceView) => void;
+    setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
-    recalibrateSchedule: (projectId: number) => Promise<boolean>;
     removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
@@ -986,6 +1006,7 @@ export const useStore = create<AppState>((set, get) => ({
     authSetupRequired: false,
     authTailscale: null,
     authExposed: false,
+    authSite: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1007,6 +1028,7 @@ export const useStore = create<AppState>((set, get) => ({
     atlasSettings: { ...DEFAULT_ATLAS_SETTINGS },
     drillTimeScale: '1',
     codeRunner: true,
+    forgiveSpelling: false,
     numberFormat: NUMBER_AUTO,
     uiLanguage: 'auto',
     toasts: [],
@@ -1017,6 +1039,7 @@ export const useStore = create<AppState>((set, get) => ({
     searchLoading: false,
     searchOpen: false,
     workspaceView: 'dashboard',
+    examFocus: false,
     showScheduleModal: false,
     scheduleModalProjectId: null,
     paceData: null,
@@ -1234,8 +1257,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
+            if (site && !authenticated) { goToSiteSignIn(); return; }
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1265,13 +1289,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
                 && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
+                && before.authExposed === !!exposed && before.authSite === !!site) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1411,6 +1435,12 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'code_runner', on ? 'on' : 'off', before, on, value => set({ codeRunner: value }));
     },
 
+    setForgiveSpelling: async (on) => {
+        const before = get().forgiveSpelling;
+        set({ forgiveSpelling: on });
+        await saveSetting(get, 'forgive_spelling', on ? 'on' : 'off', before, on, value => set({ forgiveSpelling: value }));
+    },
+
     // Applied before it is stored, like the theme and the accent: the map is
     // redrawn from this state, so the change IS the preview — a slider whose
     // effect only landed after a round trip would be a control you cannot feel.
@@ -1435,8 +1465,13 @@ export const useStore = create<AppState>((set, get) => ({
         // feedback, and a setting that only lands after a round trip reads as
         // a control that did nothing.
         const before = get().uiLanguage;
+        const pick = ++uiLanguagePick;
         set({ uiLanguage: code });
         await applyUiLanguage(resolveLanguagePreference(code));
+        // Only the newest pick is stored. The applier drops an older pick whose
+        // chunk lands late, so if that older pick still saved it would be the
+        // last write: the screen in one language and the server holding another.
+        if (pick !== uiLanguagePick) return;
         await saveSetting(get, 'ui_language', code, before, code, value => {
             set({ uiLanguage: value });
             void applyUiLanguage(resolveLanguagePreference(value));
@@ -1514,13 +1549,14 @@ export const useStore = create<AppState>((set, get) => ({
             // server makes and it fails closed on anything else.
             const aiWebSearch = settings.ai_web_search === 'on';
             const codeRunner = settings.code_runner !== 'off';
+            const forgiveSpelling = settings.forgive_spelling === 'on';
             // Written by the welcome screen, or by the migration in
             // server/database.js for a library that was already in use.
             const welcome = settings.welcome_done === 'true' ? 'done' : 'needed';
             writeWelcomeCache(welcome === 'done');
             const keyShortcuts = settings.key_shortcuts !== 'false';
             setSingleKeyShortcuts(keyShortcuts);
-            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, welcome });
+            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
@@ -1577,32 +1613,43 @@ export const useStore = create<AppState>((set, get) => ({
         // even though turning it ON performs a check before it answers.
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, enabled } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setAutoUpdateCheck(enabled) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update setting'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
     refreshUpdates: async () => {
+        const startedBefore = updateWritesStarted;
         try {
             const status = await api.getUpdates();
             // While a Download press is still asking GitHub for the newest
             // release, the server has not started anything yet; its "available"
             // would flip the button back from "Preparing" under the press.
-            if (downloadPressesInFlight === 0) set({ updateStatus: status });
+            // Likewise a toggle or channel change: until it is answered, the
+            // read would put the old setting back under the person's hand.
+            if (downloadPressesInFlight === 0 && updateWritesInFlight === 0 && updateWritesStarted === startedBefore) {
+                set({ updateStatus: status });
+            }
         } catch { /* the next poll tries again */ }
     },
 
     setUpdateChannel: async (channel: UpdateChannel) => {
         const prev = get().updateStatus;
         if (prev) set({ updateStatus: { ...prev, channel } });
+        updateWritesInFlight++; updateWritesStarted++;
         try {
             set({ updateStatus: await api.setUpdateChannel(channel) });
         } catch (e: unknown) {
             if (prev) set({ updateStatus: prev });
             get().addToast('error', i18n.t('Could not change the update channel'), messageOf(e));
+        } finally {
+            updateWritesInFlight--;
         }
     },
 
@@ -1686,6 +1733,15 @@ export const useStore = create<AppState>((set, get) => ({
         projectsRequest = request;
         try {
             const projects = await request;
+            // A list asked for before another one is older than it: drawn last,
+            // it would put back a row a write had already changed (a recall
+            // target set on the answer to its save). The newer load draws its
+            // own; this caller waits for it, so it still reads a list at least
+            // as new as the one it asked for.
+            if (projectsRequest !== request) {
+                if (projectsRequest) await projectsRequest.catch(() => undefined);
+                return;
+            }
             set({ projects, loading: false });
             const currentId = get().currentProjectId;
             if (currentId) {
@@ -1911,6 +1967,12 @@ export const useStore = create<AppState>((set, get) => ({
         if (feedItemId) api.repairFeedVisual(feedItemId, originalCode, repairedCode).catch(() => { });
     },
 
+    settlePreQuestions: (key) => set(state => ({
+        feedCards: state.feedCards.map(c => (c.key === key && c.kind === 'lesson' && c.preQuestions
+            ? { ...c, preQuestions: undefined }
+            : c)),
+    })),
+
     consumeFeedCard: async (key, payload) => {
         // Optimistic: collapse the card immediately; the server call settles stats.
         set(state => ({ feedDone: { ...state.feedDone, [key]: true } }));
@@ -2051,7 +2113,7 @@ export const useStore = create<AppState>((set, get) => ({
         // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true, paceData: null });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -2549,6 +2611,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ searchQuery: '', searchResults: null, searchResultsQuery: null, searchError: null, searchLoading: false, searchOpen: false });
     },
 
+    setExamFocus: (on) => set({ examFocus: on }),
     setWorkspaceView: (view) => {
         const nav = get()._navigate;
         const pid = get().currentProjectId;
@@ -2572,13 +2635,17 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
+            // Only a change to the open course outdates the pace on screen.
+            if (projectId === get().currentProjectId) paceSeq++;
+            // The allocator's English warnings are not shown. The pace ones
+            // ("Pace is very intense…"): the plan panel's verdict says whether
+            // the date works, measured against the learner's own pace. "Some
+            // phases will overlap" (fewer study days than phases): the
+            // Timeline draws the overlap itself, and the verdict says whether
+            // a window that short can be met.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            get().addToast('success', i18n.t('Schedule generated successfully'));
-            set({ showScheduleModal: false });
+            get().addToast('success', i18n.t('Plan saved'));
             return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to generate schedule'), e.message);
@@ -2586,36 +2653,12 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    recalibrateSchedule: async (projectId) => {
-        try {
-            const result = await api.recalibrateSchedule(projectId);
-            if (!result.success) {
-                if (result.suggestedDeadline) get().addToast('info', i18n.t('Deadline Suggestion'), i18n.t('Consider extending deadline to {{date}}', { date: result.suggestedDeadline }));
-                get().addToast('error', i18n.t('Recalibration failed'), result.error);
-                return false;
-            }
-            if (result.unchanged) { get().addToast('success', i18n.t('All tasks completed!')); return true; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
-            await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            // Recalibrating (from a workspace) reshapes the feed's focus — rebuild
-            // the stream if the user is currently on the home page.
-            if (get().view === 'today') await get().loadFeed();
-            get().addToast('success', i18n.t('Schedule recalibrated from today'));
-            return true;
-        } catch (e: any) {
-            get().addToast('error', i18n.t('Failed to recalibrate schedule'), e.message);
-            return false;
-        }
-    },
-
     removeSchedule: async (projectId) => {
         try {
             await api.removeSchedule(projectId);
+            if (projectId === get().currentProjectId) paceSeq++;
             await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
+            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null, paceLoading: false }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
             return true;
         } catch (e: any) {
@@ -2625,13 +2668,14 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadPaceData: async (projectId) => {
+        const seq = ++paceSeq;
         set({ paceLoading: true });
+        const current = () => seq === paceSeq && get().currentProjectId === projectId;
         try {
             const pace = await api.getProjectPace(projectId);
-            if (get().currentProjectId !== projectId) return;
-            set({ paceData: pace, paceLoading: false });
+            if (current()) set({ paceData: pace, paceLoading: false });
         } catch {
-            if (get().currentProjectId === projectId) set({ paceLoading: false });
+            if (current()) set({ paceLoading: false });
         }
     },
 

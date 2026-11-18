@@ -23,6 +23,7 @@
 //
 // Reading is never refused: the settings screens still show what is in use.
 // docs/HOSTING.md is the operator's side of the same list.
+import { siteAuthRefusal } from './siteLibrary.js';
 
 /** Is this process a hosted copy? Read on every call: the gates change it. */
 export function isHosted(env = process.env) {
@@ -155,7 +156,7 @@ export function hostedSettingRefusal(spec, key = '') {
 /** Express middleware: refuse what a hosted copy must not do. A no-op off hosted mode. */
 export function hostedGuard(req, res, next) {
     if (!isHosted()) return next();
-    const why = hostedRefusalOf(req.method, req.originalUrl);
+    const why = hostedRefusalOf(req.method, req.originalUrl) || siteAuthRefusal(req.method, requestPath(req.originalUrl));
     if (!why) return next();
     res.status(403).json({ error: why, hosted: true });
 }

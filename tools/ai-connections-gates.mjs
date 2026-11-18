@@ -327,6 +327,11 @@ check('a picture becomes input_image, the effort reasoning.effort', rr.input[0].
 check('native tools are refused with a reason that names tools (the assistant falls back to its text protocol)',
     /tool/i.test(cw.toResponsesRequest({ messages: [], tools: [{ type: 'function', function: { name: 'x' } }] }).refuse || ''));
 
+const planEffort = (effort) => cw.toResponsesRequest({ model: 'plan-model', reasoning: { effort }, messages: [{ role: 'user', content: 'x' }] }).req.reasoning;
+check('a level the Responses API does not name (a `max` chosen on a Claude connection) is sent as `high`, never as itself and never dropped',
+    eq(planEffort('max'), { effort: 'high' }) && eq(planEffort('xhigh'), { effort: 'high' }) && planEffort('bogus') === undefined);
+check('...a level it names is', eq(planEffort('medium'), { effort: 'medium' }) && eq(planEffort('minimal'), { effort: 'minimal' }));
+
 // A signed-in plan connection, token not yet due for refresh.
 const planId = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, account, created_at) VALUES ('chatgpt', 'https://api.openai.com/v1', 'learner@example.com', ?)`)
     .run(new Date().toISOString()).lastInsertRowid);
@@ -414,6 +419,8 @@ conns.updateConnection(orId, { model: 'openai/gpt-6.1-sol' });
 check('changing the model of the connection in use reaches the row calls read', row('ai_openai_model') === 'openai/gpt-6.1-sol');
 
 const customId = conns.addConnection({ kind: 'custom', baseUrl: 'http://127.0.0.1:1234', apiKey: 'local-key' });
+conns.updateConnection(customId, { baseUrl: 'http://127.0.0.1:1234/openai/v1' });
+check('editing only the path of a server\'s address keeps its key (the key belongs to the origin)', conns.settingsForConnection(customId).apiKey === 'local-key');
 conns.updateConnection(customId, { baseUrl: 'https://elsewhere.example/v1' });
 check('moving a server\'s address does not carry its key to the new host', conns.settingsForConnection(customId).apiKey === '');
 check('a per-job settings object can be built for any saved connection and model', conns.settingsForConnection(anthId, { model: 'claude-x' }).model === 'claude-x'

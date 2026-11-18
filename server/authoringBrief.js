@@ -63,7 +63,9 @@ export function buildOutlineBrief(fields = {}) {
     const block = rows
         .map(([label, value, fallback]) => `- **${label}:** ${value || `*(${fallback})*`}`)
         .join('\n');
-    return OUTLINE_BRIEF.replace('{{BRIEF}}', block);
+    // A function, not a string: a string replacement reads "$$", "$&" and "$'"
+    // as patterns, so a subject like "Perl: $$ and $?" came out altered.
+    return OUTLINE_BRIEF.replace('{{BRIEF}}', () => block);
 }
 
 /**
@@ -89,7 +91,8 @@ export function buildMaterialBrief({ project = {}, phaseTitle = '', leaves = [] 
         ? leaves.map((title, i) => `${i + 1}. ${clean(title, 500)}`).join('\n')
         : '*(no topics were supplied — stop and say so rather than inventing any)*';
 
-    return MATERIAL_BRIEF
-        .replace('{{CONTEXT}}', context)
-        .replace('{{LEAVES}}', list);
+    // One pass with a function: a second `replace` would also scan the learner
+    // text just inserted, so a course named "{{LEAVES}}" got the list pasted in.
+    const fill = { CONTEXT: context, LEAVES: list };
+    return MATERIAL_BRIEF.replace(/\{\{(CONTEXT|LEAVES)\}\}/g, (_, key) => fill[key]);
 }

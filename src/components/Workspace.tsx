@@ -14,6 +14,7 @@ import VaultProjectView from './VaultProjectView';
 import FeedView from './feed/FeedView';
 import DeckStudy from './deck/DeckStudy';
 import PaceIndicator from './PaceIndicator';
+import { LABEL as VERDICT_LABEL, VerdictDot } from './plan/verdict';
 import MockExamView from './mockExam/MockExamView';
 import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, GanttChart, Calendar, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
@@ -60,6 +61,9 @@ export default function Workspace() {
     // The mock exam has no tab of its own: it opens from the Dashboard's
     // tools, so the rail keeps saying Dashboard while it is open.
     const tabView: WorkspaceView = workspaceView === 'exam' ? 'dashboard' : workspaceView;
+    // While a mock is answered, the tabs and the course tree step aside like
+    // the app header (mockExam/ExamFrame): an exam screen holds the exam only.
+    const examFocus = useStore(s => s.examFocus);
 
     // Close the nav drawer whenever a node is selected (the detail overlay takes
     // over) or when we leave mobile.
@@ -76,6 +80,7 @@ export default function Workspace() {
 
     const project = projects.find(p => p.id === currentProjectId);
     const hasSchedule = !!(project?.start_date && project?.deadline);
+    const verdict = useStore(s => s.paceData?.verdict ?? null);
     // What this project HAS decides what it is shown — never where it came from.
     // A project with cards and nothing being taught gets the card page, because
     // a curriculum's questions have no useful answers for it (see
@@ -190,6 +195,8 @@ export default function Workspace() {
     const scheduleBtnRef = useRef<HTMLButtonElement | null>(null);
     const paceGhostRef = useRef<HTMLDivElement | null>(null);
     const [paceFull, setPaceFull] = useState(false);
+    // Where the pill does not fit, the verdict rides on the plan button.
+    const dotVerdict = !paceFull && verdict && verdict.band !== 'no_date' ? verdict : null;
     const tabKeys = viewTabs.map(t => t.key).join();
     useEffect(() => {
         const bar = barRef.current, rail = tabRailRef.current, btn = scheduleBtnRef.current, ghost = paceGhostRef.current;
@@ -256,7 +263,7 @@ export default function Workspace() {
                 a second line rather than taking the rail's width. Nothing
                 changes at the default scale, where it all still fits on one
                 row. */}
-            <div ref={barRef} className="relative flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <div ref={barRef} className={`relative ${examFocus ? 'hidden' : 'flex'} flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800`}>
                 {/* The full pace pill's measure (see `fit` above): laid out
                     at its own width, never seen, and nothing in it focuses. */}
                 <div ref={paceGhostRef} aria-hidden="true" className="invisible absolute left-0 top-0 w-max pointer-events-none">
@@ -348,8 +355,11 @@ export default function Workspace() {
                         variant={hasSchedule || cardsOnly ? 'quiet' : 'primary'}
                         icon={<CalendarClock className="w-4 h-4" aria-hidden="true" />}
                         className="relative shrink-0"
+                        title={dotVerdict ? tr(VERDICT_LABEL[dotVerdict.band]) : undefined}
                     >
-                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Edit Schedule") : tr("Set Schedule")}</span>
+                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Open plan") : tr("Set Schedule")}</span>
+                        {dotVerdict && <span className="sr-only">, {tr(VERDICT_LABEL[dotVerdict.band])}</span>}
+                        {dotVerdict && <VerdictDot verdict={dotVerdict} />}
                     </Button>
                 </div>
             </div>
@@ -357,10 +367,10 @@ export default function Workspace() {
             {/* Main content area */}
             <div className="flex-1 flex overflow-hidden">
                 {/* Sidebar: inline on desktop, off-canvas drawer on mobile —
-                    and absent on Study either way (see `studyView`). */}
-                {!isMobile && !studyView && <Sidebar />}
+                    and absent on Study and during an exam either way. */}
+                {!isMobile && !studyView && !examFocus && <Sidebar />}
 
-                {isMobile && !studyView && (
+                {isMobile && !studyView && !examFocus && (
                     <>
                         <div
                             className={`fixed inset-0 bg-black/50 z-30 transition-opacity ${navDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
@@ -408,7 +418,7 @@ export default function Workspace() {
                     mobile. The overlay no longer draws its own title + Close bar —
                     DetailPanel's header carries both on every platform, so the phone
                     doesn't spend 3rem of screen repeating the title. */}
-                {selectedNodeId && (
+                {selectedNodeId && !examFocus && (
                     isMobile ? (
                         <div className="fixed inset-0 z-40 safe-p-0 flex flex-col bg-white dark:bg-slate-800">
                             <DetailPanel />

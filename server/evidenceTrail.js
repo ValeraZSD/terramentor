@@ -10,9 +10,25 @@ import db from './database.js';
 import { checkMasteryEligibility, evidenceMoves } from './mastery.js';
 import { FADING_TOPIC, fadingCutoff } from './fading.js';
 import { bankRefOfFeedKey } from './questionTrust.js';
+import { shakyQuestions } from './questionLog.js';
+
+/**
+ * Which seed the estimate started from. Both can be stored, and they combine
+ * by MAX (`applySeededPrior`), so the larger one is the one in the number; a
+ * tie goes to transfer, as in `headStartOf` (server/headStart.js).
+ */
+function seedNameOf(record) {
+    const placement = record?.placement_prior;
+    const transfer = record?.transferred_prior;
+    if (placement == null) return transfer == null ? null : 'transfer';
+    if (transfer == null) return 'placement';
+    return Number(transfer) >= Number(placement) ? 'transfer' : 'placement';
+}
 
 /** Newest first; a topic with more shows how many more there are. */
 export const TRAIL_LIMIT = 100;
+/** The still-shaky questions listed; the count says how many there are. */
+export const SHAKY_LIMIT = 20;
 
 const parse = (text) => {
     if (!text) return null;
@@ -134,6 +150,14 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
     });
 
     const level = levelOf({ record, rows: count > 0, eligibility, fading, deck: node.project_kind === 'deck' });
+    // A skipped topic is closed: what it still gets wrong is beside the point.
+    // A pointer, not the estimate: a read that fails leaves the list empty
+    // rather than taking the whole card down.
+    let shaky = [];
+    if (node.status !== 'skipped') {
+        try { shaky = shakyQuestions(node.id); }
+        catch (e) { console.warn('[evidence] still-shaky read failed:', e?.message); }
+    }
     return {
         nodeId: node.id,
         title: node.title,
@@ -147,7 +171,7 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
             // What the proving answers alone give (the trail's steps end
             // here); under `score` when cards or drills lifted the number.
             answersScore: eligibility && level !== 'none' ? eligibility.gate_score : null,
-            seed: record?.placement_prior != null ? 'placement' : record?.transferred_prior != null ? 'transfer' : null,
+            seed: seedNameOf(record),
             ownAnswers: eligibility?.own_answers ?? 0,
             practiceRight: eligibility?.practice_right ?? 0,
             practiceTotal: eligibility?.practice_total ?? 0,
@@ -160,5 +184,14 @@ export function getEvidenceTrail(nodeId, { threshold = 0.85, checkPass = 0.8, de
         },
         count,
         rows,
+        // Questions missed twice or more with no right answer since, from the
+        // log every surface writes; each carries the flag's ref, since a
+        // question nobody gets right may be the one that is wrong.
+        shaky: shaky.slice(0, SHAKY_LIMIT).map(s => ({
+            question: s.stem,
+            ref: s.uuid ? `q:${s.uuid}` : null,
+            misses: s.misses,
+        })),
+        shakyCount: shaky.length,
     };
 }

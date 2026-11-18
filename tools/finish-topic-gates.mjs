@@ -54,6 +54,7 @@ const h = () => globalThis.__finish;
 const record = (name) => async (...a) => { h().calls.push([name, ...a]); return h()[name] ? h()[name](...a) : [] };
 export const newAttemptId = () => 'attempt-' + Math.random().toString(36).slice(2);
 export const setAuthRequiredHandler = () => {};
+export const goToSiteSignIn = () => {};
 export const api = new Proxy({
     getCheckpointFacts: async (id) => { if (!h().facts) throw new Error('not asked'); return h().facts(id); },
     updateNode: record('updateNode'),

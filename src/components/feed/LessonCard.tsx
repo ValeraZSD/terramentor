@@ -1,14 +1,16 @@
 import { useCallback, useRef, useState } from 'react';
 import ReadAloudButton from '../ui/ReadAloudButton';
 import ReadingLine from '../ui/ReadingLine';
+import { ExplainBack, PreQuestions } from './LessonPrompts';
 import { useStore } from '../../store';
 import { api, newAttemptId } from '../../api';
 import Markdown from '../Markdown';
 import { FlashcardDrillLauncher } from '../drills/DrillLauncher';
 import { Explain } from '../ui/Disclosure';
 import { Button } from '../ui/Button';
-import ReportItem, { reportedLine } from '../ui/ReportItem';
+import ReportItem, { ReportScope, reportedLine } from '../ui/ReportItem';
 import { feedRowRef } from '../../utils/itemReports';
+import { scrollIntoViewWithin } from '../../utils/scrollWithin';
 import { useReportOn, useSetAside } from '../../utils/itemReportStore';
 import { FeedLessonCard, FeedReadPart } from '../../types';
 import { uiLocale } from '../../utils/locale';
@@ -228,8 +230,37 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
         </span>
     );
 
+    // Questions asked before the part: the part's text waits behind them until
+    // they are answered or skipped, so the guess comes first.
+    // Held on the card in the store, not in local state: settled once, a
+    // remount (away and back) must not ask the round again.
+    const settlePreQuestions = useStore(s => s.settlePreQuestions);
+    const asking = !done && (card.preQuestions?.length ?? 0) > 0;
+    const articleRef = useRef<HTMLElement>(null);
+    // To the top of this part inside whatever scrolls it (the page on a phone).
+    const toTop = () => {
+        const el = articleRef.current;
+        if (!el) return;
+        if (!scrollIntoViewWithin(el, { boundary: document.body, block: 'start', padding: 16 })) {
+            window.scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + window.scrollY - 16) });
+        }
+    };
+    const reread = () => {
+        toTop();
+        articleRef.current?.focus({ preventScroll: true });
+    };
+    // The pressed button is gone once the part renders: move focus and view to
+    // the part's top, or a phone is left mid-way down where the questions were.
+    const finishAsking = () => {
+        settlePreQuestions(card.key);
+        requestAnimationFrame(reread);
+    };
+
     return (
-        <article>
+        // One item: the line under a weak explain-back verdict opens this
+        // part's own flag.
+        <ReportScope>
+        <article ref={articleRef} tabIndex={-1} className="outline-none">
             {offerEarlier && <EarlierParts card={card} />}
             {(label || heading) && (
                 <div className="mb-3 flex items-start gap-2">
@@ -247,6 +278,9 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 </div>
             )}
 
+            {asking ? (
+                <PreQuestions card={card} onDone={finishAsking} />
+            ) : (<>
             {/* With no heading row the flag floats in the text's top-right
                 corner, so it does not take a line of its own. */}
             <div className="flow-root">
@@ -290,6 +324,10 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                 <FlashcardDrillLauncher nodeId={card.nodeId} nodeTitle={card.nodeTitle} />
             )}
 
+            {card.explainBack && card.feedItemId != null && !reported && (
+                <ExplainBack feedItemId={card.feedItemId} onReread={reread} />
+            )}
+
             {reported ? (
                 <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">{reportedLine(t, reported)}</p>
             ) : read ? (
@@ -304,6 +342,8 @@ export default function LessonCard({ card, done, onDone, offerEarlier = true }: 
                     </Button>
                 </div>
             )}
+            </>)}
         </article>
+        </ReportScope>
     );
 }

@@ -1,20 +1,30 @@
 // server/vaultBlobs.js — when a stored original may be deleted.
 //
 // The vault's blob store is content-addressed (vaultStorage.js): the same bytes
-// uploaded twice are ONE file, held by every row that names its hash. Three
+// uploaded twice are ONE file, held by every row that names its hash. Four
 // tables name one — a library document, a file waiting in the New project
-// dialog, a file attached to the assistant chat — and a blob is deleted only
-// when none of them still does. Every place that drops such a row frees through
-// here, so a fourth holder is one line in `HOLDERS`, not a fourth copy of the
-// check that each of the others then forgets.
+// dialog, a file attached to the assistant chat, the photo of a graded paper
+// attempt — and a blob is deleted only when none of them still does.
+// Every place that drops such a row frees through here, so a further holder is
+// one line in `HOLDERS`, not another copy of the check that each of the others
+// then forgets.
 import db from './database.js';
 import vaultStorage from './vaultStorage.js';
 
-const HOLDERS = ['documents', 'staged_documents', 'chat_attachments'];
+// [table, the column that holds the hash]
+const HOLDERS = [
+    ['documents', 'file_hash'],
+    ['staged_documents', 'file_hash'],
+    ['chat_attachments', 'file_hash'],
+    // The learner's answer photo, stored in the same vault by paper.js. The same
+    // bytes can also be a document or an attachment; deleting THAT row must not
+    // take the picture a graded attempt still shows.
+    ['paper_attempts', 'image_hash'],
+];
 
 let held = null;
 function heldStmts() {
-    if (!held) held = HOLDERS.map(t => db.prepare(`SELECT 1 FROM ${t} WHERE file_hash = ? LIMIT 1`));
+    if (!held) held = HOLDERS.map(([table, column]) => db.prepare(`SELECT 1 FROM ${table} WHERE ${column} = ? LIMIT 1`));
     return held;
 }
 

@@ -14,7 +14,7 @@ import {
 } from '../utils/treeDnd';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
-import { useDragA11y, useDragKeyboard, nodeTitle } from '../hooks/useDragA11y';
+import { useDragA11y, useDragKeyboard, nodeTitle, keyBelongsToDrag } from '../hooks/useDragA11y';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
 import { useCanHover } from '../utils/platform';
@@ -288,6 +288,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const sidebarRef = useRef<HTMLDivElement>(null);
     const resizing = useRef(false);
     const [activeId, setActiveId] = useState<number | null>(null);
+    // Read by the tree's key listener, which is not re-registered per drag.
+    const dragging = useRef(false);
+    dragging.current = activeId != null;
     const [overId, setOverId] = useState<number | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
 
@@ -417,10 +420,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             // body would make ↓ then Enter after a click anywhere open a topic
             // nobody saw being chosen.
             if (!sidebarRef.current?.contains(document.activeElement)) return;
-            // A drag handle's arrows belong to the keyboard drag (useDragKeyboard):
+            // During a keyboard drag (useDragKeyboard) every key is the drag's:
             // moving the cursor or folding a node under it would end the drag
-            // somewhere else, and Escape there cancels the drag, not the selection.
-            if ((document.activeElement as HTMLElement | null)?.closest('[data-drag-handle]')) return;
+            // somewhere else, and Escape there cancels the drag, not the
+            // selection. On a resting handle only Space and Enter (they pick it
+            // up); its arrows still move through the tree.
+            const onHandle = !!(document.activeElement as HTMLElement | null)?.closest('[data-drag-handle]');
+            if (keyBelongsToDrag(e.key, onHandle, dragging.current)) return;
 
             const visibleNodes = getVisibleNodes(tree, expanded);
             if (visibleNodes.length === 0) return;

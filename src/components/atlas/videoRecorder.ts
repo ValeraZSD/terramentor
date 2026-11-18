@@ -217,9 +217,18 @@ export function recordCanvasGif(canvas: HTMLCanvasElement, fps: number): CanvasR
     // and a message nobody is listening for is dropped, not queued.
     let failed: string | null = null;
     let finished: ((bytes: Uint8Array) => void) | null = null;
+    let rejectStop: ((err: Error) => void) | null = null;
     worker.onmessage = (e: MessageEvent) => {
-        if (e.data?.type === 'error') failed = e.data.message || 'The GIF could not be written.';
-        else if (e.data?.type === 'done') finished?.(e.data.bytes);
+        if (e.data?.type === 'error') {
+            const message: string = e.data.message || 'The GIF could not be written.';
+            failed = message;
+            // An encoder that throws on the closing `finish` never sends `done`,
+            // so a stop already waiting would wait for ever.
+            if (rejectStop) {
+                worker.terminate();
+                rejectStop(new Error(message));
+            }
+        } else if (e.data?.type === 'done') finished?.(e.data.bytes);
     };
     worker.onerror = (e) => { failed = e.message || 'The GIF encoder did not start.'; };
 
@@ -260,6 +269,7 @@ export function recordCanvasGif(canvas: HTMLCanvasElement, fps: number): CanvasR
                 reject(new Error(failed));
                 return;
             }
+            rejectStop = reject;
             finished = (bytes) => {
                 worker.terminate();
                 if (failed || !bytes.length) {

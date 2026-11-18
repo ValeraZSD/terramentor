@@ -412,8 +412,8 @@ html[data-motion="reduce"] *:not(.drop-flash)::after {
 }
 
 /* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
-   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em), and
-   tools/axe-gates.mjs scans every screen at it for clipped text. On every
+   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em); no gate
+   yet opens a screen at it to look for clipped text. On every
    element, because a class that sets its own tracking or leading would
    otherwise keep it. Formulas and drawings are left alone: KaTeX places the
    parts of a fraction or a root by its own line height, and a diagram sizes
@@ -456,13 +456,18 @@ html[data-larger-ui] :is(
   .min-h-12, .min-h-14, .min-h-16, .min-h-20, .min-h-24, .min-h-28, .min-h-32, [class*="min-h-["]) {
   min-height: var(--target-floor);
 }
+/* 3rem is only 38.4px at an 80% interface size: a min-h-12 control (a drill's
+   answer, a roomy select option) keeps its 3rem and never drops under 44px. */
+html[data-larger-ui] .min-h-12:is(button, a[href], [role="button"], [role="option"], [role="radio"]) {
+  min-height: max(3rem, 44px);
+}
 html[data-larger-ui] :is(
   button, select, summary, a[href],
   input:not([type="hidden"], [type="checkbox"], [type="radio"]),
   [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"],
   [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"]
 ):not(.sr-only, [role="switch"], :is(p, blockquote, .prose) a:not(.not-prose *),
-  .min-w-64, [class*="min-w-[8rem]"], [class*="min-w-[9rem]"], [class*="min-w-[10rem]"], [class*="min-w-[12rem]"],
+  .min-w-64, [class*="min-w-[8rem]"], [class*="min-w-[9rem]"], [class*="min-w-[9.5rem]"], [class*="min-w-[10rem]"], [class*="min-w-[12rem]"],
   [class*="min-w-[13rem]"], [class*="min-w-[14rem]"], [class*="min-w-[140px]"]) {
   min-width: var(--target-floor);
 }
@@ -483,8 +488,24 @@ html[data-larger-ui] [data-sidebar-row] {
 html[data-larger-ui] [data-fold-spacer] {
   width: var(--target-floor);
 }
+/* ...but never more than 30% of the row it shares with the page and the
+   details pane: at 160% text on an 800px window 17.5rem is 448px, and with
+   the details open the page between them had no width left. 30% is about
+   what the tree's own 256px default takes there with the setting off. */
 html[data-larger-ui] [data-course-sidebar] {
-  min-width: 17.5rem;
+  min-width: min(17.5rem, 30%);
+}
+/* A phase's tick bar (dashboard/PhaseProgress.tsx) is one 12px row that hides
+   its overflow, so a long phase cannot widen the page. With the floor every
+   tick is 44px each way, and a 100-topic phase no longer fits one row: the
+   bar becomes a grid of floor-sized cells that wraps onto as many rows as it
+   needs. auto-fit stretches the cells across the row, so a short phase still
+   draws one full-width bar. */
+html[data-larger-ui] [data-tick-bar] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--target-floor), 1fr));
+  grid-auto-rows: var(--target-floor);
+  height: auto;
 }
 /* One level of the course tree and the outline: the row's first column
    (fold chevron or status mark) and the gap after it at normal size, so a
@@ -510,15 +531,25 @@ html[data-larger-ui] {
 }/* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
-  padding-right: 3.25rem;
+  padding-right: calc(var(--target-floor) + 0.5rem);
 }
 /* The tickbox (Checkbox.tsx) keeps its 18px box; its invisible input spills
-   to 44px round it, as the switch's target does, so a row whose label is one
-   short line is still a 44px target. Never smaller than the box itself. */
+   to the floor round it, as the switch's target does, so a row whose label is
+   one short line is still a 44px target. Sized and centred explicitly: an
+   input is a replaced element, and an engine may give it its own 13px size
+   rather than stretch it between the insets. Never smaller than the box. */
 html[data-larger-ui] [data-checkbox] > input {
-  inset: min(0px, calc((100% - 2.75rem) / 2));
-  width: auto;
-  height: auto;
+  inset: auto;
+  left: min(0px, calc((100% - var(--target-floor)) / 2));
+  top: min(0px, calc((100% - var(--target-floor)) / 2));
+  width: max(100%, var(--target-floor));
+  height: max(100%, var(--target-floor));
+}
+/* The switch keeps its 24px track; its target spills to the floor round it
+   (ui/Switch.tsx), so 80% text does not leave it 35px tall. */
+html[data-larger-ui] [data-switch-spill] {
+  inset-inline: min(-0.375rem, calc((100% - var(--target-floor)) / 2));
+  inset-block: min(-0.625rem, calc((100% - var(--target-floor)) / 2));
 }
 
 /* Forced colours (Windows High Contrast) drop every background, so a choice
@@ -543,6 +574,12 @@ html[data-larger-ui] [data-checkbox] > input {
     outline-style: none;
   }
   button[data-segment]:where(:not(:focus-visible)) {
+    outline-style: none;
+  }
+  /* A row's or card's title button is the keyboard's way into a row the
+     pointer opens anywhere: framed, it read as a separate box inside the
+     card. It is framed only when focused or when it is the open one. */
+  button[data-row="title"]:not([aria-current]):where(:not(:focus-visible)) {
     outline-style: none;
   }
   /* The track's fill is dropped too, so a segmented row gets one frame

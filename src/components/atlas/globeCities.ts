@@ -22,8 +22,8 @@
  *
  * A country is cut by `buildCountryCities`; the map asks for the whole library
  * at once (`buildCities`, in a worker: `cityBuild.ts`), because that is about a
- * second of work (1.0 s for 2,490 topics in 129 countries on a desktop CPU)
- * that must never stop the page.
+ * second of work (1.0 s for 2,490 topics in 129 countries, timed in Node on a
+ * desktop CPU; about twice that in the page) that must never stop the page.
  */
 import { Vec3, unit3, tangentBasis } from './globeProjection';
 import { SphereLine, Territory, lineOf } from './globeTerritories';

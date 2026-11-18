@@ -69,7 +69,8 @@ const store = {
     addToast: (...a) => calls.push(['toast', ...a]),
     a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true },
     consumeAnkiImportFile: () => null,
-    loadProjects: async () => { },
+    // A case can make the list refresh fail, as a server that dropped would.
+    loadProjects: async () => { await globalThis.__projectsHold; if (globalThis.__projectsFail) throw new Error(''); },
     openProject: () => { },
 };
 
@@ -91,11 +92,17 @@ await require('esbuild').build({
             }));
             build.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({
                 contents: `export const api = {
-                    inspectAnkiDeck: async () => globalThis.__preview,
-                    cancelAnkiImport: async () => {},
-                    commitAnkiImport: async (opts) => { globalThis.__calls.push(['commit', opts]); return { projectId: 3, name: opts.projectName, imported: 1501, skipped: 0, stages: 30 }; },
-                    deleteProject: async () => {},
-                    getMediaInfo: async () => ({ description: '' }),
+                    // A case can hold the upload or the commit open, or make the
+                    // next commit fail, the way a slow or restarted server would.
+                    inspectAnkiDeck: async () => { await globalThis.__inspectHold; return globalThis.__preview; },
+                    cancelAnkiImport: async (id) => { globalThis.__calls.push(['cancel', id]); },
+                    commitAnkiImport: async (opts) => {
+                        await globalThis.__commitHold;
+                        if (globalThis.__commitFails) { globalThis.__commitFails = false; throw new Error(''); }
+                        globalThis.__calls.push(['commit', opts]); return { projectId: 3, name: opts.projectName, imported: 1501, skipped: 0, stages: 30 }; },
+                    deleteProject: async () => { await globalThis.__deleteHold; },
+                    // A preview picture with no alt looks up its stored description.
+                    mediaInfo: async () => null,
                 };`,
                 loader: 'js',
             }));
@@ -143,6 +150,10 @@ const CARDS = new RegExp(`${grouped(1501)} cards`);
 check('the deck size is stated', CARDS.test(text()), true);
 const cards = () => $$('[data-testid="anki-sample"]');
 check('exactly one sample card is on screen', cards().length, 1);
+// Every other count on the screen goes through the reader's number format; the
+// deck list's own counts did not, so a big deck read "1501" beside "1,501".
+check("the deck list writes a deck's count in the reader's number format",
+    /1\D501 · 30 sections/.test($$('details li')[0]?.textContent ?? ''), true);
 check('it is the first one', cards()[0].textContent.includes('早い'), true);
 check('the picture is capped at the preview size',
     $$('img').every(i => i.className.includes('max-h-32')), true);
@@ -197,13 +208,98 @@ check('it is in the pinned footer, outside the scroll',
     commit.closest('div.shrink-0.border-t') !== null && commit.closest('.overscroll-contain') === null, true);
 check('the undo promise is made before the click',
     text().includes('You can undo it in one click'), true);
+const wait = () => new Promise(r => setTimeout(r, 20));
+globalThis.__commitFails = true;
 click(commit);
-await new Promise(r => setTimeout(r, 20));
+await wait();
+check('a failed import says so and stays on the preview',
+    text().includes('The import could not be completed.') && !!byText('button', CARDS), true);
+click(byText('button', CARDS));
+await wait();
 const commitCall = calls.find(c => c[0] === 'commit');
 check('the import was requested with the choices made', commitCall[1], {
     stagingId: 'stg1', projectName: 'Core 2k', swapFrontBack: false,
     keepSchedule: true, includeMedia: true,
 });
+check('a retry that works does not leave the earlier failure on the done screen',
+    text().includes('cards imported') && !text().includes('The import could not be completed.'), true);
+
+console.log('\n--- closing never strands or loses a deck ---');
+const dropFile = async () => {
+    const inp = window.document.querySelector('input[type=file]');
+    if (!inp) return;   // already on a preview: the check after this reports it
+    Object.defineProperty(inp, 'files', { value: [new window.File([new Uint8Array([1])], 'deck.apkg')], configurable: true });
+    await act(async () => { inp.dispatchEvent(new window.Event('change', { bubbles: true })); await wait(); });
+};
+const dialog = () => window.document.querySelector('[role="dialog"]');
+const backdropEl = () => dialog().parentElement;
+const closeBtn = () => window.document.querySelector('button[aria-label="Close"]');
+// The done screen is left through its close button; the harness keeps the
+// modal mounted open, so a close lands back on the dropzone.
+click(closeBtn());
+check('closing the done screen returns to the dropzone', !!byText('p', 'Drop your .apkg here'), true);
+
+// Closing while the deck is still being read.
+let release;
+globalThis.__inspectHold = new Promise(r => { release = r; });
+calls.length = 0;
+await dropFile();
+check('the deck is being read', !!byText('p', /Uploading|Reading your deck/), true);
+click(closeBtn());
+release(); globalThis.__inspectHold = null;
+await act(async () => { await wait(); });
+check('a deck that finishes reading after the dialog was closed does not reopen it on a preview',
+    !!byText('p', 'Drop your .apkg here') && !text().includes('Import 1'), true);
+check('...and its staged parse is released', calls.some(c => c[0] === 'cancel' && c[1] === 'stg1'), true);
+
+// Selecting text and letting go over the backdrop is not a tap on it.
+await dropFile();
+check('a preview is open', !!byText('button', CARDS), true);
+const nameInput = window.document.querySelector('label input:not([type=checkbox])');
+act(() => nameInput.dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
+click(backdropEl());
+check('a drag that starts inside the dialog and ends on the backdrop keeps it open', !!byText('button', CARDS), true);
+act(() => backdropEl().dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
+click(backdropEl());
+check('a tap on the backdrop still closes it', !!byText('p', 'Drop your .apkg here'), true);
+
+// Closing while the import itself runs.
+await dropFile();
+let finish;
+globalThis.__commitHold = new Promise(r => { finish = r; });
+click(byText('button', CARDS));
+await wait();
+check('the import is running', text().includes('Importing'), true);
+click(closeBtn());
+act(() => window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+check('the X and Escape wait for a running import instead of closing on it', text().includes('Importing'), true);
+check('the X is switched off while it runs', closeBtn().disabled, true);
+act(() => backdropEl().dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
+click(backdropEl());
+check('a tap on the backdrop waits for it too', text().includes('Importing'), true);
+// The import has gone through; only the project list behind the dialog is slow.
+let listed;
+globalThis.__projectsHold = new Promise(r => { listed = r; });
+globalThis.__projectsFail = true;
+finish(); globalThis.__commitHold = null;
+await act(async () => { await wait(); });
+check('the import then ends on its own done screen', text().includes('cards imported'), true);
+check('the done screen can be closed while the project list is still refreshing', closeBtn().disabled, false);
+listed(); globalThis.__projectsHold = null;
+await act(async () => { await wait(); });
+check('a project list that will not refresh is not reported as a failed import',
+    !text().includes('could not be completed') && text().includes('cards imported'), true);
+globalThis.__projectsFail = false;
+
+// Undo is a request in flight too: "Open it" must not leave the dialog under it.
+let undone;
+globalThis.__deleteHold = new Promise(r => { undone = r; });
+click(byText('button', 'Undo'));
+await wait();
+check('"Open it" is switched off while an undo runs', byText('button', 'Open it').disabled, true);
+undone(); globalThis.__deleteHold = null;
+await act(async () => { await wait(); });
+check('the undo then closes the dialog', !!byText('p', 'Drop your .apkg here'), true);
 
 act(() => root.unmount());
 console.log(`\n${pass} passed, ${fail} failed`);

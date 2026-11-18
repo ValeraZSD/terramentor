@@ -76,7 +76,7 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
                 // them, and the notes say which others did not come.
                 addToast(newProject.failed?.length ? 'info' : 'success', t("{{count}} projects imported", { count: newProject.imported?.length ?? 1 }), libraryNotes || undefined);
             } else if (warnings.length) {
-                addToast('info', t("Imported \"{{name}}\" with {{count}} notes", { name: newProject.name, count: warnings.length }), warnings.join(''));
+                addToast('info', t("Imported \"{{name}}\" with {{count}} notes", { name: newProject.name, count: warnings.length }), libraryNotes);
             } else {
                 addToast('success', t("Project \"{{name}}\" imported successfully!", { name: newProject.name }));
             }
@@ -91,6 +91,8 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         e.preventDefault();
         setIsDragging(false);
         const file = e.dataTransfer.files[0];
+        // A second file while one is importing would make a second copy.
+        if (importing) return;
         if (file && IMPORTABLE_RE.test(file.name)) processImport(file);
     };
 
@@ -104,11 +106,16 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         setIsDragging(false);
     };
 
-    const handleDropZoneClick = () => fileInputRef.current?.click();
+    const handleDropZoneClick = () => {
+        if (!importing) fileInputRef.current?.click();
+    };
 
     const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) processImport(file);
+        // Cleared so choosing the same file again (after a failed import) fires
+        // `change` again instead of doing nothing.
+        e.target.value = '';
+        if (file && !importing) processImport(file);
     };
 
     return (

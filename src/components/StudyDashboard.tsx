@@ -6,7 +6,7 @@ import ProjectQuizzesList from './ProjectQuizzesList';
 import QuizView from './QuizView';
 import {
     Brain, CheckCircle2, Zap, RefreshCw, Loader2,
-    MessageSquare, BarChart3, Play, RotateCcw,
+    MessageSquare, BarChart3, Play,
     Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History, Timer
 } from 'lucide-react';
 import { useOpenMasteryCheck } from '../hooks/useOpenMasteryCheck';
@@ -27,6 +27,8 @@ import { pretty } from '../utils/scheduleAxis';
 import { useTranslation } from 'react-i18next';
 import { headStartConsequence } from './feed/HeadStartBanner';
 import ContinueCreationCard from './creation/ContinueCreationOffer';
+import { MISSES, VerdictPill, verdictLine } from './plan/verdict';
+import { useNumberFormat } from '../hooks/useNumberFormat';
 
 export default function StudyDashboard() {
     const { t: tr } = useTranslation();
@@ -35,14 +37,15 @@ export default function StudyDashboard() {
     const studyProject = useStore(s => s.studyProject);
     const setWorkspaceView = useStore(s => s.setWorkspaceView);
     const addToast = useStore(s => s.addToast);
-    const recalibrateSchedule = useStore(s => s.recalibrateSchedule);
+    const paceData = useStore(s => s.paceData);
+    const setShowScheduleModal = useStore(s => s.setShowScheduleModal);
+    const num = useNumberFormat();
     const dashboard = useStore(s => s.dashboardData);
     const dashboardLoading = useStore(s => s.dashboardLoading);
     const dailyPlan = useStore(s => s.dailyPlan);
     const openAssistant = useStore(s => s.openAssistant);
     const openMasteryCheck = useOpenMasteryCheck();
 
-    const [recalibrating, setRecalibrating] = useState(false);
     const [showAllQuizzes, setShowAllQuizzes] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<ProjectQuiz | null>(null);
     const [quizListKey, setQuizListKey] = useState(0);
@@ -65,18 +68,12 @@ export default function StudyDashboard() {
 
     const handleRefresh = async () => {
         if (!currentProjectId) return;
+        // The verdict counts the same closed topics and met cards.
+        void useStore.getState().loadPaceData(currentProjectId);
         const result = await useStore.getState().loadDashboard(currentProjectId);
         if (!result.success) {
             addToast('error', tr("Failed to refresh dashboard"), result.error);
         }
-    };
-
-    const handleRecalibrate = async () => {
-        if (!currentProjectId) return;
-        setRecalibrating(true);
-        await recalibrateSchedule(currentProjectId);
-        setRecalibrating(false);
-        useStore.getState().loadDashboard(currentProjectId);
     };
 
     // Full-page spinner only on initial load; background refreshes preserve stale data
@@ -102,14 +99,17 @@ export default function StudyDashboard() {
         );
     }
 
-    const { heroTask, milestones, quizSummary, pace, stats } = dashboard;
+    const { heroTask, milestones, quizSummary, stats } = dashboard;
     const hasCards = (project.card_count ?? 0) > 0 || dashboard.flashcardSummary.totalCards > 0;
     // What the cards panel recounts on: this page's own count of the cards,
     // which moves when they do (a session, a bulk generation), not every
     // refresh of the page.
     const cardSummary = dashboard.flashcardSummary;
     const cardsKey = [cardSummary.totalCards, cardSummary.dueCount, cardSummary.newAvailable, cardSummary.introducedToday].join(':');
-    const isBehind = pace && (pace.paceStatus === 'falling_behind' || pace.paceStatus === 'critical');
+    // The date judged against the learner's own pace, not against the dates
+    // the plan wrote: only then is there something to do about it.
+    const verdict = paceData?.verdict ?? null;
+    const missesDate = !!verdict && (MISSES.has(verdict.band) || verdict.band === 'passed');
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
     // A head start does not move "Next up" (a seed is no proof), it changes what
     // the topic IS: a short review whose check comes first, as the feed's banner
@@ -245,22 +245,21 @@ export default function StudyDashboard() {
                 </div>
             )}
 
-            {isBehind && (
+            {missesDate && verdict && (
                 // Same rule as the row above: beside the sentence while it
                 // fits, under it and full width when it does not. Side by side
                 // on a phone the sentence ran to five lines next to the button.
                 <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-4 gap-y-3">
-                    <p className="min-w-0 flex-[999_1_16rem] text-sm text-slate-500 dark:text-slate-400">
-                        {tr("You are behind the plan. Recalibrating spreads what is left over the days that remain.")}
-                    </p>
+                    <div className="min-w-0 flex-[999_1_16rem] flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+                        <VerdictPill verdict={verdict} t={tr} />
+                        <span>{verdictLine(verdict, tr, num)}</span>
+                    </div>
                     <div className="flex flex-[1_1_auto] justify-end">
                         <Button
-                            onClick={handleRecalibrate}
-                            busy={recalibrating}
-                            icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
+                            onClick={() => setShowScheduleModal(true, currentProjectId)}
                             className="grow"
                         >
-                            {tr("Recalibrate Schedule")}
+                            {tr("Open plan")}
                         </Button>
                     </div>
                 </div>
@@ -300,7 +299,7 @@ export default function StudyDashboard() {
                 <ToolRow
                     icon={Timer}
                     title={tr("Mock exam")}
-                    hint={tr("Write a past paper with the exam clock, then mark it against the worked solution")}
+                    hint={tr("Answer a draw of this course's questions on screen, or write a past paper with the exam clock")}
                     onClick={() => setWorkspaceView('exam')}
                 />
                 <ToolRow
@@ -353,8 +352,8 @@ export default function StudyDashboard() {
                         </h2>
                         {/* The icon (w-10) plus the gap (gap-3), in rem like them —
                             a px indent drifted off the title under `ui_scale`.
-                            Progress only: the pace ("On track", "3 days behind")
-                            is the panel in the project's own header. */}
+                            Progress only: the verdict sits in the project's
+                            header and in the plan section below. */}
                         <p className="text-slate-500 dark:text-slate-400 mt-1 ml-[3.25rem]">
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>
@@ -408,7 +407,10 @@ export default function StudyDashboard() {
                                     compact
                                     reloadKey={cardsKey}
                                     // Pace, progress and the plan count cards too.
-                                    onSessionEnd={() => void useStore.getState().loadDashboard(currentProjectId)}
+                                    onSessionEnd={() => {
+                                        void useStore.getState().loadPaceData(currentProjectId);
+                                        void useStore.getState().loadDashboard(currentProjectId);
+                                    }}
                                 />
                             ),
                         },

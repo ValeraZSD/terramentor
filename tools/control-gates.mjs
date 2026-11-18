@@ -124,7 +124,8 @@ const MARKERS = [
     { attr: 'data-handle', files: ['src/components/feed/PracticeCard.tsx'], why: 'a corner handle dragged over a photograph' },
     { attr: 'data-media-control', selectable: true, files: ['src/components/CardMedia.tsx'], why: 'play/stop on a sound inside a card — a round media control sized with the card text it sits in' },
     { attr: 'data-toast-body', files: ['src/components/Toast.tsx'], why: 'a toast\'s own text, pressable for its details — the toast owns the shape' },
-    { attr: 'data-day-toggle', selectable: true, files: ['src/components/ScheduleModal.tsx'], why: 'a study day in a week of seven toggles — a 40px square per weekday; the week owns the layout' },
+    { attr: 'data-day-toggle', selectable: true, files: ['src/components/ScheduleModal.tsx'], why: 'a study day in a week of seven toggles — a 40px cell per weekday, filled when picked; the week owns the layout' },
+    { attr: 'data-question-cell', files: ['src/components/mockExam/ExamFrame.tsx'], why: 'one numbered square in a mock exam\'s question row or its grid — 40px in the scrolling row, 44px in the grid, filled when answered; the row or grid owns the layout' },
     { attr: 'data-bar', files: ['src/components/studyTime/StudyTime.tsx'], why: 'a day in a bar chart — the bar is the value, the chart owns the height' },
     // The ✕ on a 64px thumbnail is a 24px circle on its corner — the shape all
     // five big chat apps use — with a 44px hit area from an inset pseudo-element;

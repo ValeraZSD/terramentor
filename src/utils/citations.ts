@@ -48,8 +48,8 @@ export type SourceEntry =
     | { kind: 'web'; label: string; href: string }
     | { kind: 'doc'; entry: string; label: string };
 
-/** `inertTitle` (server/citations.js) escapes brackets; the reader sees them plain. */
-const unescapeTitle = (s: string) => s.replace(/\\([[\]])/g, '$1');
+/** `inertTitle` (server/citations.js) escapes backslashes and brackets; the reader sees them plain. */
+const unescapeTitle = (s: string) => s.replace(/\\([\\[\]])/g, '$1');
 /** A web entry: `[label](url)`, the label's brackets escaped, the URL percent-encoded by `inertUrl`. */
 const WEB_ENTRY = /^\[((?:\\.|[^\]\\])*)\]\((https?:\/\/[^\s()]+)\)/i;
 const SEPARATOR = ' · ';

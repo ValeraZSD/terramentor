@@ -1,9 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
-import { api } from '../api';
 import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
+import { api } from '../api';
+import { storedInfo as keptInfo, forgetStoredInfo } from '../utils/mediaDescriptions';
+import type { MediaInfo } from '../types';
+import { imageAltText, needsStoredDescription } from './cardImageAlt';
 
 /**
  * The pictures and audio attached to one side of a flashcard.
@@ -79,6 +82,16 @@ export function parseCardMedia(raw: unknown): CardMediaSides {
 }
 
 const srcFor = (hash: string) => `/api/media/${hash}`;
+
+// A file's stored description, looked up once per file per page load; what is
+// kept and what is asked again is `utils/mediaDescriptions.ts`.
+function storedInfo(hash: string): Promise<MediaInfo | null> {
+    return keptInfo(hash, api.mediaInfo);
+}
+/** Drop a file's cached description after it was edited, so the next card reads the new one. */
+export function forgetMediaInfo(hash: string) {
+    forgetStoredInfo(hash);
+}
 
 // ---- playback: one engine per card side --------------------------------------
 
@@ -255,38 +268,19 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
     );
 }
 
-/**
- * The stored description of a picture, fetched once per file per page load.
- * A file with none gives '' and is not asked again; a
- * description written later reaches the card after a reload.
- */
-const descriptions = new Map<string, Promise<string>>();
-function useStoredDescription(hash: string | null): string {
-    const [text, setText] = useState('');
-    useEffect(() => {
-        if (!hash) { setText(''); return; }
-        let live = true;
-        let pending = descriptions.get(hash);
-        if (!pending) {
-            // A failed read is forgotten, so the next card showing the file asks again.
-            pending = api.getMediaInfo(hash).then(r => (r.description ?? '').trim(), () => { descriptions.delete(hash); return ''; });
-            descriptions.set(hash, pending);
-        }
-        void pending.then(d => { if (live) setText(d); });
-        return () => { live = false; };
-    }, [hash]);
-    return text;
-}
-
 function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review' | 'preview' }) {
     const { t } = useTranslation();
     const [failed, setFailed] = useState(false);
+    const [info, setInfo] = useState<MediaInfo | null>(null);
+    useEffect(() => {
+        if (!needsStoredDescription(item)) return;
+        let live = true;
+        void storedInfo(item.hash).then(found => { if (live) setInfo(found); });
+        return () => { live = false; };
+    }, [item.hash, item.alt]);
 
-    // The deck's own alt first; else the description stored for the file
-    // (server/mediaDescribe.js); else not `alt=""` (it is not decorative) but
-    // the author's filename, often the word itself.
-    const described = useStoredDescription(item.alt ? null : item.hash);
-    const alt = item.alt || described || item.name || 'Card image';
+    // Never `alt=""`: a card picture is content. See imageAltText for the order.
+    const alt = imageAltText(item, info, description => t("AI description: {{description}}", { description }));
 
     if (failed) {
         return (

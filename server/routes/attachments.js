@@ -16,9 +16,11 @@ import { clientError } from '../clientError.js';
 const app = routeTable('attachments');
 
 // Buffered in memory (typed and hashed at once, then stored), capped per file
-// and per request; the whole body is capped on Content-Length first.
+// and per request; the whole body is capped on Content-Length first. Browsers
+// send the filename as UTF-8, which multer would otherwise read as latin1.
 const upload = multer({
     storage: multer.memoryStorage(),
+    defParamCharset: 'utf8',
     limits: { fileSize: ATTACH_MAX_BYTES, files: ATTACH_MAX_FILES },
 });
 

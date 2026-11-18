@@ -5,6 +5,7 @@ import { setSettingValue } from '../settingsStore.js';
 import { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll } from '../updatePoll.js';
 import { cancelDownload, channelChanged, dismissResult, installPending, installState, requestInstall, setChannelReader, startDownload } from '../appUpdate.js';
 import { hasPasswordCredential } from '../auth.js';
+import { isHosted } from '../hosted.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
 
@@ -18,7 +19,7 @@ setChannelReader(currentChannel);
 //
 // See server/version.js for why the check is shaped the way it is. The short
 // version: identity is free and always on, the network call is a button by
-// default, and the daily poll is opt-in so SECURITY.md's "start it, sit idle,
+// default, and the automatic check is opt-in so SECURITY.md's "start it, sit idle,
 // capture nothing" procedure stays literally true on a default install.
 
 /** Who am I. No network, no database — safe to call from anywhere, including
@@ -40,12 +41,13 @@ app.get('/api/updates', (req, res) => {
  *  device asking may press anything on the panel (server/app.js): on every
  *  answer, because the page replaces its whole status with whichever came last. */
 function withInstall(req, state) {
-    return { ...state, install: installState({ latest: state.latest }), controls: !req.remoteAccess || hasPasswordCredential(req) };
+    // A hosted copy is updated by whoever runs it (server/hosted.js refuses the writes).
+    return { ...state, install: installState({ latest: state.latest }), controls: !isHosted() && (!req.remoteAccess || hasPasswordCredential(req)) };
 }
 
 /**
  * Check now. This is the button — user-initiated, so it is allowed to reach the
- * network even when the daily poll is off. Rate-limited to one call a minute so
+ * network even when the automatic check is off. Rate-limited to one call a minute so
  * a stuck client cannot turn a button into a poll.
  */
 let lastManualCheck = 0;
@@ -58,10 +60,10 @@ app.post('/api/updates/check', wrap(async (req, res) => {
     res.json(withInstall(req, await runUpdateCheck()));
 }));
 
-/** Turn the daily poll on or off. Its own endpoint rather than a generic setting
+/** Turn the automatic check on or off. Its own endpoint rather than a generic setting
  *  write, because switching it ON is consent to an outbound call and should read
  *  that way in the code as well as in the UI — and because turning it on should
- *  answer immediately instead of leaving a blank panel until tomorrow. */
+ *  answer immediately instead of leaving a blank panel until the first scheduled check. */
 app.put('/api/updates/auto', wrap(async (req, res) => {
     const enabled = req.body?.enabled === true;
     setSettingValue('update_check', enabled ? 'on' : 'off');
@@ -73,12 +75,12 @@ app.put('/api/updates/auto', wrap(async (req, res) => {
     }
     // The poll's own first tick IS this answer: one request, as SECURITY.md
     // promises, and a failed one (switched on while offline) gets the same
-    // ten-minute retry a failed startup check does.
+    // retries (10, 30, 60 minutes) a failed startup check does.
     res.json(withInstall(req, await startUpdatePoll({ checkNow: true })));
 }));
 
 /** Choose which releases this install is offered: `stable` or `nightly`. With
- *  the daily check on, the switch asks once straight away, under the same
+ *  the automatic check on, the switch asks once straight away, under the same
  *  one-a-minute limit as the button, so flipping it back and forth cannot
  *  become a poll; with it off, the switch makes no request at all. */
 app.put('/api/updates/channel', wrap(async (req, res) => {
@@ -93,8 +95,8 @@ app.put('/api/updates/channel', wrap(async (req, res) => {
     if (installPending() && channel !== currentChannel()) {
         return res.status(409).json({ error: 'Terramentor is restarting to install an update. Change the channel once it has opened again.' });
     }
-    // Only a check that will really happen spends the minute; with the daily
-    // check off, "Check now" straight after the switch must still work.
+    // Only a check that will really happen spends the minute; with the
+    // automatic check off, "Check now" straight after the switch must still work.
     const enabled = readUpdateState().enabled;
     const now = Date.now();
     const checkNow = enabled && now - lastManualCheck >= 60_000;

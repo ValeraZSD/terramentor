@@ -40,7 +40,7 @@ import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
-import { useDragA11y, useDragKeyboard, projectName } from '../hooks/useDragA11y';
+import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
@@ -105,7 +105,7 @@ export default function ProjectsGrid() {
         } catch { /* the cards keep their dates; the pills wait for the next load */ }
     }, []);
     const scheduleKey = [...projects].sort((a, b) => a.id - b.id)
-        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.completed_topic_count}:${p.progress_fraction}`)
+        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.deadline_fixed}:${p.completed_topic_count}:${p.progress_fraction}`)
         .join(',');
     useEffect(() => { void loadSchedule(); }, [loadSchedule, scheduleKey]);
 
@@ -155,7 +155,8 @@ export default function ProjectsGrid() {
         useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
         useDragKeyboard(),
     );
-    const dragA11y = useDragA11y(projectName);
+    const dragA11y = useDragA11y(projectName, { positions: true });
+    const sayMoved = useMovedSay();
 
     // "Create your first project" (the welcome's last step, the home checklist)
     // arrives asking for the creation dialog, not the list it sits behind. The
@@ -232,6 +233,9 @@ export default function ProjectsGrid() {
         const newOrder = [...projects];
         [newOrder[a], newOrder[b]] = [newOrder[b], newOrder[a]];
         setProjects(newOrder);
+        // Its place among the active cards, the list the menu moves it in.
+        const shown = activeProjects.map(p => p.id);
+        sayMoved(projects[a].name, shown.indexOf(otherId) + 1, shown.length);
         const flash = flashAfterDrop(`project:${id}`);
         try {
             await api.reorderProjects(newOrder.map(p => p.id));

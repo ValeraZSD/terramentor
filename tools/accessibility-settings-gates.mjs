@@ -223,15 +223,41 @@ section('8. larger text and buttons: one switch, two floors');
     // for more than the floor in that direction.
     const rules = [...css.matchAll(/html\[data-larger-ui\] :is\(([^)]*(?:\([^)]*\)[^)]*)*)\):not\(([^{]*)\)\s*\{([^}]*)\}/g)];
     const [hRule, wRule] = rules;
-    const kinds = ['button', 'select', 'summary', 'a[href]', 'input', '[role="button"]', '[role="tab"]', '[role="option"]'];
+    // Whole entries of the :is() list, split at top-level commas only, so
+    // `[role="button"]` never stands in for a missing `button` and
+    // `input:not(...)` stays one entry.
+    const entries = (list) => {
+        const out = [];
+        let depth = 0, from = 0;
+        for (let i = 0; i <= list.length; i++) {
+            const c = list[i];
+            if (c === '(') depth++;
+            else if (c === ')') depth--;
+            else if ((c === ',' && depth === 0) || i === list.length) { out.push(list.slice(from, i).trim()); from = i + 1; }
+        }
+        return out;
+    };
+    const kinds = ['button', 'select', 'summary', 'a[href]', '[role="button"]', '[role="tab"]', '[role="option"]'];
+    const covers = (list) => { const e = entries(list); return kinds.every(s => e.includes(s)) && e.some(s => /^input(?::|$)/.test(s)); };
+    check('a rule that lost the native button is caught',
+        covers('button, select, summary, a[href], input, [role="button"], [role="tab"], [role="option"]')
+        && !covers('select, summary, a[href], input, [role="button"], [role="tab"], [role="option"]'));
     check('every control kind is held to the floor each way, never under 44px at any interface size',
-        rules.length === 2 && rules.every(r => kinds.every(s => r[1].includes(s)))
+        rules.length === 2 && rules.every(r => covers(r[1]))
         && /^\s*min-height:\s*var\(--target-floor\);\s*$/.test(hRule[3]) && /^\s*min-width:\s*var\(--target-floor\);\s*$/.test(wRule[3])
         && /--target-floor:\s*max\(2\.75rem, 44px\)/.test(root), `${rules.length} rules`);
     // Only a link in a sentence; a chip drawn in an answer sits in .prose
     // under `not-prose` and is a control like any other.
     check('a link inside running text is left its line (WCAG 2.5.5), a chip in an answer is not',
         rules.length === 2 && rules.every(r => /:is\(p, blockquote, \.prose\) a:not\(\.not-prose \*\)/.test(r[2])));
+    // larger-ui-gates measures a copy of the phase bar; this pins the copy to
+    // the real one: the dashboard's bar wears the hook the grid rule reads,
+    // and its topics are the bar's own children.
+    const phase = code(read('src/components/dashboard/PhaseProgress.tsx'));
+    check('the dashboard phase bar wears the hook the 44px grid rule reads',
+        /<div data-tick-bar className=\{`flex h-3 w-full overflow-hidden /.test(phase)
+        && /data-tick-bar[\s\S]{0,300}?>\s*\{milestone\.segments\.map\(\(segment, i\) => \(\s*<div\s[\s\S]{0,300}?role="button"/.test(phase)
+        && /html\[data-larger-ui\] \[data-tick-bar\] \{\s*display: grid;\s*grid-template-columns: repeat\(auto-fit, minmax\(var\(--target-floor\), 1fr\)\);/.test(css));
     const switchTsx = read('src/components/ui/Switch.tsx');
     check('a switch keeps its track; its target already spills to 44px',
         rules.length === 2 && rules.every(r => /\[role="switch"\]/.test(r[2]))
@@ -244,17 +270,106 @@ section('8. larger text and buttons: one switch, two floors');
     // The floor replaces a control's own min-height/min-width, so every class
     // in the app that asks for 44px or more must be spared by its rule.
     const remPx = v => { const m = /^([0-9.]+)(rem|px)$/.exec(v); return m ? Number(m[1]) * (m[2] === 'rem' ? 16 : 1) : null; };
-    const tallClasses = (prop) => {
+    // Only a class a control declares counts: the rule cannot match a layout
+    // box, and a `min-w-[9.5rem]` on a div once had to be spared to pass.
+    // Each JSX opening element is read whole (its braces, strings and template
+    // literals skipped over, so `=>` and `x > 1` do not end it); it is a
+    // control by its tag or by a role the floor names, in any attribute
+    // order, and only the tokens in its own `className` value count.
+    // Attributes are read by their exact name (`data-role` is not `role`),
+    // with or without spaces round the `=`.
+    const CONTROL_TAG = /^(button|a|select|summary|input|Button|IconButton|LinkButton|Link|NavLink)$/;
+    const CONTROL_ROLE = /^\{?\s*["'`](button|tab|option|menuitem\w*|radio|checkbox)["'`]\s*\}?$/;
+    // From an opening `{` or quote at `i`, the index just past its close.
+    const skip = (src, i) => {
+        const open = src[i];
+        if (open !== '{') {
+            for (let j = i + 1; j < src.length; j++) {
+                if (src[j] === '\\') j++;
+                else if (src[j] === open) return j + 1;
+                else if (open === '`' && src[j] === '$' && src[j + 1] === '{') j = skip(src, j + 1) - 1;
+            }
+            return src.length;
+        }
+        for (let j = i + 1; j < src.length; j++) {
+            const c = src[j];
+            if (c === '}') return j + 1;
+            if (c === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) j = comment(src, j) - 1;
+            else if (c === '{' || c === '"' || c === "'" || c === '`') j = skip(src, j) - 1;
+        }
+        return src.length;
+    };
+    // A comment between attributes or in an expression ("the card's own
+    // words") holds quotes that open nothing.
+    const comment = (src, i) => {
+        const end = src[i + 1] === '/' ? src.indexOf('\n', i) : src.indexOf('*/', i) + 1;
+        return end <= 0 ? src.length : end + 1;
+    };
+    const openingElements = (src) => {
+        const out = [];
+        // After space, a bracket, a tag's end, or a compact operator:
+        // `{ready?<button ... />:null}`, `ok&&<a ...>`, `[<li .../>,<li .../>]`.
+        for (const m of src.matchAll(/(?:^|[\s({[>?:&|,])<([A-Za-z][\w.]*)(?=[\s/>])/g)) {
+            let j = m.index + m[0].length;
+            const attrs = {};
+            while (j < src.length && src[j] !== '>') {
+                const c = src[j];
+                if (c === '/' && (src[j + 1] === '/' || src[j + 1] === '*')) { j = comment(src, j); continue; }
+                if (c === '{' || c === '"' || c === "'") { j = skip(src, j); continue; }
+                const name = /\s/.test(src[j - 1]) && /^[A-Za-z_][\w:.-]*/.exec(src.slice(j, j + 64));
+                if (!name) { j++; continue; }
+                j += name[0].length;
+                const eq = /^\s*=\s*/.exec(src.slice(j, j + 64));
+                if (!eq) { attrs[name[0]] = true; continue; }
+                j += eq[0].length;
+                const end = skip(src, j);
+                attrs[name[0]] = src.slice(j, end);
+                j = end;
+            }
+            const className = typeof attrs.className === 'string' ? attrs.className : null;
+            // A comment inside the braces (`role={/* list */ "option"}`) is not part of the value.
+            const role = typeof attrs.role === 'string' ? attrs.role.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '') : '';
+            out.push({ tag: m[1], className, control: CONTROL_TAG.test(m[1]) || CONTROL_ROLE.test(role) });
+        }
+        return out;
+    };
+    const tallClasses = (prop, sources = SRC.map(f => read(f))) => {
         const out = new Set();
-        for (const f of SRC) {
-            for (const m of read(f).matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
-                const v = m[1];
-                const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
-                if (px !== null && px > 44) out.add(`${prop}-${v}`);
+        for (const src of sources) {
+            for (const el of openingElements(src)) {
+                if (!el.control || !el.className) continue;
+                for (const m of el.className.matchAll(new RegExp(`\\b${prop}-(\\d+|\\[[^\\]]+\\])`, 'g'))) {
+                    const v = m[1];
+                    const px = v.startsWith('[') ? remPx(v.slice(1, -1)) : Number(v) * 4;
+                    if (px !== null && px > 44) out.add(`${prop}-${v}`);
+                }
             }
         }
-        return [...out];
+        return [...out].sort();
     };
+    check('the spared-class scan reads what a control declares: a wide button or option counts, in any attribute order',
+        tallClasses('min-w', [
+            '<button type="button" className="min-w-[15rem]">',
+            '<div role="option" className="min-w-[16rem]">',
+            '<div className="min-w-[17rem]" role="option" />',
+            '<div\n  role="button"\n  // named by the card\'s own words\n  className="min-w-[21rem]"\n>',
+            '<button className={cx(\'a\', big && `min-w-[18rem] ${x > 1 ? "b" : ""}`)} onClick={() => go(x > 1)}>',
+            '<button type="button" className = "min-w-[22rem]">',
+            '<div data-role="row" className="min-w-[23rem]" role = {"tab"} />',
+            '<div role={/* in a list */ "option"} className="min-w-[26rem]" />',
+            '{ready?<button className="min-w-[27rem]" />:null}',
+            '{ready ? null:<button className="min-w-[28rem]" />}',
+            '{ok&&<button className="min-w-[29rem]" />}',
+        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem],min-w-[26rem],min-w-[27rem],min-w-[28rem],min-w-[29rem]');
+    check('...and a wide div, a string after a control, or a class outside className does not',
+        tallClasses('min-w', [
+            '<div className="min-w-[15rem]">{x}</div>',
+            'const c = useRef<HTMLDivElement>(null); <p className="min-w-[17rem]" />',
+            'const action = <button />; const example = "min-w-[15rem]";',
+            '<button title="min-w-[19rem]" onClick={() => setW("min-w-[20rem]")}>',
+            '<div data-role="button" className="min-w-[24rem]" />',
+            '<div title="role=\'button\'" className="min-w-[25rem]" />',
+        ]).length === 0);
     const spared = (cls, not) => cls.includes('[')
         ? not.includes(`[class*="${cls}"]`) || (cls.startsWith('min-h-') && not.includes('[class*="min-h-["]'))
         : not.includes(`.${cls}`);
@@ -262,9 +377,12 @@ section('8. larger text and buttons: one switch, two floors');
     const tallW = tallClasses('min-w').filter(c => !spared(c, wRule?.[2] ?? ''));
     check('a control that asks for more than the floor keeps its own size', rules.length === 2 && tallH.length === 0 && tallW.length === 0,
         [...tallH, ...tallW].join(', '));
-    check('a tickbox keeps its box; its input spills to 44px round it',
+    // Sized and placed explicitly, from the floor: `width: auto` leaves an
+    // input its own size in an engine that treats it as replaced, and 2.75rem
+    // is 35px at an 80% interface size. The browser gate measures it at 80%.
+    check('a tickbox keeps its box; its input spills to the floor round it',
         /<span data-checkbox className=/.test(read('src/components/Checkbox.tsx'))
-        && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: min\(0px, calc\(\(100% - 2\.75rem\) \/ 2\)\);\s*width: auto;\s*height: auto;/.test(css));
+        && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: auto;\s*left: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*top: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*width: max\(100%, var\(--target-floor\)\);\s*height: max\(100%, var\(--target-floor\)\);/.test(css));
     // Larger text in a narrow column cut tree and outline titles to a word or
     // two; with the switch on they wrap instead, and only the tree row (not
     // every [data-node-id]: cards, the calendar, the timeline) loses padding.
@@ -291,8 +409,13 @@ section('8. larger text and buttons: one switch, two floors');
         pxOf(sidebar, 'SIDEBAR_INDENT') === remOf('row-indent-tree') * 16
         && pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH') === remOf('row-indent-outline') * 16,
         `${pxOf(sidebar, 'SIDEBAR_INDENT')} / ${remOf('row-indent-tree')}rem, ${pxOf(read('src/utils/treeDnd.ts'), 'INDENTATION_WIDTH')} / ${remOf('row-indent-outline')}rem`);
-    check('the course tree is wide enough for a 44px column, a title and a grip',
-        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: 17\.5rem;/.test(css));
+    // The show button is the floor wide and sits 0.25rem in: 3.25rem left
+    // typed text 5.6px under it at an 80% interface size.
+    check('a password field keeps room for its show button at every interface size',
+        /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute right-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
+        && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-right: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
+    check('the course tree is wide enough for a 44px column, a title and a grip, never past 30% of its row',
+        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));

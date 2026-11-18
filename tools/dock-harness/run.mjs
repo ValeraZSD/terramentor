@@ -132,7 +132,8 @@ await require('esbuild').build({
             // reaches it from one directory down.
             build.onResolve({ filter: /^\.\.?\/api$/ }, () => ({ path: 'api-stub', namespace: 'stub' }));
             build.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({
-                contents: `export const api = new Proxy({}, {
+                contents: `export const goToSiteSignIn = () => {};
+                export const api = new Proxy({}, {
                     get: (_t, k) => (globalThis.__api[k] || (async () => { throw new Error('no stub for api.' + String(k)); })),
                 });`,
                 loader: 'js',
