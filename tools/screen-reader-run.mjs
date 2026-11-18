@@ -222,8 +222,10 @@ const TASKS = {
             // The rating itself is checked on the page; what NVDA said about it is the expectation.
             const next = await changed(shown, rated);
             if (next && next === rated) throw new Error('Space on Good left the same card on screen');
-            expect('the next card (or the end of the session) is read out',
-                next ? heard(graded, next.slice(0, 80)) : graded.length > 0);
+            // No card: the session must have ended (a waiting screen is not an end).
+            const ended = next ? '' : await textOf(page, `[...document.querySelectorAll('[data-owns-keyboard] h2')].find((h) => /Session Complete/.test(h.textContent))`);
+            if (!next && !ended) throw new Error('the card left, but the session-complete screen is not shown');
+            expect('the next card (or the end of the session) is read out', heard(graded, (next || ended).slice(0, 80)));
         },
     },
     quiz: {
