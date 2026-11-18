@@ -69,6 +69,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { buildIco, buildIcns } from './lib/icons.mjs';
 import { zipFolder } from './lib/zipFolder.mjs';
+import { readmeForPlatform, PLATFORM_OF } from './lib/readmeForPlatform.mjs';
 import { codeFiles, runtimeSources, RUNTIME_DATA } from './lib/runtimeSources.mjs';
 import { MAC_APP_IN_BUNDLE } from '../server/appPlacement.js';
 
@@ -146,7 +147,7 @@ cpSync(join(repoRoot, 'server'), join(appDir, 'server'), {
     },
 });
 // README.txt is left out as well: it is the template of the zip's top-level
-// README (written below with the version filled in), and a second, raw copy in
+// README (written below for this system, with the version filled in), and a second, raw copy in
 // desktop/ read "Terramentor __VERSION__" inside every 1.0.0 zip.
 cpSync(join(repoRoot, 'desktop'), join(appDir, 'desktop'), {
     recursive: true,
@@ -256,8 +257,9 @@ if (platform === 'win32') {
     }
 }
 // The package's top level: beside the app on Windows and Linux (and in its
-// file list), beside the bundle on macOS.
-writeFileSync(join(stage, 'README.txt'), readme.replaceAll('__VERSION__', pkg.version));
+// file list), beside the bundle on macOS. Only this system's steps are in it
+// (tools/lib/readmeForPlatform.mjs).
+writeFileSync(join(stage, 'README.txt'), readmeForPlatform(readme, PLATFORM_OF[platform], pkg.version));
 
 // --- 7. does it start? ----------------------------------------------------------------
 let port = 3901;
