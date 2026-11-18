@@ -1505,9 +1505,12 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         keyDown(win, undoButton, ' ');
         await settle();
         ok('Space on the focused Undo button does not reveal the card', undoButton && calls('review_reveal').length === 0, `${calls('review_reveal').length} reveals`);
+        // Counted from its own key: had Space on Undo revealed the card, this
+        // Space would find nothing left to reveal and add no call.
+        const revealsBefore = calls('review_reveal').length;
         keyDown(win, doc.body, ' ');
-        await until(() => calls('review_reveal').length > 0);
-        ok('Space elsewhere still reveals the card', calls('review_reveal').length === 1, `${calls('review_reveal').length} reveals`);
+        await until(() => calls('review_reveal').length > revealsBefore);
+        ok('Space elsewhere still reveals the card', calls('review_reveal').length === revealsBefore + 1, `${calls('review_reveal').length - revealsBefore} reveal(s) from this key`);
         await until(() => doc.querySelector('[data-focus="rate-good"]'));
         doc.querySelector('[data-focus="rate-good"]').focus();
         doc.querySelector('[data-focus="rate-good"]').click();
@@ -1538,6 +1541,15 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
         step(1, 'Move up').focus();
         step(1, 'Move up').click();
         ok('moving a step keeps focus on it when another step has the same words', doc.activeElement === step(1, 'Move up'), doc.activeElement?.outerHTML.slice(0, 120));
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        // Now same, z, same: the last step crosses z and lands next to its
+        // equal. Focus follows the step that moved, not the first of its words.
+        step(2, 'Move up').focus();
+        step(2, 'Move up').click();
+        ok('a step that crosses another to sit beside its equal keeps focus',
+            doc.activeElement === step(1, 'Move up') && [...doc.querySelectorAll('.step-text')].map(e => e.textContent).join(',') === 'same,same,z',
+            doc.activeElement?.outerHTML.slice(0, 120));
         step(2, 'Move up').focus();
         step(2, 'Move up').click();
         step(1, 'Move up').click();
@@ -1625,6 +1637,14 @@ console.log('\n--- the views: a check and a review in the host\'s window ---');
     try {
         await composing.until(() => composing.doc.querySelector('.card-front'));
         ok('a first card that arrives while the host\'s page has the keyboard leaves it there', composing.doc.activeElement === composing.doc.body, composing.doc.activeElement?.outerHTML.slice(0, 80));
+        // Not focused, so not heard that way: the status line outside the view reads it once.
+        const told = () => composing.doc.getElementById('tm-announce');
+        ok('and is read out once from a status line outside the view', told()?.getAttribute('role') === 'status' && !composing.doc.getElementById('app').contains(told())
+            && told().textContent.includes(` ${composing.doc.querySelector('.card-front').textContent}`), told()?.outerHTML.slice(0, 120) ?? 'no status line');
+        const firstTold = told()?.textContent;
+        composing.doc.querySelector('[data-focus="reveal"]')?.click();
+        await composing.until(() => composing.doc.querySelector('[data-focus="rate-good"]'));
+        ok('a later screen is not read out again', !!firstTold && told()?.textContent === firstTold, told()?.textContent.slice(0, 120));
     } finally {
         composing.close();
     }
