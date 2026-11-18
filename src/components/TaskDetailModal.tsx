@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useTapGuard } from '../hooks/useTapGuard';
 import { X, ArrowUpRight, AlertTriangle } from 'lucide-react';
 import type { AITaskSummary } from '../types';
 import { useStore } from '../store';
@@ -95,6 +96,9 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
     // topmost-only Escape, the counted scroll lock).
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, dialogRef, { onEscape: () => onClose() });
+    // A backdrop TAP, not any click that lands there (see `Modal`): a selection
+    // dragged out of the dialog lifts over the backdrop.
+    const backdrop = useTapGuard(onClose, true);
 
     const now = Date.now();
     const since = (iso: string | null) => {
@@ -147,7 +151,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
     return createPortal(
         <div
             className={`fixed inset-0 z-[60] flex items-end justify-center bg-black/50 sm:items-center ${SHEET_OVERLAY}`}
-            onClick={onClose}
+            {...backdrop}
             role="presentation"
         >
             <div
