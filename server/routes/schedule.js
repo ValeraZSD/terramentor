@@ -5,8 +5,8 @@
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
 import {
-    allocateSchedule, calculatePace, cardPlan, persistSchedule, readStudyDays, recalibrateSchedule,
-    removeSchedule, scheduleWindowError,
+    allocateSchedule, calculatePace, cardPlan, lockedDeadlineError, persistSchedule, readStudyDays,
+    recalibrateSchedule, relayOpenTopics, removeSchedule, scheduleWindowError, writeRelay,
 } from '../scheduling.js';
 import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
 import { isNodeWeight } from '../curriculumSchema.js';
@@ -42,7 +42,7 @@ app.get('/api/schedule/overview', (req, res) => {
     try {
         const projects = db.prepare(`
             SELECT id, uuid, name, color, icon, position, status,
-                   start_date, deadline, study_days
+                   start_date, deadline, deadline_fixed, study_days
             FROM projects
             WHERE COALESCE(status, 'active') != 'archived'
             ORDER BY position ASC, id ASC
@@ -146,9 +146,12 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     // `hoursPerDay` is deliberately not read. It was a project column and a
     // slider, and it cancelled itself out of the allocator's arithmetic — an
     // older client may still send it, and it is ignored rather than rejected.
-    const { startDate, deadline, studyDays } = req.body;
+    const { startDate, deadline, studyDays, deadlineFixed } = req.body;
 
     if (!startDate || !deadline) return res.status(400).json({ error: 'Start date and deadline are required.' });
+    if (deadlineFixed !== undefined && typeof deadlineFixed !== 'boolean') {
+        return res.status(400).json({ error: 'deadlineFixed must be true or false.' });
+    }
     const windowError = scheduleWindowError(startDate, deadline);
     if (windowError) return res.status(400).json({ error: windowError });
 
@@ -159,14 +162,29 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     const days = readStudyDays(studyDays == null ? null : JSON.stringify(studyDays));
 
     if (!requireProject(req, res)) return;
+    const lockError = lockedDeadlineError(id, deadline, deadlineFixed);
+    if (lockError) return res.status(400).json({ error: lockError });
 
     try {
         const result = allocateSchedule(id, startDate, deadline, days);
         if (!result.success) return res.status(400).json({ error: result.error });
 
-        persistSchedule(id, result.assignments, result.baselineSnapshot, {
-            startDate, deadline, studyDays: days,
-        });
+        // The ONE write path for a window. A course already under way has its
+        // open topics laid out from today to the deadline, never from the
+        // window's start: that dated open work in the past, so a plan made
+        // this minute read as days overdue. Closed topics keep their dates.
+        const relaid = startDate < studyToday() ? relayOpenTopics(id, { deadline, studyDays: days }) : null;
+        if (relaid && !relaid.success) return res.status(400).json({ error: relaid.error });
+
+        db.transaction(() => {
+            persistSchedule(id, result.assignments, result.baselineSnapshot, {
+                startDate, deadline, studyDays: days,
+            });
+            if (relaid?.assignments) writeRelay(id, relaid.assignments);
+            if (deadlineFixed !== undefined) {
+                db.prepare('UPDATE projects SET deadline_fixed = ? WHERE id = ?').run(deadlineFixed ? 1 : 0, id);
+            }
+        })();
 
         const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
         const nodes = db.prepare(`
@@ -194,17 +212,7 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         }
         if (result.unchanged) return res.json({ success: true, message: 'All tasks completed!', unchanged: true });
 
-        const updateNodeSchedule = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`);
-        const clearSchedules = db.prepare(`UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?`);
-        const transaction = db.transaction(() => {
-            clearSchedules.run(id);
-            for (const [nodeId, data] of result.assignments) {
-                if (data.scheduled_start && data.scheduled_end) {
-                    updateNodeSchedule.run(data.scheduled_start, data.scheduled_end, nodeId);
-                }
-            }
-        });
-        transaction();
+        writeRelay(id, result.assignments);
 
         const nodes = db.prepare(`
             SELECT id, project_id, parent_id, title, description, notes, status,

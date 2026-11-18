@@ -82,7 +82,7 @@ function statements() {
             WHERE n.status = 'completed' AND n.completed_at IS NOT NULL AND ${WORK_LEAF}
         `),
         firstReview: db.prepare(`SELECT ${AS_ISO('MIN(julianday(reviewed_at))')} AS at FROM review_log`),
-        project: db.prepare('SELECT id, deadline, status FROM projects WHERE id = ?'),
+        project: db.prepare('SELECT id, deadline, deadline_fixed, status FROM projects WHERE id = ?'),
         openTopics: db.prepare(`SELECT COUNT(*) AS c FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}`),
         unmetCards: db.prepare(`
             SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
@@ -156,12 +156,12 @@ export function libraryPace({ now = Date.now(), timeZone = learnerTimeZone() } =
 }
 
 /**
- * Who may change a course's date. Every date is the learner's own and none is
- * locked until a course can carry a teacher's date or an "exam, cannot move"
- * mark; this is the one place that will read them.
+ * Who may change a course's date: the learner's "exam date, cannot move" mark
+ * (`deadline_fixed`). A date a teacher set (`assigned`) has no column yet, so
+ * every date in a library is the learner's own. The one place that reads both.
  */
-function dateOwnership() {
-    return { fixed: false, assigned: false };
+function dateOwnership(project) {
+    return { fixed: Boolean(project.deadline_fixed), assigned: false };
 }
 
 /**
@@ -185,7 +185,7 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
         today: lib.today,
         unit: cards ? 'cards' : 'topics',
         otherCourses,
-        ...dateOwnership(),
+        ...dateOwnership(project),
     });
     // The placement check is offered only when the date misses, so it is
     // asked only then (it walks the course's tree). It places topics; a deck
