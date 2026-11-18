@@ -299,7 +299,8 @@ section('8. larger text and buttons: one switch, two floors');
                 j = end;
             }
             const className = typeof attrs.className === 'string' ? attrs.className : null;
-            const role = typeof attrs.role === 'string' ? attrs.role : '';
+            // A comment inside the braces (`role={/* list */ "option"}`) is not part of the value.
+            const role = typeof attrs.role === 'string' ? attrs.role.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '') : '';
             out.push({ tag: m[1], className, control: CONTROL_TAG.test(m[1]) || CONTROL_ROLE.test(role) });
         }
         return out;
@@ -327,7 +328,8 @@ section('8. larger text and buttons: one switch, two floors');
             '<button className={cx(\'a\', big && `min-w-[18rem] ${x > 1 ? "b" : ""}`)} onClick={() => go(x > 1)}>',
             '<button type="button" className = "min-w-[22rem]">',
             '<div data-role="row" className="min-w-[23rem]" role = {"tab"} />',
-        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem]');
+            '<div role={/* in a list */ "option"} className="min-w-[26rem]" />',
+        ]).join() === 'min-w-[15rem],min-w-[16rem],min-w-[17rem],min-w-[18rem],min-w-[21rem],min-w-[22rem],min-w-[23rem],min-w-[26rem]');
     check('...and a wide div, a string after a control, or a class outside className does not',
         tallClasses('min-w', [
             '<div className="min-w-[15rem]">{x}</div>',
