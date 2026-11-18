@@ -261,12 +261,14 @@ export default function DetailPanel() {
                         onClick={() => setEditingTitle(true)}
                         title={t("{{title}} — {{pointerVerb}} to rename", { title: node.title, pointerVerb })}
                         /* The title takes whatever the buttons leave (they never
-                           shrink), so its basis is 0: it then never pushes the
-                           row to wrap. The row wraps only when the buttons alone
-                           are wider than the panel (160% text with larger
-                           buttons in a 420px panel), and Close goes to a second
-                           line instead of past the panel's edge. */
-                        className="group flex-1 min-w-0 flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                           shrink). With larger text and buttons it keeps at
+                           least 8rem: when the title and the buttons do not fit
+                           on one line (a phone, a 420px panel), the buttons go
+                           to a second line instead of squeezing the title to an
+                           ellipsis or pushing Close past the panel's edge. 8rem
+                           is a width the larger-UI floor keeps (index.css).
+                           With the setting off the row stays one line. */
+                        className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
                     >
                         <span className="min-w-0 truncate">{node.title}</span>
                         {/* Renaming was discoverable only by clicking text that
