@@ -14,7 +14,8 @@ const J = (o) => JSON.stringify(o);
 
 const wordsOf = (t) => String(t || '').toLowerCase().match(/\p{L}+/gu) || [];
 const share = (ws, set) => ws.filter(w => set.has(w)).length / Math.max(1, ws.length);
-const EN = new Set(['the', 'and', 'that', 'with', 'this', 'are', 'can', 'you', 'your', 'how', 'what', 'when', 'from', 'which', 'will', 'into', 'its', 'their', 'why', 'because', 'was', 'were', 'has', 'have']);
+const EN = new Set(['the', 'and', 'that', 'with', 'this', 'are', 'can', 'you', 'your', 'how', 'what', 'when', 'from', 'which', 'will', 'into', 'its', 'their', 'why', 'because', 'were', 'has', 'have']);
+// Not "was": a common Dutch word too ("Sydney was de grootste stad").
 const NL = new Set(['de', 'het', 'een', 'en', 'van', 'voor', 'met', 'hoe', 'je', 'om', 'te', 'op', 'naar', 'bij', 'als', 'dat', 'die', 'wat', 'zijn', 'ook', 'aan', 'niet', 'wordt', 'worden', 'door', 'over', 'uit', 'dit', 'kunt', 'kun', 'welke', 'waarom']);
 
 /** null when `text` reads as `code` (nl, ru), else why not. */

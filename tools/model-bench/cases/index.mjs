@@ -27,11 +27,9 @@ const FAMILIES = [
 export async function loadFamilies() {
     const out = [];
     for (const name of FAMILIES) {
-        let mod;
-        try { mod = await import(`./${name}.mjs`); } catch (e) {
-            if (e?.code === 'ERR_MODULE_NOT_FOUND' && String(e.message).includes(`${name}.mjs`)) continue;
-            throw e;
-        }
+        // A family that fails to load fails the run: a silently missing one
+        // would shrink the benchmark and still pass the scorer check.
+        const mod = await import(`./${name}.mjs`);
         out.push({ name, ...mod.default });
     }
     return out;

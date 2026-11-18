@@ -38,7 +38,18 @@ score is out of the 94 cases it can take.
 
 No case is scored by another model. Where a scorer checks a proxy (keywords,
 a function-word share for language, a reading of SVG attributes) the case
-says so in a comment.
+says so in a comment. Some limits worth knowing when reading a score:
+
+- The quiz, flashcard and lesson cases check what the app needs (the format
+  its parser reads, the language, counts, the app's own defect checks), not
+  whether every generated fact is true. Fact-checking is what the verify and
+  audit cases measure.
+- Verify and audit are half "this key is wrong" and half "this key is right",
+  so a model that always gives the same verdict scores 50% on them. The score
+  only means something above that.
+- The animation and widget cases run code the model wrote. They run it in a
+  child process whose environment holds no API key, with the page's network
+  functions removed, killed after 30 s.
 
 ## Checking the scorers
 
@@ -63,27 +74,36 @@ worker process with a fresh scratch library (`DB_PATH` and `VAULT_ROOT` in the
 system temp folder); the app reaches OpenRouter through the env overrides
 `getAISettings()` reads, so no settings row is written.
 
-- **Rate limits.** Every model request waits for a slot from the parent, so
-  all workers together stay under `--rpm` (default 16; the free tier allows
-  20 a minute). The run stops granting after `--daily` requests, which
-  defaults to what the key's free daily quota has left.
+- **Rate limits.** Every model request waits for a slot from the parent,
+  which grants one every 60/`--rpm` seconds across all workers (default 16;
+  the free tier allows 20 a minute). That wait runs inside the app's own
+  per-request timeout, so only `--parallel` models run at once (default
+  rpm / 3, a wait under about 20 s). A free-model run stops granting after
+  `--daily` requests, which defaults to what the key's free daily quota has
+  left; a paid run has no default cap.
 - **Resuming.** Results go to `<dir>/<model>.jsonl`, one line per case. A case
   already on disk is skipped, so a stopped run picks up where it stopped.
-  `--retry-errors` re-runs rows that ended in an upstream error.
-- **Errors.** A 429, an overloaded upstream or a dropped stream is retried
-  twice with a pause. If it still fails, the row counts as a fail, because a
-  learner would have met that failure too, and the report counts it under
-  errors.
-- **Account privacy settings apply.** If the OpenRouter account requires
-  zero-data-retention endpoints, a model with none answers 404 for every
-  request. `run.mjs` records which models have a ZDR endpoint in
-  `<dir>/models.json`.
-- **Noise.** Run the same model again with `--label repeat`, then pass
-  `--noise repeat` to the report to count the verdicts that flipped.
+  `--retry-errors` re-runs rows that ended in an upstream error. Each row
+  carries the commit it ran on (`rev`).
+- **Errors.** A 429, an overloaded upstream, a dropped stream, or a timeout
+  the request queue caused is retried twice with a pause. If it still fails,
+  the row counts as a fail and the report counts it under errors. The app's
+  own timeout on a slow model is not retried: the learner would have met it.
+- **Stops.** A refused slot (budget spent, the free daily limit) stops the
+  worker without writing the case. So does a reply that says the run cannot
+  go on for this model (401, 402, 403, or a 404 from the account's privacy
+  settings): if the OpenRouter account requires zero-data-retention
+  endpoints, a model with none is stopped at its first request. `run.mjs`
+  records which models have a ZDR endpoint in `<dir>/models.json`.
+- **Noise.** Run the same model again with `--label repeat` (it writes
+  `<model>@repeat.jsonl`), then pass `--noise repeat` to the report to count
+  the verdicts that flipped.
 
-Each row records pass or fail and why, wall time, time to first token, model
-time, tokens in, out and reasoning, cost as OpenRouter reports it, the
-serving provider, and every request error.
+Each row records pass or fail and why, wall time, time spent waiting for a
+slot, time to first token, model time, tokens in, out and reasoning, cost as
+OpenRouter reports it (and what all attempts spent), the serving provider,
+and every request error. The report's seconds are model time: how long the
+app waited on the model, its own retries included.
 
 ## Adding a case
 

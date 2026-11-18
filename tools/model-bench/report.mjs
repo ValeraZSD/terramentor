@@ -3,8 +3,9 @@
  * Turns a results folder from run.mjs into a table and a chart.
  *
  *   node tools/model-bench/report.mjs --out <dir> [--md report.md] [--png chart.png]
- *        [--noise <label>]      compare <model>.jsonl with <model>.<label>.jsonl
+ *        [--noise <label>]      compare <model>.jsonl with <model>@<label>.jsonl
  *        [--profile file.json]  calls per active day by category, for $/month
+ *        [--title text]         the chart's title
  *
  * Score: passed / scored cases x 100, where scored = cases the model could
  * take (vision cases are N/A for a text-only model, never 0). A row that
@@ -39,12 +40,9 @@ const pct = (xs, p) => {
 };
 
 const meta = existsSync(path.join(OUT, 'models.json')) ? JSON.parse(readFileSync(path.join(OUT, 'models.json'), 'utf8')) : {};
-// <model>.jsonl is a model's run; <model>.<label>.jsonl is a repeat of it.
-// Model ids hold dots ("ling-3.2-flash"), so a repeat is recognised by its
-// first run being there too.
-const all = readdirSync(OUT).filter(f => f.endsWith('.jsonl'));
-const isRepeat = (f) => { const m = f.match(/^(.*)\.[a-z0-9_-]+\.jsonl$/i); return !!m && all.includes(`${m[1]}.jsonl`); };
-const files = all.filter(f => !isRepeat(f));
+// <model>.jsonl is a model's run; <model>@<label>.jsonl is a repeat of it
+// ("@" never occurs in a model id, "." does: "ling-3.2-flash", "gpt-5.1").
+const files = readdirSync(OUT).filter(f => f.endsWith('.jsonl') && !f.includes('@'));
 const models = files.map((f) => {
     const rows = readRows(path.join(OUT, f));
     const id = rows.find(r => r.model)?.model || f.replace('.jsonl', '').replace(/__/g, '/');
@@ -55,16 +53,20 @@ const models = files.map((f) => {
         const c = cats[r.category] ||= { n: 0, pass: 0 };
         c.n++; if (r.pass) c.pass++;
     }
-    const secs = scored.filter(r => !r.error).map(r => r.wallMs / 1000);
+    // Time the app waited on the model (request time, the app's own retries
+    // included), not the benchmark's queue or scoring. A case that timed out
+    // counts at the time it took.
+    const secs = scored.filter(r => r.calls).map(r => r.modelMs / 1000);
     return {
-        id, zdr: meta[id]?.zdr ?? null, vision: rows.some(r => r.category === 'vision' && !r.na),
+        id, zdr: meta[id]?.zdr ?? null, vision: meta[id]?.vision ?? rows.some(r => r.category === 'vision' && !r.na),
         done: rows.length, scored: scored.length, passed: passed.length,
         score: scored.length ? Math.round(1000 * passed.length / scored.length) / 10 : null,
         cats, median: pct(secs, 0.5), p90: pct(secs, 0.9),
         firstToken: pct(scored.map(r => r.firstTokenMs).filter(Boolean).map(x => x / 1000), 0.5),
         errors: scored.filter(r => r.error || (r.callErrors || []).length).length,
         transient: scored.filter(r => r.transient).length,
-        cost: scored.reduce((s, r) => s + (r.cost || 0), 0),
+        // Every attempt's spend, retries included.
+        cost: scored.reduce((s, r) => s + (r.spent?.cost ?? r.cost ?? 0), 0),
         tokensIn: scored.reduce((s, r) => s + (r.promptTokens || 0), 0),
         tokensOut: scored.reduce((s, r) => s + (r.completionTokens || 0), 0),
         requests: scored.reduce((s, r) => s + (r.calls || 0), 0),
@@ -76,6 +78,7 @@ const models = files.map((f) => {
 const cats = families.map(f => f.category);
 const fmt = (x, d = 1) => x == null ? '–' : Number(x).toFixed(d);
 let md = `# Model benchmark results\n\n${caseCount} cases in ${families.length} categories. Score = cases passed / cases the model could take x 100.\n\n`;
+md += 'Seconds are the time the app waited on the model per case.\n\n';
 md += '| model | ZDR | score | done | median s | p90 s | first token s | $ total | $/case | errors |\n|---|---|---|---|---|---|---|---|---|---|\n';
 for (const m of models) {
     md += `| ${m.id} | ${m.zdr == null ? '?' : m.zdr ? 'yes' : 'no'} | **${m.score == null ? '–' : `${Math.round(m.score)}/100`}** | ${m.scored}/${m.vision ? caseCount : caseCount - (families.find(f => f.category === 'vision')?.cases.length || 0)}${m.vision ? '' : ' (text)'} | ${fmt(m.median)} | ${fmt(m.p90)} | ${fmt(m.firstToken)} | ${m.cost.toFixed(4)} | ${(m.cost / Math.max(1, m.scored)).toFixed(5)} | ${m.errors} |\n`;
@@ -87,7 +90,7 @@ for (const m of models) md += `| ${m.id} | ` + cats.map(c => m.cats[c] ? `${m.ca
 const noise = opt('noise');
 if (noise) {
     md += `\n## Run-to-run noise (repeat label "${noise}")\n\n| model | first | repeat | cases compared | verdicts that flipped |\n|---|---|---|---|---|\n`;
-    for (const f of readdirSync(OUT).filter(x => x.endsWith(`.${noise}.jsonl`))) {
+    for (const f of readdirSync(OUT).filter(x => x.endsWith(`@${noise}.jsonl`))) {
         const rep = readRows(path.join(OUT, f)).filter(r => !r.na);
         const base = models.find(m => m.id === rep[0]?.model);
         if (!base) continue;
@@ -129,9 +132,9 @@ try {
     const cv = createCanvas(W, H); const g = cv.getContext('2d');
     g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
     g.fillStyle = '#111827'; g.font = 'bold 30px sans-serif';
-    g.fillText(`Terramentor benchmark: free OpenRouter models (${caseCount} cases)`, 30, 50);
+    g.fillText(opt('title', `Terramentor model benchmark (${caseCount} cases)`), 30, 50);
     g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
-    g.fillText('Bar: score out of 100.   Right: median seconds per case (p90).', 30, 84);
+    g.fillText('Bar: score out of 100.   Right: median seconds the app waited per case (p90).', 30, 84);
     const x0 = 520, barW = 600;
     models.forEach((m, i) => {
         const y = top + i * rowH;

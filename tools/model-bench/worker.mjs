@@ -8,21 +8,24 @@
  * skipped, so a stopped run continues where it stopped.
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
-import { startLibrary, installFetch, loadApp, runOnce, muteAppLogs } from './harness.mjs';
+import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs } from './harness.mjs';
 
 const MODEL = process.env.BENCH_MODEL;
 const FILE = process.env.BENCH_FILE;
 const VISION = process.env.BENCH_VISION === '1';
 const ONLY = (process.env.BENCH_CASES || '').split(',').filter(Boolean);
 const RETRY_ERRORS = process.env.BENCH_RETRY_ERRORS === '1';
+const REV = process.env.BENCH_REV || null;
 
-startLibrary(MODEL, process.env.OPENROUTER_API_KEY);
+const scratch = startLibrary(MODEL, process.env.OPENROUTER_API_KEY);
 const LOG = FILE.replace(/\.jsonl$/, '.app.log');
 const print = muteAppLogs((line) => appendFileSync(LOG, `${line}\n`));
 
 // A stray rejection inside the app (an aborted body nobody awaits) is logged,
 // not fatal: the case it belongs to still records its own outcome.
 process.on('unhandledRejection', (e) => appendFileSync(LOG, `[unhandled] ${String(e?.stack || e).slice(0, 600)}\n`));
+// The parent is gone: nobody will grant another slot.
+process.on('disconnect', () => process.exit(0));
 
 let seq = 0;
 const waiting = new Map();
@@ -46,26 +49,32 @@ if (existsSync(FILE)) {
     }
 }
 
+let exitCode = 0;
 for (const c of cases) {
     if (ONLY.length && !ONLY.includes(c.id)) continue;
     const prev = done.get(c.id);
     if (prev && !(RETRY_ERRORS && prev.transient)) continue;
     if (c.vision && !VISION) {
-        appendFileSync(FILE, JSON.stringify({ case: c.id, category: c.category, model: MODEL, na: true, why: 'text-only model' }) + '\n');
+        appendFileSync(FILE, JSON.stringify({ case: c.id, category: c.category, model: MODEL, na: true, why: 'text-only model', rev: REV }) + '\n');
         continue;
     }
-    let row = null, stop = false;
+    let row = null, stop = '';
+    // What every attempt spent, not only the last one's.
+    const spent = { calls: 0, cost: 0, promptTokens: 0, completionTokens: 0 };
     // A refusal upstream (429, overloaded, a dropped stream) is retried twice
     // with a pause; the row records how many attempts it took.
     for (let attempt = 0; attempt < 3; attempt++) {
         const r = await runOnce(c, app);
-        if (r.outOfSlots) { stop = true; break; }
-        row = { ...r.row, model: MODEL, attempt };
+        if (r.outOfSlots) { stop = 'out of request slots; the rest runs next time'; break; }
+        if (r.fatal) { stop = `the run cannot go on for this model: ${r.fatal}`; exitCode = 3; break; }
+        for (const k of Object.keys(spent)) spent[k] += r.row[k] || 0;
+        row = { ...r.row, model: MODEL, attempt, rev: REV, spent: { ...spent, cost: +spent.cost.toFixed(6) } };
         if (!row.transient) break;
         if (attempt < 2) await new Promise(res => setTimeout(res, [30, 90][attempt] * 1000));
     }
-    if (stop) { print(`${MODEL}: out of request slots; the rest runs next time`); break; }
+    if (stop) { print(`${MODEL}: ${stop}`); break; }
     appendFileSync(FILE, JSON.stringify(row) + '\n');
     print(`${MODEL.slice(0, 44).padEnd(44)} ${c.id.slice(0, 34).padEnd(34)} ${row.pass ? 'pass' : 'FAIL'} ${String(Math.round(row.wallMs / 1000)).padStart(4)}s ${row.pass ? '' : row.why.slice(0, 80)}`);
 }
-process.exit(0);
+endLibrary(scratch, app);
+process.exit(exitCode);

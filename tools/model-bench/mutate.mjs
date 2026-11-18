@@ -13,7 +13,7 @@
  *
  * Exits 1 when any golden fails or any mutant passes.
  */
-import { startLibrary, installFetch, loadApp, runOnce, muteAppLogs } from './harness.mjs';
+import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs } from './harness.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : ''; };
@@ -24,7 +24,9 @@ const MODEL = 'bench/mock-model';
 const APP_LOGS = argv.includes('--app-logs');
 const print = muteAppLogs(APP_LOGS ? (l) => process.stderr.write(`${l}\n`) : () => {});
 
-startLibrary(MODEL, 'sk-or-mock-key-never-sent');
+const scratch = startLibrary(MODEL, 'sk-or-mock-key-never-sent');
+// The runaway-loop mutants are killed at this limit, not the live 30 s.
+process.env.BENCH_CODE_TIMEOUT_MS ||= '10000';
 
 let queue = [];
 let served = 0;
@@ -95,4 +97,5 @@ for (const [cat, v] of byCategory) {
     print(`${cat.padEnd(16)}${String(v.cases).padStart(5)}  ${`${v.golden}/${v.cases}`.padStart(11)}  ${`${v.killed}/${v.mutants}`.padStart(14)}`);
 }
 print(`\n${cases.length} cases: golden replies passing ${cases.length - goldenFail}/${cases.length}; mutants failed by the scorer ${killed}/${total}; mutants that passed ${survivors}`);
+endLibrary(scratch, app);
 process.exit(goldenFail || survivors ? 1 : 0);

@@ -123,9 +123,15 @@ export default {
         {
             id: 'paper-blank-page-none-met',
             run: (fx, app) => app.server('paper.js').then(m => m.gradeTranscription(fx.fall, 'Shopping list: milk, eggs, bread, apples, coffee.')),
-            score: vector(none),
+            // The app fills a point the reply never mentions as not met, so
+            // "nothing met" alone would pass any reply that marks nothing. The
+            // model must say so: the page is unreadable as an attempt, or it
+            // comments on every point.
+            score: vector(none, (grade) => (grade.readable === false || grade.results.every(r => r.comment)
+                ? null : 'no verdict on the page: neither unreadable nor a comment on each point')),
             golden: reply(none, { readable: false, feedback: 'The page is a shopping list, not an attempt at the falling ball, so there is nothing to mark.' }),
             mutants: [
+                { name: 'a reply that marks nothing at all', reply: JSON.stringify({ verdict: 'correct' }) },
                 { name: 'invents a grade from nothing', reply: reply(ALL) },
                 { name: 'gives the first two points as a kindness', reply: reply([true, true, false, false, false]) },
                 { name: 'gives the unit point', reply: reply([false, false, false, false, true]) },

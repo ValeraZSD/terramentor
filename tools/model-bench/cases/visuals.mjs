@@ -21,6 +21,11 @@
  */
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
@@ -485,6 +490,11 @@ function loadWidget(html) {
         dom = new JSDOM(html, {
             runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: vc,
             beforeParse(window) {
+                // A widget is self-contained: nothing in it may reach the network.
+                for (const k of ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource']) {
+                    try { delete window[k]; } catch { /* not configurable */ }
+                    if (window[k]) window[k] = undefined;
+                }
                 // jsdom has no canvas: hand scripts a context that swallows every call.
                 const ctx2d = new Proxy(function () { }, { get: (t, k) => (k === 'canvas' ? undefined : (k === 'measureText' ? () => ({ width: 10 }) : () => ctx2d)), set: () => true, apply: () => ctx2d });
                 window.HTMLCanvasElement.prototype.getContext = () => ctx2d;
@@ -660,6 +670,42 @@ function scoreQuiz(out) {
     } finally { w.close(); }
 }
 
+// ---- model-written code runs in a child process ------------------------------------
+//
+// A sketch or widget is code the model wrote. jsdom is not a sandbox (a script
+// can climb to the host's `process`), and neither jsdom nor a vm timeout stops
+// every runaway loop. So the scorers that RUN the code do it in a child
+// process: its environment holds no API key, and it is killed after 30 s
+// (BENCH_CODE_TIMEOUT_MS; the scorer check sets it lower). The verdict comes
+// back on a line tagged with a one-off nonce, so text the code prints cannot
+// pose as one.
+
+const SELF = fileURLToPath(import.meta.url);
+const RUNS_CODE = { walkers: scoreWalkers, km: scoreKm, quiz: scoreQuiz };
+
+function isolated(name) {
+    return (out) => {
+        const nonce = randomUUID();
+        const limit = Number(process.env.BENCH_CODE_TIMEOUT_MS) || 30_000;
+        const env = {};
+        for (const k of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'HOME']) if (process.env[k]) env[k] = process.env[k];
+        const r = spawnSync(process.execPath, [SELF, name], {
+            input: JSON.stringify({ nonce, out }), encoding: 'utf8', env, timeout: limit, windowsHide: true, maxBuffer: 4 << 20,
+        });
+        if (r.error?.code === 'ETIMEDOUT' || r.signal) return fail(`the code was still running after ${limit / 1000} s (a runaway loop)`);
+        const line = String(r.stdout || '').split('\n').find(l => l.startsWith(nonce));
+        if (!line) return fail(`the code ended its process: ${String(r.stderr || '').trim().slice(0, 160) || `exit ${r.status}`}`);
+        return JSON.parse(line.slice(nonce.length));
+    };
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === SELF && RUNS_CODE[process.argv[2]]) {
+    const { nonce, out } = JSON.parse(readFileSync(0, 'utf8'));
+    let verdict;
+    try { verdict = RUNS_CODE[process.argv[2]](out); } catch (e) { verdict = fail(`scorer threw: ${String(e?.message || e).slice(0, 160)}`); }
+    process.stdout.write(`\n${nonce}${JSON.stringify(verdict)}\n`, () => process.exit(0));
+}
+
 // ---- the cases -------------------------------------------------------------------------
 
 const animation = (brief) => (fx, app) => app.server('visualAuthor.js').then(m => m.authorVisual({ kind: 'animation', brief }));
@@ -715,7 +761,7 @@ export default {
         {
             id: 'visuals-p5-random-walkers',
             run: (fx, app) => app.server('visualAuthor.js').then(m => m.authorVisual({ kind: 'p5', brief: WALKERS_BRIEF })),
-            score: scoreWalkers,
+            score: isolated('walkers'),
             golden: walkers(),
             mutants: [
                 { name: 'background() is the last call, not the first', reply: walkers({ bgFirst: false }) },
@@ -724,13 +770,14 @@ export default {
                 { name: 'labels with text()', reply: walkers({ legendCall: '', textCall: 'text("walker", 20, 20);' }) },
                 { name: 'only 4 walkers', reply: walkers({ count: 4 }) },
                 { name: 'walkers start in a corner', reply: walkers({ start: '20, 20' }) },
+                { name: 'a promise chain that never ends', reply: walkers({ setupExtra: '\n  Promise.resolve().then(function f() { Promise.resolve().then(f); });' }) },
                 { name: 'Java-style declarations', reply: 'float x = 300;\nfloat y = 170;\nvoid setup() {\n  createCanvas(600, 340);\n}\nvoid draw() {\n  background(255);\n  ellipse(x, y, 6, 6);\n}' },
             ],
         },
         {
             id: 'visuals-widget-unit-converter',
             run: widget(KM_SPEC),
-            score: scoreKm,
+            score: isolated('km'),
             golden: kmDoc(),
             mutants: [
                 { name: 'multiplies instead of dividing', reply: kmDoc({ expr: 'v * 1.609344' }) },
@@ -739,12 +786,13 @@ export default {
                 { name: 'shows a fixed number', reply: kmDoc({ script: 'document.getElementById("mi").textContent = "6.21";' }) },
                 { name: 'hardcoded colours, defines the host variables', reply: kmDoc({ css: ':root { --w-bg: #ffffff; --w-fg: #111111; }\nbody { background: #ffffff; color: #111111; }' }) },
                 { name: 'loads a library from the network', reply: kmDoc({ extraHead: '<script src="https://cdn.example.com/lib.js"></script>' }) },
+                { name: 'a loop that never ends', reply: kmDoc({ initial: 'update();\nwhile (true) {}' }) },
             ],
         },
         {
             id: 'visuals-widget-quiz-score',
             run: widget(QUIZ_SPEC),
-            score: scoreQuiz,
+            score: isolated('quiz'),
             golden: quizDoc(),
             mutants: [
                 { name: 'every answer counts as correct', reply: quizDoc({ anyCorrect: true }) },
