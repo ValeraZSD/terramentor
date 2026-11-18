@@ -45,7 +45,7 @@ export default function Switch({ checked, onChange, label, disabled, id, describ
             {/* The track is 24px tall because a switch should not be the biggest
                 thing on the panel; the TARGET is 44 regardless, spilled outside
                 the track rather than inflating it. */}
-            <span className="absolute -inset-x-1.5 -inset-y-2.5" aria-hidden="true" />
+            <span data-switch-spill className="absolute -inset-x-1.5 -inset-y-2.5" aria-hidden="true" />
             <span
                 aria-hidden="true"
                 className={cx(

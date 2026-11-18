@@ -19,7 +19,7 @@
  * rather than passing or failing.
  *
  *   node tools/run-gates.mjs            all suites
- *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses and the axe browser scan
+ *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses and the two browser scans
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -34,12 +34,15 @@ const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 
 const quick = process.argv.includes('--quick');
 
+/** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
+const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs'];
+
 const self = 'run-gates.mjs'; // this file matches the glob it defines — skip it, or it recurses
 
 const suites = readdirSync(toolsDir)
     .filter((f) => f.endsWith('-gates.mjs') && f !== self)
-    // The browser scan of every screen is the slowest suite; --quick leaves it out with the harnesses.
-    .filter((f) => !(quick && f === 'axe-gates.mjs'))
+    // The browser scans are the slowest suites; --quick leaves them out with the harnesses.
+    .filter((f) => !(quick && BROWSER_SUITES.includes(f)))
     .sort()
     .map((f) => join(toolsDir, f));
 
@@ -61,8 +64,8 @@ for (const script of targets) {
     const run = spawnSync(process.execPath, [script], {
         cwd: repoRoot,
         encoding: 'utf8',
-        // The axe suite may build dist/ and opens some eighty screens in a browser.
-        timeout: label === 'tools/axe-gates.mjs' ? 900_000 : 180_000,
+        // A browser suite may build dist/ and opens dozens of screens.
+        timeout: BROWSER_SUITES.some((f) => label === `tools/${f}`) ? 900_000 : 180_000,
         killSignal: 'SIGKILL',
         // A failing axe run prints every element it names.
         maxBuffer: 64 * 1024 * 1024,
@@ -103,6 +106,6 @@ for (const script of targets) {
 const seconds = ((Date.now() - started) / 1000).toFixed(1);
 process.stdout.write(
     `\n${targets.length - failed}/${targets.length} suites passed, ` +
-        `~${totalAssertions} assertions, ${seconds}s${quick ? ' (--quick: harnesses skipped)' : ''}\n`,
+        `~${totalAssertions} assertions, ${seconds}s${quick ? ' (--quick: harnesses and browser scans skipped)' : ''}\n`,
 );
 process.exit(failed === 0 ? 0 : 1);

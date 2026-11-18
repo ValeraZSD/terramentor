@@ -15,11 +15,11 @@
 /** The whitelist, mirrored from the client's `SettingKey`. */
 export const SETTABLE_KEYS = ['theme', 'theme_tint', 'accent_color', 'ui_scale', 'week_start_day', 'ui_language', 'number_format',
     'contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
-    'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'key_shortcuts'];
+    'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'key_shortcuts', 'larger_ui'];
 
 /** The on/off rows, stored 'true'/'false', each with what an absent row means
  *  (the client's readers in accessibility.ts and store.ts). */
-const SWITCHES = { reading_line: false, read_aloud: false, card_audio_autoplay: true, confirm_answers: false, key_shortcuts: true };
+const SWITCHES = { reading_line: false, read_aloud: false, card_audio_autoplay: true, confirm_answers: false, key_shortcuts: true, larger_ui: false };
 /** The choice rows and what an absent (or unknown) row reads as. */
 const CHOICES = {
     contrast: ['system', 'standard', 'more'], motion: ['system', 'full', 'reduce'],

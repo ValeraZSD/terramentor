@@ -129,6 +129,25 @@ export function scheduleWindowError(startDate, deadline) {
     return null;
 }
 
+let lockStmt = null;
+/**
+ * Why a write may not move this project's deadline, or null when it may. A date
+ * the learner marked "cannot move" (`deadline_fixed`) moves only in a write
+ * that states the mark itself (`lock` true or false). Writing the same date
+ * again is not a move.
+ */
+export function lockedDeadlineError(projectId, deadline, lock) {
+    // A write that NAMES the lock decides it (the plan panel, where the date
+    // can only be edited after unticking it, and re-ticking it keeps the new
+    // date locked). Only a write that does not mention it (the card's editor,
+    // an older client) is held to the stored mark.
+    if (deadline === undefined || lock !== undefined) return null;
+    lockStmt ??= db.prepare('SELECT deadline, deadline_fixed FROM projects WHERE id = ?');
+    const row = lockStmt.get(projectId);
+    if (!row || !row.deadline_fixed || (deadline ?? null) === row.deadline) return null;
+    return 'This date is marked as an exam date that cannot move. Take the mark off to change it.';
+}
+
 /**
  * How many study days fall between two dates, inclusive — counted by whole
  * weeks, so it costs the same for a week as for a century (the home page asks
@@ -732,10 +751,36 @@ export function recalibrateSchedule(projectId) {
     if (projectCountsInCards(projectId)) {
         return { success: false, error: 'This project is measured in cards and has no topics to reschedule. Change its dates instead.' };
     }
+    return layOpenFromToday(projectId, project.deadline, readStudyDays(project.study_days));
+}
 
-    const studyDays = readStudyDays(project.study_days);
+/**
+ * The open topics of a course under way, laid out from today to a NEW
+ * deadline: what a window write does when its start has passed (POST
+ * /api/projects/:id/schedule). Null when there is nothing to re-lay: a course
+ * measured in cards, a window that ended before today, no open topic.
+ */
+export function relayOpenTopics(projectId, { deadline, studyDays }) {
+    if (projectCountsInCards(projectId) || deadline < today()) return null;
+    const result = layOpenFromToday(projectId, deadline, studyDays);
+    return result.unchanged ? null : result;
+}
+
+/** Writes a re-lay: open topics get their new dates, closed ones keep theirs. */
+export function writeRelay(projectId, assignments) {
+    // A note is never scheduled (the leaf rule), whatever layout is handed in.
+    const setDates = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_note = 0`);
+    const clear = db.prepare(`UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?`);
+    db.transaction(() => {
+        clear.run(projectId);
+        for (const [nodeId, data] of assignments) {
+            if (data.scheduled_start && data.scheduled_end) setDates.run(data.scheduled_start, data.scheduled_end, nodeId);
+        }
+    })();
+}
+
+function layOpenFromToday(projectId, deadline, studyDays) {
     const startDate = today(); // Start from today
-    const deadline = project.deadline;
 
     if (startDate > deadline) {
         // Deadline has passed — suggest new deadline
@@ -1024,7 +1069,7 @@ export function removeSchedule(projectId) {
     `);
     const clearProject = db.prepare(`
         UPDATE projects SET start_date = NULL, deadline = NULL, baseline_schedule = NULL,
-               updated_at = CURRENT_TIMESTAMP
+               deadline_fixed = 0, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `);
     let nodesCleared = 0;

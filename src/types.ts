@@ -68,6 +68,8 @@ export interface Project {
     ai_generating?: number;
     start_date: string | null;
     deadline: string | null;
+    /** 1 = the deadline is an exam date marked "cannot move". */
+    deadline_fixed?: number;
     study_days: string;
     baseline_schedule: string | null;
     status?: 'active' | 'completed' | 'archived';
@@ -131,6 +133,10 @@ export interface Project {
     insights?: string | null;
     insights_generated_at?: string | null;
 }
+
+/** What `PUT /api/projects/:id` takes: the lock is written as a boolean and
+ *  read back as 0/1 (`Project.deadline_fixed`). */
+export type ProjectUpdate = Omit<Partial<Project>, 'deadline_fixed'> & { deadline_fixed?: boolean };
 
 export interface Node {
     id: number;
@@ -352,6 +358,56 @@ export interface ScheduleConfig {
     startDate: string;
     deadline: string;
     studyDays: number[];
+    /** Set or take off the "exam date, cannot move" mark in the same write. */
+    deadlineFixed?: boolean;
+}
+
+/**
+ * A date judged against the learner's own pace (`judgeDate`, server/paceModel.js).
+ * Every pace surface reads this one object: the plan panel, the Projects card
+ * pill and the course header.
+ */
+export type VerdictBand = 'learning' | 'on_pace' | 'under_pace' | 'tight' | 'out_of_reach' | 'done' | 'passed' | 'no_date';
+export type PaceOffer =
+    | { kind: 'fit_subset'; count: number }
+    | { kind: 'plan_weekly'; perWeek: number }
+    | { kind: 'check_known' }
+    | { kind: 'pause_others' }
+    | { kind: 'move_date' };
+export interface FinishRange {
+    from: string;
+    to: string;
+    stretch: { start: string; end: string };
+}
+export interface PaceVerdict {
+    unit: 'topics' | 'cards';
+    band: VerdictBand;
+    /** With one week of data: the date already needs at least twice that week's pace. */
+    early: boolean;
+    open: number;
+    deadline: string | null;
+    daysLeft: number | null;
+    needed: number | null;
+    recent: number | null;
+    best: number | null;
+    bestStretch: { start: string; end: string } | null;
+    fits: number | null;
+    weeksOfData: number;
+    quietWeeks: number;
+    ranges: { recent: FinishRange | null; best: FinishRange | null };
+    owner: 'learner' | 'teacher';
+    fixed: boolean;
+    offers: PaceOffer[];
+    otherCourses?: number;
+}
+/** The learner's weeks in the verdict's unit, newest first. */
+export interface LearnerPace {
+    weeks: Array<{ start: string; end: string; count: number }>;
+    weeksOfData: number;
+    recent: number | null;
+    best: number | null;
+    bestStretch: { start: string; end: string } | null;
+    quietWeeks: number;
 }
 
 export interface ScheduleResult {
@@ -409,6 +465,10 @@ export interface PaceData {
      *  its sections falls on the plan (`cardPlan`, server/scheduling.js). Only
      *  on `/api/projects/:id/pace`. */
     cardPlan?: CardPlanSection[] | null;
+    /** The date judged against the learner's own pace; null without a date. */
+    verdict?: PaceVerdict | null;
+    /** The weeks that verdict was judged from. */
+    learnerPace?: LearnerPace | null;
 }
 
 /** One section of a card-measured plan: the study days its cards fall on. */
@@ -2362,6 +2422,8 @@ export interface ScheduleOverviewRow {
     status?: 'active' | 'completed' | 'archived';
     start_date: string | null;
     deadline: string | null;
+    /** 1 = the deadline is an exam date marked "cannot move". */
+    deadline_fixed?: number;
     study_days: string;
     /** Leaves still open — the number a reschedule would move. */
     openLeaves: number;
@@ -2388,6 +2450,8 @@ export interface ScheduleOverviewRow {
         drift: number;
         totalDays: number;
     } | null;
+    /** The date judged against the learner's own pace; null without a date. */
+    verdict: PaceVerdict | null;
 }
 
 export interface ScheduleOverview {

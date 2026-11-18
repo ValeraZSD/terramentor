@@ -1087,14 +1087,14 @@ check('a legacy named theme reads as its mode', readSettable(fromRows({ theme: '
 check('an empty library reads the accessibility rows as the app shows them',
     empty.contrast === 'system' && empty.motion === 'system' && empty.letter_spacing === 'normal'
     && empty.read_aloud === 'off' && empty.card_audio_autoplay === 'on' && empty.key_shortcuts === 'on'
-    && empty.speech_rate === 100 && empty.confirm_answers === 'off', JSON.stringify(empty));
-const a11ySet = readSettable(fromRows({ motion: 'reduce', line_spacing: 'widest', read_aloud: 'true', card_audio_autoplay: 'false', key_shortcuts: 'false', speech_rate: '140' }));
+    && empty.speech_rate === 100 && empty.confirm_answers === 'off' && empty.larger_ui === 'off', JSON.stringify(empty));
+const a11ySet = readSettable(fromRows({ motion: 'reduce', line_spacing: 'widest', read_aloud: 'true', card_audio_autoplay: 'false', key_shortcuts: 'false', speech_rate: '140', larger_ui: 'true' }));
 check('stored accessibility rows are read back as marker values',
     a11ySet.motion === 'reduce' && a11ySet.line_spacing === 'widest' && a11ySet.read_aloud === 'on'
-    && a11ySet.card_audio_autoplay === 'off' && a11ySet.key_shortcuts === 'off' && a11ySet.speech_rate === 140, JSON.stringify(a11ySet));
+    && a11ySet.card_audio_autoplay === 'off' && a11ySet.key_shortcuts === 'off' && a11ySet.speech_rate === 140 && a11ySet.larger_ui === 'on', JSON.stringify(a11ySet));
 check('every presentation row Settings → Accessibility writes is one the assistant may set',
     ['contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line', 'read_aloud', 'speech_rate',
-        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts'].every(k => k in empty));
+        'card_audio_autoplay', 'confirm_answers', 'key_shortcuts', 'larger_ui'].every(k => k in empty));
 check('the drill time limit is a learning row, not offered', !('drill_time_scale' in empty));
 check('aliases for the accessibility rows are recorded under their row',
     settingKeysIn('[[set:reduce motion:on]] [[set:shortcuts:off]] [[set:read_aloud:on]]').join(',') === 'motion,key_shortcuts,read_aloud');

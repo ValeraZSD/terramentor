@@ -242,7 +242,7 @@ export default function DetailPanel() {
                     Editing is a mode; nothing else in this header is needed
                     during it. */}
                 {!isMobile && !editingTitle && <Breadcrumbs />}
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                 {editingTitle ? (
                     <input
                         value={title}
@@ -260,11 +260,15 @@ export default function DetailPanel() {
                     <button data-row="title"
                         onClick={() => setEditingTitle(true)}
                         title={t("{{title}} — {{pointerVerb}} to rename", { title: node.title, pointerVerb })}
-                        /* `basis-40` is a FLOOR, not a width: flexbox shrinks
-                           items in proportion to their content, so without one
-                           the longest string in the row wins and the title —
-                           which is what the panel is about — loses. */
-                        className="group flex-1 basis-40 min-w-0 flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                        /* The title takes whatever the buttons leave (they never
+                           shrink). With larger text and buttons it keeps at
+                           least 8rem: when the title and the buttons do not fit
+                           on one line (a phone, a 420px panel), the buttons go
+                           to a second line instead of squeezing the title to an
+                           ellipsis or pushing Close past the panel's edge. 8rem
+                           is a width the larger-UI floor keeps (index.css).
+                           With the setting off the row stays one line. */
+                        className="group flex-1 min-w-0 [html[data-larger-ui]_&]:min-w-[8rem] flex items-center gap-1.5 text-left px-2 py-1 rounded text-sm font-medium text-slate-900 dark:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition"
                     >
                         <span className="min-w-0 truncate">{node.title}</span>
                         {/* Renaming was discoverable only by clicking text that

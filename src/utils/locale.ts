@@ -107,18 +107,21 @@ export function fullDateLabel(iso: string): string {
 }
 
 /**
- * The narrowest weekday label, by ISO day (1 = Monday … 7 = Sunday) — for the
- * seven-tickbox study week, where the row has to fit on a phone.
+ * The short weekday name, by ISO day (1 = Monday … 7 = Sunday), for the
+ * seven study-day toggles.
  *
  * A row built by hand would mix bare English letters no extractor can see
- * with translated keys — a German reader would choose their study days from
- * "M Di W Do F Sa So". `Intl`'s `narrow` is one letter in the languages that have one and the
- * right short form in the ones that do not (ja 月火水, ru пн вт ср).
+ * with translated keys. `short`, not `narrow`: one letter left Tuesday and
+ * Thursday, Saturday and Sunday reading the same (T T, S S); the short forms
+ * (Mon, ma, пн, 月) still fit seven to a phone row.
  */
-export function isoDayLabel(iso: number): string {
+export function isoDayShort(iso: number): string {
     // 2021-08-01 was a Sunday, so ISO 1 (Monday) is the 2nd.
-    return new Intl.DateTimeFormat(uiLocale(), { weekday: 'narrow', timeZone: 'UTC' })
-        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
+    // The abbreviation's own dot goes ("lun." "niedz."): on a button it is
+    // noise, and Polish Sunday touched its edges at phone width.
+    return new Intl.DateTimeFormat(uiLocale(), { weekday: 'short', timeZone: 'UTC' })
+        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))))
+        .replace(/\.$/, '');
 }
 
 /**

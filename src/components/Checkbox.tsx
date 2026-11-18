@@ -62,7 +62,7 @@ export default function Checkbox({
     const on = checked || indeterminate;
 
     return (
-        <span className={`relative inline-grid shrink-0 place-items-center ${className}`}>
+        <span data-checkbox className={`relative inline-grid shrink-0 place-items-center ${className}`}>
             <input
                 ref={ref}
                 id={id}
