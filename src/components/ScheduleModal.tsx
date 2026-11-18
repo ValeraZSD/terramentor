@@ -131,6 +131,14 @@ export default function ScheduleModal() {
     const markEdited = fixed !== savedFixed;
     const dirty = datesEdited || markEdited
         || [...days].sort().join() !== [...savedDays].sort().join();
+    // Taking the mark off starts the field from the saved date; ticking it
+    // again with that date untouched is no edit at all, so the locked field
+    // goes back to following the saved date.
+    const toggleMark = (on: boolean) => {
+        const saved = project.deadline || '';
+        if (!on && deadlineLocked) setDeadline(saved);
+        setFixedDraft(on === savedFixed && (!on || deadline === saved) ? null : on);
+    };
     const reversed = !!start && !!end && start > end;
     // Seven cells share a phone row: a language whose short day names run
     // past four letters (Polish "niedz") takes the smaller size, all seven at once.
@@ -357,7 +365,7 @@ export default function ScheduleModal() {
                             </div>
                         </div>
                         <label className="flex items-start gap-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
-                            <Checkbox checked={fixed} onChange={setFixedDraft} disabled={!end || busy !== null} className="mt-0.5" aria-describedby={fixed ? `${titleId}-locked` : undefined} />
+                            <Checkbox checked={fixed} onChange={toggleMark}disabled={!end || busy !== null} className="mt-0.5" aria-describedby={fixed ? `${titleId}-locked` : undefined} />
                             <span>
                                 {t("Exam date, cannot move")}
                                 {/* Only while ticked: "untick it" beside an empty box

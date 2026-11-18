@@ -187,6 +187,31 @@ section('a date marked "cannot move" is read-only in the panel and has no Remove
     w.close();
 }
 {
+    // Untick and tick again with nothing typed, then the saved date moves on
+    // another device: the locked field follows the saved date, not the one the
+    // panel opened with.
+    const { w, g, host } = page((url) => /\/pace$/.test(url)
+        ? { ok: false, status: 500, body: { error: 'down' } }
+        : { ok: true, status: 200, body: {} });
+    const exam = { id: 10, name: 'History', kind: 'curriculum', start_date: '2026-11-01', deadline: '2027-02-01', study_days: '[1,2,3,4,5]', deadline_fixed: 1 };
+    g.useStore.setState({
+        showScheduleModal: false, scheduleModalProjectId: 10, projects: [exam], tree: [], paceData: null,
+        setShowScheduleModal: () => { }, scheduleProject: async () => true,
+    });
+    g.mount(host, g.h(g.ScheduleModal));
+    await g.act(async () => { g.useStore.setState({ showScheduleModal: true }); await settle(); });
+    const doc = w.document;
+    const box = () => doc.querySelector('[role="dialog"] [role="checkbox"], [role="dialog"] input[type="checkbox"]');
+    const deadlineField = () => doc.querySelectorAll('input[type="date"]')[1];
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => { box()?.click(); await settle(); });
+    await g.act(async () => { g.useStore.setState({ projects: [{ ...exam, deadline: '2027-04-01' }] }); await settle(); });
+    check('untick, tick again, nothing typed: the locked field follows a saved date that moved',
+        deadlineField()?.value === '2027-04-01' && deadlineField()?.readOnly === true,
+        `${deadlineField()?.value} readOnly ${deadlineField()?.readOnly}`);
+    w.close();
+}
+{
     // The mark untouched, a study day changed, and the date locked meanwhile
     // (another device): Save must not send the stale "not locked" it opened with.
     const { w, g, host } = page((url) => /\/pace$/.test(url)
