@@ -5,7 +5,7 @@ Last reviewed: 18 November 2026. This page describes the code on `main` on that 
 ## In short
 
 - **Seeing.** In the app, Settings → General → Text & interface size makes everything up to
-  160% larger. Settings → Accessibility → Contrast → Higher gives darker text and stronger
+  160% of its usual size. Settings → Accessibility → Contrast → Higher gives darker text and stronger
   lines. Zoom beyond that has not been tested.
 - **Reading.** Settings → Accessibility has wider letter, word and line spacing and a reading
   line (a band under the line you point at, like a ruler). Read aloud speaks cards, questions,
@@ -243,7 +243,10 @@ Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
 progress, drills, mock exams, paper practice, the search dialog, the welcome steps of a new
 library, the sign-in screen, or the Devices & security and Library & about sections of
 Settings. No check runs the app at 200% zoom, at 320 px wide, or with the widest text spacing
-on. The behaviour tests run in a simulated page (jsdom); only the NVDA run uses a screen reader.
+on. The gates that mount components (`a11y-behaviour-gates.mjs`, `keyboard-gates.mjs`,
+`dialog-gates.mjs`, `toast-gates.mjs`) do it in a simulated page (jsdom); others, such as
+`accessibility-settings-gates.mjs`, read source and CSS and mount no page. Only the NVDA run
+uses a screen reader.
 
 ## Conformance report (WCAG 2.2)
 
@@ -251,14 +254,18 @@ on. The behaviour tests run in a simulated page (jsdom); only the NVDA run uses 
 browser window, on `main` on 18 November 2026.
 
 **Does not cover:** content written by a course's author or by a model (lessons, cards,
-diagrams, charts, animations, widgets, assistant answers, imported media). The known gaps that
-come from such content are listed above.
+diagrams, charts, animations, widgets, assistant answers, imported media, and the recordings and
+transcripts an author supplies). It does cover what the app gives for such content: whether a
+recording can carry a transcript, and whether a generated chart or diagram gets a text version.
+The known gaps that come from such content are listed above.
 
 **How it was evaluated:** the automated checks described above, and a review of the source
-code. Where neither backs a criterion fully, it is marked "Partially supports".
+code. A criterion neither has reached is marked "Not evaluated", and its remark says what was
+checked.
 
 **Terms:** Supports: no known failure. Partially supports: some parts fail. Does not support:
-most of it fails. Not applicable: the app has nothing the criterion is about.
+most of it fails. Not evaluated: not tested yet, so no claim is made. Not applicable: the app
+has nothing the criterion is about.
 
 ### Level A
 
@@ -307,18 +314,18 @@ most of it fails. Not applicable: the app has nothing the criterion is about.
 | 1.3.4 Orientation | Supports | Works in portrait and landscape; no orientation is locked. |
 | 1.3.5 Identify Input Purpose | Supports | Password and one-time code fields declare their purpose. |
 | 1.4.3 Contrast (Minimum) | Supports | No contrast failure in the axe scans, light and dark; Higher contrast is in Settings. |
-| 1.4.4 Resize Text | Partially supports | Text size goes to 160% and browser zoom is allowed; 200% is not tested. |
+| 1.4.4 Resize Text | Not evaluated | Text size goes to 160% and browser zoom is allowed; 200% is not tested. |
 | 1.4.5 Images of Text | Supports | Text, maths included, is real text. |
-| 1.4.10 Reflow | Partially supports | Phone layouts are scanned at 390 px wide; 320 px is not tested. |
+| 1.4.10 Reflow | Not evaluated | Phone layouts are scanned at 390 px wide; 320 px is not tested. |
 | 1.4.11 Non-text Contrast | Partially supports | Only text and accent fills are measured; borders and icons are not. |
-| 1.4.12 Text Spacing | Partially supports | The widest spacing setting meets these values; no screen is checked for clipped text at it. |
-| 1.4.13 Content on Hover or Focus | Partially supports | Tooltips are the browser's own; the atlas's hover card has not been checked. |
+| 1.4.12 Text Spacing | Not evaluated | The widest spacing setting meets these values; no screen is checked for clipped text at it. |
+| 1.4.13 Content on Hover or Focus | Not evaluated | Tooltips are the browser's own; the atlas's hover card has not been checked. |
 | 2.4.5 Multiple Ways | Supports | The header, search (Ctrl+K, or Cmd+K on a Mac) and the atlas index. |
 | 2.4.6 Headings and Labels | Supports | One main heading per screen; settings rows and fields are labelled. |
 | 2.4.7 Focus Visible | Partially supports | A ring shows keyboard focus; on an accent-coloured button it is the button's own colour. |
 | 2.4.11 Focus Not Obscured (Minimum) | Partially supports | Notices and the task dock are fixed and can cover the focused control. |
 | 2.5.7 Dragging Movements | Partially supports | Lists have Move earlier and Move later; panel resizing and photo corners need a drag. |
-| 2.5.8 Target Size (Minimum) | Supports | axe finds no target under 24 px on the scanned screens. |
+| 2.5.8 Target Size (Minimum) | Supports | axe reports no target-size failure on the scanned screens (a smaller target passes it when spaced apart). |
 | 3.1.2 Language of Parts | Partially supports | Course text carries its course's language; assistant answers do not. |
 | 3.2.3 Consistent Navigation | Supports | The header and its tabs are the same on every screen. |
 | 3.2.4 Consistent Identification | Supports | One set of shared controls, held by `control-gates.mjs`. |

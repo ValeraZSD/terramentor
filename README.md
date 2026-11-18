@@ -146,7 +146,7 @@ outbound connection.
 
 You can study, review cards and answer questions with only a keyboard, and NVDA reads a card
 review, a quiz and maths. Any list or card you can drag also moves from the keyboard. Settings
-→ General → Text & interface size makes everything up to 160% larger, and Settings →
+→ General → Text & interface size makes everything up to 160% of its usual size, and Settings →
 Accessibility holds
 contrast, motion, text spacing, a reading line, reading aloud, time limits, confirming before
 an answer is graded and the single-key shortcuts. The target is WCAG 2.2 AA; [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)
