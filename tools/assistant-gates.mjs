@@ -125,7 +125,7 @@ check('a spacing word off the list is refused', validateSettingChange('line_spac
 check('switches take on/off words and store on/off',
     validateSettingChange('read_aloud', 'yes')?.value === 'on' && validateSettingChange('reading_line', 'false')?.value === 'off'
     && validateSettingChange('confirm_answers', 'on')?.value === 'on' && validateSettingChange('card_audio_autoplay', 'off')?.value === 'off'
-    && validateSettingChange('key_shortcuts', 'off')?.value === 'off');
+    && validateSettingChange('key_shortcuts', 'off')?.value === 'off' && validateSettingChange('larger_ui', 'on')?.value === 'on');
 check('a switch value that is not on or off is refused', validateSettingChange('read_aloud', 'loud') === null);
 check('the drill time limit is a learning row the assistant cannot reach', validateSettingChange('drill_time_scale', 'off') === null);
 check('reading speed in range, refused outside it',

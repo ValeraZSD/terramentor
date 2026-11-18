@@ -175,12 +175,17 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   {isNote ? <FileText className="w-5 h-5" /> : <FolderOpen className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white truncate">
+                  {/* The button truncates, not the heading: a clipping heading
+                      cut the button's high-contrast frame down to a "]".
+                      align-top: a clipping inline-block sits on the baseline
+                      and left a descender's gap under the heading. */}
+                  <h3 data-larger-wraps className="font-semibold text-slate-900 dark:text-white">
                     <button data-row="title"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
+                      data-larger-wraps
                       aria-label={t("Open {{title}}", { title: node.title })}
-                      className={`-mx-1 px-1 max-w-full truncate text-left rounded ${FOCUS_RING}`}
+                      className={`-mx-1 px-1 max-w-full truncate align-top text-left rounded ${FOCUS_RING}`}
                     >
                       {node.title}
                     </button>

@@ -29,6 +29,7 @@
             if (a.letterSpacing && a.letterSpacing !== 'normal') root.setAttribute('data-letter-spacing', a.letterSpacing);
             if (a.wordSpacing && a.wordSpacing !== 'normal') root.setAttribute('data-word-spacing', a.wordSpacing);
             if (a.lineSpacing && a.lineSpacing !== 'normal') root.setAttribute('data-line-spacing', a.lineSpacing);
+            if (a.largerUi === true) root.setAttribute('data-larger-ui', '');
         } catch (e) { /* no cache: the stylesheet's defaults */ }
         var cached = localStorage.getItem('terramentor-theme');
         if (!cached) return;

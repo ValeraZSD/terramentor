@@ -132,6 +132,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         <div ref={setNodeRef} style={{ ...style, opacity: isDragging && !held ? 0.4 : 1 }}>
             <div
                 data-node-id={node.id}
+                data-sidebar-row
                 // A click target for the pointer, not a control: as a button
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
@@ -169,7 +170,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         }
                     </button>
                 ) : (
-                    <span className="w-5 shrink-0" />
+                    <span data-fold-spacer className="w-5 shrink-0" />
                 )}
 
                 {isRoot && (
@@ -181,30 +182,32 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     </div>
                 )}
 
+                {/* A topic with notes under it shows its percentage, but a
+                    ready one shows the shield: the notes are its material,
+                    not parts of it to finish. Hidden from the title's name, so
+                    a voice user does not have to say the percentage. Beside the
+                    title button, not in it, as in the outline (TreeItemRow):
+                    in high contrast the title's frame then holds the title alone. */}
+                {!isRoot && !untaught && (
+                    <span data-row-status className="shrink-0" aria-hidden="true">
+                        {hasChildren && !node.is_note && !readyToProve ? (
+                            <span className={`text-xs font-medium ${getStatusColor()}`}>
+                                {node.progress?.percentage || 0}%
+                            </span>
+                        ) : (
+                            getStatusIcon()
+                        )}
+                    </span>
+                )}
+
                 <button data-row="title"
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-row-title
                     aria-current={isSelected ? 'true' : undefined}
-                    className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
+                    className={`flex min-w-0 flex-1 items-center gap-1 px-1 text-left rounded ${FOCUS_RING}`}
                 >
-                    {/* A topic with notes under it shows its percentage, but a
-                        ready one shows the shield: the notes are its material,
-                        not parts of it to finish. */}
-                    {/* The row is named by the text it shows, so the
-                        percentage beside the title is hidden from that name rather
-                        than read as a word a voice user would have to say. */}
-                    <span className="shrink-0" aria-hidden="true">
-                        {hasChildren && !node.is_note && !isRoot && !untaught && !readyToProve ? (
-                            <span className={`text-xs font-medium ${getStatusColor()}`}>
-                                {node.progress?.percentage || 0}%
-                            </span>
-                        ) : !isRoot && !untaught ? (
-                            getStatusIcon()
-                        ) : null}
-                    </span>
-
-                    <span className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span data-larger-wraps className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
@@ -475,6 +478,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     return (
         <div
             ref={sidebarRef}
+            data-course-sidebar={isDrawer ? undefined : ''}
             className={`bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
             style={isDrawer ? undefined : { width: sidebarWidth }}
             tabIndex={0}

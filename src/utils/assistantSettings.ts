@@ -45,7 +45,8 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
 // reads this line to check every key is a client ui row.
 export type SettingKey = 'theme' | 'theme_tint' | 'accent_color' | 'ui_scale' | 'week_start_day' | 'ui_language' | 'number_format'
     | 'contrast' | 'motion' | 'letter_spacing' | 'word_spacing' | 'line_spacing'
-    | 'reading_line' | 'read_aloud' | 'card_audio_autoplay' | 'confirm_answers' | 'key_shortcuts' | 'speech_rate';
+    | 'reading_line' | 'read_aloud' | 'card_audio_autoplay' | 'confirm_answers' | 'key_shortcuts' | 'speech_rate'
+    | 'larger_ui';
 
 /**
  * The accessibility rows (Settings → Accessibility), each a short list of
@@ -68,6 +69,7 @@ const SWITCH_SETTINGS = {
     read_aloud: k("Read aloud"),
     card_audio_autoplay: k("Play card recordings by themselves"),
     confirm_answers: k("Confirm before grading"),
+    larger_ui: k("Larger text and buttons"),
     key_shortcuts: k("Single-key shortcuts"),
 } as const satisfies Partial<Record<SettingKey, string>>;
 type SwitchKey = keyof typeof SWITCH_SETTINGS;

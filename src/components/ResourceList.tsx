@@ -162,7 +162,7 @@ function ResourceCard({ resource, onToggle, onEdit, onDelete, onMove }: {
         {/* Domain + type pill */}
         <div className="flex items-center gap-2 mt-0.5 min-w-0">
           {domain && (
-            <span className="text-[0.75rem] text-slate-400 dark:text-slate-300 truncate min-w-0">
+            <span className="text-xs text-slate-400 dark:text-slate-300 truncate min-w-0">
               {domain}
             </span>
           )}
