@@ -318,6 +318,162 @@ section('a switch whose save fails goes where the stored value is, whatever orde
 }
 
 // ---------------------------------------------------------------------------
+section('Settings → Visuals: no live switch before the saved list is read, a refused save puts the card back, saves go in order, less movement stops the widget demo');
+{
+    // The panel draws every kind's sample through the real renderers, so those
+    // (and the sample animations) are stubbed; what is mounted is the panel's own
+    // state: the cards, the switches, the saves.
+    const panelScratch = mkdtempSync(join(root, 'node_modules', '.cache', 'visual-kinds-'));
+    const panelOut = join(panelScratch, 'bundle.cjs');
+    // --base: the panel as it was at <ref>, its imports still meaning the folder it came from.
+    const panelEntry = BASE ? join(panelScratch, 'VisualKindsPanel.tsx') : join(root, 'src/components/settings/VisualKindsPanel.tsx');
+    if (BASE) writeFileSync(panelEntry, read('src/components/settings/VisualKindsPanel.tsx'));
+    const panelStubs = {
+        ...stubs,
+        'store': `import { useSyncExternalStore } from 'react';
+            const g = globalThis;
+            export const themeKeyOf = () => 'light';
+            export const useStore = (sel) => sel({ theme: 'light', themeTint: '', accentColor: '#2563eb', addToast: (...a) => g.__toasts.push(a) });`,
+        'registry': `export const getVisualKind = (k) => k; export const loadRenderer = () => new Promise(() => { });`,
+        'palette': `export const readVisualPalette = () => ({ accent: '#2563eb', accentFg: '#1d4ed8', dark: false, bg: '#fff', fg: '#000', muted: '#888', border: '#ddd' });`,
+        'drill': `import { createElement } from 'react'; export const DrillLauncher = () => createElement('button', { type: 'button' }, 'drill');`,
+        'reveal': `export const reducedMotion = () => !!globalThis.__reduced; export const playSampleArrival = () => () => { };
+            export const nudgeSketch = () => { }; export const muteSketch = () => { }; export const playClass = () => () => { };`,
+        'still': `export const holdSampleStill = () => { }; export const stillAtNextTop = () => () => { };`,
+    };
+    const panelStubPlugin = {
+        name: 'panel-stubs',
+        setup(b) {
+            const to = (re, name) => b.onResolve({ filter: re }, () => ({ path: name, namespace: 'stub' }));
+            to(/^react-i18next$/, 'react-i18next');
+            to(/^(\.\.\/)+store$/, 'store');
+            to(/^(\.\.\/)+i18n$/, 'i18n');
+            to(/^(\.\.\/)+api$/, 'api');
+            to(/^\.\.\/visuals\/registry$/, 'registry');
+            to(/^\.\.\/visuals\/palette$/, 'palette');
+            to(/^\.\.\/drills\/DrillLauncher$/, 'drill');
+            to(/^\.\/sampleReveal$/, 'reveal');
+            to(/^\.\/sampleStill$/, 'still');
+            b.onLoad({ filter: /.*/, namespace: 'stub' }, (args) => ({ contents: panelStubs[args.path], loader: 'js', resolveDir: root }));
+            b.onResolve({ filter: /^\.\.?\// }, (args) => {
+                if (!BASE || args.importer.replace(/\\/g, '/') !== panelEntry.replace(/\\/g, '/')) return undefined;
+                return b.resolve(args.path, { resolveDir: join(root, 'src', 'components', 'settings'), kind: args.kind });
+            });
+        },
+    };
+    await esbuild.build({
+        entryPoints: [panelEntry],
+        bundle: true, format: 'cjs', platform: 'node', outfile: panelOut,
+        jsx: 'automatic', loader: { '.css': 'empty', '.svg': 'dataurl' },
+        packages: 'external',
+        define: { 'import.meta.env.DEV': 'false', 'import.meta.env.PROD': 'true' },
+        plugins: [panelStubPlugin],
+        logLevel: 'silent',
+    });
+    const VisualKindsPanel = require(panelOut).default;
+    rmSync(panelScratch, { recursive: true, force: true });
+
+    const deferred = () => { let ok, no; const p = new Promise((a, b) => { ok = a; no = b; }); return { p, ok, no }; };
+    const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const kindSwitch = (el, id) => el.querySelector(`#visual-kind-${id}`);
+    const realRaf = globalThis.requestAnimationFrame;
+    let rafCalls = 0;
+    globalThis.requestAnimationFrame = (f) => { rafCalls++; return realRaf(f); };
+    globalThis.__toasts = [];
+
+    try {
+        // The saved list cannot be read: nothing may be written over it.
+        let sets = [];
+        globalThis.__api = { getSettings: async () => { throw new Error('offline'); }, setSetting: async (...a) => { sets.push(a); } };
+        await mounted('VisualKindsPanel (settings unreadable)', () => h(VisualKindsPanel, { active: true }), async (el) => {
+            await settle();
+            const switches = [...el.querySelectorAll('[role="switch"]')];
+            check('control: the eight cards and the any-model switch are drawn', switches.length === 9, String(switches.length));
+            check('while the saved list is unread no switch is live', switches.every((s) => s.disabled), switches.filter((s) => !s.disabled).map((s) => s.id).join(', '));
+            check('…and the failed read says so, instead of greyed cards with no reason', __toasts.length === 1 && __toasts[0][0] === 'error', JSON.stringify(__toasts));
+            await act(async () => { kindSwitch(el, 'p5')?.click(); });
+            await settle();
+            check('…and a press on a card writes nothing over the saved list', sets.length === 0, JSON.stringify(sets));
+        });
+
+        // A saved list is read; every save is refused.
+        sets = [];
+        const saved = () => ({ visual_kinds_off: 'p5,widget', visual_tier: 'full' });
+        globalThis.__api = { getSettings: async () => saved(), setSetting: async (...a) => { sets.push(a); throw new Error('server down'); } };
+        globalThis.__toasts = [];
+        await mounted('VisualKindsPanel (saves refused)', () => h(VisualKindsPanel, { active: true }), async (el) => {
+            await settle();
+            check('control: the saved list is shown (Simulations and Widgets off, Diagrams on)',
+                kindSwitch(el, 'p5')?.checked === false && kindSwitch(el, 'widget')?.checked === false && kindSwitch(el, 'mermaid')?.checked === true);
+            check('control: once it is read the switches are live', !kindSwitch(el, 'mermaid')?.disabled);
+            await act(async () => { kindSwitch(el, 'mermaid')?.click(); });
+            await settle();
+            check('control: the save was tried and refused', sets.length === 1 && __toasts.length === 1, `${sets.length} write(s), ${__toasts.length} toast(s)`);
+            check('a refused save puts the card back on (what is stored)', kindSwitch(el, 'mermaid')?.checked === true);
+            check('…and leaves the saved ones as they were', kindSwitch(el, 'p5')?.checked === false && kindSwitch(el, 'widget')?.checked === false);
+        });
+
+        // Two quick presses: the writes go one after the other, the last press last.
+        sets = [];
+        const first = deferred();
+        globalThis.__api = {
+            getSettings: async () => saved(),
+            setSetting: (...a) => { sets.push(a); return sets.length === 1 ? first.p : Promise.resolve(); },
+        };
+        await mounted('VisualKindsPanel (two presses)', () => h(VisualKindsPanel, { active: true }), async (el) => {
+            await settle();
+            await act(async () => { kindSwitch(el, 'mermaid')?.click(); });
+            await act(async () => { kindSwitch(el, 'plot')?.click(); });
+            check('the second save waits for the first (one write in flight)', sets.length === 1, `${sets.length} write(s) started`);
+            first.ok();
+            await settle();
+            check('…then goes out carrying both presses, so the last one stored is the latest',
+                sets.length === 2 && sets[1][1] === 'p5,widget,mermaid,plot', JSON.stringify(sets.map((s) => s[1])));
+        });
+
+        // The any-model switch pressed while a kind's save is still out: the
+        // kind's write, which migrates a retired tier, must not land after it.
+        sets = [];
+        const held = deferred();
+        globalThis.__api = {
+            getSettings: async () => ({ visual_kinds_off: '', visual_tier: 'auto' }),
+            setSetting: (...a) => { sets.push(a); return sets.length === 1 ? held.p : Promise.resolve(); },
+        };
+        await mounted('VisualKindsPanel (any-model behind a kind)', () => h(VisualKindsPanel, { active: true }), async (el) => {
+            await settle();
+            await act(async () => { kindSwitch(el, 'mermaid')?.click(); });
+            await act(async () => { el.querySelector('#visual-any-model')?.click(); });
+            held.ok();
+            await settle();
+            await settle();
+            const tiers = sets.filter((s) => s[0] === 'visual_tier').map((s) => s[1]);
+            check('the learner\'s last press on the any-model switch is the last write to the tier (ON = full)',
+                tiers.length > 0 && tiers[tiers.length - 1] === 'full', JSON.stringify(sets));
+        });
+
+        // Less movement: the widget sample's pointer loop does not run.
+        sets = [];
+        globalThis.__api = { getSettings: async () => ({}), setSetting: async () => { } };
+        globalThis.__reduced = false;
+        rafCalls = 0;
+        await mounted('VisualKindsPanel (normal motion)', () => h(VisualKindsPanel, { active: true }), async () => {
+            await settle();
+            check('control: with normal motion the widget sample\'s loop runs', rafCalls > 0, `${rafCalls} frame request(s)`);
+        });
+        globalThis.__reduced = true;
+        rafCalls = 0;
+        await mounted('VisualKindsPanel (reduced motion)', () => h(VisualKindsPanel, { active: true }), async () => {
+            await settle();
+            check('a reader who asked for less movement gets no running widget demo', rafCalls === 0, `${rafCalls} frame request(s)`);
+        });
+    } finally {
+        globalThis.requestAnimationFrame = realRaf;
+        globalThis.__reduced = false;
+        globalThis.__api = undefined;
+    }
+}
+
+// ---------------------------------------------------------------------------
 section('a stored 0 in the feed settings is shown as 0, not as the default');
 {
     globalThis.__api = {

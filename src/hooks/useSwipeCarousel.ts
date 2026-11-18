@@ -28,6 +28,7 @@ export interface SwipeCarousel {
         onTouchStart: (e: React.TouchEvent) => void;
         onTouchMove: (e: React.TouchEvent) => void;
         onTouchEnd: () => void;
+        onTouchCancel: () => void;
     };
     /** Style for each of the three panel wrappers. */
     panelStyle: React.CSSProperties;
@@ -39,8 +40,8 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
     const [dragX, setDragX] = useState(0);
     const [animating, setAnimating] = useState(false);
     const pendingNav = useRef<'prev' | 'next' | null>(null);
-    const touch = useRef<{ x: number; y: number; locked: 'h' | 'v' | null; active: boolean }>({
-        x: 0, y: 0, locked: null, active: false,
+    const touch = useRef<{ x: number; y: number; locked: 'h' | 'v' | null; active: boolean; offset: number }>({
+        x: 0, y: 0, locked: null, active: false, offset: 0,
     });
 
     const viewportRef = useCallback((el: HTMLDivElement | null) => {
@@ -55,7 +56,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
 
     const onTouchStart = (e: React.TouchEvent) => {
         if (animating || e.touches.length !== 1) return;
-        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, locked: null, active: true };
+        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, locked: null, active: true, offset: 0 };
     };
 
     const onTouchMove = (e: React.TouchEvent) => {
@@ -68,7 +69,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
         if (t.locked === null && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
             t.locked = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
         }
-        if (t.locked === 'h') setDragX(dx);
+        if (t.locked === 'h') { t.offset = dx; setDragX(dx); }
     };
 
     const onTouchEnd = () => {
@@ -79,6 +80,22 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
         if (dragX <= -threshold) { pendingNav.current = 'next'; setAnimating(true); setDragX(-trackW); }
         else if (dragX >= threshold) { pendingNav.current = 'prev'; setAnimating(true); setDragX(trackW); }
         else { setAnimating(true); setDragX(0); }   // snap back
+    };
+
+    // The browser can take a touch away mid-drag (an edge back-swipe, a
+    // notification pulled down, a system gesture) and then `touchend` never
+    // comes. Without this the track stays where the finger left it, half-way
+    // across the viewport, and a tap does not move it. A cancelled drag is not a
+    // swipe, so it always returns, however far it had gone.
+    const onTouchCancel = () => {
+        const t = touch.current;
+        const wasDragging = t.active && t.locked === 'h';
+        t.active = false;
+        // At offset 0 nothing would move, so no transition would end to clear
+        // `animating`, and the next touch would be ignored. The offset is the
+        // one the last move set, not `dragX`: a cancel can arrive before the
+        // render that follows that move, and this closure still holds the old one.
+        if (wasDragging && t.offset !== 0) { setAnimating(true); setDragX(0); }
     };
 
     const onTransitionEnd = (e: React.TransitionEvent) => {
@@ -105,6 +122,7 @@ export function useSwipeCarousel(onPrev: () => void, onNext: () => void): SwipeC
             onTouchStart,
             onTouchMove,
             onTouchEnd,
+            onTouchCancel,
         },
         panelStyle: { width: trackW || undefined },
     };

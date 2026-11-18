@@ -198,6 +198,29 @@ console.log('\n--- a route that loaded and then crashed ---');
     check('and the retry remounts it, so a transient crash recovers', caughtBy(host) === 'rendered', caughtBy(host));
 }
 
+console.log('\n--- a crash does not follow the reader to the next route ---');
+{
+    // Sibling routes are one `RouteChunk` in the router's tree, re-rendered with
+    // new props, so the boundary stays mounted across the move. A crash on the
+    // first must not be the screen the second opens on.
+    const host = dom.window.document.createElement('div');
+    dom.window.document.body.appendChild(host);
+    const Crashes = () => { throw new Error('boom, in render'); };
+    const Fine = () => h('p', null, 'the schedule board');
+    const root = createRoot(host);
+    const show = (name, component) => act(async () => {
+        root.render(
+            h(React.Suspense, { fallback: h('div', null, 'loading') },
+                h(RouteChunk, { name, load: () => Promise.resolve({ default: component }), fallback: said(name) })));
+    });
+    await show('Sibling A', Crashes);
+    await flush();
+    check('the first route crashes into its own boundary', caughtBy(host) === 'route', caughtBy(host));
+    await show('Sibling B', Fine);
+    await flush();
+    check('moving to a sibling route starts clean', caughtBy(host) === 'rendered', `${caughtBy(host)}: ${JSON.stringify(text(host).slice(0, 100))}`);
+}
+
 console.log('\n--- the shape this replaced, through the same assertions ---');
 {
     const { host, calls } = await mountRoute(LegacyRoute, { failures: 2, name: 'Legacy Board' });

@@ -88,6 +88,21 @@ check('…and one authored as "4.17" is not padded',
     fmt.formatNumber(4.17, '1,234.5', { decimals: fmt.writtenDecimals('4.17') }) === '4.17');
 check('an integer key claims no decimals', fmt.writtenDecimals('19') === undefined);
 check('a decimal comma is read as a decimal here too', fmt.writtenDecimals('19,64') === 2);
+// A separator that repeats with no other one beside it is grouping, which is how
+// `parseNumber` reads it; its last three digits are not a claimed precision.
+for (const [written, digits] of [
+    ['299,792,458', undefined], ['1.234.567', undefined], ['1 234,567,890', undefined],
+    ['1,234,567.89', 2], ['1.234.567,891', 3], ['1,234.50', 2], ['6,674e-11', 3],
+]) {
+    check(`a key written "${written}" claims ${digits === undefined ? 'no decimals' : `${digits} decimals`}`,
+        fmt.writtenDecimals(written) === digits, String(fmt.writtenDecimals(written)));
+}
+for (const written of ['299,792,458', '1.234.567']) {
+    const value = formats.parseNumber(written);
+    check(`the answer key prints a grouped "${written}" without invented decimals`,
+        seen(fmt.formatNumber(value, '1,234.5', { decimals: fmt.writtenDecimals(written) })) === seen(fmt.formatNumber(value, '1,234.5')),
+        fmt.formatNumber(value, '1,234.5', { decimals: fmt.writtenDecimals(written) }));
+}
 check('a big number still groups', seen(fmt.formatNumber(5168000, '1 234,5')) === '5 168 000');
 check('a negative number keeps its sign', fmt.formatNumber(-5.5, '1.234,5') === '-5,5');
 check('infinity and NaN are not formatted into nonsense',
@@ -177,6 +192,31 @@ check('no surface formats a number or a date against the device locale',
 const settled = KNOWN_OFFENDERS.filter(p => !offenders.includes(p));
 check('the known-offender list names nothing that is already fixed',
     settled.length === 0, settled.join(', '));
+
+section('The vault list writes a file size with the reader\'s separator');
+{
+    // `humanSize` is private to VaultPanel, so its source is lifted out and run
+    // with the real `formatNumber` standing in for `num`.
+    const panel = readFileSync(join(repoRoot, 'src/components/VaultPanel.tsx'), 'utf8');
+    const body = /function humanSize\([\s\S]*?\n\}/.exec(panel)?.[0];
+    check('VaultPanel has a humanSize to lift', !!body);
+    if (body) {
+        const js = esbuild.transformSync(body, { loader: 'ts' }).code;
+        const sizeWith = (style) => new Function('num', `${js}\nreturn humanSize;`)(
+            (v, o) => fmt.formatNumber(v, style, o));
+        check('1.5 MB is written 1,5 MB under a comma-decimal style', sizeWith('1.234,5')(1572864) === '1,5 MB', sizeWith('1.234,5')(1572864));
+        // Only the comma row above fails on the old toFixed() code. The next
+        // three pass on it as well: they guard what the rewrite must keep.
+        check('and 1.5 MB under a point-decimal style', sizeWith('1,234.5')(1572864) === '1.5 MB', sizeWith('1,234.5')(1572864));
+        check('a size under a megabyte is whole kilobytes', sizeWith('1.234,5')(900 * 1024) === '900 KB', sizeWith('1.234,5')(900 * 1024));
+        check('under a kilobyte it is bytes', sizeWith('1.234,5')(512) === '512 B');
+        check('a size just under a megabyte is megabytes, not a grouped kilobyte figure',
+            sizeWith('1,234.5')(1048500) === '1.0 MB' && sizeWith('1,234.5')(999 * 1024) === '999 KB', `${sizeWith('1,234.5')(1048500)} / ${sizeWith('1,234.5')(999 * 1024)}`);
+        // VaultPanel writes sizes through the module-level `num()`, which does not
+        // re-render anything; the component has to subscribe to the number style.
+        check('VaultPanel subscribes to the number style', /useNumberFormat\(\)/.test(panel));
+    }
+}
 
 // ---------------------------------------------------------------------------
 section('a decimal the reader sees follows their number style');

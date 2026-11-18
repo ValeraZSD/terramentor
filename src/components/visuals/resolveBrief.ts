@@ -100,6 +100,19 @@ export function isUndrawnError(e: unknown): e is VisualUndrawnError {
 }
 
 /**
+ * A request cut off by the CONNECTION, not by anything the builder did: the
+ * OS drops every socket when a phone's app goes to the background, so a build
+ * arrives as "Failed to fetch" or as a stream that ended with no result. Such
+ * a failure is resumed by the shell, never fed to a builder as a fault.
+ */
+export function isConnectionFailure(e: unknown): boolean {
+    if (!(e instanceof Error)) return false;
+    if ((e as { stale?: boolean }).stale) return true;
+    if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message)) return true;
+    return /stream ended without a result|connection went quiet|No response body/i.test(e.message);
+}
+
+/**
  * The spec to render for this block.
  *
  * A finished spec is returned unchanged. A brief is looked up in the cache
