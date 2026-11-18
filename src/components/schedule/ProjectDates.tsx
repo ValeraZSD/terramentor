@@ -91,10 +91,15 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
 
     /** The date judged against the learner's own pace (`judgeDate`): the same
      *  verdict as the plan panel and the course header. "Done" says nothing a
-     *  finished course needs, so it shows no pill. */
-    const verdict = hasWindow && !done && row?.verdict && row.verdict.band !== 'done' ? row.verdict : null;
+     *  finished course needs, so it shows no pill. A verdict judged on another
+     *  date (the overview not yet re-read after a move) is not shown beside
+     *  the new one. */
+    const verdict = hasWindow && !done && row?.verdict && row.verdict.band !== 'done'
+        && row.verdict.deadline === end ? row.verdict : null;
     const line = verdict ? verdictLine(verdict, t, num) : null;
-    const locked = !!(row?.deadline_fixed ?? project.deadline_fixed);
+    // The project record first: it is re-read on every write, the overview row
+    // only after it.
+    const locked = !!(project.deadline_fixed ?? row?.deadline_fixed);
 
     /** Topics outside the window, in EITHER direction: moving a project forward
      *  strands its topics behind it, moving it back strands them ahead. */
@@ -240,10 +245,14 @@ function DateEditor({
     const { t } = useTranslation();
     const num = useNumberFormat();
     const [from, setFrom] = useState(start);
-    const [to, setTo] = useState(end);
+    const [typedTo, setTo] = useState(end);
+    // A locked date is the saved one, whatever was typed before the lock
+    // arrived (another device): sending the typed one would be refused.
+    const to = deadlineLocked ? end : typedTo;
     const firstField = useRef<HTMLInputElement>(null);
     const endField = useRef<HTMLInputElement>(null);
     const reversedId = useId();
+    const lockedId = useId();
 
     // The editor replaces the button that opened it, so focus must follow: to
     // the start, or to the deadline when that is the date still to choose.
@@ -319,9 +328,8 @@ function DateEditor({
                         value={to}
                         min={from || undefined}
                         readOnly={deadlineLocked}
-                        title={deadlineLocked ? t("Exam date, cannot move") : undefined}
                         aria-invalid={reversed || undefined}
-                        aria-describedby={sayReversed ? reversedId : undefined}
+                        aria-describedby={sayReversed ? reversedId : deadlineLocked ? lockedId : undefined}
                         onChange={e => setTo(e.target.value)}
                         className={`${field} ${reversed ? bad : ok}`}
                     />
@@ -345,6 +353,10 @@ function DateEditor({
                     >
                         {t("Remove schedule")}
                     </Button>
+                ) : deadlineLocked ? (
+                    // Said on the card, not in a tooltip a phone never shows:
+                    // why the date will not change and why Remove is gone.
+                    <p id={lockedId} className="self-center text-xs text-slate-500 dark:text-slate-400">{t("Exam date, cannot move")}</p>
                 ) : <span aria-hidden="true" />}
                 {/* Cancel and apply split the deadline column between them,
                     edge to edge, so the second row lines up with the first.

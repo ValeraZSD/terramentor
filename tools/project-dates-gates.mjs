@@ -83,7 +83,10 @@ const bundle = (await esbuild.build({
 })).outputFiles[0].text;
 
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// One pinned instant for the fixture AND the mounted component (its `todayStr`
+// and the verdict's dates): a gate must not read the clock.
+const NOW_MS = Date.parse('2026-06-10T12:00:00Z');
+const day = (n) => new Date(NOW_MS + n * 864e5).toISOString().slice(0, 10);
 const project = {
     id: 7, name: 'Calculus', color: '#8B5CF6', icon: 'book', status: 'active',
     start_date: day(-10), deadline: day(30), study_days: '[1,2,3,4,5]',
@@ -108,6 +111,9 @@ async function show({ p = project, r = row, write = async () => true } = {}) {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     w.fetch = () => new Promise(() => { });
+    w.eval(`(() => { const R = Date; class Pinned extends R {
+        constructor(...a) { super(...(a.length ? a : [${NOW_MS}])); }
+        static now() { return ${NOW_MS}; } } globalThis.Date = Pinned; })();`);
     w.eval(bundle);
     const { useStore, mount, act } = w.__gate;
     const calls = [];
@@ -215,15 +221,39 @@ section('a screen reader hears the dates and the pace, not only a verb');
     const s = await show();
     const b = s.strip();
     const year = project.deadline.slice(0, 4);
-    check('the strip has no aria-label hiding its text', !b.hasAttribute('aria-label'), b.getAttribute('aria-label') ?? '');
-    check('its text (its accessible name) carries the action, the range and the verdict',
-        /Change the dates for/.test(b.textContent) && b.textContent.includes(year) && /Under pace/.test(b.textContent), b.textContent);
+    // A button's accessible name, as the name computation builds it here: an
+    // aria-label or aria-labelledby replaces the content; otherwise it is the
+    // text of every descendant not hidden from the accessibility tree.
+    const hiddenFromAt = (el) => el.getAttribute('aria-hidden') === 'true' || el.hidden
+        || s.w.getComputedStyle(el).display === 'none';
+    const contentName = (el) => [...el.childNodes].map(n => n.nodeType === 3 ? n.textContent
+        : n.nodeType === 1 && !hiddenFromAt(n) ? contentName(n) : '').join('');
+    const name = b.getAttribute('aria-label') ?? (b.hasAttribute('aria-labelledby') ? '' : contentName(b));
+    check('the strip\'s accessible name carries the action, the range and the verdict',
+        /Change the dates for/.test(name) && name.includes(year) && /Under pace/.test(name), name);
     // The reason was once only a tooltip; it is now a line of visible text.
     const reason = s.w.document.querySelector('[data-verdict-line]');
+    const shown = (el) => { for (let e = el; e; e = e.parentElement) { if (e.hidden || s.w.getComputedStyle(e).display === 'none' || e.classList.contains('sr-only')) return false; } return true; };
     check('…and the verdict\'s reason is visible text on the card, not a tooltip',
-        !!reason && /Needs .+ a week/.test(reason.textContent) && /Nothing closed for 3 weeks/.test(reason.textContent)
+        !!reason && shown(reason) && /Needs .+ a week/.test(reason.textContent) && /Nothing closed for 3 weeks/.test(reason.textContent)
             && ![...s.w.document.querySelectorAll('[title]')].some(e => /Needs/.test(e.getAttribute('title'))),
         reason?.textContent ?? 'no [data-verdict-line]');
+    s.close();
+}
+
+section('the card trusts the project record over an overview row not yet re-read');
+{
+    // The date moved; the overview still holds the verdict for the old one.
+    let s = await show({ r: { ...row, verdict: { ...row.verdict, deadline: day(20) } } });
+    check('a verdict judged on another date is not shown beside the new one',
+        !s.w.document.querySelector('[data-verdict]'), s.strip()?.textContent);
+    s.close();
+    // The project says locked; the old overview row still says not.
+    s = await show({ p: { ...project, deadline_fixed: 1 }, r: { ...row, deadline_fixed: 0 } });
+    await s.open();
+    check('the project\'s lock wins: the deadline is read-only and Remove is gone',
+        s.fields()[1]?.readOnly === true && !s.buttons().some(b => /Remove schedule/.test(b.textContent)),
+        `${s.fields()[1]?.readOnly} ${s.buttons().map(b => b.textContent).join('|')}`);
     s.close();
 }
 
