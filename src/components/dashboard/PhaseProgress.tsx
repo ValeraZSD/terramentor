@@ -123,6 +123,7 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
     selectedNodeId: number | null;
     onOpen: (id: number) => void;
 }) {
+    const { t } = useTranslation();
     if (milestone.segments && milestone.segments.length > 0) {
         /* One tick per leaf, and a phase can hold ~100 of them. A `border-2`
            per tick or a fixed gap would make the bar wider than a phone and
@@ -141,7 +142,11 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                         onKeyDown={onActivateKey(() => onOpen(segment.id))}
                         role="button"
                         tabIndex={0}
-                        aria-label={segment.title}
+                        /* The fill is the only other sign of the state, and a
+                           screen reader does not see a fill. */
+                        aria-label={`${segment.title}, ${segment.completed
+                            ? (segment.skipped ? t("Skipped") : t("Finished"))
+                            : t("Not finished")}`}
                         title={segment.title}
                         /* A tick is a TOPIC, not a slice of a track, and a
                            focusable control besides. An unfinished one is an

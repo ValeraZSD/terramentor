@@ -37,6 +37,8 @@ export default function AttachmentFigure({ marker, attachment }: { marker: Image
                     height={attachment.height}
                     box={marker.box}
                     label={marker.label ?? undefined}
+                    // What the box says when the file is gone: the picture's name, not an empty frame.
+                    alt={attachment.name}
                     maxWidth="calc(100cqw - 2px)"
                     maxHeight="24rem"
                 />

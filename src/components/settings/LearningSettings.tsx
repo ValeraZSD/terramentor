@@ -86,20 +86,37 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
     };
 
     const saveGateNumber = async (key: 'mastery_threshold' | 'mastery_check_pass' | 'mastery_check_size' | 'decay_days', raw: string) => {
+        // The clamped number goes back into the field once it is saved: the
+        // sentence above it and the stored value must say what the field says,
+        // and a save that failed must not leave a number on screen that was never
+        // stored. An empty or unreadable field takes the default the server would
+        // use. The two pass percentages start at 1: the server reads a stored 0 as
+        // "unset" and runs the default (settingsStore.js), so a 0 here would say
+        // "proven at 0%" while the gate ran at 85%.
+        const whole = (lo: number, hi: number, fallback: number) => {
+            const typed = parseInt(raw, 10);
+            return Math.max(lo, Math.min(hi, Number.isFinite(typed) ? typed : fallback));
+        };
         let value: string;
+        let show: string;
+        let setField: (v: string) => void;
         if (key === 'decay_days') {
-            const n = Math.max(1, Math.min(365, parseInt(raw, 10) || 14));
-            value = String(n);
+            const n = whole(1, 365, 14);
+            value = show = String(n);
+            setField = setDecayDays;
         } else if (key === 'mastery_check_size') {
-            const n = Math.max(4, Math.min(30, parseInt(raw, 10) || 10));
-            value = String(n);
-            setCheckSize(value);
+            const n = whole(4, 30, 10);
+            value = show = String(n);
+            setField = setCheckSize;
         } else {
-            const pct = Math.max(0, Math.min(100, parseInt(raw, 10) || 0));
+            const pct = whole(1, 100, key === 'mastery_threshold' ? 85 : 80);
             value = String(pct / 100);
+            show = String(pct);
+            setField = key === 'mastery_threshold' ? setMasteryThreshold : setCheckPass;
         }
         try {
             await api.setSetting(key, value);
+            setField(show);
         } catch (e: any) {
             addToast('error', tr("Failed to save"), e.message);
         }
@@ -153,7 +170,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                                 <label className="block">
                                     <span className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1 mt-2">{tr("Mastery estimate to pass (%)")}</span>
                                     <TextInput
-                                        type="number" min={0} max={100}
+                                        type="number" min={1} max={100}
                                         value={masteryThreshold}
                                         onChange={(e) => setMasteryThreshold(e.target.value)}
                                         onBlur={() => saveGateNumber('mastery_threshold', masteryThreshold)}
@@ -165,7 +182,7 @@ export default function LearningSettings({ active, snapshot }: { active: boolean
                                 <label className="block">
                                     <span className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1 mt-2">{tr("Mastery check score to pass (%)")}</span>
                                     <TextInput
-                                        type="number" min={0} max={100}
+                                        type="number" min={1} max={100}
                                         value={checkPass}
                                         onChange={(e) => setCheckPass(e.target.value)}
                                         onBlur={() => saveGateNumber('mastery_check_pass', checkPass)}

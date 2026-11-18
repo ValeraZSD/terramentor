@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, Loader2 } from 'lucide-react';
 import Modal from './Modal';
-import { ButtonLink } from './ui/Button';
+import { Button, ButtonLink } from './ui/Button';
 import { api } from '../api';
 import { useStore } from '../store';
 
@@ -22,24 +22,35 @@ export interface TextDocument {
 export default function DocumentTextDialog({ doc, onClose }: { doc: TextDocument | null; onClose: () => void }) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
-    const [loaded, setLoaded] = useState<{ id: number; text: string } | null>(null);
+    const [loaded, setLoaded] = useState<{ id: number; text: string; failed?: boolean } | null>(null);
+    // Bumped by Retry, so the request runs again for the same document.
+    const [attempt, setAttempt] = useState(0);
     const id = doc?.id;
+    const current = loaded && loaded.id === id ? loaded : null;
     // The text of the document open NOW, or null while it loads: the one
     // shown last time is never drawn under another document's title.
-    const text = loaded && loaded.id === id ? loaded.text : null;
+    const text = current ? current.text : null;
+    const failed = !!current?.failed;
 
     useEffect(() => {
-        if (id == null) return;
+        if (id == null) {
+            // Closed: a failure shown for this document must not be what the
+            // same document opens on next time, before its request has answered.
+            setLoaded(prev => (prev?.failed ? null : prev));
+            return;
+        }
         let live = true;
         api.getDocumentText(id)
             .then(({ content }) => { if (live) setLoaded({ id, text: content ?? '' }); })
             .catch((e: any) => {
                 if (!live) return;
                 addToast('error', t("Failed to load extracted text"), e?.message);
-                setLoaded({ id, text: '' });
+                // A failed request is not an empty file: the dialog says so, and
+                // keeps saying it after the toast is gone.
+                setLoaded({ id, text: '', failed: true });
             });
         return () => { live = false; };
-    }, [id, addToast, t]);
+    }, [id, attempt, addToast, t]);
 
     return (
         <Modal isOpen={!!doc} onClose={onClose} title={doc?.title ?? ''} maxWidth="max-w-2xl" fill>
@@ -65,6 +76,11 @@ export default function DocumentTextDialog({ doc, onClose }: { doc: TextDocument
                 {text == null ? (
                     <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                         <Loader2 className="w-4 h-4 animate-spin" /> {t("Loading…")}
+                    </div>
+                ) : failed ? (
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
+                        <p role="alert">{t("Failed to load extracted text")}</p>
+                        <Button size="sm" onClick={() => { setLoaded(null); setAttempt(n => n + 1); }}>{t("Retry")}</Button>
                     </div>
                 ) : text ? (
                     // The reading font, not a log's: line breaks kept, nothing monospaced.

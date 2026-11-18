@@ -24,7 +24,7 @@ process.env.VAULT_ROOT = join(scratch, 'vault');
 
 const B = new URL('../server/', import.meta.url).href;
 const {
-    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue,
+    keyEchoesStem, keyIsLengthOutlier, isShapeOnlyOption, stemNumbers, optionValue, sameOption, sameOptionCased,
 } = await import(B + 'questionOptions.js');
 const {
     hasComputation, questionDefects, questionWeaknesses, stripSelfCertifyingCloser,
@@ -413,6 +413,75 @@ console.log('\n--- sameAnswer: every script, not just Latin ---');
 check('kana agrees with itself', sameAnswer('お', 'お'), true);
 check('cyrillic agrees with itself', sameAnswer('Привет', 'Привет'), true);
 check('greek agrees with itself', sameAnswer('Ελλάδα', 'Ελλάδα'), true);
+// Two options are one choice only when they say the same thing: a case change,
+// a different comparison operator or an arrow's other direction is a different
+// answer, and refusing the question for it throws away a good distractor set.
+console.log('\n--- sameOptionCased: when two options are the same choice ---');
+// Every "different options" row fails on the comparison these replaced (case
+// folded everywhere, `\times10` read with or without a caret), except the two
+// pins `i < 5`/`i <= 5` and the reversible arrow, which passed before as well.
+// The "one option" rows and the case-folded rows below pass before and after:
+// they pin what must not change.
+for (const [a, b, why] of [
+    ['$\\Delta x$', '$\\delta x$', 'a capital and a small Greek letter'],
+    ['5 MW', '5 mW', 'mega and milli'],
+    ['CO', 'Co', 'carbon monoxide and cobalt'],
+    ['i == 5', 'i <= 5', 'equal and at most'],
+    ['i >= 5', 'i != 5', 'at least and not equal'],
+    ['i < 5', 'i <= 5', 'below and at most'],
+    ['x = 2', 'y = 2', 'the same value for another variable'],
+    ['$\\leftarrow$', '$\\rightarrow$', 'the two arrows'],
+    ['$A \\rightleftharpoons B$', '$A \\rightarrow B$', 'reversible and one way'],
+    ['MPa pressure', 'mPa pressure', 'mega and milli pascal, with a word after them'],
+    ['MHz signal', 'mHz signal', 'mega and milli hertz, with a word after them'],
+    ['$\\Delta \\theta$', '$\\delta \\theta$', 'two long words in a formula are still a formula'],
+    ['$2$', '$2 \\times 100$', 'a times sign with no power is a product, not an exponent'],
+]) check(`${a} and ${b} are different options (${why})`, sameOptionCased(a, b), false);
+for (const [a, b, why] of [
+    ['$x = 1.5$', '$x = \\frac{3}{2}$', 'a decimal and its fraction under one label'],
+    ['$x = 4$', '$ x=4 $', 'spacing'],
+    ['\\left(2\\right)', '(2)', '\\left and \\right as sizing commands'],
+    ['$1.0 \\times 10^{3}$', '1000', 'a power of ten'],
+    ['Melt the butter', 'melt the butter', 'a sentence whose only difference is its capital'],
+    ['$x = 2$', '$2$', 'a value and the same value under a label'],
+]) check(`${a} and ${b} are one option (${why})`, sameOptionCased(a, b), true);
+// A free-hand answer is compared with a stored one with case folded: a verifier
+// writing "boil" for "Boil" disagrees with nothing.
+for (const [a, b] of [['boil', 'Boil'], ['mercury', 'Mercury'], ['5 mW', '5 MW'], ['$X = 2$', '$x = 2$']]) {
+    check(`${a} and ${b} agree once case is folded`, sameOption(a, b), true);
+}
+check('folding case does not equate different words', sameOption('Boil', 'Cool'), false);
+check('folding case does not equate two values under different labels', sameOption('x = 2', 'y = 2'), false);
+{
+    // The key written with a stray capital still finds its option, so the
+    // key-shape checks do not switch themselves off.
+    const wordy = '$\\Delta x_{\\text{max}} + \\Delta y_{\\text{max}}$';
+    check('the key-shape check still finds a key that differs from its option only by case',
+        keyIsLengthOutlier([wordy, '$x$', '$y$', '$z$'], wordy.toLowerCase()), true);
+    // ...and a distractor that differs from the key only by case still counts as
+    // a distractor of the same length, so the key is no outlier.
+    check('a case-variant distractor as long as the key keeps it from being a length outlier',
+        keyIsLengthOutlier([wordy, wordy.toLowerCase(), '$x$', '$y$'], wordy), false);
+}
+check('a comparison is no label: i <= 5 reads as no value', optionValue('i <= 5'), null);
+check('a label still gives its value', optionValue('$x = \\frac{3}{2}$'), 1.5);
+{
+    const optionFaults = (options) => questionDefects({
+        type: 'multiple_choice',
+        question: 'Which symbol stands for the change in $x$?',
+        options, correct_answer: options[0],
+        explanation: 'The capital delta marks a change; the small delta marks a tiny one.',
+    }).filter(p => /same value written two ways/.test(p)).length;
+    check('options that differ only by case are not refused as duplicates',
+        optionFaults(['$\\Delta x$', '$\\delta x$', '$\\Sigma x$', '$dx$']), 0);
+    check('operator options are not refused as duplicates',
+        optionFaults(['i == 5', 'i <= 5', 'i >= 5', 'i != 5']), 0);
+    check('arrow options are not refused as duplicates',
+        optionFaults(['$\\leftarrow$', '$\\rightarrow$', '$\\leftrightarrow$', '$\\uparrow$']), 0);
+    check('a real duplicate is still refused',
+        optionFaults(['$x = 1.5$', '$x = \\frac{3}{2}$', '$x = 2$', '$x = 4$']), 1);
+}
+
 check('han agrees with itself', sameAnswer('你好', '你好'), true);
 check('two different kana still differ', sameAnswer('お', 'あ'), false);
 

@@ -7,6 +7,7 @@
 // external refs) — the output is inert markup that can only draw and animate.
 
 import DOMPurify from 'dompurify';
+import { hasCssAnimation } from './svgFrames';
 
 /**
  * Grab the <svg>…</svg> span out of any surrounding prose/fence debris.
@@ -210,8 +211,15 @@ function fixTimingLists(svg: SVGSVGElement): void {
  * A reference to anything outside the document, in CSS: a `url()` that is not
  * a `#fragment`, and `image-set()`, which also takes a bare string. Replaced
  * with `none`, which every property that takes one of these accepts.
+ *
+ * The fragment check looks past an opening quote: a browser serializes
+ * `fill: url(#g)` back as `url("#g")`, and a pattern that tested the character
+ * after an optional quote backtracked to "no quote" and turned every quoted
+ * reference to the drawing's own gradient, marker or clip into `none`. The
+ * lookahead restarts at the whitespace so backtracking the leading `\s*` cannot
+ * slip past it either.
  */
-const EXTERNAL_CSS_REF = /(?:-webkit-)?image-set\([^)]*\)|url\(\s*['"]?(?!#)[^)]*\)/gi;
+const EXTERNAL_CSS_REF = /(?:-webkit-)?image-set\([^)]*\)|url\(\s*(?!\s*['"]?#)[^)]*\)/gi;
 const stripExternalCss = (css: string) => css.replace(/@import[^;]*;?/gi, '').replace(EXTERNAL_CSS_REF, 'none');
 
 /** Attributes whose value a SMIL element may REWRITE: none that can navigate or run. */
@@ -472,9 +480,15 @@ const MIN_LABEL_UNITS = 12;
  * sans-serif }` is a size a `font-size:` scan cannot see, on a rule reaching
  * every label in the scene. `font-family` and `font-weight` do not match: the
  * character after `font` must be a colon.
+ *
+ * Only a bare number or `px` is a user unit. `0.8em`, `1.2rem` and `90%` are
+ * relative to something this cannot see, so the trailing lookahead refuses to
+ * match them: without it the number was read as a 0.8-unit label, rewritten to
+ * the floor, and left in front of the real unit as `12pxem`, which the browser
+ * drops, along with the size the scene was meant to have.
  */
 const CSS_FONT_SIZE =
-    /(font-size\s*:\s*|font\s*:\s*(?:(?:normal|italic|oblique|small-caps|bold(?:er)?|lighter|[1-9]00)\s+)*)([\d.]+)(px)?/gi;
+    /(font-size\s*:\s*|font\s*:\s*(?:(?:normal|italic|oblique|small-caps|bold(?:er)?|lighter|[1-9]00)\s+)*)([\d.]+)(px)?(?![\w.%])/gi;
 
 function styleSheets(svg: SVGSVGElement): Element[] {
     return Array.from(svg.querySelectorAll('style'));
@@ -610,11 +624,7 @@ export function sanitizeAnimatedSvg(code: string): SVGSVGElement {
     floorLabelSizes(svg);
 
     const hasSmil = !!svg.querySelector('animate, animateTransform, animateMotion, set');
-    const hasCss = /@keyframes|animation\s*:/.test(
-        Array.from(svg.querySelectorAll('style')).map(s => s.textContent).join('') +
-        Array.from(svg.querySelectorAll('[style]')).map(s => s.getAttribute('style')).join(''),
-    );
-    if (!hasSmil && !hasCss) {
+    if (!hasSmil && !hasCssAnimation(svg)) {
         throw new Error('nothing is animated — add SMIL tags (<animate>, <animateTransform>, <animateMotion>) with dur and repeatCount="indefinite".');
     }
 

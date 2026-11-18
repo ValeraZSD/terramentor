@@ -7,6 +7,7 @@ import './ownerOnlyUmask.js';
 import { closeDatabase, DB_PATH } from './database.js';
 import { announceSetupCode, isAuthEnabled } from './auth.js';
 import { hostedStartProblem, restoreMarkerPath } from './hosted.js';
+import { isSiteLibrary, siteLibraryStartProblem, siteSocketPath } from './siteLibrary.js';
 import { syncBuiltinProviders } from './searchProviders.js';
 import * as feedGen from './feedGen.js';
 import { logActivity } from './activityLog.js';
@@ -70,7 +71,8 @@ const PORT = Number(process.env.PORT) || 3001;
 const certDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.certs');
 const keyPath = path.join(certDir, 'key.pem');
 const certPath = path.join(certDir, 'cert.pem');
-const httpsOpts = servingSPA && fs.existsSync(keyPath) && fs.existsSync(certPath)
+// A site library never: it answers the front desk in plain HTTP on its socket.
+const httpsOpts = servingSPA && !isSiteLibrary() && fs.existsSync(keyPath) && fs.existsSync(certPath)
     ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
     : null;
 
@@ -80,6 +82,9 @@ const httpsOpts = servingSPA && fs.existsSync(keyPath) && fs.existsSync(certPath
 // only if you explicitly want to expose it on all interfaces (and then a password
 // via the security settings is strongly recommended).
 const HOST = process.env.HOST || '127.0.0.1';
+// A library run by a site's front desk listens on a socket inside its own
+// folder and on no port (server/siteLibrary.js).
+const SITE_SOCKET = siteSocketPath();
 
 // A hosted copy (server/hosted.js) never opens its port unlocked: bound beyond
 // loopback it needs a password already set or the operator's setup token.
@@ -87,7 +92,8 @@ const HOST = process.env.HOST || '127.0.0.1';
 {
     let passwordSet = false;
     try { passwordSet = isAuthEnabled(); } catch (e) { console.error(`[hosted] Could not read whether a password is set: ${e.message}`); }
-    const problem = hostedStartProblem({ passwordSet, restoreIncomplete: fs.existsSync(restoreMarkerPath(DB_PATH)) });
+    const problem = siteLibraryStartProblem()
+        || hostedStartProblem({ passwordSet, restoreIncomplete: fs.existsSync(restoreMarkerPath(DB_PATH)) });
     if (problem) {
         console.error(`[hosted] Refusing to start: ${problem}`);
         process.exit(1);
@@ -142,7 +148,16 @@ function listenWithFallback(port, attemptsLeft) {
         };
         server.once('error', onError);
         server.once('listening', onListening);
-        server.listen(port, HOST);
+        if (SITE_SOCKET) {
+            // A socket file left by a library that was killed would refuse the
+            // bind. Only a socket is removed: anything else at the path is an error.
+            if (process.platform !== 'win32') {
+                try { if (fs.lstatSync(SITE_SOCKET).isSocket()) fs.unlinkSync(SITE_SOCKET); } catch { /* none there */ }
+            }
+            server.listen(SITE_SOCKET);
+        } else {
+            server.listen(port, HOST);
+        }
     });
 }
 
@@ -154,8 +169,9 @@ function listenWithFallback(port, attemptsLeft) {
 export const serverReady = listenWithFallback(PORT, PORT_ATTEMPTS).then((port) => {
     boundPort = port;
     const proto = httpsOpts ? 'https' : 'http';
-    console.log(`Server running at ${proto}://localhost:${port} (bound to ${HOST})`);
-    if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
+    if (SITE_SOCKET) console.log('Library listening on its socket (site mode)');
+    else console.log(`Server running at ${proto}://localhost:${port} (bound to ${HOST})`);
+    if (!SITE_SOCKET && HOST !== '127.0.0.1' && HOST !== 'localhost') {
         console.log(`[security] Listening on ${HOST} — reachable beyond this machine. Set a password in Settings → Devices & security.`);
         // Printed up front here, where a remote first visit is the likely one
         // (a container is always this case): the operator reading the start-up
@@ -214,12 +230,21 @@ export function shutdownProcess(reason = 'signal') {
         process.exit(0);
     });
 }
-if (isDesktop()) {
+if (isDesktop() || isSiteLibrary()) {
     for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => shutdownProcess(sig));
 }
 
+// A site library is started because its person opened a page, and stopped
+// again when they leave: a wake is not an app launch. The start-up work that
+// asks a model (filling the feed, embeddings, head starts, search words, PDF
+// recovery) would be paid for on every visit, so none of it starts here; the
+// feed still fills when the person opens it. The update poll is the
+// operator's business on a server.
+const wakeStartsModelWork = !isSiteLibrary();
+if (!wakeStartsModelWork) console.log('[site] Woken: start-up model work is not started');
+
 // Warm the learning feed's teaching buffer once the server has settled.
-feedGen.startupKick();
+if (wakeStartsModelWork) feedGen.startupKick();
 
 // Nodes written before `nodes.role` existed: demote the stages the Anki importer
 // cut out of card order. One shot (it records a flag), synchronous because it is
@@ -235,7 +260,7 @@ try {
 
 // The opt-in update poll. A no-op unless the learner turned it on, which is what
 // keeps SECURITY.md's idle-and-capture procedure true on a default install.
-startUpdatePoll();
+if (wakeStartsModelWork) startUpdatePoll();
 
 // "Updated" is shown for the run the update started: a success written before
 // this process began is from an earlier run (server/appUpdate.js).
@@ -247,16 +272,16 @@ try { expireResult(); } catch (e) { console.error('[Update] could not clear the 
 // so startup is the one place that guarantees the map is never permanently
 // behind the curriculum. Deferred well past boot: it wants the model, and the
 // feed buffer asked first.
-scheduleNodeSync({ delay: 20000 });
+if (wakeStartsModelWork) scheduleNodeSync({ delay: 20000 });
 
 // ...and the head starts that ride on it. Behind the embedding sweep, because a
 // topic with no vector yet has no twins to find.
-scheduleTransferSweep({ delay: 45000, ...getGateConfig() });
+if (wakeStartsModelWork) scheduleTransferSweep({ delay: 45000, ...getGateConfig() });
 
 // Resume any PDF math recovery interrupted by a restart (its in-memory queue was
 // lost but the DB still shows it running/pending). Deferred so it doesn't compete
 // with startup; runs on its own serial chain and yields to interactive work.
-setTimeout(() => { try { resumePendingRecovery(); } catch { /* never fatal */ } }, 8000);
+if (wakeStartsModelWork) setTimeout(() => { try { resumePendingRecovery(); } catch { /* never fatal */ } }, 8000);
 
 // Card media the database no longer points at. A staged import holds its blobs
 // in memory-free storage rather than in memory, so a crash or a restart between
@@ -287,7 +312,7 @@ setTimeout(() => {
 // Search words for every course that has none yet (server/searchWords.js):
 // courses made before them, and any whose last try was interrupted. One model
 // call per course, once; behind the embedding sweep on the shared chain.
-scheduleSearchWords({ delay: 35000 });
+if (wakeStartsModelWork) scheduleSearchWords({ delay: 35000 });
 
 // Started last, and after the warm-up timers above, so the sweeps this file
 // schedules on purpose are not reported as if they were the problem. Silent

@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
-import { api } from './api';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath } from './utils/tree';
@@ -373,6 +373,9 @@ let searchSeq = 0;
  *  or open a study scope on the page after it (A → B → A included, where the
  *  project id alone says the stale continuation is still current). */
 let routeSeq = 0;
+/** Which loadPaceData call is the newest. A save or a removal bumps it too, so
+ *  a pace answer asked for before the plan changed is not drawn after it. */
+let paceSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
 /** The study hub is asked for on two paths at once (StudyDashboard's effect and
@@ -401,6 +404,9 @@ const messageOf = (e: unknown): string => {
     const message = (e as { message?: unknown } | null)?.message;
     return typeof message === 'string' ? message : String(e);
 };
+
+/** Which `setUiLanguage` pick is the newest (see the store action). */
+let uiLanguagePick = 0;
 
 /**
  * Where each setting's writes stand. A setter shows its value at once and
@@ -540,6 +546,8 @@ interface AppState {
     authTailscale: AuthTailscaleHint | null;
     /** No password, and the server is set up to be reachable from other machines (`/api/auth/status` `exposed`). */
     authExposed: boolean;
+    /** This library is run by a shared site's front desk, which signs people in and out (`/api/auth/status` `site`). */
+    authSite: boolean;
     projects: Project[];
     /** Search-provider manifests (server/searchProviders.js). Declarative data only. */
     searchProviders: SearchProvider[];
@@ -881,7 +889,7 @@ interface AppState {
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
     /** False when the server refused the edit; the toast has already said why. */
-    updateProject: (id: number, updates: Partial<Project>) => Promise<boolean>;
+    updateProject: (id: number, updates: ProjectUpdate) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
     createNode: (nodeData: Partial<Node>) => Promise<void>;
@@ -909,7 +917,6 @@ interface AppState {
     setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
-    recalibrateSchedule: (projectId: number) => Promise<boolean>;
     removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
@@ -999,6 +1006,7 @@ export const useStore = create<AppState>((set, get) => ({
     authSetupRequired: false,
     authTailscale: null,
     authExposed: false,
+    authSite: false,
     projects: [],
     searchProviders: [],
     appVersion: null,
@@ -1249,8 +1257,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     loadAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
+            if (site && !authenticated) { goToSiteSignIn(); return; }
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
             // A QR code's `#pair=` on a page that opens anyway (its Tailscale
             // account let it in) is never spent by the lock screen; it leaves the
             // address bar and the history all the same.
@@ -1280,13 +1289,13 @@ export const useStore = create<AppState>((set, get) => ({
      */
     recheckAuth: async () => {
         try {
-            const { enabled, authenticated, setupRequired, tailscale, exposed } = await api.getAuthStatus();
+            const { enabled, authenticated, setupRequired, tailscale, exposed, site } = await api.getAuthStatus();
             const before = get();
             const wasLocked = before.authEnabled && !before.authenticated;
             if (before.authEnabled === enabled && before.authenticated === authenticated
                 && before.authSetupRequired === !!setupRequired && before.authTailscale === (tailscale ?? null)
-                && before.authExposed === !!exposed) return;
-            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed });
+                && before.authExposed === !!exposed && before.authSite === !!site) return;
+            set({ authEnabled: enabled, authenticated, authChecked: true, authSetupRequired: !!setupRequired, authTailscale: tailscale ?? null, authExposed: !!exposed, authSite: !!site });
             if (wasLocked && (!enabled || authenticated)) {
                 await Promise.all([get().loadSettings(), get().loadProjects(), get().loadSearchProviders()]);
                 get().loadVersion();
@@ -1456,8 +1465,13 @@ export const useStore = create<AppState>((set, get) => ({
         // feedback, and a setting that only lands after a round trip reads as
         // a control that did nothing.
         const before = get().uiLanguage;
+        const pick = ++uiLanguagePick;
         set({ uiLanguage: code });
         await applyUiLanguage(resolveLanguagePreference(code));
+        // Only the newest pick is stored. The applier drops an older pick whose
+        // chunk lands late, so if that older pick still saved it would be the
+        // last write: the screen in one language and the server holding another.
+        if (pick !== uiLanguagePick) return;
         await saveSetting(get, 'ui_language', code, before, code, value => {
             set({ uiLanguage: value });
             void applyUiLanguage(resolveLanguagePreference(value));
@@ -2099,7 +2113,7 @@ export const useStore = create<AppState>((set, get) => ({
         // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true, paceData: null });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -2621,13 +2635,17 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
+            // Only a change to the open course outdates the pace on screen.
+            if (projectId === get().currentProjectId) paceSeq++;
+            // The allocator's English warnings are not shown. The pace ones
+            // ("Pace is very intense…"): the plan panel's verdict says whether
+            // the date works, measured against the learner's own pace. "Some
+            // phases will overlap" (fewer study days than phases): the
+            // Timeline draws the overlap itself, and the verdict says whether
+            // a window that short can be met.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            get().addToast('success', i18n.t('Schedule generated successfully'));
-            set({ showScheduleModal: false });
+            get().addToast('success', i18n.t('Plan saved'));
             return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to generate schedule'), e.message);
@@ -2635,36 +2653,12 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    recalibrateSchedule: async (projectId) => {
-        try {
-            const result = await api.recalibrateSchedule(projectId);
-            if (!result.success) {
-                if (result.suggestedDeadline) get().addToast('info', i18n.t('Deadline Suggestion'), i18n.t('Consider extending deadline to {{date}}', { date: result.suggestedDeadline }));
-                get().addToast('error', i18n.t('Recalibration failed'), result.error);
-                return false;
-            }
-            if (result.unchanged) { get().addToast('success', i18n.t('All tasks completed!')); return true; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
-            await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            // Recalibrating (from a workspace) reshapes the feed's focus — rebuild
-            // the stream if the user is currently on the home page.
-            if (get().view === 'today') await get().loadFeed();
-            get().addToast('success', i18n.t('Schedule recalibrated from today'));
-            return true;
-        } catch (e: any) {
-            get().addToast('error', i18n.t('Failed to recalibrate schedule'), e.message);
-            return false;
-        }
-    },
-
     removeSchedule: async (projectId) => {
         try {
             await api.removeSchedule(projectId);
+            if (projectId === get().currentProjectId) paceSeq++;
             await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
+            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null, paceLoading: false }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
             return true;
         } catch (e: any) {
@@ -2674,13 +2668,14 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadPaceData: async (projectId) => {
+        const seq = ++paceSeq;
         set({ paceLoading: true });
+        const current = () => seq === paceSeq && get().currentProjectId === projectId;
         try {
             const pace = await api.getProjectPace(projectId);
-            if (get().currentProjectId !== projectId) return;
-            set({ paceData: pace, paceLoading: false });
+            if (current()) set({ paceData: pace, paceLoading: false });
         } catch {
-            if (get().currentProjectId === projectId) set({ paceLoading: false });
+            if (current()) set({ paceLoading: false });
         }
     },
 

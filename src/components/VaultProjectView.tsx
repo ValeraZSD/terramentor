@@ -8,6 +8,19 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
 import { PanelPopover } from './ui/Popover';
 
+// At module level on purpose: declared inside the view it would be a new
+// component type on every render, and ticking a box would remount the focused
+// input and drop keyboard focus.
+const Toggle = ({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) => (
+    <label className="flex items-start gap-2.5 cursor-pointer py-1.5">
+        <Checkbox checked={on} onChange={onChange} className="mt-0.5" />
+        <span className="text-sm text-slate-700 dark:text-slate-200">
+            {label}
+            {hint && <span className="block text-sm text-slate-500 dark:text-slate-400">{hint}</span>}
+        </span>
+    </label>
+);
+
 /**
  * Project-level Vault view. Manage the original files that ground this
  * project's AI (study chat, quizzes, mastery checks) and export the whole project
@@ -95,16 +108,6 @@ export default function VaultProjectView() {
             setExportingAnki(false);
         }
     };
-
-    const Toggle = ({ on, onChange, label, hint }: { on: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) => (
-        <label className="flex items-start gap-2.5 cursor-pointer py-1.5">
-            <Checkbox checked={on} onChange={onChange} className="mt-0.5" />
-            <span className="text-sm text-slate-700 dark:text-slate-200">
-                {label}
-                {hint && <span className="block text-sm text-slate-500 dark:text-slate-400">{hint}</span>}
-            </span>
-        </label>
-    );
 
     return (
         <div className="flex-1 overflow-y-auto p-6">

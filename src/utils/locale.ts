@@ -85,19 +85,43 @@ function rangeFormat(locale: string, year: boolean): RangeFormat {
     return fmt;
 }
 
+const fullDateFormats = new Map<string, Intl.DateTimeFormat>();
+
 /**
- * The narrowest weekday label, by ISO day (1 = Monday … 7 = Sunday) — for the
- * seven-tickbox study week, where the row has to fit on a phone.
+ * A calendar day in full, "Tuesday 18 November 2026", in the interface
+ * language: the name of a control that shows only the day's number, so a
+ * screen reader does not hear "1" twice in a month that shows the next one's
+ * first days. `iso` is a `YYYY-MM-DD` day at UTC midnight. One formatter per
+ * language, since a month grid asks for 42 at once.
+ */
+export function fullDateLabel(iso: string): string {
+    const d = new Date(`${iso}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return '';
+    const locale = uiLocale();
+    let fmt = fullDateFormats.get(locale);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+        fullDateFormats.set(locale, fmt);
+    }
+    return fmt.format(d);
+}
+
+/**
+ * The short weekday name, by ISO day (1 = Monday … 7 = Sunday), for the
+ * seven study-day toggles.
  *
  * A row built by hand would mix bare English letters no extractor can see
- * with translated keys — a German reader would choose their study days from
- * "M Di W Do F Sa So". `Intl`'s `narrow` is one letter in the languages that have one and the
- * right short form in the ones that do not (ja 月火水, ru пн вт ср).
+ * with translated keys. `short`, not `narrow`: one letter left Tuesday and
+ * Thursday, Saturday and Sunday reading the same (T T, S S); the short forms
+ * (Mon, ma, пн, 月) still fit seven to a phone row.
  */
-export function isoDayLabel(iso: number): string {
+export function isoDayShort(iso: number): string {
     // 2021-08-01 was a Sunday, so ISO 1 (Monday) is the 2nd.
-    return new Intl.DateTimeFormat(uiLocale(), { weekday: 'narrow', timeZone: 'UTC' })
-        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
+    // The abbreviation's own dot goes ("lun." "niedz."): on a button it is
+    // noise, and Polish Sunday touched its edges at phone width.
+    return new Intl.DateTimeFormat(uiLocale(), { weekday: 'short', timeZone: 'UTC' })
+        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))))
+        .replace(/\.$/, '');
 }
 
 /**

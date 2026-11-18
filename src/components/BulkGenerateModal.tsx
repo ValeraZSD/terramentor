@@ -4,6 +4,8 @@ import { useDialogFocus } from '../hooks/useDialogFocus';
 import { api } from '../api';
 import type { BulkCandidate, BulkJobStatus, BulkKind } from '../types';
 import { todayStr } from '../utils/tree';
+import { durationParts } from '../utils/taskPlace';
+import { useTapGuard } from '../hooks/useTapGuard';
 import {
     AlertTriangle, CheckCircle2, ChevronDown, Layers, Loader2, Pause, Search,
     ShieldCheck, X,
@@ -44,16 +46,19 @@ import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
 
 type Preset = 'open' | 'overdue' | 'missing' | 'all' | 'none';
 
+/** How often a live run is asked for its progress, and the longest wait between
+ *  two asks after a poll failed. */
+const POLL_MS = 1500;
+const POLL_RETRY_MAX_MS = 15000;
+
 const QUESTION_CHOICES = [6, 10, 15];
 const CARD_CHOICES = [5, 10, 15];
 
-/** "~4 min" / "~1 h 10 min" — never seconds, which imply a precision we lack. */
-function formatDuration(ms: number): string {
-    const mins = Math.max(1, Math.round(ms / 60000));
-    if (mins < 60) return `${mins} min`;
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m ? `${h} h ${m} min` : `${h} h`;
+/** "~4 min" / "~1 h 10 min" — never seconds, which imply a precision we lack.
+ *  The ETA is rounded to whole minutes and then written by `durationParts`, so
+ *  the units are the translated ones. */
+function etaParts(ms: number) {
+    return durationParts(Math.max(1, Math.round(ms / 60000)) * 60000);
 }
 
 const isOpen = (c: BulkCandidate) => c.status !== 'completed' && c.status !== 'skipped';
@@ -78,6 +83,20 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
     // none), the counted scroll lock.
     const dialogRef = useRef<HTMLDivElement>(null);
     useDialogFocus(true, dialogRef, { onEscape: () => onClose() });
+    // A backdrop TAP, not any click that lands there: a selection dragged out
+    // of the search box lifts over the backdrop (see `Modal`).
+    const backdrop = useTapGuard(onClose, true);
+    // Bumped when a run ends, so the list is read again: the rows it wrote
+    // material for no longer count as missing, and the topics past the cap of
+    // one pass become reachable without closing the dialog.
+    const [reload, setReload] = useState(0);
+    // Whether the last poll saw a run in progress. A ref, so a run that ends
+    // between two polls (or before the first) still triggers the re-read, and
+    // the poll effect restarting does not forget it.
+    const wasRunning = useRef(false);
+    // The picker has been given its opening selection once; a re-read after
+    // that keeps what the learner lined up.
+    const opened = useRef(false);
 
     const today = todayStr();
 
@@ -86,31 +105,52 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
         api.getBulkCandidates(projectId)
             .then(res => {
                 if (!alive) return;
+                setLoadError(null);
                 setCandidates(res.candidates);
                 setMax(res.max);
                 // Default = still-open topics that are actually missing something.
                 // Selecting work already done is how a learner spends twenty
                 // minutes of GPU time on nothing.
                 const want = res.candidates.filter(c => isOpen(c) && (!c.gateReady || c.flashcards === 0));
-                setSelected(new Set(want.slice(0, res.max).map(c => c.nodeId)));
-                setCapped(want.length > res.max);
+                if (!opened.current) {
+                    opened.current = true;
+                    setSelected(new Set(want.slice(0, res.max).map(c => c.nodeId)));
+                    setCapped(want.length > res.max);
+                } else {
+                    // The run just written material for some rows: drop those
+                    // from the learner's picks, keep the rest as they were.
+                    const missing = new Set(want.map(c => c.nodeId));
+                    setSelected(prev => new Set([...prev].filter(id => missing.has(id))));
+                }
             })
             .catch(e => { if (alive) setLoadError(e.message); });
         return () => { alive = false; };
-    }, [projectId]);
+    }, [projectId, reload]);
 
     // Poll the server's job while one is live. The job is server-owned, so this
     // also picks up a run started before this dialog was even opened.
     useEffect(() => {
         let alive = true;
         let timer: number | undefined;
+        let retryMs = POLL_MS;
         const tick = async () => {
             try {
                 const status = await api.getBulkStatus();
                 if (!alive) return;
+                retryMs = POLL_MS;
                 setJob(status);
-                if (status && status.status === 'running') timer = window.setTimeout(tick, 1500);
-            } catch { /* a poll that fails is retried by the next one */ }
+                const isRunning = status?.status === 'running';
+                if (wasRunning.current && !isRunning) setReload(n => n + 1);
+                wasRunning.current = isRunning;
+                if (isRunning) timer = window.setTimeout(tick, POLL_MS);
+            } catch {
+                // A dropped request or a restarting server must not freeze the
+                // run panel on its last number: ask again, a little later each
+                // time, for as long as the dialog is open.
+                if (!alive) return;
+                timer = window.setTimeout(tick, retryMs);
+                retryMs = Math.min(retryMs * 2, POLL_RETRY_MAX_MS);
+            }
         };
         void tick();
         return () => { alive = false; if (timer) window.clearTimeout(timer); };
@@ -134,12 +174,26 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
         else setSelected(pick(c => !!c.scheduledEnd && c.scheduledEnd <= today && isOpen(c)));
     }, [candidates, max, today, needs]);
 
-    const toggle = (nodeId: number) => setSelected(prev => {
-        const next = new Set(prev);
-        if (next.has(nodeId)) next.delete(nodeId);
-        else if (next.size < max) next.add(nodeId);
-        return next;
-    });
+    const toggle = (nodeId: number) => {
+        // A tick past the cap is refused, and the "Capped at …" line is what
+        // says why: without it the box just does not tick.
+        if (!selected.has(nodeId) && selected.size >= max) { setCapped(true); return; }
+        setSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(nodeId)) next.delete(nodeId);
+            else next.add(nodeId);
+            return next;
+        });
+    };
+
+    /** The section checkbox: all of its rows, as many as the cap leaves room for. */
+    const toggleSection = (rows: BulkCandidate[], allOn: boolean) => {
+        const next = new Set(selected);
+        if (allOn) rows.forEach(r => next.delete(r.nodeId));
+        else rows.forEach(r => { if (next.size < max) next.add(r.nodeId); });
+        if (!allOn && rows.some(r => !next.has(r.nodeId))) setCapped(true);
+        setSelected(next);
+    };
 
     /** Rows that survive the search box, grouped under their top-level section. */
     const groups = useMemo<Array<[string, BulkCandidate[]]>>(() => {
@@ -150,12 +204,12 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
             : candidates;
         const bySection = new Map<string, BulkCandidate[]>();
         for (const c of rows) {
-            const key = c.section || 'Topics';
+            const key = c.section || t("Topics");
             if (!bySection.has(key)) bySection.set(key, []);
             bySection.get(key)!.push(c);
         }
         return [...bySection.entries()];
-    }, [candidates, query]);
+    }, [candidates, query, t]);
 
     // The honest cost of pressing the button: one model call per topic per
     // kind, minus whatever "only what's missing" takes off. Counted, not timed.
@@ -181,6 +235,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                 projectId, nodeIds: [...selected], kinds, questionCount, cardCount, skipExisting,
             });
             setJob(status);
+            wasRunning.current = status?.status === 'running';
             addToast('info', t("Generating study material"),
                 t("It runs in the background and pauses whenever you use the assistant. You can close this."));
         } catch (e: any) {
@@ -205,7 +260,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
     return (
         <div
             className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 ${SHEET_OVERLAY}`}
-            onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+            {...backdrop}
         >
             <div
                 ref={dialogRef}
@@ -305,7 +360,12 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                     </section>
 
                     <div className="px-3 pb-2">
-                        {loadError && <p className="p-4 text-sm text-red-500">{loadError}</p>}
+                        {loadError && (
+                            <div role="alert" className="p-4 flex flex-wrap items-center gap-3">
+                                <p className="text-sm text-red-500">{loadError}</p>
+                                <Button size="sm" onClick={() => { setLoadError(null); setReload(n => n + 1); }}>{t("Try again")}</Button>
+                            </div>
+                        )}
                         {!candidates && !loadError && (
                             <div className="p-6 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
                         )}
@@ -328,12 +388,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
                                         <Checkbox
                                             checked={on === rows.length && rows.length > 0}
                                             indeterminate={on > 0 && on < rows.length}
-                                            onChange={() => setSelected(prev => {
-                                                const next = new Set(prev);
-                                                if (on === rows.length) rows.forEach(r => next.delete(r.nodeId));
-                                                else rows.forEach(r => { if (next.size < max) next.add(r.nodeId); });
-                                                return next;
-                                            })}
+                                            onChange={() => toggleSection(rows, on === rows.length)}
                                             aria-label={t("Select every topic in {{section}}", { section })}
                                         />
                                         <button data-disclosure="section"
@@ -398,6 +453,7 @@ export default function BulkGenerateModal({ projectId, onClose }: { projectId: n
 /** The live run. It does not replace the picker — the next pass can be lined up. */
 function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boolean; onCancel: () => void }) {
     const { t } = useTranslation();
+    const eta = job.etaMs != null ? etaParts(job.etaMs) : null;
     return (
         <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
             <div className="flex items-center gap-2 text-sm">
@@ -417,9 +473,9 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                             : job.status === 'cancelled' ? t("stopped — everything finished is saved")
                                 : t("finished")}
                 </span>
-                {running && job.etaMs != null && (
+                {running && eta && (
                     <span className="ml-auto shrink-0 text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                        {t("~{{duration}} left", { duration: formatDuration(job.etaMs) })}
+                        {t("~{{duration}} left", { duration: t(eta.key, eta.params) })}
                     </span>
                 )}
                 {running && (
@@ -434,7 +490,7 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                     <span>
                         {t("{{count}} topics failed and were skipped", { count: job.failed })}
-                        {job.failures[0] ? ` — e.g. ${job.failures[0].title}: ${job.failures[0].error}` : ''}
+                        {job.failures[0] ? ` — ${job.failures[0].title}: ${job.failures[0].error}` : ''}
                     </span>
                 </p>
             )}

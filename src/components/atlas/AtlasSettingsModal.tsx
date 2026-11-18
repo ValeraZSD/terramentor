@@ -252,7 +252,7 @@ export default function AtlasSettingsModal({
                                         valueText={tr("{{seconds}} seconds", { count: settings.holdMs / 1000, seconds: num(settings.holdMs / 1000) })}
                                     />
                                     <span className="w-12 shrink-0 text-right text-sm tabular-nums text-slate-600 dark:text-slate-300">
-                                        {num(settings.holdMs / 1000)}s
+                                        {tr("{{seconds}}s", { seconds: num(settings.holdMs / 1000) })}
                                     </span>
                                 </div>
                             }

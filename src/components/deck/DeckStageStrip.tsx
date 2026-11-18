@@ -53,8 +53,10 @@ export default function DeckStageStrip({ stages, currentStageId, onSelect }: {
             <div ref={ref} className="flex h-6 w-full" style={{ gap }}>
                 {stages.map(stage => {
                     const isCurrent = stage.nodeId === currentStageId;
-                    const label = `${stage.title}: ${fmt(stage.seen)} of ${fmt(stage.cards)} cards met`
-                        + (stage.due > 0 ? `, ${fmt(stage.due)} due` : '');
+                    // Built from the keys the stage list below already translates,
+                    // so the tooltip and the screen-reader name follow the language.
+                    const label = t("{{title}}: {{fmt}} of {{fmt2}} cards met", { count: stage.cards, title: stage.title, fmt: fmt(stage.seen), fmt2: fmt(stage.cards) })
+                        + (stage.due > 0 ? ' ' + t("· {{fmt}} due", { fmt: fmt(stage.due) }) : '');
                     return (
                         <button data-row="stage-segment"
                             key={stage.nodeId}

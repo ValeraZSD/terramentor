@@ -381,7 +381,9 @@ persistSchedule(rmId, control.assignments, control.baselineSnapshot, { startDate
 check('control: the old statement lost the week, and the same dates then built a different plan', planKey(rmId) !== planBefore);
 const indexSrc = (await import('./lib/serverSource.mjs')).httpLayer();
 check('DELETE /api/projects/:id/schedule goes through removeSchedule',
-    /app\.delete\('\/api\/projects\/:id\/schedule'[\s\S]{0,400}?removeSchedule\(id\)/.test(indexSrc));
+    // The handler checks the "cannot move" mark first, so the call sits past
+    // its comment and the refusal.
+    /app\.delete\('\/api\/projects\/:id\/schedule'[\s\S]{0,900}?removeSchedule\(id\)/.test(indexSrc));
 const OLD_RESET = /study_days = '\[1,2,3,4,5\]', baseline_schedule = NULL/;
 check('…and no route resets the study week when it removes a schedule', !OLD_RESET.test(indexSrc));
 check('the control matches the statement that was there', OLD_RESET.test("UPDATE projects SET start_date = NULL, deadline = NULL, study_days = '[1,2,3,4,5]', baseline_schedule = NULL, updated_at"));

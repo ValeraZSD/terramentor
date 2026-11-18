@@ -4,7 +4,8 @@ import { AlertTriangle, CalendarPlus, Check, Edit2, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { Project, ScheduleOverviewRow } from '../../types';
 import { parseDate, todayStr } from '../../utils/tree';
-import { daysBetween, pretty } from '../../utils/scheduleAxis';
+import { pretty } from '../../utils/scheduleAxis';
+import { VerdictPill, verdictLine } from '../plan/verdict';
 import { dateRangeLabel } from '../../utils/locale';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
@@ -26,21 +27,12 @@ import { Button, IconButton } from '../ui/Button';
  * holds Remove schedule (the card owns its confirm), so the three things one
  * does to dates (set, change, remove) start from one press.
  *
- * The pace pill is `calculatePace`'s verdict in days (`GET /api/schedule/
- * overview`), the same function the study dashboard reads. Until that row
- * arrives, or if it fails, the strip still prints the project's own dates and
- * simply has no pill: a missing verdict is said by saying nothing.
+ * The pill is the date's verdict against the learner's own pace (`judgeDate`,
+ * on each row of `GET /api/schedule/overview`), the same one the plan panel and
+ * the course header show. Until that row arrives, or if it fails, the strip
+ * still prints the project's own dates and simply has no pill: a missing
+ * verdict is said by saying nothing.
  */
-
-/** Pace, as a colour. The statuses are the server's (`calculatePace`); the
- *  words are built here because server-written text stays English. */
-const PACE_TONE: Record<string, string> = {
-    ahead: 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/10',
-    on_track: 'text-slate-600 dark:text-slate-300 bg-slate-500/10',
-    falling_behind: 'text-amber-700 dark:text-amber-300 bg-amber-500/10',
-    critical: 'text-red-700 dark:text-red-300 bg-red-500/10',
-};
-const OVERDUE_TONE = 'text-red-700 dark:text-red-300 bg-red-500/10';
 
 /** "Aug 7 – Dec 17, 2026": one year when both ends share it (`formatRange`). */
 const range = (from: string, to: string) => dateRangeLabel(parseDate(from), parseDate(to));
@@ -90,9 +82,6 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
 
     const done = status === 'completed';
     const today = todayStr();
-    const daysLeft = end ? daysBetween(today, end) : 0;
-    // A FINISHED project is never overdue: its deadline is past because it was met.
-    const overdue = hasWindow && daysLeft < 0 && !done;
     // Until the overview arrives (or if it failed), the project's own counts
     // stand in: reading "no open topics" there sent a save down the plain
     // window write, and the open topics silently kept their old dates.
@@ -100,30 +89,17 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
         ? row.openLeaves
         : Math.max(0, (project.topic_count ?? 0) - (project.completed_topic_count ?? 0));
 
-    /** Pace in days, the deadline's own unit. `daysBehind` is clamped to ≥ 0
-     *  server-side, so the magnitude comes from the raw drift, as in `PaceIndicator`. */
-    const pill = (() => {
-        if (!hasWindow || done) return null;
-        const p = row?.pace;
-        // What "behind" is measured against, on hover: the share done beside
-        // the share the plan expected by today.
-        const why = p && p.paceStatus !== 'no_schedule' && p.paceStatus !== 'no_tasks'
-            ? t("{{actual}}% done; the plan expects {{expected}}%", { actual: num(p.actualProgress), expected: num(p.expectedProgress) })
-            : undefined;
-        // "Overdue", not "over": beside "N days behind", "N days over" read as
-        // a second kind of behind (three strangers out of three, 1 Nov 2026).
-        if (overdue) return { label: t("{{n}} days overdue", { count: -daysLeft, n: num(-daysLeft) }), tone: OVERDUE_TONE, why };
-        if (!p || !why) return null;
-        const days = Math.abs(Math.round(((p.drift || 0) / 100) * (p.totalDays || 0)));
-        // A whole sentence per `count` key: word order and plural forms are the
-        // translator's and `Intl.PluralRules`'.
-        const label = p.paceStatus === 'on_track'
-            ? t("On track")
-            : p.paceStatus === 'ahead'
-                ? t("{{n}} days ahead", { count: days, n: num(days) })
-                : t("{{n}} days behind", { count: days, n: num(days) });
-        return { label, tone: PACE_TONE[p.paceStatus] || PACE_TONE.on_track, why };
-    })();
+    /** The date judged against the learner's own pace (`judgeDate`): the same
+     *  verdict as the plan panel and the course header. "Done" says nothing a
+     *  finished course needs, so it shows no pill. A verdict judged on another
+     *  date (the overview not yet re-read after a move) is not shown beside
+     *  the new one. */
+    const verdict = hasWindow && !done && row?.verdict && row.verdict.band !== 'done'
+        && row.verdict.deadline === end ? row.verdict : null;
+    const line = verdict ? verdictLine(verdict, t, num) : null;
+    // The project record first: it is re-read on every write, the overview row
+    // only after it.
+    const locked = !!(project.deadline_fixed ?? row?.deadline_fixed);
 
     /** Topics outside the window, in EITHER direction: moving a project forward
      *  strands its topics behind it, moving it back strands them ahead. */
@@ -190,10 +166,11 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     start={start || today}
                     end={end || ''}
                     openLeaves={isDeck ? 0 : openLeaves}
+                    deadlineLocked={locked}
                     busy={saving}
                     onCancel={() => setEditing(false)}
                     onSave={commit}
-                    onRemove={hasWindow ? onRemove : undefined}
+                    onRemove={hasWindow && !locked ? onRemove : undefined}
                 />
             ) : (
                 <button
@@ -223,13 +200,13 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
                     <span className="min-w-0 flex-1 text-left tabular-nums">
                         {hasWindow ? range(start!, end!) : t("Set dates")}
                     </span>
-                    {pill && (
-                        <span title={pill.why} className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${pill.tone}`}>
-                            {pill.label}
-                            {pill.why && <span className="sr-only"> ({pill.why})</span>}
-                        </span>
-                    )}
+                    {verdict && <VerdictPill verdict={verdict} t={t} />}
                 </button>
+            )}
+            {/* Under the strip, so every strip in a row of cards still sits on
+                one line; it says what the pill is based on. */}
+            {line && !editing && (
+                <p data-verdict-line className="text-xs text-slate-500 dark:text-slate-400">{line}</p>
             )}
         </div>
     );
@@ -252,11 +229,13 @@ export default function ProjectDates({ project, row, isDeck, editing, onEditingC
  * some browsers.
  */
 function DateEditor({
-    start, end, openLeaves, busy, onCancel, onSave, onRemove,
+    start, end, openLeaves, deadlineLocked = false, busy, onCancel, onSave, onRemove,
 }: {
     start: string;
     end: string;
     openLeaves: number;
+    /** An exam date marked "cannot move": shown, never edited here (the plan panel takes the mark off). */
+    deadlineLocked?: boolean;
     busy: boolean;
     onCancel: () => void;
     onSave: (next: { start: string; end: string }) => void;
@@ -266,10 +245,14 @@ function DateEditor({
     const { t } = useTranslation();
     const num = useNumberFormat();
     const [from, setFrom] = useState(start);
-    const [to, setTo] = useState(end);
+    const [typedTo, setTo] = useState(end);
+    // A locked date is the saved one, whatever was typed before the lock
+    // arrived (another device): sending the typed one would be refused.
+    const to = deadlineLocked ? end : typedTo;
     const firstField = useRef<HTMLInputElement>(null);
     const endField = useRef<HTMLInputElement>(null);
     const reversedId = useId();
+    const lockedId = useId();
 
     // The editor replaces the button that opened it, so focus must follow: to
     // the start, or to the deadline when that is the date still to choose.
@@ -344,8 +327,9 @@ function DateEditor({
                         type="date"
                         value={to}
                         min={from || undefined}
+                        readOnly={deadlineLocked}
                         aria-invalid={reversed || undefined}
-                        aria-describedby={sayReversed ? reversedId : undefined}
+                        aria-describedby={sayReversed ? reversedId : deadlineLocked ? lockedId : undefined}
                         onChange={e => setTo(e.target.value)}
                         className={`${field} ${reversed ? bad : ok}`}
                     />
@@ -369,6 +353,10 @@ function DateEditor({
                     >
                         {t("Remove schedule")}
                     </Button>
+                ) : deadlineLocked ? (
+                    // Said on the card, not in a tooltip a phone never shows:
+                    // why the date will not change and why Remove is gone.
+                    <p id={lockedId} className="self-center text-xs text-slate-500 dark:text-slate-400">{t("Exam date, cannot move")}</p>
                 ) : <span aria-hidden="true" />}
                 {/* Cancel and apply split the deadline column between them,
                     edge to edge, so the second row lines up with the first.

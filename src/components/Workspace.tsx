@@ -14,6 +14,7 @@ import VaultProjectView from './VaultProjectView';
 import FeedView from './feed/FeedView';
 import DeckStudy from './deck/DeckStudy';
 import PaceIndicator from './PaceIndicator';
+import { LABEL as VERDICT_LABEL, VerdictDot } from './plan/verdict';
 import MockExamView from './mockExam/MockExamView';
 import ScheduleModal from './ScheduleModal';
 import { LayoutGrid, GanttChart, Calendar, CalendarClock, BarChart3, Library, Layers, Menu, BookOpen } from 'lucide-react';
@@ -79,6 +80,7 @@ export default function Workspace() {
 
     const project = projects.find(p => p.id === currentProjectId);
     const hasSchedule = !!(project?.start_date && project?.deadline);
+    const verdict = useStore(s => s.paceData?.verdict ?? null);
     // What this project HAS decides what it is shown — never where it came from.
     // A project with cards and nothing being taught gets the card page, because
     // a curriculum's questions have no useful answers for it (see
@@ -193,6 +195,8 @@ export default function Workspace() {
     const scheduleBtnRef = useRef<HTMLButtonElement | null>(null);
     const paceGhostRef = useRef<HTMLDivElement | null>(null);
     const [paceFull, setPaceFull] = useState(false);
+    // Where the pill does not fit, the verdict rides on the plan button.
+    const dotVerdict = !paceFull && verdict && verdict.band !== 'no_date' ? verdict : null;
     const tabKeys = viewTabs.map(t => t.key).join();
     useEffect(() => {
         const bar = barRef.current, rail = tabRailRef.current, btn = scheduleBtnRef.current, ghost = paceGhostRef.current;
@@ -351,8 +355,11 @@ export default function Workspace() {
                         variant={hasSchedule || cardsOnly ? 'quiet' : 'primary'}
                         icon={<CalendarClock className="w-4 h-4" aria-hidden="true" />}
                         className="relative shrink-0"
+                        title={dotVerdict ? tr(VERDICT_LABEL[dotVerdict.band]) : undefined}
                     >
-                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Edit Schedule") : tr("Set Schedule")}</span>
+                        <span className="sr-only sm:not-sr-only">{hasSchedule ? tr("Open plan") : tr("Set Schedule")}</span>
+                        {dotVerdict && <span className="sr-only">, {tr(VERDICT_LABEL[dotVerdict.band])}</span>}
+                        {dotVerdict && <VerdictDot verdict={dotVerdict} />}
                     </Button>
                 </div>
             </div>

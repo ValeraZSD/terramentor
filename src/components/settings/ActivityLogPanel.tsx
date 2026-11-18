@@ -203,7 +203,7 @@ export default function ActivityLogPanel() {
                                         <span className="flex-1" />
                                         {e.ms != null && (
                                             <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                                                {e.ms >= 1000 ? `${(e.ms / 1000).toFixed(1)}s` : t("{{ms}}ms", { ms: e.ms })}
+                                                {e.ms >= 1000 ? t("{{seconds}}s", { seconds: num(e.ms / 1000, { decimals: 1 }) }) : t("{{ms}}ms", { ms: e.ms })}
                                             </span>
                                         )}
                                     </div>

@@ -27,7 +27,7 @@
  */
 import db, { NOW_ISO } from './database.js';
 import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
-import { settingsForConnection } from './aiConnections.js';
+import { reconcile, settingsForConnection } from './aiConnections.js';
 
 /** Every job, in the order the settings screen lists them. */
 export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
@@ -206,6 +206,10 @@ export function chainFor(job, { model = null } = {}) {
     const main = getAISettings();
     const first = model ? { ...main, model } : main;
     if (envOverride()) return stamped([first], job, false);
+    // An entry with no model of its own is "the connection's saved model", and
+    // for the connection in use the model picker writes the active rows, not
+    // the row: let the row catch up before it is read.
+    reconcile();
     const routes = getJobRoutes();
     const listed = routes[job] || [];
     const own = listed.map(entrySettings).filter(Boolean);
