@@ -6,7 +6,7 @@
 import db from '../database.js';
 import { clearProjectSetting } from '../projectSettings.js';
 import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
-import { daysBetween, isScheduleDate, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
+import { daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
 import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { sweepOrphanMedia } from '../ankiImport.js';
@@ -61,7 +61,7 @@ app.get('/api/projects/:id', (req, res) => {
     // here made one archived project's detail 133 kB of a 134 kB reply.
     const project = db.prepare(`
         SELECT id, name, description, summary, color, icon, position, ai_generating,
-               start_date, deadline, study_days, status,
+               start_date, deadline, deadline_fixed, study_days, status,
                created_at, updated_at
         FROM projects WHERE id = ?
     `).get(req.params.id);
@@ -105,11 +105,11 @@ function projectFieldError({ name, description, color, icon, position }) {
 }
 
 app.put('/api/projects/:id', (req, res) => {
-    const { name, description, color, icon, position, start_date, deadline, study_days, status, content_language, search_words } = req.body;
+    const { name, description, color, icon, position, start_date, deadline, deadline_fixed, study_days, status, content_language, search_words } = req.body;
     const updates = [];
     const values = [];
 
-    const before = db.prepare('SELECT name, description, content_language FROM projects WHERE id = ?').get(req.params.id);
+    const before = db.prepare('SELECT name, description, content_language, deadline FROM projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Project not found' });
     const fieldError = projectFieldError({ name, description, color, icon, position });
     if (fieldError) return res.status(400).json({ error: fieldError });
@@ -152,6 +152,21 @@ app.put('/api/projects/:id', (req, res) => {
             return res.status(400).json({ error: 'A schedule can span at most 20 years.' });
         }
     }
+    // An exam date marked "cannot move" (`deadline_fixed`) stays where it is:
+    // moving it takes the mark off first, in this request or an earlier one.
+    if (deadline_fixed !== undefined && typeof deadline_fixed !== 'boolean') {
+        return res.status(400).json({ error: 'deadline_fixed must be true or false' });
+    }
+    const lockError = lockedDeadlineError(req.params.id, deadline, deadline_fixed);
+    if (lockError) return res.status(400).json({ error: lockError });
+    // A lock is on a date: none without one, and clearing the date clears it
+    // (a lock left on an empty date refused every later date).
+    const nextDeadline = deadline !== undefined ? deadline : before.deadline;
+    if (deadline_fixed === true && !isScheduleDate(nextDeadline)) {
+        return res.status(400).json({ error: 'Only a project with a deadline can mark it as fixed.' });
+    }
+    if (deadline_fixed !== undefined) { updates.push('deadline_fixed = ?'); values.push(deadline_fixed ? 1 : 0); }
+    else if (deadline === null || deadline === '') updates.push('deadline_fixed = 0');
     if (start_date !== undefined) { updates.push('start_date = ?'); values.push(start_date); }
     if (deadline !== undefined) { updates.push('deadline = ?'); values.push(deadline); }
     // Normalised on the way IN, not just on the way out. Storing a client

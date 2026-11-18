@@ -83,7 +83,10 @@ const bundle = (await esbuild.build({
 })).outputFiles[0].text;
 
 const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(r => setImmediate(r)); };
-const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+// One pinned instant for the fixture AND the mounted component (its `todayStr`
+// and the verdict's dates): a gate must not read the clock.
+const NOW_MS = Date.parse('2026-06-10T12:00:00Z');
+const day = (n) => new Date(NOW_MS + n * 864e5).toISOString().slice(0, 10);
 const project = {
     id: 7, name: 'Calculus', color: '#8B5CF6', icon: 'book', status: 'active',
     start_date: day(-10), deadline: day(30), study_days: '[1,2,3,4,5]',
@@ -92,6 +95,12 @@ const project = {
 const row = {
     id: 7, openLeaves: 3, firstScheduledStart: day(-10), lastScheduledEnd: day(30),
     pace: { paceStatus: 'falling_behind', expectedProgress: 40, actualProgress: 30, drift: -10, totalDays: 40 },
+    // The date judged against the learner's own pace: what the strip shows.
+    verdict: {
+        unit: 'topics', band: 'under_pace', early: false, open: 3, deadline: day(30), daysLeft: 30,
+        needed: 0.7, recent: 0, best: 2, bestStretch: null, fits: null, weeksOfData: 8, quietWeeks: 3,
+        ranges: { recent: null, best: null }, owner: 'learner', fixed: false, offers: [],
+    },
 };
 
 /** One strip, mounted; `write` decides what the store's writes answer. */
@@ -102,6 +111,9 @@ async function show({ p = project, r = row, write = async () => true } = {}) {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     w.fetch = () => new Promise(() => { });
+    w.eval(`(() => { const R = Date; class Pinned extends R {
+        constructor(...a) { super(...(a.length ? a : [${NOW_MS}])); }
+        static now() { return ${NOW_MS}; } } globalThis.Date = Pinned; })();`);
     w.eval(bundle);
     const { useStore, mount, act } = w.__gate;
     const calls = [];
@@ -209,10 +221,39 @@ section('a screen reader hears the dates and the pace, not only a verb');
     const s = await show();
     const b = s.strip();
     const year = project.deadline.slice(0, 4);
-    check('the strip has no aria-label hiding its text', !b.hasAttribute('aria-label'), b.getAttribute('aria-label') ?? '');
-    check('its text (its accessible name) carries the action, the range and the pace',
-        /Change the dates for/.test(b.textContent) && b.textContent.includes(year) && /days behind/.test(b.textContent), b.textContent);
-    check('…and the pace\'s reason, which was only a tooltip', /the plan expects/.test(b.textContent), b.textContent);
+    // A button's accessible name, as the name computation builds it here: an
+    // aria-label or aria-labelledby replaces the content; otherwise it is the
+    // text of every descendant not hidden from the accessibility tree.
+    const hiddenFromAt = (el) => el.getAttribute('aria-hidden') === 'true' || el.hidden
+        || s.w.getComputedStyle(el).display === 'none';
+    const contentName = (el) => [...el.childNodes].map(n => n.nodeType === 3 ? n.textContent
+        : n.nodeType === 1 && !hiddenFromAt(n) ? contentName(n) : '').join('');
+    const name = b.getAttribute('aria-label') ?? (b.hasAttribute('aria-labelledby') ? '' : contentName(b));
+    check('the strip\'s accessible name carries the action, the range and the verdict',
+        /Change the dates for/.test(name) && name.includes(year) && /Under pace/.test(name), name);
+    // The reason was once only a tooltip; it is now a line of visible text.
+    const reason = s.w.document.querySelector('[data-verdict-line]');
+    const shown = (el) => { for (let e = el; e; e = e.parentElement) { if (e.hidden || s.w.getComputedStyle(e).display === 'none' || e.classList.contains('sr-only')) return false; } return true; };
+    check('…and the verdict\'s reason is visible text on the card, not a tooltip',
+        !!reason && shown(reason) && /Needs .+ a week/.test(reason.textContent) && /Nothing closed for 3 weeks/.test(reason.textContent)
+            && ![...s.w.document.querySelectorAll('[title]')].some(e => /Needs/.test(e.getAttribute('title'))),
+        reason?.textContent ?? 'no [data-verdict-line]');
+    s.close();
+}
+
+section('the card trusts the project record over an overview row not yet re-read');
+{
+    // The date moved; the overview still holds the verdict for the old one.
+    let s = await show({ r: { ...row, verdict: { ...row.verdict, deadline: day(20) } } });
+    check('a verdict judged on another date is not shown beside the new one',
+        !s.w.document.querySelector('[data-verdict]'), s.strip()?.textContent);
+    s.close();
+    // The project says locked; the old overview row still says not.
+    s = await show({ p: { ...project, deadline_fixed: 1 }, r: { ...row, deadline_fixed: 0 } });
+    await s.open();
+    check('the project\'s lock wins: the deadline is read-only and Remove is gone',
+        s.fields()[1]?.readOnly === true && !s.buttons().some(b => /Remove schedule/.test(b.textContent)),
+        `${s.fields()[1]?.readOnly} ${s.buttons().map(b => b.textContent).join('|')}`);
     s.close();
 }
 
@@ -265,20 +306,13 @@ section('"The deadline is before the start." waits for a whole year');
     s.close();
 }
 
-section('a drift too small to be a day is not "0 days behind"');
+section('the pill is the verdict, never the plan\'s day count');
 {
-    // The server calls it falling behind past 5 points of drift on a short
-    // window; 6 points of a 7-day window is 0.42 of a day, which rounds to 0.
-    const tiny = { ...row, pace: { ...row.pace, paceStatus: 'falling_behind', drift: 6, totalDays: 7 } };
-    const s = await show({ r: tiny });
+    // The card once counted days ahead or behind the plan, and a drift under
+    // half a day read "0 days behind". It now names the verdict band.
+    const s = await show();
     const text = s.strip().textContent;
-    check('the pill never reads "0 days behind"', !/0 days? behind/.test(text), text);
-    check('…it says "Slightly behind schedule", the pace headline\'s words', /Slightly behind schedule/.test(text), text);
-    s.close();
-}
-{
-    const s = await show({ r: { ...row, pace: { ...row.pace, paceStatus: 'falling_behind', drift: 50, totalDays: 40 } } });
-    check('a whole-day drift still counts the days', /20 days behind/.test(s.strip().textContent), s.strip().textContent);
+    check('no "days behind" or "days ahead" on the card', !/days? (behind|ahead)/.test(text), text);
     s.close();
 }
 

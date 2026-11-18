@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
 import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -373,6 +373,9 @@ let searchSeq = 0;
  *  or open a study scope on the page after it (A → B → A included, where the
  *  project id alone says the stale continuation is still current). */
 let routeSeq = 0;
+/** Which loadPaceData call is the newest. A save or a removal bumps it too, so
+ *  a pace answer asked for before the plan changed is not drawn after it. */
+let paceSeq = 0;
 /** Which loadProjectData call is the newest: only it may paint the tree. */
 let projectLoadSeq = 0;
 /** The study hub is asked for on two paths at once (StudyDashboard's effect and
@@ -886,7 +889,7 @@ interface AppState {
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
     /** False when the server refused the edit; the toast has already said why. */
-    updateProject: (id: number, updates: Partial<Project>) => Promise<boolean>;
+    updateProject: (id: number, updates: ProjectUpdate) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
     createNode: (nodeData: Partial<Node>) => Promise<void>;
@@ -914,7 +917,6 @@ interface AppState {
     setExamFocus: (on: boolean) => void;
     setShowScheduleModal: (show: boolean, projectId?: number | null) => void;
     scheduleProject: (projectId: number, config: ScheduleConfig) => Promise<boolean>;
-    recalibrateSchedule: (projectId: number) => Promise<boolean>;
     removeSchedule: (projectId: number) => Promise<boolean>;
     loadPaceData: (projectId: number) => Promise<void>;
     showConfirm: (options: ShowConfirmOptions) => Promise<boolean>;
@@ -2111,7 +2113,7 @@ export const useStore = create<AppState>((set, get) => ({
         // "nothing loading, nothing loaded" as "No Data Available" for a frame.
         set(get().currentProjectId === id
             ? { loading: true }
-            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true });
+            : { loading: true, currentProjectId: id, nodes: [], tree: [], dashboardData: null, dashboardLoading: true, paceData: null });
         // A newer load owns the tree and the spinner. Without the sequence an
         // older answer for the SAME project (A → B → A) painted over the newer
         // one and cleared the selection its route had just made.
@@ -2633,13 +2635,17 @@ export const useStore = create<AppState>((set, get) => ({
         try {
             const result = await api.scheduleProject(projectId, config);
             if (!result.success) { get().addToast('error', i18n.t('Failed to generate schedule'), result.error); return false; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
+            // Only a change to the open course outdates the pace on screen.
+            if (projectId === get().currentProjectId) paceSeq++;
+            // The allocator's English warnings are not shown. The pace ones
+            // ("Pace is very intense…"): the plan panel's verdict says whether
+            // the date works, measured against the learner's own pace. "Some
+            // phases will overlap" (fewer study days than phases): the
+            // Timeline draws the overlap itself, and the verdict says whether
+            // a window that short can be met.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            get().addToast('success', i18n.t('Schedule generated successfully'));
-            set({ showScheduleModal: false });
+            get().addToast('success', i18n.t('Plan saved'));
             return true;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to generate schedule'), e.message);
@@ -2647,36 +2653,12 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    recalibrateSchedule: async (projectId) => {
-        try {
-            const result = await api.recalibrateSchedule(projectId);
-            if (!result.success) {
-                if (result.suggestedDeadline) get().addToast('info', i18n.t('Deadline Suggestion'), i18n.t('Consider extending deadline to {{date}}', { date: result.suggestedDeadline }));
-                get().addToast('error', i18n.t('Recalibration failed'), result.error);
-                return false;
-            }
-            if (result.unchanged) { get().addToast('success', i18n.t('All tasks completed!')); return true; }
-            if (result.warnings && result.warnings.length > 0) {
-                get().addToast('info', i18n.t('Schedule Notes'), result.warnings.join(i18n.t('\n')));
-            }
-            await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
-            // Recalibrating (from a workspace) reshapes the feed's focus — rebuild
-            // the stream if the user is currently on the home page.
-            if (get().view === 'today') await get().loadFeed();
-            get().addToast('success', i18n.t('Schedule recalibrated from today'));
-            return true;
-        } catch (e: any) {
-            get().addToast('error', i18n.t('Failed to recalibrate schedule'), e.message);
-            return false;
-        }
-    },
-
     removeSchedule: async (projectId) => {
         try {
             await api.removeSchedule(projectId);
+            if (projectId === get().currentProjectId) paceSeq++;
             await get().loadProjects();
-            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null }); await get().loadDashboard(projectId); }
+            if (projectId === get().currentProjectId) { await get().refreshNodes(); set({ paceData: null, paceLoading: false }); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Schedule removed'));
             return true;
         } catch (e: any) {
@@ -2686,13 +2668,14 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     loadPaceData: async (projectId) => {
+        const seq = ++paceSeq;
         set({ paceLoading: true });
+        const current = () => seq === paceSeq && get().currentProjectId === projectId;
         try {
             const pace = await api.getProjectPace(projectId);
-            if (get().currentProjectId !== projectId) return;
-            set({ paceData: pace, paceLoading: false });
+            if (current()) set({ paceData: pace, paceLoading: false });
         } catch {
-            if (get().currentProjectId === projectId) set({ paceLoading: false });
+            if (current()) set({ paceLoading: false });
         }
     },
 

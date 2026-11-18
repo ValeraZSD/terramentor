@@ -526,6 +526,11 @@ addColumnIfMissing('projects', 'start_date', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'deadline', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'study_days', "TEXT DEFAULT '[1,2,3,4,5]'");
 addColumnIfMissing('projects', 'baseline_schedule', 'TEXT DEFAULT NULL');
+// 1 = the deadline is an exam date the learner marked "cannot move": no screen
+// offers to move it, and a write that does not name the mark (the card's
+// editor, Remove schedule, an older client) cannot move or clear it. A write
+// that names it decides it: `lockedDeadlineError` in server/scheduling.js.
+addColumnIfMissing('projects', 'deadline_fixed', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'status', "TEXT DEFAULT 'active'"); // active | completed | archived
 // Declared study language (see server/language.js). '' = follow the material,
 // which is what every project did before this column existed.

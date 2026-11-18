@@ -97,19 +97,23 @@ hosted model; on a model running on your own computer the next one waits its tur
 ## Scheduling and pace
 
 Set a start date and a deadline with **Set dates** on the project's card in Projects (or **Set
-Schedule** at the top of the project), and the app spreads the work across your
-topics, weighted by depth, so a topic with ten sub-topics gets more days than a single idea.
+Schedule** at the top of the project), and the app lays the open topics out over your study days.
 
-**Pace** compares what you have actually closed against what the schedule expected by today. It is
-not calendar-linear: being on track means you have finished the topics that were scheduled to be
-finished by now.
+The app then judges the date against **your own pace**: the topics (in a card deck, the new cards)
+you closed each week across all your courses, your recent weeks and your best month. One word
+says how it looks: *on pace*, *under pace*, *tight*, *out of reach*, or *learning* while it has
+under two weeks of your record. It never prints a single finish date, because a pace that comes in
+bursts cannot honestly give one.
 
-Fallen behind? Two honest options, and no third:
+**Open plan** shows that verdict with a chart of your weeks and what you can do about it:
 
-- **Catch up**: the feed already serves overdue topics first.
-- **Recalibrate**: redistribute the *remaining* topics over the *remaining* time. It lives in the
-  workspace, deliberately not on the home page: moving a deadline should be a decision, not a
-  reflex.
+- **Plan N a week**: lay the open topics out from today to the date.
+- **Check what you already know**: a quick check; a topic you pass is closed without studying it.
+- **Study the N topics that fit**: when the rest cannot fit, choose in the outline what to study.
+- **Move the date**: only for a date you set yourself.
+
+Tick **Exam date, cannot move** for a date that is not yours to change. The app then never offers
+to move it, and neither the card nor Remove schedule can change it until the tick is taken off.
 
 ## Proving it: the mastery gate
 
@@ -203,7 +207,7 @@ The words the app and these documents use, each in one place.
 - **Flashcard**: a card reviewed on the FSRS-7 schedule; "Again" brings it back in minutes.
 - **Head start**: a topic the placement check or another project suggests you already know. It
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
-- **Pace**: what you have closed against what the plan expected by today.
+- **Pace**: the topics (or new cards) you close each week, across all your courses; a date is judged against it.
 - **Short course**: a course of three to eight topics made from one link or file, never scheduled.
 - **Vault**: the documents you upload, to a project or to the whole library, which the assistant
   can read; a project's own documents also feed its lessons.

@@ -472,6 +472,97 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
         check('…and its old pace object is untouched', row?.pace && 'paceStatus' in row.pace, show(row?.pace));
         check('…an undated row has none', plain && plain.verdict === null, show(plain?.verdict));
         check('the overview\'s today is the day its verdicts were judged on', ov.today === TODAY, show(ov.today));
+
+        console.log('\n--- routes: the "cannot move" lock and the one write path ---');
+        const send = async (method, p, body) => {
+            const r = await fetch(`http://127.0.0.1:${port}${p}`, {
+                method, headers: { 'Content-Type': 'application/json', 'X-Time-Zone': AMS }, body: JSON.stringify(body),
+            });
+            return { status: r.status, json: await r.json().catch(() => ({})) };
+        };
+        const exam = mkProject('Exam', { deadline: ahead(14), start: ago(30) });
+        // Sixty open topics in two weeks miss at any pace the fixture holds, so
+        // the unlocked verdict MUST offer the move: a band with no offers at
+        // all ("learning", "on pace") would let the locked check below pass
+        // without the lock doing anything.
+        for (let i = 0; i < 60; i++) mkNode(exam, `exam topic ${i + 1}`, null);
+        const examBefore = await get(`/api/projects/${exam}/pace`);
+        check('an unlocked date of the learner\'s may be moved', examBefore.verdict?.fixed === false
+            && examBefore.verdict.offers.some(o => o.kind === 'move_date'), show(examBefore.verdict));
+        let r = await send('PUT', `/api/projects/${exam}`, { deadline_fixed: true });
+        check('PUT locks the date', r.status === 200 && r.json.deadline_fixed === 1, show(r));
+        const locked = await get(`/api/projects/${exam}/pace`);
+        check('…and the verdict reads the lock: fixed, never "move the date"',
+            locked.verdict?.fixed === true && !locked.verdict.offers.some(o => o.kind === 'move_date'), show(locked.verdict));
+        r = await send('PUT', `/api/projects/${exam}`, { deadline: ahead(60) });
+        check('a locked date is not moved by PUT', r.status === 400
+            && db.prepare('SELECT deadline FROM projects WHERE id = ?').get(exam).deadline === ahead(14), show(r));
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(60), studyDays: [1, 2, 3, 4, 5] });
+        check('…nor by a schedule write', r.status === 400
+            && db.prepare('SELECT deadline FROM projects WHERE id = ?').get(exam).deadline === ahead(14), show(r));
+        r = await send('DELETE', `/api/projects/${exam}/schedule`);
+        const afterDelete = db.prepare('SELECT deadline, deadline_fixed AS f FROM projects WHERE id = ?').get(exam);
+        check('…nor removed with the schedule', r.status === 400
+            && afterDelete.deadline === ahead(14) && afterDelete.f === 1, show({ r, afterDelete }));
+        r = await send('PUT', `/api/projects/${exam}`, { deadline_fixed: 'yes' });
+        check('the lock takes a boolean only', r.status === 400, show(r));
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(21), studyDays: [1, 2, 3, 4, 5], deadlineFixed: false });
+        check('unlocking and moving in one schedule write is allowed', r.status === 200
+            && r.json.project?.deadline === ahead(21) && r.json.project?.deadline_fixed === 0, show(r.json.project));
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(21), studyDays: [1, 2, 3, 4, 5], deadlineFixed: true });
+        check('…and a schedule write may set the lock', r.status === 200 && r.json.project?.deadline_fixed === 1, show(r.json.project));
+        // The panel's path: untick, change the date, tick again, one Save.
+        r = await send('POST', `/api/projects/${exam}/schedule`, { startDate: ago(30), deadline: ahead(28), studyDays: [1, 2, 3, 4, 5], deadlineFixed: true });
+        check('a write that names the lock may move the date and keep it locked', r.status === 200
+            && r.json.project?.deadline === ahead(28) && r.json.project?.deadline_fixed === 1, show(r.json.project));
+        // No study day left before the date (today and tomorrow are off): the
+        // mark alone is still saved, and leaves every topic date as it was.
+        const isoDay = (d) => ((new Date(`${d}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+        const offDays = [1, 2, 3, 4, 5, 6, 7].filter(d => d !== isoDay(TODAY) && d !== isoDay(ahead(1)));
+        const tomorrow = mkProject('Exam tomorrow', { deadline: ahead(1), start: ago(30) });
+        db.prepare('UPDATE projects SET study_days = ? WHERE id = ?').run(JSON.stringify(offDays), tomorrow);
+        const tmTopic = mkNode(tomorrow, 'tomorrow topic', null);
+        db.prepare('UPDATE nodes SET scheduled_start = ?, scheduled_end = ? WHERE id = ?').run(ago(3), ago(3), tmTopic);
+        r = await send('POST', `/api/projects/${tomorrow}/schedule`, { startDate: ago(30), deadline: ahead(1), studyDays: offDays, deadlineFixed: true });
+        const tmNode = db.prepare('SELECT scheduled_start AS s FROM nodes WHERE id = ?').get(tmTopic);
+        check('a write that only sets the mark is saved even with no study day left', r.status === 200
+            && r.json.project?.deadline_fixed === 1 && tmNode.s === ago(3), show({ status: r.status, error: r.json.error, tmNode }));
+        r = await send('POST', `/api/projects/${tomorrow}/schedule`, { startDate: ago(30), deadline: ahead(1), studyDays: offDays.slice(1), deadlineFixed: true });
+        check('…but a write that changes the plan is still refused there', r.status === 400, show(r));
+        const bare = mkProject('No date yet');
+        r = await send('PUT', `/api/projects/${bare}`, { deadline_fixed: true });
+        check('a lock needs a date', r.status === 400
+            && db.prepare('SELECT deadline_fixed AS f FROM projects WHERE id = ?').get(bare).f === 0, show(r));
+        const junk = mkProject('Old junk date', { deadline: 'not-a-date' });
+        r = await send('PUT', `/api/projects/${junk}`, { deadline_fixed: true });
+        check('…a real one: a stored deadline that is not a date takes no lock', r.status === 400
+            && db.prepare('SELECT deadline_fixed AS f FROM projects WHERE id = ?').get(junk).f === 0, show(r));
+        const cleared = mkProject('Dated then cleared');
+        db.prepare('UPDATE projects SET start_date = ?, deadline = ?, deadline_fixed = 1 WHERE id = ?').run(ago(5), ahead(10), cleared);
+        r = await send('PUT', `/api/projects/${cleared}`, { start_date: null, deadline: null, deadline_fixed: false });
+        const afterClear = db.prepare('SELECT deadline, deadline_fixed AS f FROM projects WHERE id = ?').get(cleared);
+        check('clearing a date with its mark taken off clears both', r.status === 200
+            && afterClear.deadline === null && afterClear.f === 0, show({ status: r.status, afterClear }));
+        r = await send('PUT', `/api/projects/${cleared}`, { deadline_fixed: true });
+        check('…and once its date is cleared, no lock can be set on nothing', r.status === 400, show(r));
+        db.prepare('UPDATE projects SET start_date = ?, deadline = ?, deadline_fixed = 1 WHERE id = ?').run(ago(5), ahead(10), cleared);
+        r = await send('PUT', `/api/projects/${cleared}`, { start_date: null, deadline: null });
+        check('clearing a locked date by a write that names no lock is refused (it is a move)', r.status === 400, show(r));
+        // A course already under way: the window began 30 days ago and its open
+        // topics still carry dates in the past. Laying every topic out from the
+        // window's start would date open work in the past again, the "overdue
+        // on the day you planned it" fault.
+        const underway = mkProject('Under way', { deadline: ahead(30), start: ago(30) });
+        for (let i = 0; i < 6; i++) {
+            const n = mkNode(underway, `under way topic ${i + 1}`, null);
+            db.prepare('UPDATE nodes SET scheduled_start = ?, scheduled_end = ? WHERE id = ?').run(ago(20 - i), ago(20 - i), n);
+        }
+        r = await send('POST', `/api/projects/${underway}/schedule`, { startDate: ago(30), deadline: ahead(30), studyDays: [1, 2, 3, 4, 5] });
+        const open = db.prepare(`SELECT scheduled_start AS s FROM nodes WHERE project_id = ? AND is_note = 0`).all(underway);
+        check('a schedule write lays the open topics out from today, not from the window\'s start', r.status === 200
+            && open.length === 6 && open.every(n => n.s && n.s >= TODAY), show({ status: r.status, s: open.map(n => n.s) }));
+        const stored = db.prepare('SELECT start_date FROM projects WHERE id = ?').get(underway).start_date;
+        check('…and keeps the window\'s own start', stored === ago(30), show(stored));
     } finally {
         Date.now = realNow;
         srv.closeAllConnections();

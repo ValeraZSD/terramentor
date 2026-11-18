@@ -52,7 +52,7 @@ section('the workspace rail keeps a name for every control at every width');
         'a `display: none` label takes the accessible name away from a screen reader');
     check('the collapsed label is visually hidden, not removed (sr-only)', /sr-only sm:not-sr-only/.test(ws));
     check('the schedule button keeps its name too',
-        /sr-only sm:not-sr-only[^>]*>\{hasSchedule \? tr\("Edit Schedule"\)/.test(ws));
+        /sr-only sm:not-sr-only[^>]*>\{hasSchedule \? tr\("Open plan"\)/.test(ws));
     check('the tab you are on says so: aria-current="page" (routes, not a half tab pattern)',
         // A screen opened from a tab (the mock exam, from the Dashboard) keeps
         // that tab current through `tabView`.
