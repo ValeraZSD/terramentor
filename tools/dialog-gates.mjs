@@ -139,7 +139,7 @@ const stubs = {
     // The fields the components read, and a `hideConfirm` the gate supplies.
     'store': `import { useSyncExternalStore } from 'react';
         const g = globalThis;
-        g.__st = { state: {}, subs: new Set() };
+        g.__st = { state: { a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true } }, subs: new Set() };
         g.__setState = (patch) => { g.__st.state = { ...g.__st.state, ...patch }; g.__st.subs.forEach(f => f()); };
         export const useStore = (sel) => useSyncExternalStore(
             (cb) => { g.__st.subs.add(cb); return () => g.__st.subs.delete(cb); },
@@ -627,7 +627,7 @@ await holdsTheContract('Drill', mountedSurface((onClose) => h(surfaces.DrillModa
     await holdsTheContract('Search', {
         show: () => {
             act(() => r.render(h(MemoryRouter, null, h(surfaces.SearchBar), h(ConfirmDialog))));
-            act(() => { el.querySelector('button[aria-label="Search"]').click(); });
+            act(() => { el.querySelector('button[aria-label^="Search…"]').click(); });
         },
         hide: () => { act(() => r.unmount()); el.remove(); },
         closes: () => n,

@@ -97,7 +97,7 @@ export default function ReasoningPanel({ text, parts, lookups, open, live = fals
                 )}
             >
                 <ChevronRight
-                    className={cx('w-3.5 h-3.5 mt-px shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none', open && 'rotate-90')}
+                    className={cx('w-3.5 h-3.5 mt-px shrink-0 transition-transform duration-200 ease-out motion-off:transition-none', open && 'rotate-90')}
                     aria-hidden="true"
                 />
                 <span className="min-w-0">

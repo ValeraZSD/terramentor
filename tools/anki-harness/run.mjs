@@ -67,6 +67,7 @@ const preview = {
 const calls = [];
 const store = {
     addToast: (...a) => calls.push(['toast', ...a]),
+    a11y: { readAloud: false, speechRate: 100, readingLine: false, confirmAnswers: false, cardAudioAutoplay: true },
     consumeAnkiImportFile: () => null,
     // A case can make the list refresh fail, as a server that dropped would.
     loadProjects: async () => { await globalThis.__projectsHold; if (globalThis.__projectsFail) throw new Error(''); },

@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { onActivateKey } from '../utils/a11y';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { MOD_KEY, usePhysicalKeyboard, usePointerVerb } from '../utils/platform';
 import Markdown from './Markdown';
 import { Button } from './ui/Button';
+import ReadAloudButton from './ui/ReadAloudButton';
+import ReadingLine from './ui/ReadingLine';
 import { useStore } from '../store';
 import {
     X, Check, PenLine, FileText, RotateCcw,
@@ -42,7 +43,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
     const BadgeChip = badge && (
         <span
             className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-normal normal-case tracking-normal text-3xs ${badge === 'private'
-                ? 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                 : 'bg-accent/10 text-accent-fg'
                 }`}
             title={badge === 'private' ? tr("Private — never exported unless you opt in; the assistant reads it when you ask about this topic") : tr("Shared — included when you export or publish this project")}
@@ -65,6 +66,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
     // for the old one must not say "Saved" over the new one.
     const saveSeq = useRef(0);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const readRef = useRef<HTMLDivElement>(null);
     const showConfirm = useStore(s => s.showConfirm);
     const hasKeyboard = usePhysicalKeyboard();
     const pointerVerb = usePointerVerb();
@@ -258,6 +260,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                                 {tr("Saved")}
                             </span>
                         )}
+                        {hasContent && <ReadAloudButton target={readRef} />}
                         <Button
                             size="sm"
                             variant="quiet"
@@ -276,12 +279,12 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                     (`bg-white` on white; 60% of slate-800 over slate-800
                     composites to exactly slate-800): one flat sheet in dark
                     mode, only the borders saying where a field begins. */}
+                {/* A tap on the text edits it, for the pointer only: as a
+                    button it read the whole text as one name and held the
+                    links and visuals inside it. The header's Edit button is
+                    the keyboard's and the screen reader's way in. */}
                 <div
                     {...previewTap}
-                    onKeyDown={onActivateKey(enterEdit)}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={tr("Edit {{lowerLabel}}", { lowerLabel })}
                     className={`relative rounded-xl border transition-all duration-200 cursor-text overflow-hidden ${hasContent
                         ? 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:border-accent/40 dark:hover:border-accent hover:shadow-sm'
                         : 'border-dashed border-slate-300 dark:border-slate-600 bg-slate-50/60 dark:bg-slate-900/25 hover:border-accent'
@@ -290,7 +293,8 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                     {hasContent ? (
                         <>
                             <div className="p-4 max-h-[22.5rem] overflow-y-auto overscroll-contain custom-scrollbar select-text">
-                                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2">
+                                <ReadingLine>
+                                <div ref={readRef} className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2">
                                     <Markdown
                                         content={localValue}
                                         nodeId={nodeId}
@@ -299,6 +303,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                                         onRepaired={handleRepaired}
                                     />
                                 </div>
+                                </ReadingLine>
                             </div>
                             {/* The edit hint is a STRIP UNDER the content, not a
                                 floating pill over it. As an overlay it sat at 0.75
@@ -317,7 +322,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
                         <div className="p-8 flex flex-col items-center gap-2 text-slate-500 dark:text-slate-400">
                             <PenLine className="w-8 h-8 opacity-40" />
                             <p className="text-sm font-medium">{placeholder || tr("{{pointerVerb}} to add notes", { pointerVerb })}</p>
-                            <p className="text-xs opacity-60">{tr("Supports Markdown")}{hasKeyboard && <span> · <kbd className="px-1 py-0.5 bg-slate-200 dark:bg-slate-700 rounded text-3xs">{saveCombo}</kbd> {tr("to save")}</span>}</p>
+                            <p className="text-xs">{tr("Supports Markdown")}{hasKeyboard && <span> · <kbd className="px-1 py-0.5 bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 rounded text-3xs">{saveCombo}</kbd> {tr("to save")}</span>}</p>
                         </div>
                     )}
                 </div>
