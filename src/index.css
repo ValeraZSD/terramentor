@@ -541,7 +541,25 @@ html[data-larger-ui] [data-tick-bar] {
 html[data-larger-ui] {
   --row-tree-reserve: calc(8.75rem + var(--target-floor));
   --row-outline-reserve: calc(12.75rem + var(--target-floor));
-}/* A password or key field keeps room for its show button, which is now 44px
+}
+/* A block of a short phase is wide enough to carry its topic's name. Each
+   block is its own container, so the name shows by the block's real width
+   (the phase's length, the card's width, the text size), and only in a block
+   of at least 6rem: about ten letters before the ellipsis, below which a name
+   is a stub that says less than the tooltip. */
+html[data-larger-ui] [data-tick-bar] > [data-tick] {
+  container-type: inline-size;
+}
+[data-tick-name] {
+  display: none;
+  line-height: var(--target-floor);
+}
+@container (min-width: 6rem) {
+  html[data-larger-ui] [data-tick-name] {
+    display: block;
+  }
+}
+/* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
   padding-right: calc(var(--target-floor) + 0.5rem);

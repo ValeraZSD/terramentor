@@ -209,8 +209,31 @@ export function browserCandidates(platform, env = {}) {
         }
         return out;
     }
-    // Linux and the BSDs: names on PATH.
-    return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser', 'vivaldi'];
+    // Linux and the BSDs: names on PATH first. Brave's own packages install
+    // `brave-browser`; Arch's AUR package installs `brave`.
+    const names = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser', 'brave', 'vivaldi'];
+    // Then the same browsers installed from Flathub. A Flatpak browser has no
+    // program under any of the names above, only its app id in Flatpak's
+    // exports folder: the per-user one (often not on PATH) and the system one.
+    // A relative XDG_DATA_HOME is invalid by the XDG spec and Flatpak ignores it.
+    const xdg = String(env.XDG_DATA_HOME || '');
+    const dataHome = xdg.startsWith('/') ? xdg : (env.HOME ? posix.join(env.HOME, '.local', 'share') : '');
+    const exportDirs = [...(dataHome ? [posix.join(dataHome, 'flatpak', 'exports', 'bin')] : []), '/var/lib/flatpak/exports/bin'];
+    const flatpaks = [];
+    for (const id of FLATPAK_BROWSERS) for (const dir of exportDirs) flatpaks.push(posix.join(dir, id));
+    return [...names, ...flatpaks];
+}
+
+/** Flathub app ids of Chromium-family browsers, in the order they are preferred. */
+export const FLATPAK_BROWSERS = [
+    'com.google.Chrome', 'org.chromium.Chromium', 'io.github.ungoogled_software.ungoogled_chromium',
+    'com.microsoft.Edge', 'com.brave.Browser', 'com.vivaldi.Vivaldi',
+];
+
+/** The Flatpak app id when `browser` is a Flatpak export, otherwise null. */
+export function flatpakAppId(browser) {
+    const m = /\/flatpak\/exports\/bin\/([^/]+)$/.exec(String(browser).replace(/\\/g, '/'));
+    return m && FLATPAK_BROWSERS.includes(m[1]) ? m[1] : null;
 }
 
 /** Resolve a bare command name against PATH; absolute paths pass through. */
@@ -281,10 +304,21 @@ export function browserArgs(url, profileDir, windowMode = DEFAULT_WINDOW_MODE) {
  * goes to the instance already holding that profile, as on other systems.
  * `open` exits non-zero when it could not launch the application, so the
  * launcher waits for its exit before saying the window opened.
+ *
+ * A Flatpak browser through `flatpak run`, granted the profile folder for this
+ * run only: its sandbox sees almost nothing of the home folder (Flathub's Brave
+ * gets Downloads, the desktop and two folders under ~/.local/share), so the
+ * profile inside the app's data folder would not exist for it. The folder must
+ * exist before the run; the launcher makes it.
  */
 export function browserCommand(browser, url, profileDir, windowMode = DEFAULT_WINDOW_MODE, platform = process.platform) {
     const args = browserArgs(url, profileDir, windowMode);
     if (platform === 'darwin') return { cmd: 'open', args: ['-n', '-a', browser, '--args', ...args], byExit: true };
+    const flatpak = platform === 'win32' ? null : flatpakAppId(browser);
+    // Flatpak reads `--filesystem=PATH[:MODE]`, so a `:` or `\` in the library
+    // path is escaped the way Flatpak writes them itself (unparse_filesystem_flags).
+    const granted = String(profileDir).replace(/[\\:]/g, '\\$&');
+    if (flatpak) return { cmd: 'flatpak', args: ['run', `--filesystem=${granted}`, flatpak, ...args], byExit: false };
     return { cmd: browser, args, byExit: false };
 }
 

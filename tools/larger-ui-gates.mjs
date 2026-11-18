@@ -145,6 +145,9 @@ const SIZES = {
     phone: { width: 390, height: 844, scale: 1 },
     'desktop-80%': { width: 1280, height: 800, scale: 1, uiScale: 80, screens: ['settings-accessibility', 'topic'] },
     'narrow-160%': { width: 800, height: 800, scale: 1, uiScale: 160, screens: ['topic'] },
+    // A phone at the largest text: the detail header cannot fit one line
+    // even with Close as the X, so Close keeps its word on the second line.
+    'phone-160%': { width: 390, height: 844, scale: 1, uiScale: 160, screens: ['topic'] },
 };
 const LOOKS = ['light', 'dark', 'contrast'];
 // Without --looks: light everywhere, plus one dense screen in high contrast,
@@ -388,11 +391,70 @@ const MEASURE = `(() => {
             if (cs.outlineStyle !== 'none' && (parseFloat(cs.outlineWidth) || 0) > 0) titles.framed.push(name(el));
         }
     }
+    // Contrast of an element's text against what is really painted under it:
+    // every background from the root down, alpha composited (a tick's track
+    // is a translucent slate over a tinted row over the card).
+    const rgba = (c) => { const m = /^rgba?\\(([\\d.]+),\\s*([\\d.]+),\\s*([\\d.]+)(?:,\\s*([\\d.]+))?\\)$/.exec(c); return m ? [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]] : null; };
+    const over = (top, under) => [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3]));
+    const lum = (c) => { const v = c.map((x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+    const contrast = (el) => {
+        const chain = [];
+        for (let e = el; e; e = e.parentElement) chain.unshift(e);
+        let bg = [255, 255, 255];
+        for (const e of chain) {
+            const c = rgba(getComputedStyle(e).backgroundColor);
+            if (!c) return null;
+            bg = over(c, bg);
+        }
+        const fg = rgba(getComputedStyle(el).color);
+        if (!fg) return null;
+        const [a, b] = [lum(over(fg, bg)), lum(bg)];
+        return Math.round((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) * 100) / 100;
+    };
+    // The phase blocks (dashboard/PhaseProgress.tsx): each topic's block,
+    // its width, and the name drawn inside it if any.
+    const ticks = [...document.querySelectorAll('[data-tick-bar] > [role="button"]')].filter((t) => !t.closest('[data-gate-probe]') && shown(t)).map((t) => {
+        const n = t.querySelector('[data-tick-name]');
+        const on = !!n && shown(n, true);
+        const r = t.getBoundingClientRect();
+        const cs = on ? getComputedStyle(n) : null;
+        return {
+            w: r.width, h: r.height, label: t.getAttribute('aria-label') || '', title: t.getAttribute('title') || '',
+            name: on ? n.textContent : null,
+            hidden: on ? !!n.closest('[aria-hidden="true"]') : null,
+            // A name longer than its block ends in an ellipsis inside it; it never runs past the block.
+            fits: on ? (n.scrollWidth <= n.clientWidth + 0.5 || (cs.textOverflow === 'ellipsis' && cs.overflowX === 'hidden'))
+                && n.getBoundingClientRect().right <= r.right + 0.5 && n.getBoundingClientRect().height <= r.height + 0.5 : null,
+            ratio: on ? contrast(n) : null,
+            // Longer than its block: only the ellipsis keeps it inside.
+            cut: on ? n.scrollWidth > n.clientWidth + 0.5 : null,
+        };
+    });
+    // The detail header's one row of controls: title, Study, icon buttons, Close.
+    const headerOf = () => {
+        const title = [...document.querySelectorAll('button[data-row="title"]')].find((b) => shown(b) && b.parentElement?.classList.contains('flex-wrap'));
+        const row = title?.parentElement;
+        const close = row && [...row.children].find((c) => c.getAttribute('aria-label') === 'Close detail panel');
+        if (!close) return null;
+        const kids = [...row.children].filter((c) => shown(c));
+        const tops = kids.map((c) => c.getBoundingClientRect().top);
+        const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+        const rest = kids.filter((c) => c !== title && c !== close).reduce((s, c) => s + c.getBoundingClientRect().width, 0);
+        // The row with Close as the X: title at its least width, the other buttons, the X at the floor.
+        const withX = 8 * rem + rest + gap * (kids.length - 1) + Math.max(2.75 * rem, 44);
+        return {
+            oneLine: Math.max(...tops) - Math.min(...tops) < 4,
+            word: close.textContent.trim(), tooltip: close.getAttribute('title') || '',
+            close: [close.getBoundingClientRect().width, close.getBoundingClientRect().height].map(Math.round),
+            row: Math.round(row.clientWidth), withX: Math.round(withX), xFits: withX <= row.clientWidth + 0.5,
+        };
+    };
+    const header = headerOf();
     // The page between the course tree and the details pane.
     const side = document.querySelector('[data-course-sidebar]');
     const main = side && [...side.parentElement.children].find((c) => c !== side && c.tagName === 'DIV');
     const centre = main ? { w: Math.round(main.getBoundingClientRect().width), row: side.parentElement.clientWidth } : null;
-    return { attr: document.documentElement.hasAttribute('data-larger-ui'), rem, targets, text, mins, probe, cut, titles, centre, examined: { controls, text: textRuns } };
+    return { attr: document.documentElement.hasAttribute('data-larger-ui'), rem, targets, text, mins, probe, cut, titles, centre, ticks, header, examined: { controls, text: textRuns } };
 })()`;
 
 // Three known controls put on every page, so the counts cannot pass by
@@ -644,6 +706,39 @@ for (const [state, m] of Object.entries(seen)) {
     }
     const scale = SIZES[state.split(' ')[1]].uiScale ?? 100;
     check(`${state}: the page runs at ${scale}% text`, Math.abs(m.rem - 16 * scale / 100) < 0.1, `${m.rem}px`);
+    // The phase blocks carry their topics' names only with the setting on,
+    // only in a block at least 6rem wide, and only as a picture of the label.
+    if (state.startsWith('course-dashboard ')) {
+        const named = m.ticks.filter((x) => x.name !== null);
+        const fmt = (x) => `${Math.round(x.w)}px  "${x.title}"  name ${JSON.stringify(x.name)}  ${x.ratio}:1`;
+        check(`${state}: the phase bars were measured (${m.ticks.length} topic blocks)`, m.ticks.length >= 8);
+        if (!on) {
+            check(`${state}: no topic block shows a name, and the bar is the thin one`, named.length === 0 && m.ticks.every((x) => x.h < m.rem), list(named, fmt));
+        } else {
+            const wide = m.ticks.filter((x) => x.w >= 6 * m.rem + 1), narrow = m.ticks.filter((x) => x.w < 6 * m.rem - 1);
+            if (state.includes(' desktop ')) check(`${state}: a 4-topic phase on a desktop has blocks wide enough for a name (${wide.length})`, wide.length >= 4);
+            // "Constellations and star maps" is longer than a desktop block, so the ellipsis is really exercised.
+            if (state.includes(' desktop ')) check(`${state}: at least one name is longer than its block and is cut (${named.filter((x) => x.cut).length})`, named.some((x) => x.cut));
+            check(`${state}: every block at least 6rem wide shows its topic's name (${wide.length})`, wide.every((x) => x.name === x.title && x.title), list(wide.filter((x) => x.name !== x.title || !x.title), fmt));
+            check(`${state}: no block under 6rem shows a name (${narrow.length})`, narrow.every((x) => x.name === null), list(narrow.filter((x) => x.name !== null), fmt));
+            check(`${state}: each name is cut with an ellipsis inside its block, on one line`, named.every((x) => x.fits), list(named.filter((x) => !x.fits), fmt));
+            check(`${state}: each name is hidden from screen readers, the block's label still says the title once`,
+                named.every((x) => x.hidden && x.label.startsWith(`${x.title}, `) && x.label.split(x.title).length === 2), list(named.filter((x) => !x.hidden || !x.label.startsWith(`${x.title}, `)), (x) => `${fmt(x)}  label "${x.label}"`));
+            check(`${state}: each name reads at 4.5:1 or more on its block`, named.every((x) => x.ratio !== null && x.ratio >= 4.5), list(named.filter((x) => !(x.ratio >= 4.5)), fmt));
+        }
+    }
+    // The phone's detail header: Close is the X exactly when the word does
+    // not fit the title's row and the X does.
+    if (state.startsWith('topic ') && state.includes(' phone')) {
+        const h = m.header;
+        check(`${state}: the detail header was measured`, !!h, JSON.stringify(h));
+        if (h && !on) check(`${state}: Close keeps its word`, h.word !== '', JSON.stringify(h));
+        if (h && on) {
+            check(`${state}: ${h.word ? `Close keeps its word only where even the X would not fit one line (${h.withX} of ${h.row}px)` : 'Close as the X fits the header on one line'}`,
+                h.word ? h.oneLine || !h.xFits : h.oneLine, JSON.stringify(h));
+            if (!h.word) check(`${state}: the X Close is named Close and has its tooltip`, /Close/.test(h.tooltip), JSON.stringify(h));
+        }
+    }
     if (!on) continue;
     // The tree may grow for its buttons, never at the page's cost: the page
     // keeps what it had with the setting off, or a quarter of the row.
