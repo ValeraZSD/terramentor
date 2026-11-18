@@ -307,6 +307,12 @@ const ROWS = `(() => {
                 col: col ? Math.round(col.getBoundingClientRect().left - b.left) : NaN,
                 box: Math.round(title.getBoundingClientRect().left - b.left),
                 grip: Math.round(row.querySelector('[data-drag-handle]')?.getBoundingClientRect().width ?? 0),
+                // How far the row's content runs past its box, and the room
+                // its title keeps: a deep row must not push either out.
+                over: Math.round(row.scrollWidth - row.clientWidth),
+                titleW: Math.round(title.getBoundingClientRect().width),
+                rowW: Math.round(b.width),
+                rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
                 text: title.textContent.trim().slice(0, 30),
                 first: first?.hasAttribute('data-row-fold') || first?.hasAttribute('data-fold-spacer') ? 'column' : first?.hasAttribute('data-drag-handle') ? 'grip' : (first?.tagName ?? 'none').toLowerCase() });
         }
@@ -320,6 +326,10 @@ const AXE_TARGETS = `(async () => {
     return r.violations.flatMap((v) => v.nodes.map((n) => n.target.join(' ')));
 })()`;
 
+const DEEPEST = 9;
+const MIN_TITLE = 5;
+// ROWS_DUMP=<file>: write every state's measured rows there, for per-depth numbers.
+if (process.env.ROWS_DUMP) process.on('exit', () => writeFileSync(process.env.ROWS_DUMP, JSON.stringify(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.rows])))));
 const seen = {};
 const scratch = mkdtempSync(join(tmpdir(), 'larger-ui-gates-'));
 if (shots) mkdirSync(shots, { recursive: true });
@@ -340,7 +350,10 @@ try {
             if (r.status >= 300) throw new Error(`larger-ui-gates: add ${title}: ${r.status} ${JSON.stringify(r.json)}`);
             return r.json.id;
         };
-        await add(await add(chapter.id, 'Kinds of telescope mount'), 'Equatorial mounts');
+        let deep = await add(await add(chapter.id, 'Kinds of telescope mount'), 'Equatorial mounts');
+        // A chain down to depth 9, past where the indent would push a row
+        // out of a narrow tree.
+        for (let depth = 3; depth <= DEEPEST; depth++) deep = await add(deep, `Level ${depth} worked example`);
         return ids;
     };
     await visit('fixture', scratch, [{ states: Object.keys(states) }], SIZES.desktop, browserPath, async (_entry, state, page) => {
@@ -402,7 +415,13 @@ for (const [state, m] of Object.entries(seen)) {
             for (const r of m.rows) {
                 if (r.depth < (r.list === 'tree' ? 2 : 1)) continue;
                 const parent = m.rows.find((p) => p.list === r.list && p.depth === r.depth - 1);
-                if (parent && !(Math.abs(r.col - parent.box) <= 1)) misplaced.push(`${r.list} "${r.text}" column at ${r.col}px, parent's title at ${parent.box}px`);
+                // Short of the step only at the list's cap column, and only if
+                // a row there holds a title within one step of MIN_TITLE: one
+                // more step would have squeezed it (the cap below).
+                const cap = Math.max(...m.rows.filter((p) => p.list === r.list).map((p) => p.col));
+                if (parent && r.col < parent.box - 1 && Math.abs(r.col - cap) <= 1
+                    && m.rows.some((p) => p.list === r.list && Math.abs(p.col - cap) <= 1 && p.titleW < MIN_TITLE * p.rem + (parent.box - parent.col) + 1)) continue;
+                if (parent &&!(Math.abs(r.col - parent.box) <= 1)) misplaced.push(`${r.list} "${r.text}" column at ${r.col}px, parent's title at ${parent.box}px`);
             }
             check(`${state}: a sub-topic's column stands under its parent's title`, misplaced.length === 0, list(misplaced, (x) => x));
         }
@@ -410,6 +429,15 @@ for (const [state, m] of Object.entries(seen)) {
         // row was a blank slot before the title (touch) or after it (mouse,
         // hidden but still holding 44px with the switch on); it shows only
         // while a keyboard has it.
+        // A deep row keeps its title readable inside the row: each level
+        // steps in until the title would get narrower than MIN_TITLE, then
+        // the indent stops growing. Without the cap a level 8 row ran out of
+        // a 280px tree with the switch on.
+        const deepest = Math.max(...m.rows.filter((r) => r.list === 'tree').map((r) => r.depth));
+        check(`${state}: the tree shows the chain down to depth ${DEEPEST}`, state.includes(' phone ') || deepest === DEEPEST, `deepest ${deepest}`);
+        const squeezed = m.rows.filter((r) => r.over > 1 || r.titleW < MIN_TITLE * r.rem - 1);
+        check(`${state}: every title keeps ${MIN_TITLE}rem inside its row, at every depth`, squeezed.length === 0,
+            list(squeezed, (r) => `${r.list} depth ${r.depth} "${r.text}": title ${r.titleW}px in a ${r.rowW}px row, ${r.over}px past it`));
         const wrong = m.rows.filter((r) => r.first !== 'column');
         check(`${state}: every row starts with its fold chevron or status mark`, wrong.length === 0,
             list(wrong, (r) => `${r.list} "${r.text}" starts with ${r.first}`));

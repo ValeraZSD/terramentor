@@ -178,7 +178,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, ...flash?.style, paddingLeft: `calc(${displayDepth} * var(--row-indent-outline) + var(--row-outline-start))` }}
+                style={{ ...style, ...flash?.style, paddingLeft: `calc(min(${displayDepth} * var(--row-indent-outline), max(0px, 100% - var(--row-outline-reserve))) + var(--row-outline-start))` }}
                 {...rowDrag}
                 data-depth={displayDepth}
                 data-tree-item-id={node.id}

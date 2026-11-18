@@ -497,8 +497,17 @@ html[data-larger-ui] [data-course-sidebar] {
   /* A card's rows stand one level in from its header, as a tree topic does
      under its chapter. */
   --row-outline-start: var(--row-indent-outline);
+  /* The most a row's indent may take is its list's width less this reserve:
+     the column, the percentage, the ⋮, the row's own padding and margins,
+     and 5rem of title. Past it a deeper row stops stepping in, or a level 8
+     row ran its title out of a 280px tree. */
+  --row-tree-reserve: 9.75rem;
+  --row-outline-reserve: 13rem;
 }
-/* A password or key field keeps room for its show button, which is now 44px
+html[data-larger-ui] {
+  --row-tree-reserve: 11.5rem;
+  --row-outline-reserve: 15.5rem;
+}/* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
   padding-right: 3.25rem;

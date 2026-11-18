@@ -171,7 +171,8 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
                 style={{
-                    paddingLeft: `calc(${shownDepth} * var(--row-indent-tree) + 0.5rem)`,
+                    // Capped (`--row-tree-reserve`), so a deep row keeps its title.
+                    paddingLeft: `calc(min(${shownDepth} * var(--row-indent-tree), max(0px, 100% - var(--row-tree-reserve))) + 0.5rem)`,
                     ...rootBg,
                     ...flash?.style,
                 }}
