@@ -790,5 +790,147 @@ console.log('\nleaving the frame');
     try { rmSync(scratchDb, { recursive: true, force: true }); } catch { /* the library is still open; node_modules/.cache is scratch */ }
 }
 
+// ---------------------------------------------------------------------------
+// The renderer's own paths. A dropped connection is the shell's to resume, not
+// a fault to feed back to the builder (a second PAID build, against a message
+// that is the network's), and a rebuild must pass the same hidden probe as every
+// other build before it replaces the widget on screen.
+//
+// The hidden probe needs a browser to run the build; here the sandbox frame is
+// a stub that answers the probe with a verdict read off the document ("ok", or
+// an error when the build carries the word BROKEN_BUILD).
+console.log('\nthe renderer: a dropped connection, and a rebuild');
+{
+    const calls = [];
+    const reports = [];
+    globalThis.__widgetApi = { calls, reports, onBuild: null };
+    const rscratch = mkdtempSync(join(cache, 'widget-csp-gates-render-'));
+    const rout = join(rscratch, 'bundle.cjs');
+    const rstubs = {
+        store: `export const themeKeyOf = (theme, tint) => theme + ':' + tint;
+            export const useStore = Object.assign(() => undefined, {
+                getState: () => ({ theme: 'light', themeTint: '', accentColor: '#0e7490' }),
+                subscribe: () => () => { },
+            });`,
+        api: `export const api = {
+                compileWidget: async (spec, opts = {}) => { globalThis.__widgetApi.calls.push({ ...opts }); return globalThis.__widgetApi.onBuild(opts); },
+                reportVisualBuildFailure: async (...a) => { globalThis.__widgetApi.reports.push(a); return {}; },
+            };`,
+        i18n: 'export default { t: (k) => k, language: "en" }; export const currentLocale = () => "en-GB";',
+        sandboxFrame: `export const SANDBOX_ANSWER_GAP_MS = 1000;
+            export function showInSandbox(frame, html) {
+                if (html.includes('window.cancelAnimationFrame=window.clearTimeout')) {
+                    const token = JSON.parse(/var TOKEN=("(?:[^"\\\\]|\\\\.)*")/.exec(html)[1]);
+                    const broken = html.includes('BROKEN_BUILD');
+                    setTimeout(() => window.dispatchEvent(new window.MessageEvent('message', {
+                        data: broken ? { __widget: token, type: 'error', message: 'boom at runtime' } : { __widget: token, type: 'ok', h: 300 },
+                        source: frame.contentWindow,
+                    })), 0);
+                }
+                return () => { };
+            }`,
+    };
+    await esbuild.build({
+        stdin: {
+            contents: readFileSync(builderPath, 'utf8'),
+            resolveDir: join(root, 'src/components/visuals'),
+            loader: 'ts',
+            sourcefile: 'renderWidget.ts',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: rout,
+        packages: 'external',
+        plugins: [{
+            name: 'stubs',
+            setup(b) {
+                b.onResolve({ filter: /(^|\/)(?:\.\.\/)+(api|store|i18n)$/ }, a => ({ path: a.path.split('/').pop(), namespace: 'stub' }));
+                b.onResolve({ filter: /^\.\/sandboxFrame$/ }, () => ({ path: 'sandboxFrame', namespace: 'stub' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub' }, a => ({ contents: rstubs[a.path], loader: 'js' }));
+            },
+        }],
+        logLevel: 'silent',
+    });
+    globalThis.MessageEvent = host.window.MessageEvent;
+    const renderWidget = require(rout).default;
+    rmSync(rscratch, { recursive: true, force: true });
+
+    const spec = 'Title: Pendulum\nObjective: show a swing.\nBehavior: the angle sets the period.';
+    const ctx = (extra = {}) => ({
+        isDark: false, palette, width: 400, signal: new AbortController().signal, autoBuild: false, requested: true,
+        onProgress() { }, origin: undefined, onResolved() { }, ...extra,
+    });
+    const tick = (ms = 30) => new Promise(r => setTimeout(r, ms));
+    const GOOD = '<body><div id="w">GOOD_BUILD</div></body>';
+
+    // A connection that drops during the first build.
+    calls.length = 0;
+    globalThis.__widgetApi.onBuild = async (opts) => {
+        if (opts.cacheOnly) return { html: '' };
+        throw calls.filter(c => !c.cacheOnly).length === 1 ? new TypeError('Failed to fetch') : new Error('the builder said no');
+    };
+    let thrown = null;
+    await renderWidget(host.window.document.createElement('div'), spec, ctx()).catch(e => { thrown = e; });
+    check('a dropped connection reaches the shell as the connection failure', thrown instanceof TypeError && /Failed to fetch/.test(thrown.message), String(thrown));
+    check('…without a second, paid build against the network\'s message', calls.filter(c => !c.cacheOnly).length === 1 && !calls.some(c => c.error),
+        JSON.stringify(calls));
+
+    // The control: a build the builder itself got wrong still gets its one fix pass.
+    calls.length = 0;
+    globalThis.__widgetApi.onBuild = async (opts) => {
+        if (opts.cacheOnly) return { html: '' };
+        throw new Error(calls.filter(c => !c.cacheOnly).length === 1 ? 'the model returned junk' : 'still junk');
+    };
+    thrown = null;
+    await renderWidget(host.window.document.createElement('div'), spec, ctx()).catch(e => { thrown = e; });
+    const fixPass = calls.filter(c => !c.cacheOnly)[1];
+    check('control: a build the builder got wrong is retried once, carrying that error', fixPass?.error === 'the model returned junk' && /still junk/.test(thrown?.message ?? ''),
+        JSON.stringify(calls));
+
+    // Rebuild: a working widget is on screen and the new build throws when it runs.
+    calls.length = 0;
+    globalThis.__widgetApi.onBuild = async (opts) => (opts.cacheOnly || !opts.force ? { html: GOOD } : { html: '<body><div>BROKEN_BUILD</div></body>' });
+    const stage = host.window.document.createElement('div');
+    host.window.document.body.append(stage);
+    const cleanup = await renderWidget(stage, spec, ctx());
+    await tick();
+    const shown = stage.querySelector('iframe');
+    const rebuild = [...stage.querySelectorAll('button')].find(b => /rebuild/.test(b.textContent));
+    check('control: the cached widget is on screen with a rebuild button', !!shown && !!rebuild);
+    rebuild?.click();
+    await tick(60);
+    check('a rebuild that fails when it runs leaves the working widget on screen', stage.querySelector('iframe') === shown, 'the frame was replaced');
+    check('…and says why next to the button', /boom at runtime/.test(stage.textContent), stage.textContent.slice(0, 160));
+    check('…and the button is usable again', rebuild && !rebuild.disabled);
+    check('…and the server is told the stored build does not run, with the runtime error',
+        reports.length === 1 && reports[0][0] === 'widget' && reports[0][1] === spec && /boom at runtime/.test(reports[0][2]),
+        JSON.stringify(reports));
+
+    // The control: a rebuild that runs replaces it, and reports nothing.
+    globalThis.__widgetApi.onBuild = async (opts) => (opts.cacheOnly ? { html: GOOD } : { html: '<body><div id="w">NEW_BUILD</div></body>' });
+    rebuild?.click();
+    await tick(60);
+    check('control: a rebuild that runs replaces the frame', !!stage.querySelector('iframe') && stage.querySelector('iframe') !== shown);
+    check('control: …and reports no failure', reports.length === 1, JSON.stringify(reports));
+    cleanup?.();
+    stage.remove();
+
+    // A rebuild whose block is left while it is being verified mounts nothing.
+    reports.length = 0;
+    globalThis.__widgetApi.onBuild = async (opts) => (opts.cacheOnly || !opts.force ? { html: GOOD } : { html: '<body><div id="w">LATE_BUILD</div></body>' });
+    const leaving = new AbortController();
+    const stage2 = host.window.document.createElement('div');
+    host.window.document.body.append(stage2);
+    const cleanup2 = await renderWidget(stage2, spec, ctx({ signal: leaving.signal }));
+    await tick();
+    const shown2 = stage2.querySelector('iframe');
+    const rebuild2 = [...stage2.querySelectorAll('button')].find(b => /rebuild/.test(b.textContent));
+    rebuild2?.click();
+    await tick(0);
+    leaving.abort();
+    await tick(60);
+    check('a rebuild verified after its block was left does not mount a new frame', !!shown2 && stage2.querySelector('iframe') === shown2, 'the frame was replaced');
+    cleanup2?.();
+    stage2.remove();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -179,11 +179,16 @@ export function markElementGenerating(
     });
 }
 
-export function markAllRemainingCancelled(tree: LiveNode[]): LiveNode[] {
+/**
+ * A run that was stopped: whatever was being written when it stopped reads as
+ * stopped. Topics it never started stay pending, so only the one it stopped on
+ * carries the warning, not every row after it.
+ */
+export function markStoppedAsCancelled(tree: LiveNode[]): LiveNode[] {
     return tree.map(node => ({
         ...node,
-        status: node.status === 'created' ? 'created' : 'cancelled',
-        children: markAllRemainingCancelled(node.children),
+        status: node.status === 'generating' ? ('cancelled' as const) : node.status,
+        children: markStoppedAsCancelled(node.children),
     }));
 }
 
@@ -224,6 +229,31 @@ export function activeLeaf(nodes: LiveNode[]): LiveNode | null {
         return activeLeaf(node.children) ?? node;
     }
     return null;
+}
+
+/**
+ * The deepest node a stopped run stopped on: the topic, not the phase that
+ * holds it. `settle` turns the node that was being written into `error` or
+ * `cancelled`, so `activeLeaf` no longer finds it; the screen opens there.
+ */
+export function stoppedLeaf(nodes: LiveNode[]): LiveNode | null {
+    for (const node of nodes) {
+        if (node.status !== 'error' && node.status !== 'cancelled') {
+            const inner = stoppedLeaf(node.children);
+            if (inner) return inner;
+            continue;
+        }
+        return stoppedLeaf(node.children) ?? node;
+    }
+    return null;
+}
+
+/**
+ * The topic the run screen opens its outline on: the one being written while
+ * the run is live, the one it stopped on once it is over.
+ */
+export function openingLeaf(nodes: LiveNode[], live: boolean): LiveNode | null {
+    return activeLeaf(nodes) ?? (live ? null : stoppedLeaf(nodes));
 }
 
 /** Is `key` this node or one under it? */
