@@ -5,13 +5,12 @@
  * Run:  node tools/progress-scope-gates.mjs
  *
  * `projectProgress(id)` is called once per project by the pace, the feed's
- * header and focus list, the schedule overview and the study dashboard. It
- * used to be `SELECT * FROM (<every work leaf, grouped>) WHERE projectId = ?`,
- * and SQLite does not push a filter into an aggregate subquery: each call
- * grouped every leaf in the library and kept one project's rows. On a library
- * of 5,000 topics and 22,000 cards that was 357 ms for 26 projects, against
- * 22 ms with the filter inside the grouping, and it ran on every feed, every
- * Projects grid and every schedule view.
+ * header and focus list, the schedule overview and the study dashboard.
+ * SQLite does not push a filter into an aggregate subquery, so
+ * `SELECT * FROM (<every work leaf, grouped>) WHERE projectId = ?` groups every
+ * leaf in the library to keep one project's rows. On a library of 5,000 topics
+ * and 22,000 cards that shape costs 357 ms for 26 projects, against 22 ms with
+ * the filter inside the grouping, on every feed, Projects grid and schedule view.
  *
  * Two things pinned here:
  *   1. the answer did not change: every project's progress through the

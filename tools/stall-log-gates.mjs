@@ -1,13 +1,12 @@
 // tools/stall-log-gates.mjs — a [Stall] line says what the thread was doing.
 //
-// The line used to be "the event loop was blocked for 5694ms" and nothing else.
-// Read against a real log, the same number had two different causes: a handler
-// computing for five seconds, and a handler that touched memory Windows had
-// paged out while the app sat idle (the process used 0.66 s of CPU in a 16.9 s
-// stall). The first is fixed in the code, the second is the machine, and the
-// bare duration cannot tell them apart. The line now carries the CPU the
-// process spent while it lasted, a verdict from it, and the requests that were
-// in flight, so the next log names its own suspect.
+// A bare duration ("the event loop was blocked for 5694ms") has two different
+// causes in a real log: a handler computing for five seconds, and a handler
+// that touched memory Windows had paged out while the app sat idle (the process
+// used 0.66 s of CPU in a 16.9 s stall). The first is fixed in the code, the
+// second is the machine, and the number alone cannot tell them apart. So the
+// line carries the CPU the process spent while it lasted, a verdict from it,
+// and the requests that were in flight: the log names its own suspect.
 import { requestsDuring, stallKind, stallLine } from '../server/slowLog.js';
 
 let failures = 0;
