@@ -109,5 +109,7 @@ const priceChecks = [
 ];
 const priceBad = priceChecks.filter(([u, cost, prompt]) => Math.abs(u.cost - cost) > 1e-9 || u.prompt_tokens !== prompt);
 print(`Anthropic pricing: ${priceChecks.length - priceBad.length}/${priceChecks.length} hand-computed costs match`);
+// tools/run-gates.mjs reads this count; a gate that prints none fails there.
+print(`${(cases.length - goldenFail) + killed + (priceChecks.length - priceBad.length)} assertions passed`);
 endLibrary(scratch, app);
 process.exit(goldenFail || survivors || priceBad.length ? 1 : 0);
