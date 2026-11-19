@@ -47,12 +47,14 @@ const listen = (srv) => new Promise(ok => srv.listen(0, '127.0.0.1', () => ok(sr
 
 // ── stubs: an Ollama and an OpenAI-compatible server, each with one model ──
 const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+// How many times each model list was fetched: the status is asked often, the list should not be.
+const listed = { ollama: 0, openai: 0 };
 const ollamaStub = createServer((req, res) => {
-    if (req.url.startsWith('/api/tags')) return json(res, { models: [{ name: 'stub:9b', model: 'stub:9b' }] });
+    if (req.url.startsWith('/api/tags')) { listed.ollama++; return json(res, { models: [{ name: 'stub:9b', model: 'stub:9b' }] }); }
     res.writeHead(404); res.end();
 });
 const openaiStub = createServer((req, res) => {
-    if (req.url.startsWith('/v1/models')) return json(res, { object: 'list', data: [{ id: 'stub-model', object: 'model' }] });
+    if (req.url.startsWith('/v1/models')) { listed.openai++; return json(res, { object: 'list', data: [{ id: 'stub-model', object: 'model' }] }); }
     res.writeHead(404); res.end();
 });
 const OLLAMA = `http://127.0.0.1:${await listen(ollamaStub)}`;
@@ -132,6 +134,18 @@ put('ai_openai_model', 'stub-model');
 s = await status();
 v = shown(s);
 check('usable and green, named by its address', s.provider === 'openai' && v.usable && v.dot === 'online' && v.badge === 'Local', JSON.stringify({ provider: s.provider, ...v }));
+{
+    // The assistant asks on open, every minute, and as each answer starts and
+    // ends; every ask listed the provider's models over the network.
+    const before = listed.openai;
+    await Promise.all([status(), status(), status(), status()]);
+    for (let i = 0; i < 3; i++) await status();
+    check('asked seven more times at once and in a row: the model list is not fetched again', listed.openai === before, `${listed.openai - before} more fetches`);
+    put('ai_openai_model', 'stub-model-2');
+    const after = (await status()).model;
+    check('…but a change to the AI settings is a new question, answered at once', listed.openai === before + 1 && after === 'stub-model-2', `fetches ${listed.openai - before}, model ${after}`);
+    put('ai_openai_model', 'stub-model');
+}
 
 console.log('\n--- a connection in use that does not answer ---');
 r = await api('/api/ai/connections', { method: 'POST', body: JSON.stringify({ kind: 'custom', baseUrl: 'http://127.0.0.1:9/v1', saveAnyway: true }) });
@@ -148,6 +162,42 @@ for (const c of [deadConn, customConn, ollamaConn]) await api(`/api/ai/connectio
 s = await status();
 v = shown(s);
 check('back to nothing connected, said the same way as a fresh library', s.connected === false && v.headline === CONNECT_HEADLINE && v.connect && !/ollama/i.test(JSON.stringify(v)), JSON.stringify({ connected: s.connected, ...v }));
+
+console.log('\n--- how long a status answer is kept ---');
+{
+    const { statusHealth, HEALTH_OK_MS, HEALTH_FAIL_MS } = await import('../server/ai.js');
+    let t = 1_000_000;
+    let calls = 0;
+    let answer = { available: true, models: [] };
+    const opts = { check: async () => { calls++; return answer; }, now: () => t };
+    const settingsA = { provider: 'openai', baseUrl: 'http://a.example/v1', apiKey: 'k1' };
+    await statusHealth(settingsA, opts);
+    t += HEALTH_OK_MS - 1;
+    await statusHealth(settingsA, opts);
+    check('a reachable answer is reused until it is HEALTH_OK_MS old', calls === 1, `${calls} checks`);
+    t += 1;
+    await statusHealth(settingsA, opts);
+    check('…and checked again after', calls === 2, `${calls} checks`);
+    await statusHealth({ ...settingsA, apiKey: 'k2' }, opts);
+    check('a different key is a different question', calls === 3, `${calls} checks`);
+    await statusHealth({ ...settingsA, apiKey: 'k2' }, { ...opts, fresh: true });
+    check('a check a person asked for (the settings button) always asks', calls === 4, `${calls} checks`);
+    answer = { available: false, error: 'Nothing is listening' };
+    const settingsB = { ...settingsA, baseUrl: 'http://b.example/v1' };
+    await statusHealth(settingsB, opts);
+    t += HEALTH_FAIL_MS - 1;
+    await statusHealth(settingsB, opts);
+    check('an unreachable answer is kept only HEALTH_FAIL_MS (a burst of asks), so "start it, retry" is fresh', calls === 5, `${calls} checks`);
+    t += 1;
+    answer = { available: true, models: [] };
+    const back = await statusHealth(settingsB, opts);
+    check('…then the server that came back is seen', calls === 6 && back.available === true, `${calls} checks`);
+    let thrown = 0;
+    const boom = { check: async () => { calls++; throw new Error('boom'); }, now: () => t };
+    for (let i = 0; i < 2; i++) { try { await statusHealth({ provider: 'x' }, boom); } catch { thrown++; } }
+    check('a check that throws is not remembered', thrown === 2 && calls === 8, `${thrown} thrown, ${calls} checks`);
+    check('fresh course creation does not go through it', !/statusHealth/.test(readFileSync(join(repoRoot, 'server/routes/createProject.js'), 'utf8')));
+}
 
 console.log('\n--- one rule, not one per surface ---');
 const SURFACES = ['src/components/AiModelBadge.tsx', 'src/components/AIUnavailableNotice.tsx', 'src/components/feed/AiSetupCard.tsx', 'src/components/AssistantDrawer.tsx'];
