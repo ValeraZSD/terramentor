@@ -261,7 +261,10 @@ const recordTx = db.transaction((surface, attemptId, write, subject) => {
 /**
  * Run `write` once per (surface, attemptId); see above. `subject` names what
  * was answered (a topic, a quiz, a question); the same id for another subject
- * throws `AttemptReusedError`. IMMEDIATE, so a second process queues rather than races.
+ * throws `AttemptReusedError`. With no subject a reused id is the caller's to
+ * catch: an agent review's id is issued by the server and checked against the
+ * card on screen (`currentCard`), and a claim compares the stored outcome
+ * (claims.js). IMMEDIATE, so a second process queues rather than races.
  */
 export function recordOnce(surface, attemptId, write, subject = null) {
     return recordTx.immediate(surface, attemptId, write, subject == null ? null : String(subject));
