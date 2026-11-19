@@ -137,13 +137,18 @@ node tools/docs-shots.mjs           # the README's pictures still show the app (
 ```
 
 These six are what CI runs on your pull request, on Node 24 on Linux and on Windows (the
-pictures on Windows only; [Pictures in the docs](#pictures-in-the-docs) says why).
+pictures on Windows only; [Pictures in the docs](#pictures-in-the-docs) says why). The Linux
+leg also packages the desktop zip and holds it to its size budget
+(`node tools/build-desktop.mjs --skip-build`, then
+`node tools/perf-budget-gates.mjs --package release/*.zip`). The budgets for size and speed are
+`tools/perf-budgets.json`; `npm test` runs the rest of them. A change that needs more raises the
+budget in that file, with the reason in its commit message.
 Nothing in it calls a model or the network: each suite drives the real modules against a
 scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
-`npm run test:quick` skips the four jsdom harnesses and the two browser scans if you want the fast half.
+`npm run test:quick` skips the four jsdom harnesses and the three browser suites if you want the fast half.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
 `package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
