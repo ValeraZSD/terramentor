@@ -126,7 +126,7 @@ Then install it as an app:
 - **Android:** Chrome → ⋮ → *Install app* / *Add to Home screen*
 
 You get an icon, a full-screen app with no address bar, and it remembers you are
-signed in. Reviews, the feed, the calendar and the atlas all work; so does
+signed in. Reviews, the feed, your courses and the atlas all work; so does
 everything that needs the model, because the model call happens on the computer.
 
 ---
