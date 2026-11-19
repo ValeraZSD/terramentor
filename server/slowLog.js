@@ -38,6 +38,50 @@ function stamp() {
     return new Date().toISOString().slice(11, 23);
 }
 
+// The requests seen lately, so a stall can say what was being answered while
+// the thread was gone. Method and path only, never the query (the [Slow] line
+// keeps its own shape).
+const RECENT_MAX = 64;
+const recent = [];
+
+/** The requests in flight at any moment of [from, to], as at most three labels. */
+export function requestsDuring(from, to, list = recent) {
+    const labels = [];
+    for (const r of list) {
+        if (r.start > to || (r.end && r.end < from)) continue;
+        // A stream is open by design (the task feed, a tutor turn): it would
+        // stand in every stall line and name nothing.
+        if (typeof r.isStream === 'function' ? r.isStream() : r.isStream) continue;
+        if (!labels.includes(r.label)) labels.push(r.label);
+    }
+    return labels.slice(-3);
+}
+
+/**
+ * What a stall was, from the CPU the process used while it lasted. A thread
+ * held by work burns CPU the whole time; one held by a synchronous read the
+ * disk is slow to answer, or by memory Windows paged out while the app sat
+ * idle, burns almost none. The two need different fixes, and the bare
+ * duration cannot tell them apart. Pure, for the gate.
+ */
+export function stallKind(lagMs, cpuMs) {
+    if (cpuMs >= lagMs * 0.6) return 'busy';
+    if (cpuMs <= lagMs * 0.3) return 'waiting';
+    return 'mixed';
+}
+
+const KIND_TEXT = {
+    busy: 'computing',
+    waiting: 'waiting, not computing: the disk, or memory paged out',
+    mixed: 'partly computing, partly waiting',
+};
+
+/** One [Stall] line. Pure, for the gate. */
+export function stallLine({ at, lagMs, cpuMs, during }) {
+    const what = during.length ? ` during ${during.join(', ')}` : ' with no request in flight';
+    return `[Stall] ${at} the event loop was blocked for ${lagMs}ms (CPU ${cpuMs} ms, ${KIND_TEXT[stallKind(lagMs, cpuMs)]})${what}`;
+}
+
 /**
  * Express middleware: log the requests that took too long.
  *
@@ -48,7 +92,16 @@ function stamp() {
 export function slowRequestLog() {
     return (req, res, next) => {
         const started = process.hrtime.bigint();
+        const entry = {
+            label: `${req.method} ${String(req.originalUrl || req.url).split('?')[0]}`, start: Date.now(), end: 0,
+            isStream: () => String(res.getHeader('content-type') || '').includes('text/event-stream'),
+        };
+        recent.push(entry);
+        if (recent.length > RECENT_MAX) recent.shift();
+        const ended = () => { entry.end ||= Date.now(); };
+        res.on('close', ended);
         res.on('finish', () => {
+            ended();
             const ms = Number(process.hrtime.bigint() - started) / 1e6;
             if (ms < SLOW_REQUEST_MS) return;
             // Streams are long by design: a tutor turn holds its socket open for
@@ -74,15 +127,22 @@ export function slowRequestLog() {
  */
 export function startEventLoopMonitor() {
     let expected = Date.now() + LAG_SAMPLE_MS;
+    let lastCpu = process.cpuUsage();
     const timer = setInterval(() => {
         const now = Date.now();
         const lag = now - expected;
         expected = now + LAG_SAMPLE_MS;
+        const cpu = process.cpuUsage(lastCpu);
+        lastCpu = process.cpuUsage();
         if (lag < LOOP_LAG_MS) return;
         // What was in flight matters more than the number: the point of the line
         // is to name the suspect, and a stall with a task running reads very
-        // differently from one with the process apparently idle.
-        console.warn(`[Stall] ${stamp()} the event loop was blocked for ${lag}ms`);
+        // differently from one with the process apparently idle. The CPU spent
+        // says whether the thread was working or waiting (stallKind).
+        console.warn(stallLine({
+            at: stamp(), lagMs: lag, cpuMs: Math.round((cpu.user + cpu.system) / 1000),
+            during: requestsDuring(now - lag - LAG_SAMPLE_MS, now),
+        }));
     }, LAG_SAMPLE_MS);
     timer.unref();
     return timer;
