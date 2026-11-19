@@ -99,7 +99,9 @@ const show = (n, unit) => unit === 'ms' ? `${Math.round(n)} ms`
 // depend on the machine and on what else it is doing: CI holds them (the
 // runner is a known, otherwise idle machine); elsewhere they are reported, and
 // held only when asked, so a contributor's busy laptop does not go red.
-const ENFORCE_TIMES = !!process.env.CI || args.includes('--enforce-times');
+// GitHub Actions sets CI=true; anything else (unset, CI=false) is a local run.
+const ON_CI = process.env.CI === 'true';
+const ENFORCE_TIMES = ON_CI || args.includes('--enforce-times');
 
 /** One measured number against its budget, printed whether it passes or not. */
 function against(id, measured) {
@@ -211,6 +213,9 @@ async function startServer(dir) {
     const child = spawn(process.execPath, [join(ROOT, 'server', 'index.js')], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     const exited = new Promise((r) => child.once('exit', r));
+    const stop = () => { child.kill(); return Promise.race([exited, sleep(10_000)]); };
+    // A server that never says it is ready is stopped here: the caller gets no
+    // `stop` to call, and would delete the scratch folder under a live process.
     const ms = await new Promise((ok, bad) => {
         const timer = setTimeout(() => bad(new Error(`the scratch server did not start in 120 s:\n${log.slice(-2000)}`)), 120_000);
         child.stdout.on('data', (c) => {
@@ -219,10 +224,9 @@ async function startServer(dir) {
         });
         child.stderr.on('data', (c) => { log += c; });
         child.once('exit', (code) => { clearTimeout(timer); bad(new Error(`the scratch server exited (${code}):\n${log.slice(-2000)}`)); });
-    });
+    }).catch(async (err) => { await stop(); throw err; });
     const scheme = log.match(/Server running at (https?):/)[1];
     const base = `${scheme}://127.0.0.1:${port}`;
-    const stop = () => { child.kill(); return Promise.race([exited, sleep(10_000)]); };
     return { ms, base, stop, log: () => log };
 }
 
@@ -262,7 +266,9 @@ const SCREENS = {
     welcome: `[...document.querySelectorAll('main h1')].some((h) => /Welcome to Terramentor/.test(h.textContent))`,
     // The home screen: the shell's navigation and the feed drawn, nothing in
     // the page still marked as loading (a lazy route's fallback is aria-busy).
-    home: `!!document.querySelector('nav') && !!document.querySelector('main') && !document.querySelector('[aria-busy="true"]') && document.querySelector('main').innerText.trim().length > 0`,
+    // The scratch library has no project, so a drawn feed is its empty state;
+    // FeedView's "Building your feed…" block has neither that text nor a card.
+    home: `!!document.querySelector('nav') && !!document.querySelector('main') && !document.querySelector('[aria-busy="true"]') && /No active projects yet/.test(document.querySelector('main').innerText)`,
 };
 
 const PROFILES = {
@@ -454,7 +460,7 @@ try {
         let browserPath = null;
         try { browserPath = findBrowser(value('--browser')); } catch { /* none */ }
         if (browserPath) await checkFirstScreen(scratch, browserPath);
-        else if (process.env.CI) check('a browser to time the first screen in', false, 'no Edge or Chrome on this runner');
+        else if (ON_CI) check('a browser to time the first screen in', false, 'no Edge or Chrome on this runner');
         else console.log('\nFirst screen: SKIPPED, no Edge or Chrome found (pass --browser <path>)');
     }
     if (part('self')) checkSelf(scratch);
