@@ -7,7 +7,7 @@ import { isLeafNode, leafStatus, nextLeafStatus } from '../utils/tree';
 import { useCanHover } from '../utils/platform';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
-import type { FlatItem } from '../utils/treeDnd';
+import { ownPress, type FlatItem } from '../utils/treeDnd';
 import { useDropFlash } from '../hooks/useDropFlash';
 import { useSiblingMove } from '../hooks/useDragA11y';
 import {
@@ -24,7 +24,6 @@ interface Props {
     item: FlatItem;
     projectedDepth: number | null;
     isActive: boolean;
-    indentationWidth: number;
     /** True when the dragged row would nest inside THIS item (highlight it). */
     isDropParent?: boolean;
     /** On the dragged row only: title of the item it will nest inside, or null for top level. */
@@ -33,7 +32,7 @@ interface Props {
     cardId: number;
 }
 
-export default function TreeItemRow({ item, projectedDepth, isActive, indentationWidth, isDropParent, dropParentTitle, cardId }: Props) {
+export default function TreeItemRow({ item, projectedDepth, isActive, isDropParent, dropParentTitle, cardId }: Props) {
     const { t } = useTranslation();
     const { node } = item;
     const selectNode = useStore((s) => s.selectNode);
@@ -123,7 +122,8 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
         if (isNote) return <FileText className="w-4 h-4 text-slate-500 dark:text-slate-400" />;
         if (!isLeaf) {
             const progress = node.progress?.percentage || 0;
-            const color = progress === 100 ? 'text-green-500' : progress > 0 ? 'text-blue-500' : 'text-slate-400';
+            // The course tree's percentage colours: text, so 4.5:1 in both themes.
+            const color = progress === 100 ? 'text-green-600 dark:text-green-400' : progress > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400';
             return <span className={`text-xs font-medium ${color}`}>{progress}%</span>;
         }
         switch (leafStatus(node)) {
@@ -135,12 +135,52 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
     };
 
     const displayDepth = held ? projectedDepth ?? item.depth : item.depth;
+    // The whole row is what a pointer drags (`rowDrag`): a mouse once it has
+    // moved 5px, a finger after the press-and-hold. The grip stays for a
+    // keyboard and shows only while focused: a grip in every row, 44px with
+    // the larger setting, took width from every title (hidden under a mouse,
+    // it still held its slot).
+    const rowDrag = {
+        onMouseDown: ownPress(listeners?.onMouseDown as React.MouseEventHandler | undefined),
+        onTouchStart: ownPress(listeners?.onTouchStart as React.TouchEventHandler | undefined),
+    };
+    const handle = (
+        <button data-drag-handle
+            type="button"
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={t("Drag to reorder")}
+            className={`shrink-0 cursor-grab active:cursor-grabbing touch-pan-y sr-only focus-visible:not-sr-only focus-visible:p-0.5 ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+            <GripVertical className="w-3.5 h-3.5" />
+        </button>
+    );
+    // 24px to press (WCAG 2.5.8) around a 16px icon, centred on its 20px
+    // column: the 2px it spills each side stays inside the row's padding and
+    // its 6px gap; the row owns the height.
+    const statusButton = (
+        <button
+            data-row-status
+            type="button"
+            onClick={cycleStatus}
+            aria-label={isLeaf ? t("Cycle status of {{title}}", { title: node.title }) : undefined}
+            title={isLeaf && hoverCapable ? t("Click to cycle status · Shift-click to skip") : undefined}
+            className={`shrink-0 -my-1 p-1 rounded ${isLeaf ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
+            disabled={!isLeaf}
+        >
+            {getStatusIcon()}
+        </button>
+    );
+
 
     return (
         <>
             <div
                 ref={setNodeRef}
-                style={{ ...style, ...flash?.style, paddingLeft: `${displayDepth * indentationWidth}px` }}
+                style={{ ...style, ...flash?.style, paddingLeft: `calc(min(${displayDepth} * var(--row-indent-outline), max(0px, 100% - var(--row-outline-reserve))) + var(--row-outline-start))` }}
+                {...rowDrag}
+                data-depth={displayDepth}
                 data-tree-item-id={node.id}
                 data-node-id={node.id}
                 onMouseEnter={() => setIsHovered(true)}
@@ -149,7 +189,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                 // a button role holding the drag, expand, status and ⋮ buttons
                 // it was buttons inside a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${flash?.className ?? ''} ${held
+                className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${hoverCapable ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent
                         ? 'drop-target -outline-offset-2 bg-accent/10'
@@ -158,43 +198,26 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                             : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'}`
                     }`}
             >
-                <button data-drag-handle
-                    type="button"
-                    {...attributes}
-                    {...listeners}
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label={t("Drag to reorder")}
-                    className={`p-0.5 cursor-grab active:cursor-grabbing transition-opacity touch-pan-y ${held ? 'text-accent' : `text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 ${rowControls}`}`}
-                >
-                    <GripVertical className="w-3.5 h-3.5" />
-                </button>
+                {/* One column before the title, as in the course tree: the fold
+                    chevron on a row with rows under it, the status mark on one
+                    without. Each level is indented by the column and its gap. */}
                 {hasChildren ? (
                     <button data-row-fold
                         type="button"
                         onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
                         aria-label={t("Topics under {{title}}", { title: node.title })}
                         aria-expanded={isExpanded}
-                        className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded shrink-0"
+                        className="w-5 flex items-center justify-center py-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded shrink-0"
                     >
-                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+                        {isExpanded
+                            ? <ChevronDown data-row-chevron className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
+                            : <ChevronRight data-row-chevron className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />}
                     </button>
                 ) : (
-                    <span className="w-4" />
+                    <span data-fold-spacer className="w-5 shrink-0 flex items-center justify-center">
+                        {statusButton}
+                    </span>
                 )}
-                <button
-                    data-row-status
-                    onClick={cycleStatus}
-                    aria-label={isLeaf ? t("Cycle status of {{title}}", { title: node.title }) : undefined}
-                    title={isLeaf && hoverCapable ? t("Click to cycle status · Shift-click to skip") : undefined}
-                    // 24px to press (WCAG 2.5.8) around a 16px icon: the padding
-                    // is taken back by the margin, inside the row's 6px gap, on
-                    // every side but the right, where the title's own `-mx-1`
-                    // would cover 2px of it.
-                    className={`shrink-0 -my-1 -ml-1 p-1 rounded ${isLeaf ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`}
-                    disabled={!isLeaf}
-                >
-                    {getStatusIcon()}
-                </button>
                 <button data-row="title"
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
@@ -217,6 +240,14 @@ export default function TreeItemRow({ item, projectedDepth, isActive, indentatio
                         )}
                     </span>
                 )}
+                {/* A row with rows under it: what is done at the row's end, as
+                    the card's ring and the course tree show it. A topic whose
+                    only children are notes is still a topic: its status mark,
+                    pressable, goes there too. */}
+                {hasChildren && (isLeaf ? statusButton : (
+                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">{getStatusIcon()}</span>
+                ))}
+                {handle}
                 {/* Held, the ⋮ keeps only its height (the row's, on a phone too) and gives its width to the title. */}
                 <div className={`flex items-center transition-opacity ${held ? 'invisible w-0 overflow-hidden' : rowControls}`}>
                     <DropdownMenu

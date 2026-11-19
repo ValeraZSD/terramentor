@@ -290,8 +290,8 @@ jobs:
   # runs `npm ci`, and the runner's Node — pinned by setup-node — is the runtime
   # that ships (see the header of the build script). The staged copy starts
   # itself in a scratch data directory before it is zipped; a package that does
-  # not start never reaches the release. macOS builds on Apple Silicon; an Intel
-  # Mac runs the zip through Rosetta.
+  # not start never reaches the release. macOS builds on Apple Silicon only:
+  # its Node and native modules are arm64, which an Intel Mac cannot run.
   desktop:
     needs: [plan, verify]
     if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.verify.result == 'success' || needs.plan.outputs.publish != 'true') }}

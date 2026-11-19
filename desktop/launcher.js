@@ -285,6 +285,9 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
         // browserCommand), so the browser is an application macOS launched
         // rather than a child of this process.
         const { cmd, args, byExit } = browserCommand(browser, url, profileDir, windowMode);
+        // A Flatpak browser is granted this folder by path, and Flatpak skips a
+        // path that does not exist yet (the first start).
+        try { mkdirSync(profileDir, { recursive: true }); } catch { /* the browser makes it, or says why */ }
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and

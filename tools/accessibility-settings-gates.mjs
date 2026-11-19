@@ -395,16 +395,22 @@ section('8. larger text and buttons: one switch, two floors');
         /data-sidebar-row/.test(sidebar) && /html\[data-larger-ui\] \[data-sidebar-row\] \{\s*padding-block: 0\.25rem;/.test(css)
         && !/html\[data-larger-ui\] \[data-node-id\]/.test(css));
     // A chapter's fold button is 44px wide with the switch on; a topic's
-    // spacer stayed 20px, so topics slid left of their chapter.
-    check('a topic still sits under its chapter: the spacer is as wide as the fold button',
-        /<span data-fold-spacer className="w-5 shrink-0" \/>/.test(sidebar) && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
+    // spacer stayed 20px, so topics slid left of their chapter. The outline's
+    // spacer had no marker at all. (larger-ui-gates measures the result.)
+    const outlineRow = read('src/components/TreeItemRow.tsx');
+    check('a topic still sits under its chapter: the spacer is as wide as the fold button, in the tree and the outline',
+        [sidebar, outlineRow].every((src) => /<span data-fold-spacer className="w-5 shrink-0/.test(src))
+        && /html\[data-larger-ui\] \[data-fold-spacer\] \{\s*width: var\(--target-floor\);/.test(css));
+    // A drag nests one level per drawn indent, at every text size: that is
+    // drag-order-gates' "a drag steps one drawn indent per level" section.
     // The show button is the floor wide and sits 0.25rem in: 3.25rem left
     // typed text 5.6px under it at an 80% interface size.
     check('a password field keeps room for its show button at every interface size',
         /data-reveal-field=""/.test(read('src/components/ui/Field.tsx')) && /className="absolute right-1 top-1\/2/.test(read('src/components/ui/Field.tsx'))
         && /html\[data-larger-ui\] \[data-reveal-field\] \{\s*padding-right: calc\(var\(--target-floor\) \+ 0\.5rem\);/.test(css));
-    check('the course tree is wide enough for two 44px buttons and a title, never past 30% of its row',
-        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css));
+    check('the course tree is wide enough for a 44px column, a title and a grip, never past 30% of its row',
+        /data-course-sidebar=\{isDrawer \? undefined : ''\}/.test(sidebar) && /html\[data-larger-ui\] \[data-course-sidebar\] \{\s*min-width: min\(17\.5rem, 30%\);/.test(css)
+        && /html\[data-larger-ui\] \{\s*--row-tree-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);\s*--row-outline-reserve: calc\([\d.]+rem \+ var\(--target-floor\)\);/.test(css));
     check('the assistant may set it', /'larger_ui'/.test(read('server/assistantSettings.js')) && /larger_ui: k\(/.test(read('src/utils/assistantSettings.ts')));
     check('the row is in the Reading group, after Text size',
         /tr\("Text size"\)[\s\S]{0,700}tr\("Larger text and buttons"\)[\s\S]*tr\("Letter spacing"\)/.test(read('src/components/settings/AccessibilitySettings.tsx')));

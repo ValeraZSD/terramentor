@@ -169,8 +169,9 @@ function sortTasks(tasks: AITaskSummary[]): AITaskSummary[] {
 /**
  * The chip's place in the row, and its way out of it. One grid column: `1fr`
  * while the chip is here, `0fr` while it leaves, which is a width animation
- * with no width to measure — the inner box keeps `min-w-0 overflow-hidden` so
- * the chip is CLIPPED as the column closes rather than reflowing its own text.
+ * with no width to measure — the inner box takes `overflow-hidden` while it
+ * leaves, so the chip is CLIPPED as the column closes rather than reflowing
+ * its own text.
  * The words go first (they are already gone by the time the clipping would
  * show), and the negative margin walks back the dock's `gap` so the row closes
  * the whole way instead of leaving a 4px hole where the chip was.
@@ -201,7 +202,9 @@ function ChipExit({ leaving, children }: { leaving: boolean; children: React.Rea
             aria-hidden={leaving || undefined}
         >
             <div
-                className="min-w-0 overflow-hidden"
+                // Clipped only while it leaves: a staying chip's High Contrast
+                // frame stands outside its box, and the clip cut its edges.
+                className={`min-w-0 ${leaving ? 'overflow-hidden' : ''}`}
                 style={{
                     opacity: leaving ? 0 : 1,
                     pointerEvents: leaving ? 'none' : undefined,
@@ -282,7 +285,9 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
             // repeats the dock's own capsule — because two chips side by side
             // on a bare bar ran into each other and could not be told apart.
             // The dock is still the container; the tint only draws the seam.
-            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
+            // min-h, not h: with the larger setting its buttons are 44px tall,
+            // and a fixed 36px chip let the dock's rail cut them to 36.
+            className={`flex items-center gap-1.5 pl-2.5 pr-0.5 min-h-9 rounded-lg bg-slate-100/80 dark:bg-slate-700/50 transition-colors
                 ${task.status === 'queued' ? 'opacity-70' : ''}`}
             // Scoped here, on the chip's own root, so everything accented
             // inside it — the progress token, the focus rings — says which
