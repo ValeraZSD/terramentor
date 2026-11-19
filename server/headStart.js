@@ -80,7 +80,7 @@ export function headStartFor(nodeId) {
 }
 
 /** Every head start in a project, by node id — the scheduler's batch read. */
-export function headStartsForProject(projectId) {
+export function headStartsForProject(projectId, { placement = true } = {}) {
     const rows = stmt(`
         SELECT nm.node_id, nm.transferred_prior, nm.placement_prior, nm.mastery_score, nm.total_attempts
         FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
@@ -89,7 +89,9 @@ export function headStartsForProject(projectId) {
     `).all(projectId);
     const out = new Map();
     for (const r of rows) {
-        const hs = headStartOf(r);
+        // `placement: false`: as if no placement probe had seeded anything
+        // (placement's `finishProbe` compares against that).
+        const hs = headStartOf(placement ? r : { ...r, placement_prior: null });
         if (hs) out.set(r.node_id, hs);
     }
     return out;

@@ -230,7 +230,7 @@ function today() {
 function getProjectNodes(projectId) {
     return db.prepare(`
         SELECT id, parent_id, title, description, status, position, is_note, role,
-               estimated_weight, scheduled_start, scheduled_end, completed_at
+               estimated_weight, scheduled_start, scheduled_end, completed_at, updated_at
         FROM nodes
         WHERE project_id = ?
         ORDER BY position ASC
@@ -694,14 +694,35 @@ export function persistSchedule(projectId, assignments, baselineSnapshot, config
             baseline_schedule = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).run(startDate, deadline, JSON.stringify(studyDays), JSON.stringify(baselineSnapshot), projectId);
+    clearStoredOpenDates(projectId);
+}
+
+let clearOpenDatesStmt = null;
+/**
+ * Clear the dates an older build stored on a project's OPEN topics. While a
+ * window stands nothing reads them (`plan_nodes`); once it is removed they
+ * would come back as stale plan dates and read as overdue. Closed topics keep
+ * theirs: one with no completion time is placed on it (`layTopicDates`), and a
+ * closed topic is never overdue. Called whenever the window is saved or
+ * changed. Not a topic date written: the plan is still derived on read.
+ */
+export function clearStoredOpenDates(projectId) {
+    clearOpenDatesStmt ??= db.prepare(`
+        UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE project_id = ? AND status NOT IN ('completed', 'skipped')
+          AND (scheduled_start IS NOT NULL OR scheduled_end IS NOT NULL)
+    `);
+    return clearOpenDatesStmt.run(projectId).changes;
 }
 
 /**
  * The topic dates of a course with a window, worked out from the record, the
  * window and the study week, never read from a stored date.
  *
- * - A closed topic sits on the day it was completed, in the learner's zone
- *   (none when it carries no completion time).
+ * - A closed topic sits on the day it was completed, in the learner's zone.
+ *   One with no completion time (a skipped topic, an imported completed row)
+ *   keeps the end date its row carries, else the day its row last changed, so
+ *   it never drops off the Timeline or out of its parent's span.
  * - Open topics are laid by the same phase-aware engine from today (or from
  *   the window's start, if that is later) to the deadline. A missed week
  *   therefore makes nothing overdue: the open work moves up and the pace
@@ -714,7 +735,8 @@ export function persistSchedule(projectId, assignments, baselineSnapshot, config
  * Null when the project has no valid window: nothing is derived and its rows
  * keep their own dates. Empty for a course measured in cards (its sections are
  * placed by `cardPlan`). `headStarts: false` lays it as if nothing were known
- * yet (placement asks whether a head start moved anything). Reads only.
+ * yet, `'transfer'` without placement seeds (placement asks whether a head
+ * start moved anything). Reads only.
  *
  * @returns {null | Map<number, { start: string, end: string }>}
  */
@@ -730,19 +752,22 @@ export function layTopicDates(projectId, todayStr = today(), timeZone = learnerT
     const from = project.start_date > todayStr ? project.start_date : todayStr;
     // `completed_at` is UTC: ISO with a Z, or SQLite's 'YYYY-MM-DD HH:MM:SS'
     // with no zone, which Date.parse would read as the server's local time.
-    const doneOn = (leaf) => {
-        const raw = String(leaf.completed_at ?? '');
+    const dayOf = (value) => {
+        const raw = String(value ?? '');
         const utc = /[zZ]$|[+-]\d\d:?\d\d$/.test(raw) || !/\d:\d\d/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
         const ms = Date.parse(utc);
-        return Number.isFinite(ms) ? localDate(ms, timeZone) : null;
+        return raw && Number.isFinite(ms) ? localDate(ms, timeZone) : null;
     };
+    const closedOn = (leaf) => dayOf(leaf.completed_at)
+        ?? (/^\d{4}-\d{2}-\d{2}$/.test(String(leaf.scheduled_end ?? '')) ? leaf.scheduled_end : null)
+        ?? dayOf(leaf.updated_at);
 
     const assignments = new Map();
     const doneToday = [];
     const open = [];
     for (const leaf of leaves) {
         if (leaf.status !== 'completed' && leaf.status !== 'skipped') { open.push(leaf); continue; }
-        const day = doneOn(leaf);
+        const day = closedOn(leaf);
         if (!day) continue;
         if (day === todayStr && from === todayStr) doneToday.push(leaf);
         assignments.set(leaf.id, { scheduled_start: day, scheduled_end: day });
@@ -751,7 +776,8 @@ export function layTopicDates(projectId, todayStr = today(), timeZone = learnerT
     const validDates = from > project.deadline ? []
         : getValidStudyDates(from, project.deadline, readStudyDays(project.study_days));
     if (open.length > 0 && validDates.length > 0) {
-        const headStarts = withHeadStarts ? headStartsForProject(projectId) : new Map();
+        const headStarts = withHeadStarts === 'transfer' ? headStartsForProject(projectId, { placement: false })
+            : withHeadStarts ? headStartsForProject(projectId) : new Map();
         const toLay = [...doneToday, ...open].map(leaf => ({
             ...leaf,
             effectiveWeight: computeLeafWeight(leaf, nodeMap, headStarts),

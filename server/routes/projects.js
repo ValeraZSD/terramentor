@@ -6,7 +6,7 @@
 import db from '../database.js';
 import { clearProjectSetting } from '../projectSettings.js';
 import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
-import { daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
+import { clearStoredOpenDates, daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
 import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { sweepOrphanMedia } from '../ankiImport.js';
@@ -199,6 +199,9 @@ app.put('/api/projects/:id', (req, res) => {
             db.prepare(`UPDATE projects SET ${[...updates, 'updated_at = CURRENT_TIMESTAMP'].join(', ')} WHERE id = ?`)
                 .run(...values, id);
         }
+        // A changed or cleared window: the dates an older build stored on open
+        // topics would read as overdue once no window derives them.
+        if (start_date !== undefined || deadline !== undefined) clearStoredOpenDates(id);
         let askModel = false;
         if (searchWords !== undefined) setSearchWords(id, searchWords);
         else if (search_words === null) askModel = clearModelSearchWords(id, { evenTheLearners: true });

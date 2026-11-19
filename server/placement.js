@@ -549,8 +549,9 @@ export function withdrawPlacement(projectId, { except = null } = {}) {
  * sits on the day it was completed either way, so a course under way is
  * re-weighted too.
  *
- * With `before` (the layout read before a change) it compares against that;
- * without, against the same course laid as if nothing were known. False when
+ * With `before` (the layout read before a change, or laid without the head
+ * starts in question) it compares against that; without, against the same
+ * course laid as if nothing were known. False when
  * the course has no topic window or nothing moved.
  *
  * @returns {boolean}
@@ -576,7 +577,12 @@ export function finishProbe(probeId) {
     db.prepare("UPDATE placement_probes SET state = 'done', completed_at = CURRENT_TIMESTAMP WHERE id = ?")
         .run(probeId);
     const probe = hydrateProbe(probeRow.get(probeId));
-    const rescheduled = probe ? relaySchedule(probe.projectId) : false;
+    // Compared with the course laid without placement seeds: a project holds one
+    // probe's seeds at a time (re-taking withdraws the last), so that is the plan
+    // before this probe, other head starts (transfer) kept.
+    const rescheduled = probe
+        ? relaySchedule(probe.projectId, layTopicDates(probe.projectId, undefined, undefined, { headStarts: 'transfer' }))
+        : false;
     return { probe, summary: { ...summariseProbe(probe), rescheduled } };
 }
 

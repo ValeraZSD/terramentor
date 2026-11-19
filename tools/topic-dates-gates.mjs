@@ -202,7 +202,72 @@ const legacyTopic = mkNode(legacy, 'Old', 0, { s: add(today, -9), e: add(today, 
 removeSchedule(legacy);
 check('removing a window clears the dates an old plan stored', stored(legacyTopic).s === null && stored(legacyTopic).e === null);
 
-// 16. Source: no server module writes a topic date any more (removeSchedule
+// 16. A closed topic with no completion time (a skipped one, an imported
+//     completed row) stays dated: on the end its row carries, else on the day
+//     its row last changed. It never drops off the Timeline or out of its
+//     parent's span.
+const sk = mkProject('Skipped', DAY0, add(DAY0, 30));
+const skPhase = mkNode(sk, 'Phase', 0);
+const skKept = mkNode(sk, 'Skipped with a date', 0, { parent: skPhase, status: 'skipped', s: add(DAY0, -3), e: add(DAY0, -3) });
+const skBare = mkNode(sk, 'Imported, no dates', 1, { parent: skPhase, status: 'completed' });
+db.prepare('UPDATE nodes SET updated_at = ? WHERE id = ?').run(`${add(DAY0, 2)} 08:00:00`, skBare);
+mkNode(sk, 'Open', 2, { parent: skPhase });
+const skDates = topicDatesOf(sk, opts(today));
+check('a skipped topic with no completion time keeps its row\'s end date', skDates.get(skKept)?.end === add(DAY0, -3), JSON.stringify(skDates.get(skKept)));
+check('a closed topic with no dates at all sits on the day its row last changed', skDates.get(skBare)?.end === add(DAY0, 2), JSON.stringify(skDates.get(skBare)));
+check('...and its parent spans it', skDates.get(skPhase)?.start === add(DAY0, -3));
+
+// 17. One project whose layout throws: the others are still laid, its rows
+//     read as stored, and no reader throws.
+const brokenStored = mkNode(sk, 'Stored on the broken one', 3, { parent: skPhase, s: add(DAY0, 40), e: add(DAY0, 41) });
+const broke = (id, ...rest) => { if (id === sk) throw new Error('gate: layout failed'); return layTopicDates(id, ...rest); };
+const realError = console.error;
+console.error = () => {};
+let threw = null;
+try { refreshTopicDates({ today: add(today, 1), timeZone: TZ, lay: broke }); } catch (err) { threw = err; } finally { console.error = realError; }
+check('a project whose layout throws does not throw the read', threw === null, String(threw));
+const otherRow = db.prepare('SELECT scheduled_start AS s FROM plan_nodes WHERE id = ?').get(topics[4]);
+check('...every other project is still laid', otherRow?.s >= add(today, 1), JSON.stringify(otherRow));
+const brokenRow = db.prepare('SELECT scheduled_start AS s FROM plan_nodes WHERE id = ?').get(brokenStored);
+check('...and the broken one reads its stored dates', brokenRow?.s === add(DAY0, 40), JSON.stringify(brokenRow));
+
+// 18. An answer moves the plan only through a head start: a mastery update on
+//     a row with no seed marks nothing stale; one on a seeded row does.
+let laid = 0;
+const counting = (...a) => { laid++; return layTopicDates(...a); };
+refreshTopicDates(opts(today));
+db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts) VALUES (?, 0, 0)').run(topics[6]);
+db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, placement_prior) VALUES (?, 0.4, 0, 0.4)').run(topics[7]);
+refreshTopicDates(opts(today));
+laid = 0;
+db.prepare('UPDATE node_mastery SET mastery_score = 0.7, total_attempts = 3 WHERE node_id = ?').run(topics[6]);
+refreshTopicDates({ ...opts(today), lay: counting });
+check('an answer on a topic with no head start re-lays nothing', laid === 0, `${laid} laid`);
+db.prepare('UPDATE node_mastery SET mastery_score = 0.1, total_attempts = 3 WHERE node_id = ?').run(topics[7]);
+refreshTopicDates({ ...opts(today), lay: counting });
+check('...one on a seeded topic re-lays its project', laid === 1, `${laid} laid`);
+
+// 19. A layout read inside a transaction that rolls back is not kept as
+//     current: the write before it is seen on the next read.
+refreshTopicDates(opts(today));
+complete(topics[8], today);
+try {
+    db.transaction(() => { refreshTopicDates(opts(today)); throw new Error('rolled back'); })();
+} catch { /* the caller's rollback */ }
+check('a layout rolled back with its transaction is laid again',
+    topicDatesOf(pid, opts(today)).get(topics[8])?.end === today, JSON.stringify(topicDatesOf(pid, opts(today)).get(topics[8])));
+
+// 20. Saving a window clears the dates an older build stored on OPEN topics
+//     (they would read as overdue once the window went); closed ones keep theirs.
+const old = mkProject('Older build', null, null);
+const oldOpen = mkNode(old, 'Open, old date', 0, { s: add(today, -9), e: add(today, -8) });
+const oldDone = mkNode(old, 'Skipped, old date', 1, { status: 'skipped', s: add(today, -7), e: add(today, -7) });
+const oldPlan = allocateSchedule(old, today, add(today, 20), EVERY_DAY);
+persistSchedule(old, oldPlan.assignments, oldPlan.baselineSnapshot, { startDate: today, deadline: add(today, 20), studyDays: EVERY_DAY });
+check('saving a window clears an open topic\'s stored dates', stored(oldOpen).s === null && stored(oldOpen).e === null, JSON.stringify(stored(oldOpen)));
+check('...and keeps a closed topic\'s', stored(oldDone).e === add(today, -7));
+
+// 21. Source: no server module writes a topic date any more (removeSchedule
 //     clears legacy rows; the startup sweep clears notes).
 const writers = [];
 for (const dir of ['server', 'server/routes']) {

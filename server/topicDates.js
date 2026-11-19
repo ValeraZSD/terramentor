@@ -32,9 +32,14 @@ db.exec(`
 
 const stale = new Set();
 let allStale = true;
+// NULL marks nothing: a card deleted with its topic finds no topic row any
+// more, and the topic's own delete has already marked its project.
 db.function('topic_dates_touch', { deterministic: false }, (projectId) => {
-    if (projectId == null) allStale = true;
-    else stale.add(Number(projectId));
+    if (projectId != null) stale.add(Number(projectId));
+    return null;
+});
+db.function('topic_dates_touch_all', { deterministic: false }, () => {
+    allStale = true;
     return null;
 });
 
@@ -44,11 +49,23 @@ db.function('topic_dates_touch', { deterministic: false }, (projectId) => {
 // the per-project "teaches" row in settings).
 const NODE_COLS = 'status, parent_id, position, is_note, role, estimated_weight, completed_at, project_id';
 const OF_NODE = (row) => `(SELECT project_id FROM nodes WHERE id = ${row}.node_id)`;
+// A closed topic with no completion time sits on its row's end date, else on
+// the day the row last changed (`layTopicDates`).
+const CLOSED_UNDATED = "NEW.status IN ('completed', 'skipped') AND NEW.completed_at IS NULL";
+// An answer changes `mastery_score`/`total_attempts` on every topic; they move
+// the plan only through a head start (`headStartOf`), so only a row that has or
+// had a seed marks its project.
+const SEED_MOVED = `(COALESCE(OLD.transferred_prior, OLD.placement_prior, NEW.transferred_prior, NEW.placement_prior) IS NOT NULL)
+    AND (OLD.transferred_prior IS NOT NEW.transferred_prior OR OLD.placement_prior IS NOT NEW.placement_prior
+      OR OLD.mastery_score IS NOT NEW.mastery_score OR OLD.total_attempts IS NOT NEW.total_attempts)`;
 db.exec(`
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_node_ins AFTER INSERT ON nodes
     BEGIN SELECT topic_dates_touch(NEW.project_id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_node_upd AFTER UPDATE OF ${NODE_COLS} ON nodes
     BEGIN SELECT topic_dates_touch(OLD.project_id); SELECT topic_dates_touch(NEW.project_id); END;
+    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_node_closed AFTER UPDATE OF scheduled_end, updated_at ON nodes
+    WHEN ${CLOSED_UNDATED}
+    BEGIN SELECT topic_dates_touch(NEW.project_id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_node_del AFTER DELETE ON nodes
     BEGIN SELECT topic_dates_touch(OLD.project_id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_project_ins AFTER INSERT ON projects
@@ -56,11 +73,12 @@ db.exec(`
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_project_upd AFTER UPDATE OF start_date, deadline, study_days, kind ON projects
     BEGIN SELECT topic_dates_touch(NEW.id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_teach_ins AFTER INSERT ON settings WHEN NEW.key LIKE '${TEACH_PREFIX}%'
-    BEGIN SELECT topic_dates_touch(NULL); END;
-    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_teach_upd AFTER UPDATE ON settings WHEN NEW.key LIKE '${TEACH_PREFIX}%'
-    BEGIN SELECT topic_dates_touch(NULL); END;
+    BEGIN SELECT topic_dates_touch_all(); END;
+    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_teach_upd AFTER UPDATE ON settings
+    WHEN (NEW.key LIKE '${TEACH_PREFIX}%' OR OLD.key LIKE '${TEACH_PREFIX}%') AND (OLD.value IS NOT NEW.value OR OLD.key IS NOT NEW.key)
+    BEGIN SELECT topic_dates_touch_all(); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_teach_del AFTER DELETE ON settings WHEN OLD.key LIKE '${TEACH_PREFIX}%'
-    BEGIN SELECT topic_dates_touch(NULL); END;
+    BEGIN SELECT topic_dates_touch_all(); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_move AFTER UPDATE OF node_id ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_project_del AFTER DELETE ON projects
@@ -68,6 +86,7 @@ db.exec(`
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_mastery_ins AFTER INSERT ON node_mastery
     BEGIN SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_mastery_upd AFTER UPDATE ON node_mastery
+    WHEN ${SEED_MOVED}
     BEGIN SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_mastery_del AFTER DELETE ON node_mastery
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
@@ -101,44 +120,68 @@ const allProjects = db.prepare('SELECT id FROM projects').pluck();
 const knownProjects = db.prepare('SELECT project_id FROM topic_plan_projects').pluck();
 
 let key = null;
+// Projects laid inside a caller's transaction: if it rolls back, so do their
+// rows in the TEMP tables, while the marks above say they are current. They
+// are laid again by the first refresh outside a transaction.
+const laidInTransaction = new Set();
+// Projects whose layout threw, reported once each.
+const reported = new Set();
+
+const layOne = db.transaction((id, today, timeZone, lay) => {
+    clearProject.run(id);
+    unplan.run(id);
+    const dates = lay(id, today, timeZone);
+    if (!dates) return;
+    plan.run(id);
+    for (const [nodeId, d] of dates) putDate.run(nodeId, id, d.start, d.end);
+});
 
 /**
  * Bring `plan_nodes` up to date for the learner's day. Call it before a query
  * that reads `plan_nodes`; it does nothing when no input changed.
+ *
+ * Each project is laid on its own: one whose layout throws is left unplanned,
+ * so its rows read as stored, and every other project is still served. It is
+ * tried again once one of its inputs changes. `lay` is for the gates.
  */
-export function refreshTopicDates({ today = studyToday(), timeZone = learnerTimeZone() } = {}) {
+export function refreshTopicDates({ today = studyToday(), timeZone = learnerTimeZone(), lay = layTopicDates } = {}) {
     const k = `${today}|${timeZone}|${db.pragma('data_version', { simple: true })}`;
     if (k !== key) { key = k; allStale = true; }
+    const inTransaction = db.inTransaction;
+    if (!inTransaction && laidInTransaction.size) {
+        for (const id of laidInTransaction) stale.add(id);
+        laidInTransaction.clear();
+    }
     if (!allStale && stale.size === 0) return;
     const ids = allStale ? [...new Set([...allProjects.all(), ...knownProjects.all()])] : [...stale];
-    const wasAll = allStale;
     allStale = false;
     stale.clear();
-    try {
-        db.transaction(() => {
-            for (const id of ids) {
-                clearProject.run(id);
-                unplan.run(id);
-                const dates = layTopicDates(id, today, timeZone);
-                if (!dates) continue;
-                plan.run(id);
-                for (const [nodeId, d] of dates) putDate.run(nodeId, id, d.start, d.end);
+    for (const id of ids) {
+        try {
+            layOne(id, today, timeZone, lay);
+            reported.delete(id);
+        } catch (err) {
+            // Rolled back to before this project: drop what it had, so its
+            // rows read as stored rather than as an older layout.
+            clearProject.run(id);
+            unplan.run(id);
+            if (!reported.has(id)) {
+                reported.add(id);
+                console.error(`[topicDates] project ${id} could not be laid out; its stored dates are shown:`, err?.message ?? err);
             }
-        })();
-    } catch (err) {
-        // Rolled back: keep the marks, so the next read tries again rather
-        // than serving what this one could not replace.
-        if (wasAll) allStale = true;
-        for (const id of ids) stale.add(id);
-        throw err;
+        }
+        if (inTransaction) laidInTransaction.add(id);
     }
 }
+
+let datesOfStmt = null;
 
 /** The derived dates of one project's nodes, refreshed first: `Map<id, {start, end}>`. */
 export function topicDatesOf(projectId, opts) {
     refreshTopicDates(opts);
-    return new Map(db.prepare(`
+    datesOfStmt ??= db.prepare(`
         SELECT id, scheduled_start AS start, scheduled_end AS "end" FROM plan_nodes
         WHERE project_id = ? AND scheduled_start IS NOT NULL
-    `).all(projectId).map(r => [r.id, { start: r.start, end: r.end }]));
+    `);
+    return new Map(datesOfStmt.all(projectId).map(r => [r.id, { start: r.start, end: r.end }]));
 }
