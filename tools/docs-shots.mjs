@@ -208,7 +208,7 @@ export function findBrowser(explicit) {
 let headed = false;
 export function openOnScreen() { headed = true; }
 
-async function openBrowser(exe, { width, height, scale }) {
+export async function openBrowser(exe, { width, height, scale }) {
     const port = await freePort();
     const profile = mkdtempSync(join(tmpdir(), 'docs-shots-browser-'));
     const args = [headed ? `--window-size=${width},${height + 120}` : '--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
