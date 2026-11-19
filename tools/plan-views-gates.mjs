@@ -14,7 +14,7 @@
  *
  * Asserted in a headless browser on the invented course from
  * tools/docs-fixture.mjs, re-planned so that its date misses (the case where
- * the Dashboard used to say the verdict a second time):
+ * a second copy of the verdict would show on the Dashboard):
  *
  *  - a dated course's views are Study, Dashboard, Outline and Vault, and none
  *    of them is a Timeline or a Calendar;
