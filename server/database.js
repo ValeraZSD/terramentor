@@ -2325,6 +2325,10 @@ addColumnIfMissing('projects', 'exam_on_screen', 'INTEGER');
 addColumnIfMissing('projects', 'exam_questions', 'INTEGER');
 addColumnIfMissing('projects', 'exam_minutes', 'INTEGER');
 addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
+// What an attempt id answered (a topic, a quiz, a question): the same id for
+// another one is refused rather than answered with the first outcome
+// (`recordOnce`, mastery.js). NULL on rows from before, which answer as before.
+addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;

@@ -251,6 +251,62 @@ section('an id is per surface: the same string on the quiz and the check are two
         `${JSON.stringify(r.body)} evidence ${evidence(n)}`);
 }
 
+// The id names ONE presentation. The same id sent for another topic, quiz or
+// question is not a retry of the first: it was answered with the first one's
+// outcome and `duplicate: true`, so the second answer was dropped while the
+// caller was told it had been recorded. Now it is refused (409), writes
+// nothing, and a true retry of the first is still its duplicate.
+section('an id is per item: the same id on another topic is refused, not answered with the first outcome');
+{
+    const a = topic('Reuse A'), b = topic('Reuse B');
+    const qa = quizFor(a, 4), qb = quizFor(b, 4);
+
+    const feedBody = (n, q) => ({ key: `savedq-${q}-0`, kind: 'question', nodeId: n, result: { correct: true }, attemptId: 'reused-feed' });
+    const fa = await post('/api/feed/consume', feedBody(a, qa));
+    const fb = await post('/api/feed/consume', feedBody(b, qb));
+    check('feed: the id on topic A is recorded', fa.status === 200 && !fa.body?.duplicate && evidence(a) === 1, `${fa.status} ${JSON.stringify(fa.body)}`);
+    check('feed: the same id on topic B is a 409 and writes nothing', fb.status === 409 && evidence(b) === 0,
+        `${fb.status} ${JSON.stringify(fb.body)} evidence(B) ${evidence(b)}`);
+    const fa2 = await post('/api/feed/consume', feedBody(a, qa));
+    check('feed: a true retry on topic A is still its duplicate', fa2.status === 200 && fa2.body?.duplicate === true && evidence(a) === 1,
+        `${fa2.status} ${JSON.stringify(fa2.body)}`);
+
+    const checkBody = (n) => ({ nodeId: n, score: 4, total: 4, questions: [], asked: [], attemptId: 'reused-check' });
+    const ca = await post(`/api/projects/${pid}/mastery/mastery-check`, checkBody(a));
+    const cb = await post(`/api/projects/${pid}/mastery/mastery-check`, checkBody(b));
+    check('check: the same id on another topic is a 409 and writes nothing',
+        ca.status === 200 && cb.status === 409 && evidence(b) === 0, `${ca.status}/${cb.status} ${JSON.stringify(cb.body)} evidence(B) ${evidence(b)}`);
+
+    const quizBody = { answers: { 0: 'de' }, score: 1, total: 1, attemptId: 'reused-quiz' };
+    const za = await post(`/api/ai/quizzes/${qa}/attempt`, quizBody);
+    const zb = await post(`/api/ai/quizzes/${qb}/attempt`, quizBody);
+    check('quiz: the same id on another quiz is a 409 and writes nothing',
+        za.status === 200 && zb.status === 409 && quizAttempts(qb) === 0, `${za.status}/${zb.status} ${JSON.stringify(zb.body)} attempts(B) ${quizAttempts(qb)}`);
+
+    const claimBody = (n) => ({ nodeId: n, correct: true, attemptId: 'reused-claim' });
+    const la = await post('/api/agent/claims', claimBody(a));
+    const lb = await post('/api/agent/claims', claimBody(b));
+    const claims = (n) => db.prepare('SELECT COUNT(*) AS c FROM mastery_claims WHERE node_id = ?').get(n).c;
+    check('claim: the same id on another topic is a 409 and writes nothing',
+        la.status === 200 && lb.status === 409 && claims(b) === 0, `${la.status}/${lb.status} ${JSON.stringify(lb.body)} claims(B) ${claims(b)}`);
+
+    // The mock's two writes share one surface; the rule lives in recordOnce.
+    const { recordOnce } = await import(B + 'mastery.js');
+    let writes = 0;
+    recordOnce('mock', 'reused-mock', () => { writes++; return { part: 1 }; }, 'sitting 1 part 1');
+    let refused = null;
+    try { recordOnce('mock', 'reused-mock', () => { writes++; return { part: 2 }; }, 'sitting 1 part 2'); } catch (e) { refused = e; }
+    check('recordOnce: another subject under the same id throws a 409 and runs nothing',
+        refused?.status === 409 && writes === 1, `${refused?.status} ${refused?.message} writes ${writes}`);
+    const replay = recordOnce('mock', 'reused-mock', () => { writes++; }, 'sitting 1 part 1');
+    check('recordOnce: the same subject again is the duplicate', replay.duplicate === true && replay.outcome?.part === 1 && writes === 1,
+        JSON.stringify(replay));
+    db.prepare("INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES ('mock', 'legacy-row', '{\"part\":9}')").run();
+    const legacy = recordOnce('mock', 'legacy-row', () => { writes++; }, 'anything');
+    check('recordOnce: a row written before subjects were kept still answers as its duplicate',
+        legacy.duplicate === true && legacy.outcome?.part === 9 && writes === 1, JSON.stringify(legacy));
+}
+
 section('paper practice: one mark per exercise, written as one unit');
 {
     // The card's own status is the once-guard: one practice row is one exercise.

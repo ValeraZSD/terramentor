@@ -1,7 +1,7 @@
 // Mastery: per-topic state, quiz and drill evidence, the mastery check, the daily plan.
 import db from '../database.js';
 import {
-    ATTEMPT_ID_ERROR, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
+    ATTEMPT_ID_ERROR, AttemptReusedError, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
 } from '../mastery.js';
 import { recordMasteryCheck } from '../masteryCheck.js';
 import { getEvidenceTrail } from '../evidenceTrail.js';
@@ -160,6 +160,7 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
         });
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
+        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
         res.status(500).json({ error: clientError(err) });
     }
 });

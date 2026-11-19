@@ -228,22 +228,43 @@ export function readAttemptId(value) {
     return typeof value === 'string' && ATTEMPT_ID.test(value) ? value : undefined;
 }
 
-const recordTx = db.transaction((surface, attemptId, write) => {
+/**
+ * The same id sent for ANOTHER item (another topic, quiz or question) is not a
+ * retry: it was answered with the first item's outcome, so the second answer
+ * was dropped while the caller was told it had been recorded. `status` 409 is
+ * the reply; a client issues a new id per presentation and never meets it.
+ */
+export class AttemptReusedError extends Error {
+    constructor() {
+        super('This attemptId was already used for another answer; send a new one');
+        this.status = 409;
+    }
+}
+
+const recordTx = db.transaction((surface, attemptId, write, subject) => {
     if (attemptId) {
-        const prior = db.prepare('SELECT outcome FROM answer_attempts WHERE surface = ? AND attempt_id = ?').get(surface, attemptId);
-        if (prior) return { duplicate: true, outcome: prior.outcome == null ? null : JSON.parse(prior.outcome) };
+        const prior = db.prepare('SELECT outcome, subject FROM answer_attempts WHERE surface = ? AND attempt_id = ?').get(surface, attemptId);
+        if (prior) {
+            // A row from before subjects were kept (NULL) answers as it always did.
+            if (subject != null && prior.subject != null && prior.subject !== subject) throw new AttemptReusedError();
+            return { duplicate: true, outcome: prior.outcome == null ? null : JSON.parse(prior.outcome) };
+        }
     }
     const outcome = write();
     if (attemptId) {
-        db.prepare('INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES (?, ?, ?)')
-            .run(surface, attemptId, outcome === undefined ? null : JSON.stringify(outcome));
+        db.prepare('INSERT INTO answer_attempts (surface, attempt_id, outcome, subject) VALUES (?, ?, ?, ?)')
+            .run(surface, attemptId, outcome === undefined ? null : JSON.stringify(outcome), subject ?? null);
     }
     return { duplicate: false, outcome };
 });
 
-/** Run `write` once per (surface, attemptId); see above. IMMEDIATE, so a second process queues rather than races. */
-export function recordOnce(surface, attemptId, write) {
-    return recordTx.immediate(surface, attemptId, write);
+/**
+ * Run `write` once per (surface, attemptId); see above. `subject` names what
+ * was answered (a topic, a quiz, a question); the same id for another subject
+ * throws `AttemptReusedError`. IMMEDIATE, so a second process queues rather than races.
+ */
+export function recordOnce(surface, attemptId, write, subject = null) {
+    return recordTx.immediate(surface, attemptId, write, subject == null ? null : String(subject));
 }
 
 /**

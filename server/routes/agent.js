@@ -18,6 +18,7 @@ import {
     SittingError, checkCompletion, checkQuestions, checkTarget, closeCheck, markCheckCompleted, reviewNext, reviewRate, reviewReveal,
     reviewTarget, reviewUndo, startCheck, startReview, submitCheck,
 } from '../agentSittings.js';
+import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 
@@ -90,7 +91,9 @@ function sitting(res, run) {
         .then(run)
         .then((out) => res.json(out))
         .catch((err) => {
-            if (err instanceof SittingError) return res.status(err.status).json({ error: clientError(err, err.status) });
+            if (err instanceof SittingError || err instanceof AttemptReusedError) {
+                return res.status(err.status).json({ error: clientError(err, err.status) });
+            }
             console.error('[Agent] sitting failed:', err.message);
             res.status(500).json({ error: clientError(err) });
         });

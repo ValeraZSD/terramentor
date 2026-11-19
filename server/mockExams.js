@@ -722,7 +722,7 @@ export function saveAnswer(sittingId, { partId, answer, later, attemptId = null,
             `).run(sittingId, partId, points, text, mark ? 1 : 0, inTime ? text : null, inTime ? points : null);
         }
         return null;
-    });
+    }, `part:${sittingId}:${partId}`);
     return { duplicate, ...progressOf(courseRows(requireSitting(sittingId))) };
 }
 
@@ -851,6 +851,6 @@ function finishCourse(id, { now, attemptId }) {
         stmt("UPDATE mock_sittings SET elapsed = ?, running_since = NULL, status = 'done', finished_at = ? WHERE id = ?")
             .run(elapsedOf(s, now), iso(now), id);
         return null;
-    });
+    }, `finish:${id}`);
     return sittingDetail(id, { now });
 }

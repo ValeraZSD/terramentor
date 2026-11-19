@@ -1377,7 +1377,9 @@ export function buildFeedHeader() {
  * question — which has no row to guard it — count once.
  */
 export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null, uuid = null }) {
-    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result, uuid }));
+    // The card the id answered: a retry names the same one, a reused id another.
+    const subject = [kind, key, feedItemId, nodeId, uuid].map(v => v ?? '').join('|');
+    const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result, uuid }), subject);
     return duplicate ? { ...(outcome || { ok: true }), duplicate: true } : outcome;
 }
 
