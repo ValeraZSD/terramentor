@@ -488,6 +488,15 @@ console.log('\n--- when the server stops itself ---');
     ok('…and a window that never came back stops once it has passed', shouldShutDown({ ...ended, now: ended.heldUntil + IDLE_MS + 1 }));
     ok('a goodbye after the attempt ended is a close again',
         shouldShutDown({ ...ended, lastPing: ended.heldUntil + 1_000, lastBye: ended.heldUntil + 2_000, now: ended.heldUntil + 2_000 + BYE_GRACE_MS + 1 }));
+    // The page's first ping is fire-and-forget: if it was lost, a sign-in can
+    // start on a server that never saw a ping. The hold ending past the first
+    // window must not stop it under the returning page.
+    const unseen = { ...base, heldUntil: t0 + 400_000 };
+    ok('never pinged, the sign-in ended after the first window: the returning page gets the idle limit',
+        !shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS - 1 }));
+    ok('…and no page came back: it stops once that has passed', shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS + 1 }));
+    ok('a sign-in that ended early does not shorten the first window',
+        !shouldShutDown({ ...base, heldUntil: t0 + 5_000, now: t0 + 180_000 - 1 }));
 }
 
 // The same rule through the process's own tick, which reads the hold each time.
@@ -519,11 +528,11 @@ console.log('\n--- when the server stops itself ---');
     check('no page came back: it stops as a closed window', stopped, 'every window has closed');
 
     // Left to itself, the lifecycle reads server/signInHold.js: the module both
-    // sign-in flows hold, on the real clock.
+    // sign-in flows hold. One pinned instant for the lifecycle and the holds.
     const hold = await import('../server/signInHold.js');
     stopped = null;
-    const real = make({});
-    const t = Date.now();
+    const t = 7_000_000;
+    const real = make({ now: () => t });
     Object.assign(real.state, { everConnected: true, lastPing: t - 20_000, lastBye: t - 10_000 });
     hold.holdOpen('gate', 60_000, t);
     real.tick?.(); await settle();

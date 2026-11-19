@@ -223,7 +223,9 @@ export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBy
     if (!everConnected) {
         // No page ever loaded. Give the browser a real chance — a cold Chromium
         // start on a slow disk is ten seconds — and then conclude the window
-        // never came.
+        // never came. The first ping can be lost, so a sign-in may have started
+        // here anyway: the page coming back from it gets the idle limit too.
+        if (heldUntil && now - heldUntil <= IDLE_MS) return false;
         return now - startedAt > FIRST_WINDOW_MS;
     }
     // The end of a hold is the last sign of life: the page coming back from
