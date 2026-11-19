@@ -2,7 +2,8 @@ import db from './database.js';
 import { isPagination } from './nodeRole.js';
 import { projectProgress, projectCountsInCards } from './progress.js';
 import { headStartsForProject, scheduleShare } from './headStart.js';
-import { studyToday } from './studyDay.js';
+import { learnerTimeZone, localDate, studyToday } from './studyDay.js';
+import { topicDatesOf } from './topicDates.js';
 
 // Constants
 
@@ -677,55 +678,99 @@ function allocateCardWindow(projectId, startDate, deadline, studyDays) {
 }
 
 /**
- * Persist a computed schedule to the database.
+ * Persist a schedule: the window, the study week and the baseline snapshot.
+ *
+ * Topic dates are not written. A course with a window has its topic dates
+ * derived whenever something reads them (`layTopicDates`, server/topicDates.js),
+ * so a date stored on a topic would only go stale the first week the learner
+ * did not keep to it. `assignments` is kept in the signature for callers that
+ * still compute a layout to report on it.
  */
 export function persistSchedule(projectId, assignments, baselineSnapshot, config) {
     const { startDate, deadline, studyDays } = config;
-
-    const updateNodeSchedule = db.prepare(`
-        UPDATE nodes
-        SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    `);
-
-    const updateProjectConfig = db.prepare(`
+    db.prepare(`
         UPDATE projects
         SET start_date = ?, deadline = ?, study_days = ?,
             baseline_schedule = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    `);
+    `).run(startDate, deadline, JSON.stringify(studyDays), JSON.stringify(baselineSnapshot), projectId);
+}
 
-    // Notes are reference material, not work items: they must never carry a
-    // schedule (otherwise they leak into the calendar / pace / daily plan as
-    // phantom tasks). Guard the write so a derived date can never land on a note.
-    const noteIds = new Set(
-        db.prepare('SELECT id FROM nodes WHERE project_id = ? AND is_note = 1').all(projectId).map(r => r.id)
-    );
+/**
+ * The topic dates of a course with a window, worked out from the record, the
+ * window and the study week, never read from a stored date.
+ *
+ * - A closed topic sits on the day it was completed, in the learner's zone
+ *   (none when it carries no completion time).
+ * - Open topics are laid by the same phase-aware engine from today (or from
+ *   the window's start, if that is later) to the deadline. A missed week
+ *   therefore makes nothing overdue: the open work moves up and the pace
+ *   verdict (server/paceModel.js) says whether it still fits.
+ * - Topics completed today are laid first with the open ones, so finishing
+ *   today's share does not pull tomorrow's into today.
+ * - After the deadline, or with no study day left, open topics are undated.
+ * - Parents span their dated children.
+ *
+ * Null when the project has no valid window: nothing is derived and its rows
+ * keep their own dates. Empty for a course measured in cards (its sections are
+ * placed by `cardPlan`). `headStarts: false` lays it as if nothing were known
+ * yet (placement asks whether a head start moved anything). Reads only.
+ *
+ * @returns {null | Map<number, { start: string, end: string }>}
+ */
+export function layTopicDates(projectId, todayStr = today(), timeZone = learnerTimeZone(), { headStarts: withHeadStarts = true } = {}) {
+    const project = db.prepare('SELECT start_date, deadline, study_days FROM projects WHERE id = ?').get(projectId);
+    if (!project?.start_date || !project?.deadline) return null;
+    if (scheduleWindowError(project.start_date, project.deadline)) return null;
+    // A course in cards has a plan but no topic dates: `cardPlan` places its
+    // sections, and a date a row still carries from an old plan is not shown.
+    if (projectCountsInCards(projectId)) return new Map();
 
-    const transaction = db.transaction(() => {
-        // Clear all existing schedule data for this project
-        db.prepare(`
-            UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP
-            WHERE project_id = ?
-        `).run(projectId);
+    const { leaves, nodeMap } = getLeafNodesSequential(projectId);
+    const from = project.start_date > todayStr ? project.start_date : todayStr;
+    // `completed_at` is UTC: ISO with a Z, or SQLite's 'YYYY-MM-DD HH:MM:SS'
+    // with no zone, which Date.parse would read as the server's local time.
+    const doneOn = (leaf) => {
+        const raw = String(leaf.completed_at ?? '');
+        const utc = /[zZ]$|[+-]\d\d:?\d\d$/.test(raw) || !/\d:\d\d/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+        const ms = Date.parse(utc);
+        return Number.isFinite(ms) ? localDate(ms, timeZone) : null;
+    };
 
-        for (const [nodeId, data] of assignments) {
-            if (noteIds.has(nodeId)) continue; // never schedule a note
-            if (data.scheduled_start && data.scheduled_end) {
-                updateNodeSchedule.run(data.scheduled_start, data.scheduled_end, nodeId);
-            }
+    const assignments = new Map();
+    const doneToday = [];
+    const open = [];
+    for (const leaf of leaves) {
+        if (leaf.status !== 'completed' && leaf.status !== 'skipped') { open.push(leaf); continue; }
+        const day = doneOn(leaf);
+        if (!day) continue;
+        if (day === todayStr && from === todayStr) doneToday.push(leaf);
+        assignments.set(leaf.id, { scheduled_start: day, scheduled_end: day });
+    }
+
+    const validDates = from > project.deadline ? []
+        : getValidStudyDates(from, project.deadline, readStudyDays(project.study_days));
+    if (open.length > 0 && validDates.length > 0) {
+        const headStarts = withHeadStarts ? headStartsForProject(projectId) : new Map();
+        const toLay = [...doneToday, ...open].map(leaf => ({
+            ...leaf,
+            effectiveWeight: computeLeafWeight(leaf, nodeMap, headStarts),
+        }));
+        const laid = allocatePhaseAware(toLay, nodeMap, validDates).assignments;
+        for (const leaf of open) {
+            const a = laid.get(leaf.id);
+            if (a) assignments.set(leaf.id, a);
         }
+    }
 
-        updateProjectConfig.run(
-            startDate,
-            deadline,
-            JSON.stringify(studyDays),
-            JSON.stringify(baselineSnapshot),
-            projectId
-        );
-    });
-
-    transaction();
+    deriveParentDates(projectId, assignments);
+    const out = new Map();
+    for (const [id, a] of assignments) {
+        const node = nodeMap.get(id);
+        if (!node || node.is_note || !a.scheduled_start || !a.scheduled_end) continue;
+        out.set(id, { start: a.scheduled_start, end: a.scheduled_end });
+    }
+    return out;
 }
 
 // Algorithm B: Recalibration Engine
@@ -752,31 +797,6 @@ export function recalibrateSchedule(projectId) {
         return { success: false, error: 'This project is measured in cards and has no topics to reschedule. Change its dates instead.' };
     }
     return layOpenFromToday(projectId, project.deadline, readStudyDays(project.study_days));
-}
-
-/**
- * The open topics of a course under way, laid out from today to a NEW
- * deadline: what a window write does when its start has passed (POST
- * /api/projects/:id/schedule). Null when there is nothing to re-lay: a course
- * measured in cards, a window that ended before today, no open topic.
- */
-export function relayOpenTopics(projectId, { deadline, studyDays }) {
-    if (projectCountsInCards(projectId) || deadline < today()) return null;
-    const result = layOpenFromToday(projectId, deadline, studyDays);
-    return result.unchanged ? null : result;
-}
-
-/** Writes a re-lay: open topics get their new dates, closed ones keep theirs. */
-export function writeRelay(projectId, assignments) {
-    // A note is never scheduled (the leaf rule), whatever layout is handed in.
-    const setDates = db.prepare(`UPDATE nodes SET scheduled_start = ?, scheduled_end = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_note = 0`);
-    const clear = db.prepare(`UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL, updated_at = CURRENT_TIMESTAMP WHERE project_id = ?`);
-    db.transaction(() => {
-        clear.run(projectId);
-        for (const [nodeId, data] of assignments) {
-            if (data.scheduled_start && data.scheduled_end) setDates.run(data.scheduled_start, data.scheduled_end, nodeId);
-        }
-    })();
 }
 
 function layOpenFromToday(projectId, deadline, studyDays) {
@@ -876,6 +896,8 @@ export function calculatePace(projectId) {
     }
 
     const { leaves } = getLeafNodesSequential(projectId);
+    // The dates the plan gives each topic today (derived, never stored).
+    const planned = topicDatesOf(projectId);
     // Measured in cards (the Projects grid's rule): the plan is a line through the
     // window's study days, so a deck with no topics at all — slices of card
     // order — still has a pace. Falling into `no_tasks` here would draw a window
@@ -945,9 +967,10 @@ export function calculatePace(projectId) {
         // (`completedLeaves` stays a COUNT — it is reported as one. The
         // percentage below comes from server/progress.js, which also gives a
         // topic held in cards the credit its cards have earned.)
-        if (leaf.scheduled_end) {
+        const end = planned.get(leaf.id)?.end;
+        if (end) {
             anyScheduled = true;
-            if (leaf.scheduled_end < todayStr) scheduledExpectedLeaves += 1;
+            if (end < todayStr) scheduledExpectedLeaves += 1;
         }
     }
 

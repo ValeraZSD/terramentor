@@ -722,7 +722,7 @@ const { studyToday } = await import('../server/studyDay.js');
 const NOW = Date.parse('2026-06-15T12:00:00Z');
 const dayFrom = (n) => new Date(Date.parse(`${studyToday({ now: NOW })}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 const busy = (await api('POST', '/api/projects', { name: 'Busy course' })).json;
-db.prepare('UPDATE projects SET start_date = ?, deadline = ? WHERE id = ?').run(dayFrom(-60), dayFrom(300), busy.id);
+// No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
 for (let i = 0; i < 12; i++) db.prepare('INSERT INTO nodes (project_id, title, position, scheduled_start, scheduled_end) VALUES (?, ?, ?, ?, ?)').run(busy.id, `Overdue ${i}`, i, dayFrom(-60), dayFrom(-59));
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', pid2);
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', normal.id);

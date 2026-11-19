@@ -1199,15 +1199,16 @@ for (const [i, end] of [shift(-3), shift(-2), shift(10), shift(20)].entries()) {
     db.prepare("INSERT INTO nodes (project_id, title, status, position, scheduled_start, scheduled_end) VALUES (?, ?, 'not_started', ?, ?, ?)")
         .run(paceId, `Pace topic ${i + 1}`, i, end, end);
 }
+// Topic dates of a course with a window are derived on read (server/topicDates.js):
+// the two stored dates before today are stale rows, and the open topics run from
+// today, so nothing is behind and project_state must not say it is.
 const paceRead = calculatePace(paceId);
-check('the case is one where the two counts differ (28 calendar days behind)', paceRead.daysBehind === 28, JSON.stringify(paceRead));
+check('stale stored dates do not put a course behind', paceRead.daysBehind === 0 && paceRead.studyDaysBehind === 0, JSON.stringify(paceRead));
 const paceCtx = (await stateTool.run(String(paceId))).context || '';
-check('project_state says 20 study days behind, never the calendar count under that name',
-    /20 study days behind/.test(paceCtx) && !/28 study days behind/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+check('project_state says no days behind', !/days behind/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
 // Same line: calculatePace's progress is a whole percent, read as a fraction it
 // printed "the plan expects 100%" for a plan half way through.
-check('...and the plan\'s share is the real one, not a percent read as a fraction',
-    /the plan expects 50%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+check('...and the plan\'s share is a whole percent', /the plan expects 0%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
 const unscheduled = calculatePace(Number(db.prepare("INSERT INTO projects (name) VALUES ('No window yet')").run().lastInsertRowid));
 check('a project with no window carries the study count too, as 0', unscheduled.studyDaysBehind === 0, JSON.stringify(unscheduled));
 

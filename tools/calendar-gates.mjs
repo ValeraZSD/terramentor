@@ -1201,8 +1201,10 @@ console.log('\n--- the library calendar fetches late work, whatever its dates --
     const db = (await import('../server/database.js')).default;
     try {
         const { buildCalendarRange } = await import('../server/today.js');
-        const pid = db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Gate course', 0, '2026-09-01', '2026-12-18')").run().lastInsertRowid;
+        // No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
+        const pid = db.prepare("INSERT INTO projects (name, position) VALUES ('Gate course', 0)").run().lastInsertRowid;
         db.prepare("INSERT INTO projects (name, position) VALUES ('No dates', 1)").run();
+        db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Windowed', 2, '2026-09-01', '2026-12-18')").run();
         const leaf = (title, s, e, status = 'not_started') => Number(db.prepare(
             'INSERT INTO nodes (project_id, parent_id, title, position, status, scheduled_start, scheduled_end) VALUES (?, NULL, ?, 0, ?, ?, ?)',
         ).run(pid, title, status, s, e).lastInsertRowid);
@@ -1218,7 +1220,7 @@ console.log('\n--- the library calendar fetches late work, whatever its dates --
             !sent.includes(done) && !sent.includes(skipped) && !sent.includes(future), JSON.stringify(sent));
         check('…and the range itself still is', sent.includes(inRange), JSON.stringify(sent));
         check('each course says whether it has dates (the filter lists those)',
-            JSON.stringify(got.projects.map(p => p.scheduled)) === '[true,false]', JSON.stringify(got.projects));
+            JSON.stringify(got.projects.map(p => p.scheduled)) === '[false,false,true]', JSON.stringify(got.projects));
     } finally {
         db.close();
         rmSync(dbScratch, { recursive: true, force: true });

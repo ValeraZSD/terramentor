@@ -54,6 +54,7 @@ const {
 } = await import(B + 'placement.js');
 const { TRANSFER_CEILING } = await import(B + 'masteryTransfer.js');
 const { allocateSchedule, persistSchedule } = await import(B + 'scheduling.js');
+const { refreshTopicDates } = await import(B + 'topicDates.js');
 const { nextMissing, planIsStale, writePlan, pendingMaterial } = await import(B + 'feedGen.js');
 const { composeFeed } = await import(B + 'feed.js');
 const { AI_PROMPTS } = await import(B + 'ai.js');
@@ -75,7 +76,12 @@ const seed = (nodeId, prior, sources = [{ kind: 'direct', via_node_id: nodeId }]
 const wrongAnswer = (nodeId) => updateMasteryFromAttempt(nodeId, 0, 1, 'quiz', { questionType: 'multiple_choice', source: 'feed' });
 const rightAnswer = (nodeId) => updateMasteryFromAttempt(nodeId, 1, 1, 'quiz', { questionType: 'multiple_choice', source: 'feed' });
 const GATE = { mode: 'advisory', threshold: 0.85, checkPass: 0.8, decayDays: 14 };
-const START = '2026-10-05', DEADLINE = '2026-12-18', WEEKDAYS = [1, 2, 3, 4, 5];
+// Topic dates are derived from the learner's today (server/topicDates.js), so the
+// window is relative to it: a fixed one would lay nothing once it had passed.
+const { studyToday } = await import(B + 'studyDay.js');
+const START = studyToday();
+const DEADLINE = new Date(Date.parse(`${START}T00:00:00Z`) + 74 * 864e5).toISOString().slice(0, 10);
+const WEEKDAYS = [1, 2, 3, 4, 5];
 
 // ---- 1. the rule -------------------------------------------------------------
 console.log('\n--- the rule ---');
@@ -141,9 +147,10 @@ const ppSec = mkNode(pp, 'Mechanics', null, 0);
 const ppLeaves = Array.from({ length: 8 }, (_, i) => mkNode(pp, `Topic ${i + 1}`, ppSec, i));
 const first = allocateSchedule(pp, START, DEADLINE, WEEKDAYS);
 persistSchedule(pp, first.assignments, first.baselineSnapshot, { startDate: START, deadline: DEADLINE, studyDays: WEEKDAYS });
-const datesOf = (pid) => JSON.stringify(db.prepare(
-    'SELECT id, scheduled_start, scheduled_end FROM nodes WHERE project_id = ? ORDER BY id',
-).all(pid));
+// The plan as every reader sees it: derived, never stored.
+const datesOf = (pid) => (refreshTopicDates(), JSON.stringify(db.prepare(
+    'SELECT id, scheduled_start, scheduled_end FROM plan_nodes WHERE project_id = ? ORDER BY id',
+).all(pid)));
 const before = datesOf(pp);
 const probe = createProbe(pp, { limit: 3 });
 setProbeQuestions(probe.id, probe.targets.map(t => ({
@@ -159,7 +166,7 @@ const win = db.prepare('SELECT start_date, deadline FROM projects WHERE id = ?')
 check('inside the SAME window', win.start_date === START && win.deadline === DEADLINE, JSON.stringify(win));
 const seededIds = db.prepare(`SELECT nm.node_id FROM node_mastery nm JOIN nodes n ON n.id = nm.node_id
     WHERE n.project_id = ? AND nm.placement_prior IS NOT NULL`).all(pp).map(r => r.node_id);
-const span = (id) => { const r = db.prepare('SELECT scheduled_start s, scheduled_end e FROM nodes WHERE id = ?').get(id); return (Date.parse(r.e) - Date.parse(r.s)) / 864e5; };
+const span = (id) => { refreshTopicDates(); const r = db.prepare('SELECT scheduled_start s, scheduled_end e FROM plan_nodes WHERE id = ?').get(id); return (Date.parse(r.e) - Date.parse(r.s)) / 864e5; };
 const coldIds = ppLeaves.filter(id => !seededIds.includes(id));
 check('a seeded topic now spans no more days than a cold one',
     Math.max(...seededIds.map(span)) <= Math.min(...coldIds.map(span)),
@@ -183,12 +190,12 @@ const npDone = finishProbe(npProbe.id);
 check('a probe that seeded nothing does not claim the schedule changed', npDone.summary.rescheduled === false && npDone.summary.topicsSeeded === 0);
 check('...and no date moved', datesOf(np) === npBefore);
 
-console.log('\n--- ...but never once a topic is closed ---');
+console.log('\n--- ...and still once a topic is closed ---');
 db.prepare("UPDATE nodes SET status = 'completed' WHERE id = ?").run(ppLeaves[0]);
 seed(ppLeaves[5], 0.41);
 const closedBefore = datesOf(pp);
-check('a project with a closed topic is not re-laid', relaySchedule(pp) === false);
-check('...and no date moved', datesOf(pp) === closedBefore);
+check('a closed topic no longer freezes the plan: the head starts still move the open topics', relaySchedule(pp) === true);
+check('...and asking writes nothing', datesOf(pp) === closedBefore);
 check('an unscheduled project is not re-laid', relaySchedule(mkProject('No dates')) === false);
 
 console.log('\n--- Discard takes the head start off a topic answered since, too ---');
@@ -237,7 +244,8 @@ for (const [id, a] of allocateSchedule(rp, PRESSED, DEADLINE, WEEKDAYS).assignme
 }
 seed(rpLeaves[2], 0.41);
 check('a head start after a recalibration re-lays the dates', relaySchedule(rp) === true);
-const firstDate = db.prepare('SELECT MIN(scheduled_start) AS d FROM nodes WHERE project_id = ? AND is_note = 0').get(rp).d;
+refreshTopicDates();
+const firstDate = db.prepare('SELECT MIN(scheduled_start) AS d FROM plan_nodes WHERE project_id = ? AND is_note = 0').get(rp).d;
 check(`...from the recalibrated start, never back into the window's first weeks (first date ${firstDate})`, firstDate >= PRESSED);
 check('...inside the same window', db.prepare('SELECT start_date FROM projects WHERE id = ?').get(rp).start_date === START);
 

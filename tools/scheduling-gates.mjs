@@ -26,6 +26,7 @@ const {
     allocateSchedule, persistSchedule, recalibrateSchedule, getValidStudyDates, daysBetween,
     readStudyDays, DEFAULT_STUDY_DAYS,
 } = await import('../server/scheduling.js');
+const { refreshTopicDates } = await import('../server/topicDates.js');
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -217,8 +218,10 @@ persistSchedule(projectId, r.assignments, r.baselineSnapshot, {
     startDate: START, deadline: DEADLINE, studyDays: WEEKDAYS,
 });
 const stored = db.prepare('SELECT id, scheduled_start, scheduled_end FROM nodes WHERE project_id = ?').all(projectId);
-const byId = new Map(stored.map(n => [n.id, n]));
-check('every leaf has stored dates', leafIds.every(id => byId.get(id).scheduled_start));
+check('no topic date is stored', stored.every(n => !n.scheduled_start && !n.scheduled_end));
+refreshTopicDates();
+const byId = new Map(db.prepare('SELECT id, scheduled_start, scheduled_end FROM plan_nodes WHERE project_id = ?').all(projectId).map(n => [n.id, n]));
+check('every leaf has a date on read', leafIds.every(id => byId.get(id).scheduled_start));
 check('the note has none', !byId.get(noteId).scheduled_start && !byId.get(noteId).scheduled_end);
 const savedProject = db.prepare('SELECT start_date, deadline, study_days, baseline_schedule FROM projects WHERE id = ?').get(projectId);
 check('the project config is stored', savedProject.start_date === START && savedProject.deadline === DEADLINE);
@@ -352,7 +355,7 @@ for (let p = 0; p < 2; p++) {
     const ph = mkIn(rmId, `Part ${p + 1}`, null, p);
     for (let i = 0; i < 3; i++) mkIn(rmId, `Part ${p + 1} topic ${i + 1}`, ph, i);
 }
-const datedOf = (pid) => db.prepare(`SELECT id, scheduled_start, scheduled_end FROM nodes
+const datedOf = (pid) => (refreshTopicDates(), db).prepare(`SELECT id, scheduled_start, scheduled_end FROM plan_nodes
     WHERE project_id = ? AND (scheduled_start IS NOT NULL OR scheduled_end IS NOT NULL) ORDER BY id`).all(pid);
 const planKey = (pid) => datedOf(pid).map(r => `${r.id}:${r.scheduled_start}:${r.scheduled_end}`).join('|');
 const MWF = readStudyDays(db.prepare('SELECT study_days FROM projects WHERE id = ?').get(rmId).study_days);
@@ -365,8 +368,8 @@ const rmRow = db.prepare('SELECT start_date, deadline, baseline_schedule, study_
 check('the window is gone', rmRow.start_date === null && rmRow.deadline === null);
 check('the baseline recalibration measures against is gone', rmRow.baseline_schedule === null);
 check('no node keeps a date — topics AND the parts derived above them', datedOf(rmId).length === 0, `${datedOf(rmId).length} left`);
-check('it says how many nodes it cleared', removed.nodesCleared === datedBefore && datedBefore === 8,
-    `${removed.nodesCleared} of ${datedBefore}`);
+check('it had a plan of 8 dated nodes, none of them stored', removed.nodesCleared === 0 && datedBefore === 8,
+    `${removed.nodesCleared} cleared, ${datedBefore} dated`);
 check('the study WEEK is kept', rmRow.study_days === '[1,3,5]', rmRow.study_days);
 check('the pace has nothing to report afterwards', calculatePace(rmId).paceStatus === 'no_schedule');
 const again = allocateSchedule(rmId, START, DEADLINE, readStudyDays(rmRow.study_days));
@@ -491,7 +494,8 @@ const freshRoot = mkIn(freshId, 'Week one', null, 0);
 for (let i = 0; i < 6; i++) mkIn(freshId, `Day ${i + 1}`, freshRoot, i);
 const freshAlloc = allocateSchedule(freshId, TODAY, addDays(TODAY, 2), EVERY_DAY);
 persistSchedule(freshId, freshAlloc.assignments, freshAlloc.baselineSnapshot, { startDate: TODAY, deadline: addDays(TODAY, 2), studyDays: EVERY_DAY });
-const dueToday = db.prepare('SELECT COUNT(*) AS n FROM nodes WHERE project_id = ? AND scheduled_end = ?').get(freshId, TODAY).n;
+refreshTopicDates();
+const dueToday = db.prepare('SELECT COUNT(*) AS n FROM plan_nodes WHERE project_id = ? AND scheduled_end = ?').get(freshId, TODAY).n;
 const freshPace = calculatePace(freshId);
 check(`control: the new plan has work due today (${dueToday} rows)`, dueToday > 0);
 check('a plan made today is on track on its first day, with nothing expected yet',

@@ -39,7 +39,9 @@ if (db.name !== process.env.DB_PATH) {
 db.prepare("INSERT INTO settings (key, value) VALUES ('ai_enabled', 'false') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
 
 const day = (n) => new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
-const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Dutch', 0, ?, ?)").run(day(-10), day(300)).lastInsertRowid);
+// A window that ends today: its topic dates are derived (server/topicDates.js),
+// so both topics are due today whatever the rows carry.
+const course = Number(db.prepare("INSERT INTO projects (name, position, start_date, deadline) VALUES ('Dutch', 0, ?, ?)").run(day(-10), day(0)).lastInsertRowid);
 const mkTopic = (title, position) => Number(db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, position, role, scheduled_start, scheduled_end, description)
     VALUES (?, NULL, ?, ?, ?, ?, ?, 'Overview.')
