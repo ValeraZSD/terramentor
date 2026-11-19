@@ -321,6 +321,11 @@ jobs:
         run: node tools/build-desktop.mjs --skip-build
         env:
           GIT_SHA: ${{ needs.plan.outputs.ref }}
+      # The zip against its size budget (tools/perf-budgets.json): a download
+      # that grew past it is raised on purpose, in that file, or not shipped.
+      - name: Package within its size budget
+        run: node tools/perf-budget-gates.mjs --package release/*.zip
+        shell: bash
       # The macOS package opened as a person opens it: the bundle copied on its
       # own out of the unpacked zip, started through LaunchServices, marked as
       # downloaded, then not, then read-only (tools/macos-open-check.sh).

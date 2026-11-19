@@ -1,0 +1,21 @@
+{
+    "about": "Budgets for tools/perf-budget-gates.mjs. `measured` is the number the budget was set from, where and when. Bytes: about 15% above it; the release zips about 10%; times: about twice the slower CI runner. Raise a budget here, on purpose, with the reason in the commit.",
+    "budgets": {
+        "firstLoadJsBrotli": { "label": "First load JavaScript, brotli", "unit": "bytes", "budget": 680000, "measured": { "value": 589124, "on": "vite build, 2026-11-19" } },
+        "firstLoadJsRaw": { "label": "First load JavaScript, raw", "unit": "bytes", "budget": 2430000, "measured": { "value": 2109838, "on": "vite build, 2026-11-19" } },
+        "firstLoadCssBrotli": { "label": "First load CSS, brotli", "unit": "bytes", "budget": 32000, "measured": { "value": 27276, "on": "vite build, 2026-11-19" } },
+        "firstLoadCssRaw": { "label": "First load CSS, raw", "unit": "bytes", "budget": 194000, "measured": { "value": 167904, "on": "vite build, 2026-11-19" } },
+        "largestJsChunk": { "label": "Largest JavaScript chunk, raw", "unit": "bytes", "budget": 1730000, "measured": { "value": 1498958, "on": "vite build, 2026-11-19" } },
+        "allJsRaw": { "label": "All JavaScript, raw", "unit": "bytes", "budget": 20000000, "measured": { "value": 17388273, "on": "vite build, 2026-11-19" } },
+        "distRaw": { "label": "Whole build, raw", "unit": "bytes", "budget": 36100000, "measured": { "value": 31352124, "on": "vite build, 2026-11-19" } },
+        "serverFirstStart": { "label": "Server start on a new library", "unit": "ms", "budget": 10000, "measured": { "value": 5064, "on": "a desktop under load, 2026-11-19" } },
+        "serverRestart": { "label": "Server restart", "unit": "ms", "budget": 8000, "measured": { "value": 3761, "on": "a desktop under load, 2026-11-19" } },
+        "firstScreenWelcome-desktop": { "label": "Welcome screen, desktop", "unit": "ms", "budget": 1500, "measured": { "value": 704, "on": "a desktop under load, 2026-11-19" } },
+        "firstScreenHome-desktop": { "label": "Home screen, desktop", "unit": "ms", "budget": 1000, "measured": { "value": 348, "on": "a desktop under load, 2026-11-19" } },
+        "firstScreenWelcome-phone": { "label": "Welcome screen, phone on slow 4G", "unit": "ms", "budget": 10000, "measured": { "value": 4868, "on": "a desktop under load, 2026-11-19" } },
+        "firstScreenHome-phone": { "label": "Home screen, phone on slow 4G", "unit": "ms", "budget": 10500, "measured": { "value": 5219, "on": "a desktop under load, 2026-11-19" } },
+        "package-win32-x64": { "label": "Windows package", "unit": "bytes", "budget": 153000000, "measured": { "value": 139029045, "on": "release workflow, nightly 1.6.0-nightly.20261118.2" } },
+        "package-linux-x64": { "label": "Linux package", "unit": "bytes", "budget": 178000000, "measured": { "value": 161516934, "on": "release workflow, nightly 1.6.0-nightly.20261118.2" } },
+        "package-darwin-arm64": { "label": "macOS package", "unit": "bytes", "budget": 156000000, "measured": { "value": 141631132, "on": "release workflow, nightly 1.6.0-nightly.20261118.2" } }
+    }
+}
