@@ -14,6 +14,7 @@ import { usePointerVerb } from '../../utils/platform';
 import { Button } from '../ui/Button';
 import ProgressBar from '../ui/ProgressBar';
 import { SegmentedControl } from '../ui/SegmentedControl';
+import CardMedia, { CardAudioProvider, parseCardMedia } from '../CardMedia';
 
 interface Props {
     spec: DrillSpec;
@@ -101,7 +102,6 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
     useEffect(() => clearTimers, [clearTimers]);
 
     const currentItem = order.length ? bank[order[pos]] : null;
-    const seconds = itemSeconds(baseSeconds, mode, currentItem?.answer ?? '', timeScale);
     // A CLASSIFICATION drill answers every item from one small vocabulary
     // ("approaching or receding?"). There the buttons must not move between
     // questions — see closedOptionSet. Everything else keeps the per-item
@@ -119,6 +119,10 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [currentItem, mode, pos, closedSet, roundOptions],
     );
+    // A card with nothing of its kind to stand beside (its pool is empty) is
+    // asked typed, never as one button holding the answer.
+    const itemMode: DrillMode = mode === 'choice' && currentItem && options.length < 2 ? 'type' : mode;
+    const seconds = itemSeconds(baseSeconds, itemMode, currentItem?.answer ?? '', timeScale);
 
     const startRound = (indices: number[], full: boolean) => {
         clearTimers();
@@ -183,7 +187,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         }
         // Closed without a report: that move on happens now.
         const filed = !!(currentRef && useItemReports.getState().byRef[currentRef]);
-        if (!filed && feedback?.correct && mode === 'choice') {
+        if (!filed && feedback?.correct && itemMode === 'choice') {
             const entry = { itemIndex: order[pos], given: feedback.given, correct: true };
             advanceTimer.current = setTimeout(() => advance(entry), 650);
         }
@@ -195,10 +199,10 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         if (!currentItem) return;
         clearTimers();
         setFeedback({ correct, given, note: currentItem.note });
-        if (correct && mode === 'choice') {
+        if (correct && itemMode === 'choice') {
             advanceTimer.current = setTimeout(() => advance({ itemIndex: order[pos], given, correct }), 650);
         }
-    }, [currentItem, mode, clearTimers, advance, order, pos]);
+    }, [currentItem, itemMode, clearTimers, advance, order, pos]);
 
     // Confirm before grading (Settings → Accessibility): the first press on an
     // option selects it, the second on the same one grades. Keyed by the item
@@ -221,7 +225,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         const mine = ++checkSeq.current;
         setChecking(true);
         try {
-            const q = `${spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
+            const q = `${currentItem.context || spec.promptLabel || 'What is the answer for'}: ${currentItem.prompt}`;
             const res = await api.checkAnswer(q, currentItem.answer, given);
             if (checkSeq.current !== mine) return;
             grade(given, !!res.correct);
@@ -276,8 +280,8 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
 
     // Focus the input on each new type item.
     useEffect(() => {
-        if (phase === 'playing' && mode === 'type' && !feedback) inputRef.current?.focus();
-    }, [phase, mode, pos, feedback]);
+        if (phase === 'playing' && itemMode === 'type' && !feedback) inputRef.current?.focus();
+    }, [phase, itemMode, pos, feedback]);
 
     // ── Intro ────────────────────────────────────────────────────────────────
     if (phase === 'intro') {
@@ -476,6 +480,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
         .replace(/[{}^_]/g, '')
         .length;
     const promptLen = visibleLen(currentItem.prompt);
+    const promptMedia = currentItem.media ? parseCardMedia(currentItem.media).front : [];
     const promptLong = promptLen > 120;
     const promptSize =
         promptLen <= 24 ? 'text-4xl sm:text-5xl'
@@ -513,12 +518,21 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                             onOpenChange={onAsking}
                         />
                     </div>
-                    {spec.promptLabel && (
-                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={spec.promptLabel} /></p>
+                    {/* A card's own task line ("de или het?") is its question;
+                        the drill's generic label only stands in when it has none. */}
+                    {(currentItem.context || spec.promptLabel) && (
+                        <p className={`mt-5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${promptLong ? 'text-left' : 'text-center'}`}><MathText content={currentItem.context || spec.promptLabel || ''} /></p>
                     )}
-                    <div className={`mt-2 mb-5 font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
+                    <div className={`mt-2 ${promptMedia.length ? 'mb-3' : 'mb-5'} font-semibold text-slate-900 dark:text-white break-words ${promptSize} ${promptLong ? 'text-left leading-snug' : 'text-center leading-tight'}`}>
                         <MathText content={currentItem.prompt} />
                     </div>
+                    {/* A listening card's sound IS the question: played as the
+                        item opens, as in a review, with its button to replay. */}
+                    {promptMedia.length > 0 && (
+                        <CardAudioProvider key={`${pos}:${currentRef ?? ''}`} items={promptMedia.filter(m => m.kind === 'audio')} autoPlay>
+                            <CardMedia media={promptMedia} className="mb-5" />
+                        </CardAudioProvider>
+                    )}
                 </div>
 
                 {currentOut ? (
@@ -531,7 +545,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                             </Button>
                         </div>
                     </div>
-                ) : mode === 'choice' ? (
+                ) : itemMode === 'choice' ? (
                     <div className={longOptions ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 sm:grid-cols-2 gap-2'}>
                         {options.map((option, idx) => {
                             const isAnswer = answersMatch(option, currentItem.answer);
@@ -613,7 +627,7 @@ export default function DrillPlayer({ spec, onRoundComplete, onDone }: Props) {
                                 {feedback.correct ? t("Correct") : (feedback.given ? t("Not quite") : t("Time!"))}
                             </p>
                             {/* Correct choices auto-advance; everything else waits for Next. */}
-                            {!(feedback.correct && mode === 'choice') && (
+                            {!(feedback.correct && itemMode === 'choice') && (
                                 <Button variant="primary" onClick={nextAfterFeedback}>
                                     {pos + 1 >= order.length ? t("See results") : t("Next")}
                                 </Button>
