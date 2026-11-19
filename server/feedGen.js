@@ -505,18 +505,36 @@ function aiEnabled() {
     }
 }
 
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|overloaded|rate.?limit/;
+// A best-effort read: a status word just before the number, or its reason
+// phrase just after. A bare 502 is as often a token count or a version.
+const STATUS_IN_TEXT = new RegExp(
+    String.raw`\b(?:status|code|error|http(?:\/\d(?:\.\d)?)?|returned|answered|responded)\b\W{0,3}50[234](?!\d|\.\d)`
+    + String.raw`|(?<![\d.:])50[234]\W{0,3}(?:bad gateway|service (?:temporarily )?unavailable|gateway time-?out)`);
+
 /**
  * Is this failure worth trying again? A transport timeout or a dropped socket
  * says nothing about the request — the same prompt may well succeed a second
  * later — whereas a bad prompt, a missing model or disabled AI will fail
  * identically forever. A cancel is never retried: `signal.aborted` is the only
  * trustworthy test, since an abort surfaces as its own reason, not a named type.
+ *
+ * A status is read from the status, never from the text: the message names the
+ * endpoint, and a port or host holding "503" made every plain 400 from it look
+ * busy. Addresses are cut from the text before the words are read. Only an
+ * error that carries no status at all (one raised mid-stream) is read for a
+ * 502/503/504 in its text (`STATUS_IN_TEXT`).
  */
-function isTransient(err, signal) {
+export function isTransient(err, signal) {
     if (signal?.aborted) return false;
-    const msg = String(err?.message || '').toLowerCase();
-    return /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|502|503|504|overloaded|rate.?limit/
-        .test(msg);
+    const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
+    // The Ollama client says it as `status_code` (as server/ai.js reads it).
+    const tagged = Number(err?.httpStatus ?? err?.status_code);
+    const status = Number.isInteger(tagged) && tagged > 0 ? tagged : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
+    if (TRANSIENT_STATUSES.has(status)) return true;
+    if (Number.isNaN(status) && STATUS_IN_TEXT.test(msg)) return true;
+    return TRANSIENT_WORDS.test(msg);
 }
 
 /**

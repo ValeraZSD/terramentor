@@ -4,7 +4,7 @@
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
-import { ATTEMPT_ID_ERROR, readAttemptId } from '../mastery.js';
+import { ATTEMPT_ID_ERROR, AttemptReusedError, readAttemptId } from '../mastery.js';
 import { buildFeedHeader, checkpointFacts, composeFeed, consumeFeedItem, readLessonParts, replaceSpecInContent } from '../feed.js';
 import * as feedGen from '../feedGen.js';
 import { scheduleTransferSweep } from '../masteryTransfer.js';
@@ -112,6 +112,7 @@ app.post('/api/feed/consume', (req, res) => {
         res.json({ ok: true, ...(outcome?.duplicate ? { duplicate: true } : {}), stats: buildFeedHeader().stats });
         feedGen.ensureBuffer();
     } catch (err) {
+        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
         res.status(500).json({ error: clientError(err) });
     }
 });

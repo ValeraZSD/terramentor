@@ -42,9 +42,11 @@ const bundle = (await esbuild.build({
             import ScheduleModal from './src/components/ScheduleModal';
             import ProjectImportZone from './src/components/ProjectImportZone';
             import PaceIndicator from './src/components/PaceIndicator';
+            import AnkiImportModal from './src/components/AnkiImportModal';
+            import { api } from './src/api';
             import { createElement as h, act } from 'react'; import { createRoot } from 'react-dom/client';
             const mount = (el, node) => { const root = createRoot(el); act(() => root.render(node)); return root; };
-            window.__gate = { useStore, mount, act, h, ScheduleModal, ProjectImportZone, PaceIndicator };`,
+            window.__gate = { useStore, mount, act, h, ScheduleModal, ProjectImportZone, PaceIndicator, AnkiImportModal, api };`,
         resolveDir: root, loader: 'tsx',
     },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
@@ -332,6 +334,64 @@ section('the course header names the verdict, never the plan\'s day count');
     // Still "has a schedule" and the old fields: only the verdict says no date.
     await g.act(async () => { g.useStore.setState({ paceData: { ...g.useStore.getState().paceData, verdict: { ...verdict, band: 'no_date' } } }); await settle(); });
     check('a course with no date shows nothing there', host.textContent === '', host.textContent);
+    w.close();
+}
+
+// ---------------------------------------------------------------------------
+// The server answers 404 for a project that is not there (deleted in another
+// window, or a first press whose reply was lost). The list must still be read
+// again, or the card of a course that no longer exists stays on the page.
+section('a delete of a project already gone still refreshes the list');
+{
+    const { w, g, fetched } = page((url) => /\/api\/projects\/7$/.test(url)
+        ? { ok: false, status: 404, body: { error: 'Project not found' } }
+        : /\/api\/projects(\?|$)/.test(url) ? { ok: true, status: 200, body: [] } : { ok: true, status: 200, body: {} });
+    g.useStore.setState({ projects: [{ id: 7, name: 'Gone already', kind: 'curriculum' }], toasts: [] });
+    await g.useStore.getState().deleteProject(7);
+    await settle();
+    check('the list is asked for again after the 404', fetched.some(u => /\/api\/projects(\?|$)/.test(u)), fetched.join(', '));
+    check('…and the gone course is no longer listed', !g.useStore.getState().projects.some(p => p.id === 7),
+        JSON.stringify(g.useStore.getState().projects));
+    w.close();
+}
+
+section('a delete that fails while the server is down shows one error toast');
+{
+    const { w, g } = page(() => ({ ok: false, status: 503, body: { error: 'Service unavailable' } }));
+    g.useStore.setState({ projects: [{ id: 7, name: 'Still here', kind: 'curriculum' }], toasts: [] });
+    await g.useStore.getState().deleteProject(7);
+    await settle();
+    const errors = g.useStore.getState().toasts.filter(t => t.type === 'error');
+    check('one error toast, the delete\'s own (the list re-read stays quiet)',
+        errors.length === 1 && /delete/i.test(errors[0]?.message || errors[0]?.title || ''), JSON.stringify(errors));
+    w.close();
+}
+
+section('undoing an Anki import whose course is already gone closes the importer');
+{
+    const { w, g, host, fetched } = page((url) => /\/api\/import\/anki\/commit$/.test(url)
+        ? { ok: true, status: 200, body: { projectId: 9, name: 'Fixture deck', imported: 1, skipped: 0, skipReasons: {}, decks: 1 } }
+        : /\/api\/projects\/9$/.test(url) ? { ok: false, status: 404, body: { error: 'Project not found' } }
+            : /\/api\/projects(\?|$)/.test(url) ? { ok: true, status: 200, body: [] } : { ok: true, status: 200, body: {} });
+    // The upload is XHR (progress events); the rest is fetch.
+    g.api.inspectAnkiDeck = async () => ({
+        stagingId: 'staged-1', suggestedName: 'Fixture deck', warnings: [],
+        stats: { notes: 1, cards: 1, skipped: 0, withImages: 0, withSounds: 0, decks: [{ name: 'Fixture deck', count: 1 }], noteTypes: [], skipReasons: {} },
+        samples: [{ front: 'de hond', back: 'the dog', deck: 'Fixture deck', cloze: false, noteType: 'Basic', media: { front: [], back: [] } }],
+    });
+    g.useStore.setState({ projects: [], toasts: [], ankiImportFile: new w.File(['x'], 'deck.apkg') });
+    let closed = 0;
+    g.mount(host, g.h(g.AnkiImportModal, { open: true, onClose: () => { closed++; } }));
+    await g.act(async () => { await settle(); });
+    const button = (re) => [...w.document.querySelectorAll('button')].find(b => re.test(b.textContent || ''));
+    await g.act(async () => { button(/^Import/)?.click(); await settle(); });
+    const undo = button(/^Undo$/);
+    check('the import reaches its done screen with an Undo button', !!undo, [...w.document.querySelectorAll('button')].map(b => b.textContent).join(' | '));
+    const before = fetched.length;
+    await g.act(async () => { undo?.click(); await settle(); });
+    check('Undo meeting a 404 closes the importer (the course is gone either way)', closed === 1,
+        `closed ${closed}; on screen: ${w.document.querySelector('[role="alert"]')?.textContent ?? host.textContent.slice(0, 200)}`);
+    check('…and reads the project list again', fetched.slice(before).some(u => /\/api\/projects(\?|$)/.test(u)), fetched.slice(before).join(', '));
     w.close();
 }
 
