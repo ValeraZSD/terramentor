@@ -50,7 +50,7 @@
 // whose paths are set in the child's environment, never the learner's own.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, openSync, closeSync, ftruncateSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, openSync, closeSync, ftruncateSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
@@ -70,7 +70,20 @@ const check = (label, cond, extra = '') => {
     if (cond) { pass++; console.log(`  ok    ${label}`); }
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
-const done = () => { console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0); };
+// Every measurement, for the CI job's summary page: `npm test` shows a passing
+// suite as one line, and the numbers are the point.
+const rows = [];
+const done = () => {
+    if (process.env.GITHUB_STEP_SUMMARY && rows.length) {
+        const os = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[process.platform] ?? process.platform;
+        appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+            `### Performance budgets (${os})`, '', '| measured | value | budget | used |', '|---|---:|---:|---:|',
+            ...rows.map((r) => `| ${r.label} | ${r.value} | ${r.budget} | ${r.share}%${r.ok ? '' : ' (over)'} |`), '', '',
+        ].join('\n'));
+    }
+    console.log(`\n${pass} passed, ${fail} failed`);
+    process.exit(fail ? 1 : 0);
+};
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
@@ -90,6 +103,8 @@ function against(id, measured) {
     const share = Math.round((measured / b.budget) * 100);
     const exact = b.unit === 'bytes' ? ` [${measured} bytes]` : '';
     const label = `${b.label}: ${show(measured, b.unit)} of ${show(b.budget, b.unit)} (${share}%)${exact}`;
+    const exactly = (n) => (b.unit === 'bytes' ? `${n.toLocaleString('en-US')} B` : `${Math.round(n).toLocaleString('en-US')} ms`);
+    rows.push({ label: b.label, value: exactly(measured), budget: exactly(b.budget), share, ok: measured <= b.budget });
     if (b.unit === 'ms' && !ENFORCE_TIMES && measured > b.budget) {
         console.log(`  note  ${label} — over its budget; times are held in CI or with --enforce-times`);
         return;
@@ -352,7 +367,10 @@ function ensureDist() {
 // ---------------------------------------------------------------------------
 
 function runSelf(extra) {
-    const r = spawnSync(process.execPath, [SELF, ...extra], { cwd: ROOT, encoding: 'utf8' });
+    // Without the summary file: the fixtures' numbers are not this build's.
+    const env = { ...process.env };
+    delete env.GITHUB_STEP_SUMMARY;
+    const r = spawnSync(process.execPath, [SELF, ...extra], { cwd: ROOT, encoding: 'utf8', env });
     return { status: r.status, out: `${r.stdout || ''}${r.stderr || ''}` };
 }
 
