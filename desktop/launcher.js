@@ -664,7 +664,7 @@ async function finishInterruptedSwap() {
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;
         try {
-            const status = await (await fetch(`${ready.url}/api/desktop/status`)).json();
+            const status = await (await fetch(`${ready.url}/api/desktop/status`, { signal: AbortSignal.timeout(10_000) })).json();
             if (status?.windowMode) mode = status.windowMode;
             if (status?.autostartWindow) autostartWindow = status.autostartWindow;
         } catch { /* a preference, not a requirement */ }

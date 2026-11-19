@@ -5,7 +5,7 @@
 // bounded — so `tools/desktop-gates.mjs` can assert each decision on every
 // platform from one machine. `launcher.js` is the thin script that runs them.
 
-import { existsSync, statSync, renameSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, statSync, renameSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, linkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve, dirname, posix, win32 } from 'node:path';
 import { delimiter } from 'node:path';
@@ -484,21 +484,30 @@ export function pidAlive(pid, kill = process.kill) {
     try { kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
 }
 
-const lockFs = { writeFileSync, readFileSync, unlinkSync, renameSync, statSync };
+const lockFs = { writeFileSync, readFileSync, unlinkSync, renameSync, statSync, linkSync };
 
-/** The lock's contents, or null when there is none or it cannot be parsed. */
-export function readStartLock(file, fs = lockFs) {
+function readRaw(file, fs) {
+    try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
+}
+function parseLock(raw) {
     try {
-        const v = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const v = JSON.parse(raw);
         return v && typeof v === 'object' && !Array.isArray(v) ? v : null;
     } catch { return null; }
 }
 
-/** Whether `lock` is a start still in progress, which a later launch waits for. */
+/** The lock's contents, or null when there is none or it cannot be parsed. */
+export function readStartLock(file, fs = lockFs) {
+    const raw = readRaw(file, fs);
+    return raw === null ? null : parseLock(raw);
+}
+
+/** Whether `lock` is a start still in progress, which a later launch waits for.
+ *  A start stamped in the future (the clock went back) holds nobody. */
 export function startLockLive(lock, { now = Date.now(), alive = pidAlive } = {}) {
     if (!lock || lock.state !== 'starting') return false;
-    const at = Date.parse(lock.at);
-    return Number.isFinite(at) && now - at < START_LOCK_MAX_MS && alive(lock.pid);
+    const age = now - Date.parse(lock.at);
+    return Number.isFinite(age) && age > -START_LOCK_WRITE_MS && age < START_LOCK_MAX_MS && alive(lock.pid);
 }
 
 /**
@@ -517,7 +526,9 @@ export function claimStartLock(file, { pid = process.pid, now = Date.now, alive 
             fs.writeFileSync(file, body, { flag: 'wx' });
         } catch (e) {
             if (e.code !== 'EEXIST') return { claimed: false };
-            const lock = readStartLock(file, fs);
+            const raw = readRaw(file, fs);
+            if (raw === null) continue; // gone between the two calls
+            const lock = parseLock(raw);
             if (!lock) {
                 // Created by `wx` and not yet written, or garbage. Only a young
                 // one can be the former.
@@ -527,10 +538,24 @@ export function claimStartLock(file, { pid = process.pid, now = Date.now, alive 
             } else if (startLockLive(lock, { now: now(), alive })) {
                 return { claimed: false, lock };
             }
-            // Stale. Two launches taking over the same stale lock in the same
-            // instant can both get through here; the read-back below catches
-            // most of that, and the rest is a second server, as before the lock.
-            try { fs.unlinkSync(file); } catch (e2) { if (e2.code !== 'ENOENT') return { claimed: false }; }
+            // Stale. Moved aside under a name of our own rather than deleted,
+            // then compared with what was judged stale: when two launches take
+            // over one stale lock, the slower one would otherwise delete the
+            // fresh lock the faster one had just written, and both would start.
+            const aside = `${file}.${token}.stale`;
+            try { fs.renameSync(file, aside); } catch (e2) {
+                if (e2.code === 'ENOENT') continue;
+                return { claimed: false };
+            }
+            if (readRaw(aside, fs) !== raw) {
+                // Someone's fresh lock: put it back, unless a newer one stands.
+                try { fs.linkSync(aside, file); } catch (e3) {
+                    if (e3.code !== 'EEXIST') { try { fs.renameSync(aside, file); } catch { /* lost; that start goes on */ } }
+                }
+                try { fs.unlinkSync(aside); } catch { /* already moved back */ }
+                return { claimed: false, busy: true };
+            }
+            try { fs.unlinkSync(aside); } catch { /* best effort */ }
             continue;
         }
         const mine = readStartLock(file, fs);
@@ -576,14 +601,32 @@ export async function settleStart({
     claim = (f) => claimStartLock(f),
     read = (f) => readStartLock(f),
     live = (lock) => startLockLive(lock),
+    serving = (lock) => lock?.state === 'up' && pidAlive(lock.pid),
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
     onWait = () => {},
     pollMs = 500,
     maxRounds = 5,
+    // An `up` lock whose process lives is a server that missed one probe (busy
+    // with its start, or paged out): asked again this many times before a
+    // second server is started beside it on the same library.
+    upRetries = 10,
+    // The holder marks its lock `up` once its window is decided, a second or
+    // two after it listens. Past this many polls the server itself is asked as
+    // well, so a holder that stalls after listening does not hold launches off
+    // for the whole START_LOCK_MAX_MS.
+    probeAfterPolls = 40,
 }) {
     let waitedFor = null;
+    let retriedUp = false;
     for (let round = 0; ; round++) {
-        const running = await find();
+        let running = await find();
+        if (!running && !retriedUp && serving(read(lockFile))) {
+            retriedUp = true;
+            for (let i = 0; i < upRetries && !running; i++) {
+                await sleep(pollMs);
+                running = await find();
+            }
+        }
         if (running) return { running, openedByHolder: waitedFor?.state === 'up' && waitedFor.window === true };
         const c = claim(lockFile);
         if (c.claimed) return { token: c.token };
@@ -591,8 +634,15 @@ export async function settleStart({
         if (c.busy) { await sleep(pollMs); continue; }
         onWait(c.lock);
         let lock = c.lock;
+        let polls = 0;
         while (live(lock)) {
             await sleep(pollMs);
+            if (++polls >= probeAfterPolls && polls % 4 === 0) {
+                // Whether that start opened a window is not known yet; a
+                // launch that has waited this long opens its own.
+                const found = await find();
+                if (found) return { running: found, openedByHolder: false };
+            }
             lock = read(lockFile);
         }
         waitedFor = lock;

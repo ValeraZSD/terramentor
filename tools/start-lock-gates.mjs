@@ -12,8 +12,9 @@
 // Run:  node tools/start-lock-gates.mjs          (the launcher race takes ~10-30 s)
 //       node tools/start-lock-gates.mjs --quick  (skip the launcher race)
 
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from 'node:fs';
-import { join } from 'node:path';
+import * as nodeFs from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync, utimesSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -38,6 +39,7 @@ const check = (label, actual, expected) => {
 let n = 0;
 const freshDir = () => { const d = join(scratch, `d${n++}`); mkdirSync(d); return d; };
 const lockIn = (d) => join(d, START_LOCK);
+const realFs = { readFileSync: nodeFs.readFileSync, writeFileSync: nodeFs.writeFileSync, unlinkSync: nodeFs.unlinkSync, renameSync: nodeFs.renameSync, statSync: nodeFs.statSync, linkSync: nodeFs.linkSync };
 const alive = () => true;
 const dead = () => false;
 
@@ -97,6 +99,31 @@ try {
         check('no folder: no lock, the launch goes ahead unguarded', [c.claimed, c.lock, c.busy], [false, undefined, undefined]);
         check('…and the folder is not created', existsSync(missing), false);
     }
+    {
+        // Two launches taking over one stale lock: B read the stale lock, then
+        // A took it over and wrote its own before B acted on what it read.
+        const f = lockIn(freshDir());
+        writeFileSync(f, JSON.stringify({ pid: 999, at: new Date(0).toISOString(), state: 'starting', token: 'stale' }));
+        const deadButA = (pid) => pid === 111;
+        let a = null;
+        const fsB = {
+            ...realFs,
+            readFileSync: (p, enc) => {
+                const text = realFs.readFileSync(p, enc);
+                if (p === f && !a) a = claimStartLock(f, { pid: 111, alive: deadButA });
+                return text;
+            },
+        };
+        const b = claimStartLock(f, { pid: 222, alive: deadButA, fs: fsB });
+        check('two launches taking over one stale lock: the first wins', a?.claimed, true);
+        check('…and the second does not move the winner\'s lock away', [b.claimed, readStartLock(f)?.pid], [false, 111]);
+        check('…nothing is left beside the lock', readdirSync(dirname(f)).filter((n) => n !== 'start.lock'), []);
+    }
+    {
+        const at = new Date(Date.parse('2026-11-19T12:00:00Z') + 3600_000).toISOString();
+        check('a start stamped an hour ahead (the clock went back) holds nobody',
+            startLockLive({ pid: 111, at, state: 'starting' }, { now: Date.parse('2026-11-19T12:00:00Z'), alive }), false);
+    }
     check('this process is alive', pidAlive(process.pid), true);
     check('a nonsense pid is not', [pidAlive(0), pidAlive(-5), pidAlive('12'), pidAlive(undefined)], [false, false, false, false]);
 
@@ -151,6 +178,51 @@ try {
     {
         const r = await settleStart({ lockFile: lockIn(join(scratch, 'gone')), find: async () => null, sleep: async () => {} });
         check('no lock possible: start unguarded rather than not at all', r, {});
+    }
+    {
+        // A server that is up (its lock says so, its process lives) but missed
+        // the first probes: busy with its start, or paged out.
+        const f = lockIn(freshDir());
+        const holder = claimStartLock(f, { pid: 111, alive });
+        markStartLockUp(f, holder.token, { window: true });
+        let probes = 0;
+        const r = await settleStart({
+            lockFile: f,
+            find: async () => (++probes >= 4 ? { port: 1 } : null),
+            claim: (file) => claimStartLock(file, { pid: 222, alive }),
+            serving: (lock) => lock?.state === 'up' && alive(lock.pid),
+            sleep: async () => {},
+        });
+        check('a running server that missed a probe is asked again, not started beside', [!!r.running, r.token, readStartLock(f)?.pid], [true, undefined, 111]);
+    }
+    {
+        const f = lockIn(freshDir());
+        const holder = claimStartLock(f, { pid: 111, alive });
+        markStartLockUp(f, holder.token, { window: true });
+        let probes = 0;
+        const r = await settleStart({
+            lockFile: f,
+            find: async () => { probes++; return null; },
+            claim: (file) => claimStartLock(file, { pid: 222, alive }),
+            serving: (lock) => lock?.state === 'up' && alive(lock.pid),
+            sleep: async () => {},
+        });
+        check('…one that never answers is given up on after a bounded number of probes', [!!r.token, probes], [true, 11]);
+    }
+    {
+        // A holder that listens but never marks its lock up.
+        const f = lockIn(freshDir());
+        claimStartLock(f, { pid: 111, alive });
+        let polls = 0;
+        const r = await settleStart({
+            lockFile: f,
+            find: async () => (polls > 0 ? { port: 1 } : null),
+            claim: (file) => claimStartLock(file, { pid: 222, alive }),
+            live: (lock) => startLockLive(lock, { alive }),
+            sleep: async () => { polls++; },
+        });
+        check('a holder stuck after it listens: the waiting launch finds its server', [!!r.running, r.openedByHolder], [true, false]);
+        check('…after waiting a while, not at the first poll', polls >= 40 && polls < 50, true);
     }
 
     // --- real processes racing for one lock ------------------------------------
