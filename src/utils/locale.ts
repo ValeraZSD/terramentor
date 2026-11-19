@@ -35,7 +35,7 @@ export function listFormat(items: string[]): string {
  * Weekday names in the INTERFACE language: hardcoded English arrays would print
  * "MON TUE WED" above Russian chrome, and no extractor would see them.
  *
- * Short weekday labels, ordered from the configured first day of the week.
+ * Short weekday labels, starting from `weekStartDay` (0 = Sunday, 1 = Monday).
  * The reference week starts at 2021-08-01, which was a Sunday, so index 0 is
  * Sunday and `weekStartDay` indexes it directly.
  */

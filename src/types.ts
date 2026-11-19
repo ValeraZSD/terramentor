@@ -467,8 +467,6 @@ export interface PaceData {
     learnerPace?: LearnerPace | null;
 }
 
-export type WeekStartDay = 0 | 1;
-
 /** A check run on something the assistant prepared (server/assistantChecks.js).
  *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */
 export interface AssistantCheck {

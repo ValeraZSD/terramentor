@@ -1079,10 +1079,11 @@ const fromRows = (rows) => (key, fallback) => (key in rows ? rows[key] : fallbac
 const empty = readSettable(fromRows({}));
 check('an empty library reads as the defaults, each a value the marker accepts',
     empty.theme === 'system' && empty.theme_tint === 'none' && empty.ui_scale === 100
-    && empty.week_start_day === 'monday' && empty.ui_language === 'auto' && empty.number_format === 'auto'
+    && empty.ui_language === 'auto' && empty.number_format === 'auto'
     && /^#[0-9a-f]{6}$/i.test(empty.accent_color), JSON.stringify(empty));
-const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', week_start_day: '0', ui_scale: '125' }));
-check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.week_start_day === 'sunday' && set.ui_scale === 125, JSON.stringify(set));
+const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', number_format: '1.234,5', ui_scale: '125' }));
+check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.number_format === '1.234,5' && set.ui_scale === 125, JSON.stringify(set));
+check('a retired row is not offered', !('week_start_day' in readSettable(fromRows({ week_start_day: '0' }))));
 check('a legacy named theme reads as its mode', readSettable(fromRows({ theme: 'black' })).theme === 'dark' && readSettable(fromRows({ theme: 'warm' })).theme === 'light');
 check('an empty library reads the accessibility rows as the app shows them',
     empty.contrast === 'system' && empty.motion === 'system' && empty.letter_spacing === 'normal'
@@ -1107,7 +1108,7 @@ check('the before-values are what the setting held, not what was asked for',
     === JSON.stringify({ theme: 'light', theme_tint: '#f0e1d0' }));
 const block = assistantSettingsBlock({ now: set, recent: [{ minutesAgo: 3, before: { theme: 'light', theme_tint: 'none' } }] });
 check('the block states every settable value as it is now',
-    /theme: dark/.test(block) && /theme_tint: #000000/.test(block) && /week_start_day: sunday/.test(block));
+    /theme: dark/.test(block) && /theme_tint: #000000/.test(block) && /number_format: 1\.234,5/.test(block));
 check('the block states what the last change replaced', /theme was light/.test(block) && /theme_tint was none/.test(block));
 check('the block says how to undo with an ordinary marker', /undo/i.test(block) && /\[\[set:/.test(block));
 check('with no recent change it says so rather than inventing one',

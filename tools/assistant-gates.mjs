@@ -110,8 +110,8 @@ check('a named accent resolves to its hex', validateSettingChange('accent_color'
 check('a hex accent is accepted and normalised', validateSettingChange('accent', '#0e7490')?.value === '#0E7490');
 check('ui_scale accepts a plain number', validateSettingChange('ui_scale', '140')?.value === 140);
 check('ui_scale accepts a percent sign', validateSettingChange('ui_scale', '120%')?.value === 120);
-check('the key separator is normalised', validateSettingChange('week start day', 'monday')?.value === 1);
-check('week_start_day accepts sunday', validateSettingChange('week_start_day', 'sunday')?.value === 0);
+check('the key separator is normalised', validateSettingChange('ui scale', '120')?.value === 120);
+check('the retired week_start_day produces nothing', validateSettingChange('week_start_day', 'sunday') === null);
 check('a legacy theme name is refused: a tint now carries it', validateSettingChange('theme', 'warm') === null);
 
 section('the accessibility rows');
@@ -133,7 +133,7 @@ check('reading speed in range, refused outside it',
     && validateSettingChange('speech_rate', '300') === null);
 
 check('every accepted change carries a human label',
-    ['theme:dark', 'accent:red', 'ui_scale:100', 'week_start_day:monday']
+    ['theme:dark', 'accent:red', 'ui_scale:100', 'number_format:auto']
         .every(s => (validateSettingChange(...s.split(':'))?.label || '').length > 4));
 
 section('anything off the whitelist produces NOTHING');
@@ -168,7 +168,7 @@ const partial = splitSettingChanges('Switching now [[set:the', true);
 check('a half-streamed marker does not flash on screen', !partial.body.includes('[['), partial.body);
 
 const many = splitSettingChanges(
-    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:week_start_day:monday]]');
+    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:number_format:auto]]');
 check('at most three changes per message', many.changes.length === 3, String(many.changes.length));
 
 const dupes = splitSettingChanges('[[set:theme:dark]][[set:theme:light]]');

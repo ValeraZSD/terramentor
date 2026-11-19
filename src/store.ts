@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
 import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -572,10 +572,6 @@ interface AppState {
     loading: boolean;
     sidebarWidth: number;
     detailPanelWidth: number;
-    /** Which day a week starts on, in every calendar. A preference, not view
-     *  state: living inside the calendar component would reset it to Monday on
-     *  every navigation and cost a permanent toolbar toggle. */
-    weekStartDay: WeekStartDay;
     /** Single-key shortcuts (`a`, Space, 1-4, `z`) on or off. */
     keyShortcuts: boolean;
     /** What colour means on the atlas: how much is proven, or which course a
@@ -840,7 +836,6 @@ interface AppState {
     setUiLanguage: (code: string) => Promise<void>;
     setSidebarWidth: (width: number) => Promise<void>;
     setDetailPanelWidth: (width: number) => Promise<void>;
-    setWeekStartDay: (day: WeekStartDay) => Promise<void>;
     setKeyShortcuts: (on: boolean) => Promise<void>;
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
@@ -1021,7 +1016,6 @@ export const useStore = create<AppState>((set, get) => ({
     loading: false,
     sidebarWidth: 256,
     detailPanelWidth: 420,
-    weekStartDay: 1,
     keyShortcuts: true,
     atlasColorMode: 'course',
     atlasSurface: 'map',
@@ -1386,12 +1380,6 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'detailPanelWidth', String(clamped), before, clamped, value => set({ detailPanelWidth: value }));
     },
 
-    setWeekStartDay: async (day) => {
-        const before = get().weekStartDay;
-        set({ weekStartDay: day });
-        await saveSetting(get, 'week_start_day', String(day), before, day, value => set({ weekStartDay: value }));
-    },
-
     setKeyShortcuts: async (on) => {
         const before = get().keyShortcuts;
         const paint = (value: boolean) => { set({ keyShortcuts: value }); setSingleKeyShortcuts(value); };
@@ -1510,7 +1498,6 @@ export const useStore = create<AppState>((set, get) => ({
                 background: settings[ICON_KEYS.background],
                 radius: settings[ICON_KEYS.radius],
             });
-            const weekStartDay: WeekStartDay = settings.week_start_day === '0' ? 0 : 1;
             // Course colour is the default: a map where each course has its own
             // hue, and proof still strengthens it, reads better than one colour
             // for every region. Only an explicit choice of the other mode keeps it.
@@ -1555,7 +1542,7 @@ export const useStore = create<AppState>((set, get) => ({
             writeWelcomeCache(welcome === 'done');
             const keyShortcuts = settings.key_shortcuts !== 'false';
             setSingleKeyShortcuts(keyShortcuts);
-            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
+            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
