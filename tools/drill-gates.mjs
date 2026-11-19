@@ -531,7 +531,7 @@ section('The flashcard drill keeps each card its question and its kind');
     check('the player plays the card\'s question-side sound as the item opens',
         /parseCardMedia\(currentItem\.media\)\.front/.test(player) && /<CardAudioProvider[^\n]*\sautoPlay>/.test(player));
     check('the player shows the card\'s own task line before the drill\'s label',
-        /currentItem\.context \|\| spec\.promptLabel/.test(player));
+        /<MathText content=\{currentItem\.context \|\| spec\.promptLabel/.test(player));
     check('the player asks an item typed when its options hold the answer alone',
         /mode === 'choice' && currentItem && options\.length < 2 \? 'type' : mode/.test(player)
         && /\) : itemMode === 'choice' \? \(/.test(player));
