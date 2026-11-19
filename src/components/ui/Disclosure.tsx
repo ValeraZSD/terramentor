@@ -219,9 +219,13 @@ export function ExpandableSection({
     const card = variant === 'card';
     const marked = Boolean(Icon || lead);
     return (
+        // `data-disclosure` makes the row its own size container: the aside and
+        // the body indent follow the ROW's width (src/index.css), never the
+        // viewport's, so a narrow panel on a wide screen stacks like a phone.
         <details
             id={id}
             onToggle={onToggle}
+            data-disclosure=""
             className={cx(
                 'group',
                 card && cx('rounded-xl bg-white shadow-sm dark:bg-slate-800', OPEN_EDGE),
@@ -261,9 +265,10 @@ export function ExpandableSection({
                 {/* Narrow, the answer drops to its own full-width line under the
                     text. `flex-basis:0%` on the text span would otherwise let a
                     long answer stay inline and squeeze the description into a
-                    ~185px column. */}
+                    ~185px column. Order, basis and indent: `[data-disclosure-aside]`
+                    in src/index.css, keyed on the row's width. */}
                 {aside && (
-                    <span className={cx('order-last basis-full shrink-0 pl-8 text-sm text-slate-500 dark:text-slate-400 sm:order-none sm:basis-auto sm:pl-0', !!desc && 'sm:mt-0.5')}>
+                    <span data-disclosure-aside="" data-under-desc={desc ? '' : undefined} className="shrink-0 text-sm text-slate-500 dark:text-slate-400">
                         {aside}
                     </span>
                 )}
@@ -277,11 +282,11 @@ export function ExpandableSection({
                 the indent. */}
             {card ? (
                 <div
+                    data-disclosure-indent={marked && !flushBody ? '' : undefined}
                     className={cx(
                         'details-reveal rounded-b-xl bg-white dark:bg-slate-900',
                         BODY_RULE,
                         flushBody ? '' : 'px-4 pb-4 pt-3',
-                        marked && !flushBody ? 'sm:pl-12' : '',
                     )}
                 >
                     {children}
