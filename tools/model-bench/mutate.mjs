@@ -25,8 +25,10 @@ const APP_LOGS = argv.includes('--app-logs');
 const print = muteAppLogs(APP_LOGS ? (l) => process.stderr.write(`${l}\n`) : () => {});
 
 const scratch = startLibrary(MODEL, 'sk-or-mock-key-never-sent');
-// The runaway-loop mutants are killed at this limit, not the live 30 s.
-process.env.BENCH_CODE_TIMEOUT_MS ||= '10000';
+// The runaway-loop mutants are killed at this limit, not the live 30 s. At
+// 10 s a sound widget was killed too when `npm test` loaded the machine (the
+// child's start-up and jsdom alone took that long), so leave a wide margin.
+process.env.BENCH_CODE_TIMEOUT_MS ||= '20000';
 
 let queue = [];
 let served = 0;
