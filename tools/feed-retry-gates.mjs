@@ -98,6 +98,12 @@ check('nothing listening is transient (a fetch failure)', !!gone && isTransient(
 check('a bare "failed (504)" message with no status field is transient', isTransient(new Error('Chat request failed (504)')) === true);
 check('a host named api503.example in a timeout-free 404 is not transient',
     isTransient(new Error('GET https://api503.example/v1/models failed (404)')) === false);
+// The Ollama client's ResponseError carries the code as `status_code`, and its
+// message is the reply's text: "Error 502: Bad Gateway", or a proxy's page.
+const ollama = (status, message) => Object.assign(new Error(message), { name: 'ResponseError', status_code: status });
+check('an Ollama 502 (status_code) is transient', isTransient(ollama(502, 'Error 502: Bad Gateway')) === true);
+check('an Ollama 503 behind a proxy page is transient', isTransient(ollama(503, '<html><title>Service Temporarily Unavailable</title></html>')) === true);
+check('an Ollama 404 for a missing model is not transient', isTransient(ollama(404, 'model "x" not found, try pulling it first')) === false);
 const ac = new AbortController(); ac.abort();
 check('a cancel is never transient', isTransient(new Error('fetch failed'), ac.signal) === false);
 

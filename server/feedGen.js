@@ -521,7 +521,9 @@ const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|
 export function isTransient(err, signal) {
     if (signal?.aborted) return false;
     const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
-    const status = Number.isInteger(err?.httpStatus) ? err.httpStatus : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
+    // The Ollama client says it as `status_code` (as server/ai.js reads it).
+    const tagged = Number(err?.httpStatus ?? err?.status_code);
+    const status = Number.isInteger(tagged) && tagged > 0 ? tagged : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
     if (TRANSIENT_STATUSES.has(status)) return true;
     return TRANSIENT_WORDS.test(msg);
 }
