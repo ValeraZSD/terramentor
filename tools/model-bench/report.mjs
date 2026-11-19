@@ -134,8 +134,8 @@ try {
     g.fillStyle = '#111827'; g.font = 'bold 30px sans-serif';
     g.fillText(opt('title', `Terramentor model benchmark (${caseCount} cases)`), 30, 50);
     g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
-    g.fillText('Bar: score out of 100.   Right: median seconds the app waited per case (p90).', 30, 84);
-    const x0 = 520, barW = 600;
+    g.fillText('Bar: score out of 100.   Right: median seconds the app waited per case (p90), then $ per 100 cases.', 30, 84);
+    const x0 = 520, barW = 520;
     models.forEach((m, i) => {
         const y = top + i * rowH;
         g.fillStyle = '#111827'; g.font = '20px sans-serif';
@@ -146,9 +146,11 @@ try {
         g.fillText(m.score == null ? '–' : String(Math.round(m.score)), x0 + barW + 14, y + 30);
         g.font = '20px sans-serif'; g.fillStyle = '#4b5563';
         g.fillText(`${fmt(m.median)} s (${fmt(m.p90)})`, x0 + barW + 80, y + 30);
+        const per100 = 100 * m.cost / Math.max(1, m.scored);
+        g.fillText(per100 === 0 ? '$0' : `$${per100 < 1 ? per100.toFixed(2) : per100.toFixed(1)}`, x0 + barW + 290, y + 30);
     });
     g.fillStyle = '#4b5563'; g.font = '18px sans-serif';
-    g.fillText('Teal bar: the model has a zero-data-retention endpoint.', 30, H - 22);
+    g.fillText('Teal: has a zero-data-retention endpoint.   Blue: has none.   Grey: called on the vendor\'s own API, retention per that account.', 30, H - 22);
     writeFileSync(pngOut, cv.toBuffer('image/png'));
     console.log(`chart: ${pngOut}`);
 } catch (e) { console.error(`no chart: ${e.message}`); }
