@@ -33,6 +33,7 @@ import db from './database.js';
 import { credentialsOf, reconcile, saveCredentials } from './aiConnections.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
+import { holdOpen, releaseHold } from './signInHold.js';
 
 // A discovery document, a key set and a token answer are each a few kilobytes;
 // none has a reason to weigh a megabyte (httpBody.js).
@@ -182,6 +183,7 @@ let answering = null;
 
 function closePending() {
     for (const server of [pending?.server, answering]) { try { server?.close(); } catch { /* already closed */ } }
+    if (pending || answering) releaseHold('chatgpt');
     pending = null;
     answering = null;
 }
@@ -233,6 +235,9 @@ function openAttempt({ server, clientId, connectionId, returnUrl, idTokenHint = 
     const nonce = b64url(randomBytes(24));
     pending = { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at: Date.now(), server };
     setTimeout(() => { if (pending?.state === state) closePending(); }, ATTEMPT_TTL_MS).unref?.();
+    // The browser is about to leave the app's page for OpenAI's: hold the
+    // desktop server, and with it this callback, open until the attempt ends.
+    holdOpen('chatgpt', ATTEMPT_TTL_MS);
 
     const url = new URL(`${AUTH_BASE()}/api/accounts/authorize`);
     const q = url.searchParams;
@@ -301,6 +306,9 @@ async function handleCallback(req, res) {
     try { listenerKept = await finishAttempt(attempt, q, res); } finally {
         if (answering === attempt.server) answering = null;
         if (!listenerKept) { try { attempt.server?.close(); } catch { /* already closed */ } }
+        // The attempt is over: let the desktop server go, unless a sign-in
+        // started meanwhile holds it for its own attempt.
+        if (!listenerKept && !pending) releaseHold('chatgpt');
     }
 }
 

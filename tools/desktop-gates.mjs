@@ -476,6 +476,70 @@ console.log('\n--- when the server stops itself ---');
     ok('a ping after the goodbye cancels it', !shouldShutDown({ ...bye, lastPing: t0 + 62_000, now: t0 + 62_000 + BYE_GRACE_MS + 1 }));
     ok('keep-running: never', !shouldShutDown({ ...live, keepRunning: true, now: t0 + 10 * IDLE_MS }));
     ok('keep-running even when no window ever came', !shouldShutDown({ ...base, keepRunning: true, now: t0 + 100 * IDLE_MS }));
+    // A sign-in (ChatGPT, OpenRouter) sends the window to the provider's site:
+    // the page said goodbye on the way out and pings nothing until it is back
+    // (server/signInHold.js). Before the hold, this stopped the server about
+    // eight seconds in, callback and all.
+    const away = { ...live, lastBye: t0 + 61_000, heldUntil: t0 + 61_000 + 600_000 };
+    ok('away on a sign-in page: the goodbye\'s grace does not stop it', !shouldShutDown({ ...away, now: t0 + 61_000 + BYE_GRACE_MS + 1 }));
+    ok('…nor the idle limit, for as long as the attempt can live', !shouldShutDown({ ...away, now: away.heldUntil - 1 }));
+    const ended = { ...away, heldUntil: t0 + 200_000 };   // the callback came, or the attempt lapsed
+    ok('the attempt ended: the page coming back gets the idle limit, not the spent grace', !shouldShutDown({ ...ended, now: ended.heldUntil + IDLE_MS - 1 }));
+    ok('…and a window that never came back stops once it has passed', shouldShutDown({ ...ended, now: ended.heldUntil + IDLE_MS + 1 }));
+    ok('a goodbye after the attempt ended is a close again',
+        shouldShutDown({ ...ended, lastPing: ended.heldUntil + 1_000, lastBye: ended.heldUntil + 2_000, now: ended.heldUntil + 2_000 + BYE_GRACE_MS + 1 }));
+    // The page's first ping is fire-and-forget: if it was lost, a sign-in can
+    // start on a server that never saw a ping. The hold ending past the first
+    // window must not stop it under the returning page.
+    const unseen = { ...base, heldUntil: t0 + 400_000 };
+    ok('never pinged, the sign-in ended after the first window: the returning page gets the idle limit',
+        !shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS - 1 }));
+    ok('…and no page came back: it stops once that has passed', shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS + 1 }));
+    ok('a sign-in that ended early does not shorten the first window',
+        !shouldShutDown({ ...base, heldUntil: t0 + 5_000, now: t0 + 180_000 - 1 }));
+}
+
+// The same rule through the process's own tick, which reads the hold each time.
+{
+    let clock = 9_000_000;
+    let stopped = null;
+    let held = 0;
+    const make = (extra) => createDesktop({
+        dataDir: '/data', dbPath: '/data/terramentor.db', version: '9.9.9', port: () => 0,
+        getSetting: (k, f) => f, setSetting: () => {},
+        onShutdown: (reason) => { stopped = reason; },
+        ...extra,
+    });
+    const settle = () => new Promise((r) => setImmediate(r));
+    const d = make({ now: () => clock, heldUntil: () => held });
+    ok('the lifecycle hands its tick to the gate', typeof d.tick === 'function');
+    const tick = async () => { d.tick?.(); await settle(); };
+    // The page pings, the sign-in starts (a ten-minute hold), the page leaves.
+    Object.assign(d.state, { everConnected: true, lastPing: clock, lastBye: clock + 500 });
+    held = clock + 600_000;
+    clock += 500 + BYE_GRACE_MS + 3_000; await tick();
+    check('on the provider\'s page past the goodbye\'s grace: still running', stopped, null);
+    clock += IDLE_MS + 30_000; await tick();
+    check('…and past the idle limit', stopped, null);
+    held = clock;   // the callback arrived
+    clock += IDLE_MS - 2_000; await tick();
+    check('the attempt ended: the returning page still has the idle limit', stopped, null);
+    clock += 4_000; await tick();
+    check('no page came back: it stops as a closed window', stopped, 'every window has closed');
+
+    // Left to itself, the lifecycle reads server/signInHold.js: the module both
+    // sign-in flows hold. One pinned instant for the lifecycle and the holds.
+    const hold = await import('../server/signInHold.js');
+    stopped = null;
+    const t = 7_000_000;
+    const real = make({ now: () => t });
+    Object.assign(real.state, { everConnected: true, lastPing: t - 20_000, lastBye: t - 10_000 });
+    hold.holdOpen('gate', 60_000, t);
+    real.tick?.(); await settle();
+    check('by default the hold comes from the module the sign-ins write', stopped, null);
+    hold.releaseHold('gate', t - IDLE_MS - 5_000);
+    real.tick?.(); await settle();
+    check('…and a released hold lets the goodbye stop it', stopped, 'every window has closed');
 }
 
 // The lifecycle router, on a real Express app.

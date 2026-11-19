@@ -58,12 +58,21 @@ function probe(attempt: number) {
         if (!s.desktop) return;
         const tick = () => { desktopApi.ping(clientId).catch(() => { /* the server is going away, or busy */ }); };
         tick();
-        const timer = setInterval(tick, PING_MS);
+        let timer = setInterval(tick, PING_MS);
         // `pagehide` fires on close, navigation away AND reload; the server treats
         // a goodbye followed by a ping within its grace as a reload, so saying it
         // on every hide is right. `beforeunload` is not used: it is unreliable on
         // mobile and shows nothing here anyway.
         window.addEventListener('pagehide', () => { clearInterval(timer); desktopApi.bye(clientId); });
+        // Back from a sign-in page can bring this page out of the back/forward
+        // cache instead of loading it, so this module does not run again and the
+        // stopped heartbeat would stay stopped under an open window.
+        window.addEventListener('pageshow', (e) => {
+            if (!e.persisted) return;
+            clearInterval(timer);
+            tick();
+            timer = setInterval(tick, PING_MS);
+        });
         // A tab that was hidden for a long time may have had its timers throttled
         // past the idle limit; ping the moment it is visible again.
         document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tick(); });
