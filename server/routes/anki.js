@@ -65,13 +65,16 @@ app.post('/api/import/anki/commit', (req, res) => {
     if (!parsed) {
         return res.status(410).json({ error: 'That import expired — upload the deck again.' });
     }
-    // Unset means the default colour; anything else is checked like every create.
-    const pickedColor = color === undefined || color === null || color === '' ? undefined : color;
-    const fieldError = projectFieldError({ color: pickedColor });
+    // Unset means the deck's own name and the default colour; anything else is
+    // checked like every create.
+    const unset = (v) => v === undefined || v === null || v === '';
+    const pickedName = unset(projectName) ? undefined : projectName;
+    const pickedColor = unset(color) ? undefined : color;
+    const fieldError = projectFieldError({ name: pickedName, color: pickedColor });
     if (fieldError) return res.status(400).json({ error: fieldError });
     try {
         const result = commitImport(parsed, {
-            projectName,
+            projectName: pickedName?.trim(),
             swapFrontBack: !!swapFrontBack,
             keepSchedule: keepSchedule !== false,
             includeMedia: includeMedia !== false,

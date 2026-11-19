@@ -130,6 +130,12 @@ console.log('\n=== create-project refuses a colour or icon the plain create refu
     ok('…and keeps the upload, so the same import goes through with a real colour',
         retried.status === 200 && db.prepare('SELECT color FROM projects WHERE id = ?').get(retried.json?.projectId)?.color === '#10B981',
         `${retried.status} ${retried.text.slice(0, 200)}`);
+    for (const [label, projectName] of [['a blank name', '   '], ['a name that is a number', 5]]) {
+        const before = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+        const r = await call('POST', '/api/import/anki/commit', { stagingId: deck(), projectName });
+        ok(`the Anki import refuses ${label} with a 400 and writes no project`,
+            r.status === 400 && db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === before, `${r.status} ${r.text.slice(0, 200)}`);
+    }
     const unset = await call('POST', '/api/import/anki/commit', { stagingId: deck(), color: null });
     ok('an Anki import with no colour gets the default one',
         unset.status === 200 && db.prepare('SELECT color FROM projects WHERE id = ?').get(unset.json?.projectId)?.color === '#3B82F6',
