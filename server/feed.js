@@ -1378,7 +1378,9 @@ export function buildFeedHeader() {
  */
 export function consumeFeedItem({ key, kind, feedItemId = null, nodeId = null, result = null, attemptId = null, uuid = null }) {
     // The card the id answered: a retry names the same one, a reused id another.
-    const subject = [kind, key, feedItemId, nodeId, uuid].map(v => v ?? '').join('|');
+    // Only what a card keeps for its life: a refreshed stream can give the
+    // same card a cache row id or a uuid it did not have at the first press.
+    const subject = [kind, key, nodeId].map(v => v ?? '').join('|');
     const { duplicate, outcome } = recordOnce('feed', attemptId, () => applyConsume({ key, kind, feedItemId, nodeId, result, uuid }), subject);
     return duplicate ? { ...(outcome || { ok: true }), duplicate: true } : outcome;
 }

@@ -270,6 +270,11 @@ section('an id is per item: the same id on another topic is refused, not answere
     const fa2 = await post('/api/feed/consume', feedBody(a, qa));
     check('feed: a true retry on topic A is still its duplicate', fa2.status === 200 && fa2.body?.duplicate === true && evidence(a) === 1,
         `${fa2.status} ${JSON.stringify(fa2.body)}`);
+    // A refreshed stream can hand the same card a cache row id or a uuid it
+    // did not have at the first press; the card is still the same one.
+    const fa3 = await post('/api/feed/consume', { ...feedBody(a, qa), feedItemId: 987654, uuid: 'refreshed-card-uuid' });
+    check('feed: a resend whose row id or uuid changed is still the duplicate, not a 409',
+        fa3.status === 200 && fa3.body?.duplicate === true && evidence(a) === 1, `${fa3.status} ${JSON.stringify(fa3.body)}`);
 
     const checkBody = (n) => ({ nodeId: n, score: 4, total: 4, questions: [], asked: [], attemptId: 'reused-check' });
     const ca = await post(`/api/projects/${pid}/mastery/mastery-check`, checkBody(a));
