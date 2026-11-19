@@ -49,6 +49,7 @@ import { libraryId } from './paths.js';
 import { appPlacement } from './appPlacement.js';
 import { instanceProof, validNonce } from './instanceKey.js';
 import { clientError } from './clientError.js';
+import { heldUntil as signInHeldUntil } from './signInHold.js';
 
 /** The app folder this server runs from (inside the bundle on macOS). */
 const APP_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -211,18 +212,28 @@ export const FIRST_WINDOW_MS = 180_000;
  * clock and the ping history so the gate suite can walk it through every state:
  * never connected (a launcher that opened a window the user closed before the
  * page loaded must still stop, which is what `startedAt` is for), connected and
- * silent, connected and pinging, said goodbye, keep-running.
+ * silent, connected and pinging, said goodbye, keep-running, away on a sign-in.
+ *
+ * `heldUntil` is server/signInHold.js: while a sign-in has the window on the
+ * provider's site the page sends nothing, and its goodbye is not a close.
  */
-export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBye, keepRunning }) {
+export function shouldShutDown({ now, startedAt, lastPing, everConnected, lastBye, keepRunning, heldUntil = 0 }) {
     if (keepRunning) return false;
+    if (heldUntil > now) return false;
     if (!everConnected) {
         // No page ever loaded. Give the browser a real chance — a cold Chromium
         // start on a slow disk is ten seconds — and then conclude the window
-        // never came.
+        // never came. The first ping can be lost, so a sign-in may have started
+        // here anyway: the page coming back from it gets the idle limit too.
+        if (heldUntil && now - heldUntil <= IDLE_MS) return false;
         return now - startedAt > FIRST_WINDOW_MS;
     }
-    if (lastBye && lastBye >= lastPing) return now - lastBye > BYE_GRACE_MS;
-    return now - lastPing > IDLE_MS;
+    // The end of a hold is the last sign of life: the page coming back from
+    // the sign-in gets the whole idle limit to ping, not the goodbye's grace,
+    // which ran out minutes ago.
+    const alive = Math.max(lastPing, heldUntil);
+    if (lastBye && lastBye >= alive) return now - lastBye > BYE_GRACE_MS;
+    return now - alive > IDLE_MS;
 }
 
 /**
@@ -257,11 +268,12 @@ function openFolder(dir) {
  * `libraryFallback` is what the launcher recorded about a lost pointer, and
  * `libraryEmpty` the fact that joins it to a visible warning: an empty
  * library is also what a genuine first run looks like, so neither half alone
- * may speak.
+ * may speak. `heldUntil` says how long a sign-in in progress holds the server
+ * open (server/signInHold.js); the gate suite hands in its own.
  */
 export function createDesktop({
     dataDir, dbPath, version, port, getSetting, setSetting, onShutdown, libraryFallback = null, libraryEmpty = () => false, instanceKey = null, now = Date.now,
-    placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null,
+    placement = () => appPlacement({ appRoot: APP_ROOT })?.problem ?? null, heldUntil = signInHeldUntil,
 }) {
     const state = {
         startedAt: now(),
@@ -394,7 +406,7 @@ export function createDesktop({
     function tick() {
         const t = now();
         for (const [id, seen] of state.clients) if (t - seen > IDLE_MS) state.clients.delete(id);
-        if (shouldShutDown({ now: t, ...state, keepRunning: keepRunning() })) {
+        if (shouldShutDown({ now: t, ...state, keepRunning: keepRunning(), heldUntil: heldUntil() })) {
             stop(state.everConnected ? 'every window has closed' : 'no window ever connected');
         }
     }
@@ -501,7 +513,7 @@ export function createDesktop({
         res.json({ ok: true, lastDir: libraryFallback.lastDir, pointerPath: libraryFallback.pointerPath });
     });
 
-    return { publicRouter: pub, protectedRouter, status, stop, state };
+    return { publicRouter: pub, protectedRouter, status, stop, state, tick };
 }
 
 /** What a non-desktop server answers, so the client has one shape to read. */
