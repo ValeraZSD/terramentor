@@ -5,7 +5,8 @@ import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig
 import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
-import { buildTree, getNodePath } from './utils/tree';
+import { buildTree, getNodePath, todayStr } from './utils/tree';
+import { ruleExpansion, applyChoices, withChoice, choicesFromLegacy, choicesFromStorage, ExpansionChoices } from './utils/defaultExpansion';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
@@ -344,7 +345,11 @@ const applyIcon = (icon: AppIcon) => {
     patchThemeCache({ iconHref: href });
 };
 
-const EXPANSION_STORAGE_KEY = 'terramentor-expansion';
+/** Before the expansion rule: every branch's state, defaults included. Read
+ *  once into the choices below, then removed. */
+const LEGACY_EXPANSION_KEY = 'terramentor-expansion';
+/** The learner's own opens and closes (`ExpansionChoice`), across courses. */
+const EXPANSION_CHOICES_KEY = 'terramentor-expansion-choices';
 
 /** This device has seen the library past its welcome screen. Only a shortcut
  *  for the first paint: the settings row is the answer, and overwrites it. */
@@ -462,20 +467,50 @@ let updateWritesStarted = 0;
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
 
-const loadExpansionState = (): Record<number, boolean> => {
+/** The open course's rule (`ruleExpansion`), kept to record a choice against. */
+let expansionRule: Record<number, boolean> = {};
+/** The choices when storage refuses them (private mode, a full quota): they
+ *  last as long as the tab. */
+let expansionFallback: ExpansionChoices = {};
+
+const saveExpansionChoices = (choices: ExpansionChoices): boolean => {
+    expansionFallback = choices;
     try {
-        const stored = localStorage.getItem(EXPANSION_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : {};
+        localStorage.setItem(EXPANSION_CHOICES_KEY, JSON.stringify(choices));
+        return true;
+    } catch { return false; }
+};
+
+/** Read afresh each time, never cached: another tab may have kept a choice
+ *  since, and a stale copy written back would undo it. */
+const loadExpansionChoices = (): ExpansionChoices => {
+    try {
+        const stored = localStorage.getItem(EXPANSION_CHOICES_KEY);
+        const legacy = localStorage.getItem(LEGACY_EXPANSION_KEY);
+        if (stored !== null) {
+            if (legacy !== null) localStorage.removeItem(LEGACY_EXPANSION_KEY);
+            return choicesFromStorage(stored);
+        }
+        if (legacy === null) return expansionFallback;
+        // The old map goes only once its choices are safely kept.
+        const migrated = choicesFromLegacy(legacy);
+        if (saveExpansionChoices(migrated)) localStorage.removeItem(LEGACY_EXPANSION_KEY);
+        return migrated;
     } catch {
-        return {};
+        return expansionFallback;
     }
 };
 
-const saveExpansionState = (expanded: Record<number, boolean>) => {
-    try {
-        localStorage.setItem(EXPANSION_STORAGE_KEY, JSON.stringify(expanded));
-    } catch {
+/** Keep the learner's own open or close of these branches for later visits. */
+const rememberExpansion = (changes: Record<number, boolean>) => {
+    let choices = loadExpansionChoices();
+    for (const [key, open] of Object.entries(changes)) {
+        const id = Number(key);
+        // A branch made since the course was opened has no rule answer yet; it
+        // is drawn open, as one with no entry always is.
+        choices = withChoice(choices, id, open, expansionRule[id] ?? true);
     }
+    saveExpansionChoices(choices);
 };
 
 interface AppState {
@@ -886,6 +921,8 @@ interface AppState {
     expandAll: () => void;
     collapseAll: () => void;
     toggleAllExpanded: () => void;
+    /** Open or close every branch of the open course, kept as the learner's choice. */
+    setAllExpanded: (open: boolean) => void;
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
     /** False when the server refused the edit; the toast has already said why. */
@@ -1017,7 +1054,7 @@ export const useStore = create<AppState>((set, get) => ({
     selectedNodeId: null,
     focusedNodeId: null,
     resources: [],
-    expanded: loadExpansionState(),
+    expanded: {},
     loading: false,
     sidebarWidth: 256,
     detailPanelWidth: 420,
@@ -2128,17 +2165,14 @@ export const useStore = create<AppState>((set, get) => ({
             const nodes = await api.getNodes(id);
             if (superseded()) return;
             const tree = buildTree(nodes);
-            const storedExpansion = loadExpansionState();
-            const expanded: Record<number, boolean> = { ...storedExpansion };
-            const setDefaultExpanded = (items: TreeNode[]) => {
-                items.forEach(n => {
-                    if (expanded[n.id] === undefined) expanded[n.id] = true;
-                    setDefaultExpanded(n.children);
-                });
-            };
-            setDefaultExpanded(tree);
+            // A big course opens where the learner is, a small one everywhere
+            // (src/utils/defaultExpansion.ts); their own opens and closes win
+            // while the rule still says what it said when they made them.
+            expansionRule = ruleExpansion(tree, todayStr());
+            const before = loadExpansionChoices();
+            const { expanded, choices } = applyChoices(expansionRule, before);
             set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
-            saveExpansionState(expanded);
+            if (choices !== before) saveExpansionChoices(choices);
             get().loadPaceData(id);
             // A background refresh: the hub on screen (often loaded a moment ago by
             // StudyDashboard's own effect) stays until the new one replaces it.
@@ -2155,7 +2189,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     revealNode: (id) => {
         // Expand a node's ancestors so tree/sidebar (which only render nodes whose
-        // ancestors are expanded) can scroll it into view.
+        // ancestors are expanded) can scroll it into view. For this visit only:
+        // a search hit or a link is not the learner choosing to keep a branch
+        // open, so the next visit asks the rule again.
         const path = getNodePath(get().tree, id);
         if (path.length > 1) {
             const expanded = { ...get().expanded };
@@ -2163,7 +2199,7 @@ export const useStore = create<AppState>((set, get) => ({
             for (let i = 0; i < path.length - 1; i++) {
                 if (expanded[path[i].id] !== true) { expanded[path[i].id] = true; changed = true; }
             }
-            if (changed) { set({ expanded }); saveExpansionState(expanded); }
+            if (changed) set({ expanded });
         }
     },
 
@@ -2247,39 +2283,34 @@ export const useStore = create<AppState>((set, get) => ({
     toggleExpanded: (id) => {
         // No entry means open (a topic added since the course loaded), as the
         // tree draws it.
-        const newExpanded = { ...get().expanded, [id]: get().expanded[id] === false };
-        set({ expanded: newExpanded });
-        saveExpansionState(newExpanded);
+        const open = get().expanded[id] === false;
+        set({ expanded: { ...get().expanded, [id]: open } });
+        rememberExpansion({ [id]: open });
     },
 
     setExpanded: (id, value) => {
-        const newExpanded = { ...get().expanded, [id]: value };
-        set({ expanded: newExpanded });
-        saveExpansionState(newExpanded);
+        set({ expanded: { ...get().expanded, [id]: value } });
+        rememberExpansion({ [id]: value });
     },
 
-    expandAll: () => {
-        const expanded: Record<number, boolean> = {};
-        get().nodes.forEach(n => { expanded[n.id] = true; });
-        set({ expanded });
-        saveExpansionState(expanded);
-    },
+    expandAll: () => get().setAllExpanded(true),
 
-    collapseAll: () => {
-        const expanded: Record<number, boolean> = {};
-        get().nodes.forEach(n => { expanded[n.id] = false; });
-        set({ expanded });
-        saveExpansionState(expanded);
-    },
+    collapseAll: () => get().setAllExpanded(false),
 
     toggleAllExpanded: () => {
         const currentExpanded = get().expanded;
+        get().setAllExpanded(!get().nodes.every(n => currentExpanded[n.id] !== false));
+    },
+
+    setAllExpanded: (open) => {
         const nodes = get().nodes;
-        const allExpanded = nodes.every(n => currentExpanded[n.id] !== false);
         const expanded: Record<number, boolean> = {};
-        nodes.forEach(n => { expanded[n.id] = !allExpanded; });
+        nodes.forEach(n => { expanded[n.id] = open; });
         set({ expanded });
-        saveExpansionState(expanded);
+        // Only a branch's state is a choice: a topic with nothing under it has
+        // nothing to open.
+        const branches = new Set(nodes.map(n => n.parent_id).filter((p): p is number => p != null));
+        rememberExpansion(Object.fromEntries([...branches].map(id => [id, open])));
     },
 
     createProject: async (projectData) => {
