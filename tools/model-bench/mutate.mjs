@@ -15,6 +15,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs, anthropicUsage } from './harness.mjs';
 import { codeChildFlags } from './cases/visuals.mjs';
@@ -131,11 +133,14 @@ console.log(JSON.stringify({
     writeTemp: denied(() => fs.writeFileSync(path.join(os.tmpdir(), 'bench-fence-probe.txt'), 'x')),
     spawn: denied(() => cp.spawnSync(process.execPath, ['-e', '1'])),
     worker: denied(() => new (require('worker_threads').Worker)('1', { eval: true })),
+    // The permission model does not check node:sqlite's file access, so the module itself must be gone.
+    sqlite: (() => { const m = process.getBuiltinModule('node:sqlite'); if (!m) return true; try { new m.DatabaseSync(path.join(os.tmpdir(), 'bench-fence-probe.db')).close(); return false; } catch (e) { return e.code === 'ERR_ACCESS_DENIED'; } })(),
 }));`;
 const fenceRun = spawnSync(process.execPath, [...codeChildFlags(), '-e', fenceProbe], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
 let fence = {};
 try { fence = JSON.parse(String(fenceRun.stdout).trim().split('\n').pop()); } catch { /* reported below */ }
-const fenceChecks = ['readRepo', 'writeTemp', 'spawn', 'worker'];
+rmSync(path.join(tmpdir(), 'bench-fence-probe.db'), { force: true });
+const fenceChecks = ['readRepo', 'writeTemp', 'spawn', 'worker', 'sqlite'];
 const fenceOpen = fenceChecks.filter(k => fence[k] !== true);
 print(`Code fence: ${fenceChecks.length - fenceOpen.length}/${fenceChecks.length} escapes denied${fenceOpen.length ? ` (OPEN: ${fenceOpen.join(', ')}${fenceRun.stderr ? `; ${String(fenceRun.stderr).trim().slice(0, 160)}` : ''})` : ''}`);
 // tools/run-gates.mjs reads this count; a gate that prints none fails there.

@@ -343,7 +343,10 @@ function scoreWater(out) {
     // Where the droplet is drawn is known for a circle or ellipse: it starts at the first station and reaches the last.
     const drop = flat(move.parent).find(n => n.name === 'circle' || n.name === 'ellipse');
     if (drop) {
-        const base = num(drop.attrs.cx ?? 0) + offsetAbove(move.parent)[0];
+        // The droplet's own translate and any group between it and the moving element count too.
+        let inner = translateOf(drop)[0];
+        for (let n = drop.parent; n && n !== move.parent; n = n.parent) inner += translateOf(n)[0];
+        const base = num(drop.attrs.cx ?? 0) + inner + offsetAbove(move.parent)[0];
         const near = 0.25 * stations;
         if (Math.abs(base + path[0] - xs[0]) > near) return fail(`the droplet starts at x = ${Math.round(base + path[0])}, not at the first station (${Math.round(xs[0])})`);
         if (base + Math.max(...path) < xs[2] - near) return fail(`the droplet gets no further than x = ${Math.round(base + Math.max(...path))}, short of the last station (${Math.round(xs[2])})`);
@@ -721,7 +724,8 @@ function scoreQuiz(out) {
 // the scorers that RUN the code do it in a child process under Node's
 // permission model: it may read only this file and node_modules (for jsdom),
 // and may not write files, start processes or workers, load addons or open the
-// inspector. Its environment holds no API key, and it is killed after 30 s
+// inspector; node:sqlite, which the permission model does not check, is off.
+// Its environment holds no API key, and it is killed after 30 s
 // (BENCH_CODE_TIMEOUT_MS; the scorer check sets it lower). Outbound network is
 // not fenced by Node 24's permission model. The verdict comes back on a line
 // tagged with a one-off nonce, so text the code prints cannot pose as one.
@@ -732,7 +736,8 @@ const RUNS_CODE = { walkers: scoreWalkers, km: scoreKm, quiz: scoreQuiz };
 /** The flags the code-running child starts under; mutate.mjs probes the same fence. */
 export function codeChildFlags() {
     const modules = realpathSync(path.join(path.dirname(require.resolve('jsdom/package.json')), '..'));
-    return ['--permission', `--allow-fs-read=${SELF}`, `--allow-fs-read=${modules}`];
+    // node:sqlite opens and writes files outside the permission model's fs checks: switch it off.
+    return ['--permission', `--allow-fs-read=${SELF}`, `--allow-fs-read=${modules}`, '--no-experimental-sqlite'];
 }
 
 function isolated(name) {
@@ -803,6 +808,7 @@ export default {
             variants: [
                 { name: 'there and back in one loop', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;240 0;0 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'moved along a motion path', reply: water({ move: '<animateMotion path="M0 0 L240 0" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'droplet placed by its own translate', reply: water().replace('<circle cx="60" cy="120" r="9"', '<circle transform="translate(60,120)" r="9"') },
             ],
             mutants: [
                 { name: 'only a colour pulse, nothing moves', reply: water({ move: '<animate attributeName="opacity" values="1;0.3;1" dur="3s" repeatCount="indefinite"/>' }) },

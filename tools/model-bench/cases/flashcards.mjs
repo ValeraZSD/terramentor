@@ -176,6 +176,16 @@ const G_CELLS_NL = [
     card('Waar is de celwand van een plant van gemaakt, en wat doet die?', 'Vooral cellulose; hij steunt de cel en voorkomt dat die barst als hij water opneemt.'),
 ];
 
+// Terse imperative fronts and one-word backs: still English, with almost no function words.
+const G_CELLS_TERSE = [
+    card('Name mitochondrial energy currency.', 'ATP'),
+    card('Identify ribosomal reaction product.', 'Proteins'),
+    card('Name photosynthetic organelle.', 'Chloroplast'),
+    card('Identify protein packaging organelle.', 'Golgi apparatus'),
+    card('Name DNA-storing organelle.', 'Nucleus'),
+    card('Identify main plant cell wall polymer.', 'Cellulose'),
+];
+
 const G_SUVAT = [
     card('Give the equation for the final velocity after time $t$ at constant acceleration $a$ from initial velocity $u$.', '$v = u + at$'),
     card('Give the equation for the displacement $s$ in terms of $u$, $a$ and $t$.', '$s = ut + \\frac{1}{2}at^2$'),
@@ -228,6 +238,7 @@ const G_UK_RU = [
 const CASES = [
     {
         id: 'cards-en-organelles', course: 'cells', lang: 'en', G: G_CELLS,
+        variants: [{ name: 'terse imperative fronts', reply: j(G_CELLS_TERSE) }],
         mutants: [
             ...commonMutants(G_CELLS, ['Mitochondrion', 'Ribosome', 'Chloroplast', 'Golgi apparatus', 'Nucleus', 'Cell wall']),
             { name: 'written in Dutch', reply: j(G_CELLS_NL) },
@@ -267,6 +278,7 @@ export default {
         run: (fx, app) => runCards(app, fx.ids[c.course]),
         score: cardScore(c.lang),
         golden: j(c.G),
+        variants: c.variants,
         mutants: c.mutants,
     })),
 };

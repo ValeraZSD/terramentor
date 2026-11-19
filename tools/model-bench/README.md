@@ -49,7 +49,8 @@ says so in a comment. Some limits worth knowing when reading a score:
   only means something above that.
 - The animation and widget cases run code the model wrote. They run it in a
   child process under Node's permission model (it reads only the scorer file
-  and `node_modules`; no file writes, child processes, workers or addons),
+  and `node_modules`; no file writes, child processes, workers or addons, and
+  `node:sqlite` switched off),
   whose environment holds no API key, with the page's network functions
   removed, killed after 30 s. Node 24's permission model does not fence
   outbound network.
