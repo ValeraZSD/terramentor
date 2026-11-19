@@ -67,9 +67,9 @@ const models = files.map((f) => {
         transient: scored.filter(r => r.transient).length,
         // Every attempt's spend, retries included.
         cost: scored.reduce((s, r) => s + (r.spent?.cost ?? r.cost ?? 0), 0),
-        tokensIn: scored.reduce((s, r) => s + (r.promptTokens || 0), 0),
-        tokensOut: scored.reduce((s, r) => s + (r.completionTokens || 0), 0),
-        requests: scored.reduce((s, r) => s + (r.calls || 0), 0),
+        tokensIn: scored.reduce((s, r) => s + (r.spent?.promptTokens ?? r.promptTokens ?? 0), 0),
+        tokensOut: scored.reduce((s, r) => s + (r.spent?.completionTokens ?? r.completionTokens ?? 0), 0),
+        requests: scored.reduce((s, r) => s + (r.spent?.calls ?? r.calls ?? 0), 0),
         providers: [...new Set(scored.flatMap(r => r.providers || []))],
         rows,
     };

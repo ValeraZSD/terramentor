@@ -30,7 +30,7 @@
  * interrupted run continues where it stopped.
  */
 import { fork, execFileSync } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { isDirect, apiModel, hasAnthropicPrice } from './harness.mjs';
@@ -143,10 +143,19 @@ function pump() {
 // all appending to the model's one results file.
 const SHARDS = Math.floor(positive('shards', args.shards ?? 1));
 
+// `anthropic:x` (direct) and `anthropic/x` (OpenRouter) must not share a file.
+const fileFor = (m) => path.join(OUT, `${m.id.replace(/\//g, '__').replace(/:/g, '=')}${args.label ? '@' + args.label : ''}.jsonl`);
+
+// A run stopped mid-write leaves a last line with no newline; the next row
+// appended to it would be lost with it. End it once, before any worker writes.
+for (const m of models) {
+    const f = fileFor(m);
+    if (existsSync(f)) { const t = readFileSync(f, 'utf8'); if (t && !t.endsWith('\n')) appendFileSync(f, '\n'); }
+}
+
 function runModel(m, shard) {
     return new Promise((resolve) => {
-        // `anthropic:x` (direct) and `anthropic/x` (OpenRouter) must not share a file.
-        const file = path.join(OUT, `${m.id.replace(/\//g, '__').replace(/:/g, '=')}${args.label ? '@' + args.label : ''}.jsonl`);
+        const file = fileFor(m);
         const child = fork(path.join(HERE, 'worker.mjs'), [], {
             env: { ...process.env, BENCH_MODEL: m.id, BENCH_VISION: m.vision ? '1' : '', BENCH_ZDR: m.zdr ? '1' : '',
                 BENCH_FILE: file, BENCH_CASES: args.cases ? String(args.cases) : '', BENCH_SHARD: `${shard}/${SHARDS}`,

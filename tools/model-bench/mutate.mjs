@@ -109,7 +109,7 @@ const priceChecks = [
     [anthropicUsage({ input_tokens: 101_000, output_tokens: 1000 }, 'claude-haiku-5-5'), 0.053, 101_000],
     [anthropicUsage({ input_tokens: 1000, output_tokens: 1000 }, 'claude-sonnet-5-5'), 0.012, 1000],
 ];
-const priceBad = priceChecks.filter(([u, cost, prompt]) => Math.abs(u.cost - cost) > 1e-9 || u.prompt_tokens !== prompt);
+const priceBad = priceChecks.filter(([u, cost, prompt]) => !Number.isFinite(u.cost) || Math.abs(u.cost - cost) > 1e-9 || u.prompt_tokens !== prompt);
 print(`Anthropic pricing: ${priceChecks.length - priceBad.length}/${priceChecks.length} hand-computed costs match`);
 // tools/run-gates.mjs reads this count; a gate that prints none fails there.
 print(`${(cases.length - goldenFail) + killed + (priceChecks.length - priceBad.length)} assertions passed`);

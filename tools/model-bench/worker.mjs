@@ -63,8 +63,11 @@ for (const [i, c] of cases.entries()) {
         continue;
     }
     let row = null, stop = '';
-    // What every attempt spent, not only the last one's.
+    // What every attempt spent, not only the last one's: a retried row
+    // (--retry-errors) starts from what its earlier attempts already spent,
+    // because the report keeps only the newest row of a case.
     const spent = { calls: 0, cost: 0, promptTokens: 0, completionTokens: 0 };
+    if (prev) for (const k of Object.keys(spent)) spent[k] = Number(prev.spent?.[k] ?? prev[k]) || 0;
     // A refusal upstream (429, overloaded, a dropped stream) is retried twice
     // with a pause; the row records how many attempts it took.
     for (let attempt = 0; attempt < 3; attempt++) {

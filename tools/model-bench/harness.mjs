@@ -109,6 +109,9 @@ export function installFetch({ slot = async () => ({ ok: true }), mock = null, o
             if (cs) cs.outOfSlots = true;
             throw new OutOfSlots(rec.error);
         }
+        // The case may have hit its cap while this request queued: its row is
+        // already written, so a request sent now would be a call nobody records.
+        if (cs && cs !== currentCase) throw new Error('case abandoned at its time cap');
         if (init.signal?.aborted) {
             // The app's own timer ran out while this request queued for a slot.
             rec.error = `limiter: the app's timeout ran out after ${Math.round(rec.waitMs / 1000)} s waiting for a request slot`;
