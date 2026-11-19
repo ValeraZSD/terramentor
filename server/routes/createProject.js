@@ -31,7 +31,7 @@ import { claimStaged, filesLanguage as filesLanguageOf, loadStaged } from '../st
 import {
     briefBlock, creationSources, hasSources, languageCheckBlock, sourceRanges, sourcesSummary, thinkBlock,
 } from '../sourceMaterial.js';
-import { nextProjectPosition } from './projectRows.js';
+import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { publicMessage } from '../clientError.js';
 
@@ -563,6 +563,11 @@ app.post('/api/ai/create-project', (req, res) => {
     // `name` and `description` are reassigned once the identity step below has
     // judged them, so every later prompt reads the final pair.
     let { name, description, summary, color, icon, content_language, documentIds } = req.body;
+    // Colour and icon by the plain create's rule, before any model call: they
+    // were stored as sent. Unset (absent, null, "") still means the default.
+    const unset = (v) => v === undefined || v === null || v === '';
+    const fieldError = projectFieldError({ color: unset(color) ? undefined : color, icon: unset(icon) ? undefined : icon });
+    if (fieldError) return res.status(400).json({ error: fieldError });
     // The learner's files, read when they were dropped into the dialog
     // (stagedDocuments.js) and in hand before the first model call: with them
     // the course is built FROM the files (sourceMaterial.js), and a name is no

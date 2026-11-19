@@ -116,5 +116,5 @@ export function recordMasteryCheck({ nodeId, score, total, questions, asked, att
             proven_score: proven.score, proven_total: proven.total,
             completed: topicStatus(nodeId) === 'completed',
         };
-    });
+    }, `node:${Number(nodeId)}`);
 }

@@ -199,8 +199,9 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
         setError(null);
         setBusy(true);
         try {
-            await api.deleteProject(result.projectId);
-            await loadProjects();
+            // A 404: the course was already deleted elsewhere, which is what Undo asked for.
+            await api.deleteProject(result.projectId).catch((err: any) => { if (err?.status !== 404) throw err; });
+            await loadProjects({ silent: true });
             addToast('success', t("Import undone — every card it added has been removed."));
             close();
         } catch (err: any) {

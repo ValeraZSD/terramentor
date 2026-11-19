@@ -251,6 +251,107 @@ section('an id is per surface: the same string on the quiz and the check are two
         `${JSON.stringify(r.body)} evidence ${evidence(n)}`);
 }
 
+// The id names ONE presentation. The same id sent for another topic, quiz or
+// question is not a retry of the first: it was answered with the first one's
+// outcome and `duplicate: true`, so the second answer was dropped while the
+// caller was told it had been recorded. Now it is refused (409), writes
+// nothing, and a true retry of the first is still its duplicate.
+section('an id is per item: the same id on another topic is refused, not answered with the first outcome');
+{
+    const a = topic('Reuse A'), b = topic('Reuse B');
+    const qa = quizFor(a, 4), qb = quizFor(b, 4);
+
+    const feedBody = (n, q) => ({ key: `savedq-${q}-0`, kind: 'question', nodeId: n, result: { correct: true }, attemptId: 'reused-feed' });
+    const fa = await post('/api/feed/consume', feedBody(a, qa));
+    const fb = await post('/api/feed/consume', feedBody(b, qb));
+    check('feed: the id on topic A is recorded', fa.status === 200 && !fa.body?.duplicate && evidence(a) === 1, `${fa.status} ${JSON.stringify(fa.body)}`);
+    check('feed: the same id on topic B is a 409 and writes nothing', fb.status === 409 && evidence(b) === 0,
+        `${fb.status} ${JSON.stringify(fb.body)} evidence(B) ${evidence(b)}`);
+    const fa2 = await post('/api/feed/consume', feedBody(a, qa));
+    check('feed: a true retry on topic A is still its duplicate', fa2.status === 200 && fa2.body?.duplicate === true && evidence(a) === 1,
+        `${fa2.status} ${JSON.stringify(fa2.body)}`);
+    // A refreshed stream can hand the same card a cache row id or a uuid it
+    // did not have at the first press; the card is still the same one.
+    const fa3 = await post('/api/feed/consume', { ...feedBody(a, qa), feedItemId: 987654, uuid: 'refreshed-card-uuid' });
+    check('feed: a resend whose row id or uuid changed is still the duplicate, not a 409',
+        fa3.status === 200 && fa3.body?.duplicate === true && evidence(a) === 1, `${fa3.status} ${JSON.stringify(fa3.body)}`);
+
+    const checkBody = (n) => ({ nodeId: n, score: 4, total: 4, questions: [], asked: [], attemptId: 'reused-check' });
+    const ca = await post(`/api/projects/${pid}/mastery/mastery-check`, checkBody(a));
+    const cb = await post(`/api/projects/${pid}/mastery/mastery-check`, checkBody(b));
+    check('check: the same id on another topic is a 409 and writes nothing',
+        ca.status === 200 && cb.status === 409 && evidence(b) === 0, `${ca.status}/${cb.status} ${JSON.stringify(cb.body)} evidence(B) ${evidence(b)}`);
+
+    const quizBody = { answers: { 0: 'de' }, score: 1, total: 1, attemptId: 'reused-quiz' };
+    const za = await post(`/api/ai/quizzes/${qa}/attempt`, quizBody);
+    const zb = await post(`/api/ai/quizzes/${qb}/attempt`, quizBody);
+    check('quiz: the same id on another quiz is a 409 and writes nothing',
+        za.status === 200 && zb.status === 409 && quizAttempts(qb) === 0, `${za.status}/${zb.status} ${JSON.stringify(zb.body)} attempts(B) ${quizAttempts(qb)}`);
+
+    const claimBody = (n) => ({ nodeId: n, correct: true, attemptId: 'reused-claim' });
+    const la = await post('/api/agent/claims', claimBody(a));
+    const lb = await post('/api/agent/claims', claimBody(b));
+    const claims = (n) => db.prepare('SELECT COUNT(*) AS c FROM mastery_claims WHERE node_id = ?').get(n).c;
+    check('claim: the same id on another topic is a 409 and writes nothing',
+        la.status === 200 && lb.status === 409 && claims(b) === 0, `${la.status}/${lb.status} ${JSON.stringify(lb.body)} claims(B) ${claims(b)}`);
+
+    // The mock's two writes share one surface; the rule lives in recordOnce.
+    const { recordOnce } = await import(B + 'mastery.js');
+    let writes = 0;
+    recordOnce('mock', 'reused-mock', () => { writes++; return { part: 1 }; }, 'sitting 1 part 1');
+    let refused = null;
+    try { recordOnce('mock', 'reused-mock', () => { writes++; return { part: 2 }; }, 'sitting 1 part 2'); } catch (e) { refused = e; }
+    check('recordOnce: another subject under the same id throws a 409 and runs nothing',
+        refused?.status === 409 && writes === 1, `${refused?.status} ${refused?.message} writes ${writes}`);
+    const replay = recordOnce('mock', 'reused-mock', () => { writes++; }, 'sitting 1 part 1');
+    check('recordOnce: the same subject again is the duplicate', replay.duplicate === true && replay.outcome?.part === 1 && writes === 1,
+        JSON.stringify(replay));
+    db.prepare("INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES ('mock', 'legacy-row', '{\"part\":9}')").run();
+    const legacy = recordOnce('mock', 'legacy-row', () => { writes++; }, 'anything');
+    check('recordOnce: a row written before subjects were kept still answers as its duplicate',
+        legacy.duplicate === true && legacy.outcome?.part === 9 && writes === 1, JSON.stringify(legacy));
+}
+
+section('a library from before subjects were kept opens, and its attempts still count once');
+{
+    // Its own library in child processes: this process's database.js is
+    // already open on the scratch one.
+    const { execFileSync } = await import('node:child_process');
+    const Database = createRequire(import.meta.url)('better-sqlite3');
+    const old = join(scratch, 'old-library');
+    mkdirSync(old, { recursive: true });
+    const env = { ...process.env, DB_PATH: join(old, 'old.db'), VAULT_ROOT: join(old, 'vault'), DATA_DIR: old };
+    const inChild = (code) => execFileSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    inChild(`await import(${JSON.stringify(B + 'database.js')});`);
+    // Back to the old shape: no subject column, one answer already recorded.
+    const raw = new Database(env.DB_PATH);
+    if (raw.prepare("SELECT 1 FROM pragma_table_info('answer_attempts') WHERE name = 'subject'").get()) {
+        raw.exec('ALTER TABLE answer_attempts DROP COLUMN subject');
+    }
+    raw.prepare("INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES ('feed', 'old-press', '{\"ok\":true,\"n\":1}')").run();
+    raw.close();
+
+    let out;
+    try { out = JSON.parse(inChild(`
+        const { default: db } = await import(${JSON.stringify(B + 'database.js')});
+        const { recordOnce } = await import(${JSON.stringify(B + 'mastery.js')});
+        const hasSubject = db.prepare("SELECT 1 FROM pragma_table_info('answer_attempts') WHERE name = 'subject'").get() != null;
+        let writes = 0;
+        const replay = recordOnce('feed', 'old-press', () => { writes++; }, 'question|savedq-1-0|1');
+        const fresh = recordOnce('feed', 'new-press', () => { writes++; return { n: 2 }; }, 'question|savedq-1-1|1');
+        let reused = null;
+        try { recordOnce('feed', 'new-press', () => { writes++; }, 'question|savedq-2-0|2'); } catch (e) { reused = e.status; }
+        db.close();
+        console.log(JSON.stringify({ hasSubject, replay, fresh, reused, writes }));
+    `).trim().split('\n').pop()); }
+    catch (e) { out = { failed: String(e.stderr || e.message).split('\n').find(l => /Error/.test(l)) || String(e.message).slice(0, 200) }; }
+    check('opening it adds the subject column', out.hasSubject === true, JSON.stringify(out));
+    check('an answer recorded before the upgrade, sent again, is its duplicate and writes nothing',
+        out.replay?.duplicate === true && out.replay?.outcome?.n === 1, JSON.stringify(out));
+    check('an answer after the upgrade is recorded once, and its id reused for another card is a 409',
+        out.fresh?.duplicate === false && out.reused === 409 && out.writes === 1, JSON.stringify(out));
+}
+
 section('paper practice: one mark per exercise, written as one unit');
 {
     // The card's own status is the once-guard: one practice row is one exercise.

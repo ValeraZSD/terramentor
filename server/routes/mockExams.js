@@ -6,6 +6,7 @@ import {
     pauseSitting, resumeSitting, stopWriting, discardSitting, setPartScore, finishSitting,
     setExam, drawCourseMock, saveAnswer,
 } from '../mockExams.js';
+import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 
@@ -17,12 +18,12 @@ const idOf = (v) => {
     return n;
 };
 
-/** One shape for every handler: a MockExamError carries its own status. */
+/** One shape for every handler: a MockExamError (or a reused attempt id) carries its own status. */
 const handle = (fn) => (req, res) => {
     try {
         res.json(fn(req));
     } catch (err) {
-        const status = err instanceof MockExamError ? err.status : 500;
+        const status = err instanceof MockExamError || err instanceof AttemptReusedError ? err.status : 500;
         res.status(status).json({ error: clientError(err, status) });
     }
 };

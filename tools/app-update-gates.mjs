@@ -70,8 +70,10 @@ const server = createServer((req, res) => {
     }
     res.statusCode = 200;
     res.setHeader('Content-Length', body.length);
-    if (behaviour.stall) {
+    if (behaviour.stall && !req.headers.range && /\.zip$/.test(decodeURIComponent(req.url))) {
         // Headers and a first piece, then nothing more: a connection that hangs.
+        // Only the whole-package download: a stalled manifest or range probe
+        // waits out its own longer limit and never reaches the download's.
         res.write(body.subarray(0, 1000));
         stalled.push(res);
         return;
@@ -635,7 +637,16 @@ for (const status of [416, 403, 404, 501]) {
 rmSync(join(appA, '.update'), { recursive: true, force: true });
 behaviour.ranges = false;
 behaviour.stall = true;
-check('a stalled download ends as "stopped responding" instead of hanging', await throwsWith(() => stage({ latest: B.latest, idleMs: 400 }), /^network .*stopped responding/) === true);
+{
+    // Only the whole-package download stalls (the stub's `stall`), so it is the
+    // 400 ms idle limit that must end it: well inside 20 s, where the range
+    // probe's own limit (120 s) or a small file's (30 s) cannot have.
+    const t0 = Date.now();
+    const ended = await throwsWith(() => stage({ latest: B.latest, idleMs: 400 }), /^network .*stopped responding/);
+    const ms = Date.now() - t0;
+    check('a stalled download ends as "stopped responding" instead of hanging', ended === true, String(ended));
+    check(`…ended by the download's idle limit, not a longer one (${ms} ms)`, ms < 20_000, `${ms} ms`);
+}
 behaviour.stall = false;
 behaviour.ranges = true;
 for (const r of stalled) r.destroy();

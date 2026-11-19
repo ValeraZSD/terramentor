@@ -92,6 +92,120 @@ export function equalAreaPatch(c: Vec3) {
     return { to, from };
 }
 
+/** A country's outline on its patch: every edge, bucketed into horizontal
+ *  bands so a point or a segment asks only the edges near it. */
+export interface Outline {
+    x1: Float64Array; y1: Float64Array; x2: Float64Array; y2: Float64Array;
+    minY: number; band: number; rows: number[][];
+    /** Per edge, the last query that looked at it (one look per query). */
+    stamp: Int32Array; query: number;
+}
+
+export function outlineOf(polys: Float64Array[]): Outline {
+    let E = 0;
+    for (const a of polys) E += a.length / 2;
+    const x1 = new Float64Array(E), y1 = new Float64Array(E), x2 = new Float64Array(E), y2 = new Float64Array(E);
+    let e = 0, minY = Infinity, maxY = -Infinity;
+    for (const a of polys) {
+        const n = a.length / 2;
+        for (let i = 0, j = n - 1; i < n; j = i++, e++) {
+            x1[e] = a[j * 2]; y1[e] = a[j * 2 + 1]; x2[e] = a[i * 2]; y2[e] = a[i * 2 + 1];
+            minY = Math.min(minY, y1[e]); maxY = Math.max(maxY, y1[e]);
+        }
+    }
+    const count = Math.max(1, Math.ceil(Math.sqrt(E)));
+    const band = maxY > minY ? (maxY - minY) / count : 1;
+    const rows: number[][] = Array.from({ length: count }, () => []);
+    const rowOf = (y: number) => Math.max(0, Math.min(count - 1, Math.floor((y - minY) / band)));
+    for (let k = 0; k < E; k++) {
+        const r0 = rowOf(Math.min(y1[k], y2[k])), r1 = rowOf(Math.max(y1[k], y2[k]));
+        for (let r = r0; r <= r1; r++) rows[r].push(k);
+    }
+    return { x1, y1, x2, y2, minY, band, rows, stamp: new Int32Array(E), query: 0 };
+}
+
+/** Inside the outline, by the even-odd rule the lattice is sampled with. */
+function insideOutline(o: Outline, x: number, y: number): boolean {
+    const r = Math.floor((y - o.minY) / o.band);
+    if (r < 0 || r >= o.rows.length) return false;
+    let odd = false;
+    for (const k of o.rows[r]) {
+        const ya = o.y1[k], yb = o.y2[k];
+        if ((ya <= y) !== (yb <= y) && o.x1[k] + ((y - ya) * (o.x2[k] - o.x1[k])) / (yb - ya) > x) odd = !odd;
+    }
+    return odd;
+}
+
+/** Where the segment p→q crosses the outline, as fractions of the way along. */
+function crossingsOf(o: Outline, px: number, py: number, qx: number, qy: number): number[] {
+    const n = o.rows.length;
+    const r0 = Math.max(0, Math.floor((Math.min(py, qy) - o.minY) / o.band));
+    const r1 = Math.min(n - 1, Math.floor((Math.max(py, qy) - o.minY) / o.band));
+    const q = ++o.query, ts: number[] = [];
+    const dx = qx - px, dy = qy - py;
+    for (let r = r0; r <= r1; r++) for (const k of o.rows[r]) {
+        if (o.stamp[k] === q) continue;
+        o.stamp[k] = q;
+        const ex = o.x2[k] - o.x1[k], ey = o.y2[k] - o.y1[k];
+        const d = dx * ey - dy * ex;
+        if (d === 0) continue;
+        const ax = o.x1[k] - px, ay = o.y1[k] - py;
+        const t = (ax * ey - ay * ex) / d, u = (ax * dy - ay * dx) / d;
+        if (t > 0 && t < 1 && u >= 0 && u < 1) ts.push(t);
+    }
+    return ts.sort((a, b) => a - b);
+}
+
+/**
+ * The parts of a line (patch coordinates) that lie inside the outline, each
+ * ending on it. A closed line that never leaves comes back whole and closed;
+ * one that does comes back as open pieces, the piece running through its first
+ * point joined up across it.
+ *
+ * Each stretch between two crossings is asked on its own, at its middle, rather
+ * than counted: a line through one of the outline's corners, or touching a
+ * lake's tip, meets the outline without crossing it, and a count would read
+ * that touch as a crossing and throw away the real ones.
+ */
+export function clipToOutline(
+    line: [number, number][], closed: boolean, o: Outline,
+): { line: [number, number][]; closed: boolean }[] {
+    const P = closed ? [...line, line[0]] : line;
+    if (P.length < 2) return [];
+    const pieces: [number, number][][] = [];
+    let cur: [number, number][] | null = null;
+    let cut = false, begun = false, startsInside = false;
+    for (let i = 0; i + 1 < P.length; i++) {
+        const [px, py] = P[i], [qx, qy] = P[i + 1];
+        const at = (t: number): [number, number] => [px + (qx - px) * t, py + (qy - py) * t];
+        const ts = [0, ...crossingsOf(o, px, py, qx, qy), 1];
+        for (let j = 0; j + 1 < ts.length; j++) {
+            if (ts[j + 1] - ts[j] < 1e-12) continue;
+            const [mx, my] = at((ts[j] + ts[j + 1]) / 2);
+            const isIn = insideOutline(o, mx, my);
+            if (!begun) {
+                begun = true;
+                startsInside = isIn;
+                if (isIn) cur = [at(ts[j])];
+                continue;
+            }
+            if (isIn === !!cur) continue;
+            cut = true;
+            if (cur) { cur.push(at(ts[j])); pieces.push(cur); cur = null; } else cur = [at(ts[j])];
+        }
+        if (cur) cur.push(P[i + 1]);
+    }
+    if (cur) pieces.push(cur);
+    if (closed && !cut) return pieces.length ? [{ line: line.slice(), closed: true }] : [];
+    // Round a closed line, the piece that ran off the end and the one that
+    // started at its first point are one stretch of border.
+    if (closed && pieces.length > 1 && startsInside) {
+        const last = pieces.pop()!, first = pieces[0];
+        pieces[0] = [...last, ...first.slice(1)];
+    }
+    return pieces.map(p => ({ line: p, closed: false }));
+}
+
 /**
  * One country's cities.
  *
@@ -404,6 +518,10 @@ export function buildCountryCities(
         if (!m) pairs.set(key, m = new Map());
         m.set(s.from, s.to);
     }
+    // A border is cut at the coast here, once, rather than clipped to the
+    // country on every frame: up close a country covers the screen, and a
+    // clip that size under every border stroke was most of what a drag cost.
+    const outline = outlineOf(polys);
     const borders: SphereLine[] = [];
     for (const next of pairs.values()) {
         const ends = new Set(next.values()), seen = new Set<number>();
@@ -413,7 +531,11 @@ export function buildCountryCities(
             while (k !== undefined && !seen.has(k)) { seen.add(k); keys.push(k); k = next.get(k); }
             const closed = k === start;
             if (k !== undefined && !closed) keys.push(k);
-            if (keys.length >= 2) borders.push(lineOf(sphere(keys), closed));
+            if (keys.length < 2) return;
+            const flat = keys.map(key => pts.get(key)!);
+            for (const piece of clipToOutline(flat, closed, outline)) {
+                if (piece.line.length >= 2) borders.push(lineOf(piece.line.map(([x, y]) => from(x, y)), piece.closed));
+            }
         };
         for (const start of next.keys()) if (!ends.has(start) && !seen.has(start)) walk(start);
         for (const start of next.keys()) if (!seen.has(start)) walk(start);

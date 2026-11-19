@@ -19,7 +19,7 @@
  * rather than passing or failing.
  *
  *   node tools/run-gates.mjs            all suites
- *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses and the two browser scans
+ *   node tools/run-gates.mjs --quick    skip the slow jsdom harnesses and the browser suites
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
@@ -35,7 +35,7 @@ const HARNESSES = ['harness', 'anki-harness', 'vault-harness', 'dock-harness'];
 const quick = process.argv.includes('--quick');
 
 /** Suites that build dist/ and open screens in a browser: minutes, not seconds. */
-const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs'];
+const BROWSER_SUITES = ['axe-gates.mjs', 'larger-ui-gates.mjs', 'perf-budget-gates.mjs'];
 
 const self = 'run-gates.mjs'; // this file matches the glob it defines — skip it, or it recurses
 
