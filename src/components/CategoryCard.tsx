@@ -8,7 +8,7 @@ import TreeItemRow from './TreeItemRow';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import { TreeNode } from '../types';
-import { INDENTATION_WIDTH, FlatItem } from '../utils/treeDnd';
+import type { FlatItem } from '../utils/treeDnd';
 import {
   ChevronDown,
   ChevronRight,
@@ -258,7 +258,6 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                     cardId={node.id}
                     isActive={rowDrag?.activeId === item.id}
                     projectedDepth={rowDrag?.activeId === item.id ? rowDrag.projectedDepth : null}
-                    indentationWidth={INDENTATION_WIDTH}
                     isDropParent={rowDrag?.dropParentId != null && item.id === rowDrag.dropParentId}
                     dropParentTitle={rowDrag?.activeId === item.id ? rowDrag.dropParentTitle : null}
                   />
