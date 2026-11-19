@@ -227,6 +227,9 @@ try {
         const a2 = await call('PUT', `/api/mock-sittings/${first}/answers`, { partId: p.partId, answer: 'Gamma', attemptId: 'same-id' });
         check('the same attempt id again is a retry: written once, the first answer stands',
             a2.status === 200 && a2.body?.duplicate === true && (await detail(first)).course.questions[0].answer === 'Beta', a2.text);
+        const other = await call('PUT', `/api/mock-sittings/${first}/answers`, { partId: d.course.questions[2].partId, answer: 'Beta', attemptId: 'same-id' });
+        check('the same attempt id for ANOTHER question is a 409, not the first save\'s duplicate, and writes nothing',
+            other.status === 409 && !(await detail(first)).course.questions[2].answer, `${other.status} ${other.text.slice(0, 160)}`);
         await call('POST', `/api/mock-sittings/${first}/pause`);
         const a3 = await answer(first, d.course.questions[1].partId, 'Beta', { later: true });
         check('an answer sent while paused is kept (a save racing the pause is never dropped)', a3.status === 200, a3.text);
