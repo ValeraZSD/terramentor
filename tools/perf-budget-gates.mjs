@@ -70,16 +70,19 @@ const check = (label, cond, extra = '') => {
     if (cond) { pass++; console.log(`  ok    ${label}`); }
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
-// Every measurement, for the CI job's summary page: `npm test` shows a passing
-// suite as one line, and the numbers are the point.
+// Every measurement, for the CI job's summary page and its log: `npm test`
+// shows a passing suite as one line, and the numbers are the point. The log
+// copy is RUNNER_TEMP/perf-budgets.md, printed by a step of its own (gates.yml).
 const rows = [];
 const done = () => {
     if (process.env.GITHUB_STEP_SUMMARY && rows.length) {
         const os = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' }[process.platform] ?? process.platform;
-        appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+        const table = [
             `### Performance budgets (${os})`, '', '| measured | value | budget | used |', '|---|---:|---:|---:|',
             ...rows.map((r) => `| ${r.label} | ${r.value} | ${r.budget} | ${r.share}%${r.ok ? '' : ' (over)'} |`), '', '',
-        ].join('\n'));
+        ].join('\n');
+        appendFileSync(process.env.GITHUB_STEP_SUMMARY, table);
+        if (process.env.RUNNER_TEMP) appendFileSync(join(process.env.RUNNER_TEMP, 'perf-budgets.md'), table);
     }
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exit(fail ? 1 : 0);

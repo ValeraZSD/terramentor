@@ -91,6 +91,13 @@ jobs:
       - name: Guard suites
         run: npm test
 
+      # What tools/perf-budget-gates.mjs measured, beside each budget: a passing
+      # suite is one line in the step above, and the numbers are what a budget
+      # is next set from. The same table is on the run's summary page.
+      - name: Performance numbers
+        if: always()
+        run: cat "$RUNNER_TEMP/perf-budgets.md" 2>/dev/null || echo "the performance gate did not run"
+
       - name: Frontend builds
         run: npm run build
 
