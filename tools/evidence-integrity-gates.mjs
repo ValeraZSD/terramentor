@@ -312,6 +312,46 @@ section('an id is per item: the same id on another topic is refused, not answere
         legacy.duplicate === true && legacy.outcome?.part === 9 && writes === 1, JSON.stringify(legacy));
 }
 
+section('a library from before subjects were kept opens, and its attempts still count once');
+{
+    // Its own library in child processes: this process's database.js is
+    // already open on the scratch one.
+    const { execFileSync } = await import('node:child_process');
+    const Database = createRequire(import.meta.url)('better-sqlite3');
+    const old = join(scratch, 'old-library');
+    mkdirSync(old, { recursive: true });
+    const env = { ...process.env, DB_PATH: join(old, 'old.db'), VAULT_ROOT: join(old, 'vault'), DATA_DIR: old };
+    const inChild = (code) => execFileSync(process.execPath, ['--input-type=module', '-e', code], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    inChild(`await import(${JSON.stringify(B + 'database.js')});`);
+    // Back to the old shape: no subject column, one answer already recorded.
+    const raw = new Database(env.DB_PATH);
+    if (raw.prepare("SELECT 1 FROM pragma_table_info('answer_attempts') WHERE name = 'subject'").get()) {
+        raw.exec('ALTER TABLE answer_attempts DROP COLUMN subject');
+    }
+    raw.prepare("INSERT INTO answer_attempts (surface, attempt_id, outcome) VALUES ('feed', 'old-press', '{\"ok\":true,\"n\":1}')").run();
+    raw.close();
+
+    let out;
+    try { out = JSON.parse(inChild(`
+        const { default: db } = await import(${JSON.stringify(B + 'database.js')});
+        const { recordOnce } = await import(${JSON.stringify(B + 'mastery.js')});
+        const hasSubject = db.prepare("SELECT 1 FROM pragma_table_info('answer_attempts') WHERE name = 'subject'").get() != null;
+        let writes = 0;
+        const replay = recordOnce('feed', 'old-press', () => { writes++; }, 'question|savedq-1-0|1');
+        const fresh = recordOnce('feed', 'new-press', () => { writes++; return { n: 2 }; }, 'question|savedq-1-1|1');
+        let reused = null;
+        try { recordOnce('feed', 'new-press', () => { writes++; }, 'question|savedq-2-0|2'); } catch (e) { reused = e.status; }
+        db.close();
+        console.log(JSON.stringify({ hasSubject, replay, fresh, reused, writes }));
+    `).trim().split('\n').pop()); }
+    catch (e) { out = { failed: String(e.stderr || e.message).split('\n').find(l => /Error/.test(l)) || String(e.message).slice(0, 200) }; }
+    check('opening it adds the subject column', out.hasSubject === true, JSON.stringify(out));
+    check('an answer recorded before the upgrade, sent again, is its duplicate and writes nothing',
+        out.replay?.duplicate === true && out.replay?.outcome?.n === 1, JSON.stringify(out));
+    check('an answer after the upgrade is recorded once, and its id reused for another card is a 409',
+        out.fresh?.duplicate === false && out.reused === 409 && out.writes === 1, JSON.stringify(out));
+}
+
 section('paper practice: one mark per exercise, written as one unit');
 {
     // The card's own status is the once-guard: one practice row is one exercise.
