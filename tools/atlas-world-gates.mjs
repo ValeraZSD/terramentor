@@ -319,6 +319,100 @@ if (C && T && P && libraries.length) {
     const same = a1.borders.length === a2.borders.length
         && a1.borders.every((b, i) => b.pts.length === a2.borders[i].pts.length && b.pts.every((x, k) => x === a2.borders[i].pts[k]));
     check('a country is cut the same way every time', same);
+
+    // City borders are cut at the coast when the cities are built, so the map
+    // strokes them with no clip (a screen-sized clip per country was most of
+    // what a drag cost up close). Cut wrong, it draws a picture: borders out
+    // over the sea, or a gap in the middle of the land. Both are measured, on
+    // each country's own patch: no border runs outside its country, and the
+    // borders inside add up to half of every city's outline inside it (each
+    // inland border is the edge of two cities; the rest of a city's outline is
+    // past the coast).
+    let outside = 0, segs = 0, borderLen = 0, cityLen = 0;
+    const plen = (patch, a, b) => {
+        const [x1, y1] = patch.to(a[0], a[1], a[2]), [x2, y2] = patch.to(b[0], b[1], b[2]);
+        return Math.hypot(x2 - x1, y2 - y1);
+    };
+    const at3 = (pts, i) => [pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]];
+    const mid = (a, b) => { const m = [a[0] + b[0], a[1] + b[1], a[2] + b[2]], l = Math.hypot(...m); return m.map(v => v / l); };
+    for (const c of countries) {
+        if (c.topics.length < 2) continue;
+        const territory = land.get(c.id);
+        const cut = territory && C.buildCountryCities(territory, c.u, c.topics, c.id);
+        if (!cut) continue;
+        const patch = C.equalAreaPatch(c.u);
+        for (const b of cut.borders) {
+            // A closed border (a city wholly inland) does not repeat its first
+            // point: its last edge runs back to it.
+            const n = b.pts.length / 3, edges = b.closed ? n : n - 1;
+            for (let i = 0; i < edges; i++) {
+                const p = at3(b.pts, i), q = at3(b.pts, (i + 1) % n);
+                segs++;
+                if (!inLoops(patch, territory.loops, mid(p, q))) outside++;
+                borderLen += plen(patch, p, q);
+            }
+        }
+        for (const city of cut.cities) for (const l of city.loops) {
+            const n = l.pts.length / 3;
+            for (let i = 0; i < n; i++) {
+                const p = at3(l.pts, i), q = at3(l.pts, (i + 1) % n);
+                // Finely, so a segment across the coast counts only its inland
+                // part, and along the straight segment on the patch, which is
+                // what the borders' own length is measured along.
+                const [px, py] = patch.to(p[0], p[1], p[2]), [qx, qy] = patch.to(q[0], q[1], q[2]);
+                for (let k = 0; k < 8; k++) {
+                    const ax = px + (qx - px) * k / 8, ay = py + (qy - py) * k / 8;
+                    const zx = px + (qx - px) * (k + 1) / 8, zy = py + (qy - py) * (k + 1) / 8;
+                    if (inLoops(patch, territory.loops, patch.from((ax + zx) / 2, (ay + zy) / 2))) cityLen += Math.hypot(zx - ax, zy - ay);
+                }
+            }
+        }
+    }
+    check('no city border runs out past its coast', segs > 0 && outside === 0, `${outside} of ${segs} segments outside`);
+    const ratio = cityLen > 0 ? (2 * borderLen) / cityLen : 0;
+    check('no inland city border is lost: borders = half the cities\' inland outline, within 2%',
+        Math.abs(ratio - 1) < 0.02, `ratio ${ratio.toFixed(4)}`);
+    console.log(`        (${segs} border segments, inland ratio ${ratio.toFixed(4)})`);
+    // The cutter itself, on shapes whose answer is known: a square with a
+    // square lake, crossed by a line and ringed by loops.
+    if (typeof C.clipToOutline === 'function' && typeof C.outlineOf === 'function') {
+        const sq = (x0, y0, s, cw) => {
+            const p = [[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]];
+            return Float64Array.from((cw ? p.reverse() : p).flat());
+        };
+        const o = C.outlineOf([sq(0, 0, 10, false), sq(4, 4, 2, true)]);
+        const len = pieces => pieces.reduce((s, pc) => s + pc.line.slice(1).reduce((t, q, i) => t + Math.hypot(q[0] - pc.line[i][0], q[1] - pc.line[i][1]), 0), 0);
+        const across = C.clipToOutline([[-5, 5], [15, 5]], false, o);
+        check('a line across land and a lake keeps the two stretches of land', across.length === 2 && Math.abs(len(across) - 8) < 1e-9,
+            `${across.length} pieces, length ${len(across)}`);
+        // A line that only touches a lake's tip has not entered the lake: the
+        // touch must not be read as a crossing (and so cost the real ones).
+        const diamond = C.outlineOf([sq(0, 0, 10, false), Float64Array.from([5, 5, 6, 6, 5, 7, 4, 6])]);
+        const touch = C.clipToOutline([[-1, 5], [11, 5]], false, diamond);
+        check('a line touching a lake\'s tip stays one stretch of land', touch.length === 1 && Math.abs(len(touch) - 10) < 1e-9,
+            `${touch.length} pieces, length ${len(touch)}`);
+        // …and corners are where it does cross: this diagonal enters at one
+        // corner of the coast, crosses the lake corner to corner, and leaves at
+        // the other.
+        const corner = C.clipToOutline([[-2, 12], [12, -2]], false, o);
+        check('a line through corners of the coast and the lake keeps both stretches of land',
+            corner.length === 2 && Math.abs(len(corner) - 8 * Math.SQRT2) < 1e-9, `${corner.length} pieces, length ${len(corner)}`);
+        const ring = C.clipToOutline([[1, 1], [9, 1], [9, 9], [1, 9]], true, o);
+        check('a loop that never leaves the land comes back whole and closed', ring.length === 1 && ring[0].closed && ring[0].line.length === 4);
+        const half = C.clipToOutline([[5, -5], [5, 1], [8, 1], [8, -5]], true, o);
+        check('a loop half out at sea comes back as one open stretch',
+            half.length === 1 && !half[0].closed && Math.abs(len(half) - 5) < 1e-9, `${half.length} pieces, length ${len(half)}`);
+        // The same loop started on land: its inland stretch is cut in two by the
+        // loop's own start, and has to come back joined across it.
+        const joined = C.clipToOutline([[5, 1], [8, 1], [8, -5], [5, -5]], true, o);
+        const ends = joined[0]?.line ?? [];
+        check('a loop that starts on land and leaves comes back as one stretch joined across its start',
+            joined.length === 1 && !joined[0].closed && Math.abs(len(joined) - 5) < 1e-9
+                && ends.length === 4 && ends[0][1] === 0 && ends[3][1] === 0,
+            `${joined.length} pieces, length ${len(joined)}`);
+        const sea = C.clipToOutline([[20, 20], [30, 20]], false, o);
+        check('a line all at sea comes back as nothing', sea.length === 0);
+    } else check('globeCities.ts exports clipToOutline and outlineOf', false);
 }
 
 // ---- the cities' build always settles -----------------------------------------

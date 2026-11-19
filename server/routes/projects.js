@@ -13,7 +13,7 @@ import { sweepOrphanMedia } from '../ankiImport.js';
 import { loadProjectSummaries } from '../projectSummary.js';
 import { documentChunkIds, freeDocumentAssets } from '../documentAssets.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
-import { nextProjectPosition } from './projectRows.js';
+import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { markLearnerEdit } from '../courseUpdate.js';
@@ -82,27 +82,6 @@ app.post('/api/projects', (req, res) => {
     logActivity({ area: 'project', event: 'project.created', projectId: project.id });
     res.json(project);
 });
-
-// The fields a create or an edit stores as sent. SQLite's column types stop
-// none of it: `name: null` reached the NOT NULL constraint as a 500, `""` and
-// `"   "` were saved as a nameless course, and a 2 MB colour or icon came back
-// inside every GET /api/projects. A colour is a CSS colour and an icon a name
-// from the picker, so 64 characters is room for any real one. Returns the
-// refusal, or null.
-const PROJECT_TOKEN_MAX = 64;
-function projectFieldError({ name, description, color, icon, position }) {
-    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';
-    if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
-    // Not null or blank either: every reader of a project expects a colour and
-    // an icon, and a PUT stored `null` as sent.
-    for (const [label, v] of [['color', color], ['icon', icon]]) {
-        if (v !== undefined && (typeof v !== 'string' || !v.trim() || v.length > PROJECT_TOKEN_MAX)) {
-            return `${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`;
-        }
-    }
-    if (position !== undefined && !(Number.isSafeInteger(position) && position >= 0)) return 'position must be a whole number, 0 or more';
-    return null;
-}
 
 app.put('/api/projects/:id', (req, res) => {
     const { name, description, color, icon, position, start_date, deadline, deadline_fixed, study_days, status, content_language, search_words } = req.body;
@@ -226,6 +205,11 @@ app.put('/api/projects/:id', (req, res) => {
 export const editRoutes = app.takeRoutes();
 
 app.delete('/api/projects/:id', (req, res) => {
+    // A missing id is not a deletion: it was answered `success` and logged as
+    // one, so a caller holding a wrong id was told the course was gone.
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(req.params.id)) {
+        return res.status(404).json({ error: 'Project not found' });
+    }
     // documents/document_chunks cascade via FK on this delete, but vec_chunks
     // and vault blobs don't — capture what's about to be removed first.
     const docs = db.prepare(

@@ -200,7 +200,7 @@ function text(warnings, value, max, what) {
     return s.slice(0, max);
 }
 
-// The API's own bound on a colour or an icon name (routes/projects.js): a
+// The API's own bound on a colour or an icon name (routes/projectRows.js): a
 // 2 MB colour came back inside every GET /api/projects.
 const TOKEN_MAX = 64;
 function token(warnings, value, fallback, what) {

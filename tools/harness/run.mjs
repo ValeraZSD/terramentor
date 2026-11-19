@@ -42,8 +42,10 @@ const { window } = dom;
 // `stroke()` whole, with its colour, width, alpha and points, and the walked
 // route is the strokes in the page's ink (`INK` below), each laid on a halo in
 // its paper (`LIT`). `fills` does the same for every `fill()`: a territory is
-// filled twice over one path, bare ground and then its colour, which is how its
-// colour is found among the sea, the cities and the marks.
+// filled even-odd, its colour over bare ground only while it is dimmed (at full
+// strength the opaque colour hides the ground, so none is painted), and a
+// started city even-odd too but inside its country's clip — which is how a
+// territory's colour is found among the sea, the cities and the marks.
 const rec = { arcs: [], texts: [], segs: [], strokes: [], fills: [], rects: 0, calls: 0 };
 const ctxState = { globalAlpha: 1, lineWidth: 1 };
 let pathPts = [];
@@ -54,6 +56,10 @@ let pathPts = [];
 // segments in every assertion about where the path runs.
 let tf = { x: 0, y: 0, cos: 1, sin: 0, k: 1 };
 const tfStack = [];
+// How many clips are in force, saved and restored with the transform: a
+// started city is filled inside its country's clip, a territory is not.
+let clips = 0;
+const clipStack = [];
 const map = (x, y) => ({
     x: tf.x + (x * tf.cos - y * tf.sin) * tf.k,
     y: tf.y + (x * tf.sin + y * tf.cos) * tf.k,
@@ -87,19 +93,19 @@ const ctx = new Proxy({
         const p = map(x, y);
         rec.arcs.push({ x: p.x, y: p.y, r: Math.sqrt(Math.abs(rx * ry)), a: ctxState.globalAlpha });
     },
-    clip() { },
+    clip() { clips++; },
     rect() { },
     setLineDash() { },
     createLinearGradient() { return { addColorStop() { } }; },
     // The fill is attached to the arc AFTER the fact, because the map sets
     // `fillStyle` between `arc()` and `fill()` — reading it at arc time records
     // whatever the previous shape was painted in.
-    fill() {
+    fill(rule) {
         const last = rec.arcs[rec.arcs.length - 1];
         if (last && last.f === undefined) last.f = this.fillStyle;
         rec.fills.push({
             f: this.fillStyle, a: ctxState.globalAlpha, n: pathPts.length,
-            x0: pathPts[0]?.x, y0: pathPts[0]?.y,
+            x0: pathPts[0]?.x, y0: pathPts[0]?.y, rule, clips,
         });
     },
     stroke() {
@@ -137,8 +143,11 @@ const ctx = new Proxy({
             size: Number((/(\d+(?:\.\d+)?)px/.exec(this.font) || [])[1]) || 12,
         });
     },
-    save() { tfStack.push({ ...tf }); },
-    restore() { if (tfStack.length) tf = tfStack.pop(); },
+    save() { tfStack.push({ ...tf }); clipStack.push(clips); },
+    restore() {
+        if (tfStack.length) tf = tfStack.pop();
+        if (clipStack.length) clips = clipStack.pop();
+    },
     translate(x, y) { const p = map(x, y); tf = { ...tf, x: p.x, y: p.y }; },
     rotate(a) {
         const cos = Math.cos(a), sin = Math.sin(a);
@@ -340,10 +349,15 @@ const card = () => el.querySelector('[data-testid="atlas-card"]')?.dataset.kind 
  * ground and then its colour at however present it is, so its colour is the
  * second of two fills over the same outline — which nothing else on the map is.
  */
-const landColours = (snap) => snap.fills.filter((f, i) => {
-    const g = snap.fills[i - 1];
-    return !!g && f.n > 8 && g.n === f.n && g.x0 === f.x0 && g.y0 === f.y0;
-});
+const landColours = (snap) => {
+    const samePath = (a, b) => !!a && !!b && a.n === b.n && a.x0 === b.x0 && a.y0 === b.y0;
+    const land = snap.fills.filter(f => f.rule === 'evenodd' && f.n > 8);
+    // The land is the shallowest clip any even-odd fill is made in; a city is
+    // one clip deeper, inside its country.
+    const depth = Math.min(...land.map(f => f.clips));
+    // …and a bare-ground fill is the one with the same path filled right after it.
+    return land.filter(f => f.clips === depth && !samePath(f, snap.fills[snap.fills.indexOf(f) + 1]));
+};
 /** A region's name as drawn, and the region it names. Names wrap and shorten
  *  (`…`), so a drawn line is matched as the start of a label. The biggest
  *  region's when it is there: the most ground around its name. */
