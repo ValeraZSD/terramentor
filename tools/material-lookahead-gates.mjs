@@ -69,11 +69,11 @@ const stub = createServer((req, res) => {
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { completion_tokens: 20 } }));
     });
 });
-// feedGen's isTransient used to read "502"/"503"/"504" anywhere in an error's
-// text, the URL's port included: on such a port the stub's 400 for flashcards
-// was taken for a transient failure, retried, then backed off for 15 s, and the
-// "bank written short" section timed out behind it. It reads the status now
-// (feed-retry-gates.mjs); a port without them keeps older server code steady.
+// A port without "502"/"503"/"504" in it. feedGen's isTransient reads the
+// status (feed-retry-gates.mjs), but server code that reads those digits from
+// the error's text, URL included, takes the stub's 400 for flashcards as
+// transient, retries it, backs off for 15 s, and the "bank written short"
+// section times out behind it.
 for (;;) {
     await new Promise(r => stub.listen(0, '127.0.0.1', r));
     if (!/50[234]/.test(String(stub.address().port))) break;
