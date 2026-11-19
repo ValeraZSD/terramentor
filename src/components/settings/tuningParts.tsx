@@ -2,12 +2,14 @@ import { SettingNote } from '../ui/SettingRow';
 
 /**
  * One block of the "Fit the engine to your history" card: its name, what it
- * is, the measured facts in a hairline frame, then the action with its
- * precondition on the left — the same foot the activity log has, so the two
- * collapsed diagnostic groups in Settings read the same way.
+ * is, the measured facts, then the action with its precondition on the left —
+ * the same foot the activity log has, so the two collapsed diagnostic groups
+ * in Settings read the same way.
  *
- * The facts are FRAMED, not carded: the section is already the card, and a
- * white card on a white card is a box in a box that the eye has to decode.
+ * The facts are neither carded nor framed: the opened row is already the
+ * block, and even a hairline frame inside it read as a box in a box. They sit
+ * on the block's own text edge; a hairline only parts the facts from what
+ * follows them.
  */
 export function TuningBlock({ title, note, actions, hint, result, children }: {
     title: React.ReactNode;
@@ -21,7 +23,7 @@ export function TuningBlock({ title, note, actions, hint, result, children }: {
         <section className="px-4 py-4">
             <h3 className="font-medium text-slate-900 dark:text-white">{title}</h3>
             <SettingNote className="mt-1">{note}</SettingNote>
-            <div className="mt-3 rounded-lg border border-slate-300 divide-y divide-slate-200 dark:border-slate-600 dark:divide-slate-700">
+            <div className="mt-1 divide-y divide-slate-200 dark:divide-slate-700">
                 {children}
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -74,7 +76,7 @@ export function Fact({ label, value, sub, testId }: {
  *  to be read at 390px as at 900px. */
 export function FactStrip({ children }: { children: React.ReactNode }) {
     return (
-        <div className="px-4 py-2.5 grid gap-x-8 gap-y-3 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
+        <div className="py-2.5 grid gap-x-8 gap-y-3 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]">
             {children}
         </div>
     );

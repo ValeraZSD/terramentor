@@ -149,7 +149,7 @@ export default function SrsTuningPanel({ active }: { active: boolean }) {
                 />
             </FactStrip>
             {status && status.retention.reviews > 0 && (
-                <div className="px-4 py-2.5" data-testid="srs-retention">
+                <div className="py-2.5" data-testid="srs-retention">
                     {/* Three percentages side by side make the reader work
                         out which way is good. The verdict says it in words
                         and keeps both numbers inside the sentence that uses
