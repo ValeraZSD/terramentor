@@ -127,13 +127,18 @@ export function slowRequestLog() {
  */
 export function startEventLoopMonitor() {
     let expected = Date.now() + LAG_SAMPLE_MS;
-    let lastCpu = process.cpuUsage();
+    // This thread's CPU, not the process's: zlib, file and crypto work on the
+    // thread pool while the loop waits on a paged-out page would read as
+    // "computing". (process.cpuUsage where the per-thread call is missing.)
+    const usage = typeof process.threadCpuUsage === 'function' ? () => process.threadCpuUsage() : () => process.cpuUsage();
+    let lastCpu = usage();
     const timer = setInterval(() => {
         const now = Date.now();
         const lag = now - expected;
         expected = now + LAG_SAMPLE_MS;
-        const cpu = process.cpuUsage(lastCpu);
-        lastCpu = process.cpuUsage();
+        const at = usage();
+        const cpu = { user: at.user - lastCpu.user, system: at.system - lastCpu.system };
+        lastCpu = at;
         if (lag < LOOP_LAG_MS) return;
         // What was in flight matters more than the number: the point of the line
         // is to name the suspect, and a stall with a task running reads very

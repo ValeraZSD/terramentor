@@ -7,6 +7,7 @@
 // second is the machine, and the number alone cannot tell them apart. So the
 // line carries the CPU the process spent while it lasted, a verdict from it,
 // and the requests that were in flight: the log names its own suspect.
+import { readFileSync } from 'node:fs';
 import { requestsDuring, stallKind, stallLine } from '../server/slowLog.js';
 
 let failures = 0;
@@ -51,6 +52,13 @@ check('a busy stall with nothing in flight says background', stallLine({ at: 'x'
     '[Stall] x the event loop was blocked for 900ms (CPU 1300 ms, computing) with no request in flight');
 // Log readers (tools and people) key on this prefix; it must not move.
 check('the old prefix is kept for anything that reads the log', /^\[Stall\] \S+ the event loop was blocked for \d+ms/.test(waiting), true);
+
+// The CPU is the event loop's own thread: the process total also counts the
+// thread pool (zlib, files, crypto), busy while the loop itself waits.
+const monitor = readFileSync(new URL('../server/slowLog.js', import.meta.url), 'utf8');
+const monitorBody = monitor.slice(monitor.indexOf('export function startEventLoopMonitor'));
+check('the monitor measures its own thread\'s CPU', /process\.threadCpuUsage\(\)/.test(monitorBody), true);
+check('…this Node has the call (engines >= 24.7)', typeof process.threadCpuUsage, 'function');
 
 console.log(`\n${passed} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);
