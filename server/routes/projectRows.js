@@ -27,8 +27,11 @@ function requireProject(req, res) {
 // `"   "` were saved as a nameless course, and a 2 MB colour or icon came back
 // inside every GET /api/projects. A colour is a CSS colour and an icon a name
 // from the picker, so 64 characters is room for any real one. Every door that
-// writes a project row asks this: the plain create, the edit, and the AI
-// create (routes/createProject.js). Returns the refusal, or null.
+// takes these fields from a request asks this: the plain create, the edit, the
+// AI create (routes/createProject.js) and the Anki import (routes/anki.js).
+// A course file's fields are bounded by its reader instead (curriculumSchema.js
+// `token`), and a short course maps them to the palette (projectFields.js).
+// Returns the refusal, or null.
 const PROJECT_TOKEN_MAX = 64;
 function projectFieldError({ name, description, color, icon, position }) {
     if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';

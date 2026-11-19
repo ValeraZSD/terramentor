@@ -51,6 +51,7 @@ setSetting.run('embedding_enabled', 'false');
 setSetting.run('ui_language', 'en');
 const { createApp } = await import(`${B}app.js`);
 const { readActivity } = await import(`${B}activityLog.js`);
+const { stageImport } = await import(`${B}ankiImport.js`);
 
 const server = createServer(createApp());
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -115,6 +116,25 @@ console.log('\n=== create-project refuses a colour or icon the plain create refu
     }
     const plain = await call('POST', '/api/projects', { name: 'Plain', color: 5 });
     ok('the plain create refuses the same colour (the rule both share)', plain.status === 400, `${plain.status} ${plain.text}`);
+
+    // The Anki import takes its colour from the request too. An empty deck is
+    // enough: the colour is checked before anything is written.
+    const deck = () => stageImport({ cards: [], media: [], stats: { cards: 0, decks: [{ name: 'Fixture deck' }] } });
+    const staged = deck();
+    const projectsBefore = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+    const bad = await call('POST', '/api/import/anki/commit', { stagingId: staged, color: huge });
+    ok('the Anki import refuses a 2 MB colour with a 400 and writes no project',
+        bad.status === 400 && /color/.test(bad.json?.error || '') && db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === projectsBefore,
+        `${bad.status} ${bad.text.slice(0, 200)}`);
+    const retried = await call('POST', '/api/import/anki/commit', { stagingId: staged, color: '#10B981' });
+    ok('…and keeps the upload, so the same import goes through with a real colour',
+        retried.status === 200 && db.prepare('SELECT color FROM projects WHERE id = ?').get(retried.json?.projectId)?.color === '#10B981',
+        `${retried.status} ${retried.text.slice(0, 200)}`);
+    const unset = await call('POST', '/api/import/anki/commit', { stagingId: deck(), color: null });
+    ok('an Anki import with no colour gets the default one',
+        unset.status === 200 && db.prepare('SELECT color FROM projects WHERE id = ?').get(unset.json?.projectId)?.color === '#3B82F6',
+        `${unset.status} ${unset.text.slice(0, 200)}`);
+
     const stored = db.prepare('SELECT MAX(LENGTH(color)) AS c, MAX(LENGTH(icon)) AS i FROM projects').get();
     ok('no stored colour or icon is longer than 64 characters', (stored.c ?? 0) <= 64 && (stored.i ?? 0) <= 64, JSON.stringify(stored));
 }

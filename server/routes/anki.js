@@ -13,6 +13,7 @@ import { buildProjectApkg } from '../ankiExport.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
+import { projectFieldError } from './projectRows.js';
 
 const app = routeTable('anki');
 
@@ -64,13 +65,17 @@ app.post('/api/import/anki/commit', (req, res) => {
     if (!parsed) {
         return res.status(410).json({ error: 'That import expired — upload the deck again.' });
     }
+    // Unset means the default colour; anything else is checked like every create.
+    const pickedColor = color === undefined || color === null || color === '' ? undefined : color;
+    const fieldError = projectFieldError({ color: pickedColor });
+    if (fieldError) return res.status(400).json({ error: fieldError });
     try {
         const result = commitImport(parsed, {
             projectName,
             swapFrontBack: !!swapFrontBack,
             keepSchedule: keepSchedule !== false,
             includeMedia: includeMedia !== false,
-            color,
+            color: pickedColor,
         });
         dropStaged(stagingId);
         // Declining media leaves the extracted blobs unreferenced; reclaim now
