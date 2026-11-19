@@ -321,7 +321,6 @@ export function buildPageContext(context) {
     const SCREENS = {
         today: 'the learning feed (the home page)',
         projects: 'the projects grid',
-        calendar: 'the global calendar',
         settings: 'the settings screen',
         workspace: 'a project workspace',
     };

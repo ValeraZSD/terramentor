@@ -220,7 +220,7 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                 Three things are wrong with that. A switch on the left is a
                 switch a thumb cannot reach one-handed, which is why every
                 phone OS puts them on the right. A fixed basis breaks rows that
-                fit perfectly well — "Week starts on" plus Monday/Sunday is
+                fit perfectly well — a short name plus a two-option switch was
                 303px of content inside a 347px card. And a wrapped row and an
                 unwrapped one read as two different kinds of setting when they
                 are the same kind.

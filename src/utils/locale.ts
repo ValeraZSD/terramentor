@@ -101,17 +101,6 @@ export function isoDayShort(iso: number): string {
 }
 
 /**
- * The full weekday name, by ISO day (1 = Monday … 7 = Sunday).
- *
- * Same reasoning as `isoDayLabel`, at the size a sentence needs: a weekday is
- * precisely the kind of word `Intl` already knows.
- */
-export function weekdayName(iso: number): string {
-    return new Intl.DateTimeFormat(uiLocale(), { weekday: 'long', timeZone: 'UTC' })
-        .format(new Date(Date.UTC(2021, 7, 1 + (iso % 7))));
-}
-
-/**
  * A day as a record names it: "12 Oct" this year, "12 Oct 2025" before it,
  * in the interface language. For "Finished 12 Oct" on a finished course.
  */
