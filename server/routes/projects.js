@@ -223,6 +223,11 @@ app.put('/api/projects/:id', (req, res) => {
 export const editRoutes = app.takeRoutes();
 
 app.delete('/api/projects/:id', (req, res) => {
+    // A missing id is not a deletion: it was answered `success` and logged as
+    // one, so a caller holding a wrong id was told the course was gone.
+    if (!db.prepare('SELECT 1 FROM projects WHERE id = ?').get(req.params.id)) {
+        return res.status(404).json({ error: 'Project not found' });
+    }
     // documents/document_chunks cascade via FK on this delete, but vec_chunks
     // and vault blobs don't — capture what's about to be removed first.
     const docs = db.prepare(

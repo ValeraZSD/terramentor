@@ -1,0 +1,92 @@
+// tools/project-route-gates.mjs — the project routes answer what happened.
+//
+// Run:  node tools/project-route-gates.mjs
+//
+// WHY. Two project routes said yes to things that did not happen:
+//   - DELETE /api/projects/:id of a project that does not exist answered
+//     `{ success: true }` and wrote "project.deleted" to the activity log, so
+//     a client (or an agent) that had the wrong id was told the course was
+//     gone, and the log claimed a deletion nobody made;
+//
+// The real app (`createApp()`) on a scratch library: DB_PATH, VAULT_ROOT and
+// DATA_DIR set IN-PROCESS before any server module is imported. The model is a
+// stub on loopback that refuses every call and counts them; nothing is billed
+// and the real local Ollama is never reached.
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from 'node:http';
+
+const scratch = mkdtempSync(join(tmpdir(), 'project-route-gates-'));
+process.env.DB_PATH = join(scratch, 'test.db');
+process.env.VAULT_ROOT = join(scratch, 'vault');
+process.env.DATA_DIR = scratch;
+
+let modelCalls = 0;
+const stub = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+        modelCalls++;
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { message: 'the stub refuses every call' } }));
+    });
+});
+await new Promise(r => stub.listen(0, '127.0.0.1', r));
+process.env.AI_PROVIDER = 'openai';
+process.env.AI_BASE_URL = `http://127.0.0.1:${stub.address().port}/v1`;
+process.env.AI_MODEL = 'stub-model';
+process.env.AI_API_KEY = 'stub-key';
+
+const B = new URL('../server/', import.meta.url).href;
+const { default: db } = await import(`${B}database.js`);
+const setSetting = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+setSetting.run('ai_enabled', 'true');
+setSetting.run('creation_find_resources', 'false');
+setSetting.run('embedding_enabled', 'false');
+setSetting.run('ui_language', 'en');
+const { createApp } = await import(`${B}app.js`);
+const { readActivity } = await import(`${B}activityLog.js`);
+
+const server = createServer(createApp());
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const base = `http://127.0.0.1:${server.address().port}`;
+
+let pass = 0, fail = 0;
+const ok = (label, cond, extra = '') => {
+    if (cond) { pass++; console.log(`  ok    ${label}`); }
+    else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${String(extra).slice(0, 300)}` : ''}`); }
+};
+const call = async (method, path, body) => {
+    const res = await fetch(base + path, {
+        method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const text = await res.text();
+    let json = null; try { json = JSON.parse(text); } catch { /* an SSE stream or plain text */ }
+    return { status: res.status, json, text };
+};
+const deletions = () => readActivity({ limit: 200, area: 'project' }).filter(r => r.event === 'project.deleted').length;
+
+// ---- DELETE of a project that is not there --------------------------------------
+console.log('\n=== deleting a project that does not exist ===');
+{
+    const before = deletions();
+    const missing = await call('DELETE', '/api/projects/987654');
+    ok('a missing id is a 404, not a success', missing.status === 404 && missing.json?.success !== true, `${missing.status} ${missing.text}`);
+    const word = await call('DELETE', '/api/projects/not-a-number');
+    ok('an id that is not a number is a 404 too', word.status === 404, `${word.status} ${word.text}`);
+    ok('…and the activity log records no deletion for either', deletions() === before, `${deletions() - before} logged`);
+
+    const pid = Number(db.prepare("INSERT INTO projects (name) VALUES ('Fixture: delete me')").run().lastInsertRowid);
+    const first = await call('DELETE', `/api/projects/${pid}`);
+    ok('a real project is deleted (200) and logged once', first.status === 200 && first.json?.success === true && deletions() === before + 1,
+        `${first.status} ${first.text}`);
+    const again = await call('DELETE', `/api/projects/${pid}`);
+    ok('deleting it a second time is a 404', again.status === 404 && deletions() === before + 1, `${again.status} ${again.text}`);
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+await new Promise(r => server.close(r));
+await new Promise(r => stub.close(r));
+try { db.close(); rmSync(scratch, { recursive: true, force: true }); } catch { /* a held WAL file is fine */ }
+process.exit(fail ? 1 : 0);
