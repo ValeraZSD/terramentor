@@ -505,6 +505,9 @@ function aiEnabled() {
     }
 }
 
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|overloaded|rate.?limit/;
+
 /**
  * Is this failure worth trying again? A transport timeout or a dropped socket
  * says nothing about the request — the same prompt may well succeed a second
@@ -514,10 +517,10 @@ function aiEnabled() {
  *
  * A status is read from the status, never from the text: the message names the
  * endpoint, and a port or host holding "503" made every plain 400 from it look
- * busy. Addresses are cut from the text before the words are read.
+ * busy. Addresses are cut from the text before the words are read. Only an
+ * error that carries no status at all (one raised mid-stream) is read for a
+ * 502/503/504 as a whole word.
  */
-const TRANSIENT_STATUSES = new Set([502, 503, 504]);
-const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|overloaded|rate.?limit/;
 export function isTransient(err, signal) {
     if (signal?.aborted) return false;
     const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
@@ -525,6 +528,7 @@ export function isTransient(err, signal) {
     const tagged = Number(err?.httpStatus ?? err?.status_code);
     const status = Number.isInteger(tagged) && tagged > 0 ? tagged : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
     if (TRANSIENT_STATUSES.has(status)) return true;
+    if (Number.isNaN(status) && /(?<![\d.:])50[234](?![\d.])/.test(msg)) return true;
     return TRANSIENT_WORDS.test(msg);
 }
 

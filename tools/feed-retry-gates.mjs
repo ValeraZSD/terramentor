@@ -96,6 +96,10 @@ check('nothing listening is transient (a fetch failure)', !!gone && isTransient(
 
 // The shapes with no HTTP status on them, as other callers raise them.
 check('a bare "failed (504)" message with no status field is transient', isTransient(new Error('Chat request failed (504)')) === true);
+check('a mid-stream error with no status that names 503 is transient',
+    isTransient(new Error('stream ended: upstream answered 503 Service Unavailable')) === true);
+check('…but not a port holding 503 in an address with no scheme',
+    isTransient(new Error('connect refused by 127.0.0.1:35030 (bad key)')) === false);
 check('a host named api503.example in a timeout-free 404 is not transient',
     isTransient(new Error('GET https://api503.example/v1/models failed (404)')) === false);
 // The Ollama client's ResponseError carries the code as `status_code`, and its
