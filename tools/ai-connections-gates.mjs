@@ -530,6 +530,12 @@ db.prepare('DELETE FROM ai_connections').run();
 del('ai_provider', 'ai_openai_base_url', 'ai_openai_model', 'ai_api_format', 'ai_active_connection');
 check('only a browser on this computer can reach the 127.0.0.1 callback',
     cauth.isLocalBrowser('http://127.0.0.1:5257') && cauth.isLocalBrowser('http://localhost:3001') && !cauth.isLocalBrowser('https://100.64.0.7:3001'));
+// The window leaves for OpenAI's page, so the desktop server is held open for
+// the attempt's whole life (server/signInHold.js), and let go when it ends.
+// The holds read one pinned instant until the callback below.
+const signInHold = await import('../server/signInHold.js');
+const HOLD_AT = 1_900_000_000_000;
+signInHold.setHoldClock(() => HOLD_AT);
 const { url: authorizeUrl } = await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257', returnPath: '/settings#ai' });
 const q = new URL(authorizeUrl).searchParams;
 check('a first sign-in registers dynamically, under the app\'s own name and a host id',
@@ -538,15 +544,20 @@ check('the callback is http://127.0.0.1:<port>/auth/callback, never localhost', 
 check('it asks for plan usage and the API resource, with an S256 challenge',
     q.get('scope').split(' ').includes('chatgpt.tokens.use.direct') && q.get('resource') === 'https://api.openai.com/v1' && q.get('code_challenge_method') === 'S256');
 check('the host id is the same on the next sign-in', cauth.hostId() === q.get('ext_agent_host_id'));
+check('a started sign-in holds the desktop server open for the attempt', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 const callback = q.get('redirect_uri');
 let cb = await fetch(`${callback}?code=c1&state=wrong`, { redirect: 'manual' });
 check('a callback with another attempt\'s state is refused and saves nothing', cb.status === 400 && conns.listConnections().connections.length === 0);
+check('…and the real attempt still holds the server open', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 auth.nonce = q.get('nonce');
 auth.tokenCalls = [];
 cb = await fetch(`${callback}?code=c1&state=${q.get('state')}&client_id=oaiapp_issued`, { redirect: 'manual' });
 const landed = new URL(cb.headers.get('location') || 'http://x/');
 check('the browser is sent back to the app\'s Settings, saying it connected', cb.status === 302 && landed.origin === 'http://127.0.0.1:5257' && landed.pathname === '/settings'
     && /^connected-\d+$/.test(landed.searchParams.get('chatgpt') || '') && landed.hash === '#ai', cb.headers.get('location'));
+// Ended at the pinned instant exactly: a hold that was never taken reads 0.
+check('the callback ended the attempt, and with it the hold', signInHold.heldUntil() === HOLD_AT, signInHold.heldUntil());
+signInHold.setHoldClock(null);
 const exchange = auth.tokenCalls[0] || {};
 check('the code is exchanged with the ISSUED client id and the verifier behind the challenge',
     exchange.client_id === 'oaiapp_issued' && createHash('sha256').update(exchange.code_verifier || '').digest('base64url') === q.get('code_challenge') && exchange.redirect_uri === callback);

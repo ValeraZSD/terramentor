@@ -33,6 +33,7 @@ import db from './database.js';
 import { credentialsOf, reconcile, saveCredentials } from './aiConnections.js';
 import { safeFetch } from './netSafety.js';
 import { readCappedJson } from './httpBody.js';
+import { holdOpen, releaseHold } from './signInHold.js';
 
 // A discovery document, a key set and a token answer are each a few kilobytes;
 // none has a reason to weigh a megabyte (httpBody.js).
@@ -144,6 +145,7 @@ let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connec
 
 function closePending() {
     try { pending?.server?.close(); } catch { /* already closed */ }
+    if (pending) releaseHold('chatgpt');
     pending = null;
 }
 
@@ -181,6 +183,9 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
     pending = { state, nonce, verifier, redirectUri, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`, at: Date.now(), server };
     setTimeout(() => { if (pending?.state === state) closePending(); }, ATTEMPT_TTL_MS).unref?.();
+    // The browser is about to leave the app's page for OpenAI's: hold the
+    // desktop server, and with it this callback, open until the attempt ends.
+    holdOpen('chatgpt', ATTEMPT_TTL_MS);
 
     const url = new URL(`${AUTH_BASE()}/api/accounts/authorize`);
     const q = url.searchParams;

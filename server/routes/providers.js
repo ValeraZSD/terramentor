@@ -13,6 +13,7 @@ import { routesProviders, wireFetch, wireOf } from '../aiWire.js';
 import { localEndpointFetch } from '../netSafety.js';
 import { readCappedJson } from '../httpBody.js';
 import { hasPlanSignIn } from '../chatgptAuth.js';
+import { holdOpen, releaseHold } from '../signInHold.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -153,6 +154,9 @@ app.post('/api/ai/openrouter/start', (req, res) => {
     const verifier = randomBytes(32).toString('base64url');
     const state = randomBytes(24).toString('base64url');
     openRouterPending = { verifier, state, at: Date.now() };
+    // The page is about to leave for openrouter.ai: hold the desktop server
+    // open for the return (server/signInHold.js) until the attempt is spent.
+    holdOpen('openrouter', OPENROUTER_CONNECT_TTL_MS);
     const url = new URL('https://openrouter.ai/auth');
     url.searchParams.set('callback_url', callback.toString());
     url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
@@ -169,6 +173,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
     const pending = openRouterPending;
     if (!pending || Date.now() - pending.at > OPENROUTER_CONNECT_TTL_MS) {
         openRouterPending = null;
+        releaseHold('openrouter');
         return res.status(400).json({ error: 'This connection attempt has expired. Press Connect again.' });
     }
     // Checked BEFORE the attempt is spent: a return that is not this one
@@ -177,6 +182,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
         return res.status(400).json({ error: 'This sign-in did not come from the Connect button on this app. Press Connect again.' });
     }
     openRouterPending = null;   // single use, whatever happens next
+    releaseHold('openrouter');
     let key = '';
     try {
         const upstream = await fetch(`${OPENROUTER_BASE_URL}/auth/keys`, {
