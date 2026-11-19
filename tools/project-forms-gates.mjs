@@ -353,7 +353,7 @@ section('a delete of a project already gone still refreshes the list');
     w.close();
 }
 
-section('a delete that fails because the server is down says so once');
+section('a delete that fails while the server is down shows one error toast');
 {
     const { w, g } = page(() => ({ ok: false, status: 503, body: { error: 'Service unavailable' } }));
     g.useStore.setState({ projects: [{ id: 7, name: 'Still here', kind: 'curriculum' }], toasts: [] });
