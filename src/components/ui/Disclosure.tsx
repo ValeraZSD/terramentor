@@ -153,8 +153,8 @@ export function Explain({ summary, children, className = '', onToggle, defaultOp
                 // a setting's name without reading as a footnote.
                 className={cx(
                     'flex w-full items-center gap-1.5 rounded -mx-2 px-2 py-1.5 touch:min-h-11',
-                    // A shade darker than the body it opens: in the body's own
-                    // grey it read as a caption, not as something to press.
+                    // A shade darker than the body it opens: in the same grey
+                    // as the body it read as a caption, not as something to press.
                     'text-sm font-medium text-slate-700 hover:text-accent-fg dark:text-slate-200',
                     SUMMARY_BASE,
                 )}
