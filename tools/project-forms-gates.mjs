@@ -353,5 +353,17 @@ section('a delete of a project already gone still refreshes the list');
     w.close();
 }
 
+section('a delete that fails because the server is down says so once');
+{
+    const { w, g } = page(() => ({ ok: false, status: 503, body: { error: 'Service unavailable' } }));
+    g.useStore.setState({ projects: [{ id: 7, name: 'Still here', kind: 'curriculum' }], toasts: [] });
+    await g.useStore.getState().deleteProject(7);
+    await settle();
+    const errors = g.useStore.getState().toasts.filter(t => t.type === 'error');
+    check('one error toast, the delete\'s own (the list re-read stays quiet)',
+        errors.length === 1 && /delete/i.test(errors[0]?.message || errors[0]?.title || ''), JSON.stringify(errors));
+    w.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
