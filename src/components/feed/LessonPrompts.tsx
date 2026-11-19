@@ -224,28 +224,34 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 region that arrives already holding its text is not reliably
                 announced. */}
             <div aria-live="polite">
-                {verdict && (
-                    // Rewritten, the verdict is about words no longer in the
-                    // box: it folds to one grey line that says so. A reason
-                    // left in full under new words read as the mark of THEM,
-                    // greyed or not (and greyed, it was hard to read).
+                {verdict && !edited && (
                     <div key={round} className="mt-4">
-                        {/* Folded, hidden from the live region: otherwise the
-                            first keystroke of a rewrite was read out. */}
-                        <p aria-hidden={edited || undefined} className={cx('flex items-center gap-1.5 text-sm font-semibold', edited ? 'text-slate-500 dark:text-slate-400' : look.tone)}>
-                            {/* Folded, a clock-back mark: the dashed circle
-                                read as something still being marked. */}
-                            {edited ? <History className="w-4 h-4 shrink-0" aria-hidden="true" /> : <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />}
-                            {edited ? t("Before your edit: {{verdict}}", { verdict: look.label }) : look.label}
+                        <p className={cx('flex items-center gap-1.5 text-sm font-semibold', look.tone)}>
+                            <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
+                            {look.label}
                         </p>
-                        {!edited && (verdict.reason
+                        {verdict.reason
                             ? <p className="mt-1">{verdict.reason}</p>
                             : verdict.verdict === 'unsure' && (
                                 <p className="mt-1">{t("The marker gave no clear verdict on this one. Compare it with the part yourself.")}</p>
-                            ))}
+                            )}
                     </div>
                 )}
             </div>
+            {/* Rewritten, the verdict is about words no longer in the box: it
+                folds to one grey line that says so. A reason left in full
+                under new words read as the mark of THEM, greyed or not (and
+                greyed, it was hard to read). The folded line sits OUTSIDE the
+                live region, so the first keystroke of a rewrite is not read
+                out, and is not aria-hidden, so a screen reader can still find
+                what the earlier words were marked. Its clock-back mark: the
+                dashed circle read as something still being marked. */}
+            {verdict && edited && (
+                <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
+                    <History className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    {t("Before your edit: {{verdict}}", { verdict: look.label })}
+                </p>
+            )}
             {/* Weak, the next step is to rewrite: "Check again" appears,
                 filled, only once the words change. Before the first check
                 the button shows, off, from the start: hidden, the box

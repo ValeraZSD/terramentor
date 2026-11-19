@@ -166,7 +166,8 @@ if (ExplainBack) {
         ok('weak, rewritten: the old verdict loses its warning colour', !!label() && !/amber/.test(label().className), label()?.className);
         ok('weak, rewritten: the old verdict says it is about the earlier words', /^Before your edit: Not there yet$/.test(label()?.textContent.trim() ?? ''), label()?.textContent);
         ok('weak, rewritten: the old reason folds away (it read as the mark of the new words)', ![...host.querySelectorAll('p')].some(p => p.textContent === WEAK.reason));
-        ok('weak, rewritten: the folded line is kept out of the live region (no read-out per keystroke)', label()?.getAttribute('aria-hidden') === 'true', label()?.outerHTML.slice(0, 80));
+        ok('weak, rewritten: the folded line is outside the live region (no read-out per keystroke)', !!label() && !label().closest('[aria-live]'), label()?.parentElement?.outerHTML.slice(0, 80));
+        ok('weak, rewritten: the folded line stays readable to a screen reader (not aria-hidden)', !!label() && !label().closest('[aria-hidden="true"]'), label()?.outerHTML.slice(0, 80));
         await setText(host, '');
         ok('weak, box emptied: no "Check again" that is off, back to the rewrite step', JSON.stringify(buttons(host)) === '["Read the part again"]', JSON.stringify(buttons(host)));
         await setText(host, 'The length sets the period, not the mass.');
