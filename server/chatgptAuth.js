@@ -92,17 +92,51 @@ async function openidConfig() {
 export function resetChatgptAuthState() { discovery = null; pending = null; }
 
 /**
+ * What a log line may say about an ID token that failed a check: how its
+ * issuer, audience, party, times and nonce compare with what this attempt
+ * expected. Never its subject, email or the token itself.
+ */
+function tokenShape(claims, { issuer, clientId, nonce, nowSec }) {
+    const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    const party = claims.azp === undefined ? 'absent' : claims.azp === clientId ? 'this client' : 'another client';
+    return [
+        `iss ${claims.iss === issuer ? 'as expected' : `"${printable(claims.iss, 80)}"`}`,
+        `aud ${aud.length} (this client ${aud.includes(clientId) ? 'among them' : 'not among them'})`,
+        `azp ${party}`,
+        `exp ${Number(claims.exp) - nowSec}s from now`,
+        `iat ${claims.iat === undefined ? 'absent' : `${Number(claims.iat) - nowSec}s from now`}`,
+        `nonce ${claims.nonce === undefined ? 'absent' : claims.nonce === nonce ? 'matches' : 'differs'}`,
+    ].join(', ');
+}
+
+/** A string safe for one log line: no control characters, at most `max` long. */
+function printable(s, max = 200) {
+    return [...String(s ?? '')].filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127).join('').slice(0, max);
+}
+
+/**
  * Verify an ID token: signature against the published keys, issuer, audience,
- * expiry and nonce. Returns its claims, or throws saying which check failed.
+ * expiry and nonce. Returns its claims, or throws saying which check failed:
+ * the error's `reason` is `id_token:<check>` and, once the claims could be
+ * read, its `shape` says how they differ from what was expected.
  * Pure apart from the keys handed in.
  */
 export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec = Math.floor(Date.now() / 1000) }) {
+    let claims = null;
+    const refuse = (check, message) => Object.assign(new Error(message), {
+        reason: `id_token:${check}`,
+        shape: claims ? tokenShape(claims, { issuer, clientId, nonce, nowSec }) : '',
+    });
     const parts = String(idToken || '').split('.');
-    if (parts.length !== 3) throw new Error('The ID token is not a JWT');
-    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
-    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    const jwk = (jwks?.keys || []).find(k => k.kid === header.kid) || (jwks?.keys?.length === 1 ? jwks.keys[0] : null);
-    if (!jwk) throw new Error('The ID token was signed with a key OpenAI does not publish');
+    if (parts.length !== 3) throw refuse('not_jwt', 'The ID token is not a JWT');
+    let header;
+    try {
+        header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+        claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    } catch { throw refuse('not_jwt', 'The ID token is not a JWT'); }
+    if (!claims || typeof claims !== 'object') { claims = null; throw refuse('not_jwt', 'The ID token is not a JWT'); }
+    const jwk = (jwks?.keys || []).find(k => k.kid === header?.kid) || (jwks?.keys?.length === 1 ? jwks.keys[0] : null);
+    if (!jwk) throw refuse('unknown_key', 'The ID token was signed with a key OpenAI does not publish');
     // The algorithm named in the token's header is the token's own claim, so it
     // is held against the KEY: an RS256 token is checked only with an RSA key
     // and an ES256 one only with a P-256 key, a key the publisher pinned to an
@@ -114,27 +148,27 @@ export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec =
         RS256: { digest: 'RSA-SHA256', opts: {}, kty: 'RSA' },
         ES256: { digest: 'SHA256', opts: { dsaEncoding: 'ieee-p1363' }, kty: 'EC', crv: 'P-256' },
     };
-    const alg = algs[header.alg];
-    if (!alg) throw new Error(`Unsupported ID token algorithm ${header.alg}`);
-    if (jwk.kty !== alg.kty || (alg.crv && jwk.crv !== alg.crv)) throw new Error('The ID token names an algorithm its signing key is not for');
-    if (jwk.alg !== undefined && jwk.alg !== header.alg) throw new Error('The ID token names an algorithm its signing key is not for');
-    if (jwk.use !== undefined && jwk.use !== 'sig') throw new Error('The ID token was signed with a key that is not for signatures');
+    const alg = algs[header?.alg];
+    if (!alg) throw refuse('alg', `Unsupported ID token algorithm ${printable(header?.alg, 20)}`);
+    if (jwk.kty !== alg.kty || (alg.crv && jwk.crv !== alg.crv)) throw refuse('alg', 'The ID token names an algorithm its signing key is not for');
+    if (jwk.alg !== undefined && jwk.alg !== header.alg) throw refuse('alg', 'The ID token names an algorithm its signing key is not for');
+    if (jwk.use !== undefined && jwk.use !== 'sig') throw refuse('key_use', 'The ID token was signed with a key that is not for signatures');
     const key = createPublicKey({ key: jwk, format: 'jwk' });
     const ok = verifySignature(alg.digest, Buffer.from(`${parts[0]}.${parts[1]}`), { key, ...alg.opts }, Buffer.from(parts[2], 'base64url'));
-    if (!ok) throw new Error('The ID token signature does not verify');
-    if (claims.iss !== issuer) throw new Error('The ID token is from another issuer');
+    if (!ok) throw refuse('signature', 'The ID token signature does not verify');
+    if (claims.iss !== issuer) throw refuse('issuer', 'The ID token is from another issuer');
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (!aud.includes(clientId)) throw new Error('The ID token was issued to another client');
+    if (!aud.includes(clientId)) throw refuse('audience', 'The ID token was issued to another client');
     // OpenID Connect Core 3.1.3.7: a token with more than one audience, or one
     // that names its authorized party, must name THIS client as that party —
     // otherwise a token issued to another client that merely lists us too
     // would pass.
-    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== clientId) throw new Error('The ID token was issued to another client');
-    if (!(Number(claims.exp) > nowSec)) throw new Error('The ID token has expired');
+    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== clientId) throw refuse('party', 'The ID token was issued to another client');
+    if (!(Number(claims.exp) > nowSec)) throw refuse('expired', 'The ID token has expired');
     // Issued in the future means a wrong clock or a forged token; five minutes
     // of slack covers an ordinary clock drift between here and OpenAI.
-    if (claims.iat !== undefined && !(Number(claims.iat) <= nowSec + 300)) throw new Error('The ID token was issued in the future');
-    if (nonce && claims.nonce !== nonce) throw new Error('The ID token answers another sign-in attempt');
+    if (claims.iat !== undefined && !(Number(claims.iat) <= nowSec + 300)) throw refuse('future', 'The ID token was issued in the future');
+    if (nonce && claims.nonce !== nonce) throw refuse('nonce', 'The ID token answers another sign-in attempt');
     return claims;
 }
 
@@ -200,9 +234,10 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     return { url: url.toString() };
 }
 
-function redirect(res, to, outcome) {
+function redirect(res, to, outcome, reason = null) {
     const u = new URL(to);
     u.searchParams.set('chatgpt', outcome);
+    if (reason) u.searchParams.set('chatgpt_reason', reason);
     // Keep the hash (Settings' tab) after the query.
     const target = `${u.origin}${u.pathname}${u.search}${new URL(to).hash}`;
     res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
@@ -235,27 +270,57 @@ async function handleCallback(req, res) {
         return;
     }
     closePending();   // one callback per attempt, whatever it says
-    if (q.get('error')) { redirect(res, attempt.returnUrl, q.get('error') === 'access_denied' ? 'declined' : 'failed'); return; }
+    // A failure names its step: `reason` is a short code from a closed list
+    // (Settings shows it under "did not complete", so a report can say which
+    // step failed) and the log line adds OpenAI's own words or how the ID
+    // token differed. Neither carries a token, the code or who signed in.
+    const fail = (reason, detail = '') => {
+        console.log(`[chatgpt] sign-in failed: ${reason}${detail ? ` (${printable(detail, 400)})` : ''}`);
+        redirect(res, attempt.returnUrl, 'failed', reason);
+    };
+    const error = q.get('error');
+    if (error === 'access_denied') { console.log('[chatgpt] sign-in declined at OpenAI'); redirect(res, attempt.returnUrl, 'declined'); return; }
+    if (error) { fail(`provider:${oauthCode(error)}`, q.get('error_description') || error); return; }
     const issued = q.get('client_id');
     let clientId = attempt.clientId;
     if (clientId === 'dynamic_agent_client') {
-        if (!issued) { redirect(res, attempt.returnUrl, 'failed'); return; }
+        if (!issued) { fail('no_client_id', 'a first sign-in came back without the client id OpenAI issued'); return; }
         clientId = issued;
-    } else if (issued && issued !== clientId) { redirect(res, attempt.returnUrl, 'failed'); return; }
+    } else if (issued && issued !== clientId) { fail('client_mismatch', 'the callback named another client id than this account\'s'); return; }
+    let tokens;
     try {
-        const tokens = await tokenRequest({
+        tokens = await tokenRequest({
             grant_type: 'authorization_code', client_id: clientId, code: q.get('code') || '',
             code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri, resource: API_RESOURCE,
         });
-        const { doc, jwks } = await openidConfig();
-        const claims = verifyIdToken(tokens.id_token, { jwks, issuer: doc.issuer || AUTH_BASE(), clientId, nonce: attempt.nonce });
-        const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
-        const id = saveSignIn({ claims, tokens, scopes, clientId, connectionId: attempt.connectionId });
-        redirect(res, attempt.returnUrl, scopes.includes(PLAN_SCOPE) ? `connected-${id}` : 'noplan');
     } catch (err) {
-        console.log(`[chatgpt] sign-in failed: ${err?.code || err?.message || err}`);
-        redirect(res, attempt.returnUrl, 'failed');
+        // OpenAI's error code; else the HTTP status; else what the network
+        // said (a DOMException's numeric `code` is not one of these).
+        const code = typeof err?.code === 'string' ? oauthCode(err.code)
+            : err?.httpStatus ? `http_${err.httpStatus}`
+            : oauthCode(err?.cause?.code || err?.name);
+        fail(`token:${code}`, err?.message);
+        return;
     }
+    let doc, jwks;
+    try { ({ doc, jwks } = await openidConfig()); } catch (err) { fail('discovery', err?.message); return; }
+    let claims;
+    try {
+        claims = verifyIdToken(tokens.id_token, { jwks, issuer: doc.issuer || AUTH_BASE(), clientId, nonce: attempt.nonce });
+    } catch (err) {
+        fail(err?.reason || 'id_token:other', [err?.message, err?.shape].filter(Boolean).join('; '));
+        return;
+    }
+    const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
+    let id;
+    try { id = saveSignIn({ claims, tokens, scopes, clientId, connectionId: attempt.connectionId }); } catch (err) { fail(`save:${oauthCode(err?.code)}`, err?.message); return; }
+    redirect(res, attempt.returnUrl, scopes.includes(PLAN_SCOPE) ? `connected-${id}` : 'noplan');
+}
+
+/** An error code as the address may carry it: OAuth's shape, or "other". */
+function oauthCode(s) {
+    const v = String(s ?? '').toLowerCase();
+    return /^[a-z0-9_.-]{1,48}$/.test(v) ? v : 'other';
 }
 
 function credentialRecord({ claims, tokens, scopes, clientId }, previous = {}) {

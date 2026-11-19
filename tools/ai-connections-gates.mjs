@@ -142,10 +142,11 @@ const authStub = createServer(async (req, res) => {
             issuedTokens++;
             return json(200, { access_token: `access-${issuedTokens}`, refresh_token: `refresh-${issuedTokens}`, expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
         }
+        if (auth.codeScript) return auth.codeScript(json, form);
         const now = Math.floor(Date.now() / 1000);
         return json(200, {
             access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 3600, scope: auth.scope, token_type: 'Bearer',
-            id_token: jwt({ iss: AUTH_BASE, aud: form.client_id, sub: 'user-sub-1', email: 'learner@example.com', exp: now + 3600, iat: now, nonce: auth.nonce }),
+            id_token: jwt({ iss: AUTH_BASE, aud: form.client_id, sub: 'user-sub-1', email: 'learner@example.com', exp: now + 3600, iat: now, nonce: auth.nonce, ...auth.idClaims }),
         });
     }
     res.writeHead(404); res.end();
@@ -581,6 +582,66 @@ check('signing in again reuses the issued client id, sends the account hints and
 auth.nonce = 'some-other-nonce';
 cb = await fetch(`${q2.get('redirect_uri')}?code=c2&state=${q2.get('state')}`, { redirect: 'manual' });
 check('an ID token answering another attempt (wrong nonce) is rejected', new URL(cb.headers.get('location')).searchParams.get('chatgpt') === 'failed');
+
+// A sign-in that fails says which step failed: in the address the browser lands
+// on (a short code from a closed list, for the toast) and in the log (with
+// OpenAI's own words). Every failure used to land as a bare "failed", and three
+// of the four ways logged nothing, so a learner's report could not say which.
+{
+    const logged = [];
+    const realLog = console.log;
+    const fresh = async (connectionId = null) => {
+        const { url } = await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257', connectionId });
+        const sq = new URL(url).searchParams;
+        auth.nonce = sq.get('nonce');
+        return sq;
+    };
+    const answer = async (sq, query) => {
+        logged.length = 0;
+        console.log = (...a) => { logged.push(a.join(' ')); };
+        try {
+            const r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&${query}`, { redirect: 'manual' });
+            const u = new URL(r.headers.get('location') || 'http://x/');
+            return { outcome: u.searchParams.get('chatgpt'), reason: u.searchParams.get('chatgpt_reason'), hash: u.hash, log: logged.join('\n') };
+        } finally { console.log = realLog; }
+    };
+    const saved = () => conns.listConnections().connections.length;
+    const before = saved();
+
+    let a = await answer(await fresh(), 'error=server_error&error_description=Agent%20registration%20failed');
+    check('an error OpenAI sends back is named: its code in the address, its description in the log',
+        a.outcome === 'failed' && a.reason === 'provider:server_error' && a.hash === '#ai'
+        && /\[chatgpt\] sign-in failed: provider:server_error/.test(a.log) && /Agent registration failed/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(), `error=${encodeURIComponent('<b>call 0800</b>')}`);
+    check('…an error code outside the OAuth shape is not echoed into the address', a.outcome === 'failed' && a.reason === 'provider:other', JSON.stringify(a));
+    a = await answer(await fresh(), 'error=access_denied');
+    check('a declined consent stays "declined" and is logged as one', a.outcome === 'declined' && /declined/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(), 'code=c4');
+    check('a first sign-in that comes back without an issued client id says so', a.outcome === 'failed' && a.reason === 'no_client_id' && /no_client_id/.test(a.log), JSON.stringify(a));
+    a = await answer(await fresh(chat.id), 'code=c5&client_id=oaiapp_someone_else');
+    check('a sign-in again that comes back with another client id says so', a.outcome === 'failed' && a.reason === 'client_mismatch', JSON.stringify(a));
+
+    auth.codeScript = (json) => json(400, { error: 'invalid_grant', error_description: 'Code already used' });
+    a = await answer(await fresh(), 'code=c6&client_id=oaiapp_three');
+    check('a code exchange OpenAI refuses names its error code, and the log its words',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && /Code already used/.test(a.log), JSON.stringify(a));
+    auth.codeScript = (json) => json(502, '<html>bad gateway</html>');
+    a = await answer(await fresh(), 'code=c7&client_id=oaiapp_three');
+    check('…and an exchange answered with no error code names the HTTP status', a.reason === 'token:http_502', JSON.stringify(a));
+    auth.codeScript = null;
+
+    auth.idClaims = { aud: ['oaiapp_three', 'https://api.openai.com/v1'] };
+    a = await answer(await fresh(), 'code=c8&client_id=oaiapp_three');
+    check('an ID token check that fails names the check, and the log shows the token\'s shape (no identity)',
+        a.reason === 'id_token:party' && /aud 2/.test(a.log) && /azp absent/.test(a.log)
+        && !/learner@example\.com|user-sub-1|access-1|refresh-1|eyJ/.test(a.log), JSON.stringify(a));
+    auth.idClaims = { nonce: 'not-this-attempt' };
+    a = await answer(await fresh(), 'code=c9&client_id=oaiapp_three');
+    check('…a nonce from another attempt is named as that', a.reason === 'id_token:nonce', JSON.stringify(a));
+    auth.idClaims = undefined;
+
+    check('none of the failed sign-ins saved a connection', saved() === before);
+}
 
 // One fixed instant for every expiry below: an assertion must not read the clock.
 const PINNED_NOW = 1_790_000_000;
