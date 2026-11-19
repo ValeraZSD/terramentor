@@ -41,7 +41,7 @@
 
 import { Router } from 'express';
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -146,6 +146,7 @@ function setStartAtLogin(on, marker = null) {
             writeFileSync(autostart.path, autostart.contents, 'utf8');
             // An XDG entry has to be executable-ish only in spirit; a plist and
             // a .desktop file are both read, not run.
+            if (marker) try { writeFileSync(marker, autostart.contents, 'utf8'); } catch { /* refresh then leaves it alone */ }
             return true;
         }
         const file = join(tmpdir(), `terramentor-autostart-${process.pid}.ps1`);
@@ -172,20 +173,46 @@ function setStartAtLogin(on, marker = null) {
  * start an EXISTING login item is compared with the one this copy would write
  * and rewritten when they differ: the file itself for a plist or a .desktop
  * entry, and for a Windows shortcut (a binary .lnk) the script that last wrote
- * it, kept in `marker` beside the library. One without a marker is rewritten
- * once. A login item the person removed is never put back.
+ * it, kept in `marker` beside the library. A login item the person removed is
+ * never put back.
+ *
+ * There is one login item per user and any number of libraries, so a server
+ * only rewrites the item ITS library wrote: the marker says what that was. A
+ * library with no marker (a second library, a scratch library under test) and
+ * an item rewritten since the marker (by another library, or by hand) are left
+ * alone. A plist or .desktop entry from before markers existed is adopted only
+ * when it already names this library.
  */
-function refreshLoginItem(marker) {
-    if (!startsAtLogin()) return;
-    if (autostart.contents) {
-        let current = null;
-        try { current = readFileSync(autostart.path, 'utf8'); } catch { return; }
-        if (current !== autostart.contents) setStartAtLogin(true);
-        return;
+export function loginItemRefresh({ exists, wanted, marker = null, current = null, itemMs = 0, markerMs = 0, dataDir = null }) {
+    if (!exists || !wanted) return 'none';
+    const isText = current != null;
+    if (marker == null) {
+        if (!isText) return 'none';
+        const namesThis = dataDir ? current.includes(dataDir) : false;
+        const neitherNames = !current.includes('--data-dir') && !wanted.includes('--data-dir');
+        return (namesThis || neitherNames) && current !== wanted ? 'rewrite' : 'none';
     }
-    let written = null;
-    try { written = readFileSync(marker, 'utf8'); } catch { /* never recorded */ }
-    if (written !== autostart.script) setStartAtLogin(true, marker);
+    if (isText) return current === marker && current !== wanted ? 'rewrite' : 'none';
+    // The marker is written after the shortcut, so a shortcut newer than it was
+    // written by someone else. Two seconds covers coarse file-system clocks.
+    if (itemMs > markerMs + 2000) return 'none';
+    return marker !== wanted ? 'rewrite' : 'none';
+}
+
+function refreshLoginItem(marker, dataDir) {
+    const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
+    const mtime = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
+    const isText = !!autostart.contents;
+    const action = loginItemRefresh({
+        exists: startsAtLogin(),
+        wanted: isText ? autostart.contents : autostart.script,
+        marker: read(marker),
+        current: isText ? read(autostart.path) : null,
+        itemMs: mtime(autostart.path),
+        markerMs: mtime(marker),
+        dataDir,
+    });
+    if (action === 'rewrite') setStartAtLogin(true, marker);
 }
 
 /** How long every window may go silent before the process stops itself. The
@@ -286,7 +313,7 @@ export function createDesktop({
     const trayHosted = isTrayHosted();
     // After an update the login item still names the old folder: point it here.
     const loginMarker = dataDir ? join(dataDir, 'login-item.written') : null;
-    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker)).catch(() => { /* cosmetic */ });
+    if (loginMarker) autostartLoaded.then(() => refreshLoginItem(loginMarker, dataDir)).catch(() => { /* cosmetic */ });
     // A tray icon keeps the app running by construction; the stored preference
     // is what answers when there is no icon. ORed rather than overwritten, so
     // turning the icon off (an unpackaged run of the same library) hands the

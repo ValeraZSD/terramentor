@@ -22,7 +22,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import express from 'express';
 import { resolveDataPaths, userDataDir, DATA_FOLDER_NAME, libraryId } from '../server/paths.js';
-import { createDesktop, shouldShutDown, openFolderCommand, IDLE_MS, BYE_GRACE_MS, NOT_DESKTOP, libraryFallbackFromEnv } from '../server/desktop.js';
+import { createDesktop, shouldShutDown, openFolderCommand, IDLE_MS, BYE_GRACE_MS, NOT_DESKTOP, libraryFallbackFromEnv, loginItemRefresh } from '../server/desktop.js';
 import {
     chooseDataDir, readLibraryPointer, libraryPointerFile, LIBRARY_POINTER, LAST_LIBRARY,
     libraryFallbackNotice,
@@ -925,6 +925,24 @@ console.log('\n--- the log file and the shortcut ---');
     check('the app moved and the shortcut is there: it is pointed here', startMenuShortcutAction({ marker: before, target: here, shortcutExists: true }), 'update');
     check('the app moved and the shortcut was deleted: it stays deleted', startMenuShortcutAction({ marker: before, target: here, shortcutExists: false }), 'none');
     check('a pre-fix marker (a timestamp) with the shortcut there: one rewrite', startMenuShortcutAction({ marker: '2026-09-21T10:00:00.000Z', target: here, shortcutExists: true }), 'update');
+
+    // One login item per user, any number of libraries: a server rewrites only
+    // the item its own library wrote (a scratch library under test once
+    // repointed a real user's login item at itself).
+    const oldScript = 'shortcut -> C:\\Apps\\Terramentor-1.0.0', newScript = 'shortcut -> C:\\Apps\\Terramentor-1.0.1';
+    const win = { exists: true, wanted: newScript, itemMs: 1000, markerMs: 1500 };
+    check('login item: this library wrote it and the app moved: rewritten', loginItemRefresh({ ...win, marker: oldScript }), 'rewrite');
+    check('login item: already what this copy writes: left', loginItemRefresh({ ...win, marker: newScript }), 'none');
+    check('login item: this library never wrote one: left', loginItemRefresh({ ...win, marker: null }), 'none');
+    check('login item: rewritten since (another library, or by hand): left', loginItemRefresh({ ...win, marker: oldScript, itemMs: 60_000 }), 'none');
+    check('login item: the person removed it: not put back', loginItemRefresh({ ...win, exists: false, marker: oldScript }), 'none');
+    const plist = (exe, dir) => `<string>${exe}</string>${dir ? `<string>--data-dir</string><string>${dir}</string>` : ''}`;
+    const txt = { exists: true, wanted: plist('/new/app', '/lib/a'), dataDir: '/lib/a' };
+    check('text login item still as this library wrote it: rewritten', loginItemRefresh({ ...txt, marker: plist('/old/app', '/lib/a'), current: plist('/old/app', '/lib/a') }), 'rewrite');
+    check('text login item changed since this library wrote it: left', loginItemRefresh({ ...txt, marker: plist('/old/app', '/lib/a'), current: plist('/old/app', '/lib/b') }), 'none');
+    check('text login item from before markers, naming this library: adopted', loginItemRefresh({ ...txt, current: plist('/old/app', '/lib/a') }), 'rewrite');
+    check('text login item from before markers, naming another library: left', loginItemRefresh({ ...txt, current: plist('/old/app', '/lib/b') }), 'none');
+    check('text login item for the default library, server on a scratch one: left', loginItemRefresh({ ...txt, current: plist('/old/app') }), 'none');
 }
 
 // ---------------------------------------------------------------------------

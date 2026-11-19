@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
     START_LOCK, START_LOCK_MAX_MS, claimStartLock, readStartLock, startLockLive, markStartLockUp,
-    releaseStartLock, settleStart, pidAlive,
+    releaseStartLock, settleStart, pidAlive, autostartPlan,
 } from '../desktop/lib.js';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -257,6 +257,18 @@ try {
         const port = 39000 + Math.floor(Math.random() * 800);
         const env = { ...process.env };
         for (const k of ['DATA_DIR', 'DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH', 'PORT', 'TERRAMENTOR_TRAY']) delete env[k];
+        // A scratch home, so nothing these launchers write per user (the login
+        // item, the Start Menu shortcut) can reach the real one. Inside it, a
+        // login item some other library wrote: a server on this scratch library
+        // must leave it exactly as it is.
+        const home = freshDir();
+        Object.assign(env, { HOME: home, USERPROFILE: home, APPDATA: join(home, 'Roaming'), LOCALAPPDATA: join(home, 'Local'), XDG_CONFIG_HOME: join(home, '.config') });
+        const loginItem = autostartPlan({ target: process.execPath, env, home });
+        const sentinel = 'a login item written for another library\n';
+        if (loginItem.supported) {
+            mkdirSync(dirname(loginItem.path), { recursive: true });
+            writeFileSync(loginItem.path, sentinel);
+        }
         // --data-dir is set in the launcher's own process (it writes DATA_DIR
         // before importing the server); VAULT_ROOT and the secrets file follow it.
         const args = [join(repoRoot, 'desktop', 'launcher.js'), '--no-window', '--data-dir', dataDir, '--port', String(port)];
@@ -290,6 +302,15 @@ try {
             check('the server releases its lock when it stops', existsSync(lockIn(dataDir)), false);
         }
         for (const p of [a, b]) if (p.exited === null) p.child.kill();
+        if (loginItem.supported) {
+            // A rewrite runs PowerShell on Windows, which lands a second or two
+            // after the server asked for it.
+            const until = Date.now() + 4000;
+            const read = () => { try { return readFileSync(loginItem.path, 'utf8'); } catch { return null; } };
+            while (Date.now() < until && read() === sentinel) await new Promise((r) => setTimeout(r, 250));
+            // A yes/no: a rewritten .lnk is binary and names the machine and the user.
+            check("a server on another library leaves the user's login item alone", read() === sentinel, true);
+        }
     }
 } finally {
     try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a server still closing */ }
