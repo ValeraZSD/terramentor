@@ -176,7 +176,15 @@ check('the calendar shows the derived week', firstOpen?.scheduled_start === morn
 const plan = generateDailyPlan(pid, 14, later);
 check('the daily plan lists no overdue topic after a missed week', plan.overdueTasks.length === 0, JSON.stringify(plan.overdueTasks));
 check('the daily plan has today\'s topic', plan.todayTasks.length > 0);
-const pace = calculatePace(pid);
+const pace = calculatePace(pid, opts(later));
+// The feed's focus list on a requested day: the pace it reads on the way must
+// not re-lay the shared plan for the real today under its queries (the real
+// today is months after this course's deadline, so nothing would be due).
+const { getFocusNodes } = await import('../server/feed.js');
+const focusInfo = getFocusNodes({ projectId: pid, now: Date.parse(`${later}T12:00:00Z`) })
+    .projectInfos.find(i => i.project.id === pid);
+check('the feed\'s focus on a requested day keeps that day\'s topics', focusInfo?.todays.length > 0,
+    JSON.stringify(focusInfo?.todays));
 check('the old pace readout counts nothing overdue from stale rows', pace.hasSchedule && pace.paceStatus !== 'critical', JSON.stringify(pace));
 
 // 13. SQLite's own timestamp shape has no zone and is UTC: 22:30 on 9 March

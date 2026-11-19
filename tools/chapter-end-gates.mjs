@@ -27,6 +27,17 @@ const check = (label, cond, extra = '') => {
     else { fail++; console.log(`  FAIL  ${label}${extra ? ` — ${extra}` : ''}`); }
 };
 
+// The clock is PINNED, never read: topic dates are laid from the learner's day
+// (server/topicDates.js), so the fixture's dates and the layout must come from
+// one instant. Noon UTC, with the learner's zone set to UTC below, keeps both
+// on the same day. A constructor with arguments still builds that date.
+const PINNED_MS = Date.parse('2026-03-04T12:00:00Z');
+const RealDate = globalThis.Date;
+globalThis.Date = class PinnedDate extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [PINNED_MS])); }
+    static now() { return PINNED_MS; }
+};
+
 const db = (await import('../server/database.js')).default;
 const { ROLE_TOPIC } = await import('../server/nodeRole.js');
 const { composeFeed } = await import('../server/feed.js');
@@ -36,7 +47,9 @@ if (db.name !== process.env.DB_PATH) {
     console.log(`refusing to run: the database is ${db.name}, not the scratch file`);
     process.exit(1);
 }
-db.prepare("INSERT INTO settings (key, value) VALUES ('ai_enabled', 'false') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+for (const [key, value] of [['ai_enabled', 'false'], ['time_zone', 'UTC']]) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
 
 const day = (n) => new Date(Date.now() + n * 86400000).toISOString().split('T')[0];
 // A window that ends today: its topic dates are derived (server/topicDates.js),

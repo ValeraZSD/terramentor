@@ -494,9 +494,18 @@ const freshRoot = mkIn(freshId, 'Week one', null, 0);
 for (let i = 0; i < 6; i++) mkIn(freshId, `Day ${i + 1}`, freshRoot, i);
 const freshAlloc = allocateSchedule(freshId, TODAY, addDays(TODAY, 2), EVERY_DAY);
 persistSchedule(freshId, freshAlloc.assignments, freshAlloc.baselineSnapshot, { startDate: TODAY, deadline: addDays(TODAY, 2), studyDays: EVERY_DAY });
-refreshTopicDates();
+// A deadline with no start date is no window: nothing derives its dates, so a
+// recalibration would report success and move nothing.
+const halfId = Number(db.prepare("INSERT INTO projects (name, deadline) VALUES ('Deadline only', ?)").run(addDays(TODAY, 20)).lastInsertRowid);
+mkIn(halfId, 'Topic', null, 0);
+const halfRe = recalibrateSchedule(halfId);
+check('recalibrating a deadline with no start date refuses rather than reporting success', halfRe.success === false, JSON.stringify(halfRe));
+
+// The fixture's day, not a second clock reading (TODAY is a UTC date).
+const ON_TODAY = { today: TODAY, timeZone: 'UTC' };
+refreshTopicDates(ON_TODAY);
 const dueToday = db.prepare('SELECT COUNT(*) AS n FROM plan_nodes WHERE project_id = ? AND scheduled_end = ?').get(freshId, TODAY).n;
-const freshPace = calculatePace(freshId);
+const freshPace = calculatePace(freshId, ON_TODAY);
 check(`control: the new plan has work due today (${dueToday} rows)`, dueToday > 0);
 check('a plan made today is on track on its first day, with nothing expected yet',
     freshPace.paceStatus === 'on_track' && freshPace.expectedProgress === 0, `${freshPace.paceStatus} ${freshPace.expectedProgress} ${freshPace.message}`);

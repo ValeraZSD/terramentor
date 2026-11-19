@@ -814,7 +814,9 @@ export function recalibrateSchedule(projectId) {
         FROM projects WHERE id = ?
     `).get(projectId);
 
-    if (!project || !project.deadline) {
+    // A deadline with no start date is no window: nothing derives its topic
+    // dates (`layTopicDates`), so a "recalibrated" plan would change nothing.
+    if (!project || !project.deadline || !project.start_date) {
         return { success: false, error: 'No schedule exists for this project. Create one first.' };
     }
     // Its plan is the window, and there are no topic dates to move — the clock
@@ -899,10 +901,13 @@ function layOpenFromToday(projectId, deadline, studyDays) {
  * Calculate the pace / drift of a project.
  * Compares elapsed time vs completed work.
  *
+ * `today`/`timeZone` default to the learner's; a caller reading the plan for
+ * another day passes it, so the shared layout (`plan_nodes`) stays on that day.
+ *
  * @param {number} projectId
  * @returns {{ hasSchedule, onTrack, expectedProgress, actualProgress, daysBehind, studyDaysBehind, paceStatus, message }}
  */
-export function calculatePace(projectId) {
+export function calculatePace(projectId, { today: todayStr = today(), timeZone = learnerTimeZone() } = {}) {
     const project = db.prepare(`
         SELECT start_date, deadline, study_days, baseline_schedule
         FROM projects WHERE id = ?
@@ -923,7 +928,7 @@ export function calculatePace(projectId) {
 
     const { leaves } = getLeafNodesSequential(projectId);
     // The dates the plan gives each topic today (derived, never stored).
-    const planned = topicDatesOf(projectId);
+    const planned = topicDatesOf(projectId, { today: todayStr, timeZone });
     // Measured in cards (the Projects grid's rule): the plan is a line through the
     // window's study days, so a deck with no topics at all — slices of card
     // order — still has a pace. Falling into `no_tasks` here would draw a window
@@ -945,7 +950,6 @@ export function calculatePace(projectId) {
 
     const startDate = project.start_date;
     const deadline = project.deadline;
-    const todayStr = today();
 
     const totalSpan = daysBetween(startDate, deadline);
     const elapsedSpan = daysBetween(startDate, todayStr);

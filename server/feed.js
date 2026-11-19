@@ -307,7 +307,9 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     const infos = projects.map(p => {
         let pace = null;
         if (p.start_date && p.deadline) {
-            try { pace = calculatePace(p.id); } catch { pace = null; }
+            // On the same day as the queries below: a default refresh would
+            // lay the shared plan for the real today under them.
+            try { pace = calculatePace(p.id, { today }); } catch { pace = null; }
         }
         return {
             project: p,

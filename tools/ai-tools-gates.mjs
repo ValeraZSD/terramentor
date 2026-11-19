@@ -1209,6 +1209,17 @@ check('project_state says no days behind', !/days behind/.test(paceCtx), paceCtx
 // Same line: calculatePace's progress is a whole percent, read as a fraction it
 // printed "the plan expects 100%" for a plan half way through.
 check('...and the plan\'s share is a whole percent', /the plan expects 0%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+// At 0% both readings print 0%, so a share that is not zero: one of four topics
+// closed three days ago is a quarter of the plan, behind today, and done.
+const quarterId = Number(db.prepare("INSERT INTO projects (name, start_date, deadline, study_days) VALUES ('Quarter course', ?, ?, '[1,2,3,4,5,6,7]')")
+    .run(shift(-27), shift(28)).lastInsertRowid);
+for (let i = 0; i < 4; i++) {
+    db.prepare('INSERT INTO nodes (project_id, title, status, position, completed_at) VALUES (?, ?, ?, ?, ?)')
+        .run(quarterId, `Quarter topic ${i + 1}`, i === 0 ? 'completed' : 'not_started', i, i === 0 ? `${shift(-3)}T12:00:00.000Z` : null);
+}
+const quarterCtx = (await stateTool.run(String(quarterId))).context || '';
+check('...a share that is not zero is printed as that whole percent', /the plan expects 25%, done 25%/.test(quarterCtx),
+    quarterCtx.split('\n').find(l => l.startsWith('Pace')) || quarterCtx);
 const unscheduled = calculatePace(Number(db.prepare("INSERT INTO projects (name) VALUES ('No window yet')").run().lastInsertRowid));
 check('a project with no window carries the study count too, as 0', unscheduled.studyDaysBehind === 0, JSON.stringify(unscheduled));
 
