@@ -37,7 +37,9 @@
 //     leg, after the build; this run has none to look at.
 //
 // Times are budgeted at about twice the slower of the two CI runners (Linux,
-// Windows), so a slow runner does not fail a change that did nothing; bytes at
+// Windows), so a slow runner does not fail a change that did nothing, the phone
+// screens at 1.5 times, since most of their time is the emulated network, which
+// does not vary; bytes at
 // about 15% above, because they are the same on every machine; the release
 // zips about 10%, since most of a zip is the Node runtime and the server's
 // dependencies, and 15 MB more to download is already a change worth a look.
