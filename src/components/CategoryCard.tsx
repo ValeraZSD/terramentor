@@ -149,7 +149,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
         {/* Header band. Light: slate-50 — a hair off the card's white, and
             distinct from the canvas. Dark: slate-700/50, a raised band over
             the slate-800 card. */}
-        <div className="bg-slate-50 dark:bg-slate-700/50 rounded-t-2xl">
+        <div className={`bg-slate-50 dark:bg-slate-700/50 ${isExpanded ? 'rounded-t-2xl' : 'rounded-2xl'}`}>
           <div
             {...attributes}
             {...listeners}
