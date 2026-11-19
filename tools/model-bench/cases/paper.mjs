@@ -70,6 +70,9 @@ const reply = (met, { comments = null, feedback = 'Feedback.', readable = true }
 /** The scorer: the grade's per-point `met` vector must be exactly `want`. */
 const vector = (want, extra = () => null) => (grade, fx) => {
     if (!grade) return { pass: false, why: 'no usable grade' };
+    // The photo route records nothing for a page the marker calls unreadable,
+    // so a grade that awards points must also say the page was readable.
+    if (grade.readable === false && want.some(Boolean)) return { pass: false, why: 'page called unreadable, so nothing would be recorded' };
     const got = grade.results.map(r => r.met);
     if (got.length !== want.length || got.some((m, i) => m !== want[i])) {
         return { pass: false, why: `met ${got.map(m => (m ? 1 : 0)).join('')}, wanted ${want.map(m => (m ? 1 : 0)).join('')}` };
@@ -103,6 +106,7 @@ export default {
                 { name: 'marks nothing met', reply: reply(none) },
                 { name: 'wrong ids, so no point matches', reply: JSON.stringify({ readable: true, rubric_results: ALL.map((m, i) => ({ id: `point${i + 1}`, met: m, comment: 'ok' })), feedback: 'Fine.', next_action: 'None.' }) },
                 { name: 'no JSON at all', reply: 'Everything on the page is correct.' },
+                { name: 'marks every point but calls the page unreadable', reply: JSON.stringify({ readable: false, rubric_results: ALL.map((m, i) => ({ id: `r${i + 1}`, met: m, comment: 'Done.' })), feedback: 'Fine.', next_action: 'None.' }) },
             ],
         },
         {

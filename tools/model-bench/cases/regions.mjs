@@ -14,7 +14,12 @@
  */
 const J = (name) => JSON.stringify({ name });
 
-const members = (project, titles) => titles.map((title, i) => ({ id: i + 1, title, project_id: 1, project_name: project, vec: null }));
+// Each fixture project is made here with no content language, so the prompt
+// takes the "follow the topics" path whatever other families put in the library.
+const members = (db, project, titles) => {
+    const pid = Number(db.prepare('INSERT INTO projects (name, content_language) VALUES (?, NULL)').run(`Regions bench: ${project}`).lastInsertRowid);
+    return titles.map((title, i) => ({ id: i + 1, title, project_id: pid, project_name: project, vec: null }));
+};
 
 const nameIt = (region) => async (fx, app) => {
     const { nameRegion } = await app.server('regionNaming.js');
@@ -33,24 +38,25 @@ const fits = (re, label, { notRe, mustNotBe } = {}) => (out) => {
 export default {
     category: 'regions',
     label: 'Naming map regions',
-    async setup() {
+    async setup(app) {
+        const { db } = app;
         return {
             languages: {
                 centroid: null,
                 members: [
-                    ...members('Dutch A2', ['Dutch verb conjugation', 'Articles de and het']),
-                    ...members('Spanish basics', ['Spanish verb conjugation', 'Ser and estar']),
-                    ...members('Japanese', ['Japanese particles', 'Hiragana reading practice']),
-                    ...members('German', ['German noun genders', 'Cases: nominative and accusative']),
+                    ...members(db, 'Dutch A2', ['Dutch verb conjugation', 'Articles de and het']),
+                    ...members(db, 'Spanish basics', ['Spanish verb conjugation', 'Ser and estar']),
+                    ...members(db, 'Japanese', ['Japanese particles', 'Hiragana reading practice']),
+                    ...members(db, 'German', ['German noun genders', 'Cases: nominative and accusative']),
                 ],
             },
             geneticsNl: {
                 centroid: null,
-                members: members('Biologie havo 5', ['Celdeling: mitose en meiose', 'DNA en erfelijkheid', 'Genen en chromosomen', 'Dominante en recessieve allelen', 'Erfelijke aandoeningen']),
+                members: members(db, 'Biologie havo 5', ['Celdeling: mitose en meiose', 'DNA en erfelijkheid', 'Genen en chromosomen', 'Dominante en recessieve allelen', 'Erfelijke aandoeningen']),
             },
             electricityRu: {
                 centroid: null,
-                members: members('Физика 8 класс', ['Электрический ток', 'Закон Ома', 'Сопротивление проводника', 'Напряжение и мощность', 'Последовательное и параллельное соединение']),
+                members: members(db, 'Физика 8 класс', ['Электрический ток', 'Закон Ома', 'Сопротивление проводника', 'Напряжение и мощность', 'Последовательное и параллельное соединение']),
             },
         };
     },

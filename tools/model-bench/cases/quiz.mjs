@@ -15,9 +15,13 @@
  *
  * Proxy: "in the course's language" has no model-free definition, so it is measured
  * with the app's own English-drift check (server/language.js driftedToEnglish), plus a
- * function-word check for Dutch and a script/letter check for Russian and Ukrainian
- * (the Ukrainian check also rejects Russian-only letters, the usual way a model drifts).
+ * function-word check for Dutch and for English (english.mjs: the drift check cannot
+ * tell an English quiz from a Dutch one) and a script/letter check for Russian and
+ * Ukrainian (the Ukrainian check also rejects Russian-only letters, the usual way a
+ * model drifts).
  */
+import { englishFault } from './english.mjs';
+
 const N = 5;
 const NEED = Math.ceil(0.8 * N);
 
@@ -110,7 +114,7 @@ const DUTCH = new Set(['de', 'het', 'een', 'van', 'en', 'is', 'in', 'op', 'te', 
 
 /** null when `text` reads as written in language `code`, else the reason it does not. */
 async function languageProblem(app, text, code) {
-    if (code === 'en') return null;
+    if (code === 'en') return englishFault(stripMath(text));
     const { getLanguage, driftedToEnglish } = await app.server('language.js');
     const prose = stripMath(text);
     // The app's drift check ignores a sample under 60 words (a short sample can be
@@ -195,6 +199,21 @@ const G_BIO = [
         'Water is split in the light-dependent stage, and the oxygen atoms end up in O2; the carbon dioxide oxygen ends up in glucose and water.'),
     tf('Plants respire only at night and photosynthesise only during the day.', 'False',
         'Plants respire all the time; in daylight photosynthesis is simply faster than respiration.'),
+];
+
+// G_BIO translated into Dutch: five sound questions, keys that match, the right type
+// mix, so only the language check can catch it.
+const G_BIO_NL = [
+    mc('Welk gas nemen planten op uit de lucht als koolstofbron voor de fotosynthese?', ['Koolstofdioxide', 'Zuurstof', 'Stikstof', 'Waterstof'], 'Koolstofdioxide',
+        'Koolstofdioxide komt binnen via de huidmondjes en wordt in de lichtonafhankelijke fase in glucose ingebouwd.'),
+    mc('Waar in de plantencel vinden de lichtafhankelijke reacties van de fotosynthese plaats?', ['In de thylakoïdmembranen in de bladgroenkorrel', 'In de celkern', 'In de celwand', 'In de matrix van het mitochondrion'], 'In de thylakoïdmembranen in de bladgroenkorrel',
+        'Het bladgroen zit in de thylakoïdmembranen, en daar wordt de lichtenergie opgevangen.'),
+    mc('Een plant staat in fel licht, maar door droogte sluiten de huidmondjes. Wat is het meest directe effect op de fotosynthese?', ['Er komt minder koolstofdioxide bij de bladcellen, dus de snelheid daalt', 'Er wordt meer zuurstof gemaakt omdat er minder water verloren gaat', 'Het bladgroen neemt minder licht op, dus de huidmondjes gaan weer open', 'Glucose is niet meer nodig, dus de lichtfase gaat sneller'], 'Er komt minder koolstofdioxide bij de bladcellen, dus de snelheid daalt',
+        'Gesloten huidmondjes sluiten de aanvoer van koolstofdioxide af, en dat remt de lichtonafhankelijke fase, ook in fel licht.'),
+    tf('De zuurstof die bij de fotosynthese vrijkomt, komt van het splitsen van watermoleculen en niet van koolstofdioxide.', 'True',
+        'Water wordt gesplitst in de lichtafhankelijke fase, en die zuurstofatomen komen in O2 terecht; de zuurstof uit koolstofdioxide komt in glucose en water.'),
+    tf('Planten ademen alleen \'s nachts en doen alleen overdag aan fotosynthese.', 'False',
+        'Planten ademen de hele tijd; bij daglicht is de fotosynthese alleen sneller dan de verbranding.'),
 ];
 
 // 2. Ohm's law, multiple choice
@@ -333,6 +352,7 @@ const CASES = [
         id: 'quiz-both-photosynthesis', course: 'bio', type: 'both', types: ['multiple_choice', 'true_false'], mix: true, lang: 'en', G: G_BIO,
         extra: [
             { name: 'two keys name no option', reply: j(breakKeys(G_BIO)) },
+            { name: 'written in Dutch', reply: j(G_BIO_NL) },
             { name: 'only multiple choice', reply: j(G_BIO.slice(0, 3).concat(G_BIO.slice(0, 2).map(q => ({ ...q, question: `${q.question} (again)` })))) },
         ],
     },

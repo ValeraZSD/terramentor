@@ -19,8 +19,12 @@
  *
  * Proxies: the word bound is the prompt's with that slack. For Dutch, Russian and Ukrainian
  * the app's English-drift check is joined by a Dutch function-word check and a Cyrillic
- * letter check; the Ukrainian one also rejects Russian-only letters, the usual drift.
+ * letter check; the Ukrainian one also rejects Russian-only letters, the usual drift. An
+ * English lesson gets the English function-word check (english.mjs): the app's drift
+ * check only looks for drift towards English, so it passes a Dutch lesson.
  */
+import { englishFault } from './english.mjs';
+
 const LOW = 160;
 const HIGH = 420;
 
@@ -143,6 +147,7 @@ const DUTCH = new Set(['de', 'het', 'een', 'van', 'en', 'is', 'in', 'op', 'te', 
 
 function languageProblem(text, code) {
     const prose = proseOnly(text);
+    if (code === 'en') return englishFault(prose);
     const words = wordsOf(prose);
     if (code === 'nl') {
         const share = words.filter(w => DUTCH.has(w)).length / (words.length || 1);
@@ -195,6 +200,30 @@ For the third harmonic three loops fit, so $L = \\lambda/2 + \\lambda/2 + \\lamb
 A common mistake is to count nodes instead of loops. The third harmonic has four nodes, counting the two ends, but only three loops, and it is the number of loops that gives $n$.
 
 The next part asks what happens to these frequencies when the tension in the string changes.`;
+
+// L_WAVES translated into Dutch, the maths unchanged: it passes the word bound and the
+// app's lesson checks, so only the language check can catch it in an English course.
+const L_WAVES_NL = `Een snaar die aan beide uiteinden vastzit, kan niet in elk willekeurig patroon trillen. De twee uiteinden zijn knopen, punten die niet kunnen bewegen, dus alleen golfpatronen met een knoop aan elk uiteinde blijven bestaan. Die regel kiest een familie van staande golven uit, de harmonischen.
+
+Het eenvoudigste patroon is een buik. Daarin past een halve golflengte tussen de uiteinden, dus voor een snaar met lengte $L$ geldt voor de grondtoon $L = \\lambda/2$, en dat geeft $\\lambda_1 = 2L$. Het volgende patroon heeft een knoop in het midden en twee buiken, dus $L = \\lambda/2 + \\lambda/2 = \\lambda$. Elke extra buik voegt nog een halve golflengte toe:
+
+$$\\lambda_n = \\frac{2L}{n}, \\qquad n = 1, 2, 3, \\dots$$
+
+De frequentie volgt uit de golfsnelheid $v$ op de snaar, want $f = v/\\lambda$. Invullen van $\\lambda_n$ geeft
+
+$$f_n = \\frac{nv}{2L} = n f_1.$$
+
+Elke harmonische is een geheel veelvoud van de grondtoon. Daarom klinkt een getokkelde snaar als een heldere toonhoogte met een rijkere klank erbovenop.
+
+**Uitgewerkt voorbeeld.** Een gitaarsnaar is $L = 0.60\\ \\text{m}$ lang en golven bewegen erlangs met $v = 240\\ \\text{m/s}$.
+
+De grondtoon is $f_1 = v/(2L) = 240/(2 \\times 0.60) = 240/1.2 = 200\\ \\text{Hz}$.
+
+Voor de derde harmonische passen er drie buiken, dus $L = \\lambda/2 + \\lambda/2 + \\lambda/2 = 3\\lambda/2$, en dat geeft $\\lambda_3 = 2L/3 = 0.40\\ \\text{m}$. Dan is $f_3 = v/\\lambda_3 = 240/0.40 = 600\\ \\text{Hz}$, precies $3 \\times 200\\ \\text{Hz}$.
+
+Een veelgemaakte fout is knopen tellen in plaats van buiken. De derde harmonische heeft vier knopen, de twee uiteinden meegeteld, maar maar drie buiken, en het aantal buiken geeft $n$.
+
+Het volgende deel gaat over wat er met deze frequenties gebeurt als de spanning in de snaar verandert.`;
 
 const L_REVOLUTION = `By 1788 the French crown was close to bankruptcy, and nearly every road out of the crisis ran through a group that refused to pay. Understanding why starts with how the state spent money and how it collected it.
 
@@ -322,6 +351,7 @@ const CASES = [
             { name: 'worked example adds up wrongly (3 half wavelengths = 2 wavelengths)', reply: L_WAVES.replace('= 3\\lambda/2$', '= 2\\lambda$') },
             { name: 'recalls the previous lesson as if just studied', reply: `As you learned in the previous lesson, waves carry energy. ${L_WAVES}` },
             { name: 'diagram fence never closed', reply: L_WAVES + UNCLOSED },
+            { name: 'written in Dutch', reply: L_WAVES_NL },
         ],
     },
     {

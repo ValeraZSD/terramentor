@@ -22,9 +22,12 @@
  *    a single backslash yields a form feed or a tab inside the formula, and the app keeps
  *    the card. A reply with other single-backslash TeX (\Delta, \text) is not valid JSON at
  *    all and the app throws.
- *  - language: the app's English-drift check, a function-word check for Dutch, a
- *    letter-script check for Ukrainian that also rejects Russian-only letters.
+ *  - language: the app's English-drift check, a function-word check for Dutch and for
+ *    English (english.mjs), a letter-script check for Ukrainian that also rejects
+ *    Russian-only letters.
  */
+import { englishFault } from './english.mjs';
+
 const N = 6;
 const NEED = Math.ceil(0.8 * N);
 
@@ -99,7 +102,7 @@ const DUTCH = new Set(['de', 'het', 'een', 'van', 'en', 'is', 'in', 'op', 'te', 
 
 /** null when `text` reads as written in language `code`, else the reason it does not. */
 async function languageProblem(app, text, code) {
-    if (code === 'en') return null;
+    if (code === 'en') return englishFault(stripMath(text));
     const { getLanguage, driftedToEnglish } = await app.server('language.js');
     const prose = stripMath(text);
     // The app's drift check ignores samples under 60 words; repeating the text keeps the
@@ -162,6 +165,17 @@ const G_CELLS = [
     card('What is the plant cell wall made of, and what does it do?', 'Mostly cellulose; it supports the cell and stops it bursting when it takes in water.'),
 ];
 
+// G_CELLS translated into Dutch: the count, the fronts and the format all pass,
+// so only the language check can catch it.
+const G_CELLS_NL = [
+    card('Wat is de belangrijkste taak van het mitochondrion?', 'Het levert bruikbare energie als ATP door glucose af te breken bij aerobe verbranding.'),
+    card('Wat doet een ribosoom?', 'Het bouwt eiwitten door aminozuren te koppelen in de volgorde die in het mRNA staat.'),
+    card('Noem het organel waar fotosynthese plaatsvindt en het pigment daarin.', 'De bladgroenkorrel, met het groene pigment chlorofyl.'),
+    card('Wat is de functie van het Golgi-apparaat?', 'Het past eiwitten en vetten aan, sorteert en verpakt ze, bijvoorbeeld in blaasjes die ze uit de cel vervoeren.'),
+    card('Welk organel bewaart het DNA van de cel?', 'De celkern, die omgeven is door een dubbel membraan.'),
+    card('Waar is de celwand van een plant van gemaakt, en wat doet die?', 'Vooral cellulose; hij steunt de cel en voorkomt dat die barst als hij water opneemt.'),
+];
+
 const G_SUVAT = [
     card('Give the equation for the final velocity after time $t$ at constant acceleration $a$ from initial velocity $u$.', '$v = u + at$'),
     card('Give the equation for the displacement $s$ in terms of $u$, $a$ and $t$.', '$s = ut + \\frac{1}{2}at^2$'),
@@ -214,7 +228,10 @@ const G_UK_RU = [
 const CASES = [
     {
         id: 'cards-en-organelles', course: 'cells', lang: 'en', G: G_CELLS,
-        mutants: commonMutants(G_CELLS, ['Mitochondrion', 'Ribosome', 'Chloroplast', 'Golgi apparatus', 'Nucleus', 'Cell wall']),
+        mutants: [
+            ...commonMutants(G_CELLS, ['Mitochondrion', 'Ribosome', 'Chloroplast', 'Golgi apparatus', 'Nucleus', 'Cell wall']),
+            { name: 'written in Dutch', reply: j(G_CELLS_NL) },
+        ],
     },
     {
         id: 'cards-en-suvat-formulas', course: 'suvat', lang: 'en', G: G_SUVAT,
