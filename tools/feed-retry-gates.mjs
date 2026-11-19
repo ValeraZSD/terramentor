@@ -98,6 +98,13 @@ check('nothing listening is transient (a fetch failure)', !!gone && isTransient(
 check('a bare "failed (504)" message with no status field is transient', isTransient(new Error('Chat request failed (504)')) === true);
 check('a mid-stream error with no status that names 503 is transient',
     isTransient(new Error('stream ended: upstream answered 503 Service Unavailable')) === true);
+check('…also when the sentence ends right after it ("returned 503.")',
+    isTransient(new Error('stream ended: upstream returned 503.')) === true);
+check('…and when a colon joins it to the word ("error:503")', isTransient(new Error('stream ended, error:503')) === true);
+check('…and in a status line ("HTTP/1.1 502 Bad Gateway")', isTransient(new Error('proxy said HTTP/1.1 502 Bad Gateway')) === true);
+check('…and before its reason phrase alone ("504 Gateway Timeout")', isTransient(new Error('stream ended: 504 Gateway Timeout')) === true);
+check('an unrelated number is not a status ("max 502 tokens")', isTransient(new Error('the reply ran past max 502 tokens')) === false);
+check('…nor a version holding the digits ("model v1.503")', isTransient(new Error('model v1.503 refused the prompt')) === false);
 check('…but not a port holding 503 in an address with no scheme',
     isTransient(new Error('connect refused by 127.0.0.1:35030 (bad key)')) === false);
 check('a host named api503.example in a timeout-free 404 is not transient',

@@ -507,6 +507,11 @@ function aiEnabled() {
 
 const TRANSIENT_STATUSES = new Set([502, 503, 504]);
 const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|overloaded|rate.?limit/;
+// A best-effort read: a status word just before the number, or its reason
+// phrase just after. A bare 502 is as often a token count or a version.
+const STATUS_IN_TEXT = new RegExp(
+    String.raw`\b(?:status|code|error|http(?:\/\d(?:\.\d)?)?|returned|answered|responded)\b\W{0,3}50[234](?!\d|\.\d)`
+    + String.raw`|(?<![\d.:])50[234]\W{0,3}(?:bad gateway|service (?:temporarily )?unavailable|gateway time-?out)`);
 
 /**
  * Is this failure worth trying again? A transport timeout or a dropped socket
@@ -519,7 +524,7 @@ const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|
  * endpoint, and a port or host holding "503" made every plain 400 from it look
  * busy. Addresses are cut from the text before the words are read. Only an
  * error that carries no status at all (one raised mid-stream) is read for a
- * 502/503/504 as a whole word.
+ * 502/503/504 in its text (`STATUS_IN_TEXT`).
  */
 export function isTransient(err, signal) {
     if (signal?.aborted) return false;
@@ -528,7 +533,7 @@ export function isTransient(err, signal) {
     const tagged = Number(err?.httpStatus ?? err?.status_code);
     const status = Number.isInteger(tagged) && tagged > 0 ? tagged : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
     if (TRANSIENT_STATUSES.has(status)) return true;
-    if (Number.isNaN(status) && /(?<![\d.:])50[234](?![\d.])/.test(msg)) return true;
+    if (Number.isNaN(status) && STATUS_IN_TEXT.test(msg)) return true;
     return TRANSIENT_WORDS.test(msg);
 }
 
