@@ -1310,8 +1310,9 @@ let healthMemo = null;
 export function statusHealth(settings = getAISettings(), { check = checkOllamaHealth, now = Date.now, fresh = false } = {}) {
     const key = createHash('sha256').update(JSON.stringify(settings)).digest('hex');
     const memo = healthMemo;
-    // `fresh`: a person pressed "check connection" and expects it checked.
-    if (memo && memo.key === key && !(fresh && !memo.pending)) {
+    // `fresh`: a person pressed "check connection" and expects it checked, by
+    // a check that starts now (one already running may predate what they fixed).
+    if (memo && memo.key === key && !fresh) {
         if (memo.pending) return memo.pending;
         if (now() - memo.at < (memo.value?.available ? HEALTH_OK_MS : HEALTH_FAIL_MS)) return Promise.resolve(memo.value);
     }

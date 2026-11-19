@@ -197,6 +197,29 @@ console.log('\n--- how long a status answer is kept ---');
     for (let i = 0; i < 2; i++) { try { await statusHealth({ provider: 'x' }, boom); } catch { thrown++; } }
     check('a check that throws is not remembered', thrown === 2 && calls === 8, `${thrown} thrown, ${calls} checks`);
     check('fresh course creation does not go through it', !/statusHealth/.test(readFileSync(join(repoRoot, 'server/routes/createProject.js'), 'utf8')));
+
+    // A check already running when the person presses "check" may predate the
+    // fix they just made (they started the server a moment ago): theirs starts now.
+    let release;
+    const slow = { check: () => { calls++; return new Promise((r) => { release = r; }); }, now: () => t };
+    const settingsC = { ...settingsA, baseUrl: 'http://c.example/v1' };
+    const tick = () => new Promise((r) => setImmediate(r));
+    const older = statusHealth(settingsC, slow);
+    const joined = statusHealth(settingsC, slow);
+    await tick();
+    check('asks at the same time share one check', calls === 9 && joined === older, `${calls} checks`);
+    const firstRelease = release;
+    const pressed = statusHealth(settingsC, { ...slow, fresh: true });
+    await tick();
+    check('…but a pressed "check" does not join one already running', calls === 10 && pressed !== older, `${calls} checks`);
+    firstRelease({ available: false });
+    release({ available: true, models: [] });
+    check('…and gets its own answer', (await pressed).available === true);
+    await older;
+
+    const drawer = readFileSync(join(repoRoot, 'src/components/AssistantDrawer.tsx'), 'utf8');
+    check('the drawer asks for a fresh check right after a turn ends',
+        /const turnEnded = wasStreaming\.current && !streaming;/.test(drawer) && /api\.getAIStatus\(\{ fresh \}\)/.test(drawer));
 }
 
 console.log('\n--- one rule, not one per surface ---');

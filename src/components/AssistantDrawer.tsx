@@ -577,12 +577,21 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const { aiProvider, aiModel } = useStore.getState();
         setStatus(s => (s && aiModel && s.provider === aiProvider ? { ...s, model: aiModel } : s));
     }, [aiConfigRev]);
+    // The server keeps a reachable answer for 30 s; right after a turn, which
+    // may have failed because the provider just went away, the drawer asks for
+    // a check of its own.
+    const wasStreaming = useRef(false);
     useEffect(() => {
+        const turnEnded = wasStreaming.current && !streaming;
+        wasStreaming.current = streaming;
         if (!open) return;
         let alive = true;
+        let fresh = turnEnded;
         const check = () => {
             setStatusLoading(true);
-            api.getAIStatus()
+            const asked = api.getAIStatus({ fresh });
+            fresh = false;
+            asked
                 .then(s => { if (alive) setStatus(s); })
                 .catch(() => { if (alive) setStatus(null); })
                 .finally(() => { if (alive) setStatusLoading(false); });
