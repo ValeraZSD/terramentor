@@ -139,8 +139,7 @@ const NAME_MIN_REM = 12;
  * the same row is one line in one language and a ribbon in the next, inside a
  * card whose width is not the screen's.
  *
- * So it is measured, on the row's own box — the rule the calendar and both lane
- * charts already follow. It is measured from the CONTROL's natural width, which
+ * So it is measured, on the row's own box. It is measured from the CONTROL's natural width, which
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
  * this reads, and there is no flicker to damp.

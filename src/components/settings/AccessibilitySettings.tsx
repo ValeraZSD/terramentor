@@ -12,7 +12,6 @@ import {
 import { listFormat } from '../../utils/locale';
 import { currentSpeaker, localVoices, speak, speechAvailable, stopSpeaking, voicesReady, watchVoices } from '../../utils/readAloud';
 import { DRILL_TIME_SCALES, type DrillTimeScale } from '../drills/parseDrill';
-import { CALENDAR_KEYCAPS } from '../calendar/calendarKeys';
 import { Button, IconButton } from '../ui/Button';
 import SegmentedControl from '../ui/SegmentedControl';
 import Slider from '../ui/Slider';
@@ -330,9 +329,6 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                                 [tr("Cards: show the answer"), tr("Space")],
                                 [tr("Cards: rate Again, Hard, Good or Easy"), '1 2 3 4'],
                                 [tr("Cards: take back the last rating"), `Z  ·  ${MOD_KEY} + Z`],
-                                [tr("Calendar: previous or next period"), `${CALENDAR_KEYCAPS.prev} ${CALENDAR_KEYCAPS.next}`],
-                                [tr("Calendar: go to today"), CALENDAR_KEYCAPS.today],
-                                [tr("Calendar: month, week or day view"), `${CALENDAR_KEYCAPS.month} ${CALENDAR_KEYCAPS.week} ${CALENDAR_KEYCAPS.day}`],
                                 [tr("Save notes while editing"), `${MOD_KEY} + Enter`],
                                 [tr("Close panels and modals"), 'Esc'],
                             ].map(([label, combo]) => (

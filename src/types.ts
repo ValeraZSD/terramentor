@@ -461,71 +461,12 @@ export interface PaceData {
     /** What both percentages count: topics, or cards met for a project that is
      *  measured in cards (`countsInCards`). */
     basis?: 'cards' | 'topics';
-    /** A project measured in cards stores no topic dates; this is where each of
-     *  its sections falls on the plan (`cardPlan`, server/scheduling.js). Only
-     *  on `/api/projects/:id/pace`. */
-    cardPlan?: CardPlanSection[] | null;
     /** The date judged against the learner's own pace; null without a date. */
     verdict?: PaceVerdict | null;
     /** The weeks that verdict was judged from. */
     learnerPace?: LearnerPace | null;
 }
 
-/** One section of a card-measured plan: the study days its cards fall on. */
-export interface CardPlanSection {
-    nodeId: number;
-    start: string;
-    end: string;
-    cards: number;
-    seen: number;
-}
-
-export interface GanttItem {
-    id: number;
-    title: string;
-    depth: number;
-    status: Node['status'];
-    isNote: boolean;
-    scheduledStart: string | null;
-    scheduledEnd: string | null;
-    hasChildren: boolean;
-    parentId: number | null;
-    rootPhaseId: number | null;
-    rootPhaseTitle: string | null;
-    /** Tailwind background class for the bar, derived from status + overdue. */
-    colorClass: string;
-    /** Past its end and open: still counted behind schedule. */
-    isOverdue: boolean;
-    /** …and the learner already knows it: it says "Ready to prove", not red
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    readyToProve: boolean;
-}
-
-export interface CalendarDay {
-    date: string;
-    dayOfWeek: number;
-    isToday: boolean;
-    isStudyDay: boolean;
-    isCurrentMonth: boolean;
-    tasks: CalendarTask[];
-}
-
-export interface CalendarTask {
-    nodeId: number;
-    title: string;
-    status: Node['status'];
-    color: string;
-    /** The task's OWN window. A chip is drawn once per period, so the day it
-     *  sits on is not necessarily the day the topic starts — the dates are how
-     *  a multi-day topic still says where it runs. */
-    start: string;
-    end: string;
-    /** The mastery gate would pass it now: a late one says "ready to prove"
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    provable?: boolean;
-}
-
-export type CalendarViewMode = 'month' | 'week' | 'day';
 export type WeekStartDay = 0 | 1;
 
 /** A check run on something the assistant prepared (server/assistantChecks.js).
@@ -1752,24 +1693,6 @@ export interface GlobalDueFlashcard extends ProjectFlashcard {
     project_id: number;
     project_name: string;
     project_color: string;
-}
-
-// Global calendar feed (GET /api/calendar?from&to).
-export interface GlobalCalendarTask {
-    nodeId: number;
-    projectId: number;
-    title: string;
-    status: string;
-    scheduled_start: string;
-    scheduled_end: string;
-    /** The mastery gate would pass it now (server/readyToProve.js `canProve`). */
-    provable?: boolean;
-}
-
-export interface GlobalCalendarData {
-    /** `scheduled`: the course has dates, so the course filter lists it. */
-    projects: { id: number; name: string; color: string; scheduled?: boolean }[];
-    tasks: GlobalCalendarTask[];
 }
 
 export interface Quiz {

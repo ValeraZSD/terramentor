@@ -207,11 +207,14 @@ check('nor is anything that changes what is measured',
     && validateSettingChange('new_cards_per_day', '200') === null);
 
 section('a screen the assistant offered to open');
-const go = splitDestinations('Everything due is on the calendar.\n\n[[go:calendar]]');
-check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'calendar');
-check('the route is the app own, not the model idea of one', go.destinations[0].path === '/calendar');
+const go = splitDestinations('Every course is on the map.\n\n[[go:atlas]]');
+check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'atlas');
+check('the route is the app own, not the model idea of one', go.destinations[0].path === '/atlas');
 check('the marker never survives into the text', !go.body.includes('[[go'));
-check('the prose survives', go.body.trim() === 'Everything due is on the calendar.');
+check('the prose survives', go.body.trim() === 'Every course is on the map.');
+const retired = splitDestinations('It was on the calendar.\n\n[[go:calendar]]');
+check('a screen the app no longer has yields no button, and no marker in the text',
+    retired.destinations.length === 0 && retired.body.trim() === 'It was on the calendar.');
 check('a screen that does not exist yields nothing at all',
     splitDestinations('[[go:dashboard]]').destinations.length === 0);
 check('...and is still stripped from the text',

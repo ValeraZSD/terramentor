@@ -899,33 +899,6 @@ rmSync(scratch, { recursive: true, force: true });
     const course = tree.buildTree([n(20, null), n(21, 20, { status: 'completed' }), n(22, 20)]);
     eq('a written course is exactly what it was', `${course[0].progress.percentage} ${course[0].effectiveStatus}`, '50 in_progress');
 
-    // The Timeline and Calendar draw a card plan's sections.
-    const plan = [
-        { nodeId: 2, start: '2026-09-01', end: '2026-09-11', cards: 50, seen: 50 },
-        { nodeId: 3, start: '2026-09-11', end: '2026-09-24', cards: 50, seen: 16 },
-        { nodeId: 4, start: '2026-09-24', end: '2026-10-07', cards: 50, seen: 0 },
-    ];
-    const rows = tree.buildGanttData(deckTree, plan);
-    const row = (id) => rows.find(r => r.id === id);
-    eq('a section takes its dates from the plan', `${row(3).scheduledStart}..${row(3).scheduledEnd}`, '2026-09-11..2026-09-24');
-    eq('the root spans its sections', `${row(1).scheduledStart}..${row(1).scheduledEnd}`, '2026-09-01..2026-10-07');
-    check('a section with every card met is done on the plan, never overdue', row(2).status === 'completed' && !row(2).isOverdue);
-    // Overdue is `end < today`, as everywhere else — dates are relative to the
-    // same clock the function reads, so this holds on any day.
-    const today = tree.todayStr();
-    const dated = (id, start, end, status = 'not_started') => n(id, null, { scheduled_start: start, scheduled_end: end, status });
-    const ganttRow = (node) => tree.buildGanttData(tree.buildTree([node]))[0];
-    check('a not-started topic whose window opens today is not overdue',
-        !ganttRow(dated(50, today, tree.addDays(today, 6))).isOverdue);
-    check('…nor one whose window opened last week and is still open',
-        !ganttRow(dated(51, tree.addDays(today, -7), tree.addDays(today, 3))).isOverdue);
-    check('a not-started topic whose window ended yesterday is overdue',
-        ganttRow(dated(52, tree.addDays(today, -8), tree.addDays(today, -1))).isOverdue);
-    check('without a plan the rows are the stored dates, as before',tree.buildGanttData(deckTree).every(r => r.scheduledStart === null));
-    const chips = tree.cardPlanCalendarTasks(deckTree, plan, '#123456');
-    eq('calendar chips carry the plan\'s status', chips.map(c => c.status).join(), 'completed,in_progress,not_started');
-    eq('…and the section\'s own title', chips[1]?.title, 'n3');
-
     rmd(dir, { recursive: true, force: true });
 }
 

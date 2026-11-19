@@ -29,7 +29,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -84,14 +84,14 @@ export const themeKeyOf = (theme: Theme, tint: string) => `${theme}:${tint}`;
  *  comparison it now is, because ninety-odd call sites read it and the day the
  *  axis grows a third answer is not the day to find them. */
 export const isDarkTheme = (t: Theme): boolean => t === 'dark';
-export type WorkspaceView = 'dashboard' | 'tree' | 'timeline' | 'calendar' | 'vault' | 'study' | 'exam';
+export type WorkspaceView = 'dashboard' | 'tree' | 'vault' | 'study' | 'exam';
 
 /** The in-workspace views, used to validate the `:view` URL segment. `study`
  *  is the LEARNING view of a course: the feed scoped to the whole project
  *  (`/project/:id/study`) or to one topic (`/project/:id/study/:nodeId`).
  *  Every other view administers the course; this one teaches it. */
 export const VALID_WORKSPACE_VIEWS: ReadonlySet<WorkspaceView> = new Set<WorkspaceView>([
-    'dashboard', 'tree', 'timeline', 'calendar', 'vault', 'study', 'exam',
+    'dashboard', 'tree', 'vault', 'study', 'exam',
 ]);
 
 /** THREE SCOPES, ONE STREAM — defined in types.ts (api.ts names it too),
@@ -576,7 +576,7 @@ interface AppState {
      *  state: living inside the calendar component would reset it to Monday on
      *  every navigation and cost a permanent toolbar toggle. */
     weekStartDay: WeekStartDay;
-    /** Single-key shortcuts (`a`, the calendar letters, Space, 1-4, `z`) on or off. */
+    /** Single-key shortcuts (`a`, Space, 1-4, `z`) on or off. */
     keyShortcuts: boolean;
     /** What colour means on the atlas: how much is proven, or which course a
      *  topic belongs to. A preference rather than view state — a map you have
@@ -1211,7 +1211,6 @@ export const useStore = create<AppState>((set, get) => ({
         if (view === 'settings') nav('/settings');
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
-        else if (view === 'calendar') nav('/calendar');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1787,7 +1786,7 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     openProjectNode: (projectId, nodeId) => {
-        // Cross-project deep link (Today hub / global calendar / briefing action).
+        // Cross-project deep link (Today hub / briefing action).
         // applyRoute → loadProjectData → revealNode handles the cold load.
         const nav = get()._navigate;
         if (nav) nav(`/project/${projectId}/tree/${nodeId}`);
@@ -2175,9 +2174,8 @@ export const useStore = create<AppState>((set, get) => ({
             if (get().view !== 'settings') set({ view: 'settings' });
             return;
         }
-        // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
-        // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
+        // GLOBAL VIEWS (Today hub, projects grid, atlas): clear any open project.
+        if (view === 'today' || view === 'projects' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
@@ -2644,8 +2642,7 @@ export const useStore = create<AppState>((set, get) => ({
             // ("Pace is very intense…"): the plan panel's verdict says whether
             // the date works, measured against the learner's own pace. "Some
             // phases will overlap" (fewer study days than phases): the
-            // Timeline draws the overlap itself, and the verdict says whether
-            // a window that short can be met.
+            // verdict says whether a window that short can be met.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Plan saved'));

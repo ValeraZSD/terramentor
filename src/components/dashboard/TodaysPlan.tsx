@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../../store';
 import type { DailyPlan, DailyPlanTask } from '../../types';
 import { useOpenMasteryCheck } from '../../hooks/useOpenMasteryCheck';
-import { pretty } from '../../utils/scheduleAxis';
+import { pretty } from '../../utils/locale';
 import { Button } from '../ui/Button';
 import { DashboardSection } from './DashboardSection';
 
