@@ -22,4 +22,26 @@ function requireProject(req, res) {
     return project;
 }
 
-export { nextProjectPosition, requireProject };
+// The fields a create or an edit stores as sent. SQLite's column types stop
+// none of it: `name: null` reached the NOT NULL constraint as a 500, `""` and
+// `"   "` were saved as a nameless course, and a 2 MB colour or icon came back
+// inside every GET /api/projects. A colour is a CSS colour and an icon a name
+// from the picker, so 64 characters is room for any real one. Every door that
+// writes a project row asks this: the plain create, the edit, and the AI
+// create (routes/createProject.js). Returns the refusal, or null.
+const PROJECT_TOKEN_MAX = 64;
+function projectFieldError({ name, description, color, icon, position }) {
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) return 'A project needs a name';
+    if (description !== undefined && description !== null && typeof description !== 'string') return 'description must be text';
+    // Not null or blank either: every reader of a project expects a colour and
+    // an icon, and a PUT stored `null` as sent.
+    for (const [label, v] of [['color', color], ['icon', icon]]) {
+        if (v !== undefined && (typeof v !== 'string' || !v.trim() || v.length > PROJECT_TOKEN_MAX)) {
+            return `${label} must be text of at most ${PROJECT_TOKEN_MAX} characters`;
+        }
+    }
+    if (position !== undefined && !(Number.isSafeInteger(position) && position >= 0)) return 'position must be a whole number, 0 or more';
+    return null;
+}
+
+export { nextProjectPosition, projectFieldError, requireProject };

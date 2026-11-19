@@ -7,6 +7,10 @@
 //     `{ success: true }` and wrote "project.deleted" to the activity log, so
 //     a client (or an agent) that had the wrong id was told the course was
 //     gone, and the log claimed a deletion nobody made;
+//   - POST /api/ai/create-project stored `color` and `icon` as sent: a 2 MB
+//     string or a number went into the row and came back inside every
+//     GET /api/projects, while the plain create and the edit refused them.
+//     A refused field must be refused before the first model call.
 //
 // The real app (`createApp()`) on a scratch library: DB_PATH, VAULT_ROOT and
 // DATA_DIR set IN-PROCESS before any server module is imported. The model is a
@@ -83,6 +87,36 @@ console.log('\n=== deleting a project that does not exist ===');
         `${first.status} ${first.text}`);
     const again = await call('DELETE', `/api/projects/${pid}`);
     ok('deleting it a second time is a 404', again.status === 404 && deletions() === before + 1, `${again.status} ${again.text}`);
+}
+
+// ---- create-project: colour and icon are checked like every other create ---------
+console.log('\n=== create-project refuses a colour or icon the plain create refuses ===');
+{
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    const cases = [
+        ['a 2 MB colour', { color: huge }],
+        ['a colour that is a number', { color: 5 }],
+        ['a blank icon', { icon: '   ' }],
+        ['an icon that is an object', { icon: { name: 'folder' } }],
+    ];
+    for (const [label, fields] of cases) {
+        const projectsBefore = db.prepare('SELECT COUNT(*) AS n FROM projects').get().n;
+        const callsBefore = modelCalls;
+        const r = await call('POST', '/api/ai/create-project', { name: 'Waves', description: 'Waves and light', content_language: 'en', ...fields });
+        ok(`${label}: a 400 naming the field`, r.status === 400 && /color|icon/.test(r.json?.error || ''), `${r.status} ${r.text.slice(0, 200)}`);
+        ok(`${label}: no model call, no project row`,
+            modelCalls === callsBefore && db.prepare('SELECT COUNT(*) AS n FROM projects').get().n === projectsBefore,
+            `${modelCalls - callsBefore} calls`);
+    }
+    for (const [label, fields] of [['a picked colour and icon', { color: '#10B981', icon: 'book' }], ['an unset colour and icon', { color: '', icon: null }]]) {
+        const callsBefore = modelCalls;
+        const r = await call('POST', '/api/ai/create-project', { name: 'Waves', description: 'Waves and light', content_language: 'en', ...fields });
+        ok(`${label}: the run starts (the stub then refuses it)`, r.status === 200 && modelCalls > callsBefore, `${r.status} ${r.text.slice(0, 200)}`);
+    }
+    const plain = await call('POST', '/api/projects', { name: 'Plain', color: 5 });
+    ok('the plain create refuses the same colour (the rule both share)', plain.status === 400, `${plain.status} ${plain.text}`);
+    const stored = db.prepare('SELECT MAX(LENGTH(color)) AS c, MAX(LENGTH(icon)) AS i FROM projects').get();
+    ok('no stored colour or icon is longer than 64 characters', (stored.c ?? 0) <= 64 && (stored.i ?? 0) <= 64, JSON.stringify(stored));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
