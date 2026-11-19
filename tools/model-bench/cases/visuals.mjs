@@ -316,6 +316,11 @@ ${rideLabel}${move}
 </svg>`;
 }
 
+/** The water diagram with the droplet group's opening (`<g>` and the droplet) swapped for `opening`. */
+const DROP = 'fill="#2563eb" stroke="#1e3a8a" stroke-width="2"';
+const waterDrop = (opening) => water({ move: '' }).replace(`<g>\n<circle cx="60" cy="120" r="9" ${DROP}/>`, opening);
+const SLIDE = 'values="0 0;120 0;240 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"';
+
 function scoreWater(out) {
     const basic = animationBasics(out.spec);
     if (basic) return basic;
@@ -343,14 +348,13 @@ function scoreWater(out) {
     // Where the droplet is drawn is known for a circle or ellipse: it starts at the first station and reaches the last.
     const drop = flat(move.parent).find(n => n.name === 'circle' || n.name === 'ellipse');
     if (drop) {
-        // Inside the moving element, the droplet's own translate and any group between count too.
-        // When the droplet IS the moving element, the animation replaces its static transform.
+        // Below the moving element, every static translate counts (the droplet's own and any group between).
+        // The moving element's own translate is replaced by an animateTransform unless additive="sum";
+        // an animateMotion adds to it.
         let inner = 0;
-        if (drop !== move.parent) {
-            inner = translateOf(drop)[0];
-            for (let n = drop.parent; n && n !== move.parent; n = n.parent) inner += translateOf(n)[0];
-        } else if (move.attrs.additive === 'sum') inner = translateOf(drop)[0];
-        const base = num(drop.attrs.cx ?? 0) + inner + offsetAbove(move.parent)[0];
+        for (let n = drop; n && n !== move.parent; n = n.parent) inner += translateOf(n)[0];
+        const own = (move.name === 'animateMotion' || move.attrs.additive === 'sum') ? translateOf(move.parent)[0] : 0;
+        const base = num(drop.attrs.cx ?? 0) + inner + own + offsetAbove(move.parent)[0];
         const near = 0.25 * stations;
         if (Math.abs(base + path[0] - xs[0]) > near) return fail(`the droplet starts at x = ${Math.round(base + path[0])}, not at the first station (${Math.round(xs[0])})`);
         if (base + Math.max(...path) < xs[2] - near) return fail(`the droplet gets no further than x = ${Math.round(base + Math.max(...path))}, short of the last station (${Math.round(xs[2])})`);
@@ -819,8 +823,24 @@ export default {
                 },
                 {
                     name: 'the droplet itself animated, inside a translated group',
-                    reply: water({ move: '' }).replace('<g>\n<circle cx="60" cy="120" r="9" fill="#2563eb" stroke="#1e3a8a" stroke-width="2"/>',
-                        '<g transform="translate(100,0)">\n<circle cx="-40" cy="120" r="9" fill="#2563eb" stroke="#1e3a8a" stroke-width="2"><animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/></circle>'),
+                    reply: waterDrop(`<g transform="translate(100,0)">\n<circle cx="-40" cy="120" r="9" ${DROP}><animateTransform attributeName="transform" type="translate" ${SLIDE}/></circle>`),
+                },
+                // An animateTransform replaces the element's static translate; additive="sum" adds to it.
+                {
+                    name: 'the droplet animated over its own translate, which the animation replaces',
+                    reply: waterDrop(`<g>\n<circle cx="60" cy="120" r="9" ${DROP} transform="translate(200,0)"><animateTransform attributeName="transform" type="translate" ${SLIDE}/></circle>`),
+                },
+                {
+                    name: 'the droplet animated on top of its own translate (additive sum)',
+                    reply: waterDrop(`<g>\n<circle cx="-140" cy="120" r="9" ${DROP} transform="translate(200,0)"><animateTransform attributeName="transform" type="translate" additive="sum" ${SLIDE}/></circle>`),
+                },
+                {
+                    name: 'a translated group animated on top of its translate (additive sum)',
+                    reply: waterDrop(`<g transform="translate(100,0)">\n<circle cx="-40" cy="120" r="9" ${DROP}/><animateTransform attributeName="transform" type="translate" additive="sum" ${SLIDE}/>`),
+                },
+                {
+                    name: 'a motion path on top of the droplet\'s own translate',
+                    reply: waterDrop(`<g>\n<circle cy="120" r="9" ${DROP} transform="translate(60,0)"><animateMotion path="M0 0 L180 0" dur="6s" repeatCount="indefinite"/></circle>`),
                 },
             ],
             mutants: [
@@ -836,6 +856,8 @@ export default {
                 { name: 'keyTimes with a unit glued on', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;0.5s;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'the droplet runs the wrong way', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;-120 0;-240 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'the droplet starts past the last station', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="300 0;420 0;540 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
+                // The static translate(200,0) is replaced by the animation, so the droplet starts off the left edge at x = -140.
+                { name: 'the droplet starts off the left edge (its translate is replaced)', reply: waterDrop(`<g>\n<circle cx="-140" cy="120" r="9" ${DROP} transform="translate(200,0)"><animateTransform attributeName="transform" type="translate" ${SLIDE}/></circle>`) },
             ],
         },
         {
