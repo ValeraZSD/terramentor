@@ -17,14 +17,20 @@
  * that limit has passed.
  */
 const holds = new Map();   // flow → the moment its hold ends (ms since the epoch)
+let clock = Date.now;
+
+/** The clock the flows' holds read. A gate pins one instant; `null` restores the real one. */
+export function setHoldClock(now) {
+    clock = now ?? Date.now;
+}
 
 /** Hold the server open for `ms` from `now`, under `flow` (one hold per flow). */
-export function holdOpen(flow, ms, now = Date.now()) {
+export function holdOpen(flow, ms, now = clock()) {
     holds.set(flow, now + ms);
 }
 
 /** The flow's attempt ended: its hold ends at `now`, never later than it would have. */
-export function releaseHold(flow, now = Date.now()) {
+export function releaseHold(flow, now = clock()) {
     const until = holds.get(flow);
     if (until !== undefined) holds.set(flow, Math.min(until, now));
 }
