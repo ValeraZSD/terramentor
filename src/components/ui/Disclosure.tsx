@@ -21,9 +21,10 @@
  *                      border. Thirty of them closed down a page are thirty
  *                      quiet lines; thirty bordered 40px boxes are a second
  *                      page of noise, which is what a settings page can least
- *                      afford. Open, the body takes a hairline down its left
- *                      edge — that is what says where the opened thing ends,
- *                      and it costs nothing while closed.
+ *                      afford. Open, one thin outline goes round the name
+ *                      AND its body, so they read as one block; closed it
+ *                      costs nothing. Never placed inside an opened
+ *                      ExpandableSection: a block inside a block.
  *
  *   ExpandableSection  CONTROLS behind a name. An icon, a title, one line of
  *                      what is inside, and the chevron at the far end. This is
@@ -101,15 +102,23 @@ const OPEN_EDGE =
 /** The rule under an opened summary, between it and its body. */
 const BODY_RULE = 'border-t border-slate-300 dark:border-slate-600';
 
-/** The opened prose of an `Explain`: a rule one rung stronger than the hairline
- *  it replaces (1.18:1 to 1.48:1 against the row it opens in), a wash of the
- *  ink colour over whatever it opens on (a fixed rung would be invisible on
- *  the one surface that shares it: `slate-100` on the page, `slate-900` in an
- *  open dark row), and text at reading strength. `slate-500` measured 4.14 to
- *  4.31:1 where an `Explain` stands straight on the page (`slate-100`), under
- *  the 4.5:1 floor. */
-const EXPLAIN_BODY =
-    'details-reveal mt-1 ml-2 rounded-r-lg border-l-2 border-slate-300 bg-slate-900/5 py-2 pl-3 pr-3 text-sm text-slate-600 dark:border-slate-600 dark:bg-white/5 dark:text-slate-300';
+/**
+ * An opened `Explain` is ONE block: a thin outline, no fill, round the
+ * summary AND its body. A guide line under the body alone left the summary
+ * above it as a separate line, so the name and what it opened read as two
+ * things. The box stays inside its column and takes its padding only when
+ * open: reaching 12px out so the summary would not move, it ran to within
+ * 3-6px of the card's own edge and doubled the card's border.
+ *
+ * Not a tinted panel: that was a grey surface inside whatever card it opened
+ * in, three deep around a settings form, and a text box inside it sat on a
+ * third surface. The outline is `OPEN_EDGE`, the same edge an opened card
+ * section draws. The body is indented to the summary's text (the 16px
+ * chevron plus its 6px gap, in rem so the interface scale moves both). Text
+ * stays `slate-600` / `slate-300`, above 4.5:1 on every surface it opens on.
+ */
+const EXPLAIN_BOX = cx('group rounded-xl open:px-3 open:pt-1 open:pb-3', OPEN_EDGE);
+const EXPLAIN_BODY = 'details-reveal mt-1 pl-[1.375rem] text-sm text-slate-600 dark:text-slate-300';
 
 /**
  * Prose behind a name.
@@ -137,23 +146,22 @@ export function Explain({ summary, children, className = '', onToggle, defaultOp
 }) {
     const [initiallyOpen] = React.useState(defaultOpen);
     return (
-        <details open={initiallyOpen} onToggle={onToggle} className={cx('group', className)}>
+        <details open={initiallyOpen} onToggle={onToggle} className={cx(EXPLAIN_BOX, className)}>
             <summary
                 // 14px, not 12px: this is prose, and the page's own rule is that
                 // 12px is for badges, counters and code. It also has to sit beside
                 // a setting's name without reading as a footnote.
                 className={cx(
                     'flex w-full items-center gap-1.5 rounded -mx-2 px-2 py-1.5 touch:min-h-11',
-                    'text-sm font-medium text-slate-600 hover:text-accent-fg dark:text-slate-300',
+                    // A shade darker than the body it opens: in the same grey
+                    // as the body it read as a caption, not as something to press.
+                    'text-sm font-medium text-slate-700 hover:text-accent-fg dark:text-slate-200',
                     SUMMARY_BASE,
                 )}
             >
                 <ChevronRight className={cx('w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400', CHEVRON_TURN)} aria-hidden="true" />
                 <span className="min-w-0">{summary}</span>
             </summary>
-            {/* The hairline is the whole open treatment. It starts under the
-                chevron, so the body reads as hanging off the line that opened
-                it rather than as the next thing on the page. */}
             <div className={EXPLAIN_BODY}>
                 {children}
             </div>
@@ -211,9 +219,13 @@ export function ExpandableSection({
     const card = variant === 'card';
     const marked = Boolean(Icon || lead);
     return (
+        // `data-disclosure` makes the row its own size container: the aside and
+        // the body indent follow the ROW's width (src/index.css), never the
+        // viewport's, so a narrow panel on a wide screen stacks like a phone.
         <details
             id={id}
             onToggle={onToggle}
+            data-disclosure=""
             className={cx(
                 'group',
                 card && cx('rounded-xl bg-white shadow-sm dark:bg-slate-800', OPEN_EDGE),
@@ -222,7 +234,12 @@ export function ExpandableSection({
         >
             <summary
                 className={cx(
-                    'flex flex-wrap items-start gap-3 px-4 py-3 text-left',
+                    // Top-aligned under a description, so the mark and the
+                    // chevron sit on the title's line; with a title alone,
+                    // centred, or a one-line title hung off the top of a
+                    // picture-sized mark (the app icon's).
+                    'flex flex-wrap gap-3 px-4 py-3 text-left',
+                    desc ? 'items-start' : 'items-center',
                     // Open, the body follows this summary and its square top edge
                     // does not cover the summary's own rounded bottom corners, so
                     // the page showed through two corner notches (black on dark).
@@ -240,7 +257,7 @@ export function ExpandableSection({
                     SUMMARY_BASE,
                 )}
             >
-                {lead ?? (Icon && <Icon className="mt-0.5 w-5 h-5 shrink-0 text-accent-fg" aria-hidden="true" />)}
+                {lead ?? (Icon && <Icon className={cx('w-5 h-5 shrink-0 text-accent-fg', !!desc && 'mt-0.5')} aria-hidden="true" />)}
                 <span className="min-w-0 flex-1">
                     <span className="block font-medium text-slate-900 dark:text-white">{title}</span>
                     {desc && <span className="mt-0.5 block text-sm text-slate-500 dark:text-slate-400">{desc}</span>}
@@ -248,24 +265,28 @@ export function ExpandableSection({
                 {/* Narrow, the answer drops to its own full-width line under the
                     text. `flex-basis:0%` on the text span would otherwise let a
                     long answer stay inline and squeeze the description into a
-                    ~185px column. */}
+                    ~185px column. Order, basis and indent: `[data-disclosure-aside]`
+                    in src/index.css, keyed on the row's width. */}
                 {aside && (
-                    <span className="order-last basis-full shrink-0 self-center pl-8 text-sm text-slate-500 dark:text-slate-400 sm:order-none sm:basis-auto sm:pl-0">
+                    <span data-disclosure-aside="" data-under-desc={desc ? '' : undefined} className="shrink-0 text-sm text-slate-500 dark:text-slate-400">
                         {aside}
                     </span>
                 )}
-                <ChevronRight className={cx('w-4 h-4 shrink-0 self-center text-slate-500 dark:text-slate-400', CHEVRON_TURN)} aria-hidden="true" />
+                {/* On the TITLE's line, not centred on the block: under a
+                    three-line description a centred chevron sat beside the
+                    description's middle and belonged to neither line. */}
+                <ChevronRight className={cx('w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400', !!desc && 'mt-1', CHEVRON_TURN)} aria-hidden="true" />
             </summary>
             {/* Indented to the title above it, so the body reads as belonging to
                 that section rather than starting a new one; the icon's column is
                 the indent. */}
             {card ? (
                 <div
+                    data-disclosure-indent={marked && !flushBody ? '' : undefined}
                     className={cx(
                         'details-reveal rounded-b-xl bg-white dark:bg-slate-900',
                         BODY_RULE,
                         flushBody ? '' : 'px-4 pb-4 pt-3',
-                        marked && !flushBody ? 'sm:pl-12' : '',
                     )}
                 >
                     {children}
@@ -274,16 +295,16 @@ export function ExpandableSection({
                 <div
                     className={cx(
                         'details-reveal',
-                        // The guide sits under the centre of a 20px icon (16px
-                        // padding + 10px, less half its own 2px). A flush body's
-                        // children pad themselves by 16px, so `pl-8` lands their
-                        // text on the same 48px title column as `pl-12` does.
-                        marked && 'relative before:absolute before:left-[1.5625rem] before:top-0 before:bottom-4 before:w-0.5 before:rounded-full before:bg-slate-300 dark:before:bg-slate-600',
+                        // No guide line under the icon: a vertical rule down the
+                        // opened body read as a second block hung off the row.
+                        // The indent alone ties the body to its title. A flush
+                        // body's children pad themselves by 16px, so `pl-8`
+                        // lands their text on the same 48px title column as
+                        // `pl-12` does.
                         flushBody
                             ? (marked ? 'pl-8' : '')
                             : cx('pb-4 pt-1 pr-4', marked ? 'pl-12' : 'pl-4'),
-                    )}
-                >
+                    )}                >
                     {children}
                 </div>
             )}
