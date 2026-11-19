@@ -141,7 +141,7 @@ try {
         g.fillStyle = '#111827'; g.font = '20px sans-serif';
         g.fillText(m.id.length > 44 ? m.id.slice(0, 43) + '…' : m.id, 30, y + 28);
         g.fillStyle = '#e5e7eb'; g.fillRect(x0, y + 8, barW, 28);
-        g.fillStyle = m.zdr ? '#0f766e' : '#2563eb'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
+        g.fillStyle = m.zdr == null ? '#6b7280' : m.zdr ? '#0f766e' : '#2563eb'; g.fillRect(x0, y + 8, barW * (m.score || 0) / 100, 28);
         g.fillStyle = '#111827'; g.font = 'bold 20px sans-serif';
         g.fillText(m.score == null ? '–' : String(Math.round(m.score)), x0 + barW + 14, y + 30);
         g.font = '20px sans-serif'; g.fillStyle = '#4b5563';

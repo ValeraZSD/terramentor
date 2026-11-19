@@ -1,14 +1,15 @@
 /**
  * One model's half of tools/model-bench/run.mjs (forked, one per model).
  *
- * Opens a fresh scratch library, points the app at OpenRouter through the env
- * overrides getAISettings() reads (never a settings row), seeds each case
+ * Opens a fresh scratch library, points the app at OpenRouter (or, for an
+ * `anthropic:` model, Anthropic's own API) through the env overrides
+ * getAISettings() reads (never a settings row), seeds each case
  * family's fixture rows, then runs every case through the app's own code and
  * appends one JSON line per case to BENCH_FILE. A case already on disk is
  * skipped, so a stopped run continues where it stopped.
  */
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
-import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs } from './harness.mjs';
+import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs, isDirect } from './harness.mjs';
 
 const MODEL = process.env.BENCH_MODEL;
 const FILE = process.env.BENCH_FILE;
@@ -19,7 +20,7 @@ const REV = process.env.BENCH_REV || null;
 // "k/n": this worker takes every n-th case starting at k (one model, n workers).
 const [SHARD, SHARDS] = (process.env.BENCH_SHARD || '0/1').split('/').map(Number);
 
-const scratch = startLibrary(MODEL, process.env.OPENROUTER_API_KEY);
+const scratch = startLibrary(MODEL, isDirect(MODEL) ? process.env.ANTHROPIC_API_KEY : process.env.OPENROUTER_API_KEY);
 const LOG = FILE.replace(/\.jsonl$/, '.app.log');
 const print = muteAppLogs((line) => appendFileSync(LOG, `${line}\n`));
 

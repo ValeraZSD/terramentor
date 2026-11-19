@@ -74,6 +74,18 @@ worker process with a fresh scratch library (`DB_PATH` and `VAULT_ROOT` in the
 system temp folder); the app reaches OpenRouter through the env overrides
 `getAISettings()` reads, so no settings row is written.
 
+A model named `anthropic:<id>` (for example `anthropic:claude-haiku-5-5`) goes
+to Anthropic's own API instead, through the app's direct Anthropic connection
+(`server/anthropicWire.js`), with the key from `ANTHROPIC_API_KEY`. Anthropic
+reports tokens, not money, so its cost is priced from the list in
+`harness.mjs` (cache writes at 1.25x, cache reads at the read rate); a model
+missing from that list is refused before the run starts. Two figures differ
+from the OpenRouter rows: the direct wire always streams, so its first-token
+time is real even for a call the app makes without streaming (an OpenRouter
+non-streaming call records the whole reply time there), and Anthropic does not
+report thinking tokens apart, so their reasoning column is 0 and thinking
+counts inside the output tokens.
+
 - **Rate limits.** Every model request waits for a slot from the parent,
   which grants one every 60/`--rpm` seconds across all workers (default 16;
   the free tier allows 20 a minute). That wait runs inside the app's own
@@ -102,7 +114,8 @@ system temp folder); the app reaches OpenRouter through the env overrides
 
 Each row records pass or fail and why, wall time, time spent waiting for a
 slot, time to first token, model time, tokens in, out and reasoning, cost as
-OpenRouter reports it (and what all attempts spent), the serving provider,
+OpenRouter reports it or as priced from Anthropic's token counts (and what all
+attempts spent), the serving provider,
 and every request error. The report's seconds are model time: how long the
 app waited on the model, its own retries included.
 

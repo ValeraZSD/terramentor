@@ -15,8 +15,13 @@
  *            --label x         a repeat run for noise: writes <model>@x.jsonl
  *            --retry-errors    re-run rows that ended in a transient error
  *
- * The key comes from OPENROUTER_API_KEY (set it in-process from a launcher;
- * this tool never prints or writes it).
+ * A model named `anthropic:<id>` (anthropic:claude-haiku-5-5) is called on
+ * Anthropic's own API through the app's direct Anthropic connection, priced
+ * from the list in harness.mjs; any other id goes to OpenRouter.
+ *
+ * Keys come from OPENROUTER_API_KEY and, for anthropic: models,
+ * ANTHROPIC_API_KEY (set them in-process from a launcher; this tool never
+ * prints or writes them).
  *
  * One worker process per model: the app picks its model from process env
  * (getAISettings), so two models cannot share a process. Every worker asks
@@ -28,6 +33,7 @@ import { fork, execFileSync } from 'node:child_process';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { isDirect, apiModel, hasAnthropicPrice } from './harness.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => {
@@ -40,8 +46,11 @@ const positive = (name, value) => {
     return n;
 };
 
+const wanted = !args.models || args.models === 'free' ? null : String(args.models).split(',');
+const needsOpenRouter = !wanted || wanted.some(id => !isDirect(id));
 const KEY = process.env.OPENROUTER_API_KEY || '';
-if (!KEY) { console.error('OPENROUTER_API_KEY is not set'); process.exit(2); }
+if (needsOpenRouter && !KEY) { console.error('OPENROUTER_API_KEY is not set'); process.exit(2); }
+if (wanted?.some(isDirect) && !process.env.ANTHROPIC_API_KEY) { console.error('ANTHROPIC_API_KEY is not set (an anthropic: model was asked for)'); process.exit(2); }
 const OUT = path.resolve(String(args.out || ''));
 if (!args.out) { console.error('--out <dir> is required'); process.exit(2); }
 if (args.label && !/^[a-z0-9_-]+$/i.test(String(args.label))) { console.error('--label takes letters, digits, - and _'); process.exit(2); }
@@ -78,18 +87,24 @@ async function freeQuota() {
 }
 
 let models;
-if (args.models === 'free' || !args.models) models = await freeTextModels();
+if (!wanted) models = await freeTextModels();
 else {
-    const { data } = await (await fetch('https://openrouter.ai/api/v1/models')).json();
+    const { data } = needsOpenRouter ? await (await fetch('https://openrouter.ai/api/v1/models')).json() : { data: [] };
     const byId = new Map(data.map(m => [m.id, m]));
-    models = String(args.models).split(',').map(id => {
+    models = wanted.map(id => {
+        // Anthropic's own API: every current Claude model reads pictures. Its
+        // retention is the account's own agreement, so ZDR is left unknown.
+        if (isDirect(id)) {
+            if (!hasAnthropicPrice(apiModel(id))) throw new Error(`no Anthropic price for ${apiModel(id)} in harness.mjs`);
+            return { id, free: false, vision: true, direct: true };
+        }
         if (!byId.has(id)) throw new Error(`unknown model ${id}`);
         const m = byId.get(id);
         return { id, free: isFree(m), vision: (m.architecture?.input_modalities || []).includes('image') };
     });
 }
-const zdr = await zdrModelIds();
-for (const m of models) m.zdr = zdr.has(m.id);
+const zdr = needsOpenRouter ? await zdrModelIds() : new Set();
+for (const m of models) m.zdr = m.direct ? null : zdr.has(m.id);
 const metaFile = path.join(OUT, 'models.json');
 const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, 'utf8')) : {};
 for (const m of models) meta[m.id] = { zdr: m.zdr, vision: m.vision, free: m.free, checked: new Date().toISOString() };
@@ -130,7 +145,8 @@ const SHARDS = Math.floor(positive('shards', args.shards ?? 1));
 
 function runModel(m, shard) {
     return new Promise((resolve) => {
-        const file = path.join(OUT, `${m.id.replace(/[/:]/g, '__')}${args.label ? '@' + args.label : ''}.jsonl`);
+        // `anthropic:x` (direct) and `anthropic/x` (OpenRouter) must not share a file.
+        const file = path.join(OUT, `${m.id.replace(/\//g, '__').replace(/:/g, '=')}${args.label ? '@' + args.label : ''}.jsonl`);
         const child = fork(path.join(HERE, 'worker.mjs'), [], {
             env: { ...process.env, BENCH_MODEL: m.id, BENCH_VISION: m.vision ? '1' : '', BENCH_ZDR: m.zdr ? '1' : '',
                 BENCH_FILE: file, BENCH_CASES: args.cases ? String(args.cases) : '', BENCH_SHARD: `${shard}/${SHARDS}`,
