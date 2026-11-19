@@ -559,6 +559,32 @@ html[data-larger-ui] [data-tick-bar] > [data-tick] {
     display: block;
   }
 }
+/* An ExpandableSection row (ui/Disclosure.tsx) lays out by its OWN width, not
+   the viewport's: the same row sits in a 1280px settings page and in a narrow
+   side panel on that same screen. Narrow, the aside drops to a full-width line
+   under the text, indented to the title; at 32rem and up it sits on the
+   title's line, and a marked card's body is indented to the title column. */
+[data-disclosure] {
+  container-type: inline-size;
+}
+[data-disclosure-aside] {
+  order: 9999;
+  flex-basis: 100%;
+  padding-left: 2rem;
+}
+@container (min-width: 32rem) {
+  [data-disclosure-aside] {
+    order: 0;
+    flex-basis: auto;
+    padding-left: 0;
+  }
+  [data-disclosure-aside][data-under-desc] {
+    margin-top: 0.125rem;
+  }
+  [data-disclosure-indent] {
+    padding-left: 3rem;
+  }
+}
 /* A password or key field keeps room for its show button, which is now 44px
    wide and sits 4px in from the edge: typed text must not run under it. */
 html[data-larger-ui] [data-reveal-field] {
