@@ -33,7 +33,7 @@ import {
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
-    whenStarted,
+    whenStarted, START_LOCK, settleStart, markStartLockUp, releaseStartLock,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
@@ -109,6 +109,9 @@ process.env.TERRAMENTOR_DESKTOP = '1';
  * library in it. */
 const keyDir = resolveDataPaths({ env: process.env }).dataDir;
 const instanceKey = launcherInstanceKey(chosen);
+/** Held while this launch starts the server (desktop/lib.js `settleStart`). */
+const startLockFile = join(keyDir, START_LOCK);
+let startLockToken = null;
 
 // --- how this copy is started, for the server to offer back ---------------------
 // "Start when I sign in" writes a login item, and a login item is a COMMAND
@@ -494,29 +497,49 @@ async function finishInterruptedSwap() {
 // --- main --------------------------------------------------------------------------
 (async () => {
     if (packaged) await finishInterruptedSwap();
-    // 1. Someone already running on this library?
+    // 1. Someone already running on this library, or starting on it right now?
     if (!checkOnly) {
         if (!instanceKey) console.warn(`Could not read or create ${join(keyDir, INSTANCE_KEY_FILE)}; not looking for a running copy`);
-        const running = await findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir, key: instanceKey });
+        const settled = await settleStart({
+            lockFile: startLockFile,
+            find: () => findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir, key: instanceKey }),
+            onWait: (lock) => console.log(`Another launch (pid ${lock.pid}) is starting ${APP_NAME} on this library; waiting for it instead of starting a second server`),
+        });
+        if (settled.token) {
+            startLockToken = settled.token;
+            process.on('exit', () => releaseStartLock(startLockFile, startLockToken));
+        }
+        const running = settled.running;
         if (running) {
             // Its own status carries both preferences; this process never reads
             // the database (the running one owns it), and its `trayHosted` is
             // the one that counts — the icon on screen belongs to THAT process.
-            const show = shouldOpenWindow({
+            // …and when this launch waited for that server's start, the start
+            // that opened a window already answered the click this one is.
+            const show = !settled.openedByHolder && shouldOpenWindow({
                 wantWindow,
                 autostart,
                 autostartWindow: running.status?.autostartWindow || DEFAULT_AUTOSTART_WINDOW,
                 trayHosted: running.status?.trayHosted === true,
             });
-            console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
+            console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : settled.openedByHolder ? ' — its start opened the window' : ''}`);
             // Waited for: whenStarted hears `spawn`/`error` on process.nextTick,
             // and on macOS the answer is `open`'s exit, a moment later. Exiting
             // first logged nothing, and lost the fallback to the default
             // browser when the app window could not be opened. Bounded, so a
             // go-between that never answers cannot keep this run alive; the
             // timer is what keeps it alive until then (the child is unref'd).
-            if (show) await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => setTimeout(r, 15_000))]);
-            process.exit(0);
+            if (show) {
+                let bound;
+                await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => { bound = setTimeout(r, 15_000); })]);
+                clearTimeout(bound);
+            }
+            // Ended by running out of work, not process.exit: on Windows an
+            // exit while the probe's sockets are still closing trips a libuv
+            // assertion (src\win\async.c) and every one of these launches died
+            // with 0xC0000409, a crash report each.
+            process.exitCode = 0;
+            return;
         }
     }
 
@@ -632,6 +655,7 @@ async function finishInterruptedSwap() {
     // for an update those stayed — the old window reloaded onto the new version
     // and the new version opened its own, so there were two.
     appProfile = profileDir;
+    let openedWindow = false;
     if (wantWindow) {
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;
@@ -642,6 +666,7 @@ async function finishInterruptedSwap() {
         } catch { /* a preference, not a requirement */ }
         if (shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })) {
             openWindow(ready.url, mode);
+            openedWindow = true;
         } else {
             // The tray host watches this stream for exactly this line and says,
             // once and quietly, where the app went. An app that starts invisibly
@@ -649,5 +674,8 @@ async function finishInterruptedSwap() {
             console.log('TERRAMENTOR_TRAY_HINT background');
         }
     }
+    // Launches that waited for this start may go now; they open a window
+    // only if this one did not.
+    markStartLockUp(startLockFile, startLockToken, { window: openedWindow });
     ensureStartMenuShortcut();
 })();

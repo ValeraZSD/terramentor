@@ -1135,7 +1135,7 @@ console.log('\n--- the tray open path in source ---');
     const main = src.slice(src.indexOf('// --- main'));
     const at = (needle) => main.indexOf(needle);
     const armAt = main.search(/appProfile\s*=\s*profileDir/);
-    const anchors = { exit: at('process.exit(0)'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
+    const anchors = { exit: at('process.exitCode = 0;'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
     ok('the anchors the next two checks measure from are all there', Object.values(anchors).every(i => i > -1) && armAt > -1);
     ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
         armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);
