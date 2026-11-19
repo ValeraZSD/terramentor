@@ -511,12 +511,19 @@ function aiEnabled() {
  * later — whereas a bad prompt, a missing model or disabled AI will fail
  * identically forever. A cancel is never retried: `signal.aborted` is the only
  * trustworthy test, since an abort surfaces as its own reason, not a named type.
+ *
+ * A status is read from the status, never from the text: the message names the
+ * endpoint, and a port or host holding "503" made every plain 400 from it look
+ * busy. Addresses are cut from the text before the words are read.
  */
-function isTransient(err, signal) {
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+const TRANSIENT_WORDS = /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|overloaded|rate.?limit/;
+export function isTransient(err, signal) {
     if (signal?.aborted) return false;
-    const msg = String(err?.message || '').toLowerCase();
-    return /timeout|timed out|fetch failed|econnreset|econnrefused|epipe|socket|network|502|503|504|overloaded|rate.?limit/
-        .test(msg);
+    const msg = String(err?.message || '').toLowerCase().replace(/[a-z][a-z0-9+.-]*:\/\/\S*/g, ' ');
+    const status = Number.isInteger(err?.httpStatus) ? err.httpStatus : Number(/failed \((\d{3})\)/.exec(msg)?.[1]);
+    if (TRANSIENT_STATUSES.has(status)) return true;
+    return TRANSIENT_WORDS.test(msg);
 }
 
 /**
