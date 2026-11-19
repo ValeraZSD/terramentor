@@ -335,5 +335,23 @@ section('the course header names the verdict, never the plan\'s day count');
     w.close();
 }
 
+// ---------------------------------------------------------------------------
+// The server answers 404 for a project that is not there (deleted in another
+// window, or a first press whose reply was lost). The list must still be read
+// again, or the card of a course that no longer exists stays on the page.
+section('a delete of a project already gone still refreshes the list');
+{
+    const { w, g, fetched } = page((url) => /\/api\/projects\/7$/.test(url)
+        ? { ok: false, status: 404, body: { error: 'Project not found' } }
+        : /\/api\/projects(\?|$)/.test(url) ? { ok: true, status: 200, body: [] } : { ok: true, status: 200, body: {} });
+    g.useStore.setState({ projects: [{ id: 7, name: 'Gone already', kind: 'curriculum' }], toasts: [] });
+    await g.useStore.getState().deleteProject(7);
+    await settle();
+    check('the list is asked for again after the 404', fetched.some(u => /\/api\/projects(\?|$)/.test(u)), fetched.join(', '));
+    check('…and the gone course is no longer listed', !g.useStore.getState().projects.some(p => p.id === 7),
+        JSON.stringify(g.useStore.getState().projects));
+    w.close();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

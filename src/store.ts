@@ -2313,6 +2313,8 @@ export const useStore = create<AppState>((set, get) => ({
             get().addToast('success', i18n.t('Project deleted'));
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to delete project'), e.message);
+            // A 404 means it was already gone: read the list again so its card goes too.
+            await get().loadProjects().catch(() => { });
         }
     },
 
