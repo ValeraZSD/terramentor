@@ -342,9 +342,11 @@ if (C && T && P && libraries.length) {
         if (!cut) continue;
         const patch = C.equalAreaPatch(c.u);
         for (const b of cut.borders) {
-            const n = b.pts.length / 3;
-            for (let i = 0; i + 1 < n; i++) {
-                const p = at3(b.pts, i), q = at3(b.pts, i + 1);
+            // A closed border (a city wholly inland) does not repeat its first
+            // point: its last edge runs back to it.
+            const n = b.pts.length / 3, edges = b.closed ? n : n - 1;
+            for (let i = 0; i < edges; i++) {
+                const p = at3(b.pts, i), q = at3(b.pts, (i + 1) % n);
                 segs++;
                 if (!inLoops(patch, territory.loops, mid(p, q))) outside++;
                 borderLen += plen(patch, p, q);
@@ -354,10 +356,14 @@ if (C && T && P && libraries.length) {
             const n = l.pts.length / 3;
             for (let i = 0; i < n; i++) {
                 const p = at3(l.pts, i), q = at3(l.pts, (i + 1) % n);
-                // Finely, so a segment across the coast counts only its inland part.
+                // Finely, so a segment across the coast counts only its inland
+                // part, and along the straight segment on the patch, which is
+                // what the borders' own length is measured along.
+                const [px, py] = patch.to(p[0], p[1], p[2]), [qx, qy] = patch.to(q[0], q[1], q[2]);
                 for (let k = 0; k < 8; k++) {
-                    const a = [0, 1, 2].map(j => p[j] + (q[j] - p[j]) * k / 8), z = [0, 1, 2].map(j => p[j] + (q[j] - p[j]) * (k + 1) / 8);
-                    if (inLoops(patch, territory.loops, mid(a, z))) cityLen += plen(patch, a, z);
+                    const ax = px + (qx - px) * k / 8, ay = py + (qy - py) * k / 8;
+                    const zx = px + (qx - px) * (k + 1) / 8, zy = py + (qy - py) * (k + 1) / 8;
+                    if (inLoops(patch, territory.loops, patch.from((ax + zx) / 2, (ay + zy) / 2))) cityLen += Math.hypot(zx - ax, zy - ay);
                 }
             }
         }
@@ -367,7 +373,6 @@ if (C && T && P && libraries.length) {
     check('no inland city border is lost: borders = half the cities\' inland outline, within 2%',
         Math.abs(ratio - 1) < 0.02, `ratio ${ratio.toFixed(4)}`);
     console.log(`        (${segs} border segments, inland ratio ${ratio.toFixed(4)})`);
-
     // The cutter itself, on shapes whose answer is known: a square with a
     // square lake, crossed by a line and ringed by loops.
     if (typeof C.clipToOutline === 'function' && typeof C.outlineOf === 'function') {
@@ -380,6 +385,18 @@ if (C && T && P && libraries.length) {
         const across = C.clipToOutline([[-5, 5], [15, 5]], false, o);
         check('a line across land and a lake keeps the two stretches of land', across.length === 2 && Math.abs(len(across) - 8) < 1e-9,
             `${across.length} pieces, length ${len(across)}`);
+        // A line that only touches a lake's tip has not entered the lake: the
+        // touch must not be read as a crossing (and so cost the real ones).
+        const diamond = C.outlineOf([sq(0, 0, 10, false), Float64Array.from([5, 5, 6, 6, 5, 7, 4, 6])]);
+        const touch = C.clipToOutline([[-1, 5], [11, 5]], false, diamond);
+        check('a line touching a lake\'s tip stays one stretch of land', touch.length === 1 && Math.abs(len(touch) - 10) < 1e-9,
+            `${touch.length} pieces, length ${len(touch)}`);
+        // …and corners are where it does cross: this diagonal enters at one
+        // corner of the coast, crosses the lake corner to corner, and leaves at
+        // the other.
+        const corner = C.clipToOutline([[-2, 12], [12, -2]], false, o);
+        check('a line through corners of the coast and the lake keeps both stretches of land',
+            corner.length === 2 && Math.abs(len(corner) - 8 * Math.SQRT2) < 1e-9, `${corner.length} pieces, length ${len(corner)}`);
         const ring = C.clipToOutline([[1, 1], [9, 1], [9, 9], [1, 9]], true, o);
         check('a loop that never leaves the land comes back whole and closed', ring.length === 1 && ring[0].closed && ring[0].line.length === 4);
         const half = C.clipToOutline([[5, -5], [5, 1], [8, 1], [8, -5]], true, o);

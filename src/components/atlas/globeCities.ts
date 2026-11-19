@@ -158,33 +158,40 @@ function crossingsOf(o: Outline, px: number, py: number, qx: number, qy: number)
 
 /**
  * The parts of a line (patch coordinates) that lie inside the outline, each
- * ending on it (a vertex lying exactly on the outline, which lattice floats
- * never hit, is cut mid-segment instead). A closed line that never leaves comes back whole and
- * closed; one that does comes back as open pieces, the piece running through
- * its first point joined up across it.
+ * ending on it. A closed line that never leaves comes back whole and closed;
+ * one that does comes back as open pieces, the piece running through its first
+ * point joined up across it.
+ *
+ * Each stretch between two crossings is asked on its own, at its middle, rather
+ * than counted: a line through one of the outline's corners, or touching a
+ * lake's tip, meets the outline without crossing it, and a count would read
+ * that touch as a crossing and throw away the real ones.
  */
 export function clipToOutline(
     line: [number, number][], closed: boolean, o: Outline,
 ): { line: [number, number][]; closed: boolean }[] {
     const P = closed ? [...line, line[0]] : line;
     if (P.length < 2) return [];
-    const inside = P.map(([x, y]) => insideOutline(o, x, y));
     const pieces: [number, number][][] = [];
-    let cur: [number, number][] | null = inside[0] ? [P[0]] : null;
-    let cut = false;
+    let cur: [number, number][] | null = null;
+    let cut = false, begun = false, startsInside = false;
     for (let i = 0; i + 1 < P.length; i++) {
         const [px, py] = P[i], [qx, qy] = P[i + 1];
-        let ts = crossingsOf(o, px, py, qx, qy);
-        // The ends' own answers win over the count where they disagree (a
-        // segment grazing a corner): an even count keeps the segment as its
-        // start is, an odd one is cut at the middle crossing.
-        if ((ts.length & 1) !== (inside[i] !== inside[i + 1] ? 1 : 0)) {
-            ts = inside[i] === inside[i + 1] ? [] : [ts.length ? ts[ts.length >> 1] : 0.5];
-        }
-        for (const t of ts) {
-            const at: [number, number] = [px + (qx - px) * t, py + (qy - py) * t];
+        const at = (t: number): [number, number] => [px + (qx - px) * t, py + (qy - py) * t];
+        const ts = [0, ...crossingsOf(o, px, py, qx, qy), 1];
+        for (let j = 0; j + 1 < ts.length; j++) {
+            if (ts[j + 1] - ts[j] < 1e-12) continue;
+            const [mx, my] = at((ts[j] + ts[j + 1]) / 2);
+            const isIn = insideOutline(o, mx, my);
+            if (!begun) {
+                begun = true;
+                startsInside = isIn;
+                if (isIn) cur = [at(ts[j])];
+                continue;
+            }
+            if (isIn === !!cur) continue;
             cut = true;
-            if (cur) { cur.push(at); pieces.push(cur); cur = null; } else cur = [at];
+            if (cur) { cur.push(at(ts[j])); pieces.push(cur); cur = null; } else cur = [at(ts[j])];
         }
         if (cur) cur.push(P[i + 1]);
     }
@@ -192,7 +199,7 @@ export function clipToOutline(
     if (closed && !cut) return pieces.length ? [{ line: line.slice(), closed: true }] : [];
     // Round a closed line, the piece that ran off the end and the one that
     // started at its first point are one stretch of border.
-    if (closed && pieces.length > 1 && inside[0]) {
+    if (closed && pieces.length > 1 && startsInside) {
         const last = pieces.pop()!, first = pieces[0];
         pieces[0] = [...last, ...first.slice(1)];
     }
