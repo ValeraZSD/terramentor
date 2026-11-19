@@ -38,6 +38,7 @@ import {
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
 import { appPlacement } from '../server/appPlacement.js';
+import { bootMark } from '../server/bootTimes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -550,6 +551,9 @@ async function finishInterruptedSwap() {
     // scoped to it, and the reference below would throw at RUN time, in the one
     // configuration that reaches it.
     let ready, server;
+    // The launcher's own part of the start (and any wait for another launch's
+    // start); the server adds its phases and logs them all as one [Boot] line.
+    bootMark('launcher');
     try {
         server = await import(pathToFileURL(join(appRoot, 'server', 'index.js')).href);
         ready = await server.serverReady;
