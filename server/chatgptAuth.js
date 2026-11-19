@@ -175,10 +175,15 @@ export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec =
 // ── one sign-in attempt ───────────────────────────────────────────────────
 
 let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at, server }
+// The listener of an attempt whose callback is still being answered (the code
+// exchange takes a moment): a sign-in started meanwhile closes it too, so the
+// callback port is free for the new attempt.
+let answering = null;
 
 function closePending() {
-    try { pending?.server?.close(); } catch { /* already closed */ }
+    for (const server of [pending?.server, answering]) { try { server?.close(); } catch { /* already closed */ } }
     pending = null;
+    answering = null;
 }
 
 async function listen(port) {
@@ -208,12 +213,25 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     const preferred = Number(process.env.CHATGPT_CALLBACK_PORT) || DEFAULT_CALLBACK_PORT;
     let server;
     try { server = await listen(preferred); } catch { server = await listen(0); }   // only the port may vary
+    const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
+    return {
+        url: openAttempt({
+            server, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`,
+            idTokenHint: creds?.id_token, loginHint: existing?.account,
+        }),
+    };
+}
+
+/**
+ * Make `pending` a new attempt on an open callback listener (fresh state,
+ * nonce and PKCE verifier) and return the authorize URL that starts it.
+ */
+function openAttempt({ server, clientId, connectionId, returnUrl, idTokenHint = '', loginHint = '' }) {
     const redirectUri = `http://127.0.0.1:${server.address().port}${CALLBACK_PATH}`;
     const verifier = b64url(randomBytes(32));
     const state = b64url(randomBytes(24));
     const nonce = b64url(randomBytes(24));
-    const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
-    pending = { state, nonce, verifier, redirectUri, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`, at: Date.now(), server };
+    pending = { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at: Date.now(), server };
     setTimeout(() => { if (pending?.state === state) closePending(); }, ATTEMPT_TTL_MS).unref?.();
 
     const url = new URL(`${AUTH_BASE()}/api/accounts/authorize`);
@@ -221,8 +239,8 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     q.set('client_id', clientId);
     if (clientId === 'dynamic_agent_client') q.set('agent_name_hint', AGENT_NAME);
     q.set('ext_agent_host_id', hostId());
-    if (creds?.id_token) q.set('id_token_hint', creds.id_token);
-    if (existing?.account) q.set('login_hint', existing.account);
+    if (idTokenHint) q.set('id_token_hint', idTokenHint);
+    if (loginHint) q.set('login_hint', loginHint);
     q.set('response_type', 'code');
     q.set('redirect_uri', redirectUri);
     q.set('scope', SCOPES);
@@ -231,7 +249,7 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     q.set('nonce', nonce);
     q.set('code_challenge_method', 'S256');
     q.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
-    return { url: url.toString() };
+    return url.toString();
 }
 
 function redirect(res, to, outcome, reason = null) {
@@ -255,7 +273,13 @@ async function tokenRequest(form) {
         signal: AbortSignal.timeout(15000),
     });
     const json = await readCappedJson(res, AUTH_BODY_BYTES).catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(json?.error_description || json?.error || `Token request failed (${res.status})`), { code: json?.error, httpStatus: res.status });
+    if (!res.ok) {
+        // OAuth's `error` is a string; some endpoints nest it as { code, message }.
+        const e = json?.error;
+        const code = typeof e === 'string' ? e : typeof e?.code === 'string' ? e.code : undefined;
+        const message = json?.error_description || (typeof e === 'string' ? e : e?.message) || `Token request failed (${res.status})`;
+        throw Object.assign(new Error(String(message)), { code, httpStatus: res.status });
+    }
     return json;
 }
 
@@ -269,13 +293,30 @@ async function handleCallback(req, res) {
         res.end('This sign-in attempt is not the one Terramentor is waiting for. Start it again from Settings.');
         return;
     }
-    closePending();   // one callback per attempt, whatever it says
-    // A failure names its step: `reason` is a short code from a closed list
-    // (Settings shows it under "did not complete", so a report can say which
-    // step failed) and the log line adds OpenAI's own words or how the ID
-    // token differed. Neither carries a token, the code or who signed in.
+    // One callback per attempt, whatever it says. The listener closes with it
+    // unless the attempt is started again on it (a refused code, below).
+    pending = null;
+    answering = attempt.server;
+    let listenerKept = false;
+    try { listenerKept = await finishAttempt(attempt, q, res); } finally {
+        if (answering === attempt.server) answering = null;
+        if (!listenerKept) { try { attempt.server?.close(); } catch { /* already closed */ } }
+    }
+}
+
+/**
+ * The rest of a callback whose state matched. Returns true when it started a
+ * fresh attempt on the same listener, which must then stay open.
+ */
+async function finishAttempt(attempt, q, res) {
+    // A failure names its step: `reason` is a short code from a closed list,
+    // shown on the Settings page, and the log line adds OpenAI's own words or
+    // how the ID token differed. Neither carries a token, the code (blanked
+    // out should OpenAI's words quote it) or who signed in.
+    const authCode = q.get('code') || '';
+    const words = (s) => printable(authCode ? String(s ?? '').split(authCode).join('[code]') : s, 400);
     const fail = (reason, detail = '') => {
-        console.log(`[chatgpt] sign-in failed: ${reason}${detail ? ` (${printable(detail, 400)})` : ''}`);
+        console.log(`[chatgpt] sign-in failed: ${reason}${detail ? ` (${words(detail)})` : ''}`);
         redirect(res, attempt.returnUrl, 'failed', reason);
     };
     const error = q.get('error');
@@ -290,7 +331,7 @@ async function handleCallback(req, res) {
     let tokens;
     try {
         tokens = await tokenRequest({
-            grant_type: 'authorization_code', client_id: clientId, code: q.get('code') || '',
+            grant_type: 'authorization_code', client_id: clientId, code: authCode,
             code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri, resource: API_RESOURCE,
         });
     } catch (err) {
@@ -299,8 +340,22 @@ async function handleCallback(req, res) {
         const code = typeof err?.code === 'string' ? oauthCode(err.code)
             : err?.httpStatus ? `http_${err.httpStatus}`
             : oauthCode(err?.cause?.code || err?.name);
+        // OpenAI's sign-in guide: when the exchange returns invalid_grant,
+        // discard the code and start a fresh authorization with the client id
+        // issued for this attempt. Only for a first sign-in, so only once: the
+        // fresh attempt already carries the issued id, as a returning sign-in
+        // does. The browser goes straight to OpenAI again, which knows the id
+        // now and shows its account picker, not the consent screen. A sign-in
+        // started anew meanwhile (`pending` set again) wins over the retry.
+        if (code === 'invalid_grant' && attempt.clientId === 'dynamic_agent_client' && !pending) {
+            console.log(`[chatgpt] code exchange refused (invalid_grant); starting again with the issued client id (${words(err?.message)})`);
+            const url = openAttempt({ server: attempt.server, clientId, connectionId: attempt.connectionId, returnUrl: attempt.returnUrl });
+            res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+            res.end();
+            return true;
+        }
         fail(`token:${code}`, err?.message);
-        return;
+        return false;
     }
     let doc, jwks;
     try { ({ doc, jwks } = await openidConfig()); } catch (err) { fail('discovery', err?.message); return; }

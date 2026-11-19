@@ -142,7 +142,8 @@ const authStub = createServer(async (req, res) => {
             issuedTokens++;
             return json(200, { access_token: `access-${issuedTokens}`, refresh_token: `refresh-${issuedTokens}`, expires_in: 3600, scope: auth.scope, token_type: 'Bearer' });
         }
-        if (auth.codeScript) return auth.codeScript(json, form);
+        // A script answers the code exchange itself, or returns 'pass' to let the stub answer.
+        if (auth.codeScript && (await auth.codeScript(json, form)) !== 'pass') return;
         const now = Math.floor(Date.now() / 1000);
         return json(200, {
             access_token: 'access-1', refresh_token: 'refresh-1', expires_in: 3600, scope: auth.scope, token_type: 'Bearer',
@@ -585,8 +586,7 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
 
 // A sign-in that fails says which step failed: in the address the browser lands
 // on (a short code from a closed list, for the toast) and in the log (with
-// OpenAI's own words). Every failure used to land as a bare "failed", and three
-// of the four ways logged nothing, so a learner's report could not say which.
+// OpenAI's own words).
 {
     const logged = [];
     const realLog = console.log;
@@ -597,6 +597,8 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
         return sq;
     };
     const answer = async (sq, query) => {
+        // An attempt that never opened (no callback address) answers nothing.
+        if (!sq.get('redirect_uri')) return { outcome: null, reason: null, hash: '', log: 'no callback address' };
         logged.length = 0;
         console.log = (...a) => { logged.push(a.join(' ')); };
         try {
@@ -621,10 +623,55 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
     a = await answer(await fresh(chat.id), 'code=c5&client_id=oaiapp_someone_else');
     check('a sign-in again that comes back with another client id says so', a.outcome === 'failed' && a.reason === 'client_mismatch', JSON.stringify(a));
 
+    // invalid_grant on a FIRST sign-in: OpenAI's guide says to discard the code
+    // and start a fresh authorization with the client id issued for the
+    // attempt, so the callback sends the browser back to OpenAI, once, on the
+    // same listener. A returning sign-in already used its own id: no retry.
     auth.codeScript = (json) => json(400, { error: 'invalid_grant', error_description: 'Code already used' });
-    a = await answer(await fresh(), 'code=c6&client_id=oaiapp_three');
-    check('a code exchange OpenAI refuses names its error code, and the log its words',
-        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && /Code already used/.test(a.log), JSON.stringify(a));
+    let sq = await fresh();
+    auth.tokenCalls = [];
+    let r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c6&client_id=oaiapp_three`, { redirect: 'manual' });
+    const retryAt = new URL(r.headers.get('location') || 'http://x/');
+    let rq = retryAt.searchParams;
+    check('a first sign-in whose code OpenAI refuses (invalid_grant) starts again at OpenAI with the ISSUED client id, no name hint, and a new state, nonce and challenge',
+        r.status === 302 && `${retryAt.origin}${retryAt.pathname}` === `${AUTH_BASE}/api/accounts/authorize`
+        && rq.get('client_id') === 'oaiapp_three' && !rq.has('agent_name_hint') && rq.get('ext_agent_host_id') === sq.get('ext_agent_host_id')
+        && rq.get('redirect_uri') === sq.get('redirect_uri') && !!rq.get('state') && rq.get('state') !== sq.get('state')
+        && !!rq.get('nonce') && rq.get('nonce') !== sq.get('nonce') && !!rq.get('code_challenge') && rq.get('code_challenge') !== sq.get('code_challenge')
+        && rq.get('code_challenge_method') === 'S256' && rq.get('scope') === sq.get('scope') && rq.get('resource') === sq.get('resource'),
+        r.headers.get('location'));
+    check('…after one exchange under the issued id, and nothing saved',
+        auth.tokenCalls.length === 1 && auth.tokenCalls[0].client_id === 'oaiapp_three' && saved() === before, JSON.stringify(auth.tokenCalls));
+    r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c6b&client_id=oaiapp_three`, { redirect: 'manual' });
+    check('…the refused attempt\'s state is spent', r.status === 400);
+    auth.tokenCalls = [];
+    a = await answer(rq, 'code=c6c');
+    check('a second refusal fails as token:invalid_grant with OpenAI\'s words in the log, and starts no third attempt',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && /Code already used/.test(a.log)
+        && auth.tokenCalls.length === 1 && auth.tokenCalls[0].client_id === 'oaiapp_three', JSON.stringify(a));
+    const closed = async (callbackUrl) => fetch(`${callbackUrl}?state=x`).then(() => false, () => true);
+    check('…and closes the callback listener', !!rq.get('redirect_uri') && await closed(rq.get('redirect_uri')));
+    a = await answer(await fresh(chat.id), 'code=c6d');
+    check('a sign-in AGAIN whose code is refused fails at once (it already used its own client id)',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant', JSON.stringify(a));
+    // A sign-in started while the refused code was being exchanged wins: no
+    // retry over it, and its own attempt still answers.
+    let restarted = null;
+    auth.codeScript = async (json) => {
+        restarted = new URL((await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257' })).url).searchParams;
+        json(400, { error: 'invalid_grant' });
+    };
+    a = await answer(await fresh(), 'code=c6e&client_id=oaiapp_three');
+    auth.codeScript = (json) => json(400, { error: 'invalid_grant' });
+    const restartedAnswer = restarted ? await answer(restarted, 'code=c6f&client_id=oaiapp_five') : {};
+    check('a sign-in started during the exchange is not overwritten by the retry: the refused one fails, the new one still answers',
+        a.outcome === 'failed' && a.reason === 'token:invalid_grant' && restartedAnswer.outcome === null && restartedAnswer.reason === null
+        && /starting again/.test(restartedAnswer.log), JSON.stringify({ a, restartedAnswer }));
+    // An error nested as { code, message }, and OpenAI's words quoting the code.
+    auth.codeScript = (json, form) => json(400, { error: { code: 'invalid_grant', message: `Code ${form.code} is not valid` } });
+    a = await answer(await fresh(chat.id), 'code=c6-secret-code');
+    check('an error OpenAI nests as { code, message } is still read, and the code itself is blanked out of the log',
+        a.reason === 'token:invalid_grant' && /Code \[code\] is not valid/.test(a.log) && !/c6-secret-code/.test(a.log), JSON.stringify(a));
     auth.codeScript = (json) => json(502, '<html>bad gateway</html>');
     a = await answer(await fresh(), 'code=c7&client_id=oaiapp_three');
     check('…and an exchange answered with no error code names the HTTP status', a.reason === 'token:http_502', JSON.stringify(a));
@@ -641,6 +688,44 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
     auth.idClaims = undefined;
 
     check('none of the failed sign-ins saved a connection', saved() === before);
+
+    // Refused once, accepted on the retry: the sign-in completes and keeps
+    // the client id it was issued. The retried callback may omit client_id.
+    let refusals = 1;
+    auth.codeScript = (json) => (refusals-- > 0 ? json(400, { error: 'invalid_grant' }) : 'pass');
+    sq = await fresh();
+    r = await fetch(`${sq.get('redirect_uri')}?state=${sq.get('state')}&code=c10&client_id=oaiapp_four`, { redirect: 'manual' });
+    rq = new URL(r.headers.get('location') || 'http://x/').searchParams;
+    auth.nonce = rq.get('nonce');
+    a = await answer(rq, 'code=c11');
+    const retriedConn = conns.listConnections().connections.find(c => creds(c.id)?.client_id === 'oaiapp_four');
+    check('the retry\'s callback completes the sign-in, saved under the issued client id',
+        !!retriedConn && a.outcome === `connected-${retriedConn.id}` && saved() === before + 1
+        && !!rq.get('redirect_uri') && await closed(rq.get('redirect_uri')), JSON.stringify(a));
+    auth.codeScript = null;
+    if (retriedConn) await conns.removeConnection(retriedConn.id);
+    check('…(removed again, so the checks below see the connections they made)', saved() === before);
+}
+
+// Every reason a failed sign-in can name has words of its own on the
+// Settings page (by the whole reason, else its step), in every language.
+{
+    const server = readFileSync(new URL('../server/chatgptAuth.js', import.meta.url), 'utf8');
+    const steps = new Set([...server.matchAll(/fail\(\s*[`'](\w+)/g)].map(m => m[1]));
+    for (const m of server.matchAll(/reason: `(\w+):/g)) steps.add(m[1]);
+    const providers = readFileSync(new URL('../src/components/settings/connections/providers.ts', import.meta.url), 'utf8');
+    const block = providers.slice(providers.indexOf('SIGN_IN_FAILURE_TEXT'), providers.indexOf('};', providers.indexOf('SIGN_IN_FAILURE_TEXT')));
+    const texts = Object.fromEntries([...block.matchAll(/^\s*'?([\w:]+)'?: k\("((?:[^"\\]|\\.)*)"\)/gm)].map(m => [m[1], JSON.parse(`"${m[2]}"`)]));
+    const missing = [...steps, 'token:invalid_grant'].filter(s => !texts[s]);
+    check('every step a ChatGPT sign-in can fail at, and a refused code, has its own words on the Settings page',
+        steps.size >= 7 && missing.length === 0, `steps ${[...steps].join(', ')}; missing ${missing.join(', ')}`);
+    const localesDir = new URL('../src/locales/', import.meta.url);
+    const untranslated = [];
+    for (const lang of ['de', 'es', 'fr', 'it', 'ja', 'nl', 'pl', 'pt', 'ru', 'uk', 'zh']) {
+        const strings = JSON.parse(readFileSync(new URL(`${lang}.json`, localesDir), 'utf8'));
+        for (const text of Object.values(texts)) if (!strings[text] || strings[text] === text) untranslated.push(`${lang}: ${text.slice(0, 40)}`);
+    }
+    check('…translated in every language', Object.keys(texts).length > 0 && untranslated.length === 0, untranslated.join('; '));
 }
 
 // One fixed instant for every expiry below: an assertion must not read the clock.
