@@ -89,7 +89,7 @@ const S = pathToFileURL(join(ROOT, 'server') + '/').href;
 const { default: db } = await import(S + 'database.js');
 if (!String(db.name).startsWith(scratch)) throw new Error('refusing: not the scratch library');
 const { ROLE_TOPIC } = await import(S + 'nodeRole.js');
-const { composeFeed, checkpointFacts } = await import(S + 'feed.js');
+const { composeFeed, checkpointFacts, consumeFeedItem } = await import(S + 'feed.js');
 const { getGateConfig } = await import(S + 'settingsStore.js');
 const { drawFromNode } = await import(S + 'questionLog.js');
 const { createApp } = await import(S + 'app.js');
@@ -206,6 +206,12 @@ try {
     const idsTf = writeTopic(tTf, [fillQ, tfQ, shortQ]);
     seed(tTf, { transfer: 0.6 });
     const pqTf = opening(tTf)?.preQuestions ?? [];
+    const tUnv = mkTopic('Damping');
+    const idsUnv = writeTopic(tUnv, [{ ...mc(1), unverified: { reason: 'key disputed' } }, mc(2), mc(3)]);
+    seed(tUnv, { placement: 0.41 });
+    const pqUnv = opening(tUnv)?.preQuestions ?? [];
+    check('a feed question with an unverified key is passed over, as the bank draw does', pqUnv.length === 1 && pqUnv[0].feedItemId === idsUnv.Q2,
+        JSON.stringify(pqUnv.map(p => p.feedItemId)));
     check('a transfer seed counts too, and true/false is a tap', pqTf.length === 1 && pqTf[0].feedItemId === idsTf.Q2 && pqTf[0].question?.type === 'true_false',
         JSON.stringify(pqTf.map(p => [p.feedItemId, p.question?.type])));
 
@@ -230,6 +236,10 @@ try {
     check('the opening part no longer carries a round', opening(t1) && !opening(t1).preQuestions, JSON.stringify(opening(t1)?.preQuestions));
     const served = composeFeed({ limit: 30, excludeKeys: new Set(), gate, nodeId: t1 }).items.filter(c => c.kind === 'question').map(c => c.feedItemId);
     check('the pre-question is still served after the part that teaches it', served.includes(ids.Q3), JSON.stringify(served));
+    // Control for every "nothing moved" check above: the snapshot does move
+    // when the same question is answered for real, after its part.
+    consumeFeedItem({ key: `fi-${ids.Q3}`, kind: 'question', feedItemId: ids.Q3, nodeId: t1, result: { correct: true } });
+    check('control: answering that question for real DOES move what the estimate reads', evidenceState(t1) !== after, evidenceState(t1));
 
     section('5. skipping is one press, and records nothing else');
     const t2 = mkTopic('Springs');
@@ -245,7 +255,8 @@ try {
     const keptRefs = (() => { try { return JSON.parse(r2?.items || '[]').map(i => i.ref); } catch { return []; } })();
     check('skipped is recorded', s.status === 200 && r2?.outcome === 'skipped', JSON.stringify(preRows(t2)));
     check('…grading nothing, whatever the body claims', r2?.answered === 0 && r2?.correct === 0, JSON.stringify(r2));
-    check("…keeping only this topic's own refs", r2?.asked === 1 && JSON.stringify(keptRefs) === JSON.stringify([`fi:${ids2.Q1}`]), JSON.stringify(keptRefs));
+    // The row syncs; a feed row's id is this device's cache id, so it is not kept.
+    check("…keeping only this topic's own refs, a feed row's without its device-local id", r2?.asked === 1 && JSON.stringify(keptRefs) === '["feed"]', JSON.stringify(keptRefs));
     check('…and nothing the estimate reads moved', evidenceState(t2) === b2);
     check('…and the round is not offered again', !opening(t2)?.preQuestions);
 
@@ -307,12 +318,15 @@ try {
     check('…at a low temperature, so a second check does not flip', typeof temp === 'number' && temp <= 0.2, String(temp));
     const long = lessonPrompts.partProse?.(`${'Setup. '.repeat(1500)}So the length alone sets the period.`) ?? '';
     check('a long part keeps its conclusion for the marker', long.length <= 6100 && long.endsWith('So the length alone sets the period.'), `${long.length} chars`);
+    const coded = lessonPrompts.partProse?.('Run it:\n\n```python\nprint(len("abc"))\n```\n\n```animation\n{"frames": []}\n```') ?? '';
+    check('a code listing reaches the marker; only the visual is left out', coded.includes('print(len("abc"))') && !coded.includes('"frames"'), JSON.stringify(coded));
     const exRows = (() => { try { return db.prepare('SELECT * FROM explain_backs WHERE node_id = ?').all(t6); } catch { return []; } })();
     check('one explain_backs row naming its marker', exRows.length === 1 && exRows[0].verdict === 'weak' && exRows[0].part_index === 1 && /stub-model/.test(exRows[0].generated_by || ''), JSON.stringify(exRows));
     check('nothing the estimate reads moved', evidenceState(t6) === b6);
     markerReply = 'I think it is fine.';
     const vague = await call('POST', `/api/feed/lessons/${ids6.L1}/explain`, { text: 'Length sets the period; a quarter of it halves the period.' });
     check('a reply with no verdict is "unsure", never "good"', vague.status === 200 && vague.body?.verdict === 'unsure', JSON.stringify(vague.body));
+    check('…with no server-written English reason (the screen says it in its own language)', vague.body?.reason === '', JSON.stringify(vague.body));
     check('empty or overlong text is refused', (await call('POST', `/api/feed/lessons/${ids6.L1}/explain`, { text: '  ' })).status === 400
         && (await call('POST', `/api/feed/lessons/${ids6.L1}/explain`, { text: 'x'.repeat(2001) })).status === 400);
     check('a question row is not a lesson', (await call('POST', `/api/feed/lessons/${ids6.Q1}/explain`, { text: 'Length.' })).status === 404);

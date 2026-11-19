@@ -137,7 +137,8 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
     const { t } = useTranslation();
     const [text, setText] = useState('');
     const [busy, setBusy] = useState(false);
-    const [failed, setFailed] = useState(false);
+    // 'model': no model is set up any more, so trying again cannot help.
+    const [failed, setFailed] = useState<null | 'retry' | 'model'>(null);
     const [verdict, setVerdict] = useState<Verdict | null>(null);
     // The text the verdict is about. Once marked, the check button shows only
     // when the text changes: "Check again" on the same words offered the same
@@ -178,7 +179,7 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
         const mine = text.trim();
         if (!mine || busy) return;
         setBusy(true);
-        setFailed(false);
+        setFailed(null);
         try {
             const v = await api.explainBack(feedItemId, mine);
             if (!alive.current) return;
@@ -186,9 +187,9 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
             setChecked(mine);
             setRound(r => r + 1);
             report.current?.(v.verdict);
-        } catch {
+        } catch (err) {
             if (!alive.current) return;
-            setFailed(true);
+            setFailed((err as { status?: number })?.status === 409 ? 'model' : 'retry');
         } finally {
             if (alive.current) { setBusy(false); setRefocus(fromKeyboard); }
         }
@@ -210,7 +211,7 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 rows={3}
                 value={text}
                 maxLength={2000}
-                onChange={e => { setText(e.target.value); setFailed(false); }}
+                onChange={e => { setText(e.target.value); setFailed(null); }}
                 aria-label={t("Your explanation")}
                 // The empty box says what to do; the check button waits for
                 // the first word rather than standing there switched off.
@@ -237,7 +238,11 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                             {edited ? <History className="w-4 h-4 shrink-0" aria-hidden="true" /> : <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />}
                             {edited ? t("Before your edit: {{verdict}}", { verdict: look.label }) : look.label}
                         </p>
-                        {verdict.reason && !edited && <p className="mt-1">{verdict.reason}</p>}
+                        {!edited && (verdict.reason
+                            ? <p className="mt-1">{verdict.reason}</p>
+                            : verdict.verdict === 'unsure' && (
+                                <p className="mt-1">{t("The marker gave no clear verdict on this one. Compare it with the part yourself.")}</p>
+                            ))}
                     </div>
                 )}
             </div>
@@ -259,7 +264,9 @@ export function ExplainBack({ feedItemId, onReread, onVerdict }: {
                 <div className={cx('flex flex-wrap items-center gap-2', weak && (!canCheck || !text.trim()) ? 'mt-3 justify-start' : 'mt-4 justify-end')}>
                     {failed && (
                         <p role="alert" className="mr-auto text-sm text-red-700 dark:text-red-300">
-                            {t("It could not be marked just now. Your text is kept; try again.")}
+                            {failed === 'model'
+                                ? t("No model is set up to mark this. Your text is kept.")
+                                : t("It could not be marked just now. Your text is kept; try again.")}
                         </p>
                     )}
                     {/* Keyed, so each button keeps its own DOM node as the

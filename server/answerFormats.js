@@ -178,6 +178,116 @@ export function acceptedAnswers(question) {
     return out;
 }
 
+/**
+ * How many letters a word may be off by and still count as a slip of the hand,
+ * by the length of the word it should have been. Short words get nothing:
+ * among them one letter is usually another word (`een`/`één`, `than`/`then`,
+ * `form`/`from`), so a short word is spelled exactly or it is wrong.
+ */
+export function slipBudget(length) {
+    if (length < 5) return 0;
+    return length < 9 ? 1 : 2;
+}
+
+/**
+ * Edits between two words: a letter dropped or added, an accent changed, or
+ * two neighbours swapped (`recieve`), each one edit.
+ *
+ * A letter changed into ANOTHER letter is never a slip: that is how chlorine
+ * becomes chloride and alkane alkene. Pricing that change out is not enough
+ * on its own, since a letter dropped next to one added is the same change by
+ * another route (hypothesis/hypotheses, nucleotide/nucleoside). So a drop or
+ * an add may not follow straight on from another one: two of them side by
+ * side is a changed letter, or a run of letters gone (anaerobic/aerobic).
+ * Slips with a kept letter between them stay forgiven (photossyntesis).
+ *
+ * `d[k][i][j]`: the cheapest alignment of the first i and j letters whose last
+ * step was a drop or an add (k = 1) or not (k = 0). Mirror:
+ * `editDistance` in `src/components/answer/formats.ts`.
+ */
+function editDistance(a, b) {
+    const s = [...a];
+    const t = [...b];
+    const grid = () => Array.from({ length: s.length + 1 }, () => Array(t.length + 1).fill(Infinity));
+    const kept = grid();
+    const indel = grid();
+    kept[0][0] = 0;
+    for (let i = 0; i <= s.length; i++) {
+        for (let j = 0; j <= t.length; j++) {
+            if (i > 0 && j > 0) {
+                const cost = s[i - 1] === t[j - 1] ? 0 : baseLetter(s[i - 1]) === baseLetter(t[j - 1]) ? 1 : Infinity;
+                kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 1][j - 1], indel[i - 1][j - 1]) + cost);
+                if (i > 1 && j > 1 && s[i - 1] === t[j - 2] && s[i - 2] === t[j - 1]) {
+                    kept[i][j] = Math.min(kept[i][j], Math.min(kept[i - 2][j - 2], indel[i - 2][j - 2]) + 1);
+                }
+            }
+            if (i > 0) indel[i][j] = Math.min(indel[i][j], kept[i - 1][j] + 1);
+            if (j > 0) indel[i][j] = Math.min(indel[i][j], kept[i][j - 1] + 1);
+        }
+    }
+    return Math.min(kept[s.length][t.length], indel[s.length][t.length]);
+}
+
+const baseLetter = (ch) => ch.normalize('NFD').replace(/\p{M}+/gu, '');
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+/**
+ * Could the learner have meant `key` and slipped while typing `word`?
+ * Both already normalised. A word holding a digit is a number or a code and
+ * is never forgiven (1984 is not 1985). The first and last letters must be
+ * the same letters, accent aside: the slips this is for keep them, a
+ * different first letter is usually a different word (`affect`/`effect`),
+ * and a different ending is usually a different FORM (`gebruik`/`gebruikt`,
+ * `sulfate`/`sulfates`, `mitochondrion`/`mitochondria`). What is left is a
+ * letter dropped, doubled or added inside the word, two neighbours swapped,
+ * or an accent; a letter changed into another one is not (see editDistance).
+ * Known limit: a swap can still make a real word (`diary`/`dairy`); the
+ * verdict then shows the key's spelling beside the answer.
+ */
+function isSlipOf(word, key) {
+    if (word === key) return true;
+    if (/\p{N}/u.test(word) || /\p{N}/u.test(key)) return false;
+    // Written without spaces (Chinese, Japanese, Thai): one "word" is then a
+    // whole phrase, and one sign dropped from it can be its "not" (不).
+    if (UNSPACED_SCRIPT.test(key)) return false;
+    const budget = slipBudget([...key].length);
+    if (budget === 0) return false;
+    const w = [...word];
+    const k = [...key];
+    if (baseLetter(w[0] || '') !== baseLetter(k[0] || '')) return false;
+    if (baseLetter(w[w.length - 1] || '') !== baseLetter(k[k.length - 1] || '')) return false;
+    return editDistance(word, key) <= budget;
+}
+
+/**
+ * The accepted spelling a typed `fill_in` answer slipped from, or null.
+ *
+ * Only for a learner who switched on `forgive_spelling` (dyslexia, dysgraphia,
+ * typing in a second language): the answer is then marked right and the
+ * verdict shows the spelling it should have had. Word by word, the same number
+ * of words as the key, each within `slipBudget` of the key's word. An answer
+ * that matches exactly is not a slip, so this returns null for it. Mirror:
+ * `spellingSlipOf` in `src/components/answer/formats.ts`, run against one
+ * table by `tolerant-grading-gates.mjs`.
+ */
+export function spellingSlipOf(question, answer) {
+    if (question?.type !== 'fill_in') return null;
+    const given = normalizeTyped(answer);
+    if (!given) return null;
+    const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
+    if (written.some(w => normalizeTyped(w) === given)) return null;
+    const words = given.split(' ');
+    for (const w of written) {
+        const key = normalizeTyped(w);
+        if (!key) continue;
+        const keyWords = key.split(' ');
+        if (keyWords.length === words.length && keyWords.every((k, i) => isSlipOf(words[i], k))) {
+            return String(w).trim();
+        }
+    }
+    return null;
+}
+
 /** How many alternative spellings one question may declare. */
 export const MAX_ACCEPTED_ANSWERS = 8;
 
@@ -264,6 +374,17 @@ export function defaultTolerance(written) {
     const mantissa = sci ? s.slice(0, sci.index) : s;
     const decimals = mantissa.match(/[.,](\d+)/);
     return 0.5 * Math.pow(10, exponent - (decimals ? decimals[1].length : 0));
+}
+
+/**
+ * The tolerance a question states, NaN when it states none. `Number(null)`,
+ * `Number('  ')` and `Number(false)` are all 0: a "none given" must read as
+ * missing, or it becomes an exact-match tolerance of 0.
+ */
+export function statedTolerance(raw) {
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string' && raw.trim() !== '') return Number(raw);
+    return NaN;
 }
 
 /**
@@ -619,10 +740,11 @@ export const ANSWER_FORMATS = {
             }
             return out;
         },
-        grade(q, answer) {
+        grade(q, answer, { forgiveSpelling = false } = {}) {
             const given = normalizeTyped(answer);
             if (!given) return false;
-            return acceptedAnswers(q).includes(given);
+            if (acceptedAnswers(q).includes(given)) return true;
+            return forgiveSpelling && spellingSlipOf(q, answer) !== null;
         },
     },
 
@@ -673,7 +795,8 @@ export const ANSWER_FORMATS = {
             // order of magnitude) falls back to the key's own precision rather
             // than failing the question — an unanswerable card measures nothing,
             // and this one is still gradeable.
-            const stated = Number(raw.tolerance);
+            // `statedTolerance` reads a model's "none given" as missing.
+            const stated = statedTolerance(raw.tolerance);
             const honest = Number.isFinite(stated) && stated >= 0
                 && (key === 0 || stated <= Math.abs(key) * 0.5);
             out.tolerance = honest ? stated : defaultTolerance(written);
@@ -684,7 +807,7 @@ export const ANSWER_FORMATS = {
             if (given === null) return false;
             const key = parseNumber(q.correct_answer);
             if (key === null) return false;
-            const stated = Number(q.tolerance);
+            const stated = statedTolerance(q.tolerance);
             const tol = Number.isFinite(stated) && stated >= 0 ? stated : defaultTolerance(q.correct_answer);
             // A hair of slack for binary floating point: 0.1 + 0.2 is not 0.3,
             // and a difference of exactly the tolerance must still pass.
@@ -931,11 +1054,15 @@ export function normalizeQuestionFormat(raw, { allow, stored = false } = {}) {
     return format.normalize(raw, { stored });
 }
 
-/** Local verdict for a closed format; null when the format needs the checker. */
-export function gradeLocally(question, answer) {
+/**
+ * Local verdict for a closed format; null when the format needs the checker.
+ * `forgiveSpelling` is the learner's `forgive_spelling` setting: it reaches
+ * `fill_in` only (see `spellingSlipOf`).
+ */
+export function gradeLocally(question, answer, options = {}) {
     const format = ANSWER_FORMATS[question?.type];
     if (!format || format.grading !== 'local') return null;
-    return format.grade(question, answer);
+    return format.grade(question, answer, options);
 }
 
 /**

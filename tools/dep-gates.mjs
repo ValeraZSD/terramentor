@@ -63,7 +63,11 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', 'temp', '.git', '.claude']);
 /** Packages declared on purpose that no scan can see. Each needs a reason. */
 const ALLOWLIST = {
     postcss: 'the engine Tailwind and Vite run through; named by neither, required by both',
+    'axe-core': 'read as a file, not imported: tools/axe-gates.mjs resolves `axe-core/axe.min.js` and '
+        + 'injects its source into each page the browser opens',
     typescript: 'invoked as the `tsc` binary by `npm run check` and by the editor, never imported',
+    oxlint: 'run as a program, not imported: tools/a11y-lint-gates.mjs resolves `oxlint/package.json` '
+        + 'and starts its bin with the jsx-a11y rules in tools/oxlint-a11y.json',
     '@tesseract.js-data/eng': 'the English OCR model. It is DATA: `server/pdfRecovery.js` resolves its '
         + 'directory and hands the path to tesseract.js as `langPath`, so nothing imports it. Removing it '
         + 'does not break the build — it sends the first OCR to cdn.jsdelivr.net instead, which is the one '
@@ -208,7 +212,21 @@ const mentioned = (name) => new RegExp(`(?:^|[^a-zA-Z0-9@/._-])${name.replace(/[
 
 // --- 1. used but not declared (the phantom case) ---------------------------
 
-const undeclared = [...used.keys()].filter((n) => !declared.has(n)).sort();
+/**
+ * Imported by a tool that installs the package for itself, so it stays out of
+ * every install of the app. Each names the one file allowed to import it.
+ */
+const INSTALLED_BY_ITS_TOOL = {
+    '@guidepup/guidepup': {
+        file: 'tools/screen-reader-run.mjs',
+        why: 'drives NVDA on the Windows runner of .github/workflows/screen-reader.yml, which installs it; '
+            + 'never run on a desktop, so never part of `npm ci`',
+    },
+};
+const undeclared = [...used.keys()].filter((n) => !declared.has(n)).filter((n) => {
+    const own = INSTALLED_BY_ITS_TOOL[n];
+    return !own || [...used.get(n)].some((f) => f.replace(/\\/g, '/') !== own.file);
+}).sort();
 for (const name of undeclared) {
     failures.push(`phantom dependency: ${name} is imported by `
         + `${[...used.get(name)].slice(0, 3).join(', ')} but is in neither dependencies nor devDependencies`);

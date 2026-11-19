@@ -6,7 +6,7 @@ import { ArrowDownUp, Download, Upload, Trash2, Layers, Terminal, MessageSquareW
 import { Button, ButtonLink } from '../ui/Button';
 import { SettingNote, GROUP_CAPTION } from '../ui/SettingRow';
 import { ExpandableSection } from '../ui/Disclosure';
-import { IMPORT_ACCEPT, importProjectFile } from '../../utils/projectFiles';
+import { IMPORT_ACCEPT, importProjectFile, installedEditionOf } from '../../utils/projectFiles';
 import ExportProjectModal from '../ExportProjectModal';
 import ActivityLogPanel from './ActivityLogPanel';
 import ThisComputerSection from './ThisComputerSection';
@@ -18,6 +18,7 @@ export default function LibrarySettings({ active }: { active: boolean }) {
     const { t: tr } = useTranslation();
     const openAnkiImport = useStore(s => s.openAnkiImport);
     const addToast = useStore(s => s.addToast);
+    const openCourseUpdate = useStore(s => s.openCourseUpdate);
     const projects = useStore(s => s.projects);
     const loadProjects = useStore(s => s.loadProjects);
     const showConfirm = useStore(s => s.showConfirm);
@@ -51,6 +52,12 @@ export default function LibrarySettings({ active }: { active: boolean }) {
         if (!file) return;
         setImporting(true);
         try {
+            // A newer edition of a course already here: the update preview.
+            const edition = await installedEditionOf(file);
+            if (edition) {
+                openCourseUpdate(file, edition);
+                return;
+            }
             const result = await importProjectFile(file);
             await loadProjects();
             // What the importer changed on the way in (a dropped unsafe link, a

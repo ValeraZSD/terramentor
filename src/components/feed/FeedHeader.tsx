@@ -108,7 +108,7 @@ export default function FeedHeader({ header, loading }: Props) {
                 <div className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 sm:gap-x-3 gap-y-1">
                     <h2 className="text-sm sm:text-lg font-bold text-slate-900 dark:text-white truncate shrink-0 max-w-full">{dateLabel}</h2>
 
-                    <div ref={chipRowRef} className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 min-w-0 flex items-center gap-1.5 text-xs overflow-hidden">
+                    <div ref={chipRowRef} className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 min-w-0 flex items-center gap-1.5 text-xs overflow-hidden forced-colors:p-px">
                         <Chip
                             onClick={() => setShowActivity(true)}
                             title={t("See everything you did today")}

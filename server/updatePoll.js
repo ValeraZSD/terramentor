@@ -1,10 +1,14 @@
-// The opt-in check for a newer release: the stored state and the background poll.
+// The opt-in check for a newer release: the stored state and the automatic check.
 import {
-    appVersion, CHECK_INTERVAL_MS, fetchLatestRelease, REPO_URL, RETRY_DELAY_MS, updateChannel, updateStatus,
+    appVersion, CHECK_INTERVAL_MS, DUE_TICK_MS, fetchLatestRelease, REPO_URL, RETRY_DELAYS_MS, updateChannel, updateStatus, WAKE_RECHECK_MS,
 } from './version.js';
 import { getSetting, setSettingValue } from './settingsStore.js';
 
 const currentChannel = () => updateChannel(getSetting('update_channel', 'stable'));
+
+/** What the automatic check's schedule needs to know, in this process only:
+ *  a new process asks once at startup anyway. Times are wall-clock ms. */
+const schedule = { lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0, askAt: 0 };
 
 /** Fold the stored check into a status the UI can render. Pure read. */
 function readUpdateState() {
@@ -66,8 +70,16 @@ async function runUpdateCheck() {
     const result = await fetchLatestRelease(undefined, { channel });
     // Switched while this one was in flight: its answer is to a question
     // nobody is asking any more, and writing it would overwrite the new
-    // channel's (or leave the panel blank until tomorrow).
+    // channel's (or leave the panel blank until the next check). Nor does it count
+    // for the schedule: a success here would push the new channel's retry
+    // four hours out.
     if (currentChannel() !== channel) return readUpdateState();
+    // Every check counts for the schedule, a press of Check now included, so a
+    // pressed check is not followed by a scheduled one a minute later.
+    const at = Date.now();
+    schedule.lastAttemptAt = at;
+    schedule.askAt = 0;
+    if (result.ok) { schedule.lastSuccessAt = at; schedule.failures = 0; } else schedule.failures++;
     if (result.ok) {
         heard = { raw: result.latest ? JSON.stringify(result.latest) : '', channel };
         setSettingValue('update_latest', heard.raw);
@@ -98,8 +110,8 @@ let freshAsk = null;
 
 /**
  * The answer a press acts on: Download, and Restart to update. The stored one
- * can be a day old, since the daily poll is once a day and Check now only
- * when pressed, and a nightly comes out every few hours. Acting on it
+ * can be hours old (the automatic check asks every few hours, Check now only
+ * when pressed), and a nightly comes out every few hours. Acting on it
  * downloaded a version that was already superseded, then offered the newer
  * one straight after the restart (seen on 22 and 26 Oct 2026). So the press
  * asks again first, unless the answer is under a minute old. It is the
@@ -134,7 +146,7 @@ async function freshUpdateState({ now = Date.now(), maxAgeMs = 60_000 } = {}) {
  * Nothing is downgraded either way: a nightly install switched to stable is
  * offered nothing until a stable release is newer than it (updateStatus).
  *
- * With the daily check on, the switch asks once straight away, the same single
+ * With the automatic check on, the switch asks once straight away, the same single
  * request turning the check on makes; `checkNow: false` is the caller's rate
  * limit. With it off, nothing reaches the network (startUpdatePoll returns
  * without asking): the switch only changes what "Check now" will ask.
@@ -146,54 +158,104 @@ async function setUpdateChannel(channel, { checkNow = true } = {}) {
     setSettingValue('update_last_check', '');
     setSettingValue('update_last_error', '');
     setSettingValue('update_answer_channel', next);
-    return checkNow ? startUpdatePoll({ checkNow: true }) : readUpdateState();
+    if (checkNow) return startUpdatePoll({ checkNow: true });
+    // Not now (the caller's one-a-minute limit), but the new channel has no
+    // answer at all: the poll asks for it once that minute has passed, instead
+    // of the panel saying "not checked" for hours. A minute from NOW, not from
+    // the last ask: the ask that spent the minute may still be on the wire, so
+    // flipping back and forth stays at one request a minute.
+    schedule.askAt = Date.now() + 60_000;
+    return readUpdateState();
+}
+
+/**
+ * Whether the automatic check should ask now. Pure, so a gate can walk it
+ * through hours, failures and a sleep without a clock (`now` is passed in).
+ *
+ * - Never asked in this process: due (the startup check).
+ * - After a failure: due once the back-off step for that failure has passed
+ *   (RETRY_DELAYS_MS), then every CHECK_INTERVAL_MS while it keeps failing.
+ * - After a success: due CHECK_INTERVAL_MS later.
+ * - Back from sleep (`now` is more than three ticks past the last tick): due if
+ *   the last answer is older than WAKE_RECHECK_MS. While checks are failing, a
+ *   wake still waits out the first back-off step: a laptop that sleeps and wakes
+ *   often would otherwise ask on every wake and burn through the back-off.
+ * - A channel switch held back by the minute limit (`askAt`): due once it passes.
+ * - The clock set back behind the last ask: due, rather than silent until the
+ *   clock catches up again.
+ */
+function checkIsDue({ now, lastAttemptAt, lastSuccessAt, failures, lastTickAt, askAt = 0 }) {
+    if (askAt > 0 && now >= askAt) return true;
+    if (!lastAttemptAt || now < lastAttemptAt) return true;
+    const woke = lastTickAt > 0 && now - lastTickAt > 3 * DUE_TICK_MS;
+    const backedOff = failures === 0 || now - lastAttemptAt >= RETRY_DELAYS_MS[0];
+    if (woke && backedOff && now - lastSuccessAt >= WAKE_RECHECK_MS) return true;
+    const wait = failures > 0 ? (RETRY_DELAYS_MS[failures - 1] ?? CHECK_INTERVAL_MS) : CHECK_INTERVAL_MS;
+    return now - lastAttemptAt >= wait;
 }
 
 let pollTimer = null;
-let retryTimer = null;
-// Which poll is current. A check already in flight when the poll is stopped
-// (checks turned off, or restarted by a channel switch) finishes, but must not
-// arm a retry for a poll that no longer exists: that would be a request after
+let startTimer = null;
+let scheduledCheck = null;
+// Which poll is current. A tick of a poll that was stopped (checks turned off,
+// or restarted by a channel switch) must not ask: that would be a request after
 // the learner said no.
 let pollGeneration = 0;
 
 function stopUpdatePoll() {
     pollGeneration++;
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (startTimer) { clearTimeout(startTimer); startTimer = null; }
 }
 
 /**
- * The opt-in daily poll: one call at startup, then one a day.
+ * The opt-in automatic check: once at startup, then every CHECK_INTERVAL_MS,
+ * with back-off retries after a failure and a prompt ask after the computer
+ * wakes from sleep (checkIsDue).
+ *
+ * Driven by the WALL clock, looked at once a minute, never by one long timer:
+ * a 24-hour setInterval does not count the hours a laptop sleeps, so a copy
+ * that slept every night could go days without asking. A look is a comparison
+ * and makes no request.
  *
  * `unref()` on both timers so a pending check can never be the reason the
  * process refuses to exit — a background convenience must not outrank Ctrl-C.
- * A failed scheduled check retries ONCE after ten minutes, because a desktop
- * that boots the app before the network is up would otherwise go a full day
- * blind. The retry itself never schedules another: offline, or rate-limited by
- * GitHub, the app asks twice and then waits for tomorrow, as SECURITY.md says.
  */
 function startUpdatePoll({ checkNow = false } = {}) {
     stopUpdatePoll();
     if (getSetting('update_check', 'off') !== 'on') return Promise.resolve(readUpdateState());
     const generation = pollGeneration;
-    const tick = async ({ isRetry = false } = {}) => {
-        const state = await runUpdateCheck();
-        if (state.error && !isRetry && !retryTimer && generation === pollGeneration) {
-            retryTimer = setTimeout(() => { retryTimer = null; tick({ isRetry: true }); }, RETRY_DELAY_MS);
-            retryTimer.unref?.();
-        }
-        return state;
+    const ask = () => {
+        if (!scheduledCheck) scheduledCheck = runUpdateCheck().finally(() => { scheduledCheck = null; });
+        return scheduledCheck;
     };
-    pollTimer = setInterval(() => tick(), CHECK_INTERVAL_MS);
+    const tick = () => {
+        if (generation !== pollGeneration) return;
+        const now = Date.now();
+        const due = checkIsDue({ now, ...schedule });
+        schedule.lastTickAt = now;
+        if (due) ask().catch(() => { /* runUpdateCheck never throws; the settings write could */ });
+    };
+    pollTimer = setInterval(tick, DUE_TICK_MS);
     pollTimer.unref?.();
-    // Switched on by the learner: check now, and that check is the answer.
-    if (checkNow) return tick();
+    // Switched on by the learner: check now, and that check is the answer. Not
+    // joined to a scheduled one in flight: after a channel switch that one
+    // asked the old channel's question and its answer is dropped.
+    if (checkNow) { schedule.lastTickAt = Date.now(); return runUpdateCheck(); }
     // At startup, not at t=0: it is already the busiest moment in the
     // process, and nothing about this answer is needed in the first seconds.
-    retryTimer = setTimeout(() => { retryTimer = null; tick(); }, 15_000);
-    retryTimer.unref?.();
+    startTimer = setTimeout(() => { startTimer = null; tick(); }, 15_000);
+    startTimer.unref?.();
     return Promise.resolve(readUpdateState());
 }
 
-export { currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll };
+/** For the gate: the schedule's state, and a way to set it. */
+const updateScheduleForTest = {
+    get: () => ({ ...schedule }),
+    set: (s) => Object.assign(schedule, s),
+};
+
+export {
+    checkIsDue, currentChannel, freshUpdateState, heardLatest, readUpdateState, runUpdateCheck, setUpdateChannel, startUpdatePoll, stopUpdatePoll,
+    updateScheduleForTest,
+};

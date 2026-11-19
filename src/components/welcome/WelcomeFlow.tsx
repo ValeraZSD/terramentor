@@ -148,7 +148,7 @@ export default function WelcomeFlow() {
                     <span className="flex items-center gap-3 min-h-8 touch:min-h-11">
                         {/* Two numerals and a slash, like the Getting started checklist:
                             how far through, with nothing for a translator to get wrong. */}
-                        <span className="text-sm tabular-nums text-slate-500 dark:text-slate-400" aria-label={t("Step {{n}} of {{total}}", { n: step + 1, total: STEP_COUNT })}>
+                        <span role="img" className="text-sm tabular-nums text-slate-500 dark:text-slate-400" aria-label={t("Step {{n}} of {{total}}", { n: step + 1, total: STEP_COUNT })}>
                             {step + 1} / {STEP_COUNT}
                         </span>
                         {step < STEP_COUNT - 1 && (

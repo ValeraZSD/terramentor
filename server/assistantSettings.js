@@ -13,7 +13,19 @@
  */
 
 /** The whitelist, mirrored from the client's `SettingKey`. */
-export const SETTABLE_KEYS = ['theme', 'theme_tint', 'accent_color', 'ui_scale', 'week_start_day', 'ui_language', 'number_format'];
+export const SETTABLE_KEYS = ['theme', 'theme_tint', 'accent_color', 'ui_scale', 'week_start_day', 'ui_language', 'number_format',
+    'contrast', 'motion', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
+    'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'key_shortcuts', 'larger_ui'];
+
+/** The on/off rows, stored 'true'/'false', each with what an absent row means
+ *  (the client's readers in accessibility.ts and store.ts). */
+const SWITCHES = { reading_line: false, read_aloud: false, card_audio_autoplay: true, confirm_answers: false, key_shortcuts: true, larger_ui: false };
+/** The choice rows and what an absent (or unknown) row reads as. */
+const CHOICES = {
+    contrast: ['system', 'standard', 'more'], motion: ['system', 'full', 'reduce'],
+    letter_spacing: ['normal', 'wider', 'widest'], word_spacing: ['normal', 'wider', 'widest'],
+    line_spacing: ['normal', 'wider', 'widest'],
+};
 
 /** The client's key aliases, so a marker it accepts is one recorded here. */
 const ALIASES = {
@@ -21,6 +33,7 @@ const ALIASES = {
     accent: 'accent_color', scale: 'ui_scale', text_size: 'ui_scale',
     language: 'ui_language', interface_language: 'ui_language',
     numbers: 'number_format', number_separator: 'number_format', week_start: 'week_start_day',
+    reduce_motion: 'motion', shortcuts: 'key_shortcuts', reading_speed: 'speech_rate', speech_speed: 'speech_rate',
 };
 
 /** The client's defaults (store.ts), so an absent row reads as what the app shows. */
@@ -37,16 +50,30 @@ export function readSettable(getSetting) {
     const theme = String(getSetting('theme', '') || '');
     const tint = String(getSetting('theme_tint', '') || '').toLowerCase();
     const scale = Number(getSetting('ui_scale', null));
+    const rate = Number(getSetting('speech_rate', null));
+    const switches = Object.fromEntries(Object.entries(SWITCHES).map(([key, dflt]) => {
+        const raw = getSetting(key, null);
+        const on = raw == null || raw === '' ? dflt : dflt ? raw !== 'false' : raw === 'true';
+        return [key, on ? 'on' : 'off'];
+    }));
+    const choices = Object.fromEntries(Object.entries(CHOICES).map(([key, values]) => {
+        const raw = String(getSetting(key, '') ?? '');
+        return [key, values.includes(raw) ? raw : values[0]];
+    }));
     return {
         // `warm` and `black` were themes before a theme became a mode and a
-        // tint; a library that never re-saved still carries the name.
-        theme: theme === 'dark' || theme === 'black' ? 'dark' : 'light',
+        // tint; a library that never re-saved still carries the name. No row
+        // at all follows the system.
+        theme: theme === 'dark' || theme === 'black' ? 'dark' : !theme || theme === 'system' ? 'system' : 'light',
         theme_tint: !tint || tint === NO_TINT ? 'none' : tint,
         accent_color: getSetting('accent_color', null) || DEFAULT_ACCENT,
         ui_scale: Number.isFinite(scale) && scale > 0 ? Math.round(scale) : 100,
         week_start_day: String(getSetting('week_start_day', '')) === '0' ? 'sunday' : 'monday',
         ui_language: getSetting('ui_language', null) || 'auto',
         number_format: getSetting('number_format', null) || 'auto',
+        ...choices,
+        ...switches,
+        speech_rate: Number.isFinite(rate) && rate >= 50 && rate <= 200 ? Math.round(rate) : 100,
     };
 }
 

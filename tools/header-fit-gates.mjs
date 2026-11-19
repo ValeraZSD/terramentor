@@ -24,7 +24,7 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'header-fit-gates-'));
 const outfile = join(scratch, 'headerFit.mjs');
 await esbuild.build({ entryPoints: [join(repoRoot, 'src/utils/headerFit.ts')], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' });
-const { fitHeader } = await import(pathToFileURL(outfile).href);
+const { fitHeader, centresSearch } = await import(pathToFileURL(outfile).href);
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -116,6 +116,27 @@ check('the rail keeps its order', !order.length, order.slice(0, 5).join(', '));
 let prev = null, monotone = true;
 for (let w = 320; w <= 2200; w += 2) { const n = at(w).shown.length; if (prev !== null && n < prev) monotone = false; prev = n; }
 check('a wider header never shows fewer tabs', monotone);
+
+// Off the tab views (Settings, a project) the right column took its half of
+// the row only from the `md` VIEWPORT breakpoint up, so on every phone the
+// search sat right of centre, even on Settings, which has no title to protect.
+// Now the bar measures itself (`centresSearch`). Widths measured in Edge on a
+// 390px phone: 44px touch icons, the search as its icon, the header's 4px gap,
+// 8px between the right-hand icons.
+console.log('\n--- off the tab views: centred wherever both sides fit ---');
+check('headerFit.ts exports centresSearch', typeof centresSearch === 'function');
+if (typeof centresSearch === 'function') {
+    const side = (header, left) => centresSearch({ inner: header - 16, gap: 4, search: 44, left, right: 44 + 8 + 44 });
+    const back = 44 + 4;
+    check('390px phone, Settings (the back arrow alone): centred', side(390, 44));
+    check('360px phone, Settings: centred', side(360, 44));
+    check('360px phone, a short project name ("Dutch", 52px): centred', side(360, back + 52));
+    check('390px phone, a long project name (480px): the title keeps the room', !side(390, back + 480));
+    check('a title one pixel too wide for half the row is not centred', !side(390, (390 - 16 - 44 - 8) / 2 + 1));
+}
+const rightClass = /ref=\{rightRef\}\s*className=\{`([^`]*)`\}/.exec(layout)?.[1] ?? '';
+check('the right column\'s centring is not keyed on a viewport breakpoint',
+    rightClass !== '' && !/\b(sm|md|lg|xl):(grow|basis)/.test(rightClass), rightClass || 'right column not found');
 
 rmSync(scratch, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${fail} failed`);

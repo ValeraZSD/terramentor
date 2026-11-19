@@ -70,7 +70,7 @@ export default function ChapterGroup({
     const railStyle = { ...(accentStyle ?? {}), borderLeftColor: 'rgb(var(--accent-rgb))' } as CSSProperties;
 
     return (
-        <section
+        <article
             style={railStyle}
             aria-label={nodeTitle}
             className="relative overflow-hidden rounded-2xl border border-l-4 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm"
@@ -127,7 +127,7 @@ export default function ChapterGroup({
                 />
             )}
             <div className="px-4 sm:px-6">{children}</div>
-        </section>
+        </article>
     );
 }
 

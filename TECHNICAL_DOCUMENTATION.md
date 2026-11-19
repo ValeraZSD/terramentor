@@ -78,6 +78,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 | `node_mastery`, `mastery_evidence` | BKT state and the evidence behind it, plus transfer provenance. |
 | `mastery_claims` | An outside agent's claim that the learner answered its question on a topic right or wrong (`source` `mcp`, `server/claims.js`). Kept apart from `mastery_evidence`, so nothing that reads evidence counts a claim: a right claim moves nothing, a wrong one may lower `mastery_score` once per `evidence_mark` (the newest `mastery_evidence` id on the topic when it arrived, so it lowers again only after the app records an answer of its own there, or after a rebuild from the app's own evidence has undone the lowering) and never below a seed that still stands; the gate keeps each lowering in its own estimate (§4.2) even after a rebuild. While nothing of the app's own has moved a lowered estimate, fading recall judges the topic on its score from before the claims (`server/fading.js`, §4.3). `mastery_before`/`mastery_after` say what it did. |
 | `feed_items` | The teaching cache: `plan` / `lesson` / `question` / `practice` rows per node. UNIQUE on `(node_id, kind, seq)`. |
+| `pre_questions`, `explain_backs` | Answers that are never evidence (`server/lessonPrompts.js`): the one tap question a topic with an unspent head start asks before its first part (recorded once per topic: refs and whether each matched its key), and the learner's own account of a lesson part with the model's verdict and reason. Nothing that reads evidence reads them. |
 | `paper_attempts` | Worked-by-hand submissions and their grades. |
 | `widget_builds` | Compiled sandboxed widgets, cached by spec hash. |
 | `search_providers` | Declarative outbound-search manifests. |
@@ -942,7 +943,7 @@ and a route an earlier one answers first.
 | Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
 | Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
-| Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/projects/:projectId/ghost-questions` |
+| Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |
 | Cards and decks | `/projects/:projectId/flashcards` (+ `/due`), `/flashcards/due`, `/ai/flashcards*`, `/projects/:projectId/deck` (+ `/queue`, `/settings`), `/srs/status`, `/srs/optimize`, `/srs/params` |
@@ -953,7 +954,7 @@ and a route an earlier one answers first.
 | Visuals | `/ai/repair-visual`, `/ai/widget/compile`, `/ai/visual/author`, `/ai/visual/caption`, `/ai/visual/build-failed`, `/visual-feedback` (+ `/export`) |
 | Authoring | `/authoring/outline-brief`, `/projects/:projectId/authoring/phases\|material-brief\|material` |
 | Vault | `/documents*`, `/documents/upload`, `/documents/search`, `/documents/:id/text\|original\|recover` |
-| Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media-descriptions/run\|status\|cancel` |
+| Media | `/media/:hash`, `/media/:hash/info`, `/media/:hash/describe`, `/media/:hash/description` (PUT), `/media-descriptions` (`?after=<cursor>`), `/media-descriptions/run\|status\|cancel` |
 | Semantic | `/embeddings/status\|settings\|reindex`, `/node-embeddings/status\|reindex`, `/nodes/:id/similar`, `/nodes/:id/transfer`, `/nodes/search-semantic`, `/atlas`, `/atlas/regions/:signature/name` |
 | Agents (the MCP server, `docs/MCP.md`) | `/agent/state`, `/agent/find`, `/agent/due`, `/agent/topic`, `/agent/mastery` (reads, plain text for a model plus the figures), `/agent/claims` (POST a claim); `/agent/check/*` (`where`, `start`, `questions`, `submit`, `completion`, `completed`) and `/agent/review/*` (`where`, `start`, `next`, `reveal`, `rate`, `undo`), the mastery check and card review an MCP host draws, each call after `start` naming its sitting token |
 | Tasks | `/tasks`, `/tasks/stream`, `/tasks/:id/stream`, `/tasks/:id/cancel`, `/tasks/:id` |

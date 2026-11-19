@@ -123,6 +123,8 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
     selectedNodeId: number | null;
     onOpen: (id: number) => void;
 }) {
+    const { t } = useTranslation();
+    const largerUi = useStore(s => s.a11y.largerUi);
     if (milestone.segments && milestone.segments.length > 0) {
         /* One tick per leaf, and a phase can hold ~100 of them. A `border-2`
            per tick or a fixed gap would make the bar wider than a phone and
@@ -131,17 +133,22 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
            tick shrink to nothing, and `overflow-hidden` guarantees that even an
            absurd phase can never push the page wide. */
         return (
-            <div className={`flex h-3 w-full overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
+            <div data-tick-bar className={`flex h-3 w-full overflow-hidden ${milestone.segments.length > 60 ? 'gap-0'
                 : milestone.segments.length > 24 ? 'gap-px' : 'gap-0.5'}`}
             >
                 {milestone.segments.map((segment, i) => (
                     <div
                         key={i}
+                        data-tick
                         onClick={() => onOpen(segment.id)}
                         onKeyDown={onActivateKey(() => onOpen(segment.id))}
                         role="button"
                         tabIndex={0}
-                        aria-label={segment.title}
+                        /* The fill is the only other sign of the state, and a
+                           screen reader does not see a fill. */
+                        aria-label={`${segment.title}, ${segment.completed
+                            ? (segment.skipped ? t("Skipped") : t("Finished"))
+                            : t("Not finished")}`}
                         title={segment.title}
                         /* A tick is a TOPIC, not a slice of a track, and a
                            focusable control besides. An unfinished one is an
@@ -161,7 +168,22 @@ const PhaseBar = memo(function PhaseBar({ milestone, isActive, selectedNodeId, o
                             ? 'ring-2 ring-inset ring-slate-700 dark:ring-white'
                             : 'hover:ring-2 hover:ring-inset hover:ring-slate-700 dark:hover:ring-white'
                         }`}
-                    />
+                    >
+                        {/* With larger buttons a tick is a 44px block, wide
+                            enough on a short phase to carry the topic's name;
+                            index.css shows it only in a block that holds a
+                            readable stretch of it. Hidden from screen readers:
+                            the tick's label already says the title. The ink
+                            is chosen per fill, each pair at least 4.5:1. */}
+                        {largerUi && (
+                            <span data-tick-name aria-hidden="true" className={`truncate px-1.5 text-xs font-medium ${segment.completed
+                                ? (segment.skipped ? 'text-white dark:text-slate-900' : 'text-slate-900')
+                                : 'text-slate-900 dark:text-white'}`}
+                            >
+                                {segment.title}
+                            </span>
+                        )}
+                    </div>
                 ))}
             </div>
         );

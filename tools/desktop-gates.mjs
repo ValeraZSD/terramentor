@@ -13,11 +13,11 @@
  *   node tools/desktop-gates.mjs --base <sha>   (the macOS bundle's executable
  *                                               taken from that commit instead)
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -35,9 +35,14 @@ import * as desktopLib from '../desktop/lib.js';
 // reports the missing decision as failed assertions instead of a load error.
 const launcherInstanceKey = desktopLib.launcherInstanceKey
     ?? ((chosen) => loadInstanceKey(resolveDataPaths({ env: { DATA_DIR: chosen.dir } }).dataDir));
+// The same for the launcher's log file: the old launcher prepared its log in
+// the chosen folder before it stopped on a missing library.
+const launcherLogFile = desktopLib.launcherLogFile
+    ?? ((chosen, appRoot) => prepareLogFile(chosen.dir || join(appRoot, 'server')));
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { runtimeSources, RUNTIME_DIRS, RUNTIME_DATA } from './lib/runtimeSources.mjs';
+import { readmeForPlatform, PLATFORMS, PLATFORM_OF, LABEL } from './lib/readmeForPlatform.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -220,7 +225,11 @@ console.log('\n--- which browser opens the window ---');
     ok('Windows: every candidate is checked in Program Files, x86 and the user profile',
         cands.filter((c) => c.includes('msedge.exe')).length === 3);
     ok('macOS: Chrome first', browserCandidates('darwin')[0].includes('Google Chrome'));
-    ok('Linux: bare names, resolved on PATH', browserCandidates('linux').every((c) => !c.includes('/')));
+    const linux = browserCandidates('linux', { HOME: '/home/u' });
+    const firstFlatpak = linux.findIndex((c) => c.includes('/'));
+    ok('Linux: bare names, resolved on PATH, before any Flatpak',
+        firstFlatpak > 0 && linux.slice(0, firstFlatpak).every((c) => !c.includes('/')));
+    ok('Linux: every later candidate is a Flatpak export', linux.slice(firstFlatpak).every((c) => /\/flatpak\/exports\/bin\/[^/]+$/.test(c)));
     ok('Firefox is never a candidate (no --app mode)', !browserCandidates('win32', winEnv).concat(browserCandidates('darwin'), browserCandidates('linux')).some((c) => /firefox/i.test(c)));
 
     const onlyChrome = (p) => p.replace(/\\/g, '/') === 'C:/PF/Google/Chrome/Application/chrome.exe';
@@ -236,6 +245,29 @@ console.log('\n--- which browser opens the window ---');
         findBrowser({ platform: 'darwin', env: {}, exists: macHas('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') }),
         '/Applications/Google Chrome.app');
     check('Linux: PATH lookup', (whichOnPath('chromium', { PATH: ['/nope', '/usr/bin'].join(delimiter) }, (p) => p.replace(/\\/g, '/') === '/usr/bin/chromium') || '').replace(/\\/g, '/'), '/usr/bin/chromium');
+
+    // A Linux machine whose only Chromium-family browser is one of these used
+    // to get a plain tab in the default browser: the launcher knew none of them.
+    const linuxHas = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+    const linuxFind = (env, ...paths) => (findBrowser({ platform: 'linux', env: { PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter), ...env }, exists: linuxHas(...paths) }) || '').replace(/\\/g, '/');
+    check('Linux: Arch\'s AUR Brave, installed as `brave`', linuxFind({}, '/usr/bin/brave'), '/usr/bin/brave');
+    check('Linux: Brave from Flathub, installed for every user', linuxFind({ HOME: '/home/u' }, '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/var/lib/flatpak/exports/bin/com.brave.Browser');
+    check('Linux: Chromium from Flathub, installed for one user (that folder is often not on PATH)',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium'),
+        '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium');
+    check('Linux: …under XDG_DATA_HOME when that is set', linuxFind({ HOME: '/home/u', XDG_DATA_HOME: '/data/u' }, '/data/u/flatpak/exports/bin/com.google.Chrome'),
+        '/data/u/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: a relative XDG_DATA_HOME is ignored (invalid by the XDG spec)',
+        linuxFind({ HOME: '/home/u', XDG_DATA_HOME: 'rel' }, '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome'),
+        '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: the per-user install before the system one, for the same browser',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser', '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser');
+    ok('Linux: with no HOME, only the system Flatpak folder is searched',
+        browserCandidates('linux', {}).filter((c) => c.includes('/')).every((c) => c.startsWith('/var/lib/flatpak/exports/bin/')));
+    check('Linux: a browser on PATH wins over a Flatpak one', linuxFind({ HOME: '/home/u' }, '/usr/bin/chromium', '/var/lib/flatpak/exports/bin/com.google.Chrome'),
+        '/usr/bin/chromium');
 
     const args = browserArgs('http://127.0.0.1:3001', '/data/browser-profile');
     check('app mode', args[0], '--app=http://127.0.0.1:3001');
@@ -323,6 +355,35 @@ console.log('\n--- is that server ours? ---');
     writeFileSync(join(kd, INSTANCE_KEY_FILE), '');
     const k2 = loadInstanceKey(kd);
     ok('a file cut off empty is replaced with a working key', Buffer.isBuffer(k2) && k2.length === 32 && readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k2));
+    ok('…which every later call returns', loadInstanceKey(kd)?.equals(k2) && loadInstanceKey(kd)?.equals(k2));
+    ok('…and leaves no temporary file beside it', readdirSync(kd).every((f) => !f.endsWith('.tmp')), readdirSync(kd).join(', '));
+    // The key file must never be visible empty: a second process that reads it
+    // in that gap takes it for a leftover and writes a different key over it.
+    // So the real name is only ever given to a file that is already whole (a
+    // `link` or a `rename`), never opened for writing in place.
+    const keySrc = readFileSync(join(repoRoot, 'server', 'instanceKey.js'), 'utf8');
+    // Every call that opens or writes a file in there targets the temporary name;
+    // only `linkSync` and `renameSync` ever give a file the real one.
+    const writers = [...keySrc.matchAll(/\b(?:openSync|writeFileSync|appendFileSync|createWriteStream)\(\s*([^,)\s]+)/g)].map((m) => m[1]);
+    ok('the key file is published whole, never opened for writing under its own name',
+        /linkSync\(/.test(keySrc) && writers.length > 0 && writers.every((target) => target === 'tmp'), writers.join(', '));
+    // Several processes starting on one new library at once all end with the one key.
+    const raceDir = mkdtempSync(join(tmpdir(), 'desktop-key-race-'));
+    const keyUrl = pathToFileURL(join(repoRoot, 'server', 'instanceKey.js')).href;
+    const asker = () => new Promise((done) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e',
+            `import { loadInstanceKey } from ${JSON.stringify(keyUrl)}; process.stdout.write(loadInstanceKey(${JSON.stringify(raceDir)})?.toString('hex') ?? 'none');`],
+            { stdio: ['ignore', 'pipe', 'ignore'] });
+        let out = '';
+        child.stdout.on('data', (c) => { out += c; });
+        child.on('close', () => done(out));
+    });
+    const answers = await Promise.all(Array.from({ length: 8 }, asker));
+    ok('eight processes starting on one new library all get the same key',
+        answers.every((a) => /^[0-9a-f]{64}$/.test(a) && a === answers[0]) && readInstanceKeyFile(join(raceDir, INSTANCE_KEY_FILE))?.toString('hex') === answers[0],
+        answers.map((a) => a.slice(0, 6)).join(' '));
+    ok('…and no temporary file is left', readdirSync(raceDir).every((f) => !f.endsWith('.tmp')), readdirSync(raceDir).join(', '));
+    rmSync(raceDir, { recursive: true, force: true });
     // A first launch on a new library: the launcher reads the key before the
     // server has started, so before anything has made the data folder. The
     // packaged build's self-check starts on exactly such a folder, and a key
@@ -344,20 +405,27 @@ console.log('\n--- is that server ours? ---');
     const moved = join(kd, 'big-disk', 'Library');
     mkdirSync(perUser, { recursive: true });
     writeFileSync(join(perUser, LIBRARY_POINTER), libraryPointerFile(moved));
+    // The launcher also prepares its log file before that stop, and a log
+    // file needs its folder: `mkdir -p <library>/logs` makes the library.
     const launch = () => {
         const chosen = chooseDataDir({ appRoot: join(kd, 'app'), packaged: true, platform: 'linux', env: {}, home });
-        return { chosen, key: launcherInstanceKey(chosen) };
+        return { chosen, key: launcherInstanceKey(chosen), logFile: launcherLogFile(chosen, join(kd, 'app')) };
     };
     const first = launch();
     ok('a pointer at a folder that is gone stops the first launch', first.chosen.missing === true);
     ok('…without making that folder', !existsSync(moved));
     ok('…or a key for it', first.key === null);
+    ok('…or a log file for it', first.logFile === null);
     const second = launch();
     ok('the second launch still stops, rather than opening an empty library there', second.chosen.missing === true);
     ok('…and the folder is still not there', !existsSync(moved));
     rmSync(join(perUser, LIBRARY_POINTER));
     const firstRun = launch();
     ok('a first run on the default folder still gets its key', firstRun.chosen.why === 'user' && Buffer.isBuffer(firstRun.key));
+    ok('…and its log folder', !!firstRun.logFile && existsSync(dirname(firstRun.logFile)));
+    ok('the launcher prepares its log through that one decision',
+        /launcherLogFile\(chosen, appRoot\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
+        && !/prepareLogFile\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
     ok('the launcher reads its key through that one decision',
         /const instanceKey = launcherInstanceKey\(chosen\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
         && !/loadInstanceKey\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
@@ -370,6 +438,15 @@ console.log('\n--- is that server ours? ---');
     const launcherSrc = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
     const startUpdaterSrc = launcherSrc.slice(launcherSrc.indexOf('function startUpdater'), launcherSrc.indexOf('async function finishInterruptedSwap'));
     ok('the updater runner is given the instance-key module', /copyFileSync\([^\n]*'instanceKey\.js'[^\n]*'instanceKey\.js'\)/.test(startUpdaterSrc));
+    // The comments that list the runner's contents are what someone trimming
+    // it reads, so they have to name every module the updater really imports.
+    const updaterSrc = readFileSync(join(repoRoot, 'desktop', 'updater.js'), 'utf8');
+    const updaterHeader = updaterSrc.slice(0, updaterSrc.indexOf('\nimport '));
+    const updaterNeeds = [...updaterSrc.matchAll(/from '(\.\.?\/[^']+)'/g)].map((m) => m[1].split('/').pop());
+    ok('the updater imports the three modules its runner copy holds', updaterNeeds.length === 3, updaterNeeds.join(','));
+    ok('…every one of them is copied into the runner', updaterNeeds.every((f) => startUpdaterSrc.includes(`'${f}'`)));
+    ok('…the updater\'s header names each of them', updaterNeeds.every((f) => updaterHeader.includes(f)));
+    ok('…and the launcher\'s comment counts them', /updater and the three modules it imports/.test(launcherSrc));
     ok('…and the plan names the key file, never the key', /instanceKeyFile:/.test(startUpdaterSrc) && !/instanceKey:\s/.test(startUpdaterSrc));
     ok('a desktop build never packs a checkout\'s key or credentials',
         /rel === 'instance\.key'/.test(readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8'))
@@ -382,10 +459,17 @@ console.log('\n--- when the server stops itself ---');
     const t0 = 1_000_000;
     const base = { startedAt: t0, lastPing: 0, everConnected: false, lastBye: 0, keepRunning: false };
     ok('just started, no window yet: keep waiting', !shouldShutDown({ ...base, now: t0 + IDLE_MS }));
-    ok('no window ever came: give up after 4 idle periods', shouldShutDown({ ...base, now: t0 + 4 * IDLE_MS + 1 }));
+    // The wait for a first window is its own number, three minutes, and does not
+    // follow the idle limit.
+    ok('no window ever came: give up after three minutes', shouldShutDown({ ...base, now: t0 + 180_000 + 1 }));
+    ok('…and not before', !shouldShutDown({ ...base, now: t0 + 180_000 - 1 }));
     const live = { ...base, everConnected: true, lastPing: t0 + 60_000 };
     ok('pinging: stay', !shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS - 1 }));
     ok('silent past IDLE_MS: stop', shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS + 1 }));
+    // A window minimised or covered for minutes has its timers woken about once
+    // a minute, so its 10 s ping arrives every ~60 s: still a live window.
+    ok('a long-hidden window pinging once a minute (plus 20 s of slack) stays up',
+        !shouldShutDown({ ...live, now: live.lastPing + 60_000 + 20_000 }));
     const bye = { ...live, lastBye: t0 + 61_000 };
     ok('goodbye, then silence: stop after the short grace', shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS + 1 }));
     ok('goodbye inside the grace: not yet (a reload sends one)', !shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS - 1 }));
@@ -1136,6 +1220,19 @@ console.log('\n--- macOS: the browser is started through `open` ---');
             { cmd: 'C:\\PF\\msedge.exe', args: browserArgs(url, 'C:\\p', 'window'), byExit: false });
         check('Linux: the browser itself, unchanged', lib.browserCommand('/usr/bin/chromium', url, '/p', 'fullscreen', 'linux'),
             { cmd: '/usr/bin/chromium', args: browserArgs(url, '/p', 'fullscreen'), byExit: false });
+        // The sandbox of Flathub's Brave cannot see ~/.local/share/Terramentor,
+        // where the profile lives: the run is granted that one folder.
+        const lp = '/home/u/.local/share/Terramentor/browser-profile';
+        check('Linux: a Flatpak browser through `flatpak run`, granted the profile folder only',
+            lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, lp, 'window', 'linux'),
+            { cmd: 'flatpak', args: ['run', `--filesystem=${lp}`, 'com.brave.Browser', ...browserArgs(url, lp, 'window')], byExit: false });
+        // Flatpak reads the text after a `:` as a mode: an unescaped one would
+        // grant `/home/u/My` and leave the profile out of the sandbox.
+        const colon = lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, '/home/u/My:Lib\\x/browser-profile', 'window', 'linux');
+        check('Linux: a `:` or `\\` in the library path is escaped for Flatpak only', [colon.args[1], colon.args.find((a) => a.startsWith('--user-data-dir='))],
+            ['--filesystem=/home/u/My\\:Lib\\\\x/browser-profile', '--user-data-dir=/home/u/My:Lib\\x/browser-profile']);
+        check('Linux: a program merely NAMED like an app id is not run through Flatpak',
+            lib.browserCommand('/usr/bin/com.brave.Browser', url, lp, 'window', 'linux').cmd, '/usr/bin/com.brave.Browser');
     }
     const darwin = browserCandidates('darwin', { HOME: '/Users/x' });
     ok('macOS: the candidates are app bundles, in /Applications and the user\'s own Applications',
@@ -1428,10 +1525,59 @@ console.log('\n--- packaging pieces are present ---');
     ok('the auth gate is mounted in createApp', gateAt > 0);
     ok('the desktop probe is mounted BEFORE the auth gate', appSrc.indexOf('desktop.publicRouter') >= 0 && appSrc.indexOf('desktop.publicRouter') < gateAt);
     ok('…and the controls after it', appSrc.indexOf('desktop.protectedRouter') > gateAt);
-    const readme = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
-    ok('the zip README names the data folder on every platform', ['%LOCALAPPDATA%', 'Application Support', '.local/share'].every((s) => readme.includes(s)));
     const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     ok('the release workflow builds the desktop packages on all three OSes', ['windows-latest', 'macos-latest', 'ubuntu-latest'].every((s) => wf.includes(s)) && wf.includes('build-desktop'));
+}
+
+// ---------------------------------------------------------------------------
+// THE ZIP'S README, ONE PER SYSTEM. desktop/README.txt is one template; the
+// build keeps only the blocks for the system it packages. Each system's copy
+// must carry its own way in (the launcher, the warning its OS shows the first
+// time, its data folder) and none of another system's: a Windows user who
+// reads about xattr and Applications has been handed the wrong page.
+console.log('\n--- the zip README carries its own system only ---');
+{
+    const template = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
+    // Each phrase and the systems whose copy must say it; every other copy
+    // must not.
+    const SAYS = [
+        ['Terramentor.exe', ['windows']], ['Run anyway', ['windows']], ['%LOCALAPPDATA%', ['windows']],
+        ['notification area', ['windows']], ['runtime\\node.exe', ['windows']],
+        ['When it starts with the computer', ['windows']], ['Terramentor.cmd', ['windows']],
+        ['More info', ['windows']], ['Start Menu', ['windows']],
+        ['Terramentor.app', ['macos']], ['Open Anyway', ['macos']], ['xattr', ['macos']],
+        ['Application Support', ['macos']], ['Apple Silicon', ['macos']],
+        ['terramentor.sh', ['linux']], ['install-desktop-entry.sh', ['linux']], ['.local/share', ['linux']],
+        ['Keep running in', ['macos', 'linux']], ['Closing the last window', ['macos', 'linux']],
+        ['runtime/node', ['macos', 'linux']],
+        ['Portable use', ['windows', 'linux']], ['delete this folder', ['windows', 'linux']],
+    ];
+    check('the build names all three systems', Object.keys(PLATFORM_OF).map((p) => PLATFORM_OF[p]).sort().join(), [...PLATFORMS].sort().join());
+    const built = {};
+    for (const p of PLATFORMS) {
+        built[p] = readmeForPlatform(template, p, '9.8.7');
+        const text = built[p];
+        const missing = SAYS.filter(([s, ps]) => ps.includes(p) && !text.includes(s)).map(([s]) => s);
+        ok(`${p}: its own steps are there`, missing.length === 0, missing.join(', '));
+        const foreign = SAYS.filter(([s, ps]) => !ps.includes(p) && text.includes(s)).map(([s]) => s);
+        ok(`${p}: no other system's steps`, foreign.length === 0, foreign.join(', '));
+        ok(`${p}: no marker or placeholder left`, !/^@(only|end)\b|__VERSION__|__SYSTEM__/m.test(text));
+        const title = text.split(/\r?\n/)[0];
+        ok(`${p}: the title names the version and the system`, title.includes('9.8.7') && title.includes(LABEL[p]), title);
+    }
+    check('CRLF in, CRLF out', readmeForPlatform('a\r\n@only linux\r\nb\r\n@end\r\nc\r\n', 'linux', '1'), 'a\r\nb\r\nc\r\n');
+    check('a block for other systems drops out', readmeForPlatform('a\n@only macos\nb\n@end\nc', 'windows', '1'), 'a\nc');
+    const throws = (src) => { try { readmeForPlatform(src, 'linux', '1'); return false; } catch { return true; } };
+    ok('a misspelt system is refused', throws('@only linuxx\nb\n@end'));
+    ok('an @only with no system is refused', throws('@only\nb\n@end'));
+    ok('an unclosed block is refused', throws('@only linux\nb'));
+    ok('an @end with no @only is refused', throws('b\n@end'));
+    ok('a nested block is refused', throws('@only linux\n@only macos\nb\n@end\n@end'));
+    ok('an upper-case marker is refused, not shipped as text', throws('@ONLY macos\nb\n@END'));
+    ok('an indented marker is refused, not shipped as text', throws('  @only macos\nb\n  @end'));
+    ok('an unknown target system is refused', (() => { try { readmeForPlatform('a', 'freebsd', '1'); return false; } catch { return true; } })());
+    const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
+    ok('the build writes the README through readmeForPlatform for its own system', /readmeForPlatform\(readme, PLATFORM_OF\[platform\]/.test(build));
 }
 
 // ---------------------------------------------------------------------------
@@ -1527,6 +1673,40 @@ console.log('\n--- the icon the operating system reads ---');
         ok('the same icon a second time does not', again.written === false, again.why);
         const changed = await refreshDesktopIcon({ ...a, background: '#000000' }, { env, write: spy });
         ok('a different icon does', changed.written === true);
+
+        // A slider sends a request per step, so several refreshes arrive while
+        // the first is still writing. Writes to the one file must never overlap,
+        // and the last choice made is the one left on disk.
+        let active = 0;
+        let overlapped = false;
+        // The first write is the slowest, so a write that skipped the queue would
+        // finish last and leave the oldest choice on disk.
+        const delays = [90, 30, 0];
+        let started = 0;
+        const slow = async (p, data) => {
+            active++;
+            if (active > 1) overlapped = true;
+            await new Promise((r) => setTimeout(r, delays[started++] ?? 0));
+            await writeFile(p, data);
+            active--;
+        };
+        const steps = [{ ...a, radius: 10 }, { ...a, radius: 20 }, { ...a, radius: 30 }];
+        await Promise.all(steps.map((s) => refreshDesktopIcon(s, { env, write: slow })));
+        ok('quick refreshes write one at a time', overlapped === false);
+        ok('…and the last one asked for is on disk',
+            readFileSync(scratch).equals(await icoFor(steps[2])));
+
+        // The slider can also go back to the picture already on disk while a
+        // newer one is still being written: the answer to that request is not
+        // "unchanged", because the write in flight is about to replace it.
+        const onDisk = { ...a, radius: 30 };
+        delays.push(80, 0);
+        const away = refreshDesktopIcon({ ...a, radius: 40 }, { env, write: slow });
+        await new Promise((r) => setTimeout(r, 15));
+        const back = refreshDesktopIcon(onDisk, { env, write: slow });
+        await Promise.all([away, back]);
+        ok('moving away and straight back leaves the picture asked for last',
+            readFileSync(scratch).equals(await icoFor(onDisk)));
         rmSync(scratch, { force: true });
     }
 

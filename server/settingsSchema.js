@@ -128,7 +128,8 @@ const MODEL_ID = text(256);
 /** @type {Record<string, { writable: 'client'|'server', sensitivity: string, validate?: (v: unknown) => string, apiOnly?: boolean }>} */
 export const SETTINGS = {
     // ---- How the app looks ------------------------------------------------------
-    theme: client('ui', oneOf('light', 'dark')),
+    // 'system' follows the device's light or dark mode (src/store.ts resolveTheme).
+    theme: client('ui', oneOf('light', 'dark', 'system')),
     theme_tint: client('ui', hex),
     // What the splash paints before the app loads (store.ts rememberPaintedSurfaces).
     theme_surfaces: client('ui', json(1024, isPlainObject)),
@@ -144,6 +145,24 @@ export const SETTINGS = {
     number_format: client('ui', text(16)),
     // 0 = Sunday, 1 = Monday (types.ts WeekStartDay); readers take anything else as Monday.
     week_start_day: client('ui', oneOf('0', '1')),
+    // Single-key shortcuts (src/utils/escapeKey.ts); 'false' turns them all off.
+    key_shortcuts: client('ui', bool),
+    // Settings → Accessibility (src/utils/accessibility.ts). 'system' follows
+    // the device's own preference.
+    motion: client('ui', oneOf('system', 'full', 'reduce')),
+    contrast: client('ui', oneOf('system', 'standard', 'more')),
+    letter_spacing: client('ui', oneOf('normal', 'wider', 'widest')),
+    word_spacing: client('ui', oneOf('normal', 'wider', 'widest')),
+    line_spacing: client('ui', oneOf('normal', 'wider', 'widest')),
+    reading_line: client('ui', bool),
+    read_aloud: client('ui', bool),
+    // Percent of the voice's own rate.
+    speech_rate: client('ui', int(50, 200)),
+    card_audio_autoplay: client('ui', bool),
+    // A press on an answer or a rating selects it; a second press confirms.
+    confirm_answers: client('ui', bool),
+    // No text under the body size (code keeps its own), every control at least 44px each way.
+    larger_ui: client('ui', bool),
     // The bounds the store clamps the drag to (store.ts setSidebarWidth / setDetailPanelWidth).
     sidebarWidth: client('ui', int(200, 600)),
     detailPanelWidth: client('ui', int(300, 600)),
@@ -180,6 +199,9 @@ export const SETTINGS = {
     // Code answers in Python and JavaScript are run on the learner's device
     // (src/runner/) rather than judged by the model; 'off' hands them back to it.
     code_runner: client('learning', oneOf('on', 'off')),
+    // A typed fill-in answer one or two letters off a long word is marked right,
+    // with the spelling shown (server/answerFormats.js, spellingSlipOf). Off by default.
+    forgive_spelling: client('learning', oneOf('on', 'off')),
     visual_kinds_off: client('learning', (value) => {
         const s = text(1000)(value);
         return /^[a-z0-9_,-]*$/.test(s) ? s : refuse('A comma-separated list of visual kinds');
@@ -258,6 +280,8 @@ export const SETTING_FAMILIES = [
     // Per project, named by the project's uuid (server/projectSettings.js).
     { prefix: 'deck_new_per_day_', writable: 'server', sensitivity: 'learning', perProject: true },
     { prefix: 'teach_topics_', writable: 'server', sensitivity: 'learning', perProject: true },
+    // The course's recall target (server/decks.js `getRetention`), 0.70-0.97.
+    { prefix: 'desired_retention_', writable: 'server', sensitivity: 'learning', perProject: true },
     // Per kind of run: how long this computer's model took.
     { prefix: 'creation_avg_ms_', writable: 'server', sensitivity: 'internal' },
     { prefix: 'bulk_avg_ms_', writable: 'server', sensitivity: 'internal' },
@@ -282,15 +306,18 @@ export const PROJECT_SETTING_PREFIXES = SETTING_FAMILIES.filter(f => f.perProjec
  */
 export const SETTING_SCOPES = Object.freeze({
     library: [
-        'ui_language', 'number_format', 'week_start_day', 'welcome_done',
+        'ui_language', 'number_format', 'week_start_day', 'key_shortcuts', 'welcome_done',
+        // What a person needs to use the app at all travels with them.
+        'motion', 'contrast', 'letter_spacing', 'word_spacing', 'line_spacing', 'reading_line',
+        'read_aloud', 'speech_rate', 'card_audio_autoplay', 'confirm_answers', 'larger_ui',
         'user_profile', 'mastery_gate_mode', 'mastery_threshold', 'mastery_check_pass', 'mastery_check_size',
         'decay_days', ...Object.keys(FEED_NUMBERS), 'feed_practice', 'feed_widgets', 'feed_prepare_check',
-        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner',
+        'feed_prepare_cards', 'creation_find_resources', 'lesson_reads_links', 'drill_time_scale', 'code_runner', 'forgive_spelling',
         'visual_kinds_off', 'visual_tier', 'pdf_math_recovery', 'pdf_recovery_vision', 'paper_vision', 'deck_new_per_day',
         'ai_reasoning_effort', 'ai_provider_sort', 'ai_provider_order', 'ai_web_search',
         'bkt_params', 'bkt_params_meta', 'fsrs_params', 'fsrs_params_meta',
         'onboarding_dismissed', 'first_lesson_read_at',
-        'deck_new_per_day_', 'teach_topics_',
+        'deck_new_per_day_', 'teach_topics_', 'desired_retention_',
     ],
     device: [
         'theme', 'theme_tint', 'theme_surfaces', 'accent_color', 'app_icon_style', 'app_icon_bg', 'app_icon_radius',

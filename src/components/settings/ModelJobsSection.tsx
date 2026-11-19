@@ -14,6 +14,7 @@ import Switch from '../ui/Switch';
 import Radio from '../ui/Radio';
 import { ExpandableSection } from '../ui/Disclosure';
 import ModelPicker from '../ModelPicker';
+import ImageDescriptionsDialog from './ImageDescriptionsDialog';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { SectionHeader, Panel, Collapse } from './SettingsParts';
 import type { SettingsSnapshot } from './settingsSnapshot';
@@ -106,6 +107,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
     // chain with no stream of its own, and a progress bar that only moves on a
     // reload is worse than no progress bar.
     const [mediaStats, setMediaStats] = useState<import('../../types').MediaDescriptionStatus | null>(null);
+    const [descriptionsOpen, setDescriptionsOpen] = useState(false);
     const loadMediaStats = async () => {
         try { setMediaStats(await api.getMediaDescriptionStatus()); }
         catch { /* older backend — the section simply shows nothing */ }
@@ -387,6 +389,7 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                     <p className="text-sm text-slate-500 dark:text-slate-400">
                                         {tr("{{byAuthor}} by the deck author", { byAuthor: num(mediaStats.byAuthor) })}
                                         {mediaStats.byVision > 0 && tr(", {{byVision}} by your model", { byVision: num(mediaStats.byVision) })}
+                                        {(mediaStats.byLearner ?? 0) > 0 && tr(", {{byLearner}} by you", { byLearner: num(mediaStats.byLearner ?? 0) })}
                                     </p>
                                 </div>
                                 <ProgressBar value={mediaStats.described} max={mediaStats.images} decorative />
@@ -424,6 +427,14 @@ export default function ModelJobsSection({ active, snapshot, models, modelsLoadi
                                     </p>
                                 )}
                             </>
+                        )}
+                        {mediaStats && mediaStats.images > 0 && (
+                            <div className="mt-3">
+                                <Button onClick={() => setDescriptionsOpen(true)}>
+                                    {mediaStats.byVision > 0 ? tr("Check the descriptions") : tr("See the descriptions")}
+                                </Button>
+                                <ImageDescriptionsDialog open={descriptionsOpen} onClose={() => setDescriptionsOpen(false)} onChanged={() => void loadMediaStats()} />
+                            </div>
                         )}
                     </ModelJobRow>
 

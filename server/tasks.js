@@ -50,7 +50,8 @@ function setConcurrencyProvider(fn) {
 }
 
 /**
- * Somewhere to send "this task started / finished / failed" without this module
+ * Somewhere to send "this task finished / failed / was cancelled" (or came back
+ * unusable) without this module
  * learning what a log is.
  *
  * Same shape as the concurrency provider above and for the same reason: tasks.js
@@ -430,6 +431,9 @@ function settle(task, status, terminalEvent) {
     scheduleNotify();
 }
 
+const LIMIT_RECHECK_MS = 1000;
+let limitTimer = null;
+
 function pump() {
     while (runningCount < currentLimit() && queue.length > 0) {
         const task = tasksById.get(queue.shift());
@@ -471,6 +475,15 @@ function pump() {
                 runningCount -= 1;
                 pump();
             });
+    }
+    // The limit is read only when something here changes, and a switch of
+    // provider in Settings is nothing here: with a task waiting behind a full
+    // slot count, a person who moves from a local model to a hosted API would
+    // see it stay "queued" until the running one ends. A short timer, only
+    // while something waits, reads the limit again.
+    if (queue.length > 0 && !limitTimer) {
+        limitTimer = setTimeout(() => { limitTimer = null; pump(); }, LIMIT_RECHECK_MS);
+        limitTimer.unref?.();
     }
 }
 

@@ -98,6 +98,10 @@ check('quotes are encoded (no href breakout)',
 const wiki = validateManifest({ ...base, id: 'w', urlTemplate: 'https://{lang}.wikipedia.org/w/index.php?search={query}' }).manifest;
 check('{lang} fills', buildProviderUrl(wiki, { query: 'licht', lang: 'nl' }),
     'https://nl.wikipedia.org/w/index.php?search=licht');
+check('{lang} is "en" when no language is given, as on the client',
+    buildProviderUrl(wiki, { query: 'licht' }), 'https://en.wikipedia.org/w/index.php?search=licht');
+check('…and when the language is empty',
+    buildProviderUrl(wiki, { query: 'licht', lang: '' }), 'https://en.wikipedia.org/w/index.php?search=licht');
 
 console.log('\n--- every shipped built-in is itself valid ---');
 for (const { manifest } of BUILTIN_PROVIDERS) {
@@ -188,6 +192,24 @@ check('and leaves the live built-ins alone', listProviders().some(a => a.id === 
 setProviderEnabled('youtube', true);
 syncBuiltinProviders();
 check('re-sync preserves an enabled built-in', listProviders().find(a => a.id === 'youtube').enabled, true);
+
+// A learner's own provider added under an id a later release ships as a
+// built-in: the re-sync must leave their row as it is, not swap in the shipped
+// manifest and turn it into a built-in they can no longer delete.
+{
+    const mine = { id: 'mathworld', kind: 'search_provider', label: 'My maths site', icon: 'search', urlTemplate: 'https://maths.example/find?q={query}', surfaces: ['topic'] };
+    db.prepare('DELETE FROM search_providers WHERE id = ?').run('mathworld');
+    db.prepare('INSERT INTO search_providers (id, kind, manifest, enabled, builtin) VALUES (?, ?, ?, 1, 0)').run('mathworld', 'search_provider', JSON.stringify(mine));
+    const staleArxiv = { ...BUILTIN_PROVIDERS.find(p => p.manifest.id === 'arxiv').manifest, urlTemplate: 'https://arxiv.org/abs/{query}' };
+    db.prepare('UPDATE search_providers SET manifest = ? WHERE id = ?').run(JSON.stringify(staleArxiv), 'arxiv');
+    syncBuiltinProviders();
+    const row = db.prepare('SELECT manifest, enabled, builtin FROM search_providers WHERE id = ?').get('mathworld');
+    check('re-sync leaves a learner\'s own provider with a shipped id as it was', row.builtin === 0 && row.enabled === 1 && JSON.parse(row.manifest).urlTemplate === mine.urlTemplate, true);
+    check('…and still refreshes the built-ins that are built-ins', listProviders().find(a => a.id === 'arxiv').urlTemplate, BUILTIN_PROVIDERS.find(p => p.manifest.id === 'arxiv').manifest.urlTemplate);
+    check('…and the learner can still delete theirs', deleteProvider('mathworld').ok, true);
+    syncBuiltinProviders();
+    check('…after which the shipped one is seeded again', listProviders().find(a => a.id === 'mathworld')?.builtin, true);
+}
 
 // ---------------------------------------------------------------------------
 // The 0.69 rename, against a database shaped the way an older build left it.
@@ -359,6 +381,65 @@ console.log('\n--- a language course\'s search names the language ---');
     check('a projectId given is that project', searchOwner(3, 7), 3);
     const button = readFileSync(fileURLToPath(new URL('../src/components/ExternalSearchButton.tsx', import.meta.url)), 'utf8');
     check('the link asks searchOwner whose course it is', /searchOwner\(projectId, currentProjectId\)/.test(button), true);
+}
+
+/* ── the search routes' query parameters, on the real app ── */
+console.log('\n--- /api/search reads its query parameters strictly ---');
+{
+    const { createApp } = await import(B + 'app.js');
+    const server = createApp().listen(0, '127.0.0.1');
+    await new Promise(r => server.once('listening', r));
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const get = async (path) => { const r = await fetch(base + path); return { status: r.status, body: await r.json().catch(() => null) }; };
+
+    // Two courses sharing a word, twelve topics in the first and one in the
+    // second: more matches than either default limit (10 and 8), so a limit that
+    // became unbounded (`-1`) or a slice (`limit=-1` dropping the last row)
+    // returns a different count, and so does a project scope.
+    const addProject = (name) => Number(db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name, '').lastInsertRowid);
+    const first = addProject('Quokka course');
+    const second = addProject('Quokka second');
+    for (let i = 1; i <= 12; i++) db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(first, `Quokka topic ${i}`);
+    db.prepare('INSERT INTO nodes (project_id, title) VALUES (?, ?)').run(second, 'Quokka elsewhere');
+
+    const plain = await get('/api/search?q=quokka');
+    check('a plain search answers 200', plain.status, 200);
+    check('the default limit is 10 topics out of 13', plain.body?.nodes?.length, 10);
+    check('...and they come from the first course', plain.body?.nodes?.some(n => n.projectId === first), true);
+
+    for (const bad of ['abc', '-1', '0', '1.5', '1e1', '0x10', '+3', '']) {
+        const r = await get(`/api/search?q=quokka&limit=${bad}`);
+        check(`limit=${bad || '(empty)'} is not an error`, r.status, 200);
+        check(`limit=${bad || '(empty)'} falls back to the default of 10`, r.body?.nodes?.length, 10);
+    }
+    check('a valid limit still caps the topics', (await get('/api/search?q=quokka&limit=2')).body?.nodes?.length, 2);
+
+    for (const bad of ['abc', '-1', '0', '1.5', '1e0', '0x10', '+3', '%205', '05', '1&projectId=2']) {
+        const r = await get(`/api/search?q=quokka&projectId=${bad}`);
+        check(`projectId=${bad} is a 400, not the whole library`, r.status, 400);
+    }
+    check('a bad projectId is a 400 even before the query is long enough', (await get('/api/search?q=a&projectId=abc')).status, 400);
+    const scoped = await get(`/api/search?q=quokka&projectId=${second}`);
+    check('a real projectId still scopes the search', scoped.status === 200 && scoped.body.nodes.length > 0 && scoped.body.nodes.every(n => n.projectId === second), true);
+    check('an empty projectId is the whole library', (await get('/api/search?q=quokka&projectId=')).body?.nodes?.length, plain.body?.nodes?.length);
+
+    const suggest = await get('/api/search/suggest?q=quo');
+    check('suggest answers 200', suggest.status, 200);
+    check('suggest gives the default of 8 out of 13', suggest.body?.length, 8);
+    check('suggest with a bad projectId is a 400', (await get('/api/search/suggest?q=quo&projectId=abc')).status, 400);
+    check('suggest with a bad projectId is a 400 for a one-letter query too', (await get('/api/search/suggest?q=q&projectId=abc')).status, 400);
+    for (const bad of ['abc', '-1', '0', '1e1', '']) {
+        const r = await get(`/api/search/suggest?q=quo&limit=${bad}`);
+        check(`suggest limit=${bad || '(empty)'} is not an error`, r.status, 200);
+        check(`suggest limit=${bad || '(empty)'} falls back to the default of 8`, r.body?.length, 8);
+    }
+    check('a valid suggest limit still caps the rows', (await get('/api/search/suggest?q=quo&limit=3')).body?.length, 3);
+
+    // Express 5 leaves a body-less request's req.body undefined; createApp fills
+    // it in, so the provider toggle answers its own 400.
+    const toggle = await fetch(`${base}/api/search-providers/youtube`, { method: 'PUT' });
+    check('a body-less provider toggle is a 400, not a 500', toggle.status, 400);
+    server.close();
 }
 
 try { db.close(); } catch { }

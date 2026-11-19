@@ -526,6 +526,11 @@ addColumnIfMissing('projects', 'start_date', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'deadline', 'TEXT DEFAULT NULL');
 addColumnIfMissing('projects', 'study_days', "TEXT DEFAULT '[1,2,3,4,5]'");
 addColumnIfMissing('projects', 'baseline_schedule', 'TEXT DEFAULT NULL');
+// 1 = the deadline is an exam date the learner marked "cannot move": no screen
+// offers to move it, and a write that does not name the mark (the card's
+// editor, Remove schedule, an older client) cannot move or clear it. A write
+// that names it decides it: `lockedDeadlineError` in server/scheduling.js.
+addColumnIfMissing('projects', 'deadline_fixed', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'status', "TEXT DEFAULT 'active'"); // active | completed | archived
 // Declared study language (see server/language.js). '' = follow the material,
 // which is what every project did before this column existed.
@@ -1221,6 +1226,82 @@ try {
   console.log('paper_attempts table already exists or error:', e.message);
 }
 
+// MOCK EXAMS (server/mockExams.js): a real past paper, written by hand with the
+// app's clock and marked by the learner part by part against the worked
+// solution. A paper is its points table and its own grade formula; a sitting
+// is one go at it (the whole paper or one question), its clock kept here so
+// leaving the page never loses it; a mark is points per part.
+//
+// `uuid` is declared on the table itself: the last migration block gives every
+// synced table its insert trigger and unique index (syncTables.js). The paper
+// and solution are the course's own documents; deleting one leaves the paper.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS exam_papers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      project_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      minutes INTEGER NOT NULL CHECK (minutes > 0),
+      grade_min REAL,
+      grade_max REAL,
+      pass_grade REAL,
+      paper_document_id INTEGER,
+      solution_document_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+      FOREIGN KEY (paper_document_id) REFERENCES documents(id) ON DELETE SET NULL,
+      FOREIGN KEY (solution_document_id) REFERENCES documents(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_project ON exam_papers(project_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_paper_doc ON exam_papers(paper_document_id);
+    CREATE INDEX IF NOT EXISTS idx_exam_papers_solution_doc ON exam_papers(solution_document_id);
+
+    CREATE TABLE IF NOT EXISTS exam_paper_parts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      paper_id INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      question TEXT NOT NULL,
+      part TEXT NOT NULL DEFAULT '',
+      points INTEGER NOT NULL CHECK (points > 0),
+      node_id INTEGER,
+      FOREIGN KEY (paper_id) REFERENCES exam_papers(id) ON DELETE CASCADE,
+      FOREIGN KEY (node_id) REFERENCES nodes(id) ON DELETE SET NULL,
+      UNIQUE (paper_id, question, part)
+    );
+    CREATE INDEX IF NOT EXISTS idx_exam_paper_parts_node ON exam_paper_parts(node_id);
+
+    CREATE TABLE IF NOT EXISTS mock_sittings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      paper_id INTEGER NOT NULL,
+      question TEXT,
+      time_allowed INTEGER NOT NULL,
+      elapsed INTEGER NOT NULL DEFAULT 0,
+      running_since TEXT,
+      status TEXT NOT NULL DEFAULT 'writing' CHECK (status IN ('writing', 'marking', 'done')),
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      FOREIGN KEY (paper_id) REFERENCES exam_papers(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_mock_sittings_paper ON mock_sittings(paper_id, started_at);
+
+    CREATE TABLE IF NOT EXISTS mock_part_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uuid TEXT,
+      sitting_id INTEGER NOT NULL,
+      part_id INTEGER NOT NULL,
+      points REAL NOT NULL CHECK (points >= 0),
+      FOREIGN KEY (sitting_id) REFERENCES mock_sittings(id) ON DELETE CASCADE,
+      FOREIGN KEY (part_id) REFERENCES exam_paper_parts(id) ON DELETE CASCADE,
+      UNIQUE (sitting_id, part_id)
+    );
+  `);
+} catch (e) {
+  console.error('mock exam tables:', e.message);
+}
+
 // What the app DID, kept locally so a person can look instead of reproduce.
 //
 // Three questions this answers and nothing else could: what was the app doing
@@ -1361,6 +1442,16 @@ try {
   if (namedLogs > 0) console.log(`[Migration] Named the question behind ${namedLogs} ask-record row(s)`);
 } catch (e) {
   console.error('[Migration] uuid identity migration failed (non-fatal):', e.message);
+}
+// A question is looked up by its uuid across quizzes (a copy answered in
+// another topic's practice quiz): the recall pick and the still-shaky list,
+// which every topic panel reads. Its own try, so a failure in the migration
+// above does not leave every panel read without it. Not idx_question_log_uuid:
+// that name is the sync migration's UNIQUE index on the row's own uuid.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_question_uuid ON question_log(question_uuid)');
+} catch (e) {
+  console.error('[Migration] question_log question_uuid index failed (non-fatal):', e.message);
 }
 
 // One-time orphan cleanup. Databases created before foreign-key enforcement
@@ -2139,6 +2230,34 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mastery_claims_node ON mastery_claims(node_id);
 `);
+// Updating an installed course from a newer file (server/courseUpdate.js).
+// `course_base`: per author-owned field of each item the file installed, the
+// hash of the value it held at the last install or update, and whether a person
+// has edited it since (set only by the edit routes). `course_upstream`: which
+// file the course was last synced from, and what the last update changed, so
+// it can be taken back. Both hang on the project and go with it.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS course_base (
+    project_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    uuid TEXT NOT NULL,
+    field TEXT NOT NULL,
+    base_hash TEXT NOT NULL,
+    edited INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, kind, uuid, field),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_course_base_item ON course_base(kind, uuid);
+  CREATE TABLE IF NOT EXISTS course_upstream (
+    project_id INTEGER PRIMARY KEY,
+    exported_at TEXT,
+    version TEXT,
+    synced_at TEXT NOT NULL,
+    undo TEXT,
+    undo_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+  );
+`);
 // `evidence_mark`: the newest mastery_evidence id on the topic when the claim
 // arrived. A wrong claim lowers a topic once per mark (server/claims.js).
 addColumnIfMissing('mastery_claims', 'evidence_mark', 'INTEGER');
@@ -2182,6 +2301,30 @@ db.exec(`
 addColumnIfMissing('projects', 'made_from', 'TEXT DEFAULT NULL');
 // The same, for a source Read staged before its course exists.
 addColumnIfMissing('staged_documents', 'origin', 'TEXT DEFAULT NULL');
+// A mock exam drawn from the course's own questions (server/mockExams.js) is a
+// question set in the past paper's tables, kept apart from any attempt at it:
+// `source` 'course' (a draw) or 'paper' (a past paper); `pass_right` the real
+// exam's pass line, set only when the draw copies an on-screen exam's length.
+// A drawn part keeps the question as it was asked (`item`, key included, never
+// sent before the mock is finished) and where it came from in the bank.
+addColumnIfMissing('exam_papers', 'source', "TEXT NOT NULL DEFAULT 'paper'");
+addColumnIfMissing('exam_papers', 'pass_right', 'INTEGER');
+addColumnIfMissing('exam_paper_parts', 'item', 'TEXT');
+addColumnIfMissing('exam_paper_parts', 'quiz_id', 'INTEGER');
+addColumnIfMissing('exam_paper_parts', 'question_index', 'INTEGER');
+// An on-screen answer: what was answered, what it was when time ran out (the
+// result is the in-time one), and "come back to this".
+addColumnIfMissing('mock_part_scores', 'answer', 'TEXT');
+addColumnIfMissing('mock_part_scores', 'in_time_answer', 'TEXT');
+addColumnIfMissing('mock_part_scores', 'in_time_points', 'REAL');
+addColumnIfMissing('mock_part_scores', 'later', 'INTEGER NOT NULL DEFAULT 0');
+// The real exam, described once per course: taken on screen (1) or on paper
+// (0), NULL when not described; for an on-screen exam its length, minutes and
+// the right answers it takes to pass. The date stays the course's deadline.
+addColumnIfMissing('projects', 'exam_on_screen', 'INTEGER');
+addColumnIfMissing('projects', 'exam_questions', 'INTEGER');
+addColumnIfMissing('projects', 'exam_minutes', 'INTEGER');
+addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -8,7 +8,7 @@ import TreeItemRow from './TreeItemRow';
 import DropdownMenu from './DropdownMenu';
 import Modal from './Modal';
 import { TreeNode } from '../types';
-import { INDENTATION_WIDTH, FlatItem } from '../utils/treeDnd';
+import type { FlatItem } from '../utils/treeDnd';
 import {
   ChevronDown,
   ChevronRight,
@@ -17,7 +17,12 @@ import {
   MoreVertical,
   FolderOpen,
   FileText,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
+import { useSiblingMove, useSidewaysInGrid } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDropFlash } from '../hooks/useDropFlash';
@@ -48,6 +53,7 @@ interface Props {
 
 export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndicator }: Props) {
   const { t } = useTranslation();
+  const move = useSiblingMove(node);
   const selectNode = useStore((s) => s.selectNode);
   const createNode = useStore((s) => s.createNode);
   const deleteNode = useStore((s) => s.deleteNode);
@@ -66,6 +72,12 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({ id: node.id, data: { kind: 'card' } });
   const flash = useDropFlash(`node:${node.id}`);
+  // Sections sit side by side on a wide board and in one column on a phone;
+  // the move arrows follow (see useSidewaysInGrid).
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const sideways = useSidewaysInGrid(cardRef);
+  const EarlierIcon = sideways ? ArrowLeft : ArrowUp;
+  const LaterIcon = sideways ? ArrowRight : ArrowDown;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -118,7 +130,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
           its properties because a dragged card is drawn at opacity 0.3, and a
           plain `transition` faded it back in over 150 ms after every drop. */}
       <div
-        ref={setNodeRef}
+        ref={(el) => { setNodeRef(el); cardRef.current = el; }}
         style={style}
         data-category-id={node.id}
         data-node-id={node.id}
@@ -142,7 +154,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
             {...attributes}
             {...listeners}
             title={t("Drag to reorder (press and hold on touch)")}
-            className="flex justify-center py-2 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
+            className="flex justify-center py-2.5 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition touch-pan-y"
           >
             <div className="flex gap-1">
               {[...Array(5)].map((_, i) => (
@@ -163,12 +175,17 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   {isNote ? <FileText className="w-5 h-5" /> : <FolderOpen className="w-5 h-5" />}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-slate-900 dark:text-white truncate">
+                  {/* The button truncates, not the heading: a clipping heading
+                      cut the button's high-contrast frame down to a "]".
+                      align-top: a clipping inline-block sits on the baseline
+                      and left a descender's gap under the heading. */}
+                  <h3 data-larger-wraps className="font-semibold text-slate-900 dark:text-white">
                     <button data-row="title"
                       type="button"
                       onClick={(e) => { e.stopPropagation(); if (!isDragging) selectNode(node.id); }}
+                      data-larger-wraps
                       aria-label={t("Open {{title}}", { title: node.title })}
-                      className={`-mx-1 px-1 max-w-full truncate text-left rounded ${FOCUS_RING}`}
+                      className={`-mx-1 px-1 max-w-full truncate align-top text-left rounded ${FOCUS_RING}`}
                     >
                       {node.title}
                     </button>
@@ -191,6 +208,16 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                   <MenuItem onSelect={() => setShowAddModal(true)} icon={<Plus className="w-4 h-4" />}>
                     {t("Add Item")}
                   </MenuItem>
+                  {move.up && (
+                    <MenuItem onSelect={move.up} icon={<EarlierIcon className="w-4 h-4" />}>
+                      {t("Move earlier")}
+                    </MenuItem>
+                  )}
+                  {move.down && (
+                    <MenuItem onSelect={move.down} icon={<LaterIcon className="w-4 h-4" />}>
+                      {t("Move later")}
+                    </MenuItem>
+                  )}
                   <MenuItem tone="danger" onSelect={handleDelete} icon={<Trash2 className="w-4 h-4" />}>
                     {t("Delete")}
                   </MenuItem>
@@ -231,7 +258,6 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
                     cardId={node.id}
                     isActive={rowDrag?.activeId === item.id}
                     projectedDepth={rowDrag?.activeId === item.id ? rowDrag.projectedDepth : null}
-                    indentationWidth={INDENTATION_WIDTH}
                     isDropParent={rowDrag?.dropParentId != null && item.id === rowDrag.dropParentId}
                     dropParentTitle={rowDrag?.activeId === item.id ? rowDrag.dropParentTitle : null}
                   />

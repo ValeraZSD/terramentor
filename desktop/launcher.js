@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserCommand,
-    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
+    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, launcherLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
@@ -152,9 +152,8 @@ const startPort = Number(process.env.PORT) || DEFAULT_PORT;
 // The console and a file, always both: a packaged launch has no console at all,
 // and a checkout's terminal is the natural place to watch. Set up before the
 // server is imported so its startup lines land in the file too.
-const logDir = chosen.dir || join(appRoot, 'server');
 let logFile = null;
-try { logFile = prepareLogFile(logDir); } catch { /* unwritable: console only */ }
+try { logFile = launcherLogFile(chosen, appRoot); } catch { /* unwritable: console only */ }
 const stamp = () => new Date().toISOString();
 for (const level of ['log', 'warn', 'error']) {
     const original = console[level].bind(console);
@@ -225,7 +224,8 @@ if (packaged && (chosen.why === 'user' || chosen.why === 'pointer')) {
  * window — started by a login item, or by the tray host, which reads this
  * stream. Printing it and exiting would be an app that does nothing and says
  * nothing; the tray host turns this line into a message box. Everything else
- * still reads it in logs/app.log. */
+ * still reads it in logs/app.log, except a missing library's stop, which opens
+ * no log (see `launcherLogFile`) and reaches only the console and this box. */
 function fatal(message, code = 2) {
     // A version on trial after an update (its swap journal is still there and
     // the updater is waiting for it) does not put up the tray's message box:
@@ -285,6 +285,9 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
         // browserCommand), so the browser is an application macOS launched
         // rather than a child of this process.
         const { cmd, args, byExit } = browserCommand(browser, url, profileDir, windowMode);
+        // A Flatpak browser is granted this folder by path, and Flatpak skips a
+        // path that does not exist yet (the first start).
+        try { mkdirSync(profileDir, { recursive: true }); } catch { /* the browser makes it, or says why */ }
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and
@@ -420,7 +423,7 @@ function ensureStartMenuShortcut() {
 // never installs it. "Restart to update" hands over to this function, which
 // starts desktop/updater.js as a separate, detached process and lets this one
 // exit. The updater runs from a COPY under `.update/runner/` — the runtime, the
-// updater and the two modules it imports — because the folders it moves are
+// updater and the three modules it imports — because the folders it moves are
 // the ones this process runs from, and Windows refuses to rename a folder while
 // a program inside it is open. `request` is what the server's Restart handed
 // over; its `channels` are the release channels the copy follows.

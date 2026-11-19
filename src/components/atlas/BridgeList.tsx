@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { ArrowRight, CheckCircle2, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useElementWidth } from '../../hooks/useElementWidth';
+import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { FOCUS_RING } from '../ui/vocabulary';
 
 /**
@@ -38,13 +39,18 @@ const ROW_MIN = 560;
  */
 export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
     const { t } = useTranslation();
+    const num = useNumberFormat();
     const openProjectNode = useStore(s => s.openProjectNode);
     const rootRef = useRef<HTMLElement>(null);
     // 0 until measured, which is the stacked layout — the one that needs no
     // measurement to be right.
     const wide = useElementWidth(rootRef) >= ROW_MIN;
 
-    if (bridges.length === 0) return null;
+    // Kept in the page even with nothing to list: the width is measured on this
+    // element, and one that is not there when the list first mounts is never
+    // measured when the pairs arrive later, so they would stay stacked at any
+    // width.
+    if (bridges.length === 0) return <section ref={rootRef} hidden />;
 
     const waiting = bridges.filter(b => b.proven);
     const ahead = bridges.filter(b => !b.proven);
@@ -116,7 +122,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
             {waiting.length > 0 && (
                 <div>
                     <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
-                        {t("Already proven once ({{length}})", { length: waiting.length })}
+                        {t("Already proven once ({{length}})", { length: num(waiting.length) })}
                     </h3>
                     <ul className="space-y-2">{waiting.map(row)}</ul>
                 </div>
@@ -125,7 +131,7 @@ export default function BridgeList({ bridges }: { bridges: AtlasBridge[] }) {
             {ahead.length > 0 && (
                 <div>
                     <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2">
-                        {t("Both still ahead of you ({{length}})", { length: ahead.length })}
+                        {t("Both still ahead of you ({{length}})", { length: num(ahead.length) })}
                     </h3>
                     <ul className="space-y-2">{ahead.map(row)}</ul>
                 </div>

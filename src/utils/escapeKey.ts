@@ -55,6 +55,16 @@ export function pageMayTakeEscape(e: EscapeLike, root: Element | null, doc: Docu
     return !!root && root.contains(t);
 }
 
+/**
+ * Shortcuts that are one key with no modifier (`a`, the calendar letters, the
+ * review session's Space, 1-4 and `z`) can be switched off as a whole (the
+ * `key_shortcuts` setting, WCAG 2.1.4): speech input types letters, and a
+ * tremor presses keys nobody meant. Shortcuts with Ctrl or Cmd stay.
+ */
+let singleKeyShortcuts = true;
+export function setSingleKeyShortcuts(on: boolean): void { singleKeyShortcuts = on; }
+export function singleKeyShortcutsOn(): boolean { return singleKeyShortcuts; }
+
 /** Minimal shape of a letter press, for the app-wide shortcuts. */
 export interface ShortcutLike {
     defaultPrevented: boolean;
@@ -76,7 +86,7 @@ export interface ShortcutLike {
  * name being typed into it to the assistant, which then sent it.
  */
 export function appMayTakeShortcut(e: ShortcutLike, doc: Document = document): boolean {
-    if (e.defaultPrevented || e.isComposing) return false;
+    if (!singleKeyShortcuts || e.defaultPrevented || e.isComposing) return false;
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return false;
     const el = e.target as HTMLElement | null;
     // A dropdown (`ui/Select`, a combobox button) takes letters as type-ahead too.

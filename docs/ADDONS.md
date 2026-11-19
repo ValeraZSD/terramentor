@@ -354,7 +354,7 @@ registry and lets the learner add others: a school's, a study group's, their own
 with the capability list on screen; update is an explicit action showing the diff of
 capabilities (a new capability on update is the one case where "update" is refused until the
 learner re-approves). Startup fetches nothing, the same rule the version check follows
-(`SECURITY.md`, "Check daily" is off unless you turned it on).
+(`SECURITY.md`, "Check automatically" is off unless you turned it on).
 
 **Ratings** are a percentage of positive ratings with the vote count beside it, never stars, and
 hidden below a floor of votes. A rating is stored where the learner chooses to send it (the

@@ -68,8 +68,9 @@ Things that will be declined regardless of quality:
   honest rather than motivating.
 - **Telemetry, analytics, crash reporting.** The no-outbound-traffic claim in `SECURITY.md` is
   verifiable and must stay that way. The one exception, and the shape any future outbound
-  feature has to take: the update check is a **button**, plus a **daily poll that ships off**,
-  it sends the version and nothing else, and it is named in `SECURITY.md` with a procedure for
+  feature has to take: the update check is a **button**, plus an **automatic check that ships off**,
+  it sends the version and nothing about you (the only other header is the ETag GitHub
+  returned last time, held in memory), and it is named in `SECURITY.md` with a procedure for
   catching it lying. An unconditional ping, an install identifier, or anything counted per user
   is still declined.
 - **A required cloud service** for any core loop.
@@ -142,7 +143,7 @@ scratch database or a stub, so it runs the same way on your machine as on
 a runner. If you write a guard that reads a file and compares it to something built, compare
 the CONTENT and normalise `\r\n` first: `.gitattributes` checks text out with CRLF on
 Windows, so a byte comparison goes red on a Windows checkout while CI stays green.
-`npm run test:quick` skips the four jsdom harnesses if you want the fast half.
+`npm run test:quick` skips the four jsdom harnesses and the two browser scans if you want the fast half.
 
 The suite asks a little more of Node than the app does: the app runs on the `engines` floor in
 `package.json` (24, which `ts-fsrs` requires), while `jsdom`, which only the tests load,
@@ -171,6 +172,14 @@ node tools/contrast-audit.mjs       # WCAG AA/AAA, light + dark
 node tools/style-lint.mjs           # hardcoded colours, accent misuse
 node tools/a11y-lint.mjs            # keyboard + screen reader
 ```
+
+Two accessibility checks gate inside `npm test`. `axe-gates.mjs` runs axe-core in a browser
+over the screens [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) lists (not every screen; on CI
+it runs only on Windows). It needs Edge or Chrome: without one it skips and `npm test`
+still passes locally, showing `skip` instead of a count on the `tools/axe-gates.mjs` row; run
+`node tools/axe-gates.mjs` to see why. `a11y-lint-gates.mjs` runs oxlint's jsx-a11y rules over `src/`. Each
+has an allowlist that may only go down. What NVDA itself says is recorded by the **Screen
+reader** workflow on a Windows runner ([docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)).
 
 The `tools/*-gates.mjs` scripts are the safety net; if you add a subtle invariant, add a check
 to one of them. A new `*-gates.mjs` file is picked up by `npm test` automatically.
@@ -279,7 +288,9 @@ To cut a stable release:
    for what they cannot see: a claim about behaviour, a number, a picture that is true but
    shows less than it could. Fix wrong text and re-shoot stale media in the same pull request,
    or in one merged before the release is announced. Nightlies get the same pass before a
-   stable is promoted from them.
+   stable is promoted from them. The pass includes [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md):
+   its known gaps and every row of its WCAG 2.2 report read against the release, a fixed gap
+   taken out, a new one written in, and its date moved.
 5. Once that pull request is merged, let a nightly build it (the next scheduled one, or run
    **Nightly** by hand with **nightly**) and try that build. On Windows,
    `tools/windows-sandbox-check.ps1 -Tag <the nightly's tag>` tries its zip the way someone
@@ -302,7 +313,7 @@ signing job runs in a GitHub environment that holds the key: `release-nightly` s
 own, `release-stable` has a required reviewer, so **a stable release waits, fully built, until
 the maintainer presses Approve** on the run. The release is created as a
 draft and made public only once every attached file matches the one built, and the image tags
-that move (`latest` and the minor line, or `nightly`) move last. The image's exact-version tag
+that move (`latest`, the minor and major lines, or `nightly`) move last. The image's exact-version tag
 is pushed before the approval, so rejecting a stable run leaves that one image tag behind
 (nothing moves `latest`, and no install is offered it). The attestation is made by the `attest`
 job after the release is public; if that job fails, the release stays installable (installs

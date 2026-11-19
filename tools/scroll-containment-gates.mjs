@@ -54,6 +54,8 @@ class Box {
         this.scrollTop = 0;
         this.parentElement = null;
         this.scrolled = [];
+        this.behaviors = [];
+        this.attrs = {};
     }
     /** Children move with the scroll, the way a real scroll container's do. */
     getBoundingClientRect() {
@@ -61,7 +63,8 @@ class Box {
         for (let n = this.parentElement; n; n = n.parentElement) offset -= n.scrollTop;
         return { top: this.top + offset, bottom: this.top + offset + this.height, height: this.height };
     }
-    scrollTo({ top }) { this.scrolled.push(top); this.scrollTop = top; }
+    scrollTo({ top, behavior }) { this.scrolled.push(top); this.behaviors.push(behavior); this.scrollTop = top; }
+    getAttribute(name) { return this.attrs[name] ?? null; }
     append(child) { child.parentElement = this; return child; }
 }
 
@@ -106,6 +109,18 @@ console.log('\nscrollIntoViewWithin — which element moves');
     check('a list with NO scroller of its own moves nothing', !moved
         && list.scrolled.length === 0 && page.scrolled.length === 0,
         'this is the phone case — the page showing the row is already the answer');
+}
+{
+    // An explicit 'smooth' wins over the stylesheet's scroll-behavior, so the
+    // helper itself must honour Settings → Accessibility → Motion.
+    const { list, row } = tree(true);
+    scrollIntoViewWithin(row, { boundary: list, block: 'start', behavior: 'smooth' });
+    document.documentElement.attrs['data-motion'] = 'reduce';
+    const again = tree(true);
+    scrollIntoViewWithin(again.row, { boundary: again.list, block: 'start', behavior: 'smooth' });
+    delete document.documentElement.attrs['data-motion'];
+    check('a smooth scroll stays smooth while motion is on', list.behaviors[0] === 'smooth', String(list.behaviors[0]));
+    check('…and is instant with motion reduced', again.list.behaviors[0] === 'auto', String(again.list.behaviors[0]));
 }
 {
     // Without a boundary the search would climb out of the section and find the

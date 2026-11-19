@@ -6,6 +6,7 @@ import { resolveVisualSpec } from './resolveBrief';
 import { animationLoopSeconds, fitSvgLabels } from './svgLabelFit';
 import { probeMotion } from './svgFrames';
 import i18n from '../../i18n';
+import { motionReduced } from '../../utils/accessibility';
 
 // Tier A of the animation system: the model emits one
 // animated SVG (SMIL and/or CSS keyframes) in an ```animation fence and it
@@ -103,7 +104,7 @@ const renderAnimation: VisualRenderer = async (el, code, ctx) => {
 
     let current: SVGSVGElement | null = null;
     // WCAG 2.3.3: motion-sensitive users get the first frame + an explicit Play.
-    let paused = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let paused = motionReduced();
 
     const controls = document.createElement('div');
     controls.className = 'flex items-center justify-end gap-3 pt-2';

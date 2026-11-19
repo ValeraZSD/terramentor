@@ -11,19 +11,20 @@ import { getVisibleNodes, todayStr, isLeafNode, isReadyToProve } from '../utils/
 import { hexToRgba } from '../utils/color';
 import {
     FlatItem, flattenVisible, removeDescendants, getProjection, getDropPosition, illegalParent,
+    ownPress, TREE_INDENT_REM,
 } from '../utils/treeDnd';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
 import { useDropFlash } from '../hooks/useDropFlash';
+import { useDragA11y, useDragKeyboard, nodeTitle, keyBelongsToDrag } from '../hooks/useDragA11y';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { moveChangesPlace } from '../utils/dragOrder';
+import { useCanHover } from '../utils/platform';
 import { ChevronRight, ChevronDown, Circle, Clock, CheckCircle, FileText, ChevronsUpDown, GripVertical, FolderOpen, AlertTriangle, MinusCircle, CornerDownRight, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import HeadStartMark from './HeadStartMark';
 import { IconButton } from './ui/Button';
 
-// Visual indent per depth level (px). Kept separate from the engine's default
-// so the drop-line lands exactly under the rows.
-const SIDEBAR_INDENT = 16;
 
 interface SidebarRowProps {
     item: FlatItem;
@@ -123,6 +124,31 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         return 'text-slate-500 dark:text-slate-400';
     };
 
+    // The whole row is what a pointer drags (`rowDrag`): a mouse once it has
+    // moved 5px, a finger after the press-and-hold. A touch's own pointer
+    // events are left to the touch sensor, or a swipe would scroll into a
+    // drag. The grip stays for a keyboard and shows only while focused: a
+    // grip in every row, 44px with the larger setting, took width from every
+    // title (hidden under a mouse, it still held its slot).
+    const canHover = useCanHover();
+    const rowDrag = {
+        onPointerDown: ownPress((e: React.PointerEvent) => {
+            if (e.pointerType !== 'touch') (listeners?.onPointerDown as React.PointerEventHandler | undefined)?.(e);
+        }),
+        onTouchStart: ownPress(listeners?.onTouchStart as React.TouchEventHandler | undefined),
+    };
+    const handle = (
+        <button data-drag-handle
+            {...attributes}
+            {...listeners}
+            onClick={e => e.stopPropagation()}
+            aria-label={t("Drag to reorder")}
+            className={`shrink-0 cursor-grab active:cursor-grabbing touch-none sr-only focus-visible:not-sr-only focus-visible:p-0.5 ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400'}`}
+        >
+            <GripVertical className="w-3 h-3" />
+        </button>
+    );
+
     const rootBg = isRoot && !held
         ? { backgroundColor: isSelected ? hexToRgba(projectColor, 0.3) : hexToRgba(projectColor, 0.15) }
         : {};
@@ -131,30 +157,28 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
         <div ref={setNodeRef} style={{ ...style, opacity: isDragging && !held ? 0.4 : 1 }}>
             <div
                 data-node-id={node.id}
+                data-sidebar-row
+                data-depth={shownDepth}
                 // A click target for the pointer, not a control: as a button
                 // role holding the drag and expand buttons it was buttons inside
                 // a button. The title below is the control.
                 onClick={() => selectNode(node.id)}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
+                {...rowDrag}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg mx-1 group ${canHover ? '' : 'select-none [-webkit-touch-callout:none]'} ${flash?.className ?? ''} ${isRoot ? 'font-medium' : ''} ${held
                     ? 'drag-ring bg-accent/10'
                     : `cursor-pointer transition-colors ${isDropParent ? 'drop-target -outline-offset-2 bg-accent/10' : ''} ${isSelected && !isRoot && !isDropParent ? 'bg-accent/20' : ''} ${!isRoot && !isSelected && !isDropParent ? 'hover:bg-slate-100 dark:hover:bg-slate-800' : ''
                     } ${showOverdue && !isSelected && !isDropParent ? 'bg-red-50/50 dark:bg-red-900/5' : ''}`}`}
                 style={{
-                    paddingLeft: `${shownDepth * SIDEBAR_INDENT + 8}px`,
+                    // Capped (`--row-tree-reserve`), so a deep row keeps its title.
+                    paddingLeft: `calc(min(${shownDepth} * var(--row-indent-tree), max(0px, 100% - var(--row-tree-reserve))) + 0.5rem)`,
                     ...rootBg,
                     ...flash?.style,
                 }}
             >
-                <button data-drag-handle
-                    {...attributes}
-                    {...listeners}
-                    onClick={e => e.stopPropagation()}
-                    aria-label={t("Drag to reorder")}
-                    className={`p-0.5 cursor-grab active:cursor-grabbing transition-opacity touch-none ${held ? 'text-accent' : 'text-slate-500 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 can-hover:opacity-0 can-hover:group-hover:opacity-100 can-hover:focus-visible:opacity-100'}`}
-                >
-                    <GripVertical className="w-3 h-3" />
-                </button>
-
+                {/* One column before the title: the fold chevron on a row with
+                    rows under it, the topic's own status mark on one without.
+                    Each level is indented by that column and its gap, so a
+                    row's column sits under the title of the row it belongs to. */}
                 {hasChildren ? (
                     <button data-row-fold
                         onClick={(e) => { e.stopPropagation(); toggleExpanded(node.id); }}
@@ -163,16 +187,19 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded shrink-0"
                     >
                         {isExpanded
-                            ? <ChevronDown className="w-4 h-4 text-slate-400" />
-                            : <ChevronRight className="w-4 h-4 text-slate-400" />
+                            ? <ChevronDown data-row-chevron className="w-4 h-4 text-slate-500 dark:text-slate-400" />
+                            : <ChevronRight data-row-chevron className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                         }
                     </button>
                 ) : (
-                    <span className="w-5 shrink-0" />
+                    <span data-fold-spacer className="w-5 shrink-0 flex items-center justify-center">
+                        {!isRoot && !untaught && <span data-row-status aria-hidden="true">{getStatusIcon()}</span>}
+                    </span>
                 )}
 
                 {isRoot && (
                     <div
+                        data-course-badge
                         className="w-5 h-5 rounded flex items-center justify-center shrink-0"
                         style={{ backgroundColor: projectColor }}
                     >
@@ -184,38 +211,42 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                     type="button"
                     onClick={(e) => { e.stopPropagation(); selectNode(node.id); }}
                     data-row-title
-                    aria-label={node.title}
                     aria-current={isSelected ? 'true' : undefined}
-                    className={`flex min-w-0 flex-1 items-center gap-1 text-left rounded ${FOCUS_RING}`}
+                    className={`flex min-w-0 flex-1 items-center gap-1 px-1 text-left rounded ${FOCUS_RING}`}
                 >
-                    {/* A topic with notes under it shows its percentage, but a
-                        ready one shows the shield: the notes are its material,
-                        not parts of it to finish. */}
-                    <span className="shrink-0">
-                        {hasChildren && !node.is_note && !isRoot && !untaught && !readyToProve ? (
-                            <span className={`text-xs font-medium ${getStatusColor()}`}>
-                                {node.progress?.percentage || 0}%
-                            </span>
-                        ) : !isRoot && !untaught ? (
-                            getStatusIcon()
-                        ) : null}
-                    </span>
-
-                    <span className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
+                    <span data-larger-wraps className={`truncate text-sm ${isSelected || held ? 'font-medium' : ''} ${held ? 'text-accent-fg' : isRoot ? 'text-slate-900 dark:text-white' : showOverdue ? 'text-red-700 dark:text-red-100' : 'text-slate-700 dark:text-slate-300'
                         }`}>
                         {node.title}
                     </span>
-
-                    {isRoot && !isNote && !untaught && (
-                        <span className={`text-xs ml-auto ${getStatusColor()}`}>
-                            {node.progress?.percentage || 0}%
-                        </span>
-                    )}
 
                     {showOverdue && isRoot && (
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 ml-1" title={t("Overdue")} />
                     )}
                 </button>
+                {/* What a row with rows under it has done, at the row's end, the
+                    chapter's and a topic's in one column. A topic with notes
+                    under it shows its percentage, but a ready one shows the
+                    shield: the notes are its material, not parts of it to
+                    finish. Hidden from the title's name, so a voice user does
+                    not have to say the percentage; outside the title button, so
+                    in high contrast its frame holds the title alone. */}
+                {(isRoot ? !isNote : hasChildren) && !untaught && (
+                    <span data-row-progress className="shrink-0 ml-1" aria-hidden="true">
+                        {isRoot ? (
+                            // The chapter row is tinted with the course colour,
+                            // where the status greys fall under 4.5:1.
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                                {node.progress?.percentage || 0}%
+                            </span>
+                        ) : !node.is_note && !readyToProve ? (
+                            <span className={`text-xs font-medium ${getStatusColor()}`}>
+                                {node.progress?.percentage || 0}%
+                            </span>
+                        ) : (
+                            getStatusIcon()
+                        )}
+                    </span>
+                )}
                 {isLeaf && !isNote && <HeadStartMark node={{ head_start: node.head_start, status: effectiveNodeStatus }} />}
                 {/* -my-0.5: the badge may overhang its padding, never make the row taller than it lands */}
                 {held && projectedDepth !== null && (
@@ -230,6 +261,7 @@ function SidebarRow({ item, projectColor, isActive, projectedDepth, isDropParent
                         )}
                     </span>
                 )}
+                {handle}
             </div>
         </div>
     );
@@ -254,6 +286,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const sidebarRef = useRef<HTMLDivElement>(null);
     const resizing = useRef(false);
     const [activeId, setActiveId] = useState<number | null>(null);
+    // Read by the tree's key listener, which is not re-registered per drag.
+    const dragging = useRef(false);
+    dragging.current = activeId != null;
     const [overId, setOverId] = useState<number | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
 
@@ -267,8 +302,10 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
         // Touch: press-and-hold so a normal swipe scrolls and only a deliberate
         // long-press starts a reorder.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(nodeTitle);
 
     // Flattened, currently-visible rows. During a drag we drop the active node's
     // own subtree so it can never be nested inside itself (and doesn't shift).
@@ -279,10 +316,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     }, [allFlatItems, activeId]);
     const flatIds = useMemo(() => flatItems.map(i => i.id), [flatItems]);
 
+    // A level is the drawn indent at the current text size, so a row lands
+    // under the pointer.
+    const indentPx = TREE_INDENT_REM * useRootFontSize();
     const projection = useMemo(() => {
         if (activeId == null || overId == null) return null;
-        return getProjection(flatItems, activeId, overId, dragOffsetX, null, SIDEBAR_INDENT);
-    }, [flatItems, activeId, overId, dragOffsetX]);
+        return getProjection(flatItems, activeId, overId, dragOffsetX, null, indentPx);
+    }, [flatItems, activeId, overId, dragOffsetX, indentPx]);
 
     // The row the dragged node would nest INSIDE (depth > 0). At depth 0 it lands
     // at the top level (its own project root), so there's no parent row to mark.
@@ -381,6 +421,13 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             // body would make ↓ then Enter after a click anywhere open a topic
             // nobody saw being chosen.
             if (!sidebarRef.current?.contains(document.activeElement)) return;
+            // During a keyboard drag (useDragKeyboard) every key is the drag's:
+            // moving the cursor or folding a node under it would end the drag
+            // somewhere else, and Escape there cancels the drag, not the
+            // selection. On a resting handle only Space and Enter (they pick it
+            // up); its arrows still move through the tree.
+            const onHandle = !!(document.activeElement as HTMLElement | null)?.closest('[data-drag-handle]');
+            if (keyBelongsToDrag(e.key, onHandle, dragging.current)) return;
 
             const visibleNodes = getVisibleNodes(tree, expanded);
             if (visibleNodes.length === 0) return;
@@ -458,6 +505,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     return (
         <div
             ref={sidebarRef}
+            data-course-sidebar={isDrawer ? undefined : ''}
             className={`bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col relative ${isDrawer ? 'w-full h-full' : 'shrink-0'}`}
             style={isDrawer ? undefined : { width: sidebarWidth }}
             tabIndex={0}
@@ -470,6 +518,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
             <div className="flex-1 overflow-auto py-2" data-sidebar-node-list>
                 <DndContext
                     sensors={sensors}
+                    accessibility={dragA11y}
                     collisionDetection={closestCenter}
                     onDragStart={handleDragStart}
                     onDragMove={handleDragMove}

@@ -9,6 +9,7 @@ import { Button } from './ui/Button';
 import { AuthoringPhase, MaterialMergeResult, OutlineBriefFields } from '../types';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
+import { useNumberFormat } from '../hooks/useNumberFormat';
 
 /**
  * Writing a course with a chat model the learner already has open.
@@ -50,8 +51,13 @@ function Step({ n, title, children }: { n: number; title: string; children?: Rea
  * and on a phone a corner icon over a scrolling code block is a miss waiting to
  * happen.
  */
-function PromptBox({ prompt, loading }: { prompt: string; loading: boolean }) {
+function PromptBox({ prompt, loading, error, onRetry }: {
+    prompt: string; loading: boolean;
+    /** Why there is no prompt: the request failed. Said, with a way to ask again. */
+    error: string; onRetry: () => void;
+}) {
     const { t: tr } = useTranslation();
+    const num = useNumberFormat();
     const [copied, setCopied] = useState(false);
     const addToast = useStore(s => s.addToast);
 
@@ -91,16 +97,25 @@ function PromptBox({ prompt, loading }: { prompt: string; loading: boolean }) {
             >
                 {copied ? tr("Copied — now paste it into the chat") : tr("Copy the prompt")}
             </Button>
-            <details>
+            {error && (
+                <div role="alert" className="flex flex-wrap items-center gap-2">
+                    <p className="min-w-0 flex-1 text-sm text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+                        <span>{error}</span>
+                    </p>
+                    <Button size="sm" onClick={onRetry}>{tr("Try again")}</Button>
+                </div>
+            )}
+            {prompt && <details>
                 {/* The app's own chevron, not the browser's ▸. */}
                 <summary className="text-sm text-slate-500 dark:text-slate-400 cursor-pointer min-h-[44px] flex items-center gap-1.5 list-none hover:text-slate-700 dark:hover:text-slate-200 [&::-webkit-details-marker]:hidden">
                     <ChevronRight className="w-4 h-4 shrink-0 transition-transform [details[open]>summary>&]:rotate-90" aria-hidden="true" />
-                    {tr("Read it first (")}{prompt ? Math.round(prompt.length / 1000) : 0}{tr("k characters)")}
+                    {tr("Read it first (")}{num(Math.round(prompt.length / 1000))}{tr("k characters)")}
                 </summary>
                 <pre className="mt-2 max-h-64 overflow-auto text-2xs leading-relaxed whitespace-pre-wrap break-words bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-slate-600 dark:text-slate-300">
                     {prompt}
                 </pre>
-            </details>
+            </details>}
         </div>
     );
 }
@@ -215,6 +230,10 @@ export function OutlineBriefPanel({
     const [depth, setDepth] = useState(DEPTHS[1]);
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
+    // The brief request failed: said on the prompt box, with a retry that
+    // bumps `attempt` so the effect below asks again.
+    const [briefError, setBriefError] = useState('');
+    const [attempt, setAttempt] = useState(0);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     // The outline that just landed. The panel stays open on it rather than
@@ -232,12 +251,13 @@ export function OutlineBriefPanel({
         setLoading(true);
         const t = setTimeout(() => {
             api.outlineBrief(fields)
-                .then(r => { if (!cancelled) setPrompt(r.prompt); })
-                .catch(() => { if (!cancelled) setPrompt(''); })
+                .then(r => { if (!cancelled) { setPrompt(r.prompt); setBriefError(''); } })
+                .catch(e => { if (!cancelled) { setPrompt(''); setBriefError((e as Error)?.message || tr("Something went wrong")); } })
                 .finally(() => { if (!cancelled) setLoading(false); });
         }, 300);
         return () => { cancelled = true; clearTimeout(t); };
-    }, [subject, level, goal, depth, language]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [subject, level, goal, depth, language, attempt]);
 
     const handleReply = async (parsed: unknown) => {
         setBusy(true);
@@ -339,7 +359,7 @@ export function OutlineBriefPanel({
             </Step>
 
             <Step n={2} title={tr("Paste it into a chat with web search on")}>
-                <PromptBox prompt={prompt} loading={loading} />
+                <PromptBox prompt={prompt} loading={loading} error={briefError} onRetry={() => setAttempt(n => n + 1)} />
             </Step>
 
             <Step n={3} title={tr("Paste the reply back")}>
@@ -368,6 +388,12 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
     const [loading, setLoading] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    // The phase list could not be read, and the brief request failed: each is
+    // said where it happened, with a way to ask again (`attempt` re-runs the
+    // brief's effect).
+    const [phasesError, setPhasesError] = useState('');
+    const [briefError, setBriefError] = useState('');
+    const [attempt, setAttempt] = useState(0);
     const [result, setResult] = useState<MaterialMergeResult | null>(null);
     // Bumped after a merge so the brief is re-fetched: the phase row updates to
     // "2/2 written" while the step beside it still offered a prompt for topics
@@ -378,12 +404,14 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
     const loadPhases = useCallback(() => {
         api.authoringPhases(projectId)
             .then(r => {
+                setPhasesError('');
                 setPhases(r.phases);
                 // Open on the first phase that still needs work, which is the
                 // one the learner came here for.
                 setPhaseId(prev => prev ?? (r.phases.find(p => p.withMaterial < p.leaves) || r.phases[0])?.id ?? null);
             })
-            .catch(e => setError((e as Error).message));
+            .catch(e => setPhasesError((e as Error)?.message || tr("Something went wrong")));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
 
     useEffect(loadPhases, [loadPhases]);
@@ -393,11 +421,12 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
         let cancelled = false;
         setLoading(true);
         api.materialBrief(projectId, phaseId)
-            .then(r => { if (!cancelled) { setPrompt(r.prompt); setLeafCount(r.leaves); } })
-            .catch(() => { if (!cancelled) setPrompt(''); })
+            .then(r => { if (!cancelled) { setPrompt(r.prompt); setLeafCount(r.leaves); setBriefError(''); } })
+            .catch(e => { if (!cancelled) { setPrompt(''); setLeafCount(0); setBriefError((e as Error)?.message || tr("Something went wrong")); } })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [projectId, phaseId, merged]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [projectId, phaseId, merged, attempt]);
 
     const handleReply = async (parsed: unknown) => {
         setBusy(true);
@@ -418,6 +447,15 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
     };
 
     if (!phases) {
+        // A failed read is said, not left as a spinner that never ends.
+        if (phasesError) {
+            return (
+                <div role="alert" className="flex flex-col items-center gap-3 py-8 text-center">
+                    <p className="text-sm text-red-600 dark:text-red-400">{phasesError}</p>
+                    <Button size="sm" onClick={() => { setPhasesError(''); loadPhases(); }}>{tr("Try again")}</Button>
+                </div>
+            );
+        }
         return <div className="flex items-center gap-2 py-8 justify-center text-sm text-slate-500 dark:text-slate-400"><Loader2 className="w-4 h-4 animate-spin" /> {tr("Loading…")}</div>;
     }
     if (!phases.length) {
@@ -431,6 +469,15 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
                 {tr("One phase per reply. A chat model cannot write a whole course's teaching in one go. Come back and do the next phase whenever you like.")}
             </p>
+
+            {/* The phase list could not be read again (after a merge, say): the
+                counts below are the last ones read, so say they may be behind. */}
+            {phasesError && (
+                <div role="alert" className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-red-600 dark:text-red-400">{phasesError}</p>
+                    <Button size="sm" onClick={() => { setPhasesError(''); loadPhases(); }}>{tr("Try again")}</Button>
+                </div>
+            )}
 
             <Step n={1} title={tr("Pick a phase")}>
                 <div className="space-y-1.5">
@@ -466,7 +513,7 @@ export function MaterialPassPanel({ projectId }: { projectId: number }) {
             </Step>
 
             <Step n={2} title={leafCount ? tr("Paste it into a chat — {{count}} topics still to write", { count: leafCount }) : tr("Paste it into a chat")}>
-                <PromptBox prompt={prompt} loading={loading} />
+                <PromptBox prompt={prompt} loading={loading} error={briefError} onRetry={() => setAttempt(n => n + 1)} />
             </Step>
 
             <Step n={3} title={tr("Paste the reply back")}>

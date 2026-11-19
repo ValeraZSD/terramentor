@@ -36,6 +36,7 @@ const SOURCE_LABEL: Record<string, string> = {
     paper: k("Written work"),
     drill: k("Practice drill"),
     placement: k("Placement"),
+    mock: k("Mock exam"),
 };
 
 const RATING_LABEL: Record<number, string> = { 1: k("Again"), 2: k("Hard"), 3: k("Good"), 4: k("Easy") };

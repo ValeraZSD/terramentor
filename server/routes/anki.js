@@ -28,8 +28,8 @@ const app = routeTable('anki');
 // memory while somebody reads a preview.
 const ankiUpload = multer({
     storage: multer.memoryStorage(),
-    // Big enough for a real collection with media; media is not imported, but it
-    // is inside the file we have to unzip to reach the collection.
+    // Big enough for a real collection with media: the pictures and clips are
+    // extracted from the same file that holds the collection.
     limits: { fileSize: 500 * 1024 * 1024 },
 });
 

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { FIELD_BASE, cx } from '../ui/vocabulary';
 import type { AnswerInputProps } from './AnswerInput';
+import { submitOnEnter } from './formats';
 
 /**
  * The answer, typed, when it has one definite written form: the missing word,
@@ -25,7 +26,7 @@ import type { AnswerInputProps } from './AnswerInput';
  * an English one is a wrong verdict the learner cannot see coming, on the one
  * format where spelling IS the answer.
  */
-export default function FillInInput({ value, onChange, disabled, result, autoFocus }: AnswerInputProps) {
+export default function FillInInput({ value, onChange, disabled, result, autoFocus, onSubmit }: AnswerInputProps) {
     const { t } = useTranslation();
     const shown = result ? result.answer : value;
     return (
@@ -40,6 +41,7 @@ export default function FillInInput({ value, onChange, disabled, result, autoFoc
             autoFocus={autoFocus}
             value={shown}
             onChange={e => onChange(e.target.value)}
+            onKeyDown={result ? undefined : submitOnEnter(onSubmit)}
             disabled={disabled && !result}
             readOnly={!!result}
             placeholder={t("Type your answer…")}

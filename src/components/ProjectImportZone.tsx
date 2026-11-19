@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
 import { onActivateKey } from '../utils/a11y';
+import { installedEditionOf } from '../utils/projectFiles';
 
 /** What this dropzone accepts. An Anki deck is here because it is where
  *  someone holding one looks first — "import" is the word they are after,
@@ -20,6 +21,7 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
     const { t } = useTranslation();
     const openProject = useStore(s => s.openProject);
     const openAnkiImport = useStore(s => s.openAnkiImport);
+    const openCourseUpdate = useStore(s => s.openCourseUpdate);
     const loadProjects = useStore(s => s.loadProjects);
     const addToast = useStore(s => s.addToast);
 
@@ -38,6 +40,14 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         }
         setImporting(true);
         try {
+            // A newer edition of a course already here updates it in place,
+            // after a preview, instead of arriving as a second copy.
+            const edition = await installedEditionOf(file);
+            if (edition) {
+                onDone();
+                openCourseUpdate(file, edition);
+                return;
+            }
             const isBundle = /\.(studyvault|zip)$/i.test(file.name);
             let newProject;
             if (isBundle) {
@@ -66,7 +76,7 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
                 // them, and the notes say which others did not come.
                 addToast(newProject.failed?.length ? 'info' : 'success', t("{{count}} projects imported", { count: newProject.imported?.length ?? 1 }), libraryNotes || undefined);
             } else if (warnings.length) {
-                addToast('info', t("Imported \"{{name}}\" with {{count}} notes", { name: newProject.name, count: warnings.length }), warnings.join(''));
+                addToast('info', t("Imported \"{{name}}\" with {{count}} notes", { name: newProject.name, count: warnings.length }), libraryNotes);
             } else {
                 addToast('success', t("Project \"{{name}}\" imported successfully!", { name: newProject.name }));
             }
@@ -81,6 +91,8 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         e.preventDefault();
         setIsDragging(false);
         const file = e.dataTransfer.files[0];
+        // A second file while one is importing would make a second copy.
+        if (importing) return;
         if (file && IMPORTABLE_RE.test(file.name)) processImport(file);
     };
 
@@ -94,11 +106,16 @@ export default function ProjectImportZone({ onDone }: { onDone: () => void }) {
         setIsDragging(false);
     };
 
-    const handleDropZoneClick = () => fileInputRef.current?.click();
+    const handleDropZoneClick = () => {
+        if (!importing) fileInputRef.current?.click();
+    };
 
     const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) processImport(file);
+        // Cleared so choosing the same file again (after a failed import) fires
+        // `change` again instead of doing nothing.
+        e.target.value = '';
+        if (file && !importing) processImport(file);
     };
 
     return (

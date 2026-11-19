@@ -194,7 +194,10 @@ export function getNodeMastery(nodeId) {
 // server/placement.js). It is real evidence — the learner genuinely answered —
 // so it is recorded rather than hidden, but its contribution is the seed it
 // wrote, so it neither proves a topic nor un-borrows that seed.
-export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement'];
+// 'mock' is a past paper the learner marked against its worked solution
+// (server/mockExams.js): a few self-marked parts per topic, so it is practice
+// that moves the estimate either way and never proves a topic.
+export const VALID_EVIDENCE_TYPES = ['quiz', 'flashcard', 'mastery_check', 'drill', 'paper', 'placement', 'mock'];
 export const PROVING_EVIDENCE_TYPES = ['quiz', 'mastery_check', 'paper'];
 export const PROVING_EVIDENCE_SQL = `evidence_type IN (${PROVING_EVIDENCE_TYPES.map(t => `'${t}'`).join(', ')})`;
 // Practice is everything else that runs BKT: defined by exclusion, so a new
@@ -640,7 +643,7 @@ export function estimateProven(nodeId, threshold) {
  * proving rows alone (what `practice_lifted` asks: would they reach the line
  * with no claim at all?).
  */
-function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly } = {}) {
+function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withClaims = provingOnly, trace = null } = {}) {
     const rows = stmt(`
         SELECT id, score, total, metadata FROM mastery_evidence
         WHERE node_id = ? AND ${provingOnly ? PROVING_EVIDENCE_SQL : "evidence_type != 'placement'"}
@@ -675,6 +678,7 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
         let meta = null;
         try { meta = r.metadata ? JSON.parse(r.metadata) : null; } catch { /* no format recorded */ }
         const p_G = GUESS_BY_FORMAT[meta?.questionType] ?? undefined;
+        const before = p;
         if (r.total >= MIN_GATE_QUESTIONS) {
             const prior = attempts === 0 ? Math.max(p || 0, BKT_PARAMS.p_L0) : p;
             p = bktBatchUpdate(prior, r.score, r.total, { p_G });
@@ -682,9 +686,30 @@ function replayOwnEvidence(nodeId, start, { provingOnly = false, claims: withCla
             for (let i = 0; i < r.total; i++) p = bktUpdate(p, i < r.score, { p_G }).p_K_posterior;
         }
         attempts += r.total;
+        trace?.set(r.id, { before, after: p });
     }
     lowerUpTo(Infinity);
     return p;
+}
+
+/**
+ * What each proving answer did to the estimate the gate reads: evidence id →
+ * `{ before, after }`, by the proving-only replay `gateScoreOf` runs, from the
+ * seed the row holds now. So the steps end at the number a learner is shown
+ * (shown_score) unless practice moved it: cards lifted it (shown_score above
+ * the gate's), or missed practice or a wrong agent claim after the last row
+ * lowered it (gate_score under the last step: the gate takes the stored
+ * estimate when lower, and the trailing claim is not a row). The trail says
+ * which in both cases. Practice rows (cards,
+ * drills) and placement rows are not in it: practice does not count toward
+ * proof, and a placement answer's contribution is the seed. Reads only; the
+ * rates are today's, so a step is what that answer is worth now.
+ */
+export function evidenceMoves(nodeId) {
+    const record = stmt('SELECT transferred_prior, placement_prior FROM node_mastery WHERE node_id = ?').get(nodeId);
+    const trace = new Map();
+    if (record) replayOwnEvidence(nodeId, seedOf(record), { provingOnly: true, trace });
+    return trace;
 }
 
 /**

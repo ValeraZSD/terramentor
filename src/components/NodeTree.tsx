@@ -5,12 +5,14 @@ import { useStore } from '../store';
 import { api } from '../api';
 import Modal from './Modal';
 import CategoryCard, { CardRowDrag } from './CategoryCard';
-import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, INDENTATION_WIDTH } from '../utils/treeDnd';
+import { BoardHost, boardRows, boardProjection, cardOfNode, hostOver, settleRowDrop, OUTLINE_INDENT_REM } from '../utils/treeDnd';
+import { useRootFontSize } from '../hooks/useRootFontSize';
 import { categoryOrderAfterDrop, categoryDropSide, moveChangesPlace } from '../utils/dragOrder';
 import { endDropFlash, flashAfterDrop } from '../utils/dropFlash';
 import { Plus, Eye, Loader2 } from 'lucide-react';
 import { useAICreationContext } from './aiCreationContext';
 import { useScrollToSelected } from '../hooks/useScrollToSelected';
+import { useDragA11y, useDragKeyboard, nodeTitle } from '../hooks/useDragA11y';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/Button';
 import { TextInput } from './ui/Field';
@@ -74,6 +76,9 @@ export default function NodeTree() {
     // The card a row is carried into, and where in its list it is drawn.
     const [host, setHost] = useState<BoardHost | null>(null);
     const [dragOffsetX, setDragOffsetX] = useState(0);
+    // A level is the drawn indent at the current text size, so a row lands
+    // under the pointer.
+    const indentPx = OUTLINE_INDENT_REM * useRootFontSize();
     // Absolute pointer position at drag start, so the live pointer can be
     // rebuilt from dnd-kit's delta (no stale activatorEvent guessing).
     const startPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -83,8 +88,10 @@ export default function NodeTree() {
         useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
         // Touch: require a short press-and-hold before a drag begins, so a normal
         // swipe scrolls the page and only a deliberate long-press moves anything.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(nodeTitle);
 
     const activeRowId = drag?.kind === 'row' ? drag.id : null;
     const activeCategory = drag?.kind === 'card' ? (tree.find(n => n.id === drag.id) ?? null) : null;
@@ -161,7 +168,7 @@ export default function NodeTree() {
         const target = event.over;
         // Kept as whole indentation levels, so a drag re-renders the board when
         // the depth can change, not on every pixel.
-        setDragOffsetX(Math.round(event.delta.x / INDENTATION_WIDTH) * INDENTATION_WIDTH);
+        setDragOffsetX(Math.round(event.delta.x / indentPx) * indentPx);
         if (!target || (target.id === event.active.id && drag?.kind === 'card')) { setOver(null); return; }
         setOver({ kind: kindOf(target), id: target.id as number });
         if (drag?.kind !== 'row') return;
@@ -173,7 +180,7 @@ export default function NodeTree() {
     // What the cards draw while a row is dragged: its projected depth and the
     // row it would nest inside, on the card drawing it.
     const rowPlacement = drag?.kind === 'row' && over?.kind === 'row'
-        ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId)
+        ? boardProjection(lists, drag.id, over.id, dragOffsetX, drag.sourceCardId, indentPx)
         : null;
     const rowDragFor = (cardId: number): CardRowDrag | null => {
         if (drag?.kind !== 'row' || drawingCard !== cardId) return null;
@@ -215,7 +222,7 @@ export default function NodeTree() {
         }
 
         const placed = settleRowDrop(tree, expanded, activeId, drawn, finalHost,
-            { kind: kindOf(target), id: target.id as number }, event.delta.x);
+            { kind: kindOf(target), id: target.id as number }, event.delta.x, indentPx);
         if (!placed) return;
         if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
             flashAfterDrop(`node:${activeId}`);
@@ -276,6 +283,7 @@ export default function NodeTree() {
             <div ref={scrollRef} className="flex-1 overflow-auto p-6">
                 <DndContext
                     sensors={sensors}
+                    accessibility={dragA11y}
                     collisionDetection={collisionDetection}
                     onDragStart={handleDragStart}
                     onDragMove={track}
@@ -287,7 +295,7 @@ export default function NodeTree() {
                     {/* Static strategy: cards don't reflow while dragging — a single
                         gutter bar on the side the card lands shows the drop, so nothing jumps. */}
                     <SortableContext items={ids} strategy={() => null}>
-                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]">
+                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]" data-card-grid="">
                             {tree.map(node => (
                                 <CategoryCard
                                     key={node.id}
