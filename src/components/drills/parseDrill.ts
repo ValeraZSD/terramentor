@@ -227,14 +227,16 @@ function clozeFill(front: string, answer: string): { pre: string; post: string; 
  * listening card's "listen" line; or, with neither, a question in the same
  * writing system and size), the same media on the question, and preferably an
  * answer in the same writing system and size (a word or a sentence). A card
- * gets fewer options rather than one of another kind; only a card alone of
- * its kind borrows by shape from the rest of the topic.
+ * gets fewer options rather than one of another kind; a card alone of its
+ * kind borrows only answers of its shape to questions with its media, and a
+ * card with nothing that fits is typed (an empty pool).
  *
  * A card with a blank ("___ bal" → "de bal") asks for what goes IN the blank:
  * its wrong options are its own question filled with what the other blanks of
- * its kind take ("het bal"), never another card's word.
+ * its kind take, or with the other article ("het bal"), never another card's
+ * word.
  */
-function cardOptionPools(cards: Flashcard[]): string[][] {
+function cardOptionPools(cards: Flashcard[]): string[][][] {
     const fronts = new Map<string, number>();
     for (const c of cards) {
         const f = asString(c.front).toLowerCase();
@@ -248,33 +250,53 @@ function cardOptionPools(cards: Flashcard[]): string[][] {
         // No printed task and a question of its own: the question's shape is
         // the task ("мяч" asks the other way round from "de bal").
         const task = printed || ((fronts.get(front.toLowerCase()) ?? 0) > 1 ? front.toLowerCase() : `q:${shapeOf(front)}`);
-        return { front, answer, task: `${task}|${frontMediaKinds(c.media).join(',')}`, shape: shapeOf(answer), cloze: clozeFill(front, answer) };
+        const media = frontMediaKinds(c.media).join(',');
+        return { front, answer, media, task: `${task}|${media}`, shape: shapeOf(answer), cloze: clozeFill(front, answer) };
     });
-    const WANTED = 3;
     return info.map((me, i) => {
         // A card with the same answer is no wrong option (synonyms, duplicates):
         // left in, it would count towards a pool that offers nothing.
         const mine = me.answer.toLowerCase().trim();
         const others = info.filter((o, j) => j !== i && o.answer.toLowerCase().trim() !== mine);
         if (me.cloze) {
+            // A blank is only ever offered other fills of itself: with none, it is typed.
             const own = me.cloze.fill.toLowerCase();
-            const fills = new Set<string>();
-            for (const o of others) {
-                if (o.task !== me.task || !o.cloze) continue;
-                if (o.cloze.fill.toLowerCase() !== own) fills.add(o.cloze.fill);
-            }
-            if (fills.size) return [...fills].map(f => `${me.cloze!.pre}${f}${me.cloze!.post}`.trim());
+            const fills = new Map<string, string>();
+            const add = (f: string) => { if (f.toLowerCase() !== own && !fills.has(f.toLowerCase())) fills.set(f.toLowerCase(), f); };
+            for (const o of others) if (o.task === me.task && o.cloze) add(o.cloze.fill);
+            for (const f of otherArticles(me.cloze.fill)) add(f);
+            return [[...fills.values()].map(f => `${me.cloze!.pre}${f}${me.cloze!.post}`.trim())];
         }
-        // Same question, same shape first; then the rest of the same question
-        // (still the same kind of card); a card alone of its kind borrows by
-        // shape, and only a card alone of its shape from the whole topic.
+        // Same question in the same shape first, then the rest of the same
+        // question (still the same kind of card). A card alone of its kind
+        // borrows only answers of its shape whose question carries the same
+        // media (a lone listening card, only other heard sentences); with none,
+        // it is typed rather than offered an answer of another kind.
         const sameKind = others.filter(o => o.task === me.task);
-        const pool = [...new Set(sameKind.filter(o => o.shape === me.shape).map(o => o.answer))];
-        if (pool.length < WANTED) pool.push(...sameKind.filter(o => o.shape !== me.shape).map(o => o.answer));
-        if (pool.length) return [...new Set(pool)];
-        const sameShape = others.filter(o => o.shape === me.shape).map(o => o.answer);
-        return [...new Set(sameShape.length ? sameShape : others.map(o => o.answer))];
+        const tiers = [
+            sameKind.filter(o => o.shape === me.shape).map(o => o.answer),
+            sameKind.filter(o => o.shape !== me.shape).map(o => o.answer),
+        ];
+        if (!sameKind.length) {
+            tiers[0] = others.filter(o => o.shape === me.shape && o.media === me.media).map(o => o.answer);
+        }
+        return tiers.map(tier => [...new Set(tier)]).filter(tier => tier.length);
     });
+}
+
+/** Article sets a blank may stand for, each fill naming its set alone. */
+const ARTICLE_SETS = [['de', 'het'], ['der', 'die', 'das']];
+
+/**
+ * The other articles of a blank's fill ("de" → "het", "Der" → "Die", "Das"),
+ * so a blank whose siblings all take the same article still has its other one
+ * to offer. Anything that is not a known article has none.
+ */
+function otherArticles(fill: string): string[] {
+    const set = ARTICLE_SETS.find(s => s.includes(fill.toLowerCase()));
+    if (!set) return [];
+    const capital = fill[0] !== fill[0].toLowerCase();
+    return set.filter(a => a !== fill.toLowerCase()).map(a => (capital ? a[0].toUpperCase() + a.slice(1) : a));
 }
 
 /** The one drill a topic's flashcards make — there is only ever one per topic. */
@@ -428,8 +450,10 @@ export function answersMatch(a: string, b: string): boolean {
 /**
  * Build the multiple-choice options for one item: the correct answer plus up to
  * `wanted` distractors — the item's own near-misses first, then unique answers
- * sampled from its `pool` when it has one, else from the rest of the bank — all
- * shuffled. Two options at least whenever the pool or bank holds another answer.
+ * sampled from its `pool` when it has one (tier by tier, shuffled within each),
+ * else from the rest of the bank — all shuffled. Two options at least whenever
+ * the pool or bank holds another answer; an item whose pool holds none gets its
+ * answer alone, and the player asks it typed.
  */
 export function buildOptions(item: DrillItem, bank: DrillItem[], wanted = 3): string[] {
     const chosen: string[] = [];
@@ -439,7 +463,8 @@ export function buildOptions(item: DrillItem, bank: DrillItem[], wanted = 3): st
         if (v && !seen.has(key)) { seen.add(key); chosen.push(v); }
     };
     for (const d of item.distractors ?? []) push(d);
-    for (const other of item.pool ? shuffle(item.pool) : shuffle(bank).map(o => o.answer)) {
+    const draws = item.pool ? item.pool.flatMap(tier => shuffle(tier)) : shuffle(bank).map(o => o.answer);
+    for (const other of draws) {
         if (chosen.length >= wanted) break;
         push(other);
     }
