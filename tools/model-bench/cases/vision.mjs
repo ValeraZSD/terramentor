@@ -76,11 +76,13 @@ function scoreMath(text) {
     const basic = transcribeBasics(text, 60, 500);
     if (basic) return basic;
     const q = squash(text);
-    if (!/question7/.test(q)) return fail('the question number "Question 7" is missing');
-    if (!/\(?4(?:points?|pts)/.test(q)) return fail('the point value "(4 points)" is missing');
-    if (!/150km/.test(q)) return fail('"150 km" is not there');
-    if (!/2\.5hours?/.test(q)) return fail('"2.5 hours" is not there');
-    if (!/3x\^2-12x\+9=0/.test(q)) return fail('the equation 3x^2 - 12x + 9 = 0 did not come back exactly');
+    // Spacing is squashed away, so each number is fenced by what may not touch
+    // it: "1150km", "12.5hours", "13x^2" and "=0.5" are different values.
+    if (!/question7(?![\d.])/.test(q)) return fail('the question number "Question 7" is missing');
+    if (!/(?<![\d.])4(?:points?|pts)/.test(q)) return fail('the point value "(4 points)" is missing');
+    if (!/(?<![\d.,])150km/.test(q)) return fail('"150 km" is not there');
+    if (!/(?<![\d.,])2\.5hours?/.test(q)) return fail('"2.5 hours" is not there');
+    if (!/(?<![\d.,])3x\^2-12x\+9=0(?!\.?\d|,\d)/.test(q)) return fail('the equation 3x^2 - 12x + 9 = 0 did not come back exactly');
     return ok('numbers and equation exact, question number and points kept');
 }
 
@@ -92,7 +94,9 @@ function scoreTable(text) {
     for (const [day, lo, hi] of img.TABLE_ROWS) {
         const line = rows.find(l => new RegExp(`\\b${day}\\b`, 'i').test(l));
         if (!line) return fail(`the ${day} row is missing`);
-        if (!new RegExp(`\\b${day}\\b\\D{1,14}?(?<!\\d)${lo}(?!\\d)\\D{1,14}?(?<!\\d)${hi}(?!\\d)`, 'i').test(line)) return fail(`the ${day} row does not read ${lo} then ${hi}: "${line.trim().slice(0, 60)}"`);
+        // A value is whole and unsigned: "-12", "−12" and "12.5" are not 12.
+        const num = (n) => `(?<![-−\\d.,])${n}(?![.,]?\\d)`;
+        if (!new RegExp(`\\b${day}\\b\\D{1,14}?${num(lo)}\\D{1,14}?${num(hi)}`, 'i').test(line)) return fail(`the ${day} row does not read ${lo} then ${hi}: "${line.trim().slice(0, 60)}"`);
     }
     const dayRows = rows.filter(l => /^\W*(?:mon|tue|wed|thu|fri|sat|sun)\b/i.test(l)).length;
     if (dayRows !== img.TABLE_ROWS.length) return fail(`${dayRows} day rows, ${img.TABLE_ROWS.length} on the page`);
@@ -102,7 +106,8 @@ function scoreTable(text) {
 function scoreHandwritten(text) {
     const basic = transcribeBasics(text, 5, 160);
     if (basic) return basic;
-    if (!/x=3\D{0,6}x=1(?!\d)/.test(squash(text))) return fail(`did not read "x = 3 and x = 1": "${text.trim().slice(0, 50)}"`);
+    // Each value is the whole value: "x = 1.5", "x = 1,5", "x = 1/2" and "x = 3^2" are not.
+    if (!/(?<![\d.,])x=3(?![.,]?\d|[/^])\D{0,6}x=1(?![.,]?\d|[/^])/.test(squash(text))) return fail(`did not read "x = 3 and x = 1": "${text.trim().slice(0, 50)}"`);
     return ok('read both values');
 }
 
@@ -145,6 +150,8 @@ function scoreShapes(r) {
 
 const FRUIT = /\b(apples?|pears?|plums?|figs?)\b/gi;
 const TALLEST = /\b(?:tall(?:est)?|high(?:est)?|large(?:st)?|big(?:gest)?|long(?:est)?|greatest|most|top|maximum|leads?|exceeds?)\b/gi;
+/** A qualifier just before a "tallest" cue that makes it a lower rank or a negation. */
+const RANKED_BELOW = /\b(?:second|third|fourth|2nd|3rd|4th|next|least|less|not(?:\s+the)?|nor)[\s-]+(?:\w+[\s-]+)?$/i;
 
 function scoreChart(r) {
     const basic = describeBasics(r);
@@ -158,6 +165,8 @@ function scoreChart(r) {
     for (const clause of d.split(/[.!?;:,]|\b(?:and|while|but|then|followed)\b/i)) {
         const fruits = [...clause.matchAll(FRUIT)].map(m => ({ at: m.index, name: m[1].toLowerCase().replace(/s$/, '') }));
         for (const cue of clause.matchAll(TALLEST)) {
+            // "Pears the second tallest" ranks Pears, it does not call it the tallest.
+            if (RANKED_BELOW.test(clause.slice(0, cue.index))) continue;
             const near = fruits.length ? fruits.reduce((a, b) => (Math.abs(b.at - cue.index) < Math.abs(a.at - cue.index) ? b : a)) : { name: lastFruit };
             if (!near.name) continue;
             if (near.name !== 'plum') return fail(`names ${near.name} as the tallest bar: "${clause.trim().slice(0, 80)}"`);
@@ -235,10 +244,15 @@ export default {
             run: ocr('math'),
             score: (out) => scoreMath(out),
             golden: MATH,
+            variants: [{ name: 'unicode maths, full stop after the equation', reply: 'Question 7 (4 points)\n\nA train travels 150 km in 2.5 hours.\n\nSolve 3x² − 12x + 9 = 0.' }],
             mutants: [
                 { name: '2.5 hours read as 25', reply: MATH.replace('2.5 hours', '25 hours') },
                 { name: 'a minus becomes a plus', reply: MATH.replace('- 12x', '+ 12x') },
                 { name: 'a coefficient misread', reply: MATH.replace('12x', '21x') },
+                { name: '150 km read as 1150 km', reply: MATH.replace('150 km', '1150 km') },
+                { name: '2.5 hours read as 12.5', reply: MATH.replace('2.5 hours', '12.5 hours') },
+                { name: 'leading coefficient read as 13', reply: MATH.replace('$3x^2', '$13x^2') },
+                { name: 'right side read as 0.5', reply: MATH.replace('= 0$', '= 0.5$') },
                 { name: 'question number and points dropped', reply: 'A train travels 150 km in 2.5 hours.\n\nSolve $3x^2 - 12x + 9 = 0$.' },
                 { name: 'a friendly preamble', reply: `Here is the transcription of the page:\n\n${MATH}` },
                 { name: 'wrapped in a code fence', reply: fence(MATH) },
@@ -280,10 +294,14 @@ export default {
             run: ocr('table'),
             score: (out) => scoreTable(out),
             golden: TABLE,
+            variants: [{ name: 'plain rows with a hyphen between values', reply: 'Day Min Max\nMon 12 - 19\nTue 9 - 15\nWed 11 - 22\nThu 7 - 13' }],
             mutants: [
                 { name: 'min and max swapped in one row', reply: TABLE.replace('| Tue | 9 | 15 |', '| Tue | 15 | 9 |') },
                 { name: 'a row dropped', reply: TABLE.replace('| Wed | 11 | 22 |\n', '') },
                 { name: 'one digit misread (22 as 27)', reply: TABLE.replace('22', '27') },
+                { name: 'a minus sign added (-12)', reply: TABLE.replace('| Mon | 12 |', '| Mon | -12 |') },
+                { name: 'a unicode minus added (−7)', reply: TABLE.replace('| Thu | 7 |', '| Thu | −7 |') },
+                { name: 'a decimal read (15.5)', reply: TABLE.replace('| 15 |', '| 15.5 |') },
                 { name: 'values shifted down a row', reply: '| Day | Min | Max |\n|---|---|---|\n| Mon | 9 | 15 |\n| Tue | 11 | 22 |\n| Wed | 7 | 13 |\n| Thu | 12 | 19 |' },
                 { name: 'an invented extra row', reply: `${TABLE}\n| Fri | 10 | 16 |` },
                 { name: 'headers missing', reply: TABLE.replace('| Day | Min | Max |\n|---|---|---|\n', '') },
@@ -295,9 +313,13 @@ export default {
             run: ocr('hand'),
             score: (out) => scoreHandwritten(out),
             golden: '$x = 3$ and $x = 1$',
+            variants: [{ name: 'ends with a full stop', reply: 'x = 3 and x = 1.' }],
             mutants: [
                 { name: 'second value misread (1 as 7)', reply: '$x = 3$ and $x = 7$' },
                 { name: 'first value misread (3 as 8)', reply: '$x = 8$ and $x = 1$' },
+                { name: 'second value read as 1.5', reply: '$x = 3$ and $x = 1.5$' },
+                { name: 'second value read as 1/2', reply: '$x = 3$ and $x = 1/2$' },
+                { name: 'first value read as 3.5', reply: '$x = 3.5$ and $x = 1$' },
                 { name: 'only the first answer', reply: '$x = 3$' },
                 { name: 'says it cannot read handwriting', reply: "I'm unable to read handwriting reliably, I can't transcribe this." },
                 { name: 'a preamble', reply: 'Certainly! The handwritten answer reads: $x = 3$ and $x = 1$' },
@@ -324,7 +346,13 @@ export default {
             run: describe('chart'),
             score: (out) => scoreChart(out),
             golden: 'A bar chart titled "Kilos sold" with four blue bars for Apples, Pears, Plums and Figs, where Plums is the tallest at about 120.',
+            variants: [
+                { name: 'ranks a second bar too', reply: 'A bar chart titled "Kilos sold" with bars for Apples, Pears, Plums and Figs; Plums is the tallest and Pears the second tallest.' },
+                { name: 'a bar called not the tallest', reply: 'A bar chart titled "Kilos sold" with bars for Apples, Pears, Plums and Figs. Pears is not the tallest; Plums is the tallest.' },
+            ],
             mutants: [
+                { name: 'Pears called second tallest, no tallest named', reply: 'A bar chart titled "Kilos sold" with bars for Apples, Pears, Plums and Figs, with Pears the second tallest.' },
+                { name: 'Pears called tallest, Plums second', reply: 'A bar chart titled "Kilos sold" with bars for Apples, Pears, Plums and Figs; Pears is the tallest and Plums the second tallest.' },
                 { name: 'names the wrong bar as tallest', reply: 'A bar chart titled "Kilos sold" with four blue bars for Apples, Pears, Plums and Figs, where Pears is the tallest.' },
                 { name: 'reads the labels but never ranks the bars', reply: 'A bar chart titled "Kilos sold" with four blue bars labelled Apples, Pears, Plums and Figs.' },
                 { name: 'a generic description', reply: 'A bar chart with several blue bars of different heights.' },

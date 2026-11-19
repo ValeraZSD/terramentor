@@ -48,8 +48,11 @@ says so in a comment. Some limits worth knowing when reading a score:
   so a model that always gives the same verdict scores 50% on them. The score
   only means something above that.
 - The animation and widget cases run code the model wrote. They run it in a
-  child process whose environment holds no API key, with the page's network
-  functions removed, killed after 30 s.
+  child process under Node's permission model (it reads only the scorer file
+  and `node_modules`; no file writes, child processes, workers or addons),
+  whose environment holds no API key, with the page's network functions
+  removed, killed after 30 s. Node 24's permission model does not fence
+  outbound network.
 
 ## Checking the scorers
 
@@ -59,7 +62,10 @@ Every case carries a `golden` reply (what a sound model could answer) and
 `mutants` (replies broken by hand: a wrong verdict, broken JSON, the wrong
 language, a planted error let through). The check serves each in place of the
 model, through the same app code, and requires the golden to pass and every
-mutant to fail. `npm test` runs it as `tools/model-bench-gates.mjs`.
+mutant to fail. Some cases also carry `variants`, other sound replies (a
+different but correct phrasing) that must pass too. It also probes the
+code-running child's permission fence. `npm test` runs it as
+`tools/model-bench-gates.mjs`.
 
 ## Running it against models
 

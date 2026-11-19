@@ -11,11 +11,12 @@
  *       score(output, fx, app),            // -> { pass, why }, deterministic
  *       golden,                            // a reply a sound model could give (string, or
  *                                          // one string per model request in order)
+ *       variants?: [{ name, reply }],      // other sound replies the scorer must also pass
  *       mutants: [{ name, reply }],        // hand-broken replies the scorer must fail
  *     }],
  *   }
  *
- * `golden` and `mutants` are only read by mutate.mjs, which serves them in
+ * `golden`, `variants` and `mutants` are only read by mutate.mjs, which serves them in
  * place of the model to prove each scorer passes a good answer and fails
  * broken ones.
  */

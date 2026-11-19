@@ -23,7 +23,7 @@ import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -122,12 +122,11 @@ function pathXs(d) {
     }
     return xs;
 }
-/** How far along x an object moves: translate values or an animateMotion path. */
-function travelX(svg, a) {
+/** The x offsets an object moves through, in time order: translate values or an animateMotion path. */
+function motionXs(svg, a) {
     if (a.name === 'animateTransform' && a.attrs.type === 'translate') {
         const raw = a.attrs.values != null ? a.attrs.values.split(';') : [a.attrs.from, a.attrs.to].filter(x => x != null);
-        const xs = raw.map(s => num(s.trim().split(/[\s,]+/)[0])).filter(Number.isFinite);
-        return xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+        return raw.map(s => num(s.trim().split(/[\s,]+/)[0])).filter(Number.isFinite);
     }
     if (a.name === 'animateMotion') {
         let d = a.attrs.path;
@@ -135,10 +134,14 @@ function travelX(svg, a) {
             const href = flat(a).find(n => n.name === 'mpath')?.attrs.href ?? flat(a).find(n => n.name === 'mpath')?.attrs['xlink:href'];
             d = flat(svg).find(n => href && n.attrs.id === href.replace('#', ''))?.attrs.d;
         }
-        const xs = d ? pathXs(d) : [];
-        return xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
+        return d ? pathXs(d) : [];
     }
-    return 0;
+    return [];
+}
+/** How far along x an object moves. */
+function travelX(svg, a) {
+    const xs = motionXs(svg, a);
+    return xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
 }
 
 /** Position of a <text> in frame coordinates (its x/y plus static translates above it). */
@@ -176,9 +179,11 @@ function animationBasics(spec) {
         if (!(d >= 2 && d <= 12)) return fail(`dur "${a.attrs.dur}" is outside 2s-12s`);
         if (a.attrs.repeatCount !== 'indefinite') return fail('an animation does not loop (repeatCount="indefinite")');
         if (a.attrs.keyTimes != null && a.attrs.values != null) {
-            const kt = a.attrs.keyTimes.split(';').map(s => num(s.trim()));
+            // Number(), not parseFloat: "0.5x" is not a time the browser accepts.
+            const kt = a.attrs.keyTimes.split(';').map(s => (s.trim() === '' ? NaN : Number(s.trim())));
             const vs = a.attrs.values.split(';');
             if (kt.length !== vs.length) return fail('keyTimes and values differ in length: the browser ignores the whole animation');
+            if (kt.some(v => !Number.isFinite(v) || v < 0 || v > 1)) return fail(`keyTimes "${a.attrs.keyTimes}" holds a value that is not a number from 0 to 1`);
             if (kt[0] !== 0 || kt[kt.length - 1] !== 1 || kt.some((v, i) => i && v < kt[i - 1])) return fail('keyTimes must run 0..1 without decreasing');
         }
     }
@@ -327,10 +332,23 @@ function scoreWater(out) {
         if (inMoving(n)) return fail(`"${textOf(n)}" rides inside a moving group; the labels stay still`);
     }
     const moves = flat(svg).filter(n => ANIMS.has(n.name) && n.name !== 'animate');
-    const span = Math.max(0, ...moves.map(a => travelX(svg, a)));
-    const need = 0.6 * (xs[2] - xs[0]);
-    if (span < need) return fail(`the droplet travels ${Math.round(span)} units along x, the stations span ${Math.round(xs[2] - xs[0])}`);
-    return ok('labels in order, still and inside the frame; the droplet crosses the stations');
+    const move = moves.reduce((best, a) => (travelX(svg, a) > (best ? travelX(svg, best) : -1) ? a : best), null);
+    const span = move ? travelX(svg, move) : 0;
+    const stations = xs[2] - xs[0];
+    if (span < 0.6 * stations) return fail(`the droplet travels ${Math.round(span)} units along x, the stations span ${Math.round(stations)}`);
+    // The trip runs from the first station to the last: its first step goes their way.
+    const path = motionXs(svg, move);
+    const step = path.slice(1).map((x, i) => x - path[i]).find(d => Math.abs(d) > 1e-6) ?? 0;
+    if (!(step > 0)) return fail('the droplet sets off away from the last station: the trip runs first to last');
+    // Where the droplet is drawn is known for a circle or ellipse: it starts at the first station and reaches the last.
+    const drop = flat(move.parent).find(n => n.name === 'circle' || n.name === 'ellipse');
+    if (drop) {
+        const base = num(drop.attrs.cx ?? 0) + offsetAbove(move.parent)[0];
+        const near = 0.25 * stations;
+        if (Math.abs(base + path[0] - xs[0]) > near) return fail(`the droplet starts at x = ${Math.round(base + path[0])}, not at the first station (${Math.round(xs[0])})`);
+        if (base + Math.max(...path) < xs[2] - near) return fail(`the droplet gets no further than x = ${Math.round(base + Math.max(...path))}, short of the last station (${Math.round(xs[2])})`);
+    }
+    return ok('labels in order, still and inside the frame; the droplet runs first station to last');
 }
 
 // ---- the p5 sketch, run against a stub -------------------------------------------
@@ -419,20 +437,20 @@ function runSketch(code, seed, frames) {
 const WALKERS_BRIEF = `Title: Random walkers
 Show 40 walkers that all start at the centre of the canvas (300, 170). Every frame each walker takes one small random step (up to 3 pixels in x and in y) and is drawn as a 6-pixel dot. Stop a walker at the edge of the canvas so none leaves it. Add a one-entry legend "walker". The point: the cloud of walkers spreads out slowly over time.`;
 
-const walkers = ({ setupExtra = '', step = 'random(-3, 3)', clamp = true, bgFirst = true, count = 40, legendCall = 'legend([["walker", 37, 99, 235]]);', textCall = '', drift = '', start = '300, 170' } = {}) => `let walkers = [];
+const walkers = ({ setupExtra = '', step = 'random(-3, 3)', clamp = true, bgFirst = true, count = 40, legendCall = 'legend([["walker", 37, 99, 235]]);', textCall = '', drift = '', start = '300, 170', drawExtra = '', frameExtra = '' } = {}) => `let walkers = [];
 function setup() {
   createCanvas(600, 340);${setupExtra}
   for (let i = 0; i < ${count}; i++) walkers.push({ x: ${start.split(',')[0]}, y: ${start.split(',')[1]} });
 }
 function draw() {
-  ${bgFirst ? 'background(255);' : ''}
+  ${bgFirst ? 'background(255);' : ''}${frameExtra}
   fill(37, 99, 235);
   noStroke();
   for (const w of walkers) {
     w.x += ${step}${drift};
     w.y += ${step};
     ${clamp ? 'w.x = constrain(w.x, 3, 597);\n    w.y = constrain(w.y, 3, 337);' : ''}
-    ellipse(w.x, w.y, 6, 6);
+    ellipse(w.x, w.y, 6, 6);${drawExtra}
   }
   ${legendCall}${textCall}
   ${bgFirst ? '' : 'background(255);'}
@@ -455,7 +473,11 @@ function scoreWalkers(out) {
     const dotsOf = (f) => f.dots.filter(d => d[2] >= 4 && d[2] <= 8 && d[2] === d[3]);
     const first = dotsOf(A.frames[0]), last = dotsOf(A.frames[399]);
     if (first.length !== 40) return fail(`${first.length} six-pixel dots in the first frame, 40 walkers asked`);
-    if (!A.frames[0].legends.length || !/walker/i.test(A.frames[0].legends[0]) || !A.frames[399].legends.length) return fail('no legend naming "walker" on every frame');
+    for (const [i, f] of A.frames.entries()) {
+        const n = dotsOf(f).length;
+        if (n !== 40) return fail(`${n} six-pixel dots in frame ${i + 1}: 40 walkers in every frame`);
+        if (!f.legends.some(l => /walker/i.test(l))) return fail(`no legend naming "walker" in frame ${i + 1}: one on every frame`);
+    }
     if (first.some(d => Math.hypot(d[0] - 300, d[1] - 170) > 12)) return fail('walkers do not start at the centre (300, 170)');
     if (!A.complex) {
         for (const f of A.frames) {
@@ -504,30 +526,42 @@ function loadWidget(html) {
     return { doc: dom.window.document, win: dom.window, errors, close: () => dom.window.close() };
 }
 
-/** What a learner sees: body text without script/style, plus every field's value. */
+const styleOf = (el) => el.ownerDocument.defaultView.getComputedStyle(el);
+/** Laid out at all: no `hidden`, no display:none on it or above it (display does not inherit). */
+function rendered(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        if (n.hidden || (n.tagName === 'INPUT' && n.type === 'hidden') || styleOf(n).display === 'none') return false;
+    }
+    return true;
+}
+/** Seen by a learner: rendered, and not visibility:hidden (which jsdom inherits). */
+const shown = (el) => rendered(el) && !['hidden', 'collapse'].includes(styleOf(el).visibility);
+
+/** What a learner sees: shown body text without script/style, plus every shown field's value. */
 function visibleText(doc) {
     const words = [];
     const walk = (n) => {
-        if (n.nodeType === 3) words.push(n.data);
-        else if (n.nodeType === 1 && !/^(?:SCRIPT|STYLE)$/.test(n.tagName)) n.childNodes.forEach(walk);
+        if (n.nodeType === 3) { if (!['hidden', 'collapse'].includes(styleOf(n.parentElement).visibility)) words.push(n.data); }
+        else if (n.nodeType === 1 && !/^(?:SCRIPT|STYLE|TEMPLATE)$/.test(n.tagName) && rendered(n)) n.childNodes.forEach(walk);
     };
     walk(doc.body);
-    const values = [...doc.querySelectorAll('input, output, textarea, select')].map(n => n.value ?? '');
+    const values = [...doc.querySelectorAll('input, output, textarea, select')].filter(shown).map(n => n.value ?? '');
     return [...words, ...values].join(' ').replace(/\s+/g, ' ');
 }
 
 function controlByLabel(doc, re) {
     for (const l of doc.querySelectorAll('label')) {
-        if (!re.test(l.textContent)) continue;
+        if (!re.test(l.textContent) || !shown(l)) continue;
         const c = l.control || (l.htmlFor && doc.getElementById(l.htmlFor)) || l.querySelector('input, select, textarea');
-        if (c) return c;
+        if (c && shown(c)) return c;
     }
-    return [...doc.querySelectorAll('input, select, textarea')].find(i => re.test(`${i.getAttribute('aria-label') || ''} ${i.id} ${i.name}`)) || null;
+    return [...doc.querySelectorAll('input, select, textarea')].find(i => shown(i) && re.test(`${i.getAttribute('aria-label') || ''} ${i.id} ${i.name}`)) || null;
 }
-const buttonByText = (doc, re) => [...doc.querySelectorAll('button, [role="button"], input[type="button"]')].find(b => re.test((b.textContent || b.value || '').trim())) || null;
+const buttonByText = (doc, re) => [...doc.querySelectorAll('button, [role="button"], input[type="button"]')].find(b => shown(b) && re.test((b.textContent || b.value || '').trim())) || null;
+/** Typing: browsers fire `input` per keystroke; `change` waits for the field to lose focus. */
 function setValue(win, el, v) {
     el.value = String(v);
-    for (const t of ['input', 'change']) el.dispatchEvent(new win.Event(t, { bubbles: true }));
+    el.dispatchEvent(new win.Event('input', { bubbles: true }));
 }
 /** Colours must come from the host's variables: hex/rgb() literals in CSS values and nothing defining --w-*. */
 function themeProblem(html) {
@@ -544,14 +578,14 @@ Data: 1 mile = 1.609344 km. The starting distance is 10 km.
 Inputs: one number input labelled "Kilometres" (starts at 10). Show the result next to a label "Miles".
 Behavior: Miles = Kilometres / 1.609344, shown rounded to 2 decimal places, and it updates live as the number is typed. No canvas, plain DOM only.`;
 
-const kmDoc = ({ expr = 'v / 1.609344', listen = 'km.addEventListener("input", update);', initial = 'update();', extraHead = '', css = null, script = null } = {}) => `<!doctype html>
+const kmDoc = ({ expr = 'v / 1.609344', listen = 'km.addEventListener("input", update);', initial = 'update();', extraHead = '', css = null, extraCss = '', script = null } = {}) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>Kilometres to miles</title>
 <style>
 ${css ?? `body { margin: 0; padding: 12px; background: var(--w-bg); color: var(--w-fg); font-family: sans-serif; }
 .row { display: grid; grid-template-columns: max-content 1fr; gap: 8px; align-items: center; margin-bottom: 12px; }
 input { accent-color: var(--w-accent); border: 1px solid var(--w-border); }
 output { color: var(--w-accent); font-size: 1.4rem; font-variant-numeric: tabular-nums; }
-@media (pointer: coarse) { input, button { min-height: 44px; } }`}
+@media (pointer: coarse) { input, button { min-height: 44px; } }`}${extraCss}
 </style>${extraHead}</head>
 <body>
 <div class="row"><label for="km">Kilometres</label><input id="km" type="number" min="0" step="any" value="10"></div>
@@ -570,6 +604,15 @@ go.addEventListener("click", update);
 ${initial}`}
 </script>
 </body></html>`;
+
+/** A converter whose live result goes to an element the learner cannot see; the output keeps its starting 6.21. */
+const ghostScript = (hide) => `const km = document.getElementById("km");
+const ghost = document.createElement("span");
+${hide}
+document.body.appendChild(ghost);
+function update() { const v = parseFloat(km.value); ghost.textContent = Number.isFinite(v) ? (v / 1.609344).toFixed(2) : ""; }
+km.addEventListener("input", update);
+update();`;
 
 function scoreKm(out) {
     const html = out.html;
@@ -599,13 +642,13 @@ Data: The question text is "What is 7 × 8?". Three answer buttons labelled 54, 
 Inputs: the three answer buttons, and a button labelled "Reset".
 Behavior: Show the score as the text "Score: N". Clicking 56 shows the message "Correct!" and adds 1 to the score. Clicking 54 or 63 shows the message "Not quite" and leaves the score unchanged. "Reset" sets the score back to 0 and clears the message.`;
 
-const quizDoc = ({ right = '56', anyCorrect = false, stuck = false, resetKeeps = false, css = null, head = '' } = {}) => `<!doctype html>
+const quizDoc = ({ right = '56', anyCorrect = false, stuck = false, resetKeeps = false, css = null, extraCss = '', head = '' } = {}) => `<!doctype html>
 <html><head><meta charset="utf-8"><title>Multiplication check</title>
 <style>
 ${css ?? `body { margin: 0; padding: 12px; background: var(--w-bg); color: var(--w-fg); font-family: sans-serif; }
 button { background: var(--w-accent); color: var(--w-bg); border: 1px solid var(--w-border); border-radius: 8px; padding: 8px 16px; margin: 0 8px 8px 0; }
 #msg { color: var(--w-accent-2); min-height: 1.5em; }
-@media (pointer: coarse) { button { min-height: 44px; } }`}
+@media (pointer: coarse) { button { min-height: 44px; } }`}${extraCss}
 </style>${head}</head>
 <body>
 <p>What is 7 × 8?</p>
@@ -672,16 +715,25 @@ function scoreQuiz(out) {
 
 // ---- model-written code runs in a child process ------------------------------------
 //
-// A sketch or widget is code the model wrote. jsdom is not a sandbox (a script
-// can climb to the host's `process`), and neither jsdom nor a vm timeout stops
-// every runaway loop. So the scorers that RUN the code do it in a child
-// process: its environment holds no API key, and it is killed after 30 s
-// (BENCH_CODE_TIMEOUT_MS; the scorer check sets it lower). The verdict comes
-// back on a line tagged with a one-off nonce, so text the code prints cannot
-// pose as one.
+// A sketch or widget is code the model wrote. Neither jsdom nor a node vm is a
+// sandbox (a script can climb to the host's `process`, for one through
+// `getContext["con" + "structor"]`), and neither stops every runaway loop. So
+// the scorers that RUN the code do it in a child process under Node's
+// permission model: it may read only this file and node_modules (for jsdom),
+// and may not write files, start processes or workers, load addons or open the
+// inspector. Its environment holds no API key, and it is killed after 30 s
+// (BENCH_CODE_TIMEOUT_MS; the scorer check sets it lower). Outbound network is
+// not fenced by Node 24's permission model. The verdict comes back on a line
+// tagged with a one-off nonce, so text the code prints cannot pose as one.
 
 const SELF = fileURLToPath(import.meta.url);
 const RUNS_CODE = { walkers: scoreWalkers, km: scoreKm, quiz: scoreQuiz };
+
+/** The flags the code-running child starts under; mutate.mjs probes the same fence. */
+export function codeChildFlags() {
+    const modules = realpathSync(path.join(path.dirname(require.resolve('jsdom/package.json')), '..'));
+    return ['--permission', `--allow-fs-read=${SELF}`, `--allow-fs-read=${modules}`];
+}
 
 function isolated(name) {
     return (out) => {
@@ -689,7 +741,7 @@ function isolated(name) {
         const limit = Number(process.env.BENCH_CODE_TIMEOUT_MS) || 30_000;
         const env = {};
         for (const k of ['SystemRoot', 'windir', 'TEMP', 'TMP', 'HOME']) if (process.env[k]) env[k] = process.env[k];
-        const r = spawnSync(process.execPath, [SELF, name], {
+        const r = spawnSync(process.execPath, [...codeChildFlags(), SELF, name], {
             input: JSON.stringify({ nonce, out }), encoding: 'utf8', env, timeout: limit, windowsHide: true, maxBuffer: 4 << 20,
         });
         if (r.error?.code === 'ETIMEDOUT' || r.signal) return fail(`the code was still running after ${limit / 1000} s (a runaway loop)`);
@@ -748,6 +800,10 @@ export default {
             run: animation(WATER_BRIEF),
             score: scoreWater,
             golden: water(),
+            variants: [
+                { name: 'there and back in one loop', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;240 0;0 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'moved along a motion path', reply: water({ move: '<animateMotion path="M0 0 L240 0" dur="6s" repeatCount="indefinite"/>' }) },
+            ],
             mutants: [
                 { name: 'only a colour pulse, nothing moves', reply: water({ move: '<animate attributeName="opacity" values="1;0.3;1" dur="3s" repeatCount="indefinite"/>' }) },
                 { name: 'stations in the wrong order', reply: water({ labels: ['Rain', 'Condensation', 'Evaporation'] }) },
@@ -756,6 +812,11 @@ export default {
                 { name: 'droplet barely moves', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;15 0;30 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'keyTimes shorter than values', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'a label runs off the right edge', reply: water({ xs: [60, 180, 350] }) },
+                { name: 'keyTimes holds a non-number', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;half;1" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'keyTimes with an empty slot', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;;1" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'keyTimes with a unit glued on', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;0.5s;1" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'the droplet runs the wrong way', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;-120 0;-240 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
+                { name: 'the droplet starts past the last station', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="300 0;420 0;540 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
             ],
         },
         {
@@ -770,6 +831,9 @@ export default {
                 { name: 'labels with text()', reply: walkers({ legendCall: '', textCall: 'text("walker", 20, 20);' }) },
                 { name: 'only 4 walkers', reply: walkers({ count: 4 }) },
                 { name: 'walkers start in a corner', reply: walkers({ start: '20, 20' }) },
+                { name: 'each walker drawn twice after the first frame', reply: walkers({ drawExtra: '\n    if (frameCount > 1) ellipse(w.x + 1, w.y, 6, 6);' }) },
+                { name: 'walkers vanish over time', reply: walkers({ frameExtra: '\n  if (frameCount % 50 === 0) walkers.pop();' }) },
+                { name: 'the legend drops after the first frame', reply: walkers({ legendCall: 'if (frameCount === 1) legend([["walker", 37, 99, 235]]);' }) },
                 { name: 'a promise chain that never ends', reply: walkers({ setupExtra: '\n  Promise.resolve().then(function f() { Promise.resolve().then(f); });' }) },
                 { name: 'Java-style declarations', reply: 'float x = 300;\nfloat y = 170;\nvoid setup() {\n  createCanvas(600, 340);\n}\nvoid draw() {\n  background(255);\n  ellipse(x, y, 6, 6);\n}' },
             ],
@@ -782,6 +846,11 @@ export default {
             mutants: [
                 { name: 'multiplies instead of dividing', reply: kmDoc({ expr: 'v * 1.609344' }) },
                 { name: 'updates only on the Convert button', reply: kmDoc({ listen: '' }) },
+                { name: 'updates on change only (after the field loses focus)', reply: kmDoc({ listen: 'km.addEventListener("change", update);' }) },
+                { name: 'live result in a hidden element', reply: kmDoc({ script: ghostScript('ghost.hidden = true;') }) },
+                { name: 'live result under display:none', reply: kmDoc({ script: ghostScript('ghost.className = "ghost";'), extraCss: '\n.ghost { display: none; }' }) },
+                { name: 'live result under visibility:hidden', reply: kmDoc({ script: ghostScript('ghost.style.visibility = "hidden";') }) },
+                { name: 'the Kilometres label is hidden', reply: kmDoc({ extraCss: '\nlabel[for="km"] { display: none; }' }) },
                 { name: 'a rounded factor 0.62', reply: kmDoc({ expr: 'v * 0.62' }) },
                 { name: 'shows a fixed number', reply: kmDoc({ script: 'document.getElementById("mi").textContent = "6.21";' }) },
                 { name: 'hardcoded colours, defines the host variables', reply: kmDoc({ css: ':root { --w-bg: #ffffff; --w-fg: #111111; }\nbody { background: #ffffff; color: #111111; }' }) },
@@ -799,6 +868,8 @@ export default {
                 { name: 'the score never changes', reply: quizDoc({ stuck: true }) },
                 { name: 'wrong key: 54 is marked right', reply: quizDoc({ right: '54' }) },
                 { name: 'Reset leaves the message up', reply: quizDoc({ resetKeeps: true }) },
+                { name: 'the score is visibility:hidden', reply: quizDoc({ extraCss: '\n#score { visibility: hidden; }' }) },
+                { name: 'the message is display:none', reply: quizDoc({ extraCss: '\n#msg { display: none; }' }) },
                 { name: 'hardcoded colours', reply: quizDoc({ css: 'body { background: #fff; color: #000; }\nbutton { background: rgb(37, 99, 235); }' }) },
             ],
         },

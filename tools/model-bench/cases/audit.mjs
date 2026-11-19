@@ -2,7 +2,7 @@
  * Auditing lessons: the fact-and-arithmetic check on a written lesson segment
  * (server/feedQuality.js auditLesson, one model request, called from feedGen.js:1262).
  *
- * Three segments are sound and must come back ok with a real verdict; three carry ONE planted
+ * Three segments are sound and must come back ok and audited (available); three carry ONE planted
  * error that nothing else in the pipeline would catch (an addition that is off by one, a fact
  * stated backwards, a minutes-to-hours conversion done wrong) and must come back not ok.
  * The planted segments are internally tidy: the wrong number is carried through the rest of
@@ -10,6 +10,10 @@
  *
  * `available` matters as much as `ok`: an auditor that returns nothing usable reads as ok
  * with available=false (the app fails open), and that is a miss here, not a pass.
+ *
+ * The score is what the app does with the reply: auditLesson counts any verdict but "broken"
+ * as audited, so an "unsure" passes a sound segment exactly as it would in the app, and lets a
+ * planted error through (a fail).
  *
  * Proxy: the score reads the verdict only. It does not check that the quoted sentence is the
  * planted one, because a model may quote the line before or after it.

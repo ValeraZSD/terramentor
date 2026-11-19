@@ -8,12 +8,16 @@
  * `golden` reply, then with each of its `mutants` (hand-broken replies). The
  * reply goes through the same app code as a live run (the prompt is built, the
  * reply parsed, validated and stored by the app), then the case's scorer
- * judges the result. A scorer is sound when the golden reply passes and every
- * mutant fails. No request leaves the machine.
+ * judges the result. A scorer is sound when the golden reply and every sound
+ * `variant` pass and every mutant fails. No request leaves the machine.
  *
- * Exits 1 when any golden fails or any mutant passes.
+ * Exits 1 when any golden or variant fails or any mutant passes.
  */
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { startLibrary, endLibrary, installFetch, loadApp, runOnce, muteAppLogs, anthropicUsage } from './harness.mjs';
+import { codeChildFlags } from './cases/visuals.mjs';
 
 const argv = process.argv.slice(2);
 const opt = (k) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : ''; };
@@ -75,7 +79,7 @@ const serve = async (c, reply) => {
     return row;
 };
 
-let goldenFail = 0, survivors = 0, killed = 0, total = 0;
+let goldenFail = 0, survivors = 0, killed = 0, total = 0, variantsRun = 0, variantsOk = 0;
 const byCategory = new Map();
 for (const c of cases) {
     const cat = byCategory.get(c.category) || { cases: 0, golden: 0, mutants: 0, killed: 0 };
@@ -84,6 +88,11 @@ for (const c of cases) {
     const g = await serve(c, c.golden);
     if (g.pass) cat.golden++; else goldenFail++;
     const lines = [`${g.pass ? '  ok  ' : ' FAIL '} ${c.id}: golden ${g.pass ? 'passes' : `FAILS (${g.why})`}`];
+    for (const v of c.variants || []) {
+        const r = await serve(c, v.reply);
+        variantsRun++;
+        if (r.pass) variantsOk++; else lines.push(` FAIL    sound variant "${v.name}" FAILS (${r.why.slice(0, 100)})`);
+    }
     for (const m of c.mutants || []) {
         const r = await serve(c, m.reply);
         total++; cat.mutants++;
@@ -98,7 +107,7 @@ print('\ncategory        cases  golden pass  mutants killed');
 for (const [cat, v] of byCategory) {
     print(`${cat.padEnd(16)}${String(v.cases).padStart(5)}  ${`${v.golden}/${v.cases}`.padStart(11)}  ${`${v.killed}/${v.mutants}`.padStart(14)}`);
 }
-print(`\n${cases.length} cases: golden replies passing ${cases.length - goldenFail}/${cases.length}; mutants failed by the scorer ${killed}/${total}; mutants that passed ${survivors}`);
+print(`\n${cases.length} cases: golden replies passing ${cases.length - goldenFail}/${cases.length}; sound variants passing ${variantsOk}/${variantsRun}; mutants failed by the scorer ${killed}/${total}; mutants that passed ${survivors}`);
 
 // The direct Anthropic route prices tokens itself: pin the arithmetic.
 // Haiku 5.5 short: 1,000 fresh x $0.10 + 2,000 written x $0.125 + 4,000 read x $0.01 + 500 out x $0.50 = $0.00064.
@@ -111,7 +120,25 @@ const priceChecks = [
 ];
 const priceBad = priceChecks.filter(([u, cost, prompt]) => !Number.isFinite(u.cost) || Math.abs(u.cost - cost) > 1e-9 || u.prompt_tokens !== prompt);
 print(`Anthropic pricing: ${priceChecks.length - priceBad.length}/${priceChecks.length} hand-computed costs match`);
+
+// Model-written code runs in a child under codeChildFlags(). Probe that fence
+// with the same flags: code that escaped jsdom or the vm holds these modules.
+const fenceProbe = `
+const fs = require('fs'), cp = require('child_process'), os = require('os'), path = require('path');
+const denied = (f) => { try { f(); return false; } catch (e) { return e.code === 'ERR_ACCESS_DENIED'; } };
+console.log(JSON.stringify({
+    readRepo: denied(() => fs.readFileSync(${JSON.stringify(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'))})),
+    writeTemp: denied(() => fs.writeFileSync(path.join(os.tmpdir(), 'bench-fence-probe.txt'), 'x')),
+    spawn: denied(() => cp.spawnSync(process.execPath, ['-e', '1'])),
+    worker: denied(() => new (require('worker_threads').Worker)('1', { eval: true })),
+}));`;
+const fenceRun = spawnSync(process.execPath, [...codeChildFlags(), '-e', fenceProbe], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+let fence = {};
+try { fence = JSON.parse(String(fenceRun.stdout).trim().split('\n').pop()); } catch { /* reported below */ }
+const fenceChecks = ['readRepo', 'writeTemp', 'spawn', 'worker'];
+const fenceOpen = fenceChecks.filter(k => fence[k] !== true);
+print(`Code fence: ${fenceChecks.length - fenceOpen.length}/${fenceChecks.length} escapes denied${fenceOpen.length ? ` (OPEN: ${fenceOpen.join(', ')}${fenceRun.stderr ? `; ${String(fenceRun.stderr).trim().slice(0, 160)}` : ''})` : ''}`);
 // tools/run-gates.mjs reads this count; a gate that prints none fails there.
-print(`${(cases.length - goldenFail) + killed + (priceChecks.length - priceBad.length)} assertions passed`);
+print(`${(cases.length - goldenFail) + variantsOk + killed + (priceChecks.length - priceBad.length) + (fenceChecks.length - fenceOpen.length)} assertions passed`);
 endLibrary(scratch, app);
-process.exit(goldenFail || survivors || priceBad.length ? 1 : 0);
+process.exit(goldenFail || survivors || variantsRun !== variantsOk || priceBad.length || fenceOpen.length ? 1 : 0);
