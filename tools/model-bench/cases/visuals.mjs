@@ -343,9 +343,13 @@ function scoreWater(out) {
     // Where the droplet is drawn is known for a circle or ellipse: it starts at the first station and reaches the last.
     const drop = flat(move.parent).find(n => n.name === 'circle' || n.name === 'ellipse');
     if (drop) {
-        // The droplet's own translate and any group between it and the moving element count too.
-        let inner = translateOf(drop)[0];
-        for (let n = drop.parent; n && n !== move.parent; n = n.parent) inner += translateOf(n)[0];
+        // Inside the moving element, the droplet's own translate and any group between count too.
+        // When the droplet IS the moving element, the animation replaces its static transform.
+        let inner = 0;
+        if (drop !== move.parent) {
+            inner = translateOf(drop)[0];
+            for (let n = drop.parent; n && n !== move.parent; n = n.parent) inner += translateOf(n)[0];
+        } else if (move.attrs.additive === 'sum') inner = translateOf(drop)[0];
         const base = num(drop.attrs.cx ?? 0) + inner + offsetAbove(move.parent)[0];
         const near = 0.25 * stations;
         if (Math.abs(base + path[0] - xs[0]) > near) return fail(`the droplet starts at x = ${Math.round(base + path[0])}, not at the first station (${Math.round(xs[0])})`);
@@ -808,7 +812,16 @@ export default {
             variants: [
                 { name: 'there and back in one loop', reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;240 0;0 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' }) },
                 { name: 'moved along a motion path', reply: water({ move: '<animateMotion path="M0 0 L240 0" dur="6s" repeatCount="indefinite"/>' }) },
-                { name: 'droplet placed by its own translate', reply: water().replace('<circle cx="60" cy="120" r="9"', '<circle transform="translate(60,120)" r="9"') },
+                {
+                    name: 'droplet placed by its own translate',
+                    reply: water({ move: '<animateTransform attributeName="transform" type="translate" values="0 0;100 0;200 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/>' })
+                        .replace('<circle cx="60" cy="120" r="9"', '<circle transform="translate(100,120)" r="9"'),
+                },
+                {
+                    name: 'the droplet itself animated, inside a translated group',
+                    reply: water({ move: '' }).replace('<g>\n<circle cx="60" cy="120" r="9" fill="#2563eb" stroke="#1e3a8a" stroke-width="2"/>',
+                        '<g transform="translate(100,0)">\n<circle cx="-40" cy="120" r="9" fill="#2563eb" stroke="#1e3a8a" stroke-width="2"><animateTransform attributeName="transform" type="translate" values="0 0;120 0;240 0" keyTimes="0;0.5;1" dur="6s" repeatCount="indefinite"/></circle>'),
+                },
             ],
             mutants: [
                 { name: 'only a colour pulse, nothing moves', reply: water({ move: '<animate attributeName="opacity" values="1;0.3;1" dur="3s" repeatCount="indefinite"/>' }) },

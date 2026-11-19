@@ -9,7 +9,8 @@
 const wordsOf = (s) => String(s).toLowerCase().match(/\p{L}+/gu) || [];
 const EN = new Set(['the', 'a', 'an', 'of', 'to', 'and', 'are', 'that', 'it', 'for', 'with', 'as', 'on', 'this', 'by', 'be', 'which', 'what', 'how', 'from', 'its', 'can', 'or', 'when', 'why', 'you', 'your', 'has', 'have', 'into',
     // Question imperatives: a terse card front ("Name the ...", "Identify ...") may hold no other function word.
-    'name', 'identify', 'describe', 'explain', 'define', 'give', 'state', 'list', 'compare', 'calculate', 'find', 'which', 'who', 'where']);
+    // Tuned to card fronts: some (list, state, name) are words in other languages too; the Dutch set still decides.
+    'name', 'identify', 'describe', 'explain', 'define', 'give', 'state', 'list', 'compare', 'calculate', 'find', 'who', 'where']);
 const NL = new Set(['de', 'het', 'een', 'van', 'en', 'zijn', 'voor', 'met', 'dat', 'die', 'niet', 'wordt', 'worden', 'door', 'ook', 'naar', 'bij', 'als', 'wat', 'hoe', 'welke', 'deze', 'dit', 'aan', 'uit', 'je']);
 
 /** null when `text` reads as English, else the reason it does not. */
