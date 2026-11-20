@@ -224,7 +224,8 @@ const feedNode = mkNode('Letters: feed');
 const PART_MARK = 'the van leaves at seven';
 db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'lesson', 1, ?, ?, 'ready')")
     .run(feedNode, `The second paragraph says why: ${PART_MARK} and is back after dark.`, JSON.stringify({ partTitle: 'Why not Thursday' }));
-const at = new Date(Date.now() - 60 * 60000);
+// A fixed instant in the past: the stamp is due whatever the clock reads.
+const at = new Date('2026-01-05T09:00:00Z');
 const stamped = (q) => ({ ...q, unverified: { reason: 'verifier returned nothing usable', tries: 1, at: at.toISOString(), next: new Date(at.getTime() + 15 * 60000).toISOString() } });
 const feedQ = db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'question', 2, ?, ?, 'ready')")
     .run(feedNode, JSON.stringify(stamped({ ...mc, question: 'FEED: when can the writer meet on Friday?', correct_answer: 'Friday morning' })),
