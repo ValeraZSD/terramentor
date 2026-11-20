@@ -359,9 +359,10 @@ export const DIALOG = `document.querySelector('[role="dialog"]')`;
 // ---------------------------------------------------------------------------
 
 export const STATES = {
-    async 'calendar-month'(page, { ids }) {
-        await page.go(`/project/${ids.project}/calendar`, 'Today');
-        await page.press(byText('button', '/^Month$/'), 'the Month view');
+    async 'plan-dialog'(page, { ids }) {
+        await page.go(`/project/${ids.project}/dashboard`, 'Next up');
+        await page.press(byText('button', '/^Open plan/'), 'Open plan');
+        await page.waitFor(DIALOG, 'the plan dialog');
         await sleep(1500);
     },
 

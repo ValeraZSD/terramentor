@@ -110,8 +110,8 @@ check('a named accent resolves to its hex', validateSettingChange('accent_color'
 check('a hex accent is accepted and normalised', validateSettingChange('accent', '#0e7490')?.value === '#0E7490');
 check('ui_scale accepts a plain number', validateSettingChange('ui_scale', '140')?.value === 140);
 check('ui_scale accepts a percent sign', validateSettingChange('ui_scale', '120%')?.value === 120);
-check('the key separator is normalised', validateSettingChange('week start day', 'monday')?.value === 1);
-check('week_start_day accepts sunday', validateSettingChange('week_start_day', 'sunday')?.value === 0);
+check('the key separator is normalised', validateSettingChange('ui scale', '120')?.value === 120);
+check('the retired week_start_day produces nothing', validateSettingChange('week_start_day', 'sunday') === null);
 check('a legacy theme name is refused: a tint now carries it', validateSettingChange('theme', 'warm') === null);
 
 section('the accessibility rows');
@@ -133,7 +133,7 @@ check('reading speed in range, refused outside it',
     && validateSettingChange('speech_rate', '300') === null);
 
 check('every accepted change carries a human label',
-    ['theme:dark', 'accent:red', 'ui_scale:100', 'week_start_day:monday']
+    ['theme:dark', 'accent:red', 'ui_scale:100', 'number_format:auto']
         .every(s => (validateSettingChange(...s.split(':'))?.label || '').length > 4));
 
 section('anything off the whitelist produces NOTHING');
@@ -168,7 +168,7 @@ const partial = splitSettingChanges('Switching now [[set:the', true);
 check('a half-streamed marker does not flash on screen', !partial.body.includes('[['), partial.body);
 
 const many = splitSettingChanges(
-    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:week_start_day:monday]]');
+    '[[set:theme:dark]][[set:accent_color:rose]][[set:ui_scale:120]][[set:number_format:auto]]');
 check('at most three changes per message', many.changes.length === 3, String(many.changes.length));
 
 const dupes = splitSettingChanges('[[set:theme:dark]][[set:theme:light]]');
@@ -207,11 +207,14 @@ check('nor is anything that changes what is measured',
     && validateSettingChange('new_cards_per_day', '200') === null);
 
 section('a screen the assistant offered to open');
-const go = splitDestinations('Everything due is on the calendar.\n\n[[go:calendar]]');
-check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'calendar');
-check('the route is the app own, not the model idea of one', go.destinations[0].path === '/calendar');
+const go = splitDestinations('Every course is on the map.\n\n[[go:atlas]]');
+check('a known screen becomes one destination', go.destinations.length === 1 && go.destinations[0].key === 'atlas');
+check('the route is the app own, not the model idea of one', go.destinations[0].path === '/atlas');
 check('the marker never survives into the text', !go.body.includes('[[go'));
-check('the prose survives', go.body.trim() === 'Everything due is on the calendar.');
+check('the prose survives', go.body.trim() === 'Every course is on the map.');
+const retired = splitDestinations('It was on the calendar.\n\n[[go:calendar]]');
+check('a screen the app no longer has yields no button, and no marker in the text',
+    retired.destinations.length === 0 && retired.body.trim() === 'It was on the calendar.');
 check('a screen that does not exist yields nothing at all',
     splitDestinations('[[go:dashboard]]').destinations.length === 0);
 check('...and is still stripped from the text',

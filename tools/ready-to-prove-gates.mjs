@@ -197,45 +197,9 @@ if (clientRule) {
     eq('client rule: a closed topic is never ready', clientRule({ ...r, status: 'skipped' }, ANCHOR), false);
 }
 
-// The project timeline: the bar still counts the topic as late, and says why.
-const roots = tree.buildTree(payload);
-const items = tree.buildGanttData(roots);
-for (const [key, id] of Object.entries(CASES)) {
-    const item = items.find(i => i.id === id) || {};
-    const shown = item.readyToProve ? 'ready' : item.isOverdue ? 'overdue' : 'none';
-    record('Project timeline', key, shown);
-    eq(`timeline: ${key}`, shown, EXPECTED[key]);
-    if (OPEN_LATE.includes(key)) eq(`timeline still counts ${key} as behind`, item.isOverdue, true);
-    if (key === 'ready') {
-        check('timeline: a ready bar is not red', !/red/.test(item.colorClass || ''), item.colorClass);
-        // …nor the on-time in-progress amber: it is still behind.
-        eq('timeline: a ready bar is the accent', item.colorClass, 'bg-accent');
-    }
-}
-const sectionItem = items.find(i => i.id === section) || {};
-eq('timeline: a section is never ready', !!sectionItem.readyToProve, false);
-
-// ---- the calendar -------------------------------------------------------------
-
-const { buildCalendarRange, buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
-const range = buildCalendarRange(day(-40), day(40));
-for (const [key, id] of Object.entries(CASES)) {
-    if (key === 'notDue') continue; // outside the range by design
-    const task = range.tasks.find(t => t.nodeId === id);
-    const shown = task ? say({ status: task.status, scheduled_end: task.scheduled_end }, ANCHOR, task.provable) : '(absent)';
-    record('Calendar', key, shown);
-    eq(`calendar: ${key}`, shown, EXPECTED[key]);
-}
-// The project calendar builds its chips from the nodes payload; the chip must
-// keep the flag through `assignTasksToDays`.
-const [y, m] = day(-6).split('-').map(Number);
-const days = tree.assignTasksToDays(tree.buildCalendarScaffold(y, m - 1, [1, 2, 3, 4, 5, 6, 7]),
-    tree.leafCalendarTasks(roots));
-const chip = days.flatMap(d => d.tasks).find(t => t.nodeId === CASES.ready);
-check('calendar chip keeps provable through assignTasksToDays', !!chip?.provable, JSON.stringify(chip));
-
 // ---- what the home page and the briefing read --------------------------------
 
+const { buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
 const today = buildTodayData({ today: ANCHOR }).projects.find(p => p.id === projectId);
 for (const key of OPEN_LATE) {
     const task = today?.overdueTasks.find(t => t.id === CASES[key]);
@@ -256,14 +220,17 @@ for (const key of OPEN_LATE.slice(0, 3)) {
 }
 eq('briefing: overdueCount unchanged', briefed?.overdueCount, OPEN_LATE.length);
 
-// ---- the project dashboard ------------------------------------------------------
+// ---- the daily plan (server) ----------------------------------------------------
+// The server's agenda for a course. No screen lists it since the Dashboard's
+// Today's Plan went (study-doors-gates); the endpoint stays, so it still says
+// "ready" where the gate would pass.
 
 const { generateDailyPlan } = await import('../server/dailyPlan.js');
 const plan = generateDailyPlan(projectId, 14, ANCHOR).overdueTasks;
 for (const key of OPEN_LATE) {
     const task = plan.find(t => t.id === CASES[key]);
     const shown = !task ? '(absent)' : task.readyToProve ? 'ready' : 'overdue';
-    record("Dashboard: Today's Plan", key, shown);
+    record('Daily plan (server)', key, shown);
     eq(`daily plan: ${key}`, shown, EXPECTED[key]);
 }
 eq('daily plan: every late topic is still listed', plan.length, OPEN_LATE.length);
@@ -318,28 +285,20 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     check('sidebar: a ready topic with notes under it shows the shield, not its percentage',
         /\(isRoot \? !isNote : hasChildren\) && !untaught[\s\S]{0,400}?!node\.is_note && !readyToProve \?/.test(side));
 
+    // The Dashboard's "Ready to prove (n)" group went with its list of
+    // today's other topics, on purpose (study-doors-gates). A ready topic is
+    // still offered the check by Next up when it is Next up's, and otherwise
+    // by the topic panel (reached from the sidebar's shield, both checked
+    // above) and by the stream's checkpoint card (below).
     const dash = src('src/components/StudyDashboard.tsx');
-    // The plan's lists live in their own file since the dashboard redesign.
-    const plan = src('src/components/dashboard/TodaysPlan.tsx');
     check('dashboard: Next up says ready to prove', /tr\("Ready to prove — it was due \{\{when\}\}\."/.test(dash));
     check('dashboard: Next up offers the check', /openMasteryCheck\(heroTask\.id/.test(dash));
-    check('dashboard: the plan row offers the check', /openMasteryCheck\(task\.id/.test(plan));
-    check('dashboard: the plan lists ready topics apart', /task\.readyToProve/.test(plan) && /t\("Ready to prove \(\{\{length\}\}\)"/.test(plan));
-
-    const cal = src('src/components/calendar/CalendarView.tsx');
-    check('calendar: isReadyToProve decides the chip', /isReadyToProve\(/.test(cal) && /provable: t\.provable/.test(cal));
-    check('calendar: the red body and ring are for late-and-not-known only',
-        /const isLate = [\s\S]{0,200}&& !isReady\(task\)/.test(cal)
-        && /if \(isLate\(task\)\) return `\$\{base\} bg-red-50/.test(cal) && /isLate\(t\) \? 'ring-2 ring-red-500'/.test(cal));
-    // A month chip has no room for the words: its colour and a shield say it.
-    check('calendar: a ready chip has its own accent body and a shield in a month cell',
-        /if \(isReady\(task\)\) return `\$\{base\} bg-accent\/10/.test(cal) && /ready && <ShieldCheck/.test(cal));
-
-    const tl = src('src/components/schedule/ProjectTimeline.tsx');
-    check('timeline: a ready row is not red and says so', /row\.isOverdue && !row\.readyToProve/.test(tl) && /t\("Ready to prove"\)/.test(tl));
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));
+    // The button is a helper: pin both its action and the not-yet-proven
+    // branch that draws it, so removing the call site turns this red.
+    check('checkpoint: offers the check', /onClick=\{startMasteryCheck\}/.test(cp) && /checkButton\('primary'\)/.test(cp));
 
     // ONE way into the check: the hook calls the store's openMasteryGate, and
     // the assistant's button goes through it too.

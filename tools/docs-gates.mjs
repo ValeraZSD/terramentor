@@ -130,8 +130,9 @@ const OTHER_PROGRAMS = [
 /** Names the interface has retired, and what replaced each. */
 const RETIRED = [
     { re: /\bBoss Fight\b/i, now: 'the mastery check' },
-    { re: /\bGantt\b/i, now: 'the timeline and the calendar' },
+    { re: /\bGantt\b/i, now: 'the pace line in the course header and its plan dialog' },
     { re: /\bSchedule (screen|page|tab|view)\b/i, now: 'the dates on each Projects card' },
+    { re: /\b(Timeline|Calendar) (screen|page|tab|view)\b/i, now: 'the pace line in the course header and its plan dialog' },
     { re: /\bhours? (per|a) day\b/i, now: 'study days (there is no hours-a-day setting)' },
     { re: /\*Source\*/, now: '*Code* on a visual\'s toolbar' },
 ];

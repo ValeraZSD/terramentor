@@ -5,7 +5,7 @@
 // order. A new route goes in the block it belongs with.
 import db from '../database.js';
 import {
-    allocateSchedule, calculatePace, cardPlan, lockedDeadlineError, persistSchedule, readStudyDays,
+    allocateSchedule, calculatePace, lockedDeadlineError, persistSchedule, readStudyDays,
     recalibrateSchedule, removeSchedule, scheduleWindowError, countStudyDays,
 } from '../scheduling.js';
 import { projectCountsInCards } from '../progress.js';
@@ -261,9 +261,6 @@ app.get('/api/projects/:id/pace', (req, res) => {
     if (!requireProject(req, res)) return;
     try {
         const pace = calculatePace(id);
-        // A project measured in cards stores no topic dates, so its Timeline
-        // and Calendar draw the plan's sections from here (null otherwise).
-        if (pace.basis === 'cards') pace.cardPlan = cardPlan(id);
         // The date judged against the learner's own pace, and the weeks it was
         // judged from (in the verdict's unit), beside the plan-based numbers.
         const library = libraryPace();

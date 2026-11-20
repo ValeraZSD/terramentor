@@ -150,10 +150,7 @@ const SCREENS = {
     'topic-quizzes': thenPress(topic, `document.querySelector('[data-tab="quizzes"]')`, 'the Quizzes tab'),
     'topic-cards': thenPress(topic, `document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab'),
     lesson: go((ids) => `/project/${ids.project}/study/${ids.study}`, null, 2500),
-    timeline: go((ids) => `/project/${ids.project}/timeline`),
-    calendar: go((ids) => `/project/${ids.project}/calendar`, 'Today'),
     vault: go((ids) => `/project/${ids.project}/vault`),
-    'calendar-all': go('/calendar', 'Today'),
     atlas: go('/atlas', null, 2500),
     'card-front': async (page, ctx) => {
         const study = byText('button', '/^Study [\\d.,\\s]+ cards?$/');

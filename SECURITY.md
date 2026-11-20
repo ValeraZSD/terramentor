@@ -354,10 +354,13 @@ your data at all." Those are different claims and we only make the second one.
   answer has arrived. A job with its own list uses only that list, so text you keep on this
   computer is not carried to a cloud backup; if every connection on that list is removed, the job
   stops and asks you to choose again rather than falling back to the main model. With nothing
-  chosen, every request goes to the connection in use, as above. Each key still goes only to its
-  own service. Beside each model on that screen the server shows its price and, for the job that
-  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
-  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  chosen, every request goes to the connection in use, as above. The job that checks answers is
+  sent the topic's material with each question it checks, as the job that wrote the question was:
+  the topic's Overview, your notes on it and, for a feed question, its lesson part (up to 12,000
+  characters), so a model you choose for checking receives that text too. Each key still goes
+  only to its own service. Beside each model on that screen the server shows its price and, for
+  the job that reads pictures, whether the model can, asked of that model's own connection only:
+  OpenRouter's public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
   Nothing is asked of a provider that publishes neither. The screen also notes when each job last
   moved on to its next model; that note stays in the library and holds only the time, the model's
   name, the kind of failure and its HTTP status.
@@ -977,12 +980,25 @@ Download button hands the file to your browser, and what happens to it after tha
 What it does **not** contain is the point of it: no topic titles, no questions, no answers, no
 notes, no model output, no file names, no paths. A row is a fact about the software, and where
 it refers to something of yours it stores the numeric id. That is the same rule the bug-report
-block follows, and for the same reason: a file you might hand to a stranger for help should
-not need to be read line by line first.
+block follows. The events can go to someone helping you with a problem without being read line
+by line first. The study summary at the top of the file is different: it says how much and when
+you studied, so look at it before you decide who gets the file.
+
+The downloaded file starts with a study summary, worked out from your study record at the
+moment you press Download: study days, study minutes, proven topics, checks taken, questions
+answered, card reviews done in the app, mock exams finished, the number of courses, the first
+study day, and one line per week (days, minutes, checks, answers, reviews) for up to a year.
+It is numbers and dates only: it selects no title, note, card, question, answer or course name,
+so none can be in the file. It is not stored anywhere and is not sent anywhere either; it is
+in the file because the log alone, which keeps only its newest events, cannot show whether
+someone kept studying. Switching the log off or clearing it does not remove the summary from
+the download.
 
 You can switch the recording off in that panel, and Clear deletes every row. The rule is
 enforced in the code, not just here: `tools/activity-log-gates.mjs` scans every call site that
-writes to the log and fails the build if one passes something the learner wrote.
+writes to the log and fails the build if one passes something the learner wrote, and it
+seeds a library full of marked titles, notes, cards, answers and prompts and fails if any
+of them reaches the downloaded file.
 
 ## Reporting a vulnerability
 

@@ -5,9 +5,9 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite, ProjectUpdate, RetentionForecast } from './types';
+import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
 
@@ -1014,7 +1014,9 @@ export const api = {
     },
     clearActivity: () => request<{ success: boolean }>('/activity', { method: 'DELETE' }),
     /** Not a fetch: the browser downloads it, so the file never passes through JS. */
-    activityExportUrl: () => `${BASE}/activity/export`,
+    // A plain link sends no X-Time-Zone header, so the zone rides in the URL:
+    // the summary's days are this device's days (server/routes/settings.js).
+    activityExportUrl: () => { const zone = clientTimeZone(); return `${BASE}/activity/export${zone ? `?tz=${encodeURIComponent(zone)}` : ''}`; },
 
     getSettings: () => request<Record<string, string>>('/settings'),
     setSetting: (key: ClientSettingKey, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
@@ -2368,6 +2370,11 @@ export const api = {
     finishMock: <D = MockDetail>(id: number, { attemptId, fillUnmarked = false }: { attemptId?: string; fillUnmarked?: boolean } = {}) =>
         request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null, fillUnmarked }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
+    // The look back the stream offers (server/lookBack.js): read, start (or reopen), "Not now".
+    getLookBack: (projectId: number) => request<{ offer: LookBackOffer | null }>(`/projects/${projectId}/look-back`),
+    startLookBack: (projectId: number) =>
+        request<{ sitting: MockSitting }>(`/projects/${projectId}/look-back`, { method: 'POST' }),
+    skipLookBack: (projectId: number) => request<{ ok: true }>(`/projects/${projectId}/look-back/skip`, { method: 'POST' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:
     // no document of that title is in the library now).
@@ -2500,10 +2507,6 @@ export const api = {
             method: 'POST',
             body: JSON.stringify({ nodeId, score, total, questions, asked, attemptId, review }),
         }),
-
-    // DAILY PLAN
-    getDailyPlan: (projectId: number) =>
-        request<DailyPlan>(`/projects/${projectId}/daily-plan`),
 
     getGhostQuestions: (projectId: number, max?: number) =>
         request<any[]>(`/projects/${projectId}/ghost-questions${max ? `?max=${max}` : ''}`),
@@ -2638,9 +2641,6 @@ export const api = {
         request<TodayActivity>(`/today/activity${date ? `?date=${date}` : ''}`),
     /** One check or quiz from that ledger, with each answer (server/sittingReview.js). */
     getSittingReview: (evidenceId: number) => request<SittingReview>(`/today/sittings/${evidenceId}`),
-
-    getCalendarRange: (from: string, to: string) =>
-        request<GlobalCalendarData>(`/calendar?from=${from}&to=${to}`),
 
     /** Each project's pace and topic extent, for the dates on its Projects card
      *  (one row per non-archived project). */

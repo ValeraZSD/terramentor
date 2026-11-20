@@ -21,10 +21,7 @@ export const READY = {
     'topic-quizzes': `document.querySelector('[data-tab="quizzes"].border-accent')`,
     'topic-cards': `document.querySelector('[data-tab="flashcards"].border-accent')`,
     lesson: `document.querySelector('main h1') && document.querySelector('main .prose :is(h2, h3, p)')`,
-    timeline: `document.querySelector('main [aria-label^="Collapse "]')`,
-    calendar: `document.querySelector('[aria-label="Calendar"] [data-node-id]')`,
     vault: `document.body.innerText.includes('Drop files or click to upload')`,
-    'calendar-all': `document.querySelector('[aria-label="Calendar"] [data-node-id]')`,
     // A phone keeps the region list in a closed sheet: the count line is drawn
     // on both, and reads all zeros until the library has arrived.
     atlas: `document.querySelector('[role="application"]') && /[1-9]/.test((document.body.innerText.match(/\\d+ proven · \\d+ in progress · \\d+ not started/) || [''])[0])`,

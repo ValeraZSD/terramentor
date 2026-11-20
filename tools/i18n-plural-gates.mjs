@@ -154,7 +154,7 @@ const SAME_SINCE_PLURAL_SWEEP = {
         '{{resourceCount}} links', '{{thinkingChars}} characters', '{{times}} times', '{{totalResources}} links',
         '{{width}} × {{height}} pixels', 'Building widget…', 'Designing the widget…', 'Drawing…', 'Generating…',
         'Planning the scene…', 'Reasoning…', 'The model reasoned for'],
-    fr: ['({{length}} chars)', '{{chars}} chars', '{{rows}} of {{max}} events', '{{shown}} of {{total}} rows', '{{times}} times'],
+    fr: ['({{length}} chars)', '{{chars}} chars', '{{rows}} of {{max}} events', '{{times}} times'],
     it: ['{{width}} × {{height}} pixels', 'Add {{length}} files', 'One loop,'],
     nl: ['{{resourceCount}} links', '{{times}} times', '{{totalResources}} links'],
     pl: ['{{seconds}} seconds', 'You reviewed all {{length}} flashcards'],
@@ -166,13 +166,6 @@ const SAME_SINCE_PLURAL_SWEEP = {
         'Predicted {{p}}%', 'You reviewed all {{length}} flashcards'],
 };
 for (const [loc, list] of Object.entries(SAME_SINCE_PLURAL_SWEEP)) SAME_BY_DESIGN[loc] = [...(SAME_BY_DESIGN[loc] || []), ...list];
-
-// The calendar's late counts ("4 overdue", "1 ready to prove"): the count sits
-// beside an ADJECTIVE, and English, German, Dutch and French "en retard" do not
-// inflect one; the Slavic labels avoid agreement with a colon ("Просрочено: 4").
-const SAME_LATE_COUNTS = ['{{count}} overdue', '{{count}} ready to prove'];
-for (const loc of ['en', 'de', 'nl', 'pl', 'ru', 'uk']) SAME_BY_DESIGN[loc] = [...(SAME_BY_DESIGN[loc] || []), ...SAME_LATE_COUNTS];
-SAME_BY_DESIGN.fr = [...SAME_BY_DESIGN.fr, '{{count}} overdue'];
 
 // English's own singular is written by hand, so it gets the same check as every
 // locale: a hand-written `_one` is exactly where "1 sections" appears.

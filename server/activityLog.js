@@ -238,11 +238,14 @@ export function activityStats() {
  * Streamed in pages: the export of a full table must not build a 20k-element
  * string array in memory on a machine that is already the constraint.
  */
-export function* streamActivityLog({ pageSize = 1000 } = {}) {
+export function* streamActivityLog({ pageSize = 1000, now = Date.now(), preamble = [] } = {}) {
     const stats = activityStats();
     yield `# Terramentor activity log — ${stats.rows} event(s)\n`;
-    yield `# exported ${new Date().toISOString()}\n`;
-    yield '# No topic titles, prompts, notes or model output are recorded here — only what the software did.\n';
+    yield `# exported ${new Date(now).toISOString()}\n`;
+    yield '# No topic titles, prompts, notes, answers or model output are in this file: the summary is counts, the events are what the software did.\n';
+    // `#` lines between the header and the events: the study summary
+    // (server/studySummary.js), which this module never reads or writes.
+    for (const line of preamble) yield line;
     yield '# time                     level area     event                detail\n';
     const page = db.prepare(`
         SELECT id, at, level, area, event, detail, ms, project_id, node_id

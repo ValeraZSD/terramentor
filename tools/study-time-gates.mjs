@@ -564,6 +564,7 @@ for (const [file, why] of [
     ['src/components/QuizView.tsx', 'a practice quiz'],
     ['src/components/MasteryGateModal.tsx', 'the mastery check'],
     ['src/components/PlacementModal.tsx', 'placement'],
+    ['src/components/mockExam/CourseMock.tsx', 'a mock or look back from the course'],
 ]) {
     check(`${why} claims the clock (${file})`, /useStudyClock\(/.test(src(file)));
 }
