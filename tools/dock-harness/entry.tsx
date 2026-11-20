@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { act as domAct } from 'react';
 import TaskDock from '../../src/components/TaskDock';
 import { useStore } from '../../src/store';
-import { taskPlace, taskEta, durationParts } from '../../src/utils/taskPlace';
+import { taskPlace, placeRoute, taskEta, durationParts } from '../../src/utils/taskPlace';
 
 const act: any = (React as any).act || domAct;
 
@@ -18,7 +18,7 @@ const act: any = (React as any).act || domAct;
 // The place table and the time-left arithmetic, as modules: where a chip goes
 // is data, and an estimate that is wrong is worse than no estimate, so both are
 // measured directly as well as through the dock.
-(globalThis as any).__place = { taskPlace, taskEta, durationParts };
+(globalThis as any).__place = { taskPlace, placeRoute, taskEta, durationParts };
 (globalThis as any).__mount = (el: HTMLElement) => {
     const root = createRoot(el);
     act(() => { root.render(React.createElement(TaskDock as any)); });

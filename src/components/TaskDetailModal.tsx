@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useTapGuard } from '../hooks/useTapGuard';
@@ -27,9 +27,20 @@ import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
  * So a press on a chip opens this, never the task's screen: the dock floats
  * over whatever the reader is doing, and a press that navigated took them off
  * that page. The way to the screen is this dialog's first button. A failed
- * chip opens its failure record instead. The controls come with the facts: a runaway background job is stopped from where you noticed
+ * chip with a failure report opens that report instead. The controls come
+ * with the facts: a runaway background job is stopped from where you noticed
  * it, not from wherever it was configured.
  */
+
+const readLocation = () => window.location.pathname + window.location.hash;
+const subscribeLocation = (onChange: () => void) => {
+    window.addEventListener('popstate', onChange);
+    window.addEventListener('hashchange', onChange);
+    return () => {
+        window.removeEventListener('popstate', onChange);
+        window.removeEventListener('hashchange', onChange);
+    };
+};
 
 /** How the state reads, as a whole word rather than a colour. */
 function statusKey(task: AITaskSummary): string {
@@ -145,6 +156,9 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
     // Read from `window.location` (the app runs a BrowserRouter with no base),
     // because the dialog is also mounted where no router is: the dock harness.
     const assistantOpen = useStore(s => s.assistantOpen);
+    // Where the reader is, kept current while the record stays open: Back,
+    // Forward or a hash change move them without closing it.
+    const where = useSyncExternalStore(subscribeLocation, readLocation);
     const here = (() => {
         if (!place) return false;
         if (place.go === 'assistant') return assistantOpen;
@@ -152,8 +166,11 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
         if (!route) return false;
         const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
         const [path, fragment] = route.split('#');
-        const { pathname, hash } = window.location;
-        return trim(path) === trim(pathname) && (fragment === undefined || hash === `#${fragment}`);
+        const [pathname, hash = ''] = where.split('#');
+        // A section's own sub-anchor (`#ai/models-jobs` under `#ai`) is
+        // still that section: the button would go nowhere from there.
+        return trim(path) === trim(pathname)
+            && (fragment === undefined || hash === fragment || hash.startsWith(`${fragment}/`));
     })();
 
     const goThere = () => {

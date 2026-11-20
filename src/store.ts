@@ -2873,17 +2873,16 @@ export const useStore = create<AppState>((set, get) => ({
         if (!place) return false;
         const nav = get()._navigate;
         switch (place.go) {
+            // One copy of each page's address: the record's "already here"
+            // check reads the same placeRoute(), so the two cannot drift.
             case 'node':
-                get().openProjectNode(place.projectId!, place.nodeId!);
-                return true;
             case 'project':
-                if (!nav) return false;
-                nav(placeRoute(place)!);
+            case 'route': {
+                const route = placeRoute(place);
+                if (!nav || !route) return false;
+                nav(route);
                 return true;
-            case 'route':
-                if (!nav) return false;
-                nav(place.route!);
-                return true;
+            }
             // The planner's own surface is a DRAWER over whatever is on
             // screen, so reaching it must not navigate: sending the reader to
             // '/' would take them off their page and still not open the drawer,

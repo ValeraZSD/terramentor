@@ -707,16 +707,72 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     const planner = { kind: 'today_chat', projectId: null, nodeId: null };
     check('"Open the assistant" is offered only while the drawer is shut',
         [await offersGo(ELSEWHERE, planner, false), await offersGo(ELSEWHERE, planner, true)], [true, false]);
+    const insights = { kind: 'insights', projectId: 7, nodeId: null };
+    check('a project\'s task counts on that project\'s dashboard only',
+        [await offersGo('/project/7/dashboard', insights), await offersGo('/project/7/tree/42', insights)], [false, true]);
+    const atlas = { kind: 'atlas', projectId: null, nodeId: null };
+    check('a page with no section counts on that page only',
+        [await offersGo('/atlas', atlas), await offersGo('/atlas#x', atlas), await offersGo(ELSEWHERE, atlas)], [false, false, true]);
+    check('a section\'s own sub-anchor still counts as that section',
+        [await offersGo('/settings#ai/models-jobs', embed), await offersGo('/settings#aix', embed)], [false, true]);
+    check('a creation run is offered even from the projects page',
+        await offersGo('/projects', { kind: 'create_project', projectId: null, nodeId: null }), true);
+
+    // Back or Forward while the record is open moves the reader without
+    // closing it; the button follows where they now are.
+    window.history.pushState({}, '', '/project/7/tree/43');
+    globalThis.__pushTasks([]);
+    globalThis.__pushTasks([runningTask(quizOn42)]);
+    await click(openButton());
+    const goShown = () => !!$$('[role=dialog]')[0]?.querySelector('[data-task-go]');
+    const before = goShown();
+    window.history.pushState({}, '', '/project/7/tree/42');
+    await act(() => window.dispatchEvent(new window.PopStateEvent('popstate')));
+    check('the record\'s button follows Back/Forward while it is open', [before, goShown()], [true, false]);
+    if ($$('[role=dialog]').length) escape();
+    window.history.pushState({}, '', ELSEWHERE);
+
+    // One address per page: where the record's button goes is the address its
+    // "already here" check compares, for every kind and both id shapes.
+    const { taskPlace: placeOf, placeRoute: routeOf } = globalThis.__place;
+    const drift = [];
+    for (const kind of [...serverKinds].sort()) {
+        for (const ids of [{ projectId: 7, nodeId: 42 }, { projectId: null, nodeId: null }]) {
+            const t = runningTask({ kind, ...ids });
+            const place = placeOf(t);
+            const want = place ? routeOf(place) : null;
+            if (!want) continue;
+            const got = (await press({ kind, ...ids })).routes;
+            if (JSON.stringify(got) !== JSON.stringify([want])) drift.push(`${kind} ${ids.projectId}: ${got} vs ${want}`);
+        }
+    }
+    check('every page place is reached by the address the record compares', drift, []);
+
+    // The chip is ONE control plus its ✕: the badge is inside the button, and
+    // the button says it opens a dialog.
+    globalThis.__pushTasks([]);
+    globalThis.__pushTasks([runningTask(quizOn42)]);
+    const chipEl = openButton()?.parentElement;
+    check('a chip holds exactly two buttons: open and ✕',
+        chipEl ? [...chipEl.querySelectorAll('button')].length : -1, 2);
+    check('the chip button announces a dialog', openButton()?.getAttribute('aria-haspopup'), 'dialog');
 
     // A failure that came with no report opens the record, which carries the
     // error text, rather than a press that opens nothing.
     globalThis.__pushTasks([]);
-    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: null, finishedAt: ago(1000) })]);
+    const lostAt = ago(1000);
+    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: null, finishedAt: lostAt })]);
     await click(openButton());
     dialog = $$('[role=dialog]')[0];
     check('a failure with no report opens the record with its error',
         [!!dialog, !!dialog?.textContent.includes('the model went away')], [true, true]);
     if ($$('[role=dialog]').length) escape();
+    // Its report can arrive on a later snapshot with nothing else changed; the
+    // chip must re-render, or the press keeps opening the record.
+    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: { stage: 'generate', summary: 'Gone', detail: '', fixes: [] }, finishedAt: lostAt })]);
+    check('a report arriving later turns the chip into "Why … failed"',
+        !!$$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Why')), true);
+    globalThis.__pushTasks([]);
 
     // A drawing repaired inside a topic's Overview goes back to the topic.
     check('an Overview repair opens its topic',

@@ -108,8 +108,9 @@ function reducedMotion(): boolean {
  * (grey while queued), the task label, and live progress (percent where a
  * real total exists, character counts otherwise). Clicking a chip opens the
  * task's record, whose first button goes to the surface the task belongs to;
- * ✕ cancels an active task or dismisses a finished one. Navigating away never cancels anything — generations run
- * server-side and the queue advances on its own.
+ * ✕ cancels an active task or dismisses a finished one. Navigating away never
+ * cancels anything — generations run server-side and the queue advances on
+ * its own.
  */
 
 
@@ -254,7 +255,8 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     const active = task.status === 'running' || task.status === 'queued';
     const failed = task.status === 'error';
     // A failure WITH its report opens the report; one without opens the record,
-    // which carries the error text.
+    // which carries the error text. A record already open when its task fails
+    // stays open and shows that text; the report is the next press on the chip.
     const diagnosed = failed && !!task.failure;
     const { vars: accentVars, dot: dotColor } = useTaskAccent(task.projectColor);
 
@@ -411,6 +413,8 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
         && x.label === y.label
         && x.projectColor === y.projectColor
         && x.error === y.error
+        // Decides what a press opens (report or record) and the chip's name.
+        && !!x.failure === !!y.failure
         && x.progress.percent === y.progress.percent
         && x.progress.content === y.progress.content
         && x.progress.thinking === y.progress.thinking
