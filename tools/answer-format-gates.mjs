@@ -1176,7 +1176,7 @@ section('assemble: a half-built answer still reads as the sentence it builds');
         check(`sequence layout — ${name}`, sequenceAsTiles(items) === want, `got ${sequenceAsTiles(items)}, want ${want}`);
     }
     const sequence = readFileSync(new URL('../src/components/answer/SequenceInput.tsx', import.meta.url), 'utf8');
-    check('sequence tiles only with a mouse: a phone keeps the up/down list', /useCanHover\(\)\s*&&\s*sequenceAsTiles\(/.test(sequence));
+    check('sequence tiles only with a mouse: a phone keeps the up/down list', /\btiles\s*=[^;]*\buseCanHover\(\)[^;]*\bsequenceAsTiles\(/.test(sequence));
     const ROOT = 16;
     const cases = [
         ['four short numbers on a laptop: one row', 4, 45, 632, 4],
