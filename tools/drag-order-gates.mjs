@@ -319,7 +319,9 @@ check('the board has exactly one', (board.match(/<DndContext/g) ?? []).length ==
 for (const file of ['NodeTree', 'Sidebar']) {
     const body = src(`src/components/${file}.tsx`);
     const at = body.indexOf('await moveNode(');
-    const opened = body.lastIndexOf('setExpanded(', at);
+    // `openForNow`: the open lasts the visit, not kept as the learner's choice
+    // (tools/expansion-gates.mjs pins which).
+    const opened = Math.max(body.lastIndexOf('openForNow(', at), body.lastIndexOf('setExpanded(', at));
     check(`${file} opens the drop target before the write`, at > -1 && opened > -1 && at - opened < 200, `${at - opened} chars apart`);
 }
 
