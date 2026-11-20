@@ -138,7 +138,7 @@ export default function ActivityLogPanel() {
             {/* Said before the button, not after the file is open: the
                 download carries the study summary (server/studySummary.js). */}
             <SettingNote className="mt-1">
-                {tr("The download starts with a summary of how much and when you studied, in numbers only: study days, minutes, topics proven by a check, checks and card reviews, one line per week. Nothing is sent anywhere; you decide who gets the file.")}
+                {tr("The download starts with a summary of how much and when you studied, in numbers only: study days, minutes, topics proven by a check, checks and card reviews, one line per week. Nothing is sent automatically; you decide who gets the file.")}
             </SettingNote>
 
             {/* What filters and re-reads the list sits ABOVE it; what takes the
