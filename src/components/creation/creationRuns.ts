@@ -569,7 +569,9 @@ function applySnapshot(key: string, g: Snapshot) {
         treeSig.set(key, sig);
         api.getNodes(g.projectId).then(nodes => {
             if (treeSig.get(key) !== sig) return; // a newer tick won
-            const tree = buildLiveTreeFromDB(nodes as any, g);
+            const built = buildLiveTreeFromDB(nodes as any, g);
+            // A short course's top-level rows are topics, drawn as on its stream.
+            const tree = g.shape === 'short' ? built.map(node => ({ ...node, depth: 1 })) : built;
             patch(key, () => ({ tree: g.outcome === 'complete' ? markAllCreated(tree) : tree }));
         }).catch(() => { /* the next tick retries */ });
     }
