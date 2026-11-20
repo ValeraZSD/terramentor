@@ -507,6 +507,7 @@
         "Settings · top-right",
         "Skip to content · top-left",
         "Study next · middle-left",
+        "Study {{name}} · middle-left",
         "Terra · top-right",
         "The same library as a planet you can turn · top-right",
         "The whole library on one sheet · top-right",
