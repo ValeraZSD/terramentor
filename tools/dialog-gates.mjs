@@ -721,7 +721,7 @@ const task = {
     startedAt: new Date().toISOString(), finishedAt: null, progress: { phase: 'writing', message: null, thinkingChars: 0, contentChars: 0, percent: null },
     queuePosition: null, error: null, origin: null,
 };
-await holdsTheContract('Task details', mountedSurface((onClose) => h(surfaces.TaskDetailModal, { task, onClose, onDismiss() { }, onShowFailure() { } })));
+await holdsTheContract('Task details', mountedSurface((onClose) => h(surfaces.TaskDetailModal, { task, onClose, onDismiss() { } })));
 const failure = {
     message: 'The model returned an empty response', name: 'Error', at: new Date().toISOString(), kind: 'quiz', label: 'Quiz: Waves',
     projectId: 1, nodeId: 2, origin: null, phase: 'writing', lastMessage: null, produced: { thinkingChars: 0, contentChars: 0, percent: null },
@@ -1109,7 +1109,7 @@ section('the mastery check keeps a half-answered sitting, and a failed send keep
     section('a drag that ends on the backdrop does not close a dialog; a tap on it does');
     for (const [label, name, make] of [
         ['Bulk generate', BULK, (onClose) => h(surfaces.BulkGenerateModal, { projectId: 1, onClose })],
-        ['Task details', 'Task details', (onClose) => h(surfaces.TaskDetailModal, { task, onClose, onDismiss() { }, onShowFailure() { } })],
+        ['Task details', 'Task details', (onClose) => h(surfaces.TaskDetailModal, { task, onClose, onDismiss() { } })],
         ['Task failure', 'Generation failure details', (onClose) => h(surfaces.TaskFailureModal, { failure, onClose, onOpenOrigin() { } })],
     ]) {
         globalThis.__api = { getBulkCandidates: async () => ({ candidates: [], max: 60 }), getBulkStatus: async () => null };
