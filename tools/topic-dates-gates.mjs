@@ -172,7 +172,7 @@ const home = buildTodayData({ today: morning }).projects;
 const homeOf = (id) => home.find(p => p.id === id);
 const firstOpen = homeOf(pid)?.todayTasks.find(t => t.id === topics[4]);
 const pastTasks = [...(homeOf(past)?.todayTasks ?? []), ...(homeOf(past)?.overdueTasks ?? [])];
-check('Today lists the derived day\'s topic', firstOpen?.scheduled_start === morning && !pastTasks.some(t => t.id === pa),
+check('Today lists the derived day\'s topic', firstOpen?.scheduled_start === morning && !!homeOf(past) && !pastTasks.some(t => t.id === pa),
     JSON.stringify(homeOf(pid)?.todayTasks.map(t => [t.id, t.scheduled_start])));
 const plan = generateDailyPlan(pid, 14, later);
 check('the daily plan lists no overdue topic after a missed week', plan.overdueTasks.length === 0, JSON.stringify(plan.overdueTasks));

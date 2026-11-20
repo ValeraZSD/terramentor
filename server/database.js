@@ -1514,7 +1514,7 @@ try {
 
   // Notes are reference material, never work items — strip any schedule dates that
   // earlier scheduling runs may have left on them so they stop leaking into the
-  // calendar / pace / daily plan as phantom tasks. Idempotent.
+  // pace / daily plan / Today as phantom tasks. Idempotent.
   try {
     const fixed = db.prepare(
       `UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL
