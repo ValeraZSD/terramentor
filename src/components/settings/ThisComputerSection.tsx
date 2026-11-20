@@ -186,6 +186,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 </div>
                                 <SegmentedControl
                                     className="self-start"
+                                    block="narrow"
                                     label={tr("When it starts with the computer")}
                                     value={desktop.autostartWindow || 'hidden'}
                                     onChange={async mode => {
@@ -220,7 +221,11 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 // And no `shrink-0`, which the Button rows beside it
                                 // carry: this one is allowed to lose width and wrap
                                 // rather than push the sentence it belongs to narrow.
+                                // `block="narrow"`: alone on its line in the phone-width
+                                // column, it fills it; beside its sentence from `sm:` up
+                                // (a flex row) it keeps its own width.
                                 className="self-start"
+                                block="narrow"
                                 label={tr("How the window opens")}
                                 value={desktop.windowMode || 'maximized'}
                                 onChange={async mode => {

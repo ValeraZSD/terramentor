@@ -276,6 +276,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
     const selectNode = useStore(s => s.selectNode);
     const setFocusedNode = useStore(s => s.setFocusedNode);
     const setExpanded = useStore(s => s.setExpanded);
+    const openForNow = useStore(s => s.openForNow);
     const toggleAllExpanded = useStore(s => s.toggleAllExpanded);
     const sidebarWidth = useStore(s => s.sidebarWidth);
     const setSidebarWidth = useStore(s => s.setSidebarWidth);
@@ -369,8 +370,9 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         if (moveChangesPlace(useStore.getState().nodes, currentActiveId, newParentId, position)) {
             flashAfterDrop(`node:${currentActiveId}`);
         }
-        // Open the target before the write, so the row lands in sight.
-        if (newParentId != null) setExpanded(newParentId, true);
+        // Open the target before the write, so the row lands in sight. For
+        // this visit only: the move is the choice, not the open.
+        if (newParentId != null) openForNow(newParentId, currentActiveId);
         await moveNode(currentActiveId, newParentId, position);
     };
 

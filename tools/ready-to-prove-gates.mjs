@@ -197,24 +197,6 @@ if (clientRule) {
     eq('client rule: a closed topic is never ready', clientRule({ ...r, status: 'skipped' }, ANCHOR), false);
 }
 
-// The project timeline: the bar still counts the topic as late, and says why.
-const roots = tree.buildTree(payload);
-const items = tree.buildGanttData(roots);
-for (const [key, id] of Object.entries(CASES)) {
-    const item = items.find(i => i.id === id) || {};
-    const shown = item.readyToProve ? 'ready' : item.isOverdue ? 'overdue' : 'none';
-    record('Project timeline', key, shown);
-    eq(`timeline: ${key}`, shown, EXPECTED[key]);
-    if (OPEN_LATE.includes(key)) eq(`timeline still counts ${key} as behind`, item.isOverdue, true);
-    if (key === 'ready') {
-        check('timeline: a ready bar is not red', !/red/.test(item.colorClass || ''), item.colorClass);
-        // …nor the on-time in-progress amber: it is still behind.
-        eq('timeline: a ready bar is the accent', item.colorClass, 'bg-accent');
-    }
-}
-const sectionItem = items.find(i => i.id === section) || {};
-eq('timeline: a section is never ready', !!sectionItem.readyToProve, false);
-
 // ---- the calendar -------------------------------------------------------------
 
 const { buildCalendarRange, buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
@@ -226,13 +208,6 @@ for (const [key, id] of Object.entries(CASES)) {
     record('Calendar', key, shown);
     eq(`calendar: ${key}`, shown, EXPECTED[key]);
 }
-// The project calendar builds its chips from the nodes payload; the chip must
-// keep the flag through `assignTasksToDays`.
-const [y, m] = day(-6).split('-').map(Number);
-const days = tree.assignTasksToDays(tree.buildCalendarScaffold(y, m - 1, [1, 2, 3, 4, 5, 6, 7]),
-    tree.leafCalendarTasks(roots));
-const chip = days.flatMap(d => d.tasks).find(t => t.nodeId === CASES.ready);
-check('calendar chip keeps provable through assignTasksToDays', !!chip?.provable, JSON.stringify(chip));
 
 // ---- what the home page and the briefing read --------------------------------
 
@@ -325,18 +300,6 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     check('dashboard: Next up offers the check', /openMasteryCheck\(heroTask\.id/.test(dash));
     check('dashboard: the plan row offers the check', /openMasteryCheck\(task\.id/.test(plan));
     check('dashboard: the plan lists ready topics apart', /task\.readyToProve/.test(plan) && /t\("Ready to prove \(\{\{length\}\}\)"/.test(plan));
-
-    const cal = src('src/components/calendar/CalendarView.tsx');
-    check('calendar: isReadyToProve decides the chip', /isReadyToProve\(/.test(cal) && /provable: t\.provable/.test(cal));
-    check('calendar: the red body and ring are for late-and-not-known only',
-        /const isLate = [\s\S]{0,200}&& !isReady\(task\)/.test(cal)
-        && /if \(isLate\(task\)\) return `\$\{base\} bg-red-50/.test(cal) && /isLate\(t\) \? 'ring-2 ring-red-500'/.test(cal));
-    // A month chip has no room for the words: its colour and a shield say it.
-    check('calendar: a ready chip has its own accent body and a shield in a month cell',
-        /if \(isReady\(task\)\) return `\$\{base\} bg-accent\/10/.test(cal) && /ready && <ShieldCheck/.test(cal));
-
-    const tl = src('src/components/schedule/ProjectTimeline.tsx');
-    check('timeline: a ready row is not red and says so', /row\.isOverdue && !row\.readyToProve/.test(tl) && /t\("Ready to prove"\)/.test(tl));
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));

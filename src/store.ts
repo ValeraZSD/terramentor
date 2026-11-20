@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, WeekStartDay, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
 import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
-import { buildTree, getNodePath } from './utils/tree';
+import { buildTree, getNodePath, todayStr } from './utils/tree';
+import { ruleExpansion, applyChoices, withChoices, choicesFromLegacy, choicesFromStorage, ExpansionChoices } from './utils/defaultExpansion';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
@@ -29,7 +30,7 @@ import {
     AtlasSettings, ATLAS_SETTINGS_KEY, DEFAULT_ATLAS_SETTINGS, normalizeAtlasSettings,
 } from './components/atlas/atlasSettings';
 
-type View = 'today' | 'projects' | 'workspace' | 'settings' | 'calendar' | 'atlas';
+type View = 'today' | 'projects' | 'workspace' | 'settings' | 'atlas';
 /**
  * TWO QUESTIONS, NOT FOUR ANSWERS.
  *
@@ -84,14 +85,14 @@ export const themeKeyOf = (theme: Theme, tint: string) => `${theme}:${tint}`;
  *  comparison it now is, because ninety-odd call sites read it and the day the
  *  axis grows a third answer is not the day to find them. */
 export const isDarkTheme = (t: Theme): boolean => t === 'dark';
-export type WorkspaceView = 'dashboard' | 'tree' | 'timeline' | 'calendar' | 'vault' | 'study' | 'exam';
+export type WorkspaceView = 'dashboard' | 'tree' | 'vault' | 'study' | 'exam';
 
 /** The in-workspace views, used to validate the `:view` URL segment. `study`
  *  is the LEARNING view of a course: the feed scoped to the whole project
  *  (`/project/:id/study`) or to one topic (`/project/:id/study/:nodeId`).
  *  Every other view administers the course; this one teaches it. */
 export const VALID_WORKSPACE_VIEWS: ReadonlySet<WorkspaceView> = new Set<WorkspaceView>([
-    'dashboard', 'tree', 'timeline', 'calendar', 'vault', 'study', 'exam',
+    'dashboard', 'tree', 'vault', 'study', 'exam',
 ]);
 
 /** THREE SCOPES, ONE STREAM — defined in types.ts (api.ts names it too),
@@ -344,7 +345,11 @@ const applyIcon = (icon: AppIcon) => {
     patchThemeCache({ iconHref: href });
 };
 
-const EXPANSION_STORAGE_KEY = 'terramentor-expansion';
+/** Before the expansion rule: every branch's state, defaults included. Read
+ *  once into the choices below, then removed. */
+const LEGACY_EXPANSION_KEY = 'terramentor-expansion';
+/** The learner's own opens and closes (`ExpansionChoice`), across courses. */
+const EXPANSION_CHOICES_KEY = 'terramentor-expansion-choices';
 
 /** This device has seen the library past its welcome screen. Only a shortcut
  *  for the first paint: the settings row is the answer, and overwrites it. */
@@ -462,20 +467,70 @@ let updateWritesStarted = 0;
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
 
-const loadExpansionState = (): Record<number, boolean> => {
+/** The choices when storage refuses them (private mode, a full quota): they
+ *  last as long as the tab. */
+let expansionFallback: ExpansionChoices = {};
+/** Set once storage refused a write: from then on what it holds is older than
+ *  the fallback, and reading it back would drop the choices made since. */
+let expansionStorageRefused = false;
+
+const saveExpansionChoices = (choices: ExpansionChoices): boolean => {
+    expansionFallback = choices;
     try {
-        const stored = localStorage.getItem(EXPANSION_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : {};
+        localStorage.setItem(EXPANSION_CHOICES_KEY, JSON.stringify(choices));
+        expansionStorageRefused = false;
+        return true;
     } catch {
-        return {};
+        expansionStorageRefused = true;
+        return false;
     }
 };
 
-const saveExpansionState = (expanded: Record<number, boolean>) => {
+/** Read afresh each time, never cached: another tab may have kept a choice
+ *  since, and a stale copy written back would undo it. */
+const loadExpansionChoices = (): ExpansionChoices => {
+    if (expansionStorageRefused) return expansionFallback;
     try {
-        localStorage.setItem(EXPANSION_STORAGE_KEY, JSON.stringify(expanded));
+        const stored = localStorage.getItem(EXPANSION_CHOICES_KEY);
+        const legacy = localStorage.getItem(LEGACY_EXPANSION_KEY);
+        if (stored !== null) {
+            if (legacy !== null) dropLegacyExpansion();
+            return choicesFromStorage(stored);
+        }
+        if (legacy === null) return expansionFallback;
+        // The old map goes only once its choices are safely kept.
+        const migrated = choicesFromLegacy(legacy);
+        if (saveExpansionChoices(migrated)) dropLegacyExpansion();
+        return migrated;
     } catch {
+        return expansionFallback;
     }
+};
+
+/** A removal that fails leaves the old map for the next read to drop; it
+ *  must not throw away the choices already read. */
+const dropLegacyExpansion = () => {
+    try { localStorage.removeItem(LEGACY_EXPANSION_KEY); } catch { /* next read */ }
+};
+
+/** Category cards `openForNow` opened, each with the row it was opened to
+ *  show (null when not known): that card brings the row into view instead of
+ *  starting at its first unfinished one. Only a category card asks, so only
+ *  a category is kept; opening a course forgets them all. */
+const openedForNow = new Map<number, number | null>();
+/** The row `openForNow` opened this card to show, once; null if it did not. */
+export const takeOpenedForNow = (id: number): { row: number | null } | null => {
+    if (!openedForNow.has(id)) return null;
+    const row = openedForNow.get(id) ?? null;
+    openedForNow.delete(id);
+    return { row };
+};
+
+/** Keep the learner's own open or close of these branches for later visits,
+ *  against the rule as the course stands now: a topic finished since the
+ *  page opened has already moved it. */
+const rememberExpansion = (tree: TreeNode[], changes: Record<number, boolean>) => {
+    saveExpansionChoices(withChoices(loadExpansionChoices(), changes, ruleExpansion(tree, todayStr())));
 };
 
 interface AppState {
@@ -572,11 +627,7 @@ interface AppState {
     loading: boolean;
     sidebarWidth: number;
     detailPanelWidth: number;
-    /** Which day a week starts on, in every calendar. A preference, not view
-     *  state: living inside the calendar component would reset it to Monday on
-     *  every navigation and cost a permanent toolbar toggle. */
-    weekStartDay: WeekStartDay;
-    /** Single-key shortcuts (`a`, the calendar letters, Space, 1-4, `z`) on or off. */
+    /** Single-key shortcuts (`a`, Space, 1-4, `z`) on or off. */
     keyShortcuts: boolean;
     /** What colour means on the atlas: how much is proven, or which course a
      *  topic belongs to. A preference rather than view state — a map you have
@@ -733,6 +784,9 @@ interface AppState {
     loadProjectData: (id: number) => Promise<void>;
     /** Expand a node's ancestors so views can scroll it into view. */
     revealNode: (id: number) => void;
+    /** Open one branch for this visit only: the app showing where a row it
+     *  just added or moved went (`row`), which is no choice of the learner's to keep. */
+    openForNow: (id: number, row?: number | null) => void;
     /**
      * The mastery check modal, opened from anywhere — a completion the server
      * intercepted, or the learner choosing to prove a topic. `projectId` and
@@ -840,7 +894,6 @@ interface AppState {
     setUiLanguage: (code: string) => Promise<void>;
     setSidebarWidth: (width: number) => Promise<void>;
     setDetailPanelWidth: (width: number) => Promise<void>;
-    setWeekStartDay: (day: WeekStartDay) => Promise<void>;
     setKeyShortcuts: (on: boolean) => Promise<void>;
     setNumberFormat: (style: string) => Promise<void>;
     setAtlasColorMode: (mode: AtlasColorMode) => Promise<void>;
@@ -886,13 +939,16 @@ interface AppState {
     expandAll: () => void;
     collapseAll: () => void;
     toggleAllExpanded: () => void;
+    /** Open or close every branch of the open course, kept as the learner's choice. */
+    setAllExpanded: (open: boolean) => void;
     setExpanded: (id: number, value: boolean) => void;
     createProject: (projectData: Partial<Project>) => Promise<Project>;
     /** False when the server refused the edit; the toast has already said why. */
     updateProject: (id: number, updates: ProjectUpdate) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
-    createNode: (nodeData: Partial<Node>) => Promise<void>;
+    /** The created node, or null when the write failed (a toast says so). */
+    createNode: (nodeData: Partial<Node>) => Promise<Node | null>;
     updateNode: (id: number, updates: Partial<Node> & { override?: boolean }) => Promise<boolean>;
     skipNode: (id: number) => Promise<boolean>;
     deleteNode: (id: number) => Promise<void>;
@@ -1017,11 +1073,10 @@ export const useStore = create<AppState>((set, get) => ({
     selectedNodeId: null,
     focusedNodeId: null,
     resources: [],
-    expanded: loadExpansionState(),
+    expanded: {},
     loading: false,
     sidebarWidth: 256,
     detailPanelWidth: 420,
-    weekStartDay: 1,
     keyShortcuts: true,
     atlasColorMode: 'course',
     atlasSurface: 'map',
@@ -1211,7 +1266,6 @@ export const useStore = create<AppState>((set, get) => ({
         if (view === 'settings') nav('/settings');
         else if (view === 'today') nav('/');
         else if (view === 'projects') nav('/projects');
-        else if (view === 'calendar') nav('/calendar');
         else if (view === 'atlas') nav('/atlas');
         else { const pid = get().currentProjectId; nav(pid ? `/project/${pid}` : '/'); }
     },
@@ -1387,12 +1441,6 @@ export const useStore = create<AppState>((set, get) => ({
         await saveSetting(get, 'detailPanelWidth', String(clamped), before, clamped, value => set({ detailPanelWidth: value }));
     },
 
-    setWeekStartDay: async (day) => {
-        const before = get().weekStartDay;
-        set({ weekStartDay: day });
-        await saveSetting(get, 'week_start_day', String(day), before, day, value => set({ weekStartDay: value }));
-    },
-
     setKeyShortcuts: async (on) => {
         const before = get().keyShortcuts;
         const paint = (value: boolean) => { set({ keyShortcuts: value }); setSingleKeyShortcuts(value); };
@@ -1511,7 +1559,6 @@ export const useStore = create<AppState>((set, get) => ({
                 background: settings[ICON_KEYS.background],
                 radius: settings[ICON_KEYS.radius],
             });
-            const weekStartDay: WeekStartDay = settings.week_start_day === '0' ? 0 : 1;
             // Course colour is the default: a map where each course has its own
             // hue, and proof still strengthens it, reads better than one colour
             // for every region. Only an explicit choice of the other mode keeps it.
@@ -1556,7 +1603,7 @@ export const useStore = create<AppState>((set, get) => ({
             writeWelcomeCache(welcome === 'done');
             const keyShortcuts = settings.key_shortcuts !== 'false';
             setSingleKeyShortcuts(keyShortcuts);
-            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, weekStartDay, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
+            set({ theme, themeChoice, a11y, themeTint, sidebarWidth, detailPanelWidth, accentColor, appIcon, uiScale, keyShortcuts, atlasColorMode, atlasSurface, atlasSettings, drillTimeScale, numberFormat, uiLanguage, aiProvider, aiModel, aiWebSearch, codeRunner, forgiveSpelling, welcome });
             // As in setCodeRunner: a library loaded with the runner off keeps
             // no Python frame ready from before (an unlock, another library).
             if (!codeRunner) void loadedRunner()?.then((m) => m.closeSpareRunner()).catch(() => { /* it did not load */ });
@@ -1787,7 +1834,7 @@ export const useStore = create<AppState>((set, get) => ({
     },
 
     openProjectNode: (projectId, nodeId) => {
-        // Cross-project deep link (Today hub / global calendar / briefing action).
+        // Cross-project deep link (Today hub / briefing action).
         // applyRoute → loadProjectData → revealNode handles the cold load.
         const nav = get()._navigate;
         if (nav) nav(`/project/${projectId}/tree/${nodeId}`);
@@ -2128,17 +2175,14 @@ export const useStore = create<AppState>((set, get) => ({
             const nodes = await api.getNodes(id);
             if (superseded()) return;
             const tree = buildTree(nodes);
-            const storedExpansion = loadExpansionState();
-            const expanded: Record<number, boolean> = { ...storedExpansion };
-            const setDefaultExpanded = (items: TreeNode[]) => {
-                items.forEach(n => {
-                    if (expanded[n.id] === undefined) expanded[n.id] = true;
-                    setDefaultExpanded(n.children);
-                });
-            };
-            setDefaultExpanded(tree);
+            // A big course opens where the learner is, a small one everywhere
+            // (src/utils/defaultExpansion.ts); their own opens and closes win
+            // while the rule still says what it said when they made them.
+            const before = loadExpansionChoices();
+            const { expanded, choices } = applyChoices(ruleExpansion(tree, todayStr()), before);
+            openedForNow.clear();
             set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
-            saveExpansionState(expanded);
+            if (choices !== before) saveExpansionChoices(choices);
             get().loadPaceData(id);
             // A background refresh: the hub on screen (often loaded a moment ago by
             // StudyDashboard's own effect) stays until the new one replaces it.
@@ -2155,7 +2199,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     revealNode: (id) => {
         // Expand a node's ancestors so tree/sidebar (which only render nodes whose
-        // ancestors are expanded) can scroll it into view.
+        // ancestors are expanded) can scroll it into view. For this visit only:
+        // a search hit or a link is not the learner choosing to keep a branch
+        // open, so the next visit asks the rule again.
         const path = getNodePath(get().tree, id);
         if (path.length > 1) {
             const expanded = { ...get().expanded };
@@ -2163,8 +2209,14 @@ export const useStore = create<AppState>((set, get) => ({
             for (let i = 0; i < path.length - 1; i++) {
                 if (expanded[path[i].id] !== true) { expanded[path[i].id] = true; changed = true; }
             }
-            if (changed) { set({ expanded }); saveExpansionState(expanded); }
+            if (changed) set({ expanded });
         }
+    },
+
+    openForNow: (id, row = null) => {
+        if (get().expanded[id] !== false) return;
+        if (get().nodes.find(n => n.id === id)?.parent_id === null) openedForNow.set(id, row);
+        set({ expanded: { ...get().expanded, [id]: true } });
     },
 
     applyRoute: async ({ view, projectId = null, workspaceView = 'dashboard', nodeId = null }) => {
@@ -2175,9 +2227,8 @@ export const useStore = create<AppState>((set, get) => ({
             if (get().view !== 'settings') set({ view: 'settings' });
             return;
         }
-        // GLOBAL VIEWS (Today hub, projects grid, global calendar): clear any open
-        // project.
-        if (view === 'today' || view === 'projects' || view === 'calendar' || view === 'atlas') {
+        // GLOBAL VIEWS (Today hub, projects grid, atlas): clear any open project.
+        if (view === 'today' || view === 'projects' || view === 'atlas') {
             const s = get();
             if (s.view !== view || s.currentProjectId !== null) {
                 set({
@@ -2247,39 +2298,34 @@ export const useStore = create<AppState>((set, get) => ({
     toggleExpanded: (id) => {
         // No entry means open (a topic added since the course loaded), as the
         // tree draws it.
-        const newExpanded = { ...get().expanded, [id]: get().expanded[id] === false };
-        set({ expanded: newExpanded });
-        saveExpansionState(newExpanded);
+        const open = get().expanded[id] === false;
+        set({ expanded: { ...get().expanded, [id]: open } });
+        rememberExpansion(get().tree, { [id]: open });
     },
 
     setExpanded: (id, value) => {
-        const newExpanded = { ...get().expanded, [id]: value };
-        set({ expanded: newExpanded });
-        saveExpansionState(newExpanded);
+        set({ expanded: { ...get().expanded, [id]: value } });
+        rememberExpansion(get().tree, { [id]: value });
     },
 
-    expandAll: () => {
-        const expanded: Record<number, boolean> = {};
-        get().nodes.forEach(n => { expanded[n.id] = true; });
-        set({ expanded });
-        saveExpansionState(expanded);
-    },
+    expandAll: () => get().setAllExpanded(true),
 
-    collapseAll: () => {
-        const expanded: Record<number, boolean> = {};
-        get().nodes.forEach(n => { expanded[n.id] = false; });
-        set({ expanded });
-        saveExpansionState(expanded);
-    },
+    collapseAll: () => get().setAllExpanded(false),
 
     toggleAllExpanded: () => {
         const currentExpanded = get().expanded;
+        get().setAllExpanded(!get().nodes.every(n => currentExpanded[n.id] !== false));
+    },
+
+    setAllExpanded: (open) => {
         const nodes = get().nodes;
-        const allExpanded = nodes.every(n => currentExpanded[n.id] !== false);
         const expanded: Record<number, boolean> = {};
-        nodes.forEach(n => { expanded[n.id] = !allExpanded; });
+        nodes.forEach(n => { expanded[n.id] = open; });
         set({ expanded });
-        saveExpansionState(expanded);
+        // Only a branch's state is a choice: a topic with nothing under it has
+        // nothing to open.
+        const branches = new Set(nodes.map(n => n.parent_id).filter((p): p is number => p != null));
+        rememberExpansion(get().tree, Object.fromEntries([...branches].map(id => [id, open])));
     },
 
     createProject: async (projectData) => {
@@ -2331,14 +2377,16 @@ export const useStore = create<AppState>((set, get) => ({
 
     createNode: async (nodeData) => {
         const projectId = get().currentProjectId;
-        if (!projectId) return;
+        if (!projectId) return null;
         try {
-            await api.createNode({ ...nodeData, project_id: projectId });
+            const created = await api.createNode({ ...nodeData, project_id: projectId });
             await get().refreshNodes();
             // The tree's top level is what the page calls a category.
             get().addToast('success', nodeData.parent_id == null ? i18n.t('Category created') : i18n.t('Item created'));
+            return created;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to create item'), e.message);
+            return null;
         }
     },
 
@@ -2644,8 +2692,7 @@ export const useStore = create<AppState>((set, get) => ({
             // ("Pace is very intense…"): the plan panel's verdict says whether
             // the date works, measured against the learner's own pace. "Some
             // phases will overlap" (fewer study days than phases): the
-            // Timeline draws the overlap itself, and the verdict says whether
-            // a window that short can be met.
+            // verdict says whether a window that short can be met.
             await get().loadProjects();
             if (projectId === get().currentProjectId) { await get().refreshNodes(); await get().loadPaceData(projectId); await get().loadDashboard(projectId); }
             get().addToast('success', i18n.t('Plan saved'));

@@ -3,7 +3,7 @@ import type { MouseEvent as ReactMouseEvent, ReactElement, ReactNode } from 'rea
 import { MenuPopover, menuTriggerKeys } from './ui/Popover';
 
 interface Props {
-    /** The ⋮ button. Its `label` names the menu (and titles the phone's sheet). */
+    /** The ⋮ button. Its `label` names the menu for a screen reader. */
     trigger: ReactNode;
     /** `MenuItem`s. Any of them closes the menu when chosen. */
     children: ReactNode;
@@ -11,7 +11,7 @@ interface Props {
 
 /**
  * A row's ⋮ menu: a `MenuPopover` on the trigger itself, so it floats beside
- * the ⋮ with a mouse and is the bottom sheet on a phone, with the menu's keys.
+ * the ⋮ under a finger as with a mouse, with the menu's keys.
  */
 export default function DropdownMenu({ trigger, children }: Props) {
     const [isOpen, setIsOpen] = useState(false);

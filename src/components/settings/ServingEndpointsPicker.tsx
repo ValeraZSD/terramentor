@@ -63,6 +63,7 @@ export default function ServingEndpointsPicker({
                     {() => (
                         <SegmentedControl
                             label={tr("When you have no preference, pick by")}
+                            block="narrow"
                             value={providerSort}
                             onChange={chooseProviderSort}
                             options={[

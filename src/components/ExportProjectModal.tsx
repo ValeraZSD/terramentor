@@ -75,6 +75,7 @@ export default function ExportProjectModal({ isOpen, onClose, initialProjectId }
                     <span className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">{t("File format")}</span>
                     <SegmentedControl
                         label={t("File format")}
+                        block="narrow"
                         value={format}
                         onChange={setFormat}
                         options={[

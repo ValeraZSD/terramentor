@@ -139,8 +139,7 @@ const NAME_MIN_REM = 12;
  * the same row is one line in one language and a ribbon in the next, inside a
  * card whose width is not the screen's.
  *
- * So it is measured, on the row's own box — the rule the calendar and both lane
- * charts already follow. It is measured from the CONTROL's natural width, which
+ * So it is measured, on the row's own box. It is measured from the CONTROL's natural width, which
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
  * this reads, and there is no flicker to damp.
@@ -221,7 +220,7 @@ export function SettingRow({ id, label, hint, detail, control, more, block = fal
                 Three things are wrong with that. A switch on the left is a
                 switch a thumb cannot reach one-handed, which is why every
                 phone OS puts them on the right. A fixed basis breaks rows that
-                fit perfectly well — "Week starts on" plus Monday/Sunday is
+                fit perfectly well — a short name plus a two-option switch was
                 303px of content inside a 347px card. And a wrapped row and an
                 unwrapped one read as two different kinds of setting when they
                 are the same kind.

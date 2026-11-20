@@ -986,9 +986,12 @@ Streaming endpoints use **SSE**. Long-running generations register in
 
 ### 9.1 Routing
 
-**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
-redirects to `/projects`, where each course card carries its own dates.
+**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/atlas`,
+`/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule` and
+`/calendar` redirect to `/projects`, where each course card carries its own dates;
+a course's old `/timeline` and `/calendar` views (with or without a topic) redirect
+to its `/dashboard`. A course's plan is the pace verdict in its header and the plan
+dialog that opens from it.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,
@@ -1004,7 +1007,7 @@ position is never disturbed.
 
 ### 9.3 Shared utilities
 
-`src/utils/tree.ts` (tree build, UTC dates, gantt, calendar) ·
+`src/utils/tree.ts` (tree build, leaf rule, UTC dates) ·
 `src/utils/projectShape.ts` (`countsInCards`: is a project measured in cards met;
 it also decides that Study opens the review session, `deck/DeckStudy.tsx`) ·
 `src/utils/srs.ts` (FSRS-7 via `ts-fsrs`, the single source of interval logic) ·

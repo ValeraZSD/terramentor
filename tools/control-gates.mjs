@@ -115,6 +115,7 @@ const MARKERS = [
     { attr: 'data-row-fold', why: 'the fold chevron inside a tree or lane row — the row owns the height' },
     { attr: 'data-skip-link', files: ['src/components/Layout.tsx'], why: 'the skip link: out of sight until it has focus, then a floating label in the top-left corner, never a button beside others' },
     { attr: 'data-row-status', why: 'the status mark that starts an outline row — a 16px icon in a 24px hit area (WCAG 2.5.8); the row owns the height' },
+    { attr: 'data-order-tile', files: ['src/components/answer/SequenceInput.tsx'], why: 'one item of a short ordering — a tile sized to its word, 44px tall, dragged, or clicked then placed by a second click' },
     { attr: 'data-drag-handle', why: 'a drag handle — a grip glyph the row\'s height carries, pressed and held, never clicked' },
     { attr: 'data-link', why: 'an inline text link inside a sentence — the sentence\'s type, not a control size' },
     { attr: 'data-tile', why: 'a choice tile with a mark, a title and lines of text — its height is its content' },

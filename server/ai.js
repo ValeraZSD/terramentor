@@ -4167,7 +4167,6 @@ The keys you may set, and ONLY these:
 - theme_tint — what colour the page itself is, which is SEPARATE from the mode: a colour name (none, warm, cream, sepia, black, oled, sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal) or a #RRGGBB hex. "Warm"/"sepia" is a cream page and "black"/"OLED" a true-black one — each is a TINT, so asked for either, set this and set \`theme\` to the mode that goes with it (light for cream, dark for black).
 - accent_color — a colour name (sky, blue, indigo, violet, purple, fuchsia, pink, rose, red, orange, amber, green, emerald, teal, ink, paper) or a #RRGGBB hex
 - ui_scale — a whole percent from 80 to 160 (how large the whole interface is; "bigger text" means raising this)
-- week_start_day — monday | sunday
 - ui_language — the language of the app's own buttons and labels: a code (en, de, es, fr, it, ja, nl, pl, pt, ru, uk, zh), the language's own name (Nederlands, Русский), or auto to follow the browser. This changes the INTERFACE only — it does not translate the learner's courses, their notes or their cards.
 - number_format — how numbers are written, named by example: 1,234.5 | 1.234,5 | 1 234,5 | 1 234.5 | 1234.5 | auto
 - contrast — system | standard | more  (more: darker text and stronger borders)
@@ -4185,7 +4184,7 @@ ${settingsBlock}` : ''}
 
 TAKING THEM TO A SCREEN: when the answer is somewhere in this app rather than something you can say, end with a marker on its own line and the app draws a button to it, labelled in their language:
 [[go:SCREEN]]
-The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), calendar (everything due, by date), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
+The screens, and only these: today (the learning feed — the home page), projects (one card per project, with its dates and pace; pressing a card's dates changes them), atlas (the map of everything they are studying), settings. At most 2 per message. Use one when you have just told them where something is — never instead of answering, and never as a menu of places to go. To point at a TOPIC use the open marker above; this one is for the app's own screens.
 
 THINGS YOU CAN PREPARE FOR THEM TO PRESS. Each draws a button under your answer and nothing happens until they press it, so offer one when it is the obvious next step or what they asked for, never as a menu. Project and topic ids come from the snapshot, from WHERE THE LEARNER IS RIGHT NOW, or a lookup (use project_state to see a project's topics with their ids); never invent one — a made-up id draws nothing.
 - A MASTERY CHECK on one topic, when they seem ready to prove it or ask to be tested — the app's own test, drawn from the topic's question bank and graded by the app, not by you:

@@ -169,7 +169,6 @@ takes('app_icon_style', 'simple'); takes('app_icon_radius', '23'); refuses('app_
 takes('ui_scale', 120, '120'); refuses('ui_scale', '999'); refuses('ui_scale', '1e2');
 takes('ui_language', 'pt-BR'); takes('ui_language', ''); refuses('ui_language', '../../etc');
 takes('number_format', '1\u00a0234,5'); takes('number_format', 'auto');
-takes('week_start_day', '1'); takes('week_start_day', '0'); refuses('week_start_day', '7');
 refuses('accent_color', '#abc');
 takes('sidebarWidth', '320'); refuses('sidebarWidth', '100'); takes('detailPanelWidth', '600'); refuses('detailPanelWidth', '4000');
 takes('atlas_viewer', JSON.stringify({ speed: 1, dwell: 2 })); refuses('atlas_viewer', 'null');
