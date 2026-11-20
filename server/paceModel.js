@@ -304,3 +304,81 @@ export function judgeDate(pace, {
         offers,
     };
 }
+
+/** Bands that take the whole week: while one of them is served, nothing dated later gets new work. */
+export const CROWDING_BANDS = ['tight', 'out_of_reach'];
+
+/**
+ * One capacity for the whole library: which courses get new work this week,
+ * nearest date first.
+ *
+ * The learner has one week, not one per course. Each unit (topics, cards) is
+ * shared on its own: a deck's new cards do not use up a course's topics. The
+ * capacity of a unit is the best pace the learner has held in it; with no
+ * such pace yet (under two weeks of data) nothing is rationed.
+ *
+ * Walked nearest date first, each dated course takes the pace its date needs
+ * from what is left. A course whose date needs more than is left is `short`
+ * (it gets the rest); a `tight` or `out_of_reach` course takes the whole week.
+ * After either, every course dated later in that unit, and every undated one,
+ * is `waiting`: a far course gets nothing while a near one cannot be met.
+ * Courses without a date, or whose date has gone by, come after the dated
+ * ones, in the order given. A paused course is left out; a finished one has
+ * nothing to serve.
+ *
+ * @param {Array<{ id: number|string, unit?: 'topics'|'cards', band: string,
+ *   needed?: number|null, deadline?: string|null, paused?: boolean }>} courses
+ *   one verdict per course (`judgeDate`), plus the pause mark; undated courses
+ *   carry band 'no_date'
+ * @param {{ topics?: number|null, cards?: number|null }} capacity the best
+ *   weekly pace per unit, null when not known yet
+ * @returns {{ order: Array<number|string>, courses: Map<number|string, { status: string,
+ *   share: number|null, rank: number|null }>, units: Record<string, { capacity: number|null,
+ *   claimed: number, crowdedBy: number|string|null }> }}
+ *   `order` is every course that gets new work, first served first
+ */
+export function shareCapacity(courses, capacity = {}) {
+    const out = new Map();
+    const units = {};
+    const unitOf = (c) => (c.unit === 'cards' ? 'cards' : 'topics');
+    for (const u of ['topics', 'cards']) {
+        const cap = capacity[u];
+        units[u] = { capacity: Number.isFinite(cap) && cap > 0 ? cap : null, claimed: 0, crowdedBy: null };
+    }
+    const dated = [];
+    const rest = [];
+    for (const c of courses || []) {
+        if (c.paused) { out.set(c.id, { status: 'paused', share: null, rank: null }); continue; }
+        if (c.band === 'done') { out.set(c.id, { status: 'done', share: null, rank: null }); continue; }
+        const due = dayNumOf(c.deadline);
+        if (due != null && c.band !== 'passed' && c.band !== 'no_date') dated.push({ c, due });
+        else rest.push(c);
+    }
+    dated.sort((a, b) => a.due - b.due || String(a.c.id).localeCompare(String(b.c.id), 'en', { numeric: true }));
+
+    const order = [];
+    for (const { c } of dated) {
+        const u = units[unitOf(c)];
+        if (u.crowdedBy != null) { out.set(c.id, { status: 'waiting', share: 0, rank: null }); continue; }
+        const needed = Number.isFinite(c.needed) && c.needed > 0 ? c.needed : 0;
+        let status = 'served';
+        let share = needed;
+        if (u.capacity != null) {
+            const left = Math.max(0, u.capacity - u.claimed);
+            if (CROWDING_BANDS.includes(c.band)) { share = left; u.crowdedBy = c.id; }
+            else if (needed > left + EPS) { share = left; status = 'short'; u.crowdedBy = c.id; }
+            u.claimed += share;
+        }
+        out.set(c.id, { status, share: round2(share), rank: order.length });
+        order.push(c.id);
+    }
+    for (const c of rest) {
+        const u = units[unitOf(c)];
+        if (u.crowdedBy != null) { out.set(c.id, { status: 'waiting', share: 0, rank: null }); continue; }
+        const left = u.capacity == null ? null : Math.max(0, u.capacity - u.claimed);
+        out.set(c.id, { status: c.band === 'passed' ? 'passed' : 'undated', share: round2(left), rank: order.length });
+        order.push(c.id);
+    }
+    for (const u of Object.values(units)) u.claimed = round2(u.claimed);
+    return { order, courses: out, units };
+}

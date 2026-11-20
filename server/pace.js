@@ -88,11 +88,11 @@ function statements() {
             SELECT COUNT(*) AS c FROM flashcards f JOIN nodes n ON n.id = f.node_id
             WHERE n.project_id = ? AND NOT (COALESCE(f.review_count, 0) > 0 AND f.last_reviewed IS NOT NULL)
         `),
-        // Other courses still asking for time: active, dated today or later
+        // Other courses still asking for time: active, not paused, dated today or later
         // (the deadline day is still a study day), with a topic or a card left.
         otherCourses: db.prepare(`
             SELECT COUNT(*) AS c FROM projects p
-            WHERE p.id != ? AND COALESCE(p.status, 'active') = 'active'
+            WHERE p.id != ? AND COALESCE(p.status, 'active') = 'active' AND COALESCE(p.paused, 0) = 0
               AND p.deadline IS NOT NULL AND p.deadline >= ?
               AND (EXISTS (SELECT 1 FROM nodes n WHERE n.project_id = p.id AND ${OPEN_WORK_LEAF})
                    OR EXISTS (SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id

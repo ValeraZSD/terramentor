@@ -1,5 +1,6 @@
 import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil } from './scheduling.js';
+import { libraryCapacity, paceStatusOf, severityOf } from './capacity.js';
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
 import { OPEN_LEAF, OPEN_WORK_LEAF, WORK_LEAF, LEAF_NODE, ACTIVE_PROJECT_JOIN } from './today.js';
@@ -319,10 +320,22 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
         };
     });
 
-    const urgency = (i) => i.overdue.length * 100 + (i.pace?.daysBehind || 0) * 10 + i.todays.length;
-    infos.sort((a, b) => urgency(b) - urgency(a));
+    // One capacity for the library (server/capacity.js): courses are served
+    // nearest date first, and a course a nearer one crowds out, or one the
+    // learner paused, gets no new work here. One course's own stream is the
+    // learner's choice and is not rationed. (This replaced a score of overdue
+    // topics and "days behind", under which a course at 0% due next year
+    // outranked an exam in 17 days.)
+    const capacity = onlyProject ? null : libraryCapacity({ now: now == null ? undefined : Number(now) });
+    const rankOf = (i) => capacity?.courses.get(i.project.id)?.rank ?? Number.POSITIVE_INFINITY;
+    if (capacity) infos.sort((a, b) => rankOf(a) - rankOf(b));
+    // Held back this week: waiting behind a nearer date, or paused.
+    const held = (i) => {
+        const status = capacity?.courses.get(i.project.id)?.status;
+        return status === 'paused' || status === 'waiting';
+    };
 
-    const anyScheduledWork = infos.some(i => i.overdue.length || i.todays.length);
+    const anyScheduledWork = infos.some(i => !held(i) && (i.overdue.length || i.todays.length));
     // A CARD COLLECTION holds a STANDING SLOT: its unscheduled leaves are always
     // eligible, even on a day full of real curriculum work. It is never
     // scheduled — thirty stages with deadlines would all be overdue by next
@@ -352,7 +365,12 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // on the larger share; the reservation only guarantees the tail exists.
     // Only one with a topic to serve: a short course still being written, or
     // one whose writing failed, would hold a slot and fill it with nothing.
-    const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
+    // A standing course keeps its slot while a dated one crowds the week (a
+    // deck's cards are another unit; a short course was made to be read now),
+    // but not once the learner paused it.
+    const standingInfos = infos.filter(i => isStanding(i)
+        && capacity?.courses.get(i.project.id)?.status !== 'paused'
+        && aheadStmt.all(i.project.id, today, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))
         : 0;
@@ -399,7 +417,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     };
 
     for (const info of infos) {
-        if (isStanding(info)) continue;
+        if (isStanding(info) || held(info)) continue;
         if (focus.length >= maxTotal - reserved) break;
         take(info, maxTotal - reserved);
     }
@@ -1323,32 +1341,36 @@ export function buildFeedHeader() {
         projects: overdueRows.map(r => ({ projectId: r.pid, name: r.name, overdue: r.c })),
     };
 
-    // Deadline chip: the most-pressed scheduled project (worst pace status,
-    // then most days behind, then soonest deadline).
+    // Deadline chip: the most-pressed dated project by its verdict (out of
+    // reach, then tight, then under pace), then the soonest date. Read from
+    // the learned-pace verdict, the same one the course header shows: the old
+    // "days behind" was a share of the window, not days, and with topic dates
+    // derived on read it could no longer say behind at all. `daysBehind`
+    // stays in the reply as 0 for an older screen; a paused course is left out.
     const scheduled = db.prepare(`
         SELECT id, name, color, deadline FROM projects
-        WHERE COALESCE(status, 'active') = 'active'
+        WHERE COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
           AND start_date IS NOT NULL AND deadline IS NOT NULL AND deadline >= ?
     `).all(today);
-    const RANK = { critical: 3, falling_behind: 2, on_track: 1 };
     let deadline = null;
-    for (const p of scheduled) {
-        let pace = null;
-        try { pace = calculatePace(p.id); } catch { continue; }
-        if (!pace?.hasSchedule) continue;
-        const candidate = {
-            projectId: p.id, name: p.name, color: p.color,
-            deadline: p.deadline,
-            daysLeft: daysUntil(p.deadline, today),
-            paceStatus: pace.paceStatus || 'on_track',
-            daysBehind: pace.daysBehind || 0,
-        };
-        if (!deadline
-            || (RANK[candidate.paceStatus] || 0) > (RANK[deadline.paceStatus] || 0)
-            || ((RANK[candidate.paceStatus] || 0) === (RANK[deadline.paceStatus] || 0)
-                && (candidate.daysBehind > deadline.daysBehind
-                    || (candidate.daysBehind === deadline.daysBehind && candidate.daysLeft < deadline.daysLeft)))) {
-            deadline = candidate;
+    if (scheduled.length) {
+        const capacity = libraryCapacity();
+        let best = -1;
+        for (const p of scheduled) {
+            const verdict = capacity.courses.get(p.id)?.verdict;
+            if (!verdict || verdict.band === 'done') continue;
+            const severity = severityOf(verdict);
+            const daysLeft = daysUntil(p.deadline, today);
+            if (deadline && (severity < best || (severity === best && daysLeft >= deadline.daysLeft))) continue;
+            best = severity;
+            deadline = {
+                projectId: p.id, name: p.name, color: p.color,
+                deadline: p.deadline,
+                daysLeft,
+                band: verdict.band,
+                paceStatus: paceStatusOf(verdict),
+                daysBehind: 0,
+            };
         }
     }
 
