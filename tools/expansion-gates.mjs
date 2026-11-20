@@ -15,9 +15,10 @@
 //
 // Each case below is a way through a course the rule has to get right. The
 // last sections run the real store in jsdom (opening a course, a learner's
-// open and close, a later visit, a reveal, what storage holds) and read the
-// board, so the rule is what the app actually uses and a closed card is only
-// as tall as its header.
+// open and close, a later visit, a reveal, what storage holds), so the rule
+// is what the app actually uses. The card and the board are read as source
+// only: they pin which rule, which scroll and which classes are used, not a
+// drawn card.
 //
 // Deterministic: fixtures built here, one fixed day, no database. The rule is
 // bundled from the real .ts with esbuild. The store reads the device's date,
@@ -312,15 +313,17 @@ const storeBundle = (await (await import('esbuild')).build({
 })).outputFiles[0].text;
 const CHOICES = 'terramentor-expansion-choices', LEGACY = 'terramentor-expansion';
 
-/** Open `rows` as course 1 on a fresh page whose storage holds `storage`. */
-async function visit(rows, storage = {}, { failWrites = false } = {}) {
+/** Open `rows` as course 1 on a fresh page whose storage holds `storage`.
+ *  `rows` may be a function: each fetch then answers what it returns now. */
+async function visit(rows, storage = {}, { failWrites = false, failRemoves = false } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
     const w = dom.window;
     w.matchMedia = () => ({ matches: false, addEventListener() { }, removeEventListener() { } });
     for (const [k, v] of Object.entries(storage)) w.localStorage.setItem(k, v);
     if (failWrites) w.Storage.prototype.setItem = () => { throw new w.DOMException('full', 'QuotaExceededError'); };
+    if (failRemoves) w.Storage.prototype.removeItem = () => { throw new w.DOMException('refused', 'SecurityError'); };
     w.fetch = (url) => /\/projects\/1\/nodes$/.test(String(url))
-        ? Promise.resolve(new Response(JSON.stringify(rows), { status: 200, headers: { 'content-type': 'application/json' } }))
+        ? Promise.resolve(new Response(JSON.stringify(typeof rows === 'function' ? rows() : rows), { status: 200, headers: { 'content-type': 'application/json' } }))
         : new Promise(() => { });
     w.eval(storeBundle);
     const { useStore } = w.__gate;
@@ -386,16 +389,65 @@ const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? nul
     expect('storage full: the visit keeps every choice made since, reloaded or not', c, quota.s().expanded, 'C3,C5,C7');
     quota.close();
 
+    // The course moves on during a visit: C3 is finished, C4 is next. A
+    // choice made then is measured against the rule as it stands now, not
+    // as it stood when the page opened.
+    const finished = rowsOf(bigCourse((i) => (i < 3 ? { status: 'completed' } : {})));
+    let now = rows;
+    const live = await visit(() => now);
+    now = finished;
+    await live.s().refreshNodes();
+    live.s().toggleExpanded(c3);
+    live.s().toggleExpanded(c3);
+    check('a branch finished during the visit and opened again to look back is kept open',
+        storedChoices(live)[c3]?.open === true && storedChoices(live)[c3]?.rule === false, JSON.stringify(storedChoices(live)));
+    const back = await visit(finished, live.stored());
+    expect('…so the next visit still shows it open beside the next one', c, back.s().expanded, 'C3,C4');
+    live.close(); back.close();
+
+    // A close kept while C3 was current: once C3 is finished the rule's
+    // answer changed, so the choice is dropped, and dropped from storage too,
+    // or it would close C3 again whenever the rule came back to it.
+    const stale = await visit(finished, { [CHOICES]: JSON.stringify({ [c3]: { open: false, rule: true } }) });
+    check('a choice the course has moved past is removed from storage, not only ignored',
+        !(c3 in storedChoices(stale)), JSON.stringify(storedChoices(stale)));
+    stale.close();
+
     const moved = await visit(rows);
     const canOpenForNow = typeof moved.s().openForNow === 'function';
-    if (canOpenForNow) moved.s().openForNow(c7);
+    const takes = typeof moved.take === 'function';
+    const row = c[6].kids[12].id;
+    if (canOpenForNow) moved.s().openForNow(c7, row);
     check('a row added or dropped into a closed branch opens it for now', canOpenForNow && moved.s().expanded[c7] === true);
     check('…and that open is not kept', canOpenForNow && !keptAnywhere(moved, c7), JSON.stringify(moved.stored()));
-    check("…and the card's list stays where the row went: the open is marked for it, once",
-        typeof moved.take === 'function' && moved.take(c7) === true && moved.take(c7) === false);
-    if (canOpenForNow) moved.s().openForNow(c3);
-    check('…an already open branch is left alone and not marked', typeof moved.take === 'function' && moved.take(c3) === false);
+    const taken = takes ? moved.take(c7) : undefined;
+    check("…and the card is told which row to bring into view, once",
+        taken?.row === row && moved.take(c7) === null, JSON.stringify(taken));
+    if (canOpenForNow) moved.s().openForNow(c3, row);
+    check('…an already open branch is left alone and not marked', takes && moved.take(c3) === null);
+    if (canOpenForNow) moved.s().openForNow(c5, row);
+    await moved.s().loadProjectData(1);
+    check('…and opening the course again forgets an open no card took', takes && moved.take(c5) === null);
     moved.close();
+
+    // Only a category card asks which row an open was for: an open deeper in
+    // the outline must leave nothing behind for a card to find later.
+    const nested = [...bigCourse(), cat('S', [cat('Sub', topics(5))])];
+    const deep = await visit(rowsOf(nested));
+    const sub = nested[8].kids[0].id;
+    check('a section inside a category starts closed here', deep.s().expanded[sub] === false);
+    if (canOpenForNow) deep.s().openForNow(sub, nested[8].kids[0].kids[0].id);
+    check('…opening it for now marks nothing for a card', deep.s().expanded[sub] === true && takes && deep.take(sub) === null);
+    deep.close();
+
+    // Storage that reads but will not remove the old map: the choices read
+    // are still the ones used, and the next choice keeps them.
+    const sticky = await visit(rows, { [CHOICES]: JSON.stringify({ [c5]: { open: true, rule: false } }), [LEGACY]: '{}' }, { failRemoves: true });
+    expect('storage that will not remove the old map still opens the kept choices', c, sticky.s().expanded, 'C3,C5');
+    sticky.s().toggleExpanded(c7);
+    check('…and the next choice keeps the earlier ones', storedChoices(sticky)[c5]?.open === true && storedChoices(sticky)[c7]?.open === true,
+        JSON.stringify(storedChoices(sticky)));
+    sticky.close();
 
     const broken = await visit(rows, { [CHOICES]: 'not json{' });
     expect('broken storage opens the course by the rule', c, broken.s().expanded, 'C3');
@@ -450,28 +502,37 @@ console.log('\nwhere an opened list starts');
         at([cat('C', [...topics(6, { cards: 4, seen: 4 }), ...topics(3, { cards: 4 })])]) === 5);
     check('notes are no work and never the place to start',
         at([cat('C', [...topics(4, { status: 'completed' }), { note: true }, { note: true }, ...topics(2)])]) === 5);
+    // The card itself is read as source, not mounted: these pin its shape
+    // (which rule, which scroll, when), while the cases above pin the rows.
     const card = src('src/components/CategoryCard.tsx');
-    check("the card scrolls its own list to that row, never the page, once per opening",
-        /listStartRow\(/.test(card) && /scrollIntoViewWithin\([^)]*boundary:\s*list/.test(card)
-            && /takeOpenedForNow\(node\.id\)\)\s*return/.test(card)
+    check("the card's source scrolls its own list to that row, never the page, once per opening",
+        /listStartRow\(/.test(card) && /scrollIntoViewWithin\([^)]*boundary:\s*list,\s*block:\s*'start'/.test(card)
             && /useLayoutEffect\([\s\S]*?\},\s*\[isExpanded\]\)/.test(card) && !/\.scrollIntoView\(/.test(card));
+    check("…and after an add or a drop it brings that row into view instead, once drawn",
+        /const opened = takeOpenedForNow\(node\.id\);\s*if \(opened\) \{ showRowRef\.current = opened\.row; return; \}/.test(card)
+            && /showRowRef\.current = null;\s*scrollIntoViewWithin\(row, \{ boundary: list, block: 'nearest'/.test(card));
+    const selectors = [...card.matchAll(/\[data-tree-item-id="\$\{[^}]+\}"\]/g)].length;
+    check('…finding rows by the attribute every row draws',
+        selectors === 2 && /data-tree-item-id=\{node\.id\}/.test(src('src/components/TreeItemRow.tsx')), `selectors: ${selectors}`);
 }
 
 // ---- the board ---------------------------------------------------------------
 console.log('\nthe board');
 {
     const grid = src('src/components/NodeTree.tsx').match(/<div className="([^"]*)" data-card-grid/)?.[1] ?? '';
-    check('the card grid does not stretch a closed card to its open neighbour', /\bitems-start\b/.test(grid), grid);
+    check("the board's source does not stretch a closed card to its open neighbour", /\bitems-start\b/.test(grid), grid);
+    check("…and a closed card's header rounds all four corners, an open one only the top",
+        /\$\{isExpanded \? 'rounded-t-2xl' : 'rounded-2xl'\}/.test(src('src/components/CategoryCard.tsx')));
     const crumbs = src('src/components/Breadcrumbs.tsx').replace(/\/\/.*$/gm, '');
     check('a breadcrumb opens the path for this visit only, as a reveal', /revealNode\(/.test(crumbs) && !/setExpanded|toggleExpanded/.test(crumbs));
     // Adding a row and dropping one open the target for the learner to see it
     // land; neither is them choosing to keep that branch open.
     const noCode = (rel) => src(rel).replace(/\/\/.*$/gm, '');
     const places = {
-        'src/components/CategoryCard.tsx': /openForNow\(node\.id\)/,
-        'src/components/TreeItemRow.tsx': /openForNow\(node\.id\)/,
-        'src/components/NodeTree.tsx': /openForNow\(placed\.parentId\)/,
-        'src/components/Sidebar.tsx': /openForNow\(newParentId\)/,
+        'src/components/CategoryCard.tsx': /openForNow\(node\.id, created\?\.id \?\? null\)/,
+        'src/components/TreeItemRow.tsx': /openForNow\(node\.id, created\?\.id \?\? null\)/,
+        'src/components/NodeTree.tsx': /openForNow\(placed\.parentId, activeId\)/,
+        'src/components/Sidebar.tsx': /openForNow\(newParentId, currentActiveId\)/,
     };
     for (const [rel, call] of Object.entries(places)) {
         const code = noCode(rel);

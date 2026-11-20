@@ -103,25 +103,38 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   // An opened list starts at its first unfinished row (`listStartRow`) when
   // the card opens or the board is drawn again, never between: finishing a
   // topic or the learner's own scrolling is not undone by a jump. An open that
-  // shows where an added or dropped row went (`openForNow`) does not jump.
-  // Only this card's list moves, never the page.
+  // shows where an added or dropped row went (`openForNow`) brings that row
+  // into view instead, once it is drawn here (a dropped row arrives after the
+  // move's write). Only this card's list moves, never the page.
   const listRef = useRef<HTMLDivElement | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const showRowRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!isExpanded || !list || takeOpenedForNow(node.id)) return;
+    showRowRef.current = null;
+    if (!isExpanded || !list) return;
+    const opened = takeOpenedForNow(node.id);
+    if (opened) { showRowRef.current = opened.row; return; }
     const id = listStartRow(rowsRef.current.map((r) => r.node), useStore.getState().expanded);
     if (id == null) return;
     const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${id}"]`);
     scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 8 });
   }, [isExpanded]);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (showRowRef.current == null || !list) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${showRowRef.current}"]`);
+    if (!row) return;
+    showRowRef.current = null;
+    scrollIntoViewWithin(row, { boundary: list, block: 'nearest', padding: 8 });
+  });
 
   const handleAddChild = async () => {
     if (!newItemTitle.trim()) return;
-    await createNode({ title: newItemTitle, parent_id: node.id });
+    const created = await createNode({ title: newItemTitle, parent_id: node.id });
     // Shows where the new row went, for this visit: no choice to keep.
-    openForNow(node.id);
+    openForNow(node.id, created?.id ?? null);
     setShowAddModal(false);
     setNewItemTitle('');
   };

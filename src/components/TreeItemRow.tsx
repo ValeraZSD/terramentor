@@ -101,9 +101,9 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
 
     const handleAddChild = async () => {
         if (!newTitle.trim()) return;
-        await createNode({ title: newTitle, parent_id: node.id });
+        const created = await createNode({ title: newTitle, parent_id: node.id });
         // Shows where the new row went, for this visit: no choice to keep.
-        openForNow(node.id);
+        openForNow(node.id, created?.id ?? null);
         setShowAddModal(false);
         setNewTitle('');
     };

@@ -228,7 +228,7 @@ export default function NodeTree() {
             flashAfterDrop(`node:${activeId}`);
         }
         // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip. For this visit only: the move is the choice, not the open.
-        openForNow(placed.parentId);
+        openForNow(placed.parentId, activeId);
         await moveNode(activeId, placed.parentId, placed.position);
     };
 

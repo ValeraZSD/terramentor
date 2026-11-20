@@ -467,8 +467,6 @@ let updateWritesStarted = 0;
 /** Task ids the reader has dismissed, until the server's snapshots agree. */
 const dismissedTasks = new Set<string>();
 
-/** The open course's rule (`ruleExpansion`), kept to record a choice against. */
-let expansionRule: Record<number, boolean> = {};
 /** The choices when storage refuses them (private mode, a full quota): they
  *  last as long as the tab. */
 let expansionFallback: ExpansionChoices = {};
@@ -496,29 +494,43 @@ const loadExpansionChoices = (): ExpansionChoices => {
         const stored = localStorage.getItem(EXPANSION_CHOICES_KEY);
         const legacy = localStorage.getItem(LEGACY_EXPANSION_KEY);
         if (stored !== null) {
-            if (legacy !== null) localStorage.removeItem(LEGACY_EXPANSION_KEY);
+            if (legacy !== null) dropLegacyExpansion();
             return choicesFromStorage(stored);
         }
         if (legacy === null) return expansionFallback;
         // The old map goes only once its choices are safely kept.
         const migrated = choicesFromLegacy(legacy);
-        if (saveExpansionChoices(migrated)) localStorage.removeItem(LEGACY_EXPANSION_KEY);
+        if (saveExpansionChoices(migrated)) dropLegacyExpansion();
         return migrated;
     } catch {
         return expansionFallback;
     }
 };
 
-/** Branches `openForNow` opened to show a row the learner just added or
- *  dropped: a card opened that way leaves its list where that row is to be
- *  found, instead of jumping to the first unfinished one. */
-const openedForNow = new Set<number>();
-/** Whether `openForNow` opened this branch since it was last asked; asks once. */
-export const takeOpenedForNow = (id: number): boolean => openedForNow.delete(id);
+/** A removal that fails leaves the old map for the next read to drop; it
+ *  must not throw away the choices already read. */
+const dropLegacyExpansion = () => {
+    try { localStorage.removeItem(LEGACY_EXPANSION_KEY); } catch { /* next read */ }
+};
 
-/** Keep the learner's own open or close of these branches for later visits. */
-const rememberExpansion = (changes: Record<number, boolean>) => {
-    saveExpansionChoices(withChoices(loadExpansionChoices(), changes, expansionRule));
+/** Category cards `openForNow` opened, each with the row it was opened to
+ *  show (null when not known): that card brings the row into view instead of
+ *  starting at its first unfinished one. Only a category card asks, so only
+ *  a category is kept; opening a course forgets them all. */
+const openedForNow = new Map<number, number | null>();
+/** The row `openForNow` opened this card to show, once; null if it did not. */
+export const takeOpenedForNow = (id: number): { row: number | null } | null => {
+    if (!openedForNow.has(id)) return null;
+    const row = openedForNow.get(id) ?? null;
+    openedForNow.delete(id);
+    return { row };
+};
+
+/** Keep the learner's own open or close of these branches for later visits,
+ *  against the rule as the course stands now: a topic finished since the
+ *  page opened has already moved it. */
+const rememberExpansion = (tree: TreeNode[], changes: Record<number, boolean>) => {
+    saveExpansionChoices(withChoices(loadExpansionChoices(), changes, ruleExpansion(tree, todayStr())));
 };
 
 interface AppState {
@@ -777,8 +789,8 @@ interface AppState {
     /** Expand a node's ancestors so views can scroll it into view. */
     revealNode: (id: number) => void;
     /** Open one branch for this visit only: the app showing where a row it
-     *  just added or moved went, which is no choice of the learner's to keep. */
-    openForNow: (id: number) => void;
+     *  just added or moved went (`row`), which is no choice of the learner's to keep. */
+    openForNow: (id: number, row?: number | null) => void;
     /**
      * The mastery check modal, opened from anywhere — a completion the server
      * intercepted, or the learner choosing to prove a topic. `projectId` and
@@ -940,7 +952,8 @@ interface AppState {
     updateProject: (id: number, updates: ProjectUpdate) => Promise<boolean>;
     deleteProject: (id: number) => Promise<void>;
     reorderProjects: (projectIds: number[]) => Promise<void>;
-    createNode: (nodeData: Partial<Node>) => Promise<void>;
+    /** The created node, or null when the write failed (a toast says so). */
+    createNode: (nodeData: Partial<Node>) => Promise<Node | null>;
     updateNode: (id: number, updates: Partial<Node> & { override?: boolean }) => Promise<boolean>;
     skipNode: (id: number) => Promise<boolean>;
     deleteNode: (id: number) => Promise<void>;
@@ -2179,9 +2192,9 @@ export const useStore = create<AppState>((set, get) => ({
             // A big course opens where the learner is, a small one everywhere
             // (src/utils/defaultExpansion.ts); their own opens and closes win
             // while the rule still says what it said when they made them.
-            expansionRule = ruleExpansion(tree, todayStr());
             const before = loadExpansionChoices();
-            const { expanded, choices } = applyChoices(expansionRule, before);
+            const { expanded, choices } = applyChoices(ruleExpansion(tree, todayStr()), before);
+            openedForNow.clear();
             set({ nodes, tree, expanded, loading: false, selectedNodeId: null, focusedNodeId: null, resources: [] });
             if (choices !== before) saveExpansionChoices(choices);
             get().loadPaceData(id);
@@ -2214,9 +2227,9 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    openForNow: (id) => {
+    openForNow: (id, row = null) => {
         if (get().expanded[id] !== false) return;
-        openedForNow.add(id);
+        if (get().nodes.find(n => n.id === id)?.parent_id === null) openedForNow.set(id, row);
         set({ expanded: { ...get().expanded, [id]: true } });
     },
 
@@ -2302,12 +2315,12 @@ export const useStore = create<AppState>((set, get) => ({
         // tree draws it.
         const open = get().expanded[id] === false;
         set({ expanded: { ...get().expanded, [id]: open } });
-        rememberExpansion({ [id]: open });
+        rememberExpansion(get().tree, { [id]: open });
     },
 
     setExpanded: (id, value) => {
         set({ expanded: { ...get().expanded, [id]: value } });
-        rememberExpansion({ [id]: value });
+        rememberExpansion(get().tree, { [id]: value });
     },
 
     expandAll: () => get().setAllExpanded(true),
@@ -2327,7 +2340,7 @@ export const useStore = create<AppState>((set, get) => ({
         // Only a branch's state is a choice: a topic with nothing under it has
         // nothing to open.
         const branches = new Set(nodes.map(n => n.parent_id).filter((p): p is number => p != null));
-        rememberExpansion(Object.fromEntries([...branches].map(id => [id, open])));
+        rememberExpansion(get().tree, Object.fromEntries([...branches].map(id => [id, open])));
     },
 
     createProject: async (projectData) => {
@@ -2379,14 +2392,16 @@ export const useStore = create<AppState>((set, get) => ({
 
     createNode: async (nodeData) => {
         const projectId = get().currentProjectId;
-        if (!projectId) return;
+        if (!projectId) return null;
         try {
-            await api.createNode({ ...nodeData, project_id: projectId });
+            const created = await api.createNode({ ...nodeData, project_id: projectId });
             await get().refreshNodes();
             // The tree's top level is what the page calls a category.
             get().addToast('success', nodeData.parent_id == null ? i18n.t('Category created') : i18n.t('Item created'));
+            return created;
         } catch (e: any) {
             get().addToast('error', i18n.t('Failed to create item'), e.message);
+            return null;
         }
     },
 

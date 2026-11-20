@@ -372,7 +372,7 @@ export default function Sidebar({ isDrawer = false }: { isDrawer?: boolean }) {
         }
         // Open the target before the write, so the row lands in sight. For
         // this visit only: the move is the choice, not the open.
-        if (newParentId != null) openForNow(newParentId);
+        if (newParentId != null) openForNow(newParentId, currentActiveId);
         await moveNode(currentActiveId, newParentId, position);
     };
 
