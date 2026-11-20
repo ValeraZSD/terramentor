@@ -333,7 +333,13 @@ try {
         // of that course's block, never inside Biology's.
         db.prepare("UPDATE node_mastery SET mastery_score = 0.9, last_updated = ? WHERE node_id = ?").run(sqlStamp(at(0)), c1);
         db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, last_updated) VALUES (?, 0.3, 1, ?)').run(optics, sqlStamp(at(20, 2)));
-        const today = composeFeed({ now: later, excludeKeys: new Set() });
+        // Optics also has cards due, so a stream that mixes courses would
+        // bring Optics back lower down the page, after Biology's items.
+        for (let i = 0; i < 4; i++) {
+            db.prepare('INSERT INTO flashcards (node_id, front, back, next_review) VALUES (?, ?, ?, ?)')
+                .run(optics, `lens front ${i}`, `lens back ${i}`, at(19).toISOString());
+        }
+        const today =composeFeed({ now: later, excludeKeys: new Set() });
         const recallOn = today.items.filter(i => i.kind === 'recall').map(i => i.nodeId);
         const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
         const opensItsBlock = (nodeId) => {
@@ -344,6 +350,8 @@ try {
                 .every(i => i.kind === 'recall' && i.projectId === course);
         };
         check("Today: another course's slip opens that course's own block, in its round", opensItsBlock(c1) && opensItsBlock(optics), JSON.stringify(recallOn));
+        const runs = today.items.map(courseOf).filter((c, i, all) => c != null && c !== all[i - 1]);
+        check("...and never sits inside another course's block: no course comes back lower on the page", new Set(runs).size === runs.length, JSON.stringify(runs));
         const todayList = buildTodayData({ today: studyToday({ now: later.getTime() }), now: later }).decayingTopics.map(d => d.nodeId);
         check("Today's list puts the slip ahead of a topic fading longer", todayList.indexOf(optics) > -1 && todayList.indexOf(optics) < todayList.indexOf(c1), JSON.stringify(todayList));
         db.prepare("UPDATE node_mastery SET last_updated = ? WHERE node_id = ?").run(sqlStamp(at(20, 2)), c1);
@@ -419,7 +427,8 @@ try {
             JSON.stringify(home.items.filter(i => i.kind === 'lookback').map(i => i.key)));
         const offer = home.items.find(i => i.kind === 'lookback');
         const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
-        check("...and it opens its own course's block, ahead of that course's round",
+        // A guard: with one course offering, the old single head passed this too.
+        check("...and it opens its own course's block, ahead of that course's round (a guard)",
             offer != null && home.items.find(i => courseOf(i) === offer.projectId) === offer,
             JSON.stringify(home.items.slice(0, 4).map(i => [i.kind, courseOf(i)])));
     });

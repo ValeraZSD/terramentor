@@ -71,7 +71,8 @@ const project = (name, kind = 'curriculum') =>
 /** A course with dates: its topics are scheduled work, not a standing slot. */
 const course = (name) => {
     const id = project(name);
-    db.prepare(`UPDATE projects SET start_date = '2020-01-01', deadline = '2027-01-01' WHERE id = ?`).run(id);
+    // A deadline no real clock reaches: the route and the study day read the clock.
+    db.prepare(`UPDATE projects SET start_date = '2020-01-01', deadline = '2099-01-01' WHERE id = ?`).run(id);
     return id;
 };
 const text = (word) => `${word} ${'is explained here in plain words, one idea after another. '.repeat(24)}`;
@@ -130,6 +131,8 @@ const blocksPath = join(ROOT, 'src', 'components', 'feed', 'courseBlocks.ts');
 const cb = existsSync(blocksPath) ? await import(pathToFileURL(blocksPath).href).catch(e => ({ error: e })) : {};
 const heldCourses = typeof cb.heldCourses === 'function' ? cb.heldCourses : blocksOf;
 
+/** Page sizes at which a merge moved a card already held (must stay empty). */
+const moved = [];
 /** The client's paging: each page asked after the cards it holds, naming its blocks. */
 function pageThrough(limit, { useCourses = true, between } = {}) {
     let held = [];
@@ -139,7 +142,11 @@ function pageThrough(limit, { useCourses = true, between } = {}) {
         last = feed({ limit, excludeKeys: new Set(held.map(c => c.key)), courses: useCourses ? heldCourses(held) : [] });
         const seen = new Set(held.map(c => c.key));
         const fresh = last.items.filter(c => !seen.has(c.key));
+        const before = held.map(c => c.key);
         held = placeCheckpoints(held, fresh);
+        // A merge only inserts: every card already held keeps its order.
+        const kept = held.map(c => c.key).filter(k => seen.has(k));
+        if (kept.join() !== before.join()) moved.push(limit);
         pages.push(fresh);
         if (last.exhausted || fresh.length === 0) break;
         between?.(n, held);
@@ -185,6 +192,7 @@ await block('2. paging through the whole visit', async () => {
     }
     check('at every page size the last page says the stream is over', unended.length === 0, unended.join(', '));
     check('...and by then every topic taught today has had its checkpoint', unfinished.length === 0, unfinished.join('; '));
+    check('...and no page moved a card the reader already had', moved.length === 0, moved.join(', '));
     for (const limit of [15, 6, 4]) {
         const { held, pages } = pageThrough(limit);
         const order = blocksOf(held);
@@ -221,6 +229,19 @@ await block('2. paging through the whole visit', async () => {
         check('...where a page told nothing would have opened Dutch (the case is real)',
             courseOf(firstOf(untold.items)) === dutch, named(blocksOf(untold.items)));
         check('...and a page told nothing opens no round past the first page', !untold.items.some(i => i.kind === 'recall'));
+        // With AI off, written lessons stand in and a notice says so. On Today
+        // it heads the first page only: on a later page it would land inside
+        // the block the reader is in.
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('ai_enabled', 'false')").run();
+        try {
+            const opening = feed({ limit: 5 });
+            const later = feed({ limit: 15, excludeKeys: new Set(opening.items.filter(i => i.kind !== 'notice').map(i => i.key)), courses: blocksOf(opening.items) });
+            check('with AI off the first page of Today opens with the notice (the case is real)', opening.items[0]?.kind === 'notice', JSON.stringify(opening.items.map(i => i.kind)));
+            check('...and a later page carries none over its block, though its lessons stand in too',
+                later.items.some(i => i.degraded) && !later.items.some(i => i.kind === 'notice'), JSON.stringify(later.items.map(i => i.kind)));
+        } finally {
+            db.prepare("DELETE FROM settings WHERE key = 'ai_enabled'").run();
+        }
 
         // The same through the route the client calls (GET /api/feed?courses=).
         const { createApp } = await import(S + 'app.js');
@@ -346,7 +367,8 @@ await block('5. on screen: the header, the name once, the headings', async () =>
         stdin: {
             contents: `export { default as CourseBlock } from './src/components/feed/CourseBlock';
                 export { default as ChapterGroup } from './src/components/feed/ChapterGroup';
-                export { default as FeedCardShell } from './src/components/feed/FeedCardShell';`,
+                export { default as FeedCardShell } from './src/components/feed/FeedCardShell';
+                export * as streamCourse from './src/components/feed/streamCourse';`,
             resolveDir: ROOT, loader: 'tsx',
         },
         bundle: true, format: 'cjs', platform: 'node', outfile: build, jsx: 'automatic',
@@ -364,7 +386,7 @@ await block('5. on screen: the header, the name once, the headings', async () =>
             },
         }],
     });
-    const { CourseBlock, ChapterGroup, FeedCardShell } = require(build);
+    const { CourseBlock, ChapterGroup, FeedCardShell, streamCourse } = require(build);
     const React = require('react');
     const { createRoot } = require('react-dom/client');
     const h = React.createElement;
@@ -376,8 +398,11 @@ await block('5. on screen: the header, the name once, the headings', async () =>
         return host;
     };
     const chapter = h(ChapterGroup, { projectName: 'Physics', projectColor: '#2563eb', projectId: physics, nodeTitle: 'Lenses', nodeId: P[0] },
-        h('p', null, 'A lens bends light.'));
-    const card = h(FeedCardShell, { projectName: 'Physics', projectColor: '#2563eb', nodeTitle: 'A due card' }, h('p', null, 'Front'));
+        h('p', null, 'A lens bends light.'),
+        h(FeedCardShell, { projectName: 'Physics', projectColor: '#2563eb', nodeTitle: 'A question in the topic' }, h('p', null, 'Q')));
+    // A card on its own, as FeedView draws a single group (StandaloneHeading).
+    const Alone = streamCourse.StandaloneHeading ?? (({ children }) => children);
+    const card = h(Alone, null, h(FeedCardShell, { projectName: 'Physics', projectColor: '#2563eb', nodeTitle: 'A due card' }, h('p', null, 'Front')));
     const host = await mount(h(CourseBlock, { name: 'Physics', color: '#2563eb', icon: 'atom', continued: false }, chapter, card));
     const said = (host.textContent.match(/Physics/g) ?? []).length;
     check('the course is named once in its block: in the header, by no card under it', said === 1, `${said} times`);
@@ -386,8 +411,11 @@ await block('5. on screen: the header, the name once, the headings', async () =>
         && host.querySelector('[role="group"]')?.getAttribute('aria-labelledby') === header.id);
     check('a block is a named group, not a landmark per course', !host.querySelector('section, [role="region"]'));
     check('the header is opaque: nothing scrolls through it', /\bbg-slate-100\b/.test(header?.className ?? '') && !/\/\d+\b/.test((header?.className ?? '').match(/bg-slate-\S+/g)?.join(' ') ?? ''));
-    check('a topic in a block is one heading level below the course', host.querySelector('h3')?.textContent.includes('Lenses'), host.innerHTML.slice(0, 200));
-    check('...and a card’s title one below that', host.querySelector('h4')?.textContent.includes('A due card'));
+    const tagOf = (text) => [...host.querySelectorAll('h1,h2,h3,h4,h5,h6')].find(e => e.textContent.includes(text))?.tagName;
+    check('a topic in a block is one heading level below the course', tagOf('Lenses') === 'H3', host.innerHTML.slice(0, 200));
+    check('...a card in the topic one below that', tagOf('A question in the topic') === 'H4', String(tagOf('A question in the topic')));
+    check('...and a card on its own in the block at the topic’s level, no level skipped', tagOf('A due card') === 'H3', String(tagOf('A due card')));
+    check('FeedView draws a card on its own (not a look back) under StandaloneHeading', view.includes('<StandaloneHeading>{renderStandalone(group.card'));
     const bare = await mount(h(ChapterGroup, { projectName: 'Physics', projectColor: '#2563eb', projectId: physics, nodeTitle: 'Lenses', nodeId: P[0] }, h('p', null, 'x')));
     check('outside a block the same chapter still names its course (the case is real)', bare.textContent.includes('Physics')
         && bare.querySelector('h2')?.textContent.includes('Lenses'));
