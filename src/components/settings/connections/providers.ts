@@ -105,9 +105,10 @@ export const FAILURE_TEXT: Record<ConnectionFailure, string> = {
  * brackets, so a report can quote it.
  */
 export const SIGN_IN_FAILURE_TEXT: Record<string, string> = {
-    // Refused again after the server's one retry with the issued client id.
-    // OpenAI does not say why; a free account is the cause seen so far.
-    'token:invalid_grant': k("OpenAI did not accept the sign-in. Most likely this is a free ChatGPT account: other apps can use only a paid plan."),
+    // Refused (a first sign-in only after the server's one retry with the
+    // issued client id). OAuth uses invalid_grant for any refused code, an
+    // expired one too, so the plan is something to check, not the cause.
+    'token:invalid_grant': k("OpenAI did not accept the sign-in. Start it again. If it keeps failing, check the account's plan: other apps can use only a paid ChatGPT plan."),
     provider: k("OpenAI stopped the sign-in with an error. Try again in a few minutes."),
     no_client_id: k("OpenAI's answer was incomplete. Start the sign-in again."),
     client_mismatch: k("OpenAI's answer belonged to a different sign-in. Start the sign-in again."),
