@@ -70,15 +70,17 @@ function studyItems(nodes: TreeNode[], out: TreeNode[] = []): TreeNode[] {
  * undated topics in creation order, `getFocusNodes`).
  */
 function nextTopic(items: TreeNode[], today: string): TreeNode | null {
-    // The server names topics only (`TOPIC_NODE`); a stage stands in when a
-    // deck has nothing else, so its outline still opens at the part being met.
+    // The server names topics only (`TOPIC_NODE`); a stage stands in when no
+    // topic is open (a deck of stages), so its outline still opens at the part
+    // being met.
     const topics = items.filter(isWorkLeaf);
     const open = topics.length > 0 ? topics : items;
     let best: TreeNode | null = null;
     for (const t of open) {
-        if (!t.scheduled_end || t.scheduled_end >= today) continue;
+        // Late needs both dates, as the dashboard's walk asks.
+        if (!isDated(t) || t.scheduled_end! >= today) continue;
         // Ties go to the older topic, as the server sorts (`scheduled_end, id`).
-        if (!best || t.scheduled_end < best.scheduled_end!
+        if (!best || t.scheduled_end! < best.scheduled_end!
             || (t.scheduled_end === best.scheduled_end && t.id < best.id)) best = t;
     }
     if (best) return best;
@@ -157,25 +159,22 @@ export function applyChoices(
  * first unfinished one shows with one row of context above it. A card of
  * eleven finished topics and four open ones otherwise opened on eleven ticks,
  * with the work it was opened for below its own fold. The first unfinished
- * row is an open study item, or failing that a branch row holding one (its
- * children may be hidden). Null keeps the list at its top: nothing is
- * unfinished, or the first unfinished row is already one of the first two.
+ * row is an open study item, or a closed branch row holding one (its rows are
+ * hidden, so the branch is where that work shows). `rows` are the rows drawn,
+ * in order; `expanded` says which branches are open (no entry is open). Null
+ * keeps the list at its top: nothing is unfinished, or the first unfinished
+ * row is already one of the first two.
  */
-export function listStartRow(rows: TreeNode[]): number | null {
-    const holdsOpen = (n: TreeNode): boolean =>
-        (isStudyItem(n) && isOpenItem(n)) || n.children.some(holdsOpen);
-    let at = rows.findIndex((n) => isStudyItem(n) && isOpenItem(n));
-    if (at < 0) at = rows.findIndex(holdsOpen);
+export function listStartRow(rows: TreeNode[], expanded: Record<number, boolean>): number | null {
+    const isOpenStudy = (n: TreeNode) => isStudyItem(n) && isOpenItem(n);
+    const holdsOpen = (n: TreeNode): boolean => isOpenStudy(n) || n.children.some(holdsOpen);
+    const at = rows.findIndex((n) => isOpenStudy(n) || (expanded[n.id] === false && holdsOpen(n)));
     return at > 1 ? rows[at - 1].id : null;
 }
 
-/** Record the learner opening or closing a branch. Agreeing with the rule is no choice to keep. */
-export function withChoice(choices: ExpansionChoices, id: number, open: boolean, ruleOpen: boolean): ExpansionChoices {
-    return withChoices(choices, { [id]: open }, { [id]: ruleOpen });
-}
-
-/** Many at once (open or close everything): one copy, not one per branch.
- *  A branch with no rule answer (made since the course opened) is drawn open. */
+/** Record the learner opening or closing branches (one, or everything at
+ *  once with one copy). Agreeing with the rule is no choice to keep, and a
+ *  branch with no rule answer (made since the course opened) is drawn open. */
 export function withChoices(
     choices: ExpansionChoices,
     changes: Record<number, boolean>,

@@ -35,11 +35,11 @@ process.on('exit', () => rmSync(scratch, { recursive: true, force: true }));
 
 const rule = await bundleTs('src/utils/defaultExpansion.ts', scratch, {
     what: 'expansion rule', platform: 'node',
-    needs: ['COLLAPSE_FROM_TOPICS', 'activeTopicIds', 'ruleExpansion', 'applyChoices', 'withChoice', 'choicesFromLegacy', 'choicesFromStorage', 'listStartRow'],
+    needs: ['COLLAPSE_FROM_TOPICS', 'activeTopicIds', 'ruleExpansion', 'applyChoices', 'withChoices', 'choicesFromLegacy', 'choicesFromStorage', 'listStartRow'],
 });
 const tree = await bundleTs('src/utils/tree.ts', scratch, { what: 'expansion rule', platform: 'node', needs: ['buildTree'] });
 if (!rule || !tree) process.exit(0);
-const { COLLAPSE_FROM_TOPICS, ruleExpansion, applyChoices, withChoice, choicesFromLegacy, choicesFromStorage } = rule;
+const { COLLAPSE_FROM_TOPICS, ruleExpansion, applyChoices, withChoices, choicesFromLegacy, choicesFromStorage } = rule;
 
 let pass = 0, fail = 0;
 const check = (label, cond, extra = '') => {
@@ -232,23 +232,32 @@ console.log('\nwhere the learner is');
     c[5].kids[2].start = day(20);
     expect('a topic with a start and no end is dated, ahead of the undated ones', c, ruleExpansion(build(c), TODAY), 'C6');
 }
+{
+    // Late needs both dates, as the dashboard's walk asks: an end alone is not late.
+    const c = bigCourse((i) => (i === 0 ? { status: 'completed' } : {}));
+    c[5].kids[2].end = day(-5);
+    expect('a topic with only an end date in the past is not late', c, ruleExpansion(build(c), TODAY), 'C2');
+}
 
 // ---- the learner's own choices -------------------------------------------------
 console.log('\nthe learner\'s own choices');
 {
     const c = bigCourse((i) => (i < 2 ? { status: 'completed' } : {}));
     const r1 = ruleExpansion(build(c), TODAY);
-    const [c2, c3, c5] = [c[1].id, c[2].id, c[4].id];
+    const [c1, c2, c3, c5] = [c[0].id, c[1].id, c[2].id, c[4].id];
     // The learner closes C3 (the one being studied) and opens C5 and C2 to look ahead and back.
     let choices = {};
-    choices = withChoice(choices, c3, false, r1[c3]);
-    choices = withChoice(choices, c5, true, r1[c5]);
-    choices = withChoice(choices, c2, true, r1[c2]);
+    choices = withChoices(choices, { [c3]: false }, r1);
+    choices = withChoices(choices, { [c5]: true }, r1);
+    choices = withChoices(choices, { [c2]: true }, r1);
+    const atOnce = withChoices({}, { [c3]: false, [c5]: true, [c2]: true, [c1]: false }, r1);
+    check('several at once: the same choices, and closing a closed one is none',
+        JSON.stringify(atOnce) === JSON.stringify(choices), JSON.stringify(atOnce));
     const later = applyChoices(r1, choices);
     expect('a later visit keeps every open and close the learner made', c, later.expanded, 'C2,C5');
     check('…and keeps the choices themselves', Object.keys(later.choices).length === 3);
     check('opening what the rule opens anyway is no choice to keep',
-        Object.keys(withChoice({}, c3, true, true)).length === 0 && Object.keys(withChoice(choices, c3, true, true)).length === 2);
+        Object.keys(withChoices({}, { [c3]: true }, r1)).length === 0 && Object.keys(withChoices(choices, { [c3]: true }, r1)).length === 2);
 
     // C3 is finished: the rule moves on to C4, and the choices about C3 end.
     c[2].kids.forEach((t) => { t.status = 'completed'; });
@@ -297,7 +306,7 @@ const require = createRequire(import.meta.url);
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const { JSDOM } = require('jsdom');
 const storeBundle = (await (await import('esbuild')).build({
-    stdin: { contents: `import { useStore } from './src/store'; window.__gate = { useStore };`, resolveDir: root, loader: 'tsx' },
+    stdin: { contents: `import * as store from './src/store'; window.__gate = { useStore: store.useStore, takeOpenedForNow: store.takeOpenedForNow };`, resolveDir: root, loader: 'tsx' },
     bundle: true, write: false, format: 'iife', platform: 'browser', logLevel: 'silent', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"development"' }, loader: { '.css': 'empty', '.svg': 'dataurl' },
 })).outputFiles[0].text;
@@ -318,7 +327,7 @@ async function visit(rows, storage = {}, { failWrites = false } = {}) {
     useStore.setState({ _navigate: () => { } });
     await useStore.getState().loadProjectData(1);
     const stored = () => Object.fromEntries(Object.keys(w.localStorage).map((k) => [k, w.localStorage.getItem(k)]));
-    return { s: useStore.getState, stored, write: (k, v) => w.localStorage.setItem(k, v), close: () => w.close() };
+    return { s: useStore.getState, take: w.__gate.takeOpenedForNow, stored, write: (k, v) => w.localStorage.setItem(k, v), close: () => w.close() };
 }
 const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? null);
 {
@@ -382,6 +391,10 @@ const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? nul
     if (canOpenForNow) moved.s().openForNow(c7);
     check('a row added or dropped into a closed branch opens it for now', canOpenForNow && moved.s().expanded[c7] === true);
     check('…and that open is not kept', canOpenForNow && !keptAnywhere(moved, c7), JSON.stringify(moved.stored()));
+    check("…and the card's list stays where the row went: the open is marked for it, once",
+        typeof moved.take === 'function' && moved.take(c7) === true && moved.take(c7) === false);
+    if (canOpenForNow) moved.s().openForNow(c3);
+    check('…an already open branch is left alone and not marked', typeof moved.take === 'function' && moved.take(c3) === false);
     moved.close();
 
     const broken = await visit(rows, { [CHOICES]: 'not json{' });
@@ -403,17 +416,28 @@ const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? nul
 // ---- where an opened list starts ---------------------------------------------
 console.log('\nwhere an opened list starts');
 {
-    const rowsFor = (spec) => {
+    // The rows a card draws: a closed branch's own rows are hidden.
+    const rowsFor = (tree, expanded) => {
         const flat = [];
-        const walk = (n) => { flat.push(n); n.children.forEach(walk); };
-        build(spec).forEach((c) => c.children.forEach(walk));
+        const walk = (n) => { flat.push(n); if (expanded[n.id] !== false) n.children.forEach(walk); };
+        tree.forEach((c) => c.children.forEach(walk));
         return flat;
     };
-    const at = (spec) => {
-        const rows = rowsFor(spec);
-        const id = rule.listStartRow(rows);
+    const at = (spec, closed = []) => {
+        const tree = build(spec); // hands out the ids `closed` is read by
+        const expanded = Object.fromEntries(closed.map((k) => [k.id, false]));
+        const rows = rowsFor(tree, expanded);
+        const id = rule.listStartRow(rows, expanded);
         return id == null ? null : rows.findIndex((n) => n.id === id);
     };
+    {
+        const sub = cat('Section', [...topics(2, { status: 'completed' }), ...topics(1)]);
+        const card = () => [cat('C', [...topics(3, { status: 'completed' }), sub, ...topics(5, { status: 'completed' }), ...topics(2)])];
+        check('a closed section holding open work comes before later open rows',
+            at(card(), [sub]) === 2);
+        check('…and once open, its own first open row is the place',
+            at(card()) === 5);
+    }
     check('eleven finished, four open: the list starts one row above the first open one',
         at([cat('C', [...topics(11, { status: 'completed' }), ...topics(4)])]) === 10);
     check('everything finished: the list stays at its top', at([cat('C', topics(15, { status: 'completed' }))]) === null);
@@ -429,6 +453,7 @@ console.log('\nwhere an opened list starts');
     const card = src('src/components/CategoryCard.tsx');
     check("the card scrolls its own list to that row, never the page, once per opening",
         /listStartRow\(/.test(card) && /scrollIntoViewWithin\([^)]*boundary:\s*list/.test(card)
+            && /takeOpenedForNow\(node\.id\)\)\s*return/.test(card)
             && /useLayoutEffect\([\s\S]*?\},\s*\[isExpanded\]\)/.test(card) && !/\.scrollIntoView\(/.test(card));
 }
 

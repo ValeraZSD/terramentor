@@ -509,6 +509,13 @@ const loadExpansionChoices = (): ExpansionChoices => {
     }
 };
 
+/** Branches `openForNow` opened to show a row the learner just added or
+ *  dropped: a card opened that way leaves its list where that row is to be
+ *  found, instead of jumping to the first unfinished one. */
+const openedForNow = new Set<number>();
+/** Whether `openForNow` opened this branch since it was last asked; asks once. */
+export const takeOpenedForNow = (id: number): boolean => openedForNow.delete(id);
+
 /** Keep the learner's own open or close of these branches for later visits. */
 const rememberExpansion = (changes: Record<number, boolean>) => {
     saveExpansionChoices(withChoices(loadExpansionChoices(), changes, expansionRule));
@@ -2209,6 +2216,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     openForNow: (id) => {
         if (get().expanded[id] !== false) return;
+        openedForNow.add(id);
         set({ expanded: { ...get().expanded, [id]: true } });
     },
 

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useStore } from '../store';
+import { takeOpenedForNow, useStore } from '../store';
 import ProgressRing from './ProgressRing';
 import TreeItemRow from './TreeItemRow';
 import DropdownMenu from './DropdownMenu';
@@ -100,16 +100,18 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const subtreeCards = node.progress?.cards ?? 0;
   const inCards = countsInCards({ teaches: project?.teaches, topics: node.progress?.total, cards: subtreeCards });
 
-  // An opened list starts at its first unfinished row (`listStartRow`), once
-  // per opening: finishing a topic or the learner's own scrolling afterwards
-  // is never undone by a jump. Only this card's list moves, never the page.
+  // An opened list starts at its first unfinished row (`listStartRow`) when
+  // the card opens or the board is drawn again, never between: finishing a
+  // topic or the learner's own scrolling is not undone by a jump. An open that
+  // shows where an added or dropped row went (`openForNow`) does not jump.
+  // Only this card's list moves, never the page.
   const listRef = useRef<HTMLDivElement | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   useLayoutEffect(() => {
     const list = listRef.current;
-    if (!isExpanded || !list) return;
-    const id = listStartRow(rowsRef.current.map((r) => r.node));
+    if (!isExpanded || !list || takeOpenedForNow(node.id)) return;
+    const id = listStartRow(rowsRef.current.map((r) => r.node), useStore.getState().expanded);
     if (id == null) return;
     const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${id}"]`);
     scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 8 });
