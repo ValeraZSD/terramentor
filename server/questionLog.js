@@ -26,6 +26,7 @@ import db from './database.js';
 import { NOW_ISO } from './database.js';
 import { hasUsableKey, GUESS_BY_FORMAT } from './answerFormats.js';
 import { isUnverified, locateAsked } from './questionTrust.js';
+import { slipParams } from './fading.js';
 
 /** How many questions one practice sitting or one mastery check draws by default. */
 export const DEFAULT_CHECK_SIZE = 10;
@@ -243,7 +244,7 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  * (`bankOf`), and never one a verifier has not confirmed, since its answer
  * would record nothing. Returns `{ quizId, index, question }` entries.
  */
-export function recallOrder(nodeId) {
+export function recallOrder(nodeId, now = new Date()) {
     const bank = bankOf(nodeId).filter(b => !isUnverified(b.question));
     if (!bank.length) return [];
     const quizIds = [...new Set(bank.map(b => b.quizId))];
@@ -253,13 +254,18 @@ export function recallOrder(nodeId) {
     // the same question answered, so it counts here too.
     const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
     const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
+    // A slip is the slip rule's (fading.js SLIPPED_TOPIC): a mock miss on an
+    // earlier learner day, at most SLIP_MAX_DAYS old.
+    const [dayStart, oldest] = slipParams(now);
     const record = new Map(db.prepare(`
         SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last,
-            MAX(CASE WHEN surface = 'mock' AND correct = 0 THEN asked_at END) AS mockMiss,
+            strftime('%Y-%m-%dT%H:%M:%fZ',
+                MAX(CASE WHEN surface = 'mock' AND correct = 0 AND asked_at < ? AND asked_at >= ? THEN asked_at END),
+                '+1 minute') AS mockMissPlus,
             MAX(CASE WHEN correct = 1 THEN asked_at END) AS lastHit
         FROM question_log WHERE quiz_id IN (${marks})${byUuid}
         GROUP BY k
-    `).all(...quizIds, ...uuids).map(r => [r.k, r]));
+    `).all(dayStart, oldest, ...quizIds, ...uuids).map(r => [r.k, r]));
     const previous = db.prepare(`
         SELECT ${LOG_KEY} AS k FROM question_log
         WHERE quiz_id IN (${marks}) AND surface = 'recall'
@@ -270,9 +276,10 @@ export function recallOrder(nodeId) {
         const r = record.get(askKey(b));
         const hits = r?.hits || 0;
         const misses = r?.misses || 0;
-        // Missed on a look back or a mock, and not answered right since: the
-        // question the slip is about (fading.js SLIPPED_TOPIC), asked first.
-        const slipped = !!r?.mockMiss && !(r.lastHit > r.mockMiss);
+        // Missed on a look back or a mock, and not answered right since (from a
+        // minute after, as SLIPPED_TOPIC counts): the question the slip is
+        // about, asked first.
+        const slipped = !!r?.mockMissPlus && !(r.lastHit > r.mockMissPlus);
         return {
             b, position, slipped,
             tier: hits > 0 ? 0 : misses > 0 ? 2 : 1,
