@@ -1122,10 +1122,15 @@ The download opens with a **study summary** (`server/studySummary.js`,
 `mastery_evidence`, `node_mastery` (proven = `estimateProven` over work leaves, the
 finished-project screen's rule) and `mock_sittings` when the file is made, never from
 the log, so an empty, cleared, switched-off or capped log does not change it. Days are
-the learner's days (`studyDay.js`), weeks start on Monday in that calendar, empty weeks
-included, at most 52. Every line starts with `#`, so a reader of one event per line
-skips it; it selects no text column. The gate seeds a library with marked text and a
-non-UTC time zone and pins every count, the week lines and the absence of the marks.
+the learner's days (`studyDay.js`) in the zone the page puts in the link (`?tz=`, since
+a plain link sends no `X-Time-Zone`; an unknown name falls back to the stored zone).
+Weeks start on Monday in that calendar, empty weeks included, at most 52, with a line
+saying so when older weeks are left out. A summary that cannot be worked out becomes one
+`#` line naming the error class plus an `activity.summary_failed` event, and the events
+still follow. Every line starts with `#`, so a reader of one event per line skips it; it
+selects no text column. The gate seeds a library with marked text and a non-UTC time
+zone and pins every count, the week lines and the absence of the marks, and holds the
+proven, answer, review and study-day counts to `projectCompletion()`'s on one course.
 
 ### 12.2 Module map
 

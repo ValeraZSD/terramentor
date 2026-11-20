@@ -999,7 +999,9 @@ export const api = {
     },
     clearActivity: () => request<{ success: boolean }>('/activity', { method: 'DELETE' }),
     /** Not a fetch: the browser downloads it, so the file never passes through JS. */
-    activityExportUrl: () => `${BASE}/activity/export`,
+    // A plain link sends no X-Time-Zone header, so the zone rides in the URL:
+    // the summary's days are this device's days (server/routes/settings.js).
+    activityExportUrl: () => { const zone = clientTimeZone(); return `${BASE}/activity/export${zone ? `?tz=${encodeURIComponent(zone)}` : ''}`; },
 
     getSettings: () => request<Record<string, string>>('/settings'),
     setSetting: (key: ClientSettingKey, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),

@@ -20,7 +20,7 @@ import { estimateProven, PROVING_EVIDENCE_TYPES } from './mastery.js';
 import { getSetting } from './settingsStore.js';
 import { learnerTimeZone, localDate, minuteDates } from './studyDay.js';
 import { hourDate } from './studyTime.js';
-import { streamActivityLog } from './activityLog.js';
+import { streamActivityLog, logActivity, failureFacts } from './activityLog.js';
 
 /** Week lines kept: a year of them, newest last. */
 const MAX_WEEKS = 52;
@@ -37,6 +37,8 @@ function statements() {
         // this app only (an imported deck's history is someone else's
         // studying); evidence other than card ratings, which the reviews
         // already count; a topic marked done; a mock exam handed in.
+        // server/completion.js counts the same rows for one course; the
+        // activity-log gate holds the two to the same answer on one course.
         events: db.prepare(`
             SELECT ${MINUTE('reviewed_at')} AS at, COUNT(*) AS reviews, 0 AS answers, 0 AS checks
             FROM review_log WHERE source = 'app' GROUP BY at
@@ -117,11 +119,13 @@ export function studySummary({ now = Date.now(), timeZone = learnerTimeZone() } 
 
     const dates = [...days.keys()].sort();
     const weeks = [];
+    let weeksCut = false;
     if (dates.length) {
         const thisWeek = mondayOf(localDate(now, timeZone));
         const firstWeek = mondayOf(dates[0]);
         const floor = addDays(thisWeek, -7 * (MAX_WEEKS - 1));
-        let week = firstWeek > floor ? firstWeek : floor;
+        weeksCut = firstWeek < floor;
+        let week = weeksCut ? floor : firstWeek;
         const byWeek = new Map();
         for (const date of dates) {
             // A day after this week (a clock flush near midnight, a restored
@@ -155,6 +159,7 @@ export function studySummary({ now = Date.now(), timeZone = learnerTimeZone() } 
         courses: s.courses.get().n,
         firstDay: dates[0] || null,
         weeks,
+        weeksCut,
     };
 }
 
@@ -175,6 +180,9 @@ export function studySummaryLines(summary) {
         field('first study day', summary.firstDay || 'none yet'),
     ];
     if (summary.weeks.length) {
+        // The totals above cover all of it; without this line a library older
+        // than a year has rows that do not add up to them.
+        if (summary.weeksCut) lines.push(`#  weeks: the latest ${MAX_WEEKS} only; the totals above cover every week\n`);
         const cols = ['days', 'minutes', 'checks', 'answers', 'reviews'];
         // "days" is days studied in that week; the date is the week's Monday.
         lines.push(`#  ${'week (Mon)'.padEnd(10)}${cols.map(h => h.padStart(9)).join('')}\n`);
@@ -198,7 +206,8 @@ export function* activityExport({ now = Date.now(), timeZone } = {}) {
     } catch (e) {
         // The events still go out: a summary that cannot be read must not
         // cost the file that worked before it existed. The error's name only,
-        // never its message.
+        // never its message, in the file; the log gets its facts.
+        logActivity({ area: 'server', level: 'warn', event: 'activity.summary_failed', detail: failureFacts(e) });
         preamble = [`# Study summary: could not be worked out (${String(e?.name || 'Error').replace(/[^\w]/g, '')}).\n`, '#\n'];
     }
     yield* streamActivityLog({ now, preamble });

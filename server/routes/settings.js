@@ -7,6 +7,7 @@ import {
     activityStats, clearActivityLog, invalidateActivityLogSetting, logActivity, readActivity,
 } from '../activityLog.js';
 import { activityExport } from '../studySummary.js';
+import { knownTimeZone } from '../chatContext.js';
 import { ICON_SETTING_KEYS } from '../iconArt.js';
 import { refreshDesktopIcon } from '../desktopIcon.js';
 import { currentAppIcon } from '../appIconSettings.js';
@@ -125,7 +126,10 @@ app.get('/api/activity/export', (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="terramentor-activity-${stamp}.log"`);
     try {
         // The study summary (counts only) first, then the events.
-        for (const chunk of activityExport()) res.write(chunk);
+        // The button is a plain link (no X-Time-Zone header), so the page puts
+        // its zone in the URL; an unknown name falls back to the stored zone.
+        const timeZone = knownTimeZone(typeof req.query.tz === 'string' ? req.query.tz : '') ?? undefined;
+        for (const chunk of activityExport({ timeZone })) res.write(chunk);
         res.end();
     } catch (e) {
         // Headers are already out by then, so there is no status left to send;
