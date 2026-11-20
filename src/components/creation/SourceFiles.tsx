@@ -252,7 +252,9 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                             if (found.length && !text.trim()) { e.preventDefault(); onLinks(found); }
                         }}
                         aria-describedby="course-material-hint"
-                        placeholder={t("Paste a link to a web page or a video")}
+                        // Short: the hint under the row names what a link can
+                        // be, and a phone leaves the field half the row.
+                        placeholder={t("Paste a link")}
                     />
                 </div>
                 {/* One cell, two buttons, the one not in use hidden: swapped

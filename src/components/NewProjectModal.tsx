@@ -20,7 +20,7 @@
 // start), the goal, the lessons' language, the material, and one button, in a
 // box of fixed size (`COURSE_DIALOG_SIZE`). Appearance is a single tile rather
 // than a set of open controls beside the form.
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { ArrowLeft, ChevronRight, FileInput, Link2, MessageSquare, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
@@ -66,14 +66,18 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     // lets them go (the server forgets them within a day anyway).
     const release = useRef<(() => void) | null>(null);
     const cancel = () => { release.current?.(); onClose(); };
+    // The first step, two tiles, takes the height it needs; the form and the
+    // run that replaces it in place share the fixed box.
+    const [choosing, setChoosing] = useState(!draft);
     // Always the FORM: a creation in progress has its own screen
     // (creation/CreationRunView), so this dialog never turns into one and
     // never stands between the reader and a new project.
     return (
         // "New course": every line in the dialog says course (Course material,
         // Import a course, Lessons…), so the title says it too.
-        <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} {...COURSE_DIALOG_SIZE} fill>
-            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} />
+        <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} maxWidth={COURSE_DIALOG_SIZE.maxWidth}
+            className={choosing ? '' : COURSE_DIALOG_SIZE.className} fill>
+            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} onChoosing={setChoosing} />
         </Modal>
     );
 }
@@ -108,8 +112,10 @@ function Choice({ icon, title, line, onClick }: { icon: ReactNode; title: string
     );
 }
 
-function NewProjectForm({ draft, onClose, onCancel, release }: {
+function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     draft: CreationInput | null;
+    /** Whether the first step (create or import) is showing. */
+    onChoosing: (choosing: boolean) => void;
     /** Closes after a Create: the files went with it. */
     onClose: () => void;
     /** Closes and lets the staged files go. */
@@ -124,6 +130,8 @@ function NewProjectForm({ draft, onClose, onCancel, release }: {
     // A plain open asks first: create or import. A form handed back (a run's
     // Back, the assistant's "Open in New course") opens on the form itself.
     const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : 'choose');
+    // Before paint, so a reopened dialog never shows the old height first.
+    useLayoutEffect(() => { onChoosing(createMode === 'choose'); }, [createMode, onChoosing]);
     const [newName, setNewName] = useState(draft?.name ?? '');
     const [newDescription, setNewDescription] = useState(draft?.description ?? '');
     // Colour and icon start as the first palette colour no other project
