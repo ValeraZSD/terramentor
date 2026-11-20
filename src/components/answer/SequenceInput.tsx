@@ -3,14 +3,20 @@ import { useTranslation } from 'react-i18next';
 import {
     DndContext, DragEndEvent, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
 } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import {
+    SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates, type SortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import MathText from '../MathText';
 import { IconButton } from '../ui/Button';
 import { cx } from '../ui/vocabulary';
+import { useCanHover } from '../../utils/platform';
 import { parseSequence } from './formats';
+import { sequenceAsTiles } from './choiceLayout';
 import type { AnswerInputProps } from './AnswerInput';
+
+const noShift: SortingStrategy = () => null;
 
 /**
  * Put the items in order. The answer is the current order, as JSON, and it
@@ -26,6 +32,14 @@ import type { AnswerInputProps } from './AnswerInput';
  * Graded: each row is painted by whether it sits in its right place. The
  * correct order itself is shown by the verdict margin (`AnswerKey`), so the
  * learner sees both their order and the key, not one overwriting the other.
+ *
+ * Short items (`sequenceAsTiles`: a sentence's parts, dates, numbers) are
+ * tiles in one wrapping line instead, read left to right like the answer
+ * itself: five words in five full-width rows were a sentence spread down the
+ * screen. Tiles only with a mouse: a tile drags by its grip (keyboard: the
+ * grip's own sensor). Without a mouse the up/down pair is the interface, and
+ * a tile wide enough to carry it fits one to a phone's row, so a phone keeps
+ * the list. One layout per device in every state, so Check moves nothing.
  */
 export default function SequenceInput({ question, value, onChange, disabled, result }: AnswerInputProps) {
     const { t } = useTranslation();
@@ -35,6 +49,7 @@ export default function SequenceInput({ question, value, onChange, disabled, res
         return recorded ?? parseSequence(value) ?? (question.items ?? []);
     }, [question.items, value, result]);
     const key = useMemo(() => (result ? parseSequence(question.correct_answer) : null), [question.correct_answer, result]);
+    const tiles = useCanHover() && sequenceAsTiles(order);
 
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -51,10 +66,15 @@ export default function SequenceInput({ question, value, onChange, disabled, res
         move(order.indexOf(String(active.id)), order.indexOf(String(over.id)));
     };
 
+    // Tiles differ in width, and every sorting strategy slides items by the
+    // width of the one passing them, so words slid over each other mid-drag.
+    // Instead the order itself changes while the tile is dragged, the line
+    // reflows at the real widths, and nothing else is shifted.
     return (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={order} strategy={verticalListSortingStrategy}>
-                <ol className="space-y-2" aria-label={t("Your order")}>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}
+            onDragOver={tiles ? onDragEnd : undefined}>
+            <SortableContext items={order} strategy={tiles ? noShift : verticalListSortingStrategy}>
+                <ol className={tiles ? 'flex flex-wrap gap-2' : 'space-y-2'} aria-label={t("Your order")}>
                     {order.map((item, i) => (
                         <Row
                             key={item}
@@ -62,6 +82,7 @@ export default function SequenceInput({ question, value, onChange, disabled, res
                             index={i}
                             count={order.length}
                             locked={locked}
+                            tile={tiles}
                             verdict={key ? (key[i]?.trim() === item.trim() ? 'right' : 'wrong') : null}
                             onUp={() => move(i, i - 1)}
                             onDown={() => move(i, i + 1)}
@@ -73,39 +94,48 @@ export default function SequenceInput({ question, value, onChange, disabled, res
     );
 }
 
-function Row({ item, index, count, locked, verdict, onUp, onDown }: {
-    item: string; index: number; count: number; locked: boolean;
+function Row({ item, index, count, locked, tile, verdict, onUp, onDown }: {
+    item: string; index: number; count: number; locked: boolean; tile: boolean;
     verdict: 'right' | 'wrong' | null; onUp: () => void; onDown: () => void;
 }) {
     const { t } = useTranslation();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item, disabled: locked });
-    const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+    const style = { transform: CSS.Transform.toString(transform), transition };
     return (
         <li
             ref={setNodeRef}
             style={style}
             className={cx(
-                'flex items-center gap-2 pl-2 pr-1 py-1 rounded-xl border-2 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200',
+                'flex items-center rounded-xl border-2 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200',
+                tile ? 'gap-1 pl-1 pr-3 py-1' : 'gap-2 pl-2 pr-1 py-1',
+                // Held: lifted, solid and above the items it passes (later in the DOM);
+                // at half opacity the item underneath showed through its text.
+                isDragging && 'relative z-10 shadow-lg',
                 verdict === 'right' && 'border-emerald-400 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-900/20',
                 verdict === 'wrong' && 'border-red-400 dark:border-red-600 bg-red-50 dark:bg-red-900/20',
                 !verdict && 'border-slate-200 dark:border-slate-600',
             )}
         >
             {locked ? (
-                <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-hidden="true">{index + 1}</span>
+                <span className={cx('w-6 shrink-0 text-center text-xs tabular-nums text-slate-500 dark:text-slate-400', tile && 'min-h-8 flex items-center justify-center')} aria-hidden="true">{index + 1}</span>
             ) : (
                 <button data-drag-handle
                     type="button"
                     {...attributes}
                     {...listeners}
                     aria-label={t("Drag to move step {{n}}", { n: index + 1 })}
-                    className="flex items-center justify-center w-6 min-h-11 shrink-0 cursor-grab active:cursor-grabbing text-slate-500 dark:text-slate-400 touch-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className={cx(
+                        'flex items-center justify-center w-6 shrink-0 cursor-grab active:cursor-grabbing text-slate-500 dark:text-slate-400 touch-none rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                        // A tile is mouse-only (see above), so its grip needs no 44px touch
+                        // height; 32px keeps an untouched tile as tall as a graded one.
+                        tile ? 'min-h-8' : 'min-h-11',
+                    )}
                 >
                     <GripVertical className="w-4 h-4" aria-hidden="true" />
                 </button>
             )}
-            <span className="flex-1 min-w-0 py-1.5"><MathText content={item} /></span>
-            {!locked && (
+            <span className={tile ? 'whitespace-nowrap py-1.5' : 'flex-1 min-w-0 py-1.5'}><MathText content={item} /></span>
+            {!locked && !tile && (
                 // Side by side, not stacked: two stacked 44px targets made every
                 // row 90px tall on a phone, and four steps filled the screen.
                 <span className="flex shrink-0">

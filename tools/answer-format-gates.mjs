@@ -1159,7 +1159,24 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 // a laptop, 350px on a phone, 280px at 320px wide; "−120" paints ~45px, the
 // widest formula ~150px, a sentence option ~520px.
 {
-    const { choiceColumns } = await import(pathToFileURL(await bundleClient('src/components/answer/choiceLayout.ts')).href);
+    const { choiceColumns, sequenceAsTiles } = await import(pathToFileURL(await bundleClient('src/components/answer/choiceLayout.ts')).href);
+    // An ordering of short parts reads as one line of tiles (with a mouse); a
+    // procedure's steps stay a list. One long item keeps the whole list.
+    const tileCases = [
+        ['a sentence\'s parts are tiles', ['Gisteren', 'is', 'mijn zus', 'uit Spanje', 'teruggekomen'], true],
+        ['years are tiles', ['1914', '1939', '1945', '1989'], true],
+        ['a formula counts what it paints, not its source', ['$\\frac{a}{b}$', '$x^2$', '$\\sqrt{2}$'], true],
+        ['a procedure\'s steps stay a list', ['Mix the flour, milk and eggs into a batter', 'Let the batter rest', 'Bake both sides'], false],
+        ['one long item keeps the whole list', ['Gisteren', 'is', 'mijn zus', 'uit Spanje en Portugal terug'], false],
+        ['exactly the limit (20) is a tile', ['a'.repeat(20), 'b'], true],
+        ['one over the limit is not', ['a'.repeat(21), 'b'], false],
+        ['nothing to order: no tiles', [], false],
+    ];
+    for (const [name, items, want] of tileCases) {
+        check(`sequence layout — ${name}`, sequenceAsTiles(items) === want, `got ${sequenceAsTiles(items)}, want ${want}`);
+    }
+    const sequence = readFileSync(new URL('../src/components/answer/SequenceInput.tsx', import.meta.url), 'utf8');
+    check('sequence tiles only with a mouse: a phone keeps the up/down list', /useCanHover\(\)\s*&&\s*sequenceAsTiles\(/.test(sequence));
     const ROOT = 16;
     const cases = [
         ['four short numbers on a laptop: one row', 4, 45, 632, 4],
