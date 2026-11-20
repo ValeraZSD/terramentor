@@ -308,11 +308,13 @@ guess floor, then the least recently asked. An answer to a copy of the question
 inside another topic's practice quiz counts (matched by its uuid). The question
 the topic's previous recall asked goes last. Only usable keys a verifier has
 confirmed are candidates, and a recall answer is logged as `recall`.
-In the feed they arrive as a review round that OPENS the home stream and a
-course's stream: one question from each fading topic, oldest first, at most
-`feed_recall_per_batch` and never more than the page, on the opening page of a
-visit only (a later page never starts one), drawn under one header
-(`review: true` on the card). A topic's own page carries none.
+In the feed they arrive as a review round: one question from each fading topic,
+oldest first, at most `feed_recall_per_batch` and never more than the page,
+drawn under one header (`review: true` on the card). A course's stream opens
+with its round on the opening page of a visit only. On the home stream each
+course's block (below) opens with that course's own round when the block first
+appears, on whichever page that is; a block that carries on from an earlier
+page starts none. A topic's own page carries none.
 
 Which topics are fading is ONE predicate, `FADING_TOPIC` in `server/fading.js`,
 read by `getDecayingNodes` and by Today's decaying list (`buildTodayData`), with
@@ -483,10 +485,22 @@ it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
 `practice`, `notice`, `lookback`. The recall round opens the stream (above); after it the
 interleave is roughly lesson → question → … with a flashcard every 3–4 items.
 
-**The look back** (`server/lookBack.js`). On the opening page of the home stream
-and of a course's stream (never a topic's, never a later page) one `lookback` card
-leads, above the recall round, for at most one course (on the home stream the
-course the stream studies next). `lookBackOffer(projectId, {now})` says what it
+On the home stream the page is built one course block at a time: one course's
+look back offer, its recall round, its window topics through their checkpoints
+with its own due cards every 3–4 items, then the rest of its due cards and new
+cards, and only then the next course. A block ends when the course's share of
+today is used up, never inside a topic or a round. The client sends the courses
+it already holds (`?courses=`, kept to the last 200) so the block it is in
+carries on first; the page splits only between whole heads. The client groups
+the list into blocks (`src/components/feed/courseBlocks.ts`) and draws each
+under one pinned course header (`CourseBlock.tsx`), so no card repeats the
+course name.
+
+**The look back** (`server/lookBack.js`). On the opening page of a course's
+stream (never a topic's, never a later page) one `lookback` card leads, above the
+recall round. On the home stream at most one is served per visit: it opens, above
+that course's round, the block of the first course that has an offer, on
+whichever page that block first appears. `lookBackOffer(projectId, {now})` says what it
 offers: `resume` while a look back is open (until it is put off, below);
 `mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
 21 days away and no full mock was finished or offer put off in the last 7 days
