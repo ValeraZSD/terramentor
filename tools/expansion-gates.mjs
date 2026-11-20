@@ -10,6 +10,9 @@
 // A learner's own open or close holds while the rule's answer for that branch
 // is what it was when they chose.
 //
+// An opened card's list starts at its first unfinished row, so the work it
+// was opened for is in view (`listStartRow`).
+//
 // Each case below is a way through a course the rule has to get right. The
 // last sections run the real store in jsdom (opening a course, a learner's
 // open and close, a later visit, a reveal, what storage holds) and read the
@@ -32,7 +35,7 @@ process.on('exit', () => rmSync(scratch, { recursive: true, force: true }));
 
 const rule = await bundleTs('src/utils/defaultExpansion.ts', scratch, {
     what: 'expansion rule', platform: 'node',
-    needs: ['COLLAPSE_FROM_TOPICS', 'activeTopicIds', 'ruleExpansion', 'applyChoices', 'withChoice', 'choicesFromLegacy', 'choicesFromStorage'],
+    needs: ['COLLAPSE_FROM_TOPICS', 'activeTopicIds', 'ruleExpansion', 'applyChoices', 'withChoice', 'choicesFromLegacy', 'choicesFromStorage', 'listStartRow'],
 });
 const tree = await bundleTs('src/utils/tree.ts', scratch, { what: 'expansion rule', platform: 'node', needs: ['buildTree'] });
 if (!rule || !tree) process.exit(0);
@@ -209,6 +212,26 @@ console.log('\nwhere the learner is');
     c[5].kids[3].start = day(30); c[5].kids[3].end = day(30);
     expect('a dated topic comes before every undated one', c, ruleExpansion(build(c), TODAY), 'C6');
 }
+{
+    // Two late topics due the same day: the server names the older one
+    // (`scheduled_end, id`), wherever the outline put it.
+    const c = bigCourse(() => ({ status: 'completed' }));
+    c[1].kids[0] = { fixedId: 9001, start: day(-3), end: day(-3) };
+    c[4].kids[0] = { fixedId: 9000, start: day(-3), end: day(-3) };
+    expect('late topics due the same day: the older one is next, not the first in the outline', c, ruleExpansion(build(c), TODAY), 'C5');
+}
+{
+    // A taught import that kept card stages beside its topics: "Next up" is a
+    // topic, never a stage, however early the stage was made.
+    const c = bigCourse((i) => (i === 0 ? { role: 'pagination', cards: 5 } : {}));
+    expect('stages beside topics: "Next up" is the first topic, not a stage made earlier', c, ruleExpansion(build(c), TODAY), 'C2');
+}
+{
+    // The server ranks a topic as dated by its start alone.
+    const c = bigCourse((i) => (i === 0 ? { status: 'completed' } : {}));
+    c[5].kids[2].start = day(20);
+    expect('a topic with a start and no end is dated, ahead of the undated ones', c, ruleExpansion(build(c), TODAY), 'C6');
+}
 
 // ---- the learner's own choices -------------------------------------------------
 console.log('\nthe learner\'s own choices');
@@ -340,7 +363,26 @@ const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? nul
     check('…and the old map stays until its choices are kept', LEGACY in full.stored());
     full.s().toggleExpanded(c5);
     expect('…and a choice made now lasts the visit', c, full.s().expanded, 'C5');
+    full.s().toggleExpanded(c7);
+    full.s().toggleExpanded(c5);
+    full.s().toggleExpanded(c5);
+    await full.s().loadProjectData(1);
+    expect('…and so do several, the earlier ones too, through a reload', c, full.s().expanded, 'C5,C7');
     full.close();
+
+    const quota = await visit(rows, { [CHOICES]: JSON.stringify({}) }, { failWrites: true });
+    quota.s().toggleExpanded(c5);
+    quota.s().toggleExpanded(c7);
+    await quota.s().loadProjectData(1);
+    expect('storage full: the visit keeps every choice made since, reloaded or not', c, quota.s().expanded, 'C3,C5,C7');
+    quota.close();
+
+    const moved = await visit(rows);
+    const canOpenForNow = typeof moved.s().openForNow === 'function';
+    if (canOpenForNow) moved.s().openForNow(c7);
+    check('a row added or dropped into a closed branch opens it for now', canOpenForNow && moved.s().expanded[c7] === true);
+    check('…and that open is not kept', canOpenForNow && !keptAnywhere(moved, c7), JSON.stringify(moved.stored()));
+    moved.close();
 
     const broken = await visit(rows, { [CHOICES]: 'not json{' });
     expect('broken storage opens the course by the rule', c, broken.s().expanded, 'C3');
@@ -358,6 +400,38 @@ const storedChoices = (page) => choicesFromStorage(page.stored()[CHOICES] ?? nul
     tab.close();
 }
 
+// ---- where an opened list starts ---------------------------------------------
+console.log('\nwhere an opened list starts');
+{
+    const rowsFor = (spec) => {
+        const flat = [];
+        const walk = (n) => { flat.push(n); n.children.forEach(walk); };
+        build(spec).forEach((c) => c.children.forEach(walk));
+        return flat;
+    };
+    const at = (spec) => {
+        const rows = rowsFor(spec);
+        const id = rule.listStartRow(rows);
+        return id == null ? null : rows.findIndex((n) => n.id === id);
+    };
+    check('eleven finished, four open: the list starts one row above the first open one',
+        at([cat('C', [...topics(11, { status: 'completed' }), ...topics(4)])]) === 10);
+    check('everything finished: the list stays at its top', at([cat('C', topics(15, { status: 'completed' }))]) === null);
+    check('the first row is open: the list stays at its top', at([cat('C', topics(15))]) === null);
+    check('the second row is open: already in view, the list stays at its top',
+        at([cat('C', [...topics(1, { status: 'completed' }), ...topics(14)])]) === null);
+    check('skipped topics count as finished',
+        at([cat('C', [...topics(5, { status: 'skipped' }), ...topics(3)])]) === 4);
+    check('a deck topic whose cards are all met is finished before anyone marks it',
+        at([cat('C', [...topics(6, { cards: 4, seen: 4 }), ...topics(3, { cards: 4 })])]) === 5);
+    check('notes are no work and never the place to start',
+        at([cat('C', [...topics(4, { status: 'completed' }), { note: true }, { note: true }, ...topics(2)])]) === 5);
+    const card = src('src/components/CategoryCard.tsx');
+    check("the card scrolls its own list to that row, never the page, once per opening",
+        /listStartRow\(/.test(card) && /scrollIntoViewWithin\([^)]*boundary:\s*list/.test(card)
+            && /useLayoutEffect\([\s\S]*?\},\s*\[isExpanded\]\)/.test(card) && !/\.scrollIntoView\(/.test(card));
+}
+
 // ---- the board ---------------------------------------------------------------
 console.log('\nthe board');
 {
@@ -365,6 +439,20 @@ console.log('\nthe board');
     check('the card grid does not stretch a closed card to its open neighbour', /\bitems-start\b/.test(grid), grid);
     const crumbs = src('src/components/Breadcrumbs.tsx').replace(/\/\/.*$/gm, '');
     check('a breadcrumb opens the path for this visit only, as a reveal', /revealNode\(/.test(crumbs) && !/setExpanded|toggleExpanded/.test(crumbs));
+    // Adding a row and dropping one open the target for the learner to see it
+    // land; neither is them choosing to keep that branch open.
+    const noCode = (rel) => src(rel).replace(/\/\/.*$/gm, '');
+    const places = {
+        'src/components/CategoryCard.tsx': /openForNow\(node\.id\)/,
+        'src/components/TreeItemRow.tsx': /openForNow\(node\.id\)/,
+        'src/components/NodeTree.tsx': /openForNow\(placed\.parentId\)/,
+        'src/components/Sidebar.tsx': /openForNow\(newParentId\)/,
+    };
+    for (const [rel, call] of Object.entries(places)) {
+        const code = noCode(rel);
+        check(`${rel.split('/').pop()}: an add or a drop opens its target for now, not as a choice`,
+            call.test(code) && !/setExpanded\((node\.id|placed\.parentId|newParentId)\b/.test(code));
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

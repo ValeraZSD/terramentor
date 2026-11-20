@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { FOCUS_RING } from './ui/vocabulary';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -27,6 +27,8 @@ import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDropFlash } from '../hooks/useDropFlash';
 import { countsInCards } from '../utils/projectShape';
+import { listStartRow } from '../utils/defaultExpansion';
+import { scrollIntoViewWithin } from '../utils/scrollWithin';
 import { Button, IconButton } from './ui/Button';
 import { TextInput } from './ui/Field';
 import { MenuItem } from './ui/Popover';
@@ -59,7 +61,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const deleteNode = useStore((s) => s.deleteNode);
   const expanded = useStore((s) => s.expanded);
   const toggleExpanded = useStore((s) => s.toggleExpanded);
-  const setExpanded = useStore((s) => s.setExpanded);
+  const openForNow = useStore((s) => s.openForNow);
   const selectedNodeId = useStore((s) => s.selectedNodeId);
   const projects = useStore((s) => s.projects);
   const currentProjectId = useStore((s) => s.currentProjectId);
@@ -98,10 +100,26 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
   const subtreeCards = node.progress?.cards ?? 0;
   const inCards = countsInCards({ teaches: project?.teaches, topics: node.progress?.total, cards: subtreeCards });
 
+  // An opened list starts at its first unfinished row (`listStartRow`), once
+  // per opening: finishing a topic or the learner's own scrolling afterwards
+  // is never undone by a jump. Only this card's list moves, never the page.
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!isExpanded || !list) return;
+    const id = listStartRow(rowsRef.current.map((r) => r.node));
+    if (id == null) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-item-id="${id}"]`);
+    scrollIntoViewWithin(row, { boundary: list, block: 'start', padding: 8 });
+  }, [isExpanded]);
+
   const handleAddChild = async () => {
     if (!newItemTitle.trim()) return;
     await createNode({ title: newItemTitle, parent_id: node.id });
-    if (!expanded[node.id]) setExpanded(node.id, true);
+    // Shows where the new row went, for this visit: no choice to keep.
+    openForNow(node.id);
     setShowAddModal(false);
     setNewItemTitle('');
   };
@@ -246,7 +264,7 @@ export default function CategoryCard({ node, rows, rowDrag, rowTarget, dropIndic
              bottom-right corner. The card itself cannot simply clip
              (`overflow-hidden`) — the drag-and-drop indicators are positioned
              outside its edges on purpose. */
-          <div className="border-t border-slate-100 dark:border-slate-700 rounded-b-2xl px-2 py-2 max-h-80 overflow-auto">
+          <div ref={listRef} className="border-t border-slate-100 dark:border-slate-700 rounded-b-2xl px-2 py-2 max-h-80 overflow-auto">
             {/* The drag context is the board's (NodeTree), so a row can be
                 carried into another card; this card only lists its rows. */}
             <SortableContext items={rows.map((i) => i.id)} strategy={verticalListSortingStrategy}>

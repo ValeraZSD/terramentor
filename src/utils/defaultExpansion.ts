@@ -23,7 +23,10 @@ import { addDays, isLeafNode, isWorkLeaf, leafStatus, topicDone } from './tree';
 
 /**
  * From this many study items up, a course opens only where the learner is.
- * Below it the whole course is short enough to read at a glance.
+ * Below it the whole course is short enough to read at a glance, and cheap
+ * to draw: with every branch open the board took about 0.1 s plus 1.4 ms per
+ * study item on the main thread (measured on 50 to 600 items), so about 0.3 s
+ * here, against 2.3 s for a course of 1,274 topics.
  */
 export const COLLAPSE_FROM_TOPICS = 150;
 
@@ -66,14 +69,20 @@ function studyItems(nodes: TreeNode[], out: TreeNode[] = []): TreeNode[] {
  * order the feed serves in when nothing is due (soonest start first, then
  * undated topics in creation order, `getFocusNodes`).
  */
-function nextTopic(open: TreeNode[], today: string): TreeNode | null {
+function nextTopic(items: TreeNode[], today: string): TreeNode | null {
+    // The server names topics only (`TOPIC_NODE`); a stage stands in when a
+    // deck has nothing else, so its outline still opens at the part being met.
+    const topics = items.filter(isWorkLeaf);
+    const open = topics.length > 0 ? topics : items;
     let best: TreeNode | null = null;
     for (const t of open) {
-        if (!isDated(t) || t.scheduled_end! >= today) continue;
-        if (!best || t.scheduled_end! < best.scheduled_end!) best = t;
+        if (!t.scheduled_end || t.scheduled_end >= today) continue;
+        // Ties go to the older topic, as the server sorts (`scheduled_end, id`).
+        if (!best || t.scheduled_end < best.scheduled_end!
+            || (t.scheduled_end === best.scheduled_end && t.id < best.id)) best = t;
     }
     if (best) return best;
-    const key = (t: TreeNode): [number, string, number] => [isDated(t) ? 0 : 1, t.scheduled_start ?? '', t.id];
+    const key = (t: TreeNode): [number, string, number] => [t.scheduled_start ? 0 : 1, t.scheduled_start ?? '', t.id];
     for (const t of open) {
         if (!best) { best = t; continue; }
         const [a, b] = [key(t), key(best)];
@@ -143,11 +152,42 @@ export function applyChoices(
     return { expanded, choices: kept };
 }
 
+/**
+ * Where an opened list of rows starts: the row to put at its top, so the
+ * first unfinished one shows with one row of context above it. A card of
+ * eleven finished topics and four open ones otherwise opened on eleven ticks,
+ * with the work it was opened for below its own fold. The first unfinished
+ * row is an open study item, or failing that a branch row holding one (its
+ * children may be hidden). Null keeps the list at its top: nothing is
+ * unfinished, or the first unfinished row is already one of the first two.
+ */
+export function listStartRow(rows: TreeNode[]): number | null {
+    const holdsOpen = (n: TreeNode): boolean =>
+        (isStudyItem(n) && isOpenItem(n)) || n.children.some(holdsOpen);
+    let at = rows.findIndex((n) => isStudyItem(n) && isOpenItem(n));
+    if (at < 0) at = rows.findIndex(holdsOpen);
+    return at > 1 ? rows[at - 1].id : null;
+}
+
 /** Record the learner opening or closing a branch. Agreeing with the rule is no choice to keep. */
 export function withChoice(choices: ExpansionChoices, id: number, open: boolean, ruleOpen: boolean): ExpansionChoices {
+    return withChoices(choices, { [id]: open }, { [id]: ruleOpen });
+}
+
+/** Many at once (open or close everything): one copy, not one per branch.
+ *  A branch with no rule answer (made since the course opened) is drawn open. */
+export function withChoices(
+    choices: ExpansionChoices,
+    changes: Record<number, boolean>,
+    rule: Record<number, boolean>,
+): ExpansionChoices {
     const next = { ...choices };
-    if (open === ruleOpen) delete next[id];
-    else next[id] = { open, rule: ruleOpen };
+    for (const [key, open] of Object.entries(changes)) {
+        const id = Number(key);
+        const ruleOpen = rule[id] ?? true;
+        if (open === ruleOpen) delete next[id];
+        else next[id] = { open, rule: ruleOpen };
+    }
     return next;
 }
 

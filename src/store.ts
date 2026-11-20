@@ -6,7 +6,7 @@ import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
 import { buildTree, getNodePath, todayStr } from './utils/tree';
-import { ruleExpansion, applyChoices, withChoice, choicesFromLegacy, choicesFromStorage, ExpansionChoices } from './utils/defaultExpansion';
+import { ruleExpansion, applyChoices, withChoices, choicesFromLegacy, choicesFromStorage, ExpansionChoices } from './utils/defaultExpansion';
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
@@ -472,18 +472,26 @@ let expansionRule: Record<number, boolean> = {};
 /** The choices when storage refuses them (private mode, a full quota): they
  *  last as long as the tab. */
 let expansionFallback: ExpansionChoices = {};
+/** Set once storage refused a write: from then on what it holds is older than
+ *  the fallback, and reading it back would drop the choices made since. */
+let expansionStorageRefused = false;
 
 const saveExpansionChoices = (choices: ExpansionChoices): boolean => {
     expansionFallback = choices;
     try {
         localStorage.setItem(EXPANSION_CHOICES_KEY, JSON.stringify(choices));
+        expansionStorageRefused = false;
         return true;
-    } catch { return false; }
+    } catch {
+        expansionStorageRefused = true;
+        return false;
+    }
 };
 
 /** Read afresh each time, never cached: another tab may have kept a choice
  *  since, and a stale copy written back would undo it. */
 const loadExpansionChoices = (): ExpansionChoices => {
+    if (expansionStorageRefused) return expansionFallback;
     try {
         const stored = localStorage.getItem(EXPANSION_CHOICES_KEY);
         const legacy = localStorage.getItem(LEGACY_EXPANSION_KEY);
@@ -503,14 +511,7 @@ const loadExpansionChoices = (): ExpansionChoices => {
 
 /** Keep the learner's own open or close of these branches for later visits. */
 const rememberExpansion = (changes: Record<number, boolean>) => {
-    let choices = loadExpansionChoices();
-    for (const [key, open] of Object.entries(changes)) {
-        const id = Number(key);
-        // A branch made since the course was opened has no rule answer yet; it
-        // is drawn open, as one with no entry always is.
-        choices = withChoice(choices, id, open, expansionRule[id] ?? true);
-    }
-    saveExpansionChoices(choices);
+    saveExpansionChoices(withChoices(loadExpansionChoices(), changes, expansionRule));
 };
 
 interface AppState {
@@ -768,6 +769,9 @@ interface AppState {
     loadProjectData: (id: number) => Promise<void>;
     /** Expand a node's ancestors so views can scroll it into view. */
     revealNode: (id: number) => void;
+    /** Open one branch for this visit only: the app showing where a row it
+     *  just added or moved went, which is no choice of the learner's to keep. */
+    openForNow: (id: number) => void;
     /**
      * The mastery check modal, opened from anywhere — a completion the server
      * intercepted, or the learner choosing to prove a topic. `projectId` and
@@ -2201,6 +2205,11 @@ export const useStore = create<AppState>((set, get) => ({
             }
             if (changed) set({ expanded });
         }
+    },
+
+    openForNow: (id) => {
+        if (get().expanded[id] !== false) return;
+        set({ expanded: { ...get().expanded, [id]: true } });
     },
 
     applyRoute: async ({ view, projectId = null, workspaceView = 'dashboard', nodeId = null }) => {

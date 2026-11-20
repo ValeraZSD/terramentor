@@ -42,7 +42,7 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
     const deleteNode = useStore((s) => s.deleteNode);
     const expanded = useStore((s) => s.expanded);
     const toggleExpanded = useStore((s) => s.toggleExpanded);
-    const setExpanded = useStore((s) => s.setExpanded);
+    const openForNow = useStore((s) => s.openForNow);
     const showConfirm = useStore((s) => s.showConfirm);
     const skipNode = useStore((s) => s.skipNode);
 
@@ -102,7 +102,8 @@ export default function TreeItemRow({ item, projectedDepth, isActive, isDropPare
     const handleAddChild = async () => {
         if (!newTitle.trim()) return;
         await createNode({ title: newTitle, parent_id: node.id });
-        if (!expanded[node.id]) setExpanded(node.id, true);
+        // Shows where the new row went, for this visit: no choice to keep.
+        openForNow(node.id);
         setShowAddModal(false);
         setNewTitle('');
     };
