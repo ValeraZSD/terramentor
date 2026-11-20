@@ -383,6 +383,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack 
     // with the height (`onChoosing`), so the head never shows the old step's.
     useLayoutEffect(() => {
         onBack(createMode === 'choose' ? null : () => go(createMode === 'external' ? 'import' : 'choose'));
+        // Gone with the step: a closed window opens again without the last one's ←.
+        return () => onBack(null);
         // `go` only sets state and a ref.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [createMode, onBack]);

@@ -574,6 +574,31 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
         && !/(\b(openable|needsSetup|live|finished)|canContinue\(run\)) \? \(/.test(footBody));
 }
 
+// A dialog of steps puts its way back in the head, before the title: a row of
+// its own in the body held one small button.
+section('a dialog of steps draws its ← before the title, and only when given one');
+{
+    const head = () => doc.querySelector('[role="dialog"] h2')?.closest('.border-b');
+    const back = () => doc.querySelector('[role="dialog"] button[aria-label="Back"]');
+    renderModal(true);
+    check('no ← without onBack', !back());
+    renderModal(false);
+    let backs = 0;
+    renderModal(true, { onBack: () => { backs++; } });
+    const b = back();
+    const h2 = doc.querySelector('[role="dialog"] h2');
+    check('with onBack, a ← in the head', !!b && !!head()?.contains(b));
+    check('…before the title', !!b && !!h2 && !!(b.compareDocumentPosition(h2) & window.Node.DOCUMENT_POSITION_FOLLOWING));
+    check('…and the ✕ is still the head\'s last control', head()?.lastElementChild?.getAttribute('aria-label') === 'Close dialog', head()?.lastElementChild?.outerHTML?.slice(0, 80));
+    if (b) act(() => { b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+    check('pressing it calls onBack, and does not close', backs === 1 && !!doc.querySelector('[role="dialog"]'), `${backs} call(s)`);
+    renderModal(false);
+    renderModal(true, { onBack: () => { }, closeButton: false });
+    const last = head()?.lastElementChild;
+    check('without the ✕, its aria-hidden box is still last', last?.tagName === 'SPAN' && last.getAttribute('aria-hidden') === 'true', last?.outerHTML?.slice(0, 80));
+    renderModal(false);
+}
+
 // ---------------------------------------------------------------------------
 section('toasts are announced, and no control sits inside another');
 {

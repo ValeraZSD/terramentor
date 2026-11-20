@@ -366,7 +366,10 @@ const bundle = (await esbuild.build({
 
 const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
 const w = dom.window;
-w.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
+// A touchscreen unless a case says otherwise: `hasPhysicalKeyboard()` reads
+// `(pointer: fine)`.
+let pointerFine = false;
+w.matchMedia = (q) => ({ matches: pointerFine && q.includes('pointer: fine'), media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
 w.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } };
 w.IntersectionObserver = class { observe() { } unobserve() { } disconnect() { } };
 w.IS_REACT_ACT_ENVIRONMENT = true;
@@ -464,7 +467,15 @@ try {
     await act(async () => { r = mountModal(el, { name: 'Knots', description: '', color: '', icon: '', language: '', documents: [] }); });
     await settle();
     ok('a handed-back form opens on the form itself', nameField()?.value === 'Knots', nameField()?.value);
-    ok('…with its ← drawn, and the focus not on it', !!buttonNamed('Back') && focused() !== buttonNamed('Back'), focused()?.outerHTML?.slice(0, 120));
+    // On a touchscreen the dialog itself takes the focus (no on-screen keyboard
+    // over the form); with a keyboard, the first field does. Never the ←.
+    ok('…with its ← drawn; on a touchscreen the focus is on the dialog, not the ←', !!buttonNamed('Back') && focused()?.getAttribute?.('role') === 'dialog', focused()?.outerHTML?.slice(0, 120));
+    act(() => r.unmount());
+    pointerFine = true;
+    await act(async () => { r = mountModal(el, { name: 'Knots', description: '', color: '', icon: '', language: '', documents: [] }); });
+    await settle();
+    ok('…and with a keyboard on the Name field', !!buttonNamed('Back') && focused() === nameField(), focused()?.outerHTML?.slice(0, 120));
+    pointerFine = false;
     act(() => r.unmount());
 
     await act(async () => { r = mountModal(el, null); });
