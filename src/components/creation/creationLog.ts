@@ -233,7 +233,9 @@ export function eventToLogEntry(event: any): LogEntry | null {
             id = 'short-topics';
             if (phase === 'topics_written' && event.failed) {
                 // The short answer was unusable: the run goes on in phases.
-                // The size row ('size', above) is rewritten in place to say so.
+                // This warning row is the only one that says the short try
+                // failed: the size row then reads "A full course, in phases",
+                // the same as a run that was phased from the start.
                 message = i18n.t("Could not create the short course");
                 status = 'warning';
             } else if (phase === 'topics_written') {
