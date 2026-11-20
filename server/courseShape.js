@@ -15,6 +15,15 @@
 //     a course in phases, and the model is not asked;
 //   - a reply that names neither shape, a refusal or a failed call keeps the
 //     course in phases, which is what this window always made.
+// There is no floor: SHORT.minWords is the assistant's door, where a source IS
+// the course. Here a name alone may be a short course, written from what the
+// subject needs, so a 40-word note beside a goal is context, not too little.
+//
+// A short course is written in one call that names it and says what it is for,
+// so it takes no identity call (server/projectIdentity.js) of its own: a typed
+// name is kept, as the short courses' own door always kept it, and the goal is
+// its description. One is made only to settle a language that is open
+// (routes/createProject.js `settleIdentity`).
 
 import { generateResponse } from './ai.js';
 import { promptTitle } from './citations.js';

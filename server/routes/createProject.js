@@ -676,10 +676,6 @@ app.post('/api/ai/create-project', (req, res) => {
             });
         }
 
-        // Short or in phases (server/courseShape.js): the learner never picks.
-        // One short call judges it from the name, the goal and a summary of
-        // the material; material longer than a short course holds is never
-        // asked about, and a failed call keeps the course in phases.
         // Judge what the learner typed: a good name or description is kept
         // verbatim and only what is not good is rewritten, and a language
         // left open (one to confirm as learned, or several the course could
@@ -719,6 +715,10 @@ app.post('/api/ai/create-project', (req, res) => {
             }
         };
 
+        // Short or in phases (server/courseShape.js): the learner never picks.
+        // One short call judges it from the name, the goal and a summary of
+        // the material; material longer than a short course holds is never
+        // asked about, and a failed call keeps the course in phases.
         send({ phase: 'sizing', message: 'Choosing the course size', messageKey: 'Choosing the course size' });
         const shape = await decideCourseShape({
             name: learnerName, goal: learnerDescription, src, words: src.docs.map(d => sourceWords(d.text)), signal,
