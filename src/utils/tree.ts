@@ -70,7 +70,7 @@ export function topicWeight(node: Pick<Node, 'cards' | 'taught'>): number {
  * make it in_progress. Never promoted to completed here: a topic is completed
  * only when somebody says so (`topicDone` is the other question).
  *
- * Mirrors LEAF_STATUS in server/today.js, which the calendar and the assistant
+ * Mirrors LEAF_STATUS in server/today.js, which Today, search and the assistant
  * read; tools/topic-status-gates.mjs holds every surface to the same answer.
  */
 export function leafStatus(node: Pick<Node, 'status' | 'seen' | 'attempts'>): Node['status'] {
@@ -333,7 +333,7 @@ export function getVisibleNodes(tree: TreeNode[], expanded: Record<number, boole
  * Collect every leaf node (non-note with no structural children) from a tree.
  *
  * STRUCTURAL: a slice of an imported deck's card order is a leaf here, because
- * the tree, the sidebar and the calendar are about shape. Anything that counts,
+ * the tree and the sidebar are about shape. Anything that counts,
  * plans or schedules WORK wants `getWorkLeaves` instead.
  */
 export function getLeafNodes(tree: TreeNode[]): TreeNode[] {

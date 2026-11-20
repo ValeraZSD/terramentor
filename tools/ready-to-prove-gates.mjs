@@ -197,20 +197,9 @@ if (clientRule) {
     eq('client rule: a closed topic is never ready', clientRule({ ...r, status: 'skipped' }, ANCHOR), false);
 }
 
-// ---- the calendar -------------------------------------------------------------
-
-const { buildCalendarRange, buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
-const range = buildCalendarRange(day(-40), day(40));
-for (const [key, id] of Object.entries(CASES)) {
-    if (key === 'notDue') continue; // outside the range by design
-    const task = range.tasks.find(t => t.nodeId === id);
-    const shown = task ? say({ status: task.status, scheduled_end: task.scheduled_end }, ANCHOR, task.provable) : '(absent)';
-    record('Calendar', key, shown);
-    eq(`calendar: ${key}`, shown, EXPECTED[key]);
-}
-
 // ---- what the home page and the briefing read --------------------------------
 
+const { buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
 const today = buildTodayData({ today: ANCHOR }).projects.find(p => p.id === projectId);
 for (const key of OPEN_LATE) {
     const task = today?.overdueTasks.find(t => t.id === CASES[key]);

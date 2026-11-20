@@ -644,8 +644,8 @@ function cardTotals(projectId) {
  * allowance at a time, so the plan is a straight line from the start to the
  * deadline — and a date stored on a stage would only make the feed's urgency call
  * thirty containers overdue by next week (the reason decks get a standing slot
- * rather than a schedule). Where a section falls on that line is worked out when
- * something asks (`cardPlan`), from the cards themselves.
+ * rather than a schedule). Where a section falls on that line can be worked out
+ * from the cards themselves (`cardPlan`); no screen shows it at present.
  *
  * Returns the same shape as `allocateSchedule` with no assignments, so
  * `persistSchedule` clears any date a node still carries and writes the window.
@@ -722,7 +722,7 @@ export function clearStoredOpenDates(projectId) {
  * - A closed topic sits on the day it was completed, in the learner's zone.
  *   One with no completion time (a skipped topic, an imported completed row)
  *   keeps the end date its row carries, else the day its row last changed, so
- *   it never drops off the Timeline or out of its parent's span.
+ *   it never loses its dates or drops out of its parent's span.
  * - Open topics are laid by the same phase-aware engine from today (or from
  *   the window's start, if that is later) to the deadline. A missed week
  *   therefore makes nothing overdue: the open work moves up and the pace
@@ -1105,8 +1105,8 @@ export function getScheduleSummary(projectId) {
  * Take a project's schedule away, all of it: the window, every date the engine
  * wrote on its nodes (topics AND the sections derived above them), and the
  * baseline recalibration measures drift against. A window removed while a topic
- * kept its dates would leave a half-schedule on the calendar and the timeline,
- * and keep the feed calling those topics overdue.
+ * kept its dates would leave half a schedule behind, and keep the feed calling
+ * those topics overdue.
  *
  * The study WEEK stays. It is the learner's answer to "which days do I study",
  * not part of the plan, and keeping it is what makes setting the same two dates
@@ -1134,9 +1134,11 @@ export function removeSchedule(projectId) {
 }
 
 /**
- * Where each SECTION of a project measured in cards falls on its plan — what the
- * Timeline draws as rows and the Calendar as chips, since nothing in such a
- * project carries a stored date (`allocateCardWindow`).
+ * Where each SECTION of a project measured in cards falls on its plan, worked
+ * out from the cards, since nothing in such a project carries a stored date
+ * (`allocateCardWindow`). Nothing in the app calls it at present: the views
+ * that drew section dates were removed. It stays as the one definition of a
+ * section's place on the pace line, pinned by `scheduling-gates`.
  *
  * The plan is the pace line: cards met at an even rate over the window's study
  * days, front to back in deck order. A section holding cards k..k+c of N sits on

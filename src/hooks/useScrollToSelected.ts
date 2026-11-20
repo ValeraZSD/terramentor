@@ -4,7 +4,7 @@ import { scrollIntoViewWithin } from '../utils/scrollWithin';
 /**
  * Scrolls the element marked `data-node-id="<selectedNodeId>"` inside `containerRef`
  * into view whenever the selection (or any extra dep) changes. Used to keep the
- * sidebar, tree, timeline and calendar in sync with the globally selected node.
+ * sidebar and the tree in sync with the globally selected node.
  *
  * Smoothly animates the target to the vertical centre of its scroll container,
  * and runs on the next frame so freshly-revealed (expanded) rows are laid out first.

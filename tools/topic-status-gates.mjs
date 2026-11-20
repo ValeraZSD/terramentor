@@ -17,7 +17,7 @@
  * and a section reads in_progress once anything under it is under way.
  *
  * The real library had a topic at mastery 0.98 after seven answers that the
- * tree, the calendar and the assistant all called "not_started" and overdue.
+ * tree and the assistant both called "not_started" and overdue.
  * Each of those reads the status its own way, so each is asked here, on one
  * scratch library with one topic per case. `--table` prints what every surface
  * says, which is the before/after table in the PR.
@@ -258,15 +258,7 @@ for (const [key, id] of Object.entries(CASES)) {
 }
 check('topicStatus.ts exports topicDotStatus, which the list and both maps draw', typeof atlas.topicDotStatus === 'function');
 
-// ---- the server: the calendar, and what the assistant reads -------------------
-
-const { buildCalendarRange } = await import('../server/today.js');
-const range = buildCalendarRange(day(-40), day(40));
-for (const [key, id] of Object.entries(CASES)) {
-    const task = range.tasks.find(t => t.nodeId === id);
-    record('Calendar (all projects)', key, task?.status);
-    eq(`calendar: ${key}`, task?.status, EXPECTED[key]);
-}
+// ---- the server: what the assistant reads ---------------------------------------
 
 const { projectStateText } = await import('../server/projectState.js');
 const state = projectStateText(projectId) || '';

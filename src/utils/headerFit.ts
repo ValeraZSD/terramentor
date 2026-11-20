@@ -16,7 +16,7 @@
  *   4. the tabs that still do not fit move into a "More" menu, the tab you
  *      are on always staying in the rail;
  *   5. with no room for even that tab beside "More", the menu button itself
- *      takes the tab's name ("Calendar ▾") and its menu lists every tab. A
+ *      takes the tab's name ("Atlas ▾") and its menu lists every tab. A
  *      bare "More" there named the page you were on nowhere on screen.
  *
  * Pure arithmetic on measured widths (px), so a gate can drive it.
