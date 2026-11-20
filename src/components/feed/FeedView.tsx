@@ -13,7 +13,7 @@ import PracticeCard from './PracticeCard';
 import NoticeCard from './NoticeCard';
 import LookBackCard from './LookBackCard';
 import StreamRoundHeader from './StreamRoundHeader';
-import { STREAM_SCROLL_MARGIN as CARD_SCROLL_MARGIN, StreamCourse } from './streamCourse';
+import { STREAM_SCROLL_MARGIN as CARD_SCROLL_MARGIN, StandaloneHeading, StreamCourse } from './streamCourse';
 import MockSittingScreen from '../mockExam/MockSittingScreen';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
@@ -532,7 +532,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
             style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
             className="outline-none"
         >
-            {renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)}
+            {group.card.kind === 'lookback'
+                ? renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)
+                : <StandaloneHeading>{renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)}</StandaloneHeading>}
         </div>
     );
 

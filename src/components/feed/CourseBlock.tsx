@@ -26,11 +26,11 @@ export default function CourseBlock({ name, color, icon, continued, children }: 
     const headingId = useId();
     const accent = useAccentVars(color);
     return (
-        // `--course-h`: the pinned header's height, so a card the stream scrolls
-        // to stops below it (STREAM_SCROLL_MARGIN).
         // A named group, not a <section>: a region landmark per course would
-        // list every course twice over in a screen reader's landmarks.
-        <div role="group" aria-labelledby={headingId} className="space-y-5" style={{ '--course-h': '2.75rem' } as CSSProperties}>
+        // list every course twice over in a screen reader's landmarks. What
+        // scrolls into view stops below the pinned header through the
+        // scroller's `scroll-padding-top` (FeedView), not a margin per card.
+        <div role="group" aria-labelledby={headingId} className="space-y-5">
             <h2
                 id={headingId}
                 style={accent as CSSProperties | undefined}
