@@ -59,9 +59,11 @@ export default function SequenceInput({ question, value, onChange, disabled, res
     const [held, setHeld] = useState<string | null>(null);
     const [preview, setPreview] = useState<string[] | null>(null);
     const [picked, setPicked] = useState<string | null>(null);
-    // Checking, undoing a check, or a new set of items drops a half-made move:
-    // a tile picked or held before Check must not come back picked after Undo.
-    const moment = `${locked}\u0000${(question.items ?? []).join('\u0000')}`;
+    // Checking, undoing a check, a new set of items, or a switch between tiles
+    // and the list (a mouse plugged in or out; the drag context remounts)
+    // drops a half-made move: a tile picked or held before Check must not come
+    // back picked after Undo, nor a drag's preview outlive its drag.
+    const moment = `${locked}\u0000${tiles}\u0000${(question.items ?? []).join('\u0000')}`;
     const [momentWas, setMomentWas] = useState(moment);
     if (momentWas !== moment) {
         setMomentWas(moment);
