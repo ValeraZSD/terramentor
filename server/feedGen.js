@@ -370,6 +370,37 @@ function heldBackTargets() {
 }
 
 /**
+ * What the answer check reads for a feed question: the lesson part it was
+ * written from, then the topic's material, as the writer had them but without
+ * the learner profile. The part goes first, so the check's length cap cuts the
+ * topic's material before the part.
+ *
+ * Exported for `tools/verifier-source-gates.mjs`.
+ */
+export function feedVerifySource(nodeId, partTitle, lessonContent) {
+    const lessonText = teachingText(lessonContent || '').slice(0, LESSON_CONTEXT_CHARS);
+    const material = questionSource(nodeId);
+    return lessonText ? `Lesson part "${partTitle}":\n${lessonText}\n\n${material}` : material;
+}
+
+/**
+ * The same text for a stored feed question, rebuilt from its row: a question
+ * for part i sits at seq 2i and its lesson part at seq 2i - 1. A re-check
+ * reads what the first check read, so a question about the part is not judged
+ * without it. A lesson since deleted leaves the topic's material.
+ *
+ * Exported for `tools/verifier-source-gates.mjs`.
+ */
+export function feedQuestionSource(feedItemId) {
+    const row = db.prepare(`SELECT node_id, seq, meta FROM feed_items WHERE id = ?`).get(feedItemId);
+    if (!row) return '';
+    let partTitle = '';
+    try { partTitle = JSON.parse(row.meta || '{}')?.partTitle || ''; } catch { /* a meta that does not parse names no part */ }
+    const lesson = db.prepare(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ?`).get(row.node_id, row.seq - 1);
+    return feedVerifySource(row.node_id, partTitle, lesson?.content);
+}
+
+/**
  * Ask the verifier about one question again, and write the verdict back where
  * the question lives (questionTrust.js `applyVerdict`): confirmed, it counts
  * from now on; disputed, it is deleted like any vetoed question; no verdict
@@ -380,10 +411,10 @@ async function reverifyOne(f, entry, signal) {
     // A paper exercise is audited as it was when written: its reference
     // solution as the model answer to its brief.
     const practice = entry.kind === 'practice';
-    // The topic's material, as the first check had it (a feed question's
-    // lesson part is not kept with the question, so a re-check reads the
-    // topic without it).
-    const verdict = await verifyQuestion(f.title, practice ? paperAuditQuestion(stored) : stored, { signal, source: questionSource(f.nodeId) });
+    // What the first check read: a paper exercise was written from the
+    // topic's material alone, a feed question from its lesson part as well.
+    const source = entry.where === 'feed' && !practice ? feedQuestionSource(entry.feedItemId) : questionSource(entry.nodeId ?? f.nodeId);
+    const verdict = await verifyQuestion(f.title, practice ? paperAuditQuestion(stored) : stored, { signal, source });
     const outcome = applyVerdict(entry, verdict);
     console.log(`[FeedGen] Re-verified a ${practice ? 'paper exercise' : `${entry.where} question`} on "${f.title}": ${outcome}${verdict.available ? '' : ` (${verdict.reason})`}`);
     return outcome;
@@ -1368,10 +1399,7 @@ async function generateOne(f, missing, signal) {
     // included — that is where a topic's real expectations live) and the
     // outline, but never the completed-topics list.
     const qContext = buildNodeContext(f.nodeId);
-    // What the answer check reads: the same lesson part and material the
-    // writer had, without the learner profile. The part goes first, so the
-    // check's length cap cuts the topic's material before the part.
-    const verifySource = `Lesson part "${partTitle}":\n${lessonText}\n\n${questionSource(f.nodeId)}`;
+    const verifySource = feedVerifySource(f.nodeId, partTitle, missing.lesson.content);
 
     let question = null;
     let veto = null;
