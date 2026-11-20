@@ -137,14 +137,25 @@ check('usable and green, named by its address', s.provider === 'openai' && v.usa
 {
     // The assistant asks on open, every minute, and as each answer starts and
     // ends; every ask listed the provider's models over the network.
-    const before = listed.openai;
-    await Promise.all([status(), status(), status(), status()]);
-    for (let i = 0; i < 3; i++) await status();
-    check('asked seven more times at once and in a row: the model list is not fetched again', listed.openai === before, `${listed.openai - before} more fetches`);
-    put('ai_openai_model', 'stub-model-2');
-    const after = (await status()).model;
-    check('…but a change to the AI settings is a new question, answered at once', listed.openai === before + 1 && after === 'stub-model-2', `fetches ${listed.openai - before}, model ${after}`);
-    put('ai_openai_model', 'stub-model');
+    // The route's cache reads Date.now, and this server runs in this process:
+    // the instant is pinned for the block, so a paused run (a loaded CI box)
+    // cannot age the cached answer past HEALTH_OK_MS between the asks.
+    const realNow = Date.now;
+    const pinned = realNow();
+    Date.now = () => pinned;
+    try {
+        await status(); // the cache filled at the pinned instant
+        const before = listed.openai;
+        await Promise.all([status(), status(), status(), status()]);
+        for (let i = 0; i < 3; i++) await status();
+        check('asked seven more times at once and in a row: the model list is not fetched again', listed.openai === before, `${listed.openai - before} more fetches`);
+        put('ai_openai_model', 'stub-model-2');
+        const after = (await status()).model;
+        check('…but a change to the AI settings is a new question, answered at once', listed.openai === before + 1 && after === 'stub-model-2', `fetches ${listed.openai - before}, model ${after}`);
+        put('ai_openai_model', 'stub-model');
+    } finally {
+        Date.now = realNow;
+    }
 }
 
 console.log('\n--- a connection in use that does not answer ---');
@@ -219,7 +230,13 @@ console.log('\n--- how long a status answer is kept ---');
 
     const drawer = readFileSync(join(repoRoot, 'src/components/AssistantDrawer.tsx'), 'utf8');
     check('the drawer asks for a fresh check right after a turn ends',
-        /const turnEnded = wasStreaming\.current && !streaming;/.test(drawer) && /api\.getAIStatus\(\{ fresh \}\)/.test(drawer));
+        /const turnEnded = wasStreaming\.current && !streaming;/.test(drawer) && /api\.getAIStatus\(\{ fresh: freshCheckOwed\.current \}\)/.test(drawer));
+    // A turn that ends while the drawer is closed still owes that check: the
+    // flag is set BEFORE the closed drawer returns, and cleared only by a check.
+    const effect = drawer.slice(drawer.indexOf('const freshCheckOwed = useRef(false);'), drawer.indexOf('window.setInterval(check'));
+    const owed = effect.indexOf('if (turnEnded) freshCheckOwed.current = true;');
+    check('…even when the turn ended while the drawer was closed',
+        owed >= 0 && owed < effect.indexOf('if (!open) return;') && (drawer.match(/freshCheckOwed\.current = false;/g) || []).length === 1);
 }
 
 console.log('\n--- one rule, not one per surface ---');

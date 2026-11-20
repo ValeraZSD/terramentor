@@ -579,18 +579,20 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     }, [aiConfigRev]);
     // The server keeps a reachable answer for 30 s; right after a turn, which
     // may have failed because the provider just went away, the drawer asks for
-    // a check of its own.
+    // a check of its own. A turn can end while the drawer is closed, so that
+    // ask is owed until the next check runs; interval checks take the cache.
     const wasStreaming = useRef(false);
+    const freshCheckOwed = useRef(false);
     useEffect(() => {
         const turnEnded = wasStreaming.current && !streaming;
         wasStreaming.current = streaming;
+        if (turnEnded) freshCheckOwed.current = true;
         if (!open) return;
         let alive = true;
-        let fresh = turnEnded;
         const check = () => {
             setStatusLoading(true);
-            const asked = api.getAIStatus({ fresh });
-            fresh = false;
+            const asked = api.getAIStatus({ fresh: freshCheckOwed.current });
+            freshCheckOwed.current = false;
             asked
                 .then(s => { if (alive) setStatus(s); })
                 .catch(() => { if (alive) setStatus(null); })
