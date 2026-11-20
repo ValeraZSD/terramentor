@@ -141,15 +141,33 @@ for (const [name, q] of Object.entries(shapes)) {
     const legacy = AI_PROMPTS.feed_question_verify('Business letters', q, {});
     check(`${name}: with no source the prompt is unchanged and names no source`,
         bare.user === legacy.user && bare.system === legacy.system && !/SOURCE TEXT/.test(bare.user + bare.system));
+    check(`${name}: told to answer a question about the text from the text, and one about the subject from the subject`,
+        !!withSource && /SOURCE TEXT/.test(withSource.system) && /from the text/i.test(withSource.system)
+        && /subject itself[^.]*never by the text/i.test(withSource.system) && /may itself contain mistakes/.test(withSource.system));
+}
+// The key is not an input: a different key, the same prompt. Not for the two
+// audit modes (open answer, code), which show the model answer by design.
+const otherKey = {
+    'multiple choice': { ...mc, correct_answer: 'Friday morning' },
+    'true/false': { ...shapes['true/false'], correct_answer: 'True' },
+    ordering: { ...shapes.ordering, correct_answer: JSON.stringify(['Friday', 'Thursday', 'Tuesday']) },
+    assembly: { ...shapes.assembly, correct_answer: JSON.stringify(['after']) },
+};
+for (const [name, q] of Object.entries(otherKey)) {
+    let a = null, b = null;
+    try {
+        a = AI_PROMPTS.feed_question_verify('Business letters', shapes[name], { source: LETTER });
+        b = AI_PROMPTS.feed_question_verify('Business letters', q, { source: LETTER });
+    } catch { /* reported below */ }
+    check(`${name}: the key stays hidden with a source beside it (another key, the same prompt)`,
+        !!a && !!b && a.user === b.user && a.system === b.system);
 }
 const closed = (() => { try { return AI_PROMPTS.feed_question_verify('Business letters', mc, { source: LETTER }); } catch { return null; } })();
-check('the key stays hidden with a source beside it',
-    !!closed && !/Friday afternoon\s*$|correct_answer|intended answer is/i.test(closed.user.split('QUESTION:')[0]) && !closed.user.includes('"Friday afternoon"'));
-check('a question about the text is answered from the text', !!closed && /SOURCE TEXT/.test(closed.system) && /from the text/i.test(closed.system));
-check('a question about the subject is still judged by the subject', !!closed && /subject itself/i.test(closed.system));
 check('"eliminable" counts what a learner throws away without reading the text', !!closed && /without (having )?read(ing)? the (source )?text/i.test(closed.system));
 const huge = (() => { try { return AI_PROMPTS.feed_question_verify('Business letters', mc, { source: 'word '.repeat(10000) + 'TAIL-MARK' }); } catch { return null; } })();
 check('a long source is capped, not sent whole', !!huge && huge.user.length < 20000 && !huge.user.includes('TAIL-MARK'), String(huge?.user.length));
+check('...and a question the cut text does not settle is judged by the subject, not called broken for that',
+    !!huge && /cut short/.test(huge.user) && /cut short[^.]*judge it by the subject/i.test(huge.system));
 
 // ---------------------------------------------------------------------------
 // 2. the callers
@@ -189,16 +207,30 @@ const walk = (dir, prefix = '') => {
     }
 };
 walk(serverDir);
+// The offline re-check of stored banks reads the same verifier.
+files.push(['../tools/quiz-audit.mjs', fileURLToPath(new URL('./quiz-audit.mjs', import.meta.url))]);
+/** A call's whole argument list, found by counting parentheses, so a call with no options object is seen too. */
+const argsAt = (text, open) => {
+    let depth = 0;
+    for (let i = open; i < text.length; i++) {
+        if (text[i] === '(') depth++;
+        else if (text[i] === ')' && --depth === 0) return text.slice(open + 1, i);
+    }
+    return '';
+};
 let calls = 0;
 for (const [rel, p] of files) {
     const text = readFileSync(p, 'utf8');
-    for (const m of text.matchAll(/(?<!function )\bverifyQuestion\(([^;]*?)\{([^}]*)\}\)/g)) {
+    for (const m of text.matchAll(/(?<!function )\bverifyQuestion\(/g)) {
+        const args = argsAt(text, m.index + m[0].length - 1);
         calls++;
         const line = text.slice(0, m.index).split('\n').length;
-        check(`${rel}:${line} passes a source`, /\bsource\b/.test(m[2]), m[0].slice(0, 120));
+        check(`${rel}:${line} passes a source`, /\{[^{}]*\bsource\b[^{}]*\}\s*$/.test(args), `verifyQuestion(${args.slice(0, 100)})`);
     }
 }
-check('the scan found the five callers (vetQuiz, two feed, paper, placement) and more', calls >= 5, String(calls));
+// Eight in server/ (vetQuiz 2, feed 3, paper 1, placement 2) and three in the
+// audit tool: a caller that vanished from the scan is a caller nobody checks.
+check('the scan found every caller (8 in server/, 3 in quiz-audit)', calls >= 11, String(calls));
 
 stub.close();
 db.close?.();

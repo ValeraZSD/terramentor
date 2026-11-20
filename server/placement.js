@@ -697,6 +697,7 @@ function normalizeProbeQuestion(raw, type, nodeId = null) {
 export async function authorProbeQuestion(target, { signal, lang = null, index = 0 } = {}) {
     const type = questionTypeFor(index);
     const context = buildNodeContext(target.node_id);
+    const source = questionSource(target.node_id);
     let priorFault = null;
 
     for (let attempt = 0; attempt < AUTHOR_ATTEMPTS; attempt++) {
@@ -724,7 +725,6 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
         if (!q) { priorFault = 'the question had no identifiable answer key'; continue; }
         if (q.rejected) { priorFault = q.rejected; continue; }
 
-        const source = questionSource(target.node_id);
         let verdict = await verifyQuestion(target.title, q, { signal, source });
         // No verdict is not a pass: ask once more (a reasoning model that spent
         // its reply thinking often answers the second time), as the feed does.

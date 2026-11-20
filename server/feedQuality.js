@@ -910,9 +910,10 @@ export function sameAnswer(a, b) {
  * verdict "broken", which is rejected below like any other.
  *
  * `source` is the text the question's writer had (`questionSource(nodeId)` in
- * ai.js, plus the lesson part on the feed). Every caller that gave its writer
- * a text passes it here: without it, a question about that text cannot be
- * answered and is deleted as unsound. The key is still never shown.
+ * ai.js, plus the lesson part on the feed). Every caller of this function
+ * passes it (tools/verifier-source-gates.mjs): without it, a question about
+ * that text cannot be answered and is deleted as unsound. The key is still
+ * never shown.
  */
 export async function verifyQuestion(nodeTitle, question, { signal, source = '' } = {}) {
     try {

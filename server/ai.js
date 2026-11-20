@@ -4438,12 +4438,13 @@ ${priorFault}` : ''}`
     feed_question_verify: (nodeTitle, question, { source = '' } = {}) => {
         const text = String(source || '').trim();
         const material = text
-            ? `\n\nSOURCE TEXT (the material this question was written from${text.length > VERIFY_SOURCE_CHARS ? ', cut short' : ''}):\n${text.slice(0, VERIFY_SOURCE_CHARS)}`
+            ? `\n\nSOURCE TEXT (the material this question was written from${text.length > VERIFY_SOURCE_CHARS ? ', cut short' : ''}; may contain mistakes):\n${text.slice(0, VERIFY_SOURCE_CHARS)}`
             : '';
+        const cut = text.length > VERIFY_SOURCE_CHARS;
         const sourceRule = text
-            ? `\nSOURCE TEXT: the material the question was written from is given below the topic. When the question asks about that text (what it says, who wrote it, a day, a time, a price, a rule it states), answer from the text: such a question is sound when the text settles it, and "broken" when the text does not settle it or settles it two ways. When the question asks about the subject itself, judge by the subject itself as the rules above say; a text that says otherwise does not make a wrong key right.`
+            ? `\nSOURCE TEXT: the material the question was written from is given below the topic. It was written by the same kind of author as the question and may itself contain mistakes. When the question asks about that text (what it says, who wrote it, a day, a time, a price, a rule it states), answer from the text: such a question is sound when the text settles it, and "broken" when ${cut ? 'the part shown settles it two ways. The text is cut short, so a question the part shown does not settle may be about the rest: judge it by the subject, never "broken" for that alone.' : 'the text does not settle it or settles it two ways.'} When the question asks about the subject itself, judge by the subject itself as the rules above say, never by the text: a text that states the same mistake as the key does not make a wrong key right.`
             : '';
-        const opts =Array.isArray(question.options) && question.options.length
+        const opts = Array.isArray(question.options) && question.options.length
             ? `\nOPTIONS:\n${question.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
             : question.type === 'true_false' ? '\nOPTIONS:\n1. True\n2. False' : '';
 
