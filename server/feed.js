@@ -1213,7 +1213,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // "All caught up" is a claim about finished work, so it is made only when
     // there is work and all of it is closed. An empty course, or topics with
     // nothing yet to serve, gets what is actually true.
-    if (!scoped && items.length === 0 && projectInfos.length > 0) {
+    // A look back offer alone is no stream: the notices below still say why
+    // nothing else is there (all but "nothing left", which the offer belies).
+    if (!scoped && items.length === offers.length && projectInfos.length > 0) {
         const { topics, cards, open, openTaught, cardsLeft } = explainEmpty(projectInfos.map(i => i.project.id));
         // A first page: the learner holds nothing yet. Later, an empty draw just
         // means they hold everything there is, and the stream's own end says so.
@@ -1254,7 +1256,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         } else if (open > 0) {
             // Open topics nobody will write lessons for (the course does not
             // teach) and nothing of theirs to serve. Not finished either.
-            if (firstPage && !excluded('notice-clear')) {
+            if (firstPage && !excluded('notice-clear') && !offers.length) {
                 items.push({
                     key: 'notice-clear', kind: 'notice',
                     message: projectScope
@@ -1262,9 +1264,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         : "That's everything for now — come back later or open a project to go deeper.",
                 });
             }
-        } else if (!excluded('notice-clear') && !roundHeld) {
-            // Not under a review round the learner still holds: "no review is
-            // due" would sit below the questions it says are not there.
+        } else if (!excluded('notice-clear') && !roundHeld && !offers.length) {
+            // Not under a review round the learner still holds, nor a look back
+            // offered: "no review is due" would sit below the questions it says
+            // are not there.
             items.push({
                 key: 'notice-clear', kind: 'notice',
                 message: projectScope
