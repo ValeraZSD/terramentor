@@ -138,7 +138,7 @@ export default function QuestionCard({ card, done, onDone, inChapter = false, la
             projectName={card.projectName}
             nodeTitle={card.nodeTitle}
             subtitle={isRecall
-                ? (card.kind === 'recall' && card.slipped ? t("This tripped you up on your look back. Try it again?")
+                ? (card.kind === 'recall' && card.slipped ? t("From your look back: worth another try?")
                     : card.daysSince != null ? t("You proved this {{count}} days ago — still got it?", { count: card.daysSince }) : t("You proved this a while ago — still got it?"))
                 : t("Check your understanding")}
             // Said once per run: a recall in the round that opens the stream sits

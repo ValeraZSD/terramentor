@@ -325,6 +325,11 @@ try {
         check('the stream renders it', /case 'lookback'/.test(view) && /LookBackCard/.test(view));
         const api = readFileSync(join(ROOT, 'src', 'api.ts'), 'utf8');
         check('the client can start, skip and read it', ['startLookBack', 'skipLookBack', 'getLookBack'].every(f => api.includes(f)));
+        // About one question per topic: the result shows no bar per topic and no clock line, only
+        // the score and the answers (each answer names its topic).
+        const result = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'CourseMock.tsx'), 'utf8');
+        check('its result shows no bar per topic', /result\.topics\.length > 0 && !detail\.paper\.lookBack/.test(result));
+        check('its result shows no clock line', /!detail\.paper\.lookBack && <p[^>]*>\s*\{sitting\.timeAllowed > 0/.test(result));
     });
 } finally {
     server.close();

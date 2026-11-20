@@ -64,8 +64,8 @@ export default function LookBackCard({ card, done, onDone, onOpen }: {
             ? t("{{answered}} of {{total}} answered", { answered: offer.answered, total: offer.questions })
             : t("{{count}} questions from across this course", { count: offer.questions });
     const body = mock
-        ? t("Sit a full mock from this course's questions, set up like the real exam.")
-        : t("See what has stayed with you. Anything you miss comes back as a question the next day you study.");
+        ? t("Sit a mock from this course's questions, then go over what you missed before the exam.")
+        : t("A short mix of earlier topics. Anything you miss comes back as a question the next day you study.");
     const startLabel = mock ? t("Set up the mock") : offer.kind === 'resume' ? t("Continue") : t("Start");
     const Icon = mock ? Timer : History;
 

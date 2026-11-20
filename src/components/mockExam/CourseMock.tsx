@@ -638,12 +638,13 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                 <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
                     {detail.paper.lookBack ? t("Look back, {{date}}", { date }) : t("Mock exam from this course, {{date}}", { date })}
                 </h2>
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+                {/* A look back has no clock and no setting to recall, so it has no line here. */}
+                {!detail.paper.lookBack && <p className="text-sm text-slate-600 dark:text-slate-300">
                     {sitting.timeAllowed > 0
                         // The clock runs on past the time while late answers are given; the score stops at the time.
                         ? t("Answered on screen in {{used}} of {{allowed}}", { used: duration(Math.min(sitting.elapsed, sitting.timeAllowed)), allowed: duration(sitting.timeAllowed) })
                         : t("Answered on screen in {{used}}, no clock", { used: duration(sitting.elapsed) })}
-                </p>
+                </p>}
             </div>
             <Panel>
                 <p className="text-5xl font-semibold tabular-nums text-slate-900 dark:text-white">
@@ -692,7 +693,9 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                 </div>
             </Panel>
 
-            {result.topics.length > 0 && (
+            {/* A look back asks about one question per topic, so a bar per topic would only repeat
+                the answers below, each of which names its topic. */}
+            {result.topics.length > 0 && !detail.paper.lookBack && (
                 <Panel>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("By topic")}</h3>
                     <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-700">
