@@ -950,7 +950,7 @@ and a route an earlier one answers first.
 
 | Area | Routes |
 |---|---|
-| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
+| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan` (no screen calls it since the Dashboard's daily list was removed; the gates read it), `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
 | Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
