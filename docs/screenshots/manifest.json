@@ -37,7 +37,7 @@
           "{{done}} / {{total}} items · bottom-left",
           "{{fmt}}/{{fmt2}} met · bottom-left"
         ],
-        "new-course": [
+        "new-course-form": [
           "(optional) · middle-centre",
           "(optional) · middle-left",
           "A textbook, notes or past exams · middle-centre",

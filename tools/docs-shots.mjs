@@ -433,6 +433,16 @@ export const STATES = {
         await sleep(800);
     },
 
+    // The window opens on the choice; the form is behind "Create a course".
+    async 'new-course-form'(page, ctx) {
+        const create = `document.querySelector('[role="dialog"] [data-tile]')`;
+        await STATES['new-course'](page, ctx);
+        await page.waitFor(create, 'Create a course');
+        await page.press(create, 'Create a course');
+        await page.waitFor(`document.querySelector('[role="dialog"] input')`, 'the new course form');
+        await sleep(1200);
+    },
+
     async 'course-dashboard'(page, { ids }) {
         await page.go(`/project/${ids.project}/dashboard`, 'Dashboard');
         await sleep(1500);
