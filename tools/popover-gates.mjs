@@ -29,6 +29,11 @@
 //      width on a phone it left a gap at the right that read as a layout that
 //      had not finished. Held by mounting it in narrow, wide, column and row
 //      parents, and by reading the Projects page's switch.
+//   4. WHAT FLOATS STACKS ABOVE ITS HOST. Menus, panels, Select's list and
+//      the model picker share `FLOAT_LAYER`, above every dialog, sheet and
+//      viewer that can hold one (a menu at z-50 opened inside the z-[55]
+//      mastery check, under it and out of reach). Held by reading every
+//      full-screen layer and Modal layer in src/ against it.
 //
 //   node tools/popover-gates.mjs              # this checkout
 //   node tools/popover-gates.mjs --root DIR   # another checkout (the pre-fix tree must fail)
@@ -375,6 +380,28 @@ if (bundled) {
                 own === 0 && reads > own, `${own} measure(s) on its own scroll, ${reads - own} on the page's`);
             delete trig.getBoundingClientRect;
         }
+        {
+            // Placed from the button's box (a 200px-tall surface, the window
+            // 768px): under the button with room, over it without.
+            const trig = document.getElementById('trigger');
+            const P = window.HTMLElement.prototype;
+            Object.defineProperty(P, 'scrollHeight', { configurable: true, get() { return 200; } });
+            const at = async (top) => {
+                trig.getBoundingClientRect = () => ({ top, bottom: top + 40, left: 40, right: 120, width: 80, height: 40, x: 40, y: top });
+                await globalThis.__act(() => { document.dispatchEvent(new window.Event('scroll')); });
+                return { top: parseFloat(surface?.style.top ?? ''), left: parseFloat(surface?.style.left ?? '') };
+            };
+            const low = await at(100);
+            const high = await at(window.innerHeight - 60);
+            check('…placed under its button with room: top just below it, left at its left edge',
+                low.top >= 140 && low.top <= 160 && low.left === 40, JSON.stringify(low));
+            check('…and over it when the room below is short: its bottom above the button\'s top',
+                high.top + 200 <= window.innerHeight - 60 && high.top >= window.innerHeight - 60 - 200 - 20 && high.left === 40,
+                `${JSON.stringify(high)} for a button at ${window.innerHeight - 60}px`);
+            // Shadowed on HTMLElement for the check; deleting it uncovers Element's own.
+            delete P.scrollHeight;
+            delete trig.getBoundingClientRect;
+        }
         await press(inside(kind, surface));
         check('…a press inside it is not a press on the card it opened from', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         {
@@ -507,6 +534,51 @@ const projects = read('src/components/ProjectsGrid.tsx');
 const projectsSwitch = projects.match(/<SegmentedControl<Show>[\s\S]*?\/>/)?.[0] ?? '';
 check('the Projects page\'s Active / Finished / Archived switch fills a narrow row',
     /\bblock="narrow"/.test(projectsSwitch), projectsSwitch ? 'no block="narrow" on it' : 'no SegmentedControl<Show> found');
+
+// ---------------------------------------------------------------------------
+section('4. what floats from a button stacks above every dialog that can hold it');
+{
+    const zOf = (cls) => { const m = /\bz-(?:\[(\d+)\]|(\d+))/.exec(cls); return m ? Number(m[1] ?? m[2]) : null; };
+    const pop = read('src/components/ui/Popover.tsx');
+    const floatCls = /export const FLOAT_LAYER = '([^']+)'/.exec(pop)?.[1] ?? '';
+    const FLOAT = zOf(floatCls);
+    check('one shared layer for floating surfaces (FLOAT_LAYER in ui/Popover.tsx)', FLOAT != null, floatCls || 'none');
+    // MenuPopover and PanelPopover take it, with no layer of their own beside it.
+    const surfaces = [...pop.matchAll(/className=\{cx\('fixed[^)]*\)\}/g)].map(m => m[0]);
+    check('…MenuPopover and PanelPopover take it',
+        surfaces.length >= 2 && surfaces.every(s => s.includes('FLOAT_LAYER') && zOf(s) == null), surfaces.join(' | ') || 'none found');
+    check('…Select\'s list takes it', /className=\{cx\('fixed[^']*', FLOAT_LAYER/.test(read('src/components/ui/Select.tsx')));
+    check('…the model picker takes it', /className=\{cx\(FLOAT_LAYER\b/.test(read('src/components/ModelPicker.tsx')));
+    if (FLOAT != null) {
+        // Every full-screen layer (a dialog, a sheet, a viewer) and every
+        // Modal layer can host a menu or a list, so each sits under FLOAT.
+        // Named here: what sits at or above it, and why.
+        const ABOVE = new Map([
+            ['src/components/DesktopQuitScreen.tsx', 'the last thing the page shows: above everything'],
+            ['src/components/SearchBar.tsx', 'the search palette holds no menu, list or picker'],
+        ]);
+        const SAME = new Set(['src/components/ui/Sheet.tsx']); // the bottom sheet, at the same layer
+        const files = globSync('src/**/*.tsx', { cwd: ROOT }).map(f => f.replace(/\\/g, '/'));
+        const over = [];
+        const notAbove = [];
+        for (const f of files) {
+            const src = read(f);
+            const layers = [
+                ...src.split('\n').filter(l => /\binset-0\b/.test(l) && /\bfixed\b/.test(l)).map(zOf),
+                ...[...src.matchAll(/layer(?:=|\s*=\s*)["']([^"']+)["']/g)].map(m => zOf(m[1])),
+            ].filter(z => z != null);
+            if (!layers.length) continue;
+            const top = Math.max(...layers);
+            if (ABOVE.has(f)) { if (top <= FLOAT) notAbove.push(`${f} z ${top}`); continue; }
+            if (SAME.has(f) ? top > FLOAT : top >= FLOAT) over.push(`${f} z ${top}`);
+        }
+        check(`every dialog, sheet and viewer layer is under the floating layer (z ${FLOAT})`, over.length === 0, over.join(', '));
+        check('…and what is named as above it is above it', notAbove.length === 0, notAbove.join(', '));
+        const search = read('src/components/SearchBar.tsx');
+        check('…the search palette still holds no menu, list or picker',
+            !/<(MenuPopover|PanelPopover|Select|DropdownMenu|ModelPicker)\b/.test(search));
+    }
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }

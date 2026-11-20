@@ -417,7 +417,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                     // every other floating panel here; `p-1` so a highlighted
                     // row is inset from the panel's rounded edge rather than
                     // flush against it.
-                    className={cx('fixed z-50 min-w-[13rem] w-max overflow-y-auto overscroll-contain', MENU_PANEL)}
+                    className={cx('fixed min-w-[13rem] w-max overflow-y-auto overscroll-contain', FLOAT_LAYER, MENU_PANEL)}
                 >
                     {children}
                 </div>,
@@ -488,7 +488,7 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
                         // dialog takes it as it mounts, before it is placed.
                         opacity: place ? 1 : 0,
                     }}
-                    className={cx('fixed z-50 overflow-y-auto overscroll-contain p-3 outline-none', width, MENU_SURFACE)}
+                    className={cx('fixed overflow-y-auto overscroll-contain p-3 outline-none', FLOAT_LAYER, width, MENU_SURFACE)}
                 >
                     <div className={className}>{children}</div>
                 </div>,
@@ -548,3 +548,11 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
  *  INSIDE its frame (`Select`'s list). */
 export const MENU_SURFACE = 'rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
 export const MENU_PANEL = `p-1 ${MENU_SURFACE}`;
+
+/** The stacking layer of everything that floats from a button: `MenuPopover`,
+ *  `PanelPopover`, `Select`'s list, the model picker. Above every dialog and
+ *  sheet that can hold one of them (the mastery check `z-[55]`, the `z-[60]`
+ *  dialogs, `ConfirmDialog` `z-[100]`): one opened inside them would otherwise
+ *  open underneath, out of reach. Only the desktop quit screen sits higher,
+ *  as the last thing the page shows. */
+export const FLOAT_LAYER = 'z-[110]';

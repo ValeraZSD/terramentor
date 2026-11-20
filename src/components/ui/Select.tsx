@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, MENU_SURFACE } from './Popover';
+import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, FLOAT_LAYER, MENU_SURFACE } from './Popover';
 import { canHover } from '../../utils/platform';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
@@ -603,7 +603,7 @@ function SelectList(props: ListProps & {
                     // A press inside the list must not take focus off the box,
                     // which holds the keys and the screen reader's place.
                     onMouseDown={e => e.preventDefault()}
-                    className={cx('fixed z-[110] flex w-max flex-col overflow-hidden', MENU_SURFACE)}
+                    className={cx('fixed flex w-max flex-col overflow-hidden', FLOAT_LAYER, MENU_SURFACE)}
                 >
                     <div
                         ref={listRef}
