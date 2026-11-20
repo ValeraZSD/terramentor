@@ -14,6 +14,7 @@ import PracticeCard from './PracticeCard';
 import NoticeCard from './NoticeCard';
 import LookBackCard from './LookBackCard';
 import StreamRoundHeader from './StreamRoundHeader';
+import { StreamCourse } from './streamCourse';
 import MockSittingScreen from '../mockExam/MockSittingScreen';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
@@ -511,6 +512,10 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     }
 
     return (
+        // A course's or topic's page names its course in its header: the cards
+        // under it do not repeat that line (streamCourse.ts). Today mixes
+        // courses, so there every card keeps its name.
+        <StreamCourse.Provider value={scoped ? studyProject?.name ?? null : null}>
         <div
             ref={scrollerRef}
             className="h-full overflow-y-auto bg-slate-100 dark:bg-slate-900"
@@ -687,6 +692,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                 )}
             </div>
         </div>
+        </StreamCourse.Provider>
     );
 }
 

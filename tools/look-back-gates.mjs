@@ -432,6 +432,13 @@ try {
         // A round in the stream (this offer, the recall round) wears one header above its card,
         // never a title inside it: the offer names no nodeTitle and both use StreamRoundHeader.
         check('it wears the recall round\'s header, above its card', /<StreamRoundHeader\b/.test(card) && /<StreamRoundHeader\b/.test(view) && !/nodeTitle=/.test(card));
+        // On a course's own page the header names the course: no card under it repeats that line.
+        // Today mixes courses and keeps it (the provider gives null there).
+        const shell = readFileSync(join(ROOT, 'src', 'components', 'feed', 'FeedCardShell.tsx'), 'utf8');
+        const chapter = readFileSync(join(ROOT, 'src', 'components', 'feed', 'ChapterGroup.tsx'), 'utf8');
+        check('a card on a course\'s page does not repeat the course name',
+            /<StreamCourse\.Provider value=\{scoped \? studyProject\?\.name \?\? null : null\}>/.test(view)
+            && /useCourseLine\(courseName\)/.test(shell) && /useCourseLine\(projectName\)/.test(chapter) && /\{courseLine\}/.test(chapter));
         const api = readFileSync(join(ROOT, 'src', 'api.ts'), 'utf8');
         check('the client can start, skip and read it', ['startLookBack', 'skipLookBack', 'getLookBack'].every(f => api.includes(f)));
         // About one question per topic: the result shows no bar per topic and no clock line, only
