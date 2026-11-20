@@ -127,6 +127,25 @@ export function stagedSummary(row, { hint = null } = {}) {
         // leaves the learner unsure which language the lessons will be in. Null
         // when it cannot be said with confidence.
         language: chars ? stagedLanguage(row.content, hint) : null,
+        // A link read in the New course window (shortCourses.js): what it is
+        // and where it lives, so the window lists it as a link, not a file,
+        // and still does after "Back" from a run. Null for a file.
+        source: linkSource(row.origin),
+    };
+}
+
+function linkSource(json) {
+    let o = null;
+    try { o = JSON.parse(json || 'null'); } catch { return null; }
+    // Read from a link (a page, a video, a PDF behind a link), or a transcript
+    // pasted for a video; a file picked from the disk has neither.
+    if (!o || (typeof o.url !== 'string' && !o.pasted)) return null;
+    return {
+        kind: ['page', 'video', 'pdf'].includes(o.kind) ? o.kind : 'file',
+        url: typeof o.url === 'string' ? o.url : null,
+        host: typeof o.host === 'string' ? o.host : null,
+        minutes: Number.isFinite(o.minutes) ? o.minutes : null,
+        pasted: !!o.pasted,
     };
 }
 

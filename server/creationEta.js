@@ -49,8 +49,13 @@ const batches = (sections) => sections >= BATCH_MIN && sections <= BATCH_MAX;
 export function stageOf(phase, prev = 'think') {
     switch (phase) {
         case 'queued': return 'queued';
+        case 'sizing':
+        case 'sized':
         case 'thinking':
         case 'thinking_done': return 'think';
+        // A short course is written in one call (courseShape.js).
+        case 'writing_topics':
+        case 'topics_written': return 'build';
         case 'init':
         case 'summary': return 'prepare';
         case 'generating_categories':

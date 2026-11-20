@@ -85,6 +85,8 @@ export function aiReady() {
 /** A video transcript's time marks, which are not words. */
 const TIME_MARK = /\[\d{1,2}:\d\d(?::\d\d)?\]\s*/g;
 const wordsOf = (text) => wordCount(withoutPageMarks(String(text || '')).replace(TIME_MARK, ' '));
+/** A source's words as a short course counts them: no page or time marks. */
+export const sourceWords = wordsOf;
 
 /** A file name a page or a transcript is kept under in the vault. */
 const fileNameFor = (title, ext) => `${String(title || 'source').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'source'}.${ext}`;
@@ -184,11 +186,12 @@ function finishStaging(stagedId, origin) {
         language: origin.language ?? null,
         // Writing it needs a model; reading it did not.
         ai: aiReady(),
-        // A book: its chapters to pick a few from, and the file as the New
-        // course dialog takes it, for a full course instead.
+        // The source as the New course window lists its material: a link read
+        // there goes to the creation with the files, by this id.
+        staged: stagedSummary(loadStagedRow(stagedId)),
+        // A book: its chapters to pick a few from (the assistant's card).
         ...(size === 'too-big' ? {
             chapters: chaptersOf(row.content, map),
-            staged: stagedSummary(loadStagedRow(stagedId)),
             // The chapters picked must come to this many words, and no more
             // than this, as any source must.
             minWords: SHORT.minWords,
@@ -338,13 +341,16 @@ function madeFromOf(origin) {
 
 const parseJson = (s) => { try { return JSON.parse(s || 'null'); } catch { return null; } };
 
-/** The language a short course is written in: the learner's, as a new course decides it. */
-function courseLanguage({ name, filesLanguage, acceptLanguage }) {
+/** The language a short course is written in: the learner's, as a new course
+ *  decides it. `explicit`: the New course window's own choice, when made. */
+function courseLanguage({ name, description = '', filesLanguage, acceptLanguage, explicit = '' }) {
     const appLanguage = getUiLanguage();
     const browserLanguages = languagesFromAcceptHeader(acceptLanguage);
-    const typed = findLearningLanguage({ name, description: '' });
+    const typed = findLearningLanguage({ name, description });
     const choice = resolveCreationLanguage({
+        explicit,
         name,
+        description,
         filesLanguage,
         uiLanguage: appLanguage || browserLanguages[0] || null,
         appLanguage,
@@ -448,7 +454,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // chapter of a book picked is still the whole book.
     if (staged && sizeOf(words) === 'too-big') {
         refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
-            : 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+            : 'This source is too long for one short course: make a course of it with New Project on Projects.', { reason: 'too_big' });
     }
     // A source under the floor is a note, not three topics, whichever door it
     // came in by: the strip offers no Create for it, the card can still send it.
@@ -481,6 +487,80 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
             fromTopic: !staged, lang: language.lang, origin, words,
         });
     });
+}
+
+/**
+ * Staged rows as the model is shown them: a page or a transcript is a text
+ * file in the vault, and the prompt says what it really is.
+ */
+export function asSourceRows(rows = []) {
+    return rows.map(row => {
+        const origin = parseJson(row.origin);
+        return origin && ['page', 'video'].includes(origin.kind) && row.file_type === 'text' ? { ...row, file_type: origin.kind } : row;
+    });
+}
+
+/**
+ * Write a short course NOW, inside a creation run (routes/createProject.js),
+ * when the New course window's input was judged to be a short course
+ * (courseShape.js): its name, goal, colour, icon and language, and its
+ * material, any number of staged files and links, or none (then it is
+ * written from the name, like "Write it from the title").
+ *
+ * The one model call comes FIRST and the course is made only from its answer,
+ * in one transaction: a failed or cancelled call leaves no half-made course,
+ * only the staged material, which the window takes back on "Back".
+ * Returns `{ projectId, name, topics: [{ title, description }] }`.
+ */
+export async function writeShortCourseNow({ name = '', goal = '', color = '', icon = '', language: explicit = '', rows = [], acceptLanguage = '', signal, answered = {} } = {}) {
+    const given = cleanLine(name, 500);
+    const shown = asSourceRows(rows);
+    const src = creationSources(shown);
+    const withText = hasSources(src);
+    const words = withText ? src.docs.reduce((n, d) => n + wordsOf(d.text), 0) : 0;
+    const firstRow = withText ? shown.find(r => r.id === src.docs[0].stagedId) : null;
+    const title = given || (firstRow ? (firstRow.map.title || firstRow.title) : '');
+    if (!title) throw new ShortCourseError(400, 'A short course needs a name or some material.');
+    const longest = withText ? shown.reduce((best, r) => (!best || r.content.length > best.content.length ? r : best), null) : null;
+    // A creation run hands over the language it already resolved; otherwise
+    // the learner's choice (or none) is resolved here the short courses' way.
+    const language = explicit && typeof explicit === 'object' ? explicit : courseLanguage({
+        name: given,
+        description: cleanLine(goal, 2000),
+        filesLanguage: longest ? stagedLanguage(longest.content, getUiLanguage()) : null,
+        acceptLanguage,
+        explicit: typeof explicit === 'string' ? explicit : '',
+    });
+    const sources = withText ? shortBlock(src) : null;
+    const prompt = AI_PROMPTS.short_course(promptTitle(title), {
+        topics: withText ? topicCountFor(words) : 4, proposed: [], fromTopic: !withText, lang: language.lang, sources, goal,
+    });
+    const text = await structureCall(prompt, { signal, label: 'Short course', answered });
+    if (signal?.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    const parsed = parseCreationJson(text);
+    const items = topicsFrom(parsed, { src: withText ? src : null, proposed: [], shown: sources?.shown });
+    if (!items.length) throw new Error('The model wrote no topics for this short course.');
+
+    // Where it came from: the first source, and how many more there were.
+    const firstOrigin = firstRow ? (parseJson(firstRow.origin) || { kind: fileKind(firstRow.file_type), file: firstRow.original_filename }) : null;
+    const madeFrom = firstOrigin ? madeFromOf(firstOrigin) : { kind: 'topic', title: title.slice(0, 300) };
+    if (src.docs.length > 1) madeFrom.sources = src.docs.length;
+    const startName = title.slice(0, 500);
+    let projectId = null;
+    db.transaction(() => {
+        projectId = Number(db.prepare(`INSERT INTO projects
+            (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
+            VALUES (?, ?, ?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM projects), ?, ?, 0, NULL, ?)`)
+            .run(startName, String(goal || '').trim().slice(0, 5000), projectColour(color) || '#3B82F6', projectIconName(icon) || 'book',
+                language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
+        // Every staged row goes into the course, a scan with no text included,
+        // as a course in phases keeps them.
+        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId) : new Map();
+        const documentIdOf = (n) => claimed.get(src.docs[n - 1]?.stagedId) ?? null;
+        writeCourse({ projectId, items, parsed, keepName: !!given, startName, src: withText ? src : null, documentIdOf, answered });
+    })();
+    const finalName = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId)?.name || startName;
+    return { projectId, name: finalName, topics: items.map(t => ({ title: t.title, description: t.description })) };
 }
 
 /**
@@ -748,6 +828,8 @@ export function listShortCourses() {
             color: r.color,
             kind: from.kind || 'file',
             from: from.kind === 'topic' ? null : (from.host || from.file || null),
+            // Made from several sources: how many besides the one named.
+            more: Number.isInteger(from.sources) && from.sources > 1 ? from.sources - 1 : 0,
             url: from.url || null,
             minutes: from.minutes || null,
             topics: r.topics,
