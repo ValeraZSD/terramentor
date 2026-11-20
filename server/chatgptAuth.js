@@ -93,17 +93,51 @@ async function openidConfig() {
 export function resetChatgptAuthState() { discovery = null; pending = null; }
 
 /**
+ * What a log line may say about an ID token that failed a check: how its
+ * issuer, audience, party, times and nonce compare with what this attempt
+ * expected. Never its subject, email or the token itself.
+ */
+function tokenShape(claims, { issuer, clientId, nonce, nowSec }) {
+    const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+    const party = claims.azp === undefined ? 'absent' : claims.azp === clientId ? 'this client' : 'another client';
+    return [
+        `iss ${claims.iss === issuer ? 'as expected' : `"${printable(claims.iss, 80)}"`}`,
+        `aud ${aud.length} (this client ${aud.includes(clientId) ? 'among them' : 'not among them'})`,
+        `azp ${party}`,
+        `exp ${Number(claims.exp) - nowSec}s from now`,
+        `iat ${claims.iat === undefined ? 'absent' : `${Number(claims.iat) - nowSec}s from now`}`,
+        `nonce ${claims.nonce === undefined ? 'absent' : claims.nonce === nonce ? 'matches' : 'differs'}`,
+    ].join(', ');
+}
+
+/** A string safe for one log line: no control characters, at most `max` long. */
+function printable(s, max = 200) {
+    return [...String(s ?? '')].filter(c => c.charCodeAt(0) >= 32 && c.charCodeAt(0) !== 127).join('').slice(0, max);
+}
+
+/**
  * Verify an ID token: signature against the published keys, issuer, audience,
- * expiry and nonce. Returns its claims, or throws saying which check failed.
+ * expiry and nonce. Returns its claims, or throws saying which check failed:
+ * the error's `reason` is `id_token:<check>` and, once the claims could be
+ * read, its `shape` says how they differ from what was expected.
  * Pure apart from the keys handed in.
  */
 export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec = Math.floor(Date.now() / 1000) }) {
+    let claims = null;
+    const refuse = (check, message) => Object.assign(new Error(message), {
+        reason: `id_token:${check}`,
+        shape: claims ? tokenShape(claims, { issuer, clientId, nonce, nowSec }) : '',
+    });
     const parts = String(idToken || '').split('.');
-    if (parts.length !== 3) throw new Error('The ID token is not a JWT');
-    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
-    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    const jwk = (jwks?.keys || []).find(k => k.kid === header.kid) || (jwks?.keys?.length === 1 ? jwks.keys[0] : null);
-    if (!jwk) throw new Error('The ID token was signed with a key OpenAI does not publish');
+    if (parts.length !== 3) throw refuse('not_jwt', 'The ID token is not a JWT');
+    let header;
+    try {
+        header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+        claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    } catch { throw refuse('not_jwt', 'The ID token is not a JWT'); }
+    if (!claims || typeof claims !== 'object') { claims = null; throw refuse('not_jwt', 'The ID token is not a JWT'); }
+    const jwk = (jwks?.keys || []).find(k => k.kid === header?.kid) || (jwks?.keys?.length === 1 ? jwks.keys[0] : null);
+    if (!jwk) throw refuse('unknown_key', 'The ID token was signed with a key OpenAI does not publish');
     // The algorithm named in the token's header is the token's own claim, so it
     // is held against the KEY: an RS256 token is checked only with an RSA key
     // and an ES256 one only with a P-256 key, a key the publisher pinned to an
@@ -115,38 +149,47 @@ export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec =
         RS256: { digest: 'RSA-SHA256', opts: {}, kty: 'RSA' },
         ES256: { digest: 'SHA256', opts: { dsaEncoding: 'ieee-p1363' }, kty: 'EC', crv: 'P-256' },
     };
-    const alg = algs[header.alg];
-    if (!alg) throw new Error(`Unsupported ID token algorithm ${header.alg}`);
-    if (jwk.kty !== alg.kty || (alg.crv && jwk.crv !== alg.crv)) throw new Error('The ID token names an algorithm its signing key is not for');
-    if (jwk.alg !== undefined && jwk.alg !== header.alg) throw new Error('The ID token names an algorithm its signing key is not for');
-    if (jwk.use !== undefined && jwk.use !== 'sig') throw new Error('The ID token was signed with a key that is not for signatures');
+    const alg = algs[header?.alg];
+    if (!alg) throw refuse('alg', `Unsupported ID token algorithm ${printable(header?.alg, 20)}`);
+    if (jwk.kty !== alg.kty || (alg.crv && jwk.crv !== alg.crv)) throw refuse('alg', 'The ID token names an algorithm its signing key is not for');
+    if (jwk.alg !== undefined && jwk.alg !== header.alg) throw refuse('alg', 'The ID token names an algorithm its signing key is not for');
+    if (jwk.use !== undefined && jwk.use !== 'sig') throw refuse('key_use', 'The ID token was signed with a key that is not for signatures');
     const key = createPublicKey({ key: jwk, format: 'jwk' });
     const ok = verifySignature(alg.digest, Buffer.from(`${parts[0]}.${parts[1]}`), { key, ...alg.opts }, Buffer.from(parts[2], 'base64url'));
-    if (!ok) throw new Error('The ID token signature does not verify');
-    if (claims.iss !== issuer) throw new Error('The ID token is from another issuer');
+    if (!ok) throw refuse('signature', 'The ID token signature does not verify');
+    if (claims.iss !== issuer) throw refuse('issuer', 'The ID token is from another issuer');
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (!aud.includes(clientId)) throw new Error('The ID token was issued to another client');
+    if (!aud.includes(clientId)) throw refuse('audience', 'The ID token was issued to another client');
     // OpenID Connect Core 3.1.3.7: a token with more than one audience, or one
     // that names its authorized party, must name THIS client as that party —
     // otherwise a token issued to another client that merely lists us too
     // would pass.
-    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== clientId) throw new Error('The ID token was issued to another client');
-    if (!(Number(claims.exp) > nowSec)) throw new Error('The ID token has expired');
+    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== clientId) throw refuse('party', 'The ID token was issued to another client');
+    if (!(Number(claims.exp) > nowSec)) throw refuse('expired', 'The ID token has expired');
     // Issued in the future means a wrong clock or a forged token; five minutes
     // of slack covers an ordinary clock drift between here and OpenAI.
-    if (claims.iat !== undefined && !(Number(claims.iat) <= nowSec + 300)) throw new Error('The ID token was issued in the future');
-    if (nonce && claims.nonce !== nonce) throw new Error('The ID token answers another sign-in attempt');
+    if (claims.iat !== undefined && !(Number(claims.iat) <= nowSec + 300)) throw refuse('future', 'The ID token was issued in the future');
+    if (nonce && claims.nonce !== nonce) throw refuse('nonce', 'The ID token answers another sign-in attempt');
     return claims;
 }
 
 // ── one sign-in attempt ───────────────────────────────────────────────────
 
-let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at, server }
+let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, signIn, at, server }
+// Counts presses of "Continue with ChatGPT". An attempt (and its retry) keeps
+// the number of the press that started it; a smaller number than this means
+// a newer sign-in has started since, whether or not that one is still pending.
+let signIns = 0;
+// The listener of an attempt whose callback is still being answered (the code
+// exchange takes a moment): a sign-in started meanwhile closes it too, so the
+// callback port is free for the new attempt.
+let answering = null;
 
 function closePending() {
-    try { pending?.server?.close(); } catch { /* already closed */ }
-    if (pending) releaseHold('chatgpt');
+    for (const server of [pending?.server, answering]) { try { server?.close(); } catch { /* already closed */ } }
+    if (pending || answering) releaseHold('chatgpt');
     pending = null;
+    answering = null;
 }
 
 async function listen(port) {
@@ -170,18 +213,32 @@ export function isLocalBrowser(origin) {
  */
 export async function startSignIn({ appOrigin, returnPath = '/settings#ai', connectionId = null }) {
     closePending();
+    const signIn = ++signIns;
     const existing = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
     const creds = credentialsOf(existing);
     const clientId = creds?.client_id || 'dynamic_agent_client';
     const preferred = Number(process.env.CHATGPT_CALLBACK_PORT) || DEFAULT_CALLBACK_PORT;
     let server;
     try { server = await listen(preferred); } catch { server = await listen(0); }   // only the port may vary
+    const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
+    return {
+        url: openAttempt({
+            server, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`, signIn,
+            idTokenHint: creds?.id_token, loginHint: existing?.account,
+        }),
+    };
+}
+
+/**
+ * Make `pending` a new attempt on an open callback listener (fresh state,
+ * nonce and PKCE verifier) and return the authorize URL that starts it.
+ */
+function openAttempt({ server, clientId, connectionId, returnUrl, signIn, idTokenHint = '', loginHint = '' }) {
     const redirectUri = `http://127.0.0.1:${server.address().port}${CALLBACK_PATH}`;
     const verifier = b64url(randomBytes(32));
     const state = b64url(randomBytes(24));
     const nonce = b64url(randomBytes(24));
-    const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
-    pending = { state, nonce, verifier, redirectUri, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`, at: Date.now(), server };
+    pending = { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, signIn, at: Date.now(), server };
     setTimeout(() => { if (pending?.state === state) closePending(); }, ATTEMPT_TTL_MS).unref?.();
     // The browser is about to leave the app's page for OpenAI's: hold the
     // desktop server, and with it this callback, open until the attempt ends.
@@ -192,8 +249,8 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     q.set('client_id', clientId);
     if (clientId === 'dynamic_agent_client') q.set('agent_name_hint', AGENT_NAME);
     q.set('ext_agent_host_id', hostId());
-    if (creds?.id_token) q.set('id_token_hint', creds.id_token);
-    if (existing?.account) q.set('login_hint', existing.account);
+    if (idTokenHint) q.set('id_token_hint', idTokenHint);
+    if (loginHint) q.set('login_hint', loginHint);
     q.set('response_type', 'code');
     q.set('redirect_uri', redirectUri);
     q.set('scope', SCOPES);
@@ -202,12 +259,13 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     q.set('nonce', nonce);
     q.set('code_challenge_method', 'S256');
     q.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
-    return { url: url.toString() };
+    return url.toString();
 }
 
-function redirect(res, to, outcome) {
+function redirect(res, to, outcome, reason = null) {
     const u = new URL(to);
     u.searchParams.set('chatgpt', outcome);
+    if (reason) u.searchParams.set('chatgpt_reason', reason);
     // Keep the hash (Settings' tab) after the query.
     const target = `${u.origin}${u.pathname}${u.search}${new URL(to).hash}`;
     res.writeHead(302, { Location: target, 'Cache-Control': 'no-store' });
@@ -225,7 +283,13 @@ async function tokenRequest(form) {
         signal: AbortSignal.timeout(15000),
     });
     const json = await readCappedJson(res, AUTH_BODY_BYTES).catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(json?.error_description || json?.error || `Token request failed (${res.status})`), { code: json?.error, httpStatus: res.status });
+    if (!res.ok) {
+        // OAuth's `error` is a string; some endpoints nest it as { code, message }.
+        const e = json?.error;
+        const code = typeof e === 'string' ? e : typeof e?.code === 'string' ? e.code : undefined;
+        const message = json?.error_description || (typeof e === 'string' ? e : e?.message) || `Token request failed (${res.status})`;
+        throw Object.assign(new Error(String(message)), { code, httpStatus: res.status });
+    }
     return json;
 }
 
@@ -239,28 +303,93 @@ async function handleCallback(req, res) {
         res.end('This sign-in attempt is not the one Terramentor is waiting for. Start it again from Settings.');
         return;
     }
-    closePending();   // one callback per attempt, whatever it says
-    if (q.get('error')) { redirect(res, attempt.returnUrl, q.get('error') === 'access_denied' ? 'declined' : 'failed'); return; }
+    // One callback per attempt, whatever it says. The listener closes with it
+    // unless the attempt is started again on it (a refused code, below).
+    pending = null;
+    answering = attempt.server;
+    let listenerKept = false;
+    try { listenerKept = await finishAttempt(attempt, q, res); } finally {
+        if (answering === attempt.server) answering = null;
+        if (!listenerKept) { try { attempt.server?.close(); } catch { /* already closed */ } }
+        // The attempt is over: let the desktop server go, unless a sign-in
+        // started meanwhile holds it for its own attempt (still pending or not).
+        if (!listenerKept && attempt.signIn === signIns) releaseHold('chatgpt');
+    }
+}
+
+/**
+ * The rest of a callback whose state matched. Returns true when it started a
+ * fresh attempt on the same listener, which must then stay open.
+ */
+async function finishAttempt(attempt, q, res) {
+    // A failure names its step: `reason` is a short code from a closed list,
+    // shown on the Settings page, and the log line adds OpenAI's own words or
+    // how the ID token differed. Neither carries a token, the code (blanked
+    // out should OpenAI's words quote it) or who signed in.
+    const authCode = q.get('code') || '';
+    const words = (s) => printable(authCode ? String(s ?? '').split(authCode).join('[code]') : s, 400);
+    const fail = (reason, detail = '') => {
+        console.log(`[chatgpt] sign-in failed: ${reason}${detail ? ` (${words(detail)})` : ''}`);
+        redirect(res, attempt.returnUrl, 'failed', reason);
+    };
+    const error = q.get('error');
+    if (error === 'access_denied') { console.log('[chatgpt] sign-in declined at OpenAI'); redirect(res, attempt.returnUrl, 'declined'); return; }
+    if (error) { fail(`provider:${oauthCode(error)}`, q.get('error_description') || error); return; }
     const issued = q.get('client_id');
     let clientId = attempt.clientId;
     if (clientId === 'dynamic_agent_client') {
-        if (!issued) { redirect(res, attempt.returnUrl, 'failed'); return; }
+        if (!issued) { fail('no_client_id', 'a first sign-in came back without the client id OpenAI issued'); return; }
         clientId = issued;
-    } else if (issued && issued !== clientId) { redirect(res, attempt.returnUrl, 'failed'); return; }
+    } else if (issued && issued !== clientId) { fail('client_mismatch', 'the callback named another client id than this account\'s'); return; }
+    let tokens;
     try {
-        const tokens = await tokenRequest({
-            grant_type: 'authorization_code', client_id: clientId, code: q.get('code') || '',
+        tokens = await tokenRequest({
+            grant_type: 'authorization_code', client_id: clientId, code: authCode,
             code_verifier: attempt.verifier, redirect_uri: attempt.redirectUri, resource: API_RESOURCE,
         });
-        const { doc, jwks } = await openidConfig();
-        const claims = verifyIdToken(tokens.id_token, { jwks, issuer: doc.issuer || AUTH_BASE(), clientId, nonce: attempt.nonce });
-        const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
-        const id = saveSignIn({ claims, tokens, scopes, clientId, connectionId: attempt.connectionId });
-        redirect(res, attempt.returnUrl, scopes.includes(PLAN_SCOPE) ? `connected-${id}` : 'noplan');
     } catch (err) {
-        console.log(`[chatgpt] sign-in failed: ${err?.code || err?.message || err}`);
-        redirect(res, attempt.returnUrl, 'failed');
+        // OpenAI's error code; else the HTTP status; else what the network
+        // said (a DOMException's numeric `code` is not one of these).
+        const code = typeof err?.code === 'string' ? oauthCode(err.code)
+            : err?.httpStatus ? `http_${err.httpStatus}`
+            : oauthCode(err?.cause?.code || err?.name);
+        // OpenAI's sign-in guide: when the exchange returns invalid_grant,
+        // discard the code and start a fresh authorization with the client id
+        // issued for this attempt. Only for a first sign-in, so only once: the
+        // fresh attempt already carries the issued id, as a returning sign-in
+        // does. The browser goes straight to OpenAI again, which knows the id
+        // now and shows its account picker, not the consent screen. A sign-in
+        // started anew meanwhile wins over the retry, even one that has
+        // already finished: it closed this attempt's listener.
+        if (code === 'invalid_grant' && attempt.clientId === 'dynamic_agent_client' && attempt.signIn === signIns) {
+            console.log(`[chatgpt] code exchange refused (invalid_grant); starting again with the issued client id (${words(err?.message)})`);
+            const url = openAttempt({ server: attempt.server, clientId, connectionId: attempt.connectionId, returnUrl: attempt.returnUrl, signIn: attempt.signIn });
+            res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
+            res.end();
+            return true;
+        }
+        fail(`token:${code}`, err?.message);
+        return false;
     }
+    let doc, jwks;
+    try { ({ doc, jwks } = await openidConfig()); } catch (err) { fail('discovery', err?.message); return; }
+    let claims;
+    try {
+        claims = verifyIdToken(tokens.id_token, { jwks, issuer: doc.issuer || AUTH_BASE(), clientId, nonce: attempt.nonce });
+    } catch (err) {
+        fail(err?.reason || 'id_token:other', [err?.message, err?.shape].filter(Boolean).join('; '));
+        return;
+    }
+    const scopes = String(tokens.scope || '').split(/\s+/).filter(Boolean);
+    let id;
+    try { id = saveSignIn({ claims, tokens, scopes, clientId, connectionId: attempt.connectionId }); } catch (err) { fail(`save:${oauthCode(err?.code)}`, err?.message); return; }
+    redirect(res, attempt.returnUrl, scopes.includes(PLAN_SCOPE) ? `connected-${id}` : 'noplan');
+}
+
+/** An error code as the address may carry it: OAuth's shape, or "other". */
+function oauthCode(s) {
+    const v = String(s ?? '').toLowerCase();
+    return /^[a-z0-9_.-]{1,48}$/.test(v) ? v : 'other';
 }
 
 function credentialRecord({ claims, tokens, scopes, clientId }, previous = {}) {
