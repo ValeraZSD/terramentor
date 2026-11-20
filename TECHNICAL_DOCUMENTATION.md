@@ -190,8 +190,7 @@ Notes never carry schedule dates; a startup repair strips any left by older runs
 teaches it and it holds cards; client mirror `src/utils/projectShape.ts`) is
 scheduled as a window only (`allocateCardWindow` dates no node). Its pace is cards
 met against the share of the window's study days gone (`studyDayShare`), and where
-each section falls on that line is derived on read (`cardPlan`, returned on
-`GET /api/projects/:id/pace` and added to the global calendar). `removeSchedule`
+each section falls on that line can be derived on request (`cardPlan`). `removeSchedule`
 is the one removal path: window, every node date and the baseline go, the study
 week stays.
 
@@ -952,7 +951,7 @@ and a route an earlier one answers first.
 |---|---|
 | Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
-| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
+| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview` |
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |

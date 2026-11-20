@@ -8,7 +8,7 @@
 // overdue), finishing today's topic does not pull tomorrow's forward, nothing
 // writes a topic date, a project without a window keeps the dates its rows
 // carry, a card course is left to `cardPlan`, the cache follows writes from
-// this connection and from another one, and the readers (calendar, daily plan,
+// this connection and from another one, and the readers (Today, daily plan,
 // focus) see the derived dates.
 //
 // Deterministic, no model, no network: a scratch database, every date relative
@@ -30,7 +30,7 @@ const db = (await import('../server/database.js')).default;
 const { layTopicDates, persistSchedule, allocateSchedule, calculatePace, removeSchedule } = await import('../server/scheduling.js');
 const { setProjectTeaches } = await import('../server/nodeRole.js');
 const { refreshTopicDates, topicDatesOf } = await import('../server/topicDates.js');
-const { buildCalendarRange } = await import('../server/today.js');
+const { buildTodayData } = await import('../server/today.js');
 const { generateDailyPlan } = await import('../server/dailyPlan.js');
 
 let passed = 0, failed = 0;
@@ -165,14 +165,15 @@ const moved = topicDatesOf(pid, opts(today));
 check('a later deadline spreads the open topics further', moved.get(topics.at(-1)).end > openDates.at(-1).end);
 
 // 12. The readers see the derived dates.
-// Topics finished today take today's share, so the week after a finished day
+// Topics finished today take today's share, so the day after a finished day
 // is checked from the next morning: the first open topic starts that day.
 const morning = add(today, 1);
-const cal = buildCalendarRange(morning, add(morning, 6), { today: morning });
-const calTasks = cal.tasks ?? cal;
-const firstOpen = calTasks.find(t => t.nodeId === topics[4]);
-check('the calendar shows the derived week', firstOpen?.scheduled_start === morning && !calTasks.some(t => t.nodeId === pa),
-    JSON.stringify(calTasks.map(t => [t.nodeId, t.scheduled_start])));
+const home = buildTodayData({ today: morning }).projects;
+const homeOf = (id) => home.find(p => p.id === id);
+const firstOpen = homeOf(pid)?.todayTasks.find(t => t.id === topics[4]);
+const pastTasks = [...(homeOf(past)?.todayTasks ?? []), ...(homeOf(past)?.overdueTasks ?? [])];
+check('Today lists the derived day\'s topic', firstOpen?.scheduled_start === morning && !pastTasks.some(t => t.id === pa),
+    JSON.stringify(homeOf(pid)?.todayTasks.map(t => [t.id, t.scheduled_start])));
 const plan = generateDailyPlan(pid, 14, later);
 check('the daily plan lists no overdue topic after a missed week', plan.overdueTasks.length === 0, JSON.stringify(plan.overdueTasks));
 check('the daily plan has today\'s topic', plan.todayTasks.length > 0);
