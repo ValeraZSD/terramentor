@@ -56,8 +56,8 @@ export function pageMayTakeEscape(e: EscapeLike, root: Element | null, doc: Docu
 }
 
 /**
- * Shortcuts that are one key with no modifier (`a`, the calendar letters, the
- * review session's Space, 1-4 and `z`) can be switched off as a whole (the
+ * Shortcuts that are one key with no modifier (the review session's Space,
+ * 1-4 and `z`) can be switched off as a whole (the
  * `key_shortcuts` setting, WCAG 2.1.4): speech input types letters, and a
  * tremor presses keys nobody meant. Shortcuts with Ctrl or Cmd stay.
  */
