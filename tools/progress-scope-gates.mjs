@@ -49,7 +49,7 @@ const mkCards = (nodeId, total, met) => {
     for (let i = 0; i < total; i++) {
         const reviewed = i < met;
         db.prepare('INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed) VALUES (?, ?, ?, ?, ?)')
-            .run(nodeId, `f${++seq}`, `b${seq}`, reviewed ? 1 : 0, reviewed ? new Date().toISOString() : null);
+            .run(nodeId, `f${++seq}`, `b${seq}`, reviewed ? 1 : 0, reviewed ? '2026-11-19T12:00:00.000Z' : null);
     }
 };
 
