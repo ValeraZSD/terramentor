@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useStore, WorkspaceView } from '../store';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import Sidebar from './Sidebar';
@@ -171,7 +171,9 @@ export default function Workspace() {
     // Where the pill does not fit, the verdict rides on the plan button.
     const dotVerdict = !paceFull && verdict && verdict.band !== 'no_date' ? verdict : null;
     const tabKeys = viewTabs.map(t => t.key).join();
-    useEffect(() => {
+    // A layout effect, so the first measure lands before the first paint and
+    // no frame is drawn with the row's form still unknown (`paceFull` null).
+    useLayoutEffect(() => {
         const bar = barRef.current, rail = tabRailRef.current, btn = scheduleBtnRef.current, ghost = paceGhostRef.current;
         if (!bar || !rail || !btn || !ghost) return;
         const fit = () => {

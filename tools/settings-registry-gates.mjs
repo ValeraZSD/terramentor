@@ -140,6 +140,14 @@ const assistantSrc = read('src/utils/assistantSettings.ts');
 const assistantKeys = [...(/export type SettingKey = ([^;]+);/.exec(assistantSrc)?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map(m => m[1]);
 const notUi = assistantKeys.filter(k => SETTINGS[k]?.writable !== 'client' || SETTINGS[k]?.sensitivity !== 'ui');
 check(`the assistant's [[set]] keys (${assistantKeys.length}) are all client ui rows`, assistantKeys.length >= 5 && notUi.length === 0, notUi.join(', '));
+// The week's first day is retired with the views that read it: neither its
+// name nor the `week_start` shorthand may come back as a [[set]] marker.
+const { settingKeysIn } = await import(B + 'assistantSettings.js');
+const control = settingKeysIn('[[set:theme:dark]]');
+check('the server reads a live [[set]] marker (control)', control.length === 1 && control[0] === 'theme', control.join(', '));
+const weekKeys = settingKeysIn('[[set:week_start:sunday]] [[set:week_start_day:sunday]]');
+check('the server reads no week-start marker, alias or full name', weekKeys.length === 0, weekKeys.join(', '));
+check('...and the client has no week-start key or alias', !/['"]week_start/.test(assistantSrc));
 
 console.log('\n--- 4. each validator takes what the screens send and refuses the rest ---');
 const takes = (key, value, stored = String(value)) => {
@@ -193,6 +201,9 @@ refuses('ai_openai_base_url', '');
 takes('ai_ollama_url', 'http://127.0.0.1:11434');
 takes('searxng_url', ''); takes('searxng_url', 'https://searx.example.org'); refuses('searxng_url', 'ftp://searx.example.org');
 refuses('theme', { toString: () => 'dark' }); refuses('theme', null); refuses('theme', undefined); refuses('theme', ['dark']);
+// A retired row has no validator to refuse with: it is refused by having no
+// entry at all, which the route answers with 400 (section 5).
+check('the retired week_start_day has no entry', settingSpec('week_start_day') === null && !CLIENT_SETTING_KEYS.includes('week_start_day'));
 
 console.log('\n--- 5. the real route ---');
 const { serverReady } = await import(B + 'index.js');
@@ -221,6 +232,8 @@ if (stored('ai_setup_dismissed') !== 'true') { console.log('not the fixture — 
 
 r = await put('no_such_setting', { value: 'x' });
 check('an unknown key is refused with 400 and not stored', r.status === 400 && stored('no_such_setting') === undefined, `${r.status} ${stored('no_such_setting')}`);
+r = await put('week_start_day', { value: '1' });
+check('the retired week_start_day is refused with 400 and not stored', r.status === 400 && stored('week_start_day') === undefined, `${r.status} ${stored('week_start_day')}`);
 r = await put('__proto__', { value: 'x' });
 check('…including one named like an object\'s own property', r.status === 400, r.status);
 for (const key of ['update_latest', 'desktop_keep_running', 'embedding_provider', 'inbox_project_id', 'deck_new_per_day_1', 'teach_topics_1']) {
