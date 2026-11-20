@@ -165,7 +165,11 @@ try {
         for (const u of uuids) { const n = KEY.get(u)?.nodeId; per.set(n, (per.get(n) || 0) + 1); }
         check('spread across topics: Heat gives both its questions, Waves and Optics 4 each',
             per.get(heat) === 2 && per.get(waves) === 4 && per.get(optics) === 4, JSON.stringify([...per]));
-        check('no topic name is shown while it is open', qs.every(q => q.topic === undefined && q.nodeId === undefined));
+        // The topic's id rides along for the study clock (CourseMock.tsx claims
+        // the time for the question's topic); its name, which could cue the
+        // answer, does not.
+        check('no topic name is shown while it is open', qs.every(q => q.topic === undefined && q.title === undefined));
+        check('…the id is there for the clock, and only that', qs.every(q => Number.isInteger(q.nodeId)), JSON.stringify(qs.map(q => q.nodeId)));
 
         const big = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 40, minutes: null });
         check('asking 40 of a course with 14 starts a mock of 14 and says so',

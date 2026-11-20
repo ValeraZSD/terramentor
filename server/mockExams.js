@@ -583,6 +583,25 @@ export function courseReadiness(projectId) {
     };
 }
 
+/**
+ * When the learner last practised a topic here, in ms (0 = never): its newest
+ * answer of any kind but a placement probe, from the evidence or the question
+ * log. The two stamp in different shapes, so both are read as instants.
+ */
+function practisedAt(nodeId) {
+    const e = stmt("SELECT MAX(created_at) AS t FROM mastery_evidence WHERE node_id = ? AND evidence_type <> 'placement'").get(nodeId)?.t;
+    const q = stmt('SELECT MAX(asked_at) AS t FROM question_log WHERE node_id = ?').get(nodeId)?.t;
+    return Math.max(instantOf(e) ?? 0, instantOf(q) ?? 0);
+}
+
+/** A stored stamp ('YYYY-MM-DD HH:MM:SS' UTC or ISO) as ms, or null. */
+export function instantOf(stamp) {
+    if (stamp == null) return null;
+    const s = String(stamp);
+    const ms = Date.parse(s.includes('T') ? s : `${s.replace(' ', 'T')}Z`);
+    return Number.isFinite(ms) ? ms : null;
+}
+
 /** The question log's record of which of these were ever asked (uuid, or position for a row without one). */
 function askedKeys(entries) {
     const quizIds = [...new Set(entries.map(b => b.quizId))];
@@ -603,7 +622,7 @@ function askedKeys(entries) {
  * from the first. The order on screen is mixed. Fewer ready than asked: the
  * mock is what there is, and says so.
  */
-export function drawCourseMock(projectId, { size, minutes = null, now = Date.now() } = {}) {
+export function drawCourseMock(projectId, { size, minutes = null, now = Date.now(), lookBack = false } = {}) {
     if (!stmt('SELECT 1 FROM projects WHERE id = ?').get(projectId)) throw new MockExamError(404, 'Course not found');
     if (!Number.isInteger(size) || size < 1 || size > MAX_DRAW) throw bad(`A mock asks 1 to ${MAX_DRAW} questions`);
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) throw bad('The clock is a whole number of minutes, at least 1');
@@ -615,11 +634,19 @@ export function drawCourseMock(projectId, { size, minutes = null, now = Date.now
     // within a topic is the same as ordering each topic's bank alone.
     const ordered = new Map(banks.map(b => [b.topic.id, []]));
     for (const x of orderForAsking(all)) ordered.get(x.nodeId).push(x);
-    const queues = shuffle([...ordered.values()].map(list => (
-        { fresh: list.filter(x => !asked.has(keyOf(x))), seen: list.filter(x => asked.has(keyOf(x))) }
-    )));
+    const split = (list) => ({ fresh: list.filter(x => !asked.has(keyOf(x))), seen: list.filter(x => asked.has(keyOf(x))) });
+    // A look back (server/lookBack.js) is about what has stayed: the topics
+    // practised longest ago take their turn first, one question each before
+    // any gives a second, and a topic's never-asked questions still come first
+    // within it. A mock spreads over the topics in a shuffled order and asks
+    // every never-asked question of the course before an asked one.
+    const when = lookBack ? new Map([...ordered.keys()].map(id => [id, practisedAt(id)])) : null;
+    const queues = lookBack
+        ? [...ordered.entries()].sort((a, b) => when.get(a[0]) - when.get(b[0]))
+            .map(([, list]) => { const { fresh, seen } = split(list); return { all: [...fresh, ...seen] }; })
+        : shuffle([...ordered.values()].map(split));
     const picked = [];
-    for (const tier of ['fresh', 'seen']) {
+    for (const tier of lookBack ? ['all'] : ['fresh', 'seen']) {
         let more = true;
         while (more && picked.length < size) {
             more = false;
@@ -634,12 +661,12 @@ export function drawCourseMock(projectId, { size, minutes = null, now = Date.now
     shuffle(picked);
 
     const exam = getExam(projectId);
-    // A pass line only when this mock copies an on-screen exam's length.
-    const passRight = exam?.onScreen && exam.passRight != null && exam.questions === size && picked.length === size ? exam.passRight : null;
+    // A pass line only when this mock copies an on-screen exam's length; a look back has none.
+    const passRight = !lookBack && exam?.onScreen && exam.passRight != null && exam.questions === size && picked.length === size ? exam.passRight : null;
     const id = db.transaction(() => {
         const paperId = Number(stmt(`
-            INSERT INTO exam_papers (project_id, title, minutes, source, pass_right) VALUES (?, 'From this course', ?, 'course', ?)
-        `).run(projectId, minutes ?? Math.max(1, Math.ceil(picked.length * 1.5)), passRight).lastInsertRowid);
+            INSERT INTO exam_papers (project_id, title, minutes, source, pass_right, look_back) VALUES (?, ?, ?, 'course', ?, ?)
+        `).run(projectId, lookBack ? 'Look back' : 'From this course', minutes ?? Math.max(1, Math.ceil(picked.length * 1.5)), passRight, lookBack ? 1 : 0).lastInsertRowid);
         picked.forEach((b, i) => stmt(`
             INSERT INTO exam_paper_parts (paper_id, position, question, part, points, node_id, item, quiz_id, question_index)
             VALUES (?, ?, ?, '', 1, ?, ?, ?, ?)
@@ -773,10 +800,14 @@ function courseResult(s, rows, paper) {
     return {
         right, total, notAnswered,
         late: changedLate ? { right: counted.filter(r => r.right).length, answered: counted.filter(r => r.answer != null).length } : null,
-        spread: spreadOf(right, total),
+        // Ten questions put the range about 30 points either side: on a look
+        // back it would read as a forecast, so it shows on a mock only.
+        spread: paper.look_back ? null : spreadOf(right, total),
         passRight,
         passed: passRight == null ? null : right >= passRight,
-        notGrade: passRight == null,
+        // "Not a grade, a pass line shows only when..." answers a question a
+        // mock raises; a look back never has a pass line to explain.
+        notGrade: passRight == null && !paper.look_back,
         reported: rows.length - counted.length,
         topics,
         review,
@@ -791,11 +822,11 @@ function courseDetail(s, now) {
         sitting: sittingView(s, now),
         paper: {
             id: paper.id, uuid: paper.uuid, projectId: paper.project_id, source: 'course', title: paper.title,
-            questions: rows.length, passRight: paper.pass_right ?? null,
+            questions: rows.length, passRight: paper.pass_right ?? null, lookBack: paper.look_back === 1,
         },
         exam,
         course: {
-            questions: rows.map((r, i) => ({ partId: r.id, n: i + 1, ref: refOf(r.q), question: publicQuestion(r.q), answer: r.answer, later: r.later })),
+            questions: rows.map((r, i) => ({ partId: r.id, nodeId: r.nodeId ?? null, n: i + 1, ref: refOf(r.q), question: publicQuestion(r.q), answer: r.answer, later: r.later })),
             ...progressOf(rows),
         },
         result: s.status === 'done' ? courseResult(s, rows, paper) : null,
@@ -805,12 +836,15 @@ function courseDetail(s, now) {
 /** The earlier mocks from the course, for the list: when, how long, and how it went. */
 function courseSittingsOf(projectId, now) {
     return stmt(`
-        SELECT s.* FROM mock_sittings s JOIN exam_papers e ON e.id = s.paper_id
+        SELECT s.*, e.look_back FROM mock_sittings s JOIN exam_papers e ON e.id = s.paper_id
         WHERE e.project_id = ? AND e.source = 'course' ORDER BY s.started_at, s.id
     `).all(projectId).map(s => {
         const rows = courseRows(s);
         const r = s.status === 'done' ? courseResult(s, rows, paperRow(s.paper_id)) : null;
-        return { ...sittingView(s, now), source: 'course', questions: rows.length, answered: progressOf(rows).answered, right: r?.right ?? null, total: r?.total ?? rows.length };
+        return {
+            ...sittingView(s, now), source: 'course', lookBack: s.look_back === 1,
+            questions: rows.length, answered: progressOf(rows).answered, right: r?.right ?? null, total: r?.total ?? rows.length,
+        };
     });
 }
 

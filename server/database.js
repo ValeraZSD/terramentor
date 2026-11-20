@@ -2329,6 +2329,10 @@ addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
 // another one is refused rather than answered with the first outcome
 // (`recordOnce`, mastery.js). NULL on rows from before, which answer as before.
 addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
+// The look back (server/lookBack.js): a course draw flagged as one, and the
+// course's last "Not now" on its offer (ISO), which starts the clock again.
+addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;

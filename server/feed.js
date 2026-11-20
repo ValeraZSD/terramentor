@@ -15,6 +15,7 @@ import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questio
 import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 import { preQuestionsFor } from './lessonPrompts.js';
+import { lookBackOffer } from './lookBack.js';
 
 /**
  * Learning-feed composition — the home page's algorithm.
@@ -1076,8 +1077,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         let fading = nextInfos.length ? fadingIn(nextInfos) : [];
         if (!fading.length) fading = fadingIn(projectInfos);
         // Byte order, as the SQL that listed each course's topics sorted them.
+        // A topic that slipped on a look back first (fading.js SLIPPED_TOPIC).
         const stamp = (g) => String(g.lastUpdated ?? '');
-        fading.sort((a, b) => (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
+        fading.sort((a, b) => (b.ghost.slipped - a.ghost.slipped)
+            || (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
         for (const { ghost, info } of fading.slice(0, roundSize)) {
             const pick = ghost.picks[0];
             let daysSince = null;
@@ -1095,14 +1098,46 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                 projectColor: info.project.color,
                 nodeTitle: ghost.title,
                 daysSince,
+                slipped: ghost.slipped,
                 quizId: pick.quizId,
                 question: { ...pick.question, quizIndex: pick.index },
             });
         }
     }
 
+    // --- Look back (server/lookBack.js) -----------------------------------
+    // Every two weeks or so, or when a phase closes, the stream opens with an
+    // offer: ten questions from everything the course has taught so far, or the
+    // full mock in the weeks before a real exam. The same slot and rules as the
+    // recall round: the opening page only, never a topic's own page, and one
+    // card for one course (the one studied next, else the first that has one).
+    // A card the learner can clear with one tap; nothing below it waits on it.
+    const offers = [];
+    if (openingPage && !scoped) {
+        const next = nodeQueues.find(q => q.cards.length > 0)?.f.projectId ?? null;
+        const order = [...projectInfos].sort((a, b) => Number(b.project.id === next) - Number(a.project.id === next));
+        for (const info of order) {
+            let offer = null;
+            try {
+                offer = lookBackOffer(info.project.id, { now });
+            } catch (err) {
+                console.warn(`[feed] look back left out project ${info.project.id}: ${err?.message ?? err}`);
+            }
+            if (!offer) continue;
+            offers.push({
+                key: `lookback-${info.project.id}`,
+                kind: 'lookback',
+                projectId: info.project.id,
+                projectName: info.project.name,
+                projectColor: info.project.color,
+                offer,
+            });
+            break;
+        }
+    }
+
     // --- Interleave ---------------------------------------------------------
-    const items = [...review];
+    const items = [...offers, ...review];
     let queueIdx = 0;
     let sinceFlash = 0;
     let flashInterval = 3;
