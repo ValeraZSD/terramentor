@@ -385,7 +385,7 @@ section('8. larger text and buttons: one switch, two floors');
         && /html\[data-larger-ui\] \[data-checkbox\] > input \{\s*inset: auto;\s*left: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*top: min\(0px, calc\(\(100% - var\(--target-floor\)\) \/ 2\)\);\s*width: max\(100%, var\(--target-floor\)\);\s*height: max\(100%, var\(--target-floor\)\);/.test(css));
     // Larger text in a narrow column cut tree and outline titles to a word or
     // two; with the switch on they wrap instead, and only the tree row (not
-    // every [data-node-id]: cards, the calendar, the timeline) loses padding.
+    // every [data-node-id], such as a card) loses padding.
     const wraps = ['src/components/Sidebar.tsx', 'src/components/TreeItemRow.tsx', 'src/components/CategoryCard.tsx']
         .filter(f => !/data-larger-wraps/.test(read(f)));
     check('tree, outline and section titles wrap instead of being cut short',

@@ -18,6 +18,7 @@ import { formatOf } from '../answer/formats';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { useStudyClock } from '../../hooks/useStudyClock';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
@@ -472,6 +473,10 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
 
     const paused = timed && !sitting.running;
 
+    // A test: the time on the question in front of the learner counts for its
+    // topic, from the open to the hand-in, and not while the clock is paused.
+    useStudyClock(q?.nodeId != null && !paused && !finishing ? { nodeId: q.nodeId, activity: 'checks' } : null, { layer: 'session' });
+
     const leave = async () => {
         setLeaving(true);
         if (!(await flush())) {
@@ -506,7 +511,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         : null;
 
     const frame = (children: React.ReactNode, footer?: React.ReactNode) => (
-        <ExamFrame title={t("Mock exam from this course")} status={status} actions={pauseButton}
+        <ExamFrame title={detail.paper.lookBack ? t("Look back") : t("Mock exam from this course")} status={status} actions={pauseButton}
             onLeave={() => void leave()} leaving={leaving} footer={footer} frameRef={frameRef}>
             {children}
         </ExamFrame>
@@ -630,13 +635,16 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
     return (
         <div className="space-y-4">
             <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam from this course, {{date}}", { date })}</h2>
-                <p className="text-sm text-slate-600 dark:text-slate-300">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {detail.paper.lookBack ? t("Look back, {{date}}", { date }) : t("Mock exam from this course, {{date}}", { date })}
+                </h2>
+                {/* A look back has no clock and no setting to recall, so it has no line here. */}
+                {!detail.paper.lookBack && <p className="text-sm text-slate-600 dark:text-slate-300">
                     {sitting.timeAllowed > 0
                         // The clock runs on past the time while late answers are given; the score stops at the time.
                         ? t("Answered on screen in {{used}} of {{allowed}}", { used: duration(Math.min(sitting.elapsed, sitting.timeAllowed)), allowed: duration(sitting.timeAllowed) })
                         : t("Answered on screen in {{used}}, no clock", { used: duration(sitting.elapsed) })}
-                </p>
+                </p>}
             </div>
             <Panel>
                 <p className="text-5xl font-semibold tabular-nums text-slate-900 dark:text-white">
@@ -663,6 +671,12 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                             })}
                         </p>
                     )}
+                    {/* What a course mock or look back does with a miss (server/fading.js SLIPPED_TOPIC). */}
+                    {/* Only an answer given and wrong slips; a blank one writes nothing.
+                        The review groups read the final answers, the ones the log keeps. */}
+                    {result.review.some(r => r.group === 'wrong' || r.group === 'wrong_later') && (
+                        <p>{t("The topics you missed come back as a question the next day you study.")}</p>
+                    )}
                     {result.notGrade && (
                         <p className="text-slate-600 dark:text-slate-300">
                             {t("This is not a grade. A pass line shows only when the real exam is taken on screen with the same number of questions.")}
@@ -681,7 +695,9 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                 </div>
             </Panel>
 
-            {result.topics.length > 0 && (
+            {/* A look back asks about one question per topic, so a bar per topic would only repeat
+                the answers below, each of which names its topic. */}
+            {result.topics.length > 0 && !detail.paper.lookBack && (
                 <Panel>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white">{t("By topic")}</h3>
                     <ul className="mt-2 divide-y divide-slate-200 dark:divide-slate-700">

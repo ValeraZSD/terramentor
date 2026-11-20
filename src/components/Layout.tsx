@@ -191,7 +191,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     }, [view]);
 
     // …and SAY that it scrolls. The rail hides its scrollbar (`.rail-scroll`),
-    // which on a 375px phone left "Calendar" sliced down the middle hard against
+    // which on a 375px phone left a tab sliced down the middle hard against
     // the search button — indistinguishable from the icons painting over the tab,
     // which is a bug this rail has actually had. A fade at whichever edge has
     // more behind it is the difference between "cut off" and "keeps going".
@@ -251,15 +251,12 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
 
     // The global surfaces share a tab strip instead of a back arrow.
-    const isGlobalView =
-        view === 'today' || view === 'projects' || view === 'calendar'
-        || view === 'atlas';
-    // No Schedule tab: a project's dates are set and read on its Projects
-    // card, where the same projects already were.
+    const isGlobalView = view === 'today' || view === 'projects' || view === 'atlas';
+    // No Schedule or Calendar tab: a project's dates are set and read on its
+    // Projects card, and its plan is the verdict in the course's own header.
     const globalTabs = [
         { key: 'today' as const, label: t("Today") },
         { key: 'projects' as const, label: t("Projects") },
-        { key: 'calendar' as const, label: t("Calendar") },
         { key: 'atlas' as const, label: t("Atlas") },
     ];
 
@@ -610,7 +607,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {!examFocus && <AppPlacementNotice />}
 
             <main ref={mainRef} id="main-content" tabIndex={-1} className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0 outline-none">
-                {/* Today, Projects and Calendar have a tab strip where a title
+                {/* Today and Projects have a tab strip where a title
                     would be; Atlas and Settings draw their own h1. */}
                 {isGlobalView && view !== 'atlas' && place && <h1 className="sr-only">{place}</h1>}
                 {/* Inside a course, its text is in its own language. */}

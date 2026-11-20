@@ -332,7 +332,6 @@ const SETTERS = [
     ['setUiScale', (st) => [st.uiScale === 130 ? 120 : 130], 'uiScale'],
     ['setSidebarWidth', (st) => [st.sidebarWidth === 300 ? 320 : 300], 'sidebarWidth'],
     ['setDetailPanelWidth', (st) => [st.detailPanelWidth === 480 ? 460 : 480], 'detailPanelWidth'],
-    ['setWeekStartDay', (st) => [st.weekStartDay === 1 ? 0 : 1], 'weekStartDay'],
     ['setNumberFormat', (st) => [st.numberFormat === '1.234,5' ? '1,234.5' : '1.234,5'], 'numberFormat'],
     ['setAtlasColorMode', (st) => [st.atlasColorMode === 'course' ? 'mastery' : 'course'], 'atlasColorMode'],
     ['setAtlasSurface', (st) => [st.atlasSurface === 'globe' ? 'map' : 'globe'], 'atlasSurface'],

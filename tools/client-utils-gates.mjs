@@ -1,4 +1,4 @@
-// tools/client-utils-gates.mjs — four small client utilities, each run for real.
+// tools/client-utils-gates.mjs — three small client utilities, each run for real.
 //
 // Run:  node tools/client-utils-gates.mjs
 //
@@ -8,15 +8,12 @@
 // ORDER or of what happens after a gesture ends badly, which a read of the
 // source cannot show.
 //
-//   1. The swipe carousel: a touch the browser cancels mid-drag never fires
-//      `touchend`, so the three-panel track used to stay half-way across the
-//      viewport. A cancelled drag must return, and must never page.
-//   2. A measured element width is one quantity: the first measure, an
+//   1. A measured element width is one quantity: the first measure, an
 //      observer callback and a window resize all report the content box.
-//   3. Copy without the async Clipboard API: the temporary field takes focus
+//   2. Copy without the async Clipboard API: the temporary field takes focus
 //      and must give it back, and must leave the page even when `execCommand`
 //      throws, or a keyboard user lands outside their dialog.
-//   4. Switching the interface language: two picks can overlap, and the older
+//   3. Switching the interface language: two picks can overlap, and the older
 //      chunk arriving last must not win, on screen or in what is stored; a chunk
 //      that failed to load must not leave `<html lang>`, `Intl` and the device
 //      cache naming a language the words are not in.
@@ -71,110 +68,6 @@ const bundle = async (name, options) => {
 const newDom = () => new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost/' });
 
 try {
-    // -----------------------------------------------------------------------
-    section('a touch the browser cancels mid-drag returns the track and never pages');
-    {
-        const { window } = newDom();
-        const doc = window.document;
-        // jsdom lays nothing out; the carousel reads its viewport's width.
-        Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 300 });
-        setGlobals({
-            window, document: doc, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node,
-            MutationObserver: window.MutationObserver, IS_REACT_ACT_ENVIRONMENT: true,
-            ResizeObserver: class { observe() {} disconnect() {} },
-        });
-        const carousel = await bundle('swipe', {
-            stdin: {
-                contents: `
-                    import * as React from 'react';
-                    import { createRoot } from 'react-dom/client';
-                    import { useSwipeCarousel } from './src/hooks/useSwipeCarousel';
-                    export function mount(el, calls) {
-                        const root = createRoot(el);
-                        function Probe() {
-                            const c = useSwipeCarousel(() => calls.push('prev'), () => calls.push('next'));
-                            return React.createElement('div', { ref: c.viewportRef },
-                                React.createElement('div', { id: 'track', ...c.trackProps }));
-                        }
-                        React.act(() => root.render(React.createElement(Probe)));
-                        return () => React.act(() => root.unmount());
-                    }
-                    export const act = (fn) => React.act(fn);`,
-                resolveDir: repo, loader: 'tsx',
-            },
-        });
-
-        const host = doc.createElement('div');
-        doc.body.append(host);
-        const calls = [];
-        const unmount = carousel.mount(host, calls);
-        const track = doc.getElementById('track');
-        const dispatch = (type, x = 0, y = 0, extra = {}) => {
-            const ev = new window.Event(type, { bubbles: true, cancelable: true });
-            ev.touches = type === 'touchend' || type === 'touchcancel' ? [] : [{ clientX: x, clientY: y }];
-            Object.assign(ev, extra);
-            track.dispatchEvent(ev);
-        };
-        const fire = (...args) => carousel.act(() => dispatch(...args));
-        const at = () => track.style.transform;
-        const settle = () => fire('transitionend', 0, 0, { propertyName: 'transform' });
-
-        check('at rest the current panel is the one on screen', at() === 'translateX(-300px)', at());
-
-        fire('touchstart', 100, 100);
-        fire('touchmove', 120, 100);
-        fire('touchmove', -100, 100);
-        check('a sideways drag follows the finger', at() === 'translateX(-500px)', at());
-
-        fire('touchcancel');
-        check('a cancelled drag goes back to rest, animated',
-            at() === 'translateX(-300px)' && /transform/.test(track.style.transition), `${at()} / ${track.style.transition}`);
-        settle();
-        check('...and a drag past the paging distance, once cancelled, pages nowhere', calls.length === 0, calls.join(','));
-
-        fire('touchstart', 100, 100);
-        fire('touchmove', 120, 100);
-        fire('touchmove', 70, 100);
-        check('the next drag starts from rest', at() === 'translateX(-330px)', at());
-        fire('touchend');
-        settle();
-        check('a short drag that ends normally still snaps back without paging', at() === 'translateX(-300px)' && calls.length === 0, `${at()} / ${calls.join(',')}`);
-
-        fire('touchstart', 100, 100);
-        fire('touchmove', 0, 100);
-        fire('touchend');
-        settle();
-        check('a long drag that ends normally still pages', calls.join(',') === 'next', calls.join(','));
-
-        // A cancel while the track is already at its start offset has nothing to
-        // animate, so no transition would end and the carousel would ignore every
-        // later touch.
-        fire('touchstart', 100, 100);
-        fire('touchmove', 110, 100);
-        fire('touchmove', 100, 100);
-        fire('touchcancel');
-        fire('touchstart', 100, 100);
-        fire('touchmove', 120, 100);
-        fire('touchmove', 70, 100);
-        check('a cancel at the start offset does not freeze the carousel', at() === 'translateX(-330px)', at());
-
-        // A cancel can arrive before the render that follows the last move: the
-        // handler must act on where the track really is, not on the offset of the
-        // last render, or a track that is mid-drag stays there.
-        settle();
-        fire('touchstart', 100, 100);
-        carousel.act(() => {
-            dispatch('touchmove', 120, 100);
-            dispatch('touchmove', 40, 100);
-            dispatch('touchcancel');
-        });
-        check('a cancel straight after a move, before it renders, still returns the track',
-            at() === 'translateX(-300px)' && /transform/.test(track.style.transition), `${at()} / ${track.style.transition}`);
-        settle();
-        unmount();
-    }
-    restoreGlobals();
-
     // -----------------------------------------------------------------------
     section('an element\'s measured width is one quantity, whichever event measured it');
     {

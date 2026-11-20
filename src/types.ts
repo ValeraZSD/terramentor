@@ -461,72 +461,11 @@ export interface PaceData {
     /** What both percentages count: topics, or cards met for a project that is
      *  measured in cards (`countsInCards`). */
     basis?: 'cards' | 'topics';
-    /** A project measured in cards stores no topic dates; this is where each of
-     *  its sections falls on the plan (`cardPlan`, server/scheduling.js). Only
-     *  on `/api/projects/:id/pace`. */
-    cardPlan?: CardPlanSection[] | null;
     /** The date judged against the learner's own pace; null without a date. */
     verdict?: PaceVerdict | null;
     /** The weeks that verdict was judged from. */
     learnerPace?: LearnerPace | null;
 }
-
-/** One section of a card-measured plan: the study days its cards fall on. */
-export interface CardPlanSection {
-    nodeId: number;
-    start: string;
-    end: string;
-    cards: number;
-    seen: number;
-}
-
-export interface GanttItem {
-    id: number;
-    title: string;
-    depth: number;
-    status: Node['status'];
-    isNote: boolean;
-    scheduledStart: string | null;
-    scheduledEnd: string | null;
-    hasChildren: boolean;
-    parentId: number | null;
-    rootPhaseId: number | null;
-    rootPhaseTitle: string | null;
-    /** Tailwind background class for the bar, derived from status + overdue. */
-    colorClass: string;
-    /** Past its end and open: still counted behind schedule. */
-    isOverdue: boolean;
-    /** …and the learner already knows it: it says "Ready to prove", not red
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    readyToProve: boolean;
-}
-
-export interface CalendarDay {
-    date: string;
-    dayOfWeek: number;
-    isToday: boolean;
-    isStudyDay: boolean;
-    isCurrentMonth: boolean;
-    tasks: CalendarTask[];
-}
-
-export interface CalendarTask {
-    nodeId: number;
-    title: string;
-    status: Node['status'];
-    color: string;
-    /** The task's OWN window. A chip is drawn once per period, so the day it
-     *  sits on is not necessarily the day the topic starts — the dates are how
-     *  a multi-day topic still says where it runs. */
-    start: string;
-    end: string;
-    /** The mastery gate would pass it now: a late one says "ready to prove"
-     *  (`isReadyToProve`, src/utils/tree.ts). */
-    provable?: boolean;
-}
-
-export type CalendarViewMode = 'month' | 'week' | 'day';
-export type WeekStartDay = 0 | 1;
 
 /** A check run on something the assistant prepared (server/assistantChecks.js).
  *  `unchecked` is no verdict — the checker could not be asked, or the web is off. */
@@ -919,30 +858,6 @@ export interface GhostResult {
     total: number;
 }
 
-// A consolidated "what to do today" agenda for a project (server/dailyPlan.js).
-export interface DailyPlanTask {
-    id: number;
-    title: string;
-    scheduled_start?: string | null;
-    scheduled_end?: string | null;
-    status?: string;
-    /** On an overdue task: the learner already knows it (server/readyToProve.js). */
-    readyToProve?: boolean;
-}
-
-export interface DailyPlan {
-    date: string;
-    overdueTasks: DailyPlanTask[];
-    todayTasks: DailyPlanTask[];
-    summary: {
-        overdueCount: number;
-        todayCount: number;
-        decayingCount: number;
-        dueFlashcardCount: number;
-        untestedCount: number;
-    };
-}
-
 // Learning feed (server/feed.js, GET /api/feed) — the home page card stream.
 // A discriminated union: `kind` selects the card component; `key` is the
 // stable identity used for exclude-list paging and consume calls.
@@ -1020,6 +935,8 @@ export interface FeedRecallCard extends FeedCardCommon {
     kind: 'recall';
     /** One of the review round that opens the stream (server/feed.js), drawn under one header. */
     review?: boolean;
+    /** Back because it was answered wrong in a look back (server/fading.js SLIPPED_TOPIC), not because time passed. */
+    slipped?: boolean;
     daysSince: number | null;
     quizId: number;
     question: QuizQuestion;
@@ -1303,6 +1220,26 @@ export interface FeedNoticeCard {
     message: string;
 }
 
+/**
+ * What the stream offers a course now and then (server/lookBack.js): a look
+ * back over what it has taught, the one left open, or the full mock in the
+ * weeks before a real exam.
+ */
+export type LookBackOffer =
+    | { kind: 'look_back'; projectId: number; questions: number }
+    | { kind: 'resume'; projectId: number; sittingId: number; answered: number; questions: number }
+    | { kind: 'mock'; projectId: number; daysLeft: number; questions: number };
+
+/** The offer at the head of the stream's opening page; no topic of its own. */
+export interface FeedLookBackCard {
+    key: string;
+    kind: 'lookback';
+    projectId: number;
+    projectName: string;
+    projectColor: string;
+    offer: LookBackOffer;
+}
+
 export type FeedCard =
     | FeedLessonCard
     | FeedQuestionCard
@@ -1310,7 +1247,8 @@ export type FeedCard =
     | FeedRecallCard
     | FeedCheckpointCard
     | FeedPracticeCard
-    | FeedNoticeCard;
+    | FeedNoticeCard
+    | FeedLookBackCard;
 
 export interface FeedStats {
     itemsDoneToday: number;
@@ -1752,24 +1690,6 @@ export interface GlobalDueFlashcard extends ProjectFlashcard {
     project_id: number;
     project_name: string;
     project_color: string;
-}
-
-// Global calendar feed (GET /api/calendar?from&to).
-export interface GlobalCalendarTask {
-    nodeId: number;
-    projectId: number;
-    title: string;
-    status: string;
-    scheduled_start: string;
-    scheduled_end: string;
-    /** The mastery gate would pass it now (server/readyToProve.js `canProve`). */
-    provable?: boolean;
-}
-
-export interface GlobalCalendarData {
-    /** `scheduled`: the course has dates, so the course filter lists it. */
-    projects: { id: number; name: string; color: string; scheduled?: boolean }[];
-    tasks: GlobalCalendarTask[];
 }
 
 export interface Quiz {

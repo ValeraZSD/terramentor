@@ -61,7 +61,7 @@
 import db from './database.js';
 import { applySeededPrior, forgetSeed, GUESS_BY_QUESTION_TYPE } from './mastery.js';
 import { layTopicDates } from './scheduling.js';
-import { AI_PROMPTS, buildNodeContext, generateResponse, checkAnswerWithAI } from './ai.js';
+import { AI_PROMPTS, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
 import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
@@ -697,6 +697,7 @@ function normalizeProbeQuestion(raw, type, nodeId = null) {
 export async function authorProbeQuestion(target, { signal, lang = null, index = 0 } = {}) {
     const type = questionTypeFor(index);
     const context = buildNodeContext(target.node_id);
+    const source = questionSource(target.node_id);
     let priorFault = null;
 
     for (let attempt = 0; attempt < AUTHOR_ATTEMPTS; attempt++) {
@@ -724,10 +725,10 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
         if (!q) { priorFault = 'the question had no identifiable answer key'; continue; }
         if (q.rejected) { priorFault = q.rejected; continue; }
 
-        let verdict = await verifyQuestion(target.title, q, { signal });
+        let verdict = await verifyQuestion(target.title, q, { signal, source });
         // No verdict is not a pass: ask once more (a reasoning model that spent
         // its reply thinking often answers the second time), as the feed does.
-        if (verdict.available === false) verdict = await verifyQuestion(target.title, q, { signal });
+        if (verdict.available === false) verdict = await verifyQuestion(target.title, q, { signal, source });
         if (verdict.ok === false) { priorFault = verdict.reason; continue; }
         if (verdict.available === false) {
             // A probe answer SEEDS a prior — it decides how much of the course

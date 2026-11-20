@@ -19,30 +19,34 @@ import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import PlacementCard, { PlacementTool, usePlacementStatus } from './PlacementCard';
 import { DashboardSection, ToolGrid, ToolRow } from './dashboard/DashboardSection';
-import { TodaysPlan } from './dashboard/TodaysPlan';
 import { PhaseProgress } from './dashboard/PhaseProgress';
 import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
-import { pretty } from '../utils/scheduleAxis';
+import { pretty } from '../utils/locale';
 import { useTranslation } from 'react-i18next';
 import { headStartConsequence } from './feed/HeadStartBanner';
 import ContinueCreationCard from './creation/ContinueCreationOffer';
 import { MISSES, VerdictPill, verdictLine } from './plan/verdict';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 
-export default function StudyDashboard() {
+/**
+ * `paceInHeader`: the course header has room for the verdict's sentence
+ * (`Workspace` measures it). Where it has not, as on a phone, the header keeps
+ * only a dot on the plan button, and the sentence is said here instead, under
+ * Next up: once on the screen either way.
+ */
+export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?: boolean }) {
     const { t: tr } = useTranslation();
+    const paceData = useStore(s => s.paceData);
+    const setShowScheduleModal = useStore(s => s.setShowScheduleModal);
+    const num = useNumberFormat();
     const currentProjectId = useStore(s => s.currentProjectId);
     const projects = useStore(s => s.projects);
     const studyProject = useStore(s => s.studyProject);
     const setWorkspaceView = useStore(s => s.setWorkspaceView);
     const addToast = useStore(s => s.addToast);
-    const paceData = useStore(s => s.paceData);
-    const setShowScheduleModal = useStore(s => s.setShowScheduleModal);
-    const num = useNumberFormat();
     const dashboard = useStore(s => s.dashboardData);
     const dashboardLoading = useStore(s => s.dashboardLoading);
-    const dailyPlan = useStore(s => s.dailyPlan);
     const openAssistant = useStore(s => s.openAssistant);
     const openMasteryCheck = useOpenMasteryCheck();
 
@@ -106,9 +110,10 @@ export default function StudyDashboard() {
     // refresh of the page.
     const cardSummary = dashboard.flashcardSummary;
     const cardsKey = [cardSummary.totalCards, cardSummary.dueCount, cardSummary.newAvailable, cardSummary.introducedToday].join(':');
-    // The date judged against the learner's own pace, not against the dates
-    // the plan wrote: only then is there something to do about it.
-    const verdict = paceData?.verdict ?? null;
+    const verdict = paceInHeader ? null : paceData?.verdict ?? null;
+    const paceHere = !!verdict && verdict.band !== 'no_date';
+    // The plan button beside it only when the date misses: then there is
+    // something to do about it.
     const missesDate = !!verdict && (MISSES.has(verdict.band) || verdict.band === 'passed');
     const heroReady = !!heroTask && 'readyToProve' in heroTask && !!heroTask.readyToProve;
     // A head start does not move "Next up" (a seed is no proof), it changes what
@@ -245,23 +250,25 @@ export default function StudyDashboard() {
                 </div>
             )}
 
-            {missesDate && verdict && (
-                // Same rule as the row above: beside the sentence while it
-                // fits, under it and full width when it does not. Side by side
-                // on a phone the sentence ran to five lines next to the button.
-                <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-4 gap-y-3">
+            {paceHere && verdict && (
+                // Beside the sentence while it fits, under it and full width
+                // when it does not: side by side on a phone the sentence ran
+                // to five lines next to the button.
+                <div data-pace-here className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-4 gap-y-3">
                     <div className="min-w-0 flex-[999_1_16rem] flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
                         <VerdictPill verdict={verdict} t={tr} />
                         <span>{verdictLine(verdict, tr, num)}</span>
                     </div>
-                    <div className="flex flex-[1_1_auto] justify-end">
-                        <Button
-                            onClick={() => setShowScheduleModal(true, currentProjectId)}
-                            className="grow"
-                        >
-                            {tr("Open plan")}
-                        </Button>
-                    </div>
+                    {missesDate && (
+                        <div className="flex flex-[1_1_auto] justify-end">
+                            <Button
+                                onClick={() => setShowScheduleModal(true, currentProjectId)}
+                                className="grow"
+                            >
+                                {tr("Open plan")}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             )}
         </DashboardSection>
@@ -353,7 +360,7 @@ export default function StudyDashboard() {
                         {/* The icon (w-10) plus the gap (gap-3), in rem like them —
                             a px indent drifted off the title under `ui_scale`.
                             Progress only: the verdict sits in the project's
-                            header and in the plan section below. */}
+                            header, on every tab. */}
                         <p className="text-slate-500 dark:text-slate-400 mt-1 ml-[3.25rem]">
                             {tr("{{progressPercent}}% complete", { progressPercent: stats.progressPercent })}
                         </p>
@@ -381,22 +388,17 @@ export default function StudyDashboard() {
                     />
                 )}
 
-                {/* Four bands: the one thing to do; today's work (the plan and
-                    the cards, side by side from 40rem, where each keeps ~19rem:
-                    a plan row with its date, the counts beside their button);
-                    the phases, full width so every bar is one long row; and
-                    the time studied beside the tools (the quizzes are a row of
-                    the tools), two across from 40rem like the plan and cards. */}
+                {/* Four bands: the one thing to do; the cards; the phases, full
+                    width so every bar is one long row; and the time studied
+                    beside the tools (the quizzes are a row of the tools), two
+                    across from 40rem.
+                    No list of the other topics due today: Start Studying
+                    teaches them, in the same order, and a list that drew only
+                    on days a course needed two or more topics changed the
+                    page's shape from one day to the next. */}
                 <DashboardBands bands={[
                     { key: 'next', minRem: 0, slots: [{ key: 'next', node: nextUp }] },
-                    { key: 'today', minRem: 40, slots: [
-                        // Today's Plan — the consolidated agenda (server/dailyPlan.js),
-                        // the hero left out of it.
-                        {
-                            key: 'plan', node: dailyPlan && currentProjectId != null && (
-                                <TodaysPlan plan={dailyPlan} heroId={heroTask?.id ?? null} projectId={currentProjectId} />
-                            ),
-                        },
+                    { key: 'today', minRem: 0, slots: [
                         // A project with cards gets them counted here, with the
                         // rest of today's work; a project WITHOUT cards gets
                         // nothing: a tile could only ever say 0.
@@ -406,7 +408,7 @@ export default function StudyDashboard() {
                                     projectId={currentProjectId}
                                     compact
                                     reloadKey={cardsKey}
-                                    // Pace, progress and the plan count cards too.
+                                    // Pace and progress count cards too.
                                     onSessionEnd={() => {
                                         void useStore.getState().loadPaceData(currentProjectId);
                                         void useStore.getState().loadDashboard(currentProjectId);

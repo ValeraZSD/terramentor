@@ -685,7 +685,7 @@ console.log('\n--- a wrong claim keeps a topic on fading recall ---');
         return at < 0 ? '' : src.slice(at, src.indexOf('.all(', at));
     };
     const ownCopy = [['mastery.js', 'export function getDecayingNodes('], ['today.js', 'const decayingRows = ']]
-        .filter(([f, anchor]) => { const q = queryOf(f, anchor); return !q.includes('${FADING_TOPIC}') || /mastery_score\s*>|total_attempts\s*>/.test(q); })
+        .filter(([f, anchor]) => { const q = queryOf(f, anchor); return !q.includes('${RECALL_TOPIC}') || /mastery_score\s*>|total_attempts\s*>/.test(q); })
         .map(([f, anchor]) => `${f} (${anchor.trim()})`);
     ok('both read the one definition in server/fading.js', ownCopy.length === 0, ownCopy.join(', '));
 }

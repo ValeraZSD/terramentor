@@ -1514,7 +1514,7 @@ try {
 
   // Notes are reference material, never work items — strip any schedule dates that
   // earlier scheduling runs may have left on them so they stop leaking into the
-  // calendar / pace / daily plan as phantom tasks. Idempotent.
+  // pace / daily plan / Today as phantom tasks. Idempotent.
   try {
     const fixed = db.prepare(
       `UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL
@@ -2336,6 +2336,14 @@ addColumnIfMissing('projects', 'exam_pass', 'INTEGER');
 // another one is refused rather than answered with the first outcome
 // (`recordOnce`, mastery.js). NULL on rows from before, which answer as before.
 addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
+// The look back (server/lookBack.js): a course draw flagged as one, and the
+// course's last "Not now" on its offer (ISO), which starts the clock again.
+addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
+// A topic's misses and right answers in time order, read per topic by the slip
+// rule (fading.js SLIPPED_TOPIC) on every recall round and by recallOrder's
+// "right since"; surface last, since the "right since" reads name none.
+db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_node_correct ON question_log(node_id, correct, asked_at, surface)');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;
