@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-    DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, MeasuringStrategy, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+    DndContext, DragEndEvent, DragOverEvent, DragOverlay, DragStartEvent, MeasuringStrategy, closestCenter, PointerSensor, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
 } from '@dnd-kit/core';
 import {
     SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates, type SortingStrategy,
@@ -59,19 +59,27 @@ export default function SequenceInput({ question, value, onChange, disabled, res
     const [held, setHeld] = useState<string | null>(null);
     const [preview, setPreview] = useState<string[] | null>(null);
     const [picked, setPicked] = useState<string | null>(null);
-    // Checking, or undoing a check, drops a half-made move: a tile picked or
-    // held before Check must not come back picked after Undo.
-    const [lockedWas, setLockedWas] = useState(locked);
-    if (lockedWas !== locked) {
-        setLockedWas(locked);
+    // Checking, undoing a check, or a new set of items drops a half-made move:
+    // a tile picked or held before Check must not come back picked after Undo.
+    const moment = `${locked}\u0000${(question.items ?? []).join('\u0000')}`;
+    const [momentWas, setMomentWas] = useState(moment);
+    if (momentWas !== moment) {
+        setMomentWas(moment);
         setHeld(null); setPreview(null); setPicked(null);
     }
     const shown = tiles && preview ? preview : order;
 
-    const sensors = useSensors(
-        useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-        useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-    );
+    // The list drags by its handle alone (`touch-none` there), so a pointer
+    // sensor is enough. A tile is the whole control, and a laptop with a mouse
+    // may have a touchscreen too: a finger on a tile must still scroll the
+    // feed, so touch lifts a tile only after a hold (as AssembleInput does).
+    const keyboard = useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates });
+    const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
+    const mouse = useSensor(MouseSensor, { activationConstraint: { distance: 6 } });
+    const touch = useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } });
+    const listSensors = useSensors(pointer, keyboard);
+    const tileSensors = useSensors(mouse, touch, keyboard);
+    const sensors = tiles ? tileSensors : listSensors;
 
     const commit = (next: string[]) => onChange(JSON.stringify(next));
     const move = (from: number, to: number) => {
@@ -105,7 +113,9 @@ export default function SequenceInput({ question, value, onChange, disabled, res
     };
 
     return (
-        <DndContext sensors={sensors} collisionDetection={closestCenter}
+        // Keyed by mode: the two modes have different sensors, and one context
+        // must keep the same set for its whole life.
+        <DndContext key={tiles ? 'tiles' : 'list'} sensors={sensors} collisionDetection={closestCenter}
             measuring={tiles ? { droppable: { strategy: MeasuringStrategy.Always } } : undefined}
             onDragStart={tiles ? onDragStart : undefined} onDragOver={tiles ? onDragOver : undefined}
             onDragEnd={onDragEnd} onDragCancel={settle}>
@@ -194,8 +204,12 @@ function Row({ item, index, count, locked, verdict, onUp, onDown }: {
     );
 }
 
-/** A tile is 44px tall in every state, so Check moves nothing. */
-const TILE = 'inline-flex items-center gap-1 min-h-11 pl-1 pr-3 rounded-xl border-2 text-sm text-slate-700 dark:text-slate-200 whitespace-nowrap';
+/**
+ * A tile is 44px tall in every state, so Check moves nothing. As wide as its
+ * word, never wider than the row: in a narrow panel at a large text size the
+ * word wraps inside its tile rather than running out of the card.
+ */
+const TILE = 'inline-flex items-center gap-1 min-h-11 max-w-full pl-1 pr-3 py-1.5 rounded-xl border-2 text-sm text-slate-700 dark:text-slate-200';
 
 function TileFace({ item, index }: { item: string; index?: number }) {
     return (
@@ -203,7 +217,7 @@ function TileFace({ item, index }: { item: string; index?: number }) {
             {index === undefined
                 ? <GripVertical className="w-6 h-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true" />
                 : <span className="w-6 shrink-0 text-center text-xs tabular-nums text-slate-500 dark:text-slate-400" aria-hidden="true">{index + 1}</span>}
-            <MathText content={item} />
+            <span className="min-w-0 break-words text-left"><MathText content={item} /></span>
         </>
     );
 }
@@ -237,14 +251,14 @@ function Tile({ item, index, locked, verdict, picked, onPick }: {
         );
     }
     return (
-        <li ref={setNodeRef} className="flex">
+        <li ref={setNodeRef} className="flex max-w-full">
             <button data-order-tile
                 type="button"
                 {...attributes}
                 {...listeners}
                 onClick={onPick}
                 aria-pressed={picked || isDragging}
-                className={cx(TILE, 'transition cursor-grab select-none touch-none', FOCUS_RING,
+                className={cx(TILE, 'transition cursor-grab select-none', FOCUS_RING,
                     picked || isDragging
                         ? 'border-dashed border-accent bg-accent/10'
                         : 'border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 can-hover:hover:border-accent/60',

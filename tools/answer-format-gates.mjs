@@ -1321,10 +1321,11 @@ section('ChoiceInput lays out from measured widths');
 }
 
 // The real SequenceInput, mounted with React in jsdom with a mouse
-// (`matchMedia` says hover + fine pointer). A drag needs layout jsdom does
-// not have; the click path does not: a tile clicked, then another, moves once
-// and says so in one `onChange`; Check drops a half-made pick, so Undo does
-// not bring it back.
+// (`matchMedia` says hover + fine pointer), then without one. A drag needs
+// layout jsdom does not have (its preview, single commit and Escape are
+// checked in a browser); the click path does not: a tile clicked, then
+// another, moves once and says so in one `onChange`; Check drops a half-made
+// pick, so Undo does not bring it back; without a mouse it stays a list.
 section('SequenceInput tiles move by click, once');
 {
     const { JSDOM } = require('jsdom');
@@ -1334,7 +1335,8 @@ section('SequenceInput tiles move by click, once');
     }
     globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    dom.window.matchMedia = (query) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    let pointerFine = true;
+    dom.window.matchMedia = (query) => ({ matches: pointerFine, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
     mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true });
     const outDir = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'sequence-input-'));
     const out = join(outDir, 'sequence.cjs');
@@ -1406,6 +1408,15 @@ section('SequenceInput tiles move by click, once');
     m.update({ ...props, question: steps, value: '' });
     check('one long item: the whole ordering stays a list with handles', tiles().length === 0 && el.querySelectorAll('[data-drag-handle]').length === 3);
     m.unmount(); el.remove();
+
+    // No mouse (a phone): the same short parts stay a list with up/down.
+    pointerFine = false;
+    const phone = doc.createElement('div'); doc.body.appendChild(phone);
+    const p = mount(phone, { ...props, question, value: '', result: null });
+    check('no mouse: short parts stay the list, a handle and up/down per row', phone.querySelectorAll('[data-order-tile]').length === 0
+        && phone.querySelectorAll('[data-drag-handle]').length === 5 && phone.querySelectorAll('button[aria-label="Move up"]').length === 5,
+        `${phone.querySelectorAll('[data-order-tile]').length} tiles, ${phone.querySelectorAll('[data-drag-handle]').length} handles`);
+    p.unmount(); phone.remove();
     try { rmSync(outDir, { recursive: true, force: true }); } catch { /* swept later */ }
 }
 
