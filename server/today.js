@@ -82,8 +82,8 @@ export function workLeaves(nodes) {
 // stored `not_started` is false over the learner's own work: cards met, or
 // answers of its own in the mastery record. A seeded prior (placement,
 // transfer) has `total_attempts = 0` and is not work done. One topic on the
-// real library sat at mastery 0.98 after seven answers and the calendar, the
-// tree and the assistant all called it not started. Only a LEAF is promoted:
+// real library sat at mastery 0.98 after seven answers and the tree and the
+// assistant both called it not started. Only a LEAF is promoted:
 // the client asks `leafStatus` of leaves alone and rolls a section up from its
 // children, so a section's own stray mastery row or card must not say more.
 export const LEAF_STATUS = `CASE WHEN COALESCE(n.status, 'not_started') = 'not_started' AND ${LEAF_NODE} AND (
