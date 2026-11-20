@@ -455,7 +455,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // chapter of a book picked is still the whole book.
     if (staged && sizeOf(words) === 'too-big') {
         refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
-            : 'This source is too long for one short course: make a course of it with New Project on Projects.', { reason: 'too_big' });
+            : 'This source is too long for one short course: make a course of it with New course on Projects.', { reason: 'too_big' });
     }
     // A source under the floor is a note, not three topics, whichever door it
     // came in by: the strip offers no Create for it, the card can still send it.

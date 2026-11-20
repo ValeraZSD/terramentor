@@ -85,7 +85,7 @@ Inside, topics form a tree. Two rules are worth knowing:
    examples) and still be a leaf. Notes are never scheduled and have no status of their own: they
    are what the topic is *made of*.
 
-**New Project** first asks whether to create a course or import one. **Create a course** asks for
+**New course** first asks whether to create a course or import one. **Create a course** asks for
 a name, what you want to learn, and optionally its material: any number of files and links (a web
 page, a PDF, a YouTube video), mixed. You never pick a size: the model judges it from the name,
 the goal and the material. A small source with a plain goal becomes a short course of a few
@@ -159,7 +159,7 @@ Three ways to bring things in and out:
 - **The Vault**: upload PDFs, notes and documents to a project. They are indexed and searched when
   the AI answers questions about that project, so the assistant and the lessons work from *your* material, not only
   its own knowledge.
-- **Short courses**: when **New Project** is given a small source (an article, a video, a short
+- **Short courses**: when **New course** is given a small source (an article, a video, a short
   document) and a plain goal, the course it makes is three to eight topics on one level, written
   from that material. It joins the feed and your reviews the same day, with no dates to set, and
   **Projects** lists it under Short courses once you have one. A single fact you want to
@@ -180,7 +180,7 @@ All of it is written by the model you connected on the welcome screen; change it
 
 ## What to do next
 
-1. Go to **Projects**, press **New Project** and describe what you want to learn.
+1. Go to **Projects**, press **New course** and describe what you want to learn.
 2. Give it a deadline.
 3. Come back to the feed tomorrow.
 

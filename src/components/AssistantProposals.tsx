@@ -1114,7 +1114,7 @@ export function ShortCourseProposals({ shorts, attachments, turnKey, onOpen }: {
             const reason = err.data?.reason;
             addToast('error', t("Could not create the short course"),
                 reason === 'no_ai' ? t("Writing it needs an AI connection.")
-                    : reason === 'too_big' ? t("It is too long for one short course. Add it with New Project on Projects: it becomes a course in phases.")
+                    : reason === 'too_big' ? t("It is too long for one short course. Add it with New course on Projects: it becomes a course in phases.")
                     : reason === 'too_small' ? t("Too little for a course.")
                     : reason ? t(READ_REASON[reason] ?? READ_REASON_OTHER, { size: Math.round(MAX_FILE_BYTES / 1024 / 1024) })
                         : err.message);

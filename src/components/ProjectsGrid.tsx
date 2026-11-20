@@ -322,7 +322,7 @@ export default function ProjectsGrid() {
                             so a wrapped label is two lines pressed into 40px.
                             The heading beside it wraps instead. */}
                         <Button variant="primary" className="shrink-0 whitespace-nowrap" icon={<Plus className="w-4 h-4" aria-hidden="true" />} onClick={() => setShowCreate(true)}>
-                            {t("New Project")}
+                            {t("New course")}
                         </Button>
                     </div>
 
@@ -399,7 +399,7 @@ export default function ProjectsGrid() {
                                 a library of short courses only counts zero. */}
                             {shortRows !== null && projects.length > 0 && counts.active === 0 && (
                                 <p className="py-12 text-center text-slate-500 dark:text-slate-400">
-                                    {t("Nothing in progress. Start a course with New Project.")}
+                                    {t("Nothing in progress. Start one with New course.")}
                                 </p>
                             )}
                         </>
