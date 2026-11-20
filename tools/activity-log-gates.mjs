@@ -496,7 +496,7 @@ const panel = readFileSync(join(ROOT, 'src/components/settings/ActivityLogPanel.
 check('the panel states the rule to the reader',
     /no topic titles/i.test(panel) && /never what you (?:are )?stud(?:y|ying)\b/i.test(panel));
 check('the panel says the download starts with a summary of numbers, before it is pressed',
-    /summary/i.test(panel) && /numbers only/i.test(panel) && /study days/i.test(panel));
+    /summary of how much and when you studied/i.test(panel) && /numbers only/i.test(panel) && /study days/i.test(panel));
 
 // ---- report -----------------------------------------------------------------
 

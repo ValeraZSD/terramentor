@@ -163,7 +163,7 @@ export function studySummaryLines(summary) {
     const field = (label, value) => `#  ${label.padEnd(22)}${value}\n`;
     const c = summary.checksBy;
     const lines = [
-        "# Study summary: counts only, read from the study record when this file was made. Days are the learner's own days.\n",
+        '# Study summary: how much and when, as counts only, read from the study record when this file was made. Days follow your own time zone.\n',
         field('study days', summary.studyDays),
         field('study minutes', summary.studyMinutes),
         field('proven topics', summary.proven),
@@ -176,7 +176,8 @@ export function studySummaryLines(summary) {
     ];
     if (summary.weeks.length) {
         const cols = ['days', 'minutes', 'checks', 'answers', 'reviews'];
-        lines.push(`#  ${'week of'.padEnd(10)}${cols.map(h => h.padStart(9)).join('')}\n`);
+        // "days" is days studied in that week; the date is the week's Monday.
+        lines.push(`#  ${'week (Mon)'.padEnd(10)}${cols.map(h => h.padStart(9)).join('')}\n`);
         for (const w of summary.weeks) {
             lines.push(`#  ${w.week}${cols.map(k => String(w[k]).padStart(9)).join('')}\n`);
         }
