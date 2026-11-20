@@ -220,11 +220,15 @@ export function startLookBack(projectId, { now = Date.now() } = {}) {
         return { sitting: getSitting(open.id, { now: t }), resumed: true };
     }
     if (!enough(projectId)) throw new MockExamError(409, 'Not enough studied yet to look back on');
-    if (open) {
-        if (answeredIn(open.id) > 0) finishSitting(open.id, { now: t });
-        else discardSitting(open.id);
-    }
-    return drawCourseMock(projectId, { size: LOOK_BACK_SIZE, minutes: null, now: t, lookBack: true });
+    // One step: a draw that fails leaves the old one open, as it was. The old
+    // one's answers are logged now, so a miss on it counts from today.
+    return db.transaction(() => {
+        if (open) {
+            if (answeredIn(open.id) > 0) finishSitting(open.id, { now: t });
+            else discardSitting(open.id);
+        }
+        return drawCourseMock(projectId, { size: LOOK_BACK_SIZE, minutes: null, now: t, lookBack: true });
+    })();
 }
 
 /** "Not now": the offer goes until the next one is due. */

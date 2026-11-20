@@ -168,7 +168,9 @@ try {
         // The topic's id rides along for the study clock (CourseMock.tsx claims
         // the time for the question's topic); its name, which could cue the
         // answer, does not.
-        check('no topic name is shown while it is open', qs.every(q => q.topic === undefined && q.title === undefined));
+        const topicNames = db.prepare('SELECT title FROM nodes WHERE id IN (?, ?, ?)').all(heat, waves, optics).map(r => r.title);
+        check('no topic name is shown while it is open', qs.every(q => !Object.values(q).some(v => typeof v === 'string' && topicNames.includes(v))),
+            JSON.stringify(topicNames));
         check('…the id is there for the clock, and only that', qs.every(q => Number.isInteger(q.nodeId)), JSON.stringify(qs.map(q => q.nodeId)));
 
         const big = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 40, minutes: null });

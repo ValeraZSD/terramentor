@@ -865,7 +865,8 @@ export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { 
           AND ${RECALL_TOPIC}
         ORDER BY slipped DESC, nm.last_updated ASC
         LIMIT ?
-    `).all(...slipParams(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1);
+    `).all(...slipParams(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1)
+        .map(r => ({ ...r, slipped: r.slipped === 1 }));
 }
 
 /**

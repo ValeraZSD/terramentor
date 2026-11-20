@@ -30,7 +30,8 @@
  *      two buttons and the stream renders it.
  *
  * --root runs the same cases against another checkout; on the code before the
- * look back existed every case fails.
+ * look back existed the gate fails (the cases that say what it does fail; a
+ * case that says what it does NOT do is paired with one that says it does).
  *
  * A scratch library, no model, no network. Every instant a case reads is
  * pinned relative to one start time; the answers logged by the question log
@@ -97,9 +98,10 @@ const call = (method, path, body) => new Promise((ok, no) => {
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
-// Noon UTC (the learner's day here: no time zone is set), twenty days ago. The
-// gate never reads the clock after this line: what the database stamps with its
-// own clock (the look back's question log) is re-stamped onto this timeline.
+// Noon UTC (the learner's day here: no time zone is set), twenty days ago. No
+// case reads the clock after this line except block 7, whose routes take the
+// server's own time: what the database stamps with its own clock (the look
+// back's question log, node_mastery) is re-stamped onto this timeline.
 const T0 = Math.floor((Date.now() - 20 * DAY) / DAY) * DAY + 12 * HOUR;
 const at = (d, h = 0) => new Date(T0 + d * DAY + h * HOUR);
 /** One millisecond before `date`: the edge of a rule that starts at `date`. */
@@ -435,7 +437,7 @@ try {
         check('its result shows no bar per topic', /result\.topics\.length > 0 && !detail\.paper\.lookBack/.test(result));
         check('its result shows no clock line', /!detail\.paper\.lookBack && <p[^>]*>\s*\{sitting\.timeAllowed > 0/.test(result));
         // A blank answer logs nothing, so only an answer given and wrong earns "comes back".
-        check('its "comes back" line counts only answers given wrong', /\{result\.total - result\.right - result\.notAnswered > 0 && \(/.test(result));
+        check('its "comes back" line counts only answers given wrong', /\{result\.review\.some\(r => r\.group === 'wrong' \|\| r\.group === 'wrong_later'\) && \(/.test(result));
     });
 } finally {
     server.close();
