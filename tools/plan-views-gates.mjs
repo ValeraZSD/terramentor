@@ -23,7 +23,8 @@
  *    /project/:id/timeline and /project/:id/calendar, with or without a topic,
  *    on that course's Dashboard;
  *  - on the Dashboard of a course that misses its date, the verdict is on
- *    screen once.
+ *    screen once: in the header on a wide screen, and on a phone (where the
+ *    header keeps only a dot on the plan button) in words under Next up.
  *
  * Each check also asserts what IS there, so a page that never drew passes
  * nothing. On the code before the change every check but those fails.
@@ -175,11 +176,33 @@ const states = {
     },
 };
 
-const scratch = mkdtempSync(join(tmpdir(), 'plan-views-gates-'));
-try {
-    await visit('fixture', scratch, [{ states: Object.keys(states) }], { width: 1280, height: 800, scale: 1 }, browserPath, async () => { }, prepare, states);
-} finally {
-    removeScratch(scratch);
+/** The verdict in words: the pill (`VerdictPill`), not the dot on the plan button. */
+const SHOWN_WORDS = `[...document.querySelectorAll('[data-verdict]')]
+    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim())
+    .map((e) => e.textContent.trim())`;
+
+const phone = {
+    async 'plan views on a phone'(page, { ids }) {
+        console.log('\non a phone, the Dashboard of a course that misses its date:');
+        // The header has no room for the sentence there and keeps only a dot on
+        // the plan button, so the Dashboard says it under Next up.
+        await page.go(`/project/${ids.project}/dashboard`, 'Next up');
+        await page.waitFor(`document.body.innerText.includes('Tools') && ${SHOWN_VERDICTS}.length > 0`, 'the Dashboard and its verdict');
+        await new Promise((r) => setTimeout(r, 1500));
+        const words = await page.evaluate(SHOWN_WORDS);
+        check('the verdict is said in words', words.length >= 1, JSON.stringify(words));
+        check('...once', words.length === 1, JSON.stringify(words));
+        check('...under Next up', await page.evaluate(`!!document.querySelector('[data-pace-here] [data-verdict]')`));
+    },
+};
+
+for (const [viewport, run] of [[{ width: 1280, height: 800, scale: 1 }, states], [{ width: 390, height: 844, scale: 1 }, phone]]) {
+    const scratch = mkdtempSync(join(tmpdir(), 'plan-views-gates-'));
+    try {
+        await visit('fixture', scratch, [{ states: Object.keys(run) }], viewport, browserPath, async () => { }, prepare, run);
+    } finally {
+        removeScratch(scratch);
+    }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

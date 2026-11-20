@@ -164,7 +164,10 @@ export default function Workspace() {
     const barRef = useRef<HTMLDivElement | null>(null);
     const scheduleBtnRef = useRef<HTMLButtonElement | null>(null);
     const paceGhostRef = useRef<HTMLDivElement | null>(null);
-    const [paceFull, setPaceFull] = useState(false);
+    // null until the row is first measured: the Dashboard says the verdict
+    // itself only once it is KNOWN not to fit here, so a wide screen never
+    // flashes a second copy while the header measures.
+    const [paceFull, setPaceFull] = useState<boolean | null>(null);
     // Where the pill does not fit, the verdict rides on the plan button.
     const dotVerdict = !paceFull && verdict && verdict.band !== 'no_date' ? verdict : null;
     const tabKeys = viewTabs.map(t => t.key).join();
@@ -301,7 +304,7 @@ export default function Workspace() {
                 </nav>
 
                 <div className="flex items-center gap-3 shrink-0">
-                    <PaceIndicator full={paceFull} />
+                    <PaceIndicator full={paceFull === true} />
 
                     <Button
                         ref={scheduleBtnRef}
@@ -357,7 +360,7 @@ export default function Workspace() {
 
                 {/* Center content based on view */}
                 <div className="flex-1 flex flex-col overflow-hidden bg-slate-100 dark:bg-slate-900 min-w-0">
-                    {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard />)}
+                    {workspaceView === 'dashboard' && (cardsOnly ? <DeckDashboard /> : <StudyDashboard paceInHeader={paceFull !== false} />)}
                     {workspaceView === 'tree' && <NodeTree />}
                     {workspaceView === 'vault' && <VaultProjectView />}
                     {workspaceView === 'exam' && currentProjectId != null && <MockExamView key={currentProjectId} projectId={currentProjectId} />}

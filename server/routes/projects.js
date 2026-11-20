@@ -6,7 +6,7 @@
 import db from '../database.js';
 import { clearProjectSetting } from '../projectSettings.js';
 import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
-import { daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
+import { clearStoredOpenDates, daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
 import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { sweepOrphanMedia } from '../ankiImport.js';
@@ -88,7 +88,7 @@ app.put('/api/projects/:id', (req, res) => {
     const updates = [];
     const values = [];
 
-    const before = db.prepare('SELECT name, description, content_language, deadline FROM projects WHERE id = ?').get(req.params.id);
+    const before = db.prepare('SELECT name, description, content_language, start_date, deadline FROM projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json({ error: 'Project not found' });
     const fieldError = projectFieldError({ name, description, color, icon, position });
     if (fieldError) return res.status(400).json({ error: fieldError });
@@ -177,6 +177,14 @@ app.put('/api/projects/:id', (req, res) => {
         if (updates.length) {
             db.prepare(`UPDATE projects SET ${[...updates, 'updated_at = CURRENT_TIMESTAMP'].join(', ')} WHERE id = ?`)
                 .run(...values, id);
+        }
+        // A window added, changed or removed: the dates an older build stored
+        // on open topics would read as overdue once no window derives them. An
+        // unchanged window resent (an empty one included) keeps them.
+        const asDate = (v) => v || null;
+        if (asDate(start_date !== undefined ? start_date : before.start_date) !== asDate(before.start_date)
+            || asDate(deadline !== undefined ? deadline : before.deadline) !== asDate(before.deadline)) {
+            clearStoredOpenDates(id);
         }
         let askModel = false;
         if (searchWords !== undefined) setSearchWords(id, searchWords);

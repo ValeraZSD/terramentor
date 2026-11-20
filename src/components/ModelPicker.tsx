@@ -13,7 +13,7 @@ import type { ModelSort } from '../utils/modelTiers';
 import { FIELD_BASE, FIELD_SIZE, FOCUS_RING, cx } from './ui/vocabulary';
 import { IconButton } from './ui/Button';
 import { Select } from './ui/Select';
-import { followVisualViewport, popoverBounds } from './ui/Popover';
+import { followVisualViewport, popoverBounds, FLOAT_LAYER } from './ui/Popover';
 
 interface Props {
     /** The chosen model id. `''` means "inherit", when `inherit` is given. */
@@ -205,7 +205,7 @@ export default function ModelPicker({
             const target = e.target as Node;
             if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
             // The sort dropdown's own list is portalled beside this one: a press in it is a press in the picker.
-            if ((target as Element).closest?.('[data-select-list], [data-bottom-sheet]')) return;
+            if ((target as Element).closest?.('[data-select-list]')) return;
             close(false);
         };
         document.addEventListener('mousedown', onDown);
@@ -302,7 +302,7 @@ export default function ModelPicker({
                         ...(rect.drop === 'down' ? { top: rect.top } : { bottom: window.innerHeight - rect.top }),
                         maxHeight: rect.max,
                     }}
-                    className="z-[70] flex flex-col overflow-hidden rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl"
+                    className={cx(FLOAT_LAYER, 'flex flex-col overflow-hidden rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 shadow-xl')}
                 >
                     <div className="flex items-center gap-2 p-2 border-b border-slate-200 dark:border-slate-700">
                         <div className="relative flex-1 min-w-0">

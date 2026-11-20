@@ -165,12 +165,22 @@ Allocation is **phase-aware**: a top-level phase gets a contiguous slice of the
 window, with a fallback path for a deadline too tight to fit them all.
 
 Initial scheduling and recalibration **share one engine** (`allocatePhaseAware` +
-`deriveParentDates` + `computeLeafWeight`). Recalibration simply runs it from
-today over the still-open leaves, preserving completed items' dates.
+`deriveParentDates` + `computeLeafWeight`). A course with a window stores no
+topic dates: `layTopicDates` derives them whenever they are read (the TEMP view
+`plan_nodes`, `server/topicDates.js`). A closed topic sits on the day it was
+completed, in the learner's zone; one with no completion time (skipped,
+imported) on the end date its row carries, else the day its row last changed.
+Open topics are laid by the engine from today to the deadline, so a missed week
+makes nothing overdue. Recalibrate and saving a window write no topic date;
+saving or changing a window clears the dates an older build stored on open
+topics.
 
 **Pace is schedule-aware, not calendar-linear.** `expectedProgress` is the share,
-counted in topics, of leaves whose `scheduled_end` is before today, not elapsed days
-over total days (and not their depth-discounted weight, which decides dates only).
+counted in topics, of leaves whose end date in the derived plan is before today,
+not elapsed days over total days (and not their depth-discounted weight, which
+decides dates only). In a course with a window only closed topics can be dated
+before today; whether the open work still fits is the pace verdict's question
+(`server/paceModel.js`).
 Actual progress is `projectProgress` from `server/progress.js`. With no leaf dated,
 it falls back to the elapsed share of the window.
 

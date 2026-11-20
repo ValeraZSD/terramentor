@@ -23,6 +23,7 @@ import { projectColourName } from './projectFields.js';
 import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { studyToday } from './studyDay.js';
+import { refreshTopicDates } from './topicDates.js';
 
 /** Open topics listed by title; the rest are counted. Enough for a course
  *  section or two, short enough that a small model reads all of it. */
@@ -115,9 +116,10 @@ export function projectStateText(projectId, { markers = true } = {}) {
     if (!p) return null;
     const today = studyToday();
 
+    refreshTopicDates({ today });
     const topics = db.prepare(`
         SELECT n.id, n.title, ${LEAF_STATUS} AS status, n.scheduled_end, nm.mastery_score AS mastery
-        FROM nodes n
+        FROM plan_nodes n
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         WHERE n.project_id = ? AND ${WORK_LEAF}
     `).all(p.id);

@@ -68,7 +68,8 @@ const captured = node(inbox, null, 'A pasted article');
 node(inbox, captured, 'Captured text', { note: true, description: 'Standing waves form when two waves of equal frequency travel in opposite directions.' });
 db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total) VALUES (?, 'quiz', 1, 1)").run(captured);
 db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('inbox_project_id', ?)").run(String(inbox));
-const course = project('Waves', "'2026-11-01', '2026-12-01'");
+// No window: a course with one derives its own topic dates (server/topicDates.js), so these stored overdue dates stand for a course without one.
+const course = project('Waves');
 for (let i = 0; i < 8; i++) node(course, null, 'Overdue topic ' + i, { start: '2026-11-02', end: '2026-11-05' });
 const deck = project('Kana');
 const card = node(deck, null, 'Hiragana');
