@@ -25,7 +25,7 @@ export default function NodeTree() {
     const createNode = useStore(s => s.createNode);
     const reorderNodes = useStore(s => s.reorderNodes);
     const moveNode = useStore(s => s.moveNode);
-    const setExpanded = useStore(s => s.setExpanded);
+    const openForNow = useStore(s => s.openForNow);
     const selectedNodeId = useStore(s => s.selectedNodeId);
     const currentProjectId = useStore(s => s.currentProjectId);
     const { isProjectGenerating, openGenerationModal } = useAICreationContext();
@@ -227,8 +227,8 @@ export default function NodeTree() {
         if (moveChangesPlace(useStore.getState().nodes, activeId, placed.parentId, placed.position)) {
             flashAfterDrop(`node:${activeId}`);
         }
-        // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip.
-        setExpanded(placed.parentId, true);
+        // Open the target before the write, so the row lands in sight rather than vanishing into a closed section for a round trip. For this visit only: the move is the choice, not the open.
+        openForNow(placed.parentId, activeId);
         await moveNode(activeId, placed.parentId, placed.position);
     };
 
@@ -295,7 +295,10 @@ export default function NodeTree() {
                     {/* Static strategy: cards don't reflow while dragging — a single
                         gutter bar on the side the card lands shows the drop, so nothing jumps. */}
                     <SortableContext items={ids} strategy={() => null}>
-                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]" data-card-grid="">
+                        {/* items-start: a grid row stretches every card to its
+                            tallest, so one open category gave each closed card
+                            beside it an empty panel the open card's height. */}
+                        <div className="grid gap-4 grid-cols-[repeat(auto-fill,minmax(17rem,1fr))] items-start" data-card-grid="">
                             {tree.map(node => (
                                 <CategoryCard
                                     key={node.id}

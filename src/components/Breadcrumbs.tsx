@@ -25,7 +25,7 @@ export default function Breadcrumbs() {
     const tree = useStore(s => s.tree);
     const selectedNodeId = useStore(s => s.selectedNodeId);
     const selectNode = useStore(s => s.selectNode);
-    const setExpanded = useStore(s => s.setExpanded);
+    const revealNode = useStore(s => s.revealNode);
 
     if (!selectedNodeId) return null;
 
@@ -34,10 +34,10 @@ export default function Breadcrumbs() {
     if (path.length === 0) return null;
 
     const handleClick = (nodeId: number) => {
-        // Open every ancestor, so the tree shows where you have just gone.
-        fullPath.forEach(node => {
-            if (node.id !== nodeId) setExpanded(node.id, true);
-        });
+        // Open the path down to the topic you came from, so the tree shows
+        // where you have just gone. For this visit only, as any reveal: the
+        // learner did not choose to keep these branches open.
+        revealNode(selectedNodeId);
         selectNode(nodeId);
     };
 

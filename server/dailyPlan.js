@@ -6,6 +6,7 @@ import { reviewDue } from './decks.js';
 import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { studyToday } from './studyDay.js';
+import { refreshTopicDates } from './topicDates.js';
 
 /**
  * Generate a daily study plan for a project.
@@ -25,9 +26,10 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
 
     // 1. Get overdue tasks (scheduled end < today, not completed)
     const gate = getGateConfig();
+    refreshTopicDates({ today });
     const overdueTasks = db.prepare(`
         SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
           AND n.status NOT IN ('completed', 'skipped')
@@ -41,7 +43,7 @@ export function generateDailyPlan(projectId, decayDays = 14, today = studyToday(
     // 2. Get today's scheduled tasks
     const todayTasks = db.prepare(`
         SELECT n.id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ?
           AND ${WORK_LEAF}
           AND n.status NOT IN ('completed', 'skipped')

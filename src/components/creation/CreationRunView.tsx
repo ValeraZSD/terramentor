@@ -189,7 +189,7 @@ export default function CreationRunView() {
         <Modal isOpen={!!viewing} onClose={closeCreationView} closeButton={!footCloses} title={run.name} {...COURSE_DIALOG_SIZE} fill>
             <div className="shrink-0 space-y-3 border-b border-slate-200 px-6 pb-3 pt-4 dark:border-slate-700">
                 <RunStatus run={run} />
-                <SegmentedControl<View> label={t("Show")} size="sm" value={view} options={views} onChange={setPicked} />
+                <SegmentedControl<View> label={t("Show")} size="sm" block="narrow" value={view} options={views} onChange={setPicked} />
             </div>
 
             <ScrollShade

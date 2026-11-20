@@ -7,6 +7,7 @@ import { canProve, isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
 import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
+import { refreshTopicDates } from './topicDates.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -198,9 +199,10 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
         ORDER BY position ASC, created_at ASC
     `).all();
 
+    refreshTopicDates({ today });
     const overdueRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_end < ?
@@ -209,7 +211,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
 
     const todayRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_start <= ?
@@ -658,11 +660,12 @@ export function buildTodayActivity(date) {
  * `not_started` into `in_progress`, so it decides nothing here.
  */
 export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
+    refreshTopicDates({ today });
     const tasks = db.prepare(`
         SELECT n.id AS nodeId, n.project_id AS projectId, n.title,
                ${LEAF_STATUS} AS status,
                n.scheduled_start, n.scheduled_end
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${WORK_LEAF}
           AND n.scheduled_start IS NOT NULL

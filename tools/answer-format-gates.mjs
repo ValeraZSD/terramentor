@@ -1159,7 +1159,24 @@ section('assemble: a half-built answer still reads as the sentence it builds');
 // a laptop, 350px on a phone, 280px at 320px wide; "−120" paints ~45px, the
 // widest formula ~150px, a sentence option ~520px.
 {
-    const { choiceColumns } = await import(pathToFileURL(await bundleClient('src/components/answer/choiceLayout.ts')).href);
+    const { choiceColumns, sequenceAsTiles } = await import(pathToFileURL(await bundleClient('src/components/answer/choiceLayout.ts')).href);
+    // An ordering of short parts reads as one line of tiles (with a mouse); a
+    // procedure's steps stay a list. One long item keeps the whole list.
+    const tileCases = [
+        ['a sentence\'s parts are tiles', ['Gisteren', 'is', 'mijn zus', 'uit Spanje', 'teruggekomen'], true],
+        ['years are tiles', ['1914', '1939', '1945', '1989'], true],
+        ['a formula counts what it paints, not its source', ['$\\frac{a}{b}$', '$x^2$', '$\\sqrt{2}$'], true],
+        ['a procedure\'s steps stay a list', ['Mix the flour, milk and eggs into a batter', 'Let the batter rest', 'Bake both sides'], false],
+        ['one long item keeps the whole list', ['Gisteren', 'is', 'mijn zus', 'uit Spanje en Portugal terug'], false],
+        ['exactly the limit (20) is a tile', ['a'.repeat(20), 'b'], true],
+        ['one over the limit is not', ['a'.repeat(21), 'b'], false],
+        ['nothing to order: no tiles', [], false],
+    ];
+    for (const [name, items, want] of tileCases) {
+        check(`sequence layout — ${name}`, sequenceAsTiles(items) === want, `got ${sequenceAsTiles(items)}, want ${want}`);
+    }
+    const sequence = readFileSync(new URL('../src/components/answer/SequenceInput.tsx', import.meta.url), 'utf8');
+    check('sequence tiles only with a mouse: a phone keeps the up/down list', /\btiles\s*=\s*useCanHover\(\)\s*&&\s*sequenceAsTiles\(/.test(sequence));
     const ROOT = 16;
     const cases = [
         ['four short numbers on a laptop: one row', 4, 45, 632, 4],
@@ -1300,6 +1317,106 @@ section('ChoiceInput lays out from measured widths');
         check('mounted hidden, then shown: measured again and laid out', before !== '4' && after === '4', `before ${before}, after ${after}`);
         m.unmount(); el.remove();
     }
+    try { rmSync(outDir, { recursive: true, force: true }); } catch { /* swept later */ }
+}
+
+// The real SequenceInput, mounted with React in jsdom with a mouse
+// (`matchMedia` says hover + fine pointer), then without one. A drag needs
+// layout jsdom does not have (its preview, single commit and Escape are
+// checked in a browser); the click path does not: a tile clicked, then
+// another, moves once and says so in one `onChange`; Check drops a half-made
+// pick, so Undo does not bring it back; without a mouse it stays a list.
+section('SequenceInput tiles move by click, once');
+{
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+    for (const k of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'Text', 'MutationObserver', 'Event']) {
+        try { globalThis[k] = dom.window[k]; } catch { /* read-only in this Node */ }
+    }
+    globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    let pointerFine = true;
+    dom.window.matchMedia = (query) => ({ matches: pointerFine, media: query, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    mkdirSync(join(repoRoot, 'node_modules', '.cache'), { recursive: true });
+    const outDir = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'sequence-input-'));
+    const out = join(outDir, 'sequence.cjs');
+    await esbuild.build({
+        stdin: {
+            contents: `import React, { createElement as h } from 'react';
+                import { createRoot } from 'react-dom/client';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import SequenceInput from './src/components/answer/SequenceInput.tsx';
+                export async function boot() { await i18n.use(initReactI18next).init({ lng: 'en', resources: {}, returnEmptyString: false }); }
+                export function mount(el, props) {
+                    const r = createRoot(el);
+                    React.act(() => r.render(h(SequenceInput, props)));
+                    return { update: (p) => React.act(() => r.render(h(SequenceInput, p))), unmount: () => React.act(() => r.unmount()) };
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repoRoot, loader: 'js',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: out, jsx: 'automatic', logLevel: 'silent',
+        loader: { '.css': 'empty' },
+        plugins: [{
+            name: 'sequence-under-test',
+            setup(b) {
+                b.onResolve({ filter: /^\.\.\/MathText$/ }, () => ({ path: 'mathtext', namespace: 'stub-math' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-math' }, () => ({ contents: "import { createElement } from 'react'; export default function MathText({ content }) { return createElement('span', null, content); }", loader: 'js', resolveDir: repoRoot }));
+                b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub-store' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({ contents: "const state = { a11y: { confirmAnswers: false } }; export const useStore = (sel) => sel(state);", loader: 'js' }));
+            },
+        }],
+    });
+    const { boot, mount, act } = createRequire(import.meta.url)(out);
+    await boot();
+    const doc = dom.window.document;
+    const ITEMS = ['mijn zus', 'teruggekomen', 'Gisteren', 'uit Spanje', 'is'];
+    const question = { type: 'sequence', question: 'Q', items: ITEMS, correct_answer: JSON.stringify(['Gisteren', 'is', 'mijn zus', 'uit Spanje', 'teruggekomen']), explanation: '' };
+    const sent = [];
+    let props = { question, value: '', disabled: false, result: null, onChange: (v) => { sent.push(v); props = { ...props, value: v }; } };
+    const el = doc.createElement('div'); doc.body.appendChild(el);
+    const m = mount(el, props);
+    const tiles = () => [...el.querySelectorAll('[data-order-tile]')];
+    const tileOf = (text) => tiles().find(t => t.textContent === text);
+    const click = (node) => act(() => node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+    const words = () => [...el.querySelectorAll('ol > li')].map(li => li.textContent.replace(/^\d+/, ''));
+
+    check('short items with a mouse: one tile button per item, no up/down buttons', tiles().length === 5 && !el.querySelector('[data-drag-handle]'),
+        `${tiles().length} tiles, ${el.querySelectorAll('[data-drag-handle]').length} handles`);
+    click(tileOf('Gisteren'));
+    check('a clicked tile is picked (aria-pressed) and nothing moved yet', tileOf('Gisteren').getAttribute('aria-pressed') === 'true' && sent.length === 0,
+        `pressed ${tileOf('Gisteren').getAttribute('aria-pressed')}, ${sent.length} changes`);
+    click(tileOf('mijn zus'));
+    m.update(props);
+    check('then another tile: it takes that place, in one change', sent.length === 1 && JSON.stringify(words()) === JSON.stringify(['Gisteren', 'mijn zus', 'teruggekomen', 'uit Spanje', 'is']),
+        `${sent.length} changes, order ${JSON.stringify(words())}`);
+    check('after the move nothing stays picked', tiles().every(t => t.getAttribute('aria-pressed') === 'false'));
+    click(tileOf('is')); click(tileOf('is'));
+    check('a picked tile clicked again is put down, unmoved', sent.length === 1 && tiles().every(t => t.getAttribute('aria-pressed') === 'false'));
+
+    click(tileOf('uit Spanje'));
+    props = { ...props, result: { correct: false, answer: props.value } };
+    m.update(props);
+    check('checked: tiles locked, no buttons left', tiles().length === 0 && el.querySelectorAll('ol > li').length === 5);
+    props = { ...props, result: null };
+    m.update(props);
+    check('a pick made before Check does not come back after Undo', tiles().length === 5 && tiles().every(t => t.getAttribute('aria-pressed') === 'false'),
+        JSON.stringify(tiles().map(t => [t.textContent, t.getAttribute('aria-pressed')])));
+
+    const steps = { ...question, items: ['Mix the flour, milk and eggs into a smooth batter', 'Heat a knob of butter', 'Bake'] };
+    m.update({ ...props, question: steps, value: '' });
+    check('one long item: the whole ordering stays a list with handles', tiles().length === 0 && el.querySelectorAll('[data-drag-handle]').length === 3);
+    m.unmount(); el.remove();
+
+    // No mouse (a phone): the same short parts stay a list with up/down.
+    pointerFine = false;
+    const phone = doc.createElement('div'); doc.body.appendChild(phone);
+    const p = mount(phone, { ...props, question, value: '', result: null });
+    check('no mouse: short parts stay the list, a handle and up/down per row', phone.querySelectorAll('[data-order-tile]').length === 0
+        && phone.querySelectorAll('[data-drag-handle]').length === 5 && phone.querySelectorAll('button[aria-label="Move up"]').length === 5,
+        `${phone.querySelectorAll('[data-order-tile]').length} tiles, ${phone.querySelectorAll('[data-drag-handle]').length} handles`);
+    p.unmount(); phone.remove();
     try { rmSync(outDir, { recursive: true, force: true }); } catch { /* swept later */ }
 }
 

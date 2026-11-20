@@ -44,15 +44,16 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
     // Ids only where something points at them.
     const statusId = studies ? `${uid}s` : undefined;
     const detailId = studies ? `${uid}d` : undefined;
+    const headStartId = studies && topic.transferred ? `${uid}h` : undefined;
     return (
         <button
             data-row
             onClick={onOpen}
             // A "Study next" row is named "Study <topic>" from a hidden phrase
             // in its own text, not an aria-label, which would hide the line
-            // under the title from the name (label in name). The status and
-            // that line are read as its description.
-            aria-describedby={studies ? `${statusId} ${detailId}` : undefined}
+            // under the title from the name (label in name). The status, the
+            // head-start note and that line are read as its description.
+            aria-describedby={studies ? [statusId, headStartId, detailId].filter(Boolean).join(' ') : undefined}
             className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-left can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
             <span
@@ -67,7 +68,7 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
                     {topic.transferred && (
                         <>
                             <History className="inline w-3 h-3 ml-1 -mt-0.5 text-accent-fg" aria-hidden="true" />
-                            <span className="sr-only">{tr("started with a head start from another project")}</span>
+                            <span id={headStartId} className="sr-only">{tr("started with a head start from another project")}</span>
                         </>
                     )}
                 </span>
