@@ -160,7 +160,7 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
      *  filtered to what a course is read from. Callers copy a FileList into an
      *  array BEFORE this runs: a FileList is live, and clearing the input
      *  below empties it. */
-    const take = (loose: File[], inFolder: File[] | null = null) => {
+    const take = (loose: File[], inFolder: File[] | null = null, replace: string | null = null) => {
         for (const input of [inputRef.current, folderRef.current]) if (input) input.value = '';
         let fromFolder: File[] = [];
         if (inFolder) {
@@ -178,8 +178,7 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
             }
         }
         const picked = [...loose, ...fromFolder];
-        if (picked.length && replacing.current) onRemove(replacing.current);
-        replacing.current = null;
+        if (picked.length && replace) onRemove(replace);
         if (picked.length) onAdd(picked);
     };
 
@@ -195,8 +194,8 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
 
     const typed = !!text.trim();
     // Each open says what the picked files replace: a picker closed with
-    // nothing picked fires no change, so a stale entry would drop the next
-    // Add files' failed link.
+    // nothing picked fires no change, so a stale entry would drop a failed
+    // link on the next Add files.
     const chooseFiles = (replace: string | null = null) => { replacing.current = replace; inputRef.current?.click(); };
     const chooseFolder = () => { replacing.current = null; folderRef.current?.click(); };
     // A folder where the browser can open one. A phone's picker cannot (and
@@ -305,7 +304,13 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                     />)}
                 </ul>
             )}
-            <input ref={inputRef} type="file" multiple className="hidden" onChange={e => take(Array.from(e.target.files ?? []))} />
+            <input ref={inputRef} type="file" multiple className="hidden" onChange={e => {
+                // Only the picker a failed row's "Choose a file" opened replaces
+                // that row; a drop or a paste never does.
+                const replace = replacing.current;
+                replacing.current = null;
+                take(Array.from(e.target.files ?? []), null, replace);
+            }} />
             {canFolder && (
                 <input
                     ref={folderRef}
