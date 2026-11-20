@@ -140,6 +140,8 @@ const SHOWN_WORDS = `${SHOWN_MARKS}.filter((e) => e.textContent.trim()).map((e) 
     const where = e.closest('[data-pace-here]') ? 'under Next up' : header?.contains(e) ? 'header' : 'elsewhere';
     return \`\${where}: \${e.textContent.trim()}\`;
 })`;
+/** Shown marks with no words: the dot on the plan button, which stands in for the pill. */
+const SHOWN_DOTS = `${SHOWN_MARKS}.filter((e) => !e.textContent.trim()).length`;
 
 const states = {
     async 'plan views'(page, { ids }) {
@@ -169,6 +171,8 @@ const states = {
         check('the verdict is said in words', shown.length >= 1, JSON.stringify(shown));
         check('...once', shown.length === 1, JSON.stringify(shown));
         check('...in the course header', shown.length === 1 && shown[0].startsWith('header: '), JSON.stringify(shown));
+        const wideDots = await page.evaluate(SHOWN_DOTS);
+        check('...with no dot beside it', wideDots === 0, `${wideDots} dot(s)`);
 
         console.log('\nold addresses:');
         const OLD = [
@@ -209,6 +213,8 @@ const phone = {
         check('the verdict is said in words', words.length >= 1, JSON.stringify(words));
         check('...once', words.length === 1, JSON.stringify(words));
         check('...under Next up', words.length === 1 && words[0].startsWith('under Next up: '), JSON.stringify(words));
+        const phoneDots = await page.evaluate(SHOWN_DOTS);
+        check('...and the plan button carries the dot', phoneDots === 1, `${phoneDots} dot(s)`);
     },
 };
 
