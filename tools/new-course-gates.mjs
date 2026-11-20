@@ -485,6 +485,11 @@ try {
     await settle();
     ok('a link that cannot be read says it will be left out', /It will be left out\./.test(all().textContent), all().textContent.slice(0, 600));
     for (const b of buttons().filter(b => /^Remove .*(example\.org|wikipedia)/.test(b.getAttribute('aria-label') || ''))) await click(b);
+    const quoted = await paste(linkField(), '«https://example.org/guillemets» “https://example.org/curly”');
+    ok('links in « » or curly quotes are read without them', quoted.defaultPrevented && reads.map(x => x.body.url).join(' ') === 'https://example.org/guillemets https://example.org/curly', reads.map(x => x.body.url));
+    for (const x of reads.splice(0)) await act(async () => { x.answer({ ok: false, reason: 'not_found', fix: null, url: x.body.url, host: 'example.org' }); });
+    await settle();
+    for (const b of buttons().filter(b => /^Remove .*example\.org/.test(b.getAttribute('aria-label') || ''))) await click(b);
 
     // A pasted link is read at once.
     await paste(linkField(), LINK);
@@ -508,6 +513,7 @@ try {
     await act(async () => { deadRead?.answer({ ok: false, reason: 'token_wall', fix: 'transcript', title: 'A video with no captions', url: DEAD, host: 'youtube.com' }); });
     await settle();
     ok('a link that could not be read offers to paste its transcript', !!buttonNamed('Paste the transcript'), all().textContent.slice(0, 600));
+    ok('a link with a fix says it is left out unless it is fixed', /Left out unless it is fixed\./.test(all().textContent), all().textContent.slice(0, 600));
     if (buttonNamed('Paste the transcript')) await press('Paste the transcript');
     const box = all().querySelector('textarea[aria-label="The video\'s transcript"]');
     ok('the transcript box opens in the row', !!box);
@@ -546,10 +552,27 @@ try {
     await act(async () => { reads[0].answer({ ok: false, reason: 'not_found', fix: null, url: many[0], host: 'example.org' }); });
     await settle();
     ok('one read done, the next starts', reads.length === 5 && reads[4].body.url === many[4], reads.map(x => x.body.url));
+    await act(async () => { reads[1].answer({ ok: false, reason: 'not_found', fix: 'retry', url: many[1], host: 'example.org' }); });
+    await settle();
+    ok('the sixth link takes the freed lane', reads.length === 6 && reads[5].body.url === many[5], reads.map(x => x.body.url));
+    // One queue for the whole window: a second paste and a Try again wait
+    // for the same four lanes, in the order they were asked.
+    const extra = ['https://example.org/extra-1', 'https://example.org/extra-2'];
+    await paste(linkField(), extra.join(' '));
+    ok('a second paste waits for the same four lanes', reads.length === 6, reads.map(x => x.body.url));
+    if (buttonNamed('Try again')) await press('Try again');
+    ok('Try again waits its turn too', reads.length === 6 && !buttonNamed('Try again'), reads.map(x => x.body.url));
+    for (const i of [2, 3, 4]) {
+        await act(async () => { reads[i].answer({ ok: false, reason: 'not_found', fix: null, url: reads[i].body.url, host: 'example.org' }); });
+        await settle();
+    }
+    ok('each freed lane takes the next ask in order: the paste, then the retry', reads.length === 9 && reads.slice(6).map(x => x.body.url).join(' ') === [...extra, many[1]].join(' '), reads.map(x => x.body.url));
     const toastsBefore = useStore.getState().toasts.length;
     await paste(linkField(), Array.from({ length: 100 }, (_, i) => `https://example.org/more-${i}`).join(' '));
     const toast = useStore.getState().toasts.slice(toastsBefore).find(x => /links were left out/.test(x.message));
-    ok('links over the 100 a course takes are left out, and it says so', !!toast && all().querySelectorAll('li').length === 100, [toast?.message, all().querySelectorAll('li').length]);
+    const rows = () => all().querySelectorAll('[data-material] ul > li').length;
+    ok('links over the 100 a course takes are left out, and it says so', !!toast && rows() === 100, [toast?.message, rows()]);
+    ok('a hundred links still go four at a time', reads.length === 9, reads.length);
 } catch (e) {
     ok('the window\'s cases ran to their end', false, e.stack || e.message);
 }

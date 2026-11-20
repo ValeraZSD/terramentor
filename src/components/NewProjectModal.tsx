@@ -51,8 +51,10 @@ import type { StagedDocument } from '../types';
  *  files and 256 MB per request, with room to spare. */
 const STAGE_BATCH_FILES = 20;
 const STAGE_BATCH_BYTES = 200 * 1024 * 1024;
-/** Links read at once; the rest wait their turn (see `addLinks`). */
+/** Links read at once in one window; the rest wait their turn (see `pumpReads`). */
 const LINK_READS_AT_ONCE = 4;
+/** What one link read sends: the link, or a transcript pasted for it. */
+type ReadBody = { url?: string; transcript?: string; title?: string };
 /** The form's own width at which the foot is one row: its sentence, then the
  *  import button, then Create (the sentence may wrap to two lines there). */
 const ONE_ROW_FOOT_REM = 38;
@@ -157,7 +159,14 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     // The links being read, by row: removing a row, or closing the window,
     // stops its read, and a read that ends after that lets its source go.
     const readers = useRef(new Map<string, AbortController>());
+    // Links waiting for a read lane (see `queueRead`).
+    const readQueue = useRef<{ key: string; body: ReadBody }[]>([]);
+    const lanesBusy = useRef(0);
+    // Row keys: a count, so two adds in one millisecond never share one. A
+    // draft's rows are `draft-<n>` and cannot meet these.
+    const rowCount = useRef(0);
     release.current = () => {
+        readQueue.current = [];
         for (const ac of readers.current.values()) ac.abort();
         for (const f of filesRef.current) if (f.doc?.ok) void api.discardStagedDocument(f.doc.id).catch(() => { });
     };
@@ -203,9 +212,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     }, [t]);
 
     const addFiles = useCallback((picked: File[]) => {
-        const stamp = Date.now().toString(36);
-        const entries: SourceFile[] = picked.map((f, i) => ({
-            key: `${stamp}-${i}-${f.name}`, name: f.name, size: f.size,
+        const entries: SourceFile[] = picked.map((f) => ({
+            key: `src-${++rowCount.current}`, name: f.name, size: f.size,
             status: f.size > MAX_FILE_BYTES ? 'done' : 'reading',
             error: f.size > MAX_FILE_BYTES ? t("Over the 25 MB limit for one file.") : undefined,
         }));
@@ -232,7 +240,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     // Read one link (or a transcript pasted for it) into its row, by its own
     // request. A window closed or a row removed while it read is cleared up by
     // the server, which drops what it staged for a request nobody waits for.
-    const readInto = useCallback((key: string, body: { url?: string; transcript?: string; title?: string }): Promise<void> => {
+    const readInto = useCallback((key: string, body: ReadBody): Promise<void> => {
         readers.current.get(key)?.abort();
         const ac = new AbortController();
         readers.current.set(key, ac);
@@ -256,9 +264,30 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
         });
     }, [t]);
 
+    // Every link read waits here for one of LINK_READS_AT_ONCE lanes shared by
+    // the whole window: pastes, Retry and pasted transcripts alike. Each
+    // read's timeout starts when it is sent, and a browser sends only about
+    // six at once to one server, so forty links sent together would time out
+    // waiting their turn. A row removed or a window closed before its turn is
+    // not read.
+    const pumpReads = useCallback(() => {
+        while (lanesBusy.current < LINK_READS_AT_ONCE) {
+            const job = readQueue.current.shift();
+            if (!job) return;
+            if (!mounted.current || !filesRef.current.some(f => f.key === job.key)) continue;
+            lanesBusy.current++;
+            void readInto(job.key, job.body).finally(() => { lanesBusy.current--; pumpReads(); });
+        }
+    }, [readInto]);
+    const queueRead = useCallback((key: string, body: ReadBody) => {
+        // A row asked again (Retry, then a transcript) keeps only its latest ask.
+        readQueue.current = [...readQueue.current.filter(j => j.key !== key), { key, body }];
+        setFiles(prev => prev.map(f => (f.key === key ? { ...f, status: 'reading', fail: undefined, error: undefined } : f)));
+        pumpReads();
+    }, [pumpReads]);
+
     const addToast = useStore(s => s.addToast);
     const addLinks = useCallback((urls: string[]) => {
-        const stamp = Date.now().toString(36);
         // A link already in the list is not read twice.
         const have = new Set(filesRef.current.map(f => f.url).filter(Boolean));
         const wanted = urls.filter(u => !have.has(u));
@@ -266,33 +295,23 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
         if (fresh.length < wanted.length) {
             addToast('info', t("Some links were left out"), t("A course is made from at most 100 links and files."));
         }
-        const entries: SourceFile[] = fresh.map((url, i) => ({ key: `${stamp}-l${i}`, name: hostOf(url), size: 0, status: 'reading', url }));
+        const entries: SourceFile[] = fresh.map((url) => ({ key: `src-${++rowCount.current}`, name: hostOf(url), size: 0, status: 'reading', url }));
         // Now, not at the next render: a second paste in the same tick counts these.
         filesRef.current = [...filesRef.current, ...entries];
         setFiles(prev => [...prev, ...entries]);
-        // A few at a time: each read's timeout starts when it is sent, and a
-        // browser sends only about six at once to one server, so forty links
-        // sent together would time out waiting their turn. A row removed or a
-        // window closed before its turn is not read.
-        const queue = [...entries];
-        const next = (): Promise<void> => {
-            const e = queue.shift();
-            if (!e) return Promise.resolve();
-            if (!mounted.current || !filesRef.current.some(f => f.key === e.key)) return next();
-            return readInto(e.key, { url: e.url }).then(next);
-        };
-        for (let i = 0; i < LINK_READS_AT_ONCE; i++) void next();
-    }, [readInto, addToast, t]);
+        readQueue.current = [...readQueue.current, ...entries.map(e => ({ key: e.key, body: { url: e.url } }))];
+        pumpReads();
+    }, [pumpReads, addToast, t]);
 
     const linkFixes = {
         onRetry: (key: string) => {
             const f = filesRef.current.find(x => x.key === key);
-            if (f?.url) readInto(key, { url: f.url });
+            if (f?.url) queueRead(key, { url: f.url });
         },
         onTranscript: (key: string, transcript: string) => {
             const f = filesRef.current.find(x => x.key === key);
             if (!f) return;
-            readInto(key, { transcript, title: f.fail?.title || undefined, url: f.fail?.url || f.url || undefined });
+            queueRead(key, { transcript, title: f.fail?.title || undefined, url: f.fail?.url || f.url || undefined });
         },
         // A video with nothing to read: the course is written from its title.
         onUseTitle: (key: string) => {
