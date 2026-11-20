@@ -149,9 +149,8 @@ const MARKERS = [
  */
 const LEGACY = [
     { file: 'src/components/settings/AppearanceControls.tsx', attr: 'onClick', has: 'setTheme(id)', why: 'a theme preview card — the swatch IS the control' },
-    // The New course dialog's drop zone and the vault's: a dashed target two
-    // lines tall that takes a drag as well as a press.
-    { file: 'src/components/creation/SourceFiles.tsx', attr: 'onClick', has: 'chooseFiles', why: 'the course-material drop row — a dashed drop target sized by its line of text' },
+    // The vault's drop zone: a dashed target two lines tall that takes a drag
+    // as well as a press.
     { file: 'src/components/VaultPanel.tsx', attr: 'onDragOver', has: 'setDragOver(true)', why: 'a file drop target — a dashed panel sized by its two lines of text' },
     // The atlas's lists and its control cluster: a row's height is the title in
     // it, and the map's cluster is one hairline-divided panel of 44px cells.
