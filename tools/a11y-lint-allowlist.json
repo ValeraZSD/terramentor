@@ -130,9 +130,6 @@
     "src/components/settings/VisualKindsPanel.tsx": {
       "jsx-a11y/role-has-required-aria-props": 1
     },
-    "src/components/shortCourses/ShortCourses.tsx": {
-      "jsx-a11y/no-autofocus": 1
-    },
     "src/components/Sidebar.tsx": {
       "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/no-noninteractive-tabindex": 1,
