@@ -22,7 +22,7 @@ import { setUiLanguage as applyUiLanguage, resolveLanguagePreference } from './i
 import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
-import { taskPlace } from './utils/taskPlace';
+import { taskPlace, placeRoute } from './utils/taskPlace';
 import { setSingleKeyShortcuts } from './utils/escapeKey';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import { loadedRunner } from './runner/load';
@@ -2904,17 +2904,16 @@ export const useStore = create<AppState>((set, get) => ({
         if (!place) return false;
         const nav = get()._navigate;
         switch (place.go) {
+            // One copy of each page's address: the record's "already here"
+            // check reads the same placeRoute(), so the two cannot drift.
             case 'node':
-                get().openProjectNode(place.projectId!, place.nodeId!);
-                return true;
             case 'project':
-                if (!nav) return false;
-                nav(`/project/${place.projectId}/dashboard`);
+            case 'route': {
+                const route = placeRoute(place);
+                if (!nav || !route) return false;
+                nav(route);
                 return true;
-            case 'route':
-                if (!nav) return false;
-                nav(place.route!);
-                return true;
+            }
             // The planner's own surface is a DRAWER over whatever is on
             // screen, so reaching it must not navigate: sending the reader to
             // '/' would take them off their page and still not open the drawer,
