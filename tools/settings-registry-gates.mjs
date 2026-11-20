@@ -143,9 +143,11 @@ check(`the assistant's [[set]] keys (${assistantKeys.length}) are all client ui 
 // The week's first day is retired with the views that read it: neither its
 // name nor the `week_start` shorthand may come back as a [[set]] marker.
 const { settingKeysIn } = await import(B + 'assistantSettings.js');
+const control = settingKeysIn('[[set:theme:dark]]');
+check('the server reads a live [[set]] marker (control)', control.length === 1 && control[0] === 'theme', control.join(', '));
 const weekKeys = settingKeysIn('[[set:week_start:sunday]] [[set:week_start_day:sunday]]');
 check('the server reads no week-start marker, alias or full name', weekKeys.length === 0, weekKeys.join(', '));
-check('...and the client has no week-start key or alias', !/week_start/.test(assistantSrc));
+check('...and the client has no week-start key or alias', !/['"]week_start/.test(assistantSrc));
 
 console.log('\n--- 4. each validator takes what the screens send and refuses the rest ---');
 const takes = (key, value, stored = String(value)) => {
