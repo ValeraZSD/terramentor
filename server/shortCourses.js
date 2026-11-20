@@ -1,24 +1,25 @@
-// server/shortCourses.js — a small course of its own from ONE source.
+// server/shortCourses.js — a small course: one level of 3–8 topics.
 //
-// A learner who pastes a link (a web page, a PDF, a YouTube video) or drops a
-// file on Projects wants to learn what that one thing teaches, now, without
-// planning a course: one level of 3–8 topics, sized by the source, each topic
-// taught from the source's own part of it (`node_sources`), no dates, and a
-// standing place in the feed (feed.js `isStanding`).
+// The New course window has one Create form, and its material is any mix of
+// files and links (a web page, a PDF, a YouTube video). When the run judges
+// the input small (courseShape.js), the course is short: one level of 3–8
+// topics, sized by the material, each topic taught from its own part of it
+// (`node_sources`), no dates, and a standing place in the feed (feed.js
+// `isStanding`). The assistant's short-course cards create one directly.
 //
-// A source is READ first (`readSource`), at the press of Read, and staged
-// like a file dropped into the New course dialog (stagedDocuments.js): the
-// learner sees its title and size before anything is made, and a source that
-// cannot be read says why and what to do next (linkReader.js READ_REASONS).
-// A title alone is never a source. The one exception is "Write it from the
-// title", which the learner presses on a video that has no captions, and the
-// course it makes names no video anywhere: it was not built from one.
+// A link is READ first (`readSource`), when it is pasted, dropped or added in
+// the window, and staged like a file (stagedDocuments.js): the learner sees
+// its title and size before anything is made, and a link that cannot be read
+// says why and what to do next (linkReader.js READ_REASONS). A title alone is
+// never a source. The one exception is "Use its title as the name", offered
+// on a video with no captions: the course it makes names no video anywhere,
+// since it was not built from one.
 //
-// Creating is ONE model call (`AI_PROMPTS.short_course`) with the source
-// itself inside the SOURCES boundary (sourceMaterial.js `shortBlock`), run as
-// a background task so the strip shows it being written and the dock can
-// cancel it. `projects.made_from` says where a course came from and marks it
-// as short; it stays on the strip until it grows a phase.
+// Writing one is ONE model call (`AI_PROMPTS.short_course`) with the material
+// inside the SOURCES boundary (sourceMaterial.js `shortBlock`), inside the
+// creation run (`writeShortCourseNow`). `projects.made_from` says where a
+// course came from and marks it as short; it stays listed among short
+// courses until it grows a phase.
 
 import db from './database.js';
 import { AI_PROMPTS, aiProvenance, getAISettings } from './ai.js';

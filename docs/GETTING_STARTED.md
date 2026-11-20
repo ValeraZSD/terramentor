@@ -85,14 +85,18 @@ Inside, topics form a tree. Two rules are worth knowing:
    examples) and still be a leaf. Notes are never scheduled and have no status of their own: they
    are what the topic is *made of*.
 
-**New Project** asks for a name, what you want to learn, and optionally a book or your notes.
-The model drafts the whole curriculum; with files, the course follows their chapters and each
+**New Project** first asks whether to create a course or import one. **Create a course** asks for
+a name, what you want to learn, and optionally its material: any number of files and links (a web
+page, a PDF, a YouTube video), mixed. You never pick a size: the model judges it from the name,
+the goal and the material. A small source with a plain goal becomes a short course of a few
+topics with no dates; anything bigger, and any material over about 40,000 words, becomes a full
+course in phases. For a full course the model drafts the whole curriculum; with files, the course follows their chapters and each
 lesson draws first on the pages its topic came from. Lessons are written in your language unless
 you pick another, and a course that teaches a language is explained in yours. The draft runs in the
 background: its screen shows each stage and the time left, closing it does not stop it, and the
 task bar at the bottom of every page shows how far it has got. Up to three drafts run at once on a
 hosted model; on a model running on your own computer the next one waits its turn. A course file
-(`.studyvault` or JSON) or an Anki deck can be imported from the same dialog.
+(`.studyvault` or JSON) or an Anki deck is opened with **Import a course**, the dialog's other first choice.
 
 ## Scheduling and pace
 
@@ -155,9 +159,10 @@ Three ways to bring things in and out:
 - **The Vault**: upload PDFs, notes and documents to a project. They are indexed and searched when
   the AI answers questions about that project, so the assistant and the lessons work from *your* material, not only
   its own knowledge.
-- **Short courses** (the box at the top of **Projects**): paste a link to an article or a video, or
-  drop a file, and it becomes a course of three to eight topics written from that one source. It
-  joins the feed and your reviews the same day, with no dates to set. A single fact you want to
+- **Short courses**: when **New Project** is given a small source (an article, a video, a short
+  document) and a plain goal, the course it makes is three to eight topics on one level, written
+  from that material. It joins the feed and your reviews the same day, with no dates to set, and
+  **Projects** lists it under Short courses once you have one. A single fact you want to
   keep goes in as a card on the topic it belongs to: ask the assistant for one.
 - **The assistant** (the speech-bubble icon, press **a**, or **Ask the assistant** in a topic): it
   sees every project at once. Ask what to do today, what to drop when you are behind, or about
@@ -208,6 +213,6 @@ The words the app and these documents use, each in one place.
 - **Head start**: a topic the placement check or another project suggests you already know. It
   is taught as a shorter review and offers the mastery check first; it never counts as proof.
 - **Pace**: the topics (or new cards) you close each week, across all your courses; a date is judged against it.
-- **Short course**: a course of three to eight topics made from one link or file, never scheduled.
+- **Short course**: a course of three to eight topics on one level, made when the model judges the input small, never scheduled.
 - **Vault**: the documents you upload, to a project or to the whole library, which the assistant
   can read; a project's own documents also feed its lessons.
