@@ -248,7 +248,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 p-4 dark:border-slate-700">
                     {place && (
-                        <Button variant="primary" onClick={goThere} trailing={<ArrowUpRight className="h-4 w-4" aria-hidden="true" />}>
+                        <Button variant="primary" data-task-go onClick={goThere} trailing={<ArrowUpRight className="h-4 w-4" aria-hidden="true" />}>
                             {t(place.openKey)}
                         </Button>
                     )}

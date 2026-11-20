@@ -439,7 +439,6 @@ const routes = [];
 act(() => { store.getState().setNavigate((to) => { routes.push(String(to)); }); });
 const escape = () => act(() => (window.document.activeElement ?? window.document.body).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
 const openButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Open'));
-const detailButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Details of'));
 
 // A task as the dock really sees a running one: started a minute ago, four
 // tenths of the way through, no estimate of its own.
@@ -450,36 +449,49 @@ const runningTask = (over = {}) => task({
     ...over,
 });
 
-const press = async (over, which = openButton) => {
+// THE CHIP OPENS THE RECORD; THE RECORD GOES THERE. The dock floats over a
+// lesson half read or an answer half typed, and a chip that navigated on press
+// took the reader off that page for a glance at a number. So a press is two
+// steps, and both are pinned: the chip itself moves nothing (`jumped`), and the
+// record's own button (`data-task-go`) goes where the work is (`routes`).
+const press = async (over) => {
     globalThis.__pushTasks([]);
     act(() => { store.setState({ assistantOpen: false }); });
     globalThis.__pushTasks([runningTask(over)]);
     routes.length = 0;
-    const button = which();
-    if (!button) return { routes: [], assistant: false, dialog: false, missing: true };
+    const button = openButton();
+    if (!button) return { routes: [], assistant: false, dialog: false, jumped: false, missing: true };
     await click(button);
+    const jumped = routes.length > 0 || store.getState().assistantOpen === true;
     const dialog = $$('[role=dialog]')[0] || null;
+    const text = dialog ? dialog.textContent : '';
+    const go = dialog?.querySelector('[data-task-go]');
+    if (go) await click(go);
     const out = {
         routes: [...routes],
         assistant: store.getState().assistantOpen === true,
         dialog: !!dialog,
-        text: dialog ? dialog.textContent : '',
+        jumped,
+        text,
     };
-    if (dialog) escape();
+    if ($$('[role=dialog]').length) escape();
     return out;
 };
 
 const deadPresses = [];
+const jumps = [];
 for (const kind of [...serverKinds].sort()) {
     for (const [shape, ids] of [
         ['carrying its ids', { projectId: 7, nodeId: 42 }],
         ['carrying neither', { projectId: null, nodeId: null }],
     ]) {
         const r = await press({ kind, ...ids });
-        if (!r.routes.length && !r.assistant && !r.dialog) deadPresses.push(`${kind} ${shape}`);
+        if (!r.dialog) deadPresses.push(`${kind} ${shape}`);
+        if (r.jumped) jumps.push(`${kind} ${shape}`);
     }
 }
-check('every kind the server can start does something when pressed', deadPresses, []);
+check('every kind the server can start opens its record when pressed', deadPresses, []);
+check('no chip press leaves the page by itself', jumps, []);
 
 // And WHERE each one goes, pinned — a mapping that silently drifts to the wrong
 // screen is the same bug wearing a coat.
@@ -508,8 +520,8 @@ console.log('\n--- the record says when it started and how long is left --------
 // The two facts the chip has no room for. The estimate is derived here (this
 // task reports no etaMs of its own): a minute in at 40% has about another
 // minute and a half to go.
-const detail = await press({ kind: 'embed', projectId: null, nodeId: null }, detailButton);
-check('the progress badge opens the record', detail.dialog, true);
+const detail = await press({ kind: 'embed', projectId: null, nodeId: null });
+check('the chip opens the record', detail.dialog, true);
 check('it says when the task started', detail.text.includes('1 min ago'), true);
 check('it says how long is left', /about\s*2 min/.test(detail.text), true);
 check('it says what the job is doing now', detail.text.includes('topic 4 of 10'), true);
@@ -526,7 +538,7 @@ check('...and one with no screen says so', orphan.text.includes('no screen it ca
 globalThis.__pushTasks([]);
 globalThis.__pushTasks([runningTask({ kind: 'embed', projectId: null, nodeId: null })]);
 const dock2 = $$('div').find(d => d.style && d.style.transform && d.style.transform.includes('translateX'));
-await click(detailButton());
+await click(openButton());
 const record = $$('[role=dialog]')[0];
 check('the record opens', !!record, true);
 check('it is NOT inside the transformed dock', dock2.contains(record), false);
@@ -536,7 +548,7 @@ check('Escape closes it', $$('[role=dialog]').length, 0);
 // A finished task is a record too — and the control on it is Dismiss, not Stop.
 globalThis.__pushTasks([]);
 globalThis.__pushTasks([task({ id: 'p2', status: 'done', finishedAt: ago(1000), createdAt: ago(9000), startedAt: ago(8000) })]);
-await click(detailButton());
+await click(openButton());
 const settled = $$('[role=dialog]')[0];
 check('a finished task opens a record too', !!settled, true);
 check('...whose control is Dismiss, not Stop', [settled.textContent.includes('Dismiss'), settled.textContent.includes('Stop this task')], [true, false]);
@@ -622,7 +634,7 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     act(() => { store.setState({ assistantOpen: false }); });
     globalThis.__pushTasks([runningTask({ id: 'o1', kind: 'widget', label: 'Wavefront crowding = Doppler shift', projectId: null, nodeId: null, origin: { surface: 'assistant', messageId: 12 } })]);
     routes.length = 0;
-    await click(detailButton());
+    await click(openButton());
     await settleLabels();
     let dialog = $$('[role=dialog]')[0];
     check('a widget built under an assistant answer says so', dialog?.textContent.includes('Started from the assistant.'), true);
@@ -637,7 +649,7 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     globalThis.__pushTasks([]);
     globalThis.__pushTasks([runningTask({ id: 'o2', kind: 'feed', label: 'Preparing feed lessons', projectId: 7, nodeId: null, origin: { surface: 'app', job: 'feed', projectId: 7, nodeId: 42 } })]);
     routes.length = 0;
-    await click(detailButton());
+    await click(openButton());
     await settleLabels();
     dialog = $$('[role=dialog]')[0];
     const said = dialog?.querySelector('[data-task-origin]')?.textContent ?? '';

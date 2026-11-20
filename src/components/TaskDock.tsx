@@ -106,9 +106,9 @@ function reducedMotion(): boolean {
  *
  * Each chip: a breathing dot in the owning project's colour while running
  * (grey while queued), the task label, and live progress (percent where a
- * real total exists, character counts otherwise). Clicking a chip navigates
- * to the surface the task belongs to; ✕ cancels an active task or dismisses
- * a finished one. Navigating away never cancels anything — generations run
+ * real total exists, character counts otherwise). Clicking a chip opens the
+ * task's record, whose first button goes to the surface the task belongs to;
+ * ✕ cancels an active task or dismisses a finished one. Navigating away never cancels anything — generations run
  * server-side and the queue advances on its own.
  */
 
@@ -301,14 +301,16 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
         >
             <button data-dock
                 type="button"
-                // Where the work IS, whenever the task has somewhere to be:
-                // the topic, the project, the feed, the assistant, the settings
-                // panel that runs it. A failure has no output to look at, so
-                // it opens the diagnosis instead; a task with nowhere to go
-                // opens its own record rather than swallowing the press.
+                // The task's own record, never a jump. The dock floats over
+                // whatever the reader is doing — a lesson half read, an answer
+                // half typed — and a chip that navigated on press took them off
+                // that page for a glance at a progress number. The record says
+                // where the work is and carries the button that goes there, so
+                // leaving the page is a second, deliberate press. A failure
+                // opens its diagnosis instead: "why" is the only question left.
                 onClick={() => {
-                    if (failed) setShowFailure(true);
-                    else if (!openAiTask(task)) setShowDetail(true);
+                    if (failed && task.failure) setShowFailure(true);
+                    else setShowDetail(true);
                 }}
                 className="flex items-center gap-2 min-w-0 h-9 px-1 -mx-1 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label={failed
@@ -346,27 +348,21 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                     </span>
                 </span>
 
-            </button>
-
-            {/* The state, as its own tinted token: at a glance, which of these
-                is still working and which is finished — and a CONTROL, because
-                the number is what a reader is looking at when they wonder how
-                long is left, and that answer does not fit on a chip. A sibling
-                of the chip's button rather than inside it: a button inside a
-                button is not a thing, and the press would belong to whichever
-                one the browser decided it belonged to. */}
-            <button data-dock
-                type="button"
-                onClick={() => setShowDetail(true)}
-                aria-label={tr("Details of {{label}}: {{detail}}", { label: title, detail })}
-                title={tr("Details")}
-                className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium tabular-nums transition outline-none focus-visible:ring-2 focus-visible:ring-accent hover:brightness-95 dark:hover:brightness-110 ${
-                    task.status === 'running' ? 'bg-accent/15 text-accent-fg'
-                        : task.status === 'done' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                            : failed ? 'bg-red-500/15 text-red-700 dark:text-red-300'
-                                : 'bg-slate-500/10 text-slate-600 dark:text-slate-300'}`}
-            >
-                {detail}
+                {/* The state, as its own tinted token: at a glance, which of
+                    these is still working and which is finished. Part of the
+                    chip's one button now — it used to be a second button that
+                    opened the same record, two targets side by side doing one
+                    thing. */}
+                <span
+                    aria-hidden="true"
+                    className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium tabular-nums ${
+                        task.status === 'running' ? 'bg-accent/15 text-accent-fg'
+                            : task.status === 'done' ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : failed ? 'bg-red-500/15 text-red-700 dark:text-red-300'
+                                    : 'bg-slate-500/10 text-slate-600 dark:text-slate-300'}`}
+                >
+                    {detail}
+                </span>
             </button>
 
             <button data-dock
