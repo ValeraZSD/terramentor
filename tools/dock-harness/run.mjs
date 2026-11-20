@@ -433,10 +433,15 @@ console.log('\n--- a press on a chip is never nothing --------------------------
 // So: every kind the server can start, pressed, in both shapes it can arrive in
 // — carrying its project and node, and carrying neither, which is what a visual
 // repaired inside a feed card or a document indexed on upload actually looks
-// like. Each press must GO somewhere or OPEN the task's own record. Nothing may
-// do neither.
+// like. Each press must OPEN the task's own record, and the record's button
+// must go where the work is.
 const routes = [];
 act(() => { store.getState().setNavigate((to) => { routes.push(String(to)); }); });
+// Every way out runs through `openAiTask` (a creation run opens its screen
+// without a route, so counting routes alone would not see it leave).
+let openCalls = 0;
+const realOpenAiTask = store.getState().openAiTask;
+act(() => { store.setState({ openAiTask: (t) => { openCalls++; return realOpenAiTask(t); } }); });
 // Pressed from a page none of these tasks belongs to: jsdom starts on '/',
 // which IS the home feed, and the record offers no button to where you are.
 const ELSEWHERE = '/project/99/dashboard';
@@ -463,10 +468,11 @@ const press = async (over) => {
     act(() => { store.setState({ assistantOpen: false }); });
     globalThis.__pushTasks([runningTask(over)]);
     routes.length = 0;
+    openCalls = 0;
     const button = openButton();
     if (!button) return { routes: [], assistant: false, dialog: false, jumped: false, missing: true };
     await click(button);
-    const jumped = routes.length > 0 || store.getState().assistantOpen === true;
+    const jumped = openCalls > 0 || routes.length > 0 || store.getState().assistantOpen === true;
     const dialog = $$('[role=dialog]')[0] || null;
     const text = dialog ? dialog.textContent : '';
     const go = dialog?.querySelector('[data-task-go]');
@@ -674,6 +680,43 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
         [!!dialog, !!dialog?.querySelector('[data-task-go]'), dialog?.textContent.includes('Stop this task')], [true, false, true]);
     if ($$('[role=dialog]').length) escape();
     window.history.pushState({}, '', ELSEWHERE);
+
+    // The same rule for every place that is a page, and for the drawer: does
+    // the record offer its button when pressed from `path`?
+    const offersGo = async (path, over, assistantOpen = false) => {
+        window.history.pushState({}, '', path);
+        globalThis.__pushTasks([]);
+        act(() => { store.setState({ assistantOpen }); });
+        globalThis.__pushTasks([runningTask(over)]);
+        await click(openButton());
+        const d = $$('[role=dialog]')[0];
+        const offered = !!d?.querySelector('[data-task-go]');
+        if ($$('[role=dialog]').length) escape();
+        window.history.pushState({}, '', ELSEWHERE);
+        act(() => { store.setState({ assistantOpen: false }); });
+        return offered;
+    };
+    const quizOn42 = { kind: 'quiz', projectId: 7, nodeId: 42 };
+    check('a topic\'s task pressed on that topic offers no button to it',
+        [await offersGo('/project/7/tree/42', quizOn42), await offersGo('/project/7/tree/42/', quizOn42), await offersGo('/project/7/tree/43', quizOn42)],
+        [false, false, true]);
+    const embed = { kind: 'embed', projectId: null, nodeId: null };
+    check('a settings panel counts only under its own section',
+        [await offersGo('/settings', embed, false), await offersGo('/settings#ai', embed), await offersGo('/settings#learning', embed)],
+        [true, false, true]);
+    const planner = { kind: 'today_chat', projectId: null, nodeId: null };
+    check('"Open the assistant" is offered only while the drawer is shut',
+        [await offersGo(ELSEWHERE, planner, false), await offersGo(ELSEWHERE, planner, true)], [true, false]);
+
+    // A failure that came with no report opens the record, which carries the
+    // error text, rather than a press that opens nothing.
+    globalThis.__pushTasks([]);
+    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: null, finishedAt: ago(1000) })]);
+    await click(openButton());
+    dialog = $$('[role=dialog]')[0];
+    check('a failure with no report opens the record with its error',
+        [!!dialog, !!dialog?.textContent.includes('the model went away')], [true, true]);
+    if ($$('[role=dialog]').length) escape();
 
     // A drawing repaired inside a topic's Overview goes back to the topic.
     check('an Overview repair opens its topic',

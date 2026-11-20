@@ -21,7 +21,7 @@ import { setUiLanguage as applyUiLanguage, resolveLanguagePreference } from './i
 import { noteServerReconnected, canReloadNow } from './utils/freshness';
 import { AUTO as NUMBER_AUTO, isNumberStyle, setNumberPreference } from './utils/numberFormat';
 import { AppIcon, DEFAULT_APP_ICON, ICON_KEYS, applyAppIcon, normalizeIcon } from './utils/appIcon';
-import { taskPlace } from './utils/taskPlace';
+import { taskPlace, placeRoute } from './utils/taskPlace';
 import { setSingleKeyShortcuts } from './utils/escapeKey';
 import { normalizeDrillTimeScale, type DrillTimeScale } from './components/drills/parseDrill';
 import { loadedRunner } from './runner/load';
@@ -2878,7 +2878,7 @@ export const useStore = create<AppState>((set, get) => ({
                 return true;
             case 'project':
                 if (!nav) return false;
-                nav(`/project/${place.projectId}/dashboard`);
+                nav(placeRoute(place)!);
                 return true;
             case 'route':
                 if (!nav) return false;

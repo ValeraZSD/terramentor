@@ -246,14 +246,16 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     // there is no output to look at, and "why" is the only question left.
     const [showFailure, setShowFailure] = useState(false);
     // The task's own record: when it started, how far it has got, how long it
-    // has left, and the controls that go with those. Opened by the progress
-    // badge on any chip, and by the chip itself when the task has no screen to
-    // go to — which is most of the background kinds.
+    // has left, the controls that go with those, and the way to its screen.
+    // Opened by a press on any chip that is not a failure with a report.
     const [showDetail, setShowDetail] = useState(false);
     const cancelAiTask = useStore(s => s.cancelAiTask);
 
     const active = task.status === 'running' || task.status === 'queued';
     const failed = task.status === 'error';
+    // A failure WITH its report opens the report; one without opens the record,
+    // which carries the error text.
+    const diagnosed = failed && !!task.failure;
     const { vars: accentVars, dot: dotColor } = useTaskAccent(task.projectColor);
 
     // Hovering holds the chip: the pointer is on its way to the result. So does
@@ -308,12 +310,10 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                 // where the work is and carries the button that goes there, so
                 // leaving the page is a second, deliberate press. A failure
                 // opens its diagnosis instead: "why" is the only question left.
-                onClick={() => {
-                    if (failed && task.failure) setShowFailure(true);
-                    else setShowDetail(true);
-                }}
+                onClick={() => (diagnosed ? setShowFailure(true) : setShowDetail(true))}
+                aria-haspopup="dialog"
                 className="flex items-center gap-2 min-w-0 h-9 px-1 -mx-1 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label={failed
+                aria-label={diagnosed
                     ? tr("Why the {{kindLabel}} \"{{label}}\" failed", { kindLabel: kindLabel.toLowerCase(), label: title })
                     : tr("Open {{kindLabel}} task: {{label}} ({{detail}})", { kindLabel: kindLabel.toLowerCase(), label: title, detail })}
             >
@@ -349,10 +349,10 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                 </span>
 
                 {/* The state, as its own tinted token: at a glance, which of
-                    these is still working and which is finished. Part of the
-                    chip's one button now — it used to be a second button that
-                    opened the same record, two targets side by side doing one
-                    thing. */}
+                    these is still working and which is finished. Inside the
+                    chip's one button, not a second target beside it: both
+                    would open the same record. Hidden from the accessibility
+                    tree because the button's own name already says it. */}
                 <span
                     aria-hidden="true"
                     className={`shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium tabular-nums ${
@@ -390,7 +390,6 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
                     task={task}
                     onClose={() => setShowDetail(false)}
                     onDismiss={onDismiss}
-                    onShowFailure={task.failure ? () => { setShowDetail(false); setShowFailure(true); } : undefined}
                 />
             )}
         </div>
