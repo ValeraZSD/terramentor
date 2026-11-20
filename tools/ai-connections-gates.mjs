@@ -691,6 +691,21 @@ check('an ID token answering another attempt (wrong nonce) is rejected', new URL
     check('a sign-in started during the exchange is not overwritten by the retry: the refused one fails, the new one still answers',
         a.outcome === 'failed' && a.reason === 'token:invalid_grant' && restartedAnswer.outcome === null && restartedAnswer.reason === null
         && /starting again/.test(restartedAnswer.log), JSON.stringify({ a, restartedAnswer }));
+    // The same, but the new sign-in has also FINISHED before the refusal comes
+    // back, so nothing is pending any more: the newer press still wins, and no
+    // retry opens on the listener it closed.
+    let newer = null;
+    auth.codeScript = async (json) => {
+        const nq = new URL((await cauth.startSignIn({ appOrigin: 'http://127.0.0.1:5257' })).url).searchParams;
+        auth.codeScript = (json2) => json2(400, { error: 'invalid_request' });
+        const nr = await fetch(`${nq.get('redirect_uri')}?state=${nq.get('state')}&code=c6g&client_id=oaiapp_six`, { redirect: 'manual' });
+        newer = new URL(nr.headers.get('location') || 'http://x/').searchParams.get('chatgpt_reason');
+        json(400, { error: 'invalid_grant' });
+    };
+    a = await answer(await fresh(), 'code=c6h&client_id=oaiapp_three');
+    check('a sign-in started AND finished during the exchange still wins: the refused one fails instead of retrying on its closed listener',
+        newer === 'token:invalid_request' && a.outcome === 'failed' && a.reason === 'token:invalid_grant' && !/starting again/.test(a.log),
+        JSON.stringify({ newer, a }));
     // An error nested as { code, message }, and OpenAI's words quoting the code.
     auth.codeScript = (json, form) => json(400, { error: { code: 'invalid_grant', message: `Code ${form.code} is not valid` } });
     a = await answer(await fresh(chat.id), 'code=c6-secret-code');

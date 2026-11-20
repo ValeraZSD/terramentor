@@ -175,7 +175,11 @@ export function verifyIdToken(idToken, { jwks, issuer, clientId, nonce, nowSec =
 
 // ── one sign-in attempt ───────────────────────────────────────────────────
 
-let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at, server }
+let pending = null;   // { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, signIn, at, server }
+// Counts presses of "Continue with ChatGPT". An attempt (and its retry) keeps
+// the number of the press that started it; a smaller number than this means
+// a newer sign-in has started since, whether or not that one is still pending.
+let signIns = 0;
 // The listener of an attempt whose callback is still being answered (the code
 // exchange takes a moment): a sign-in started meanwhile closes it too, so the
 // callback port is free for the new attempt.
@@ -209,6 +213,7 @@ export function isLocalBrowser(origin) {
  */
 export async function startSignIn({ appOrigin, returnPath = '/settings#ai', connectionId = null }) {
     closePending();
+    const signIn = ++signIns;
     const existing = connectionId ? db.prepare("SELECT * FROM ai_connections WHERE id = ? AND kind = 'chatgpt'").get(connectionId) : null;
     const creds = credentialsOf(existing);
     const clientId = creds?.client_id || 'dynamic_agent_client';
@@ -218,7 +223,7 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
     const safePath = /^\/[^/\\]/.test(returnPath) || returnPath === '/' ? returnPath : '/settings#ai';
     return {
         url: openAttempt({
-            server, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`,
+            server, clientId, connectionId: existing?.id ?? null, returnUrl: `${appOrigin}${safePath}`, signIn,
             idTokenHint: creds?.id_token, loginHint: existing?.account,
         }),
     };
@@ -228,12 +233,12 @@ export async function startSignIn({ appOrigin, returnPath = '/settings#ai', conn
  * Make `pending` a new attempt on an open callback listener (fresh state,
  * nonce and PKCE verifier) and return the authorize URL that starts it.
  */
-function openAttempt({ server, clientId, connectionId, returnUrl, idTokenHint = '', loginHint = '' }) {
+function openAttempt({ server, clientId, connectionId, returnUrl, signIn, idTokenHint = '', loginHint = '' }) {
     const redirectUri = `http://127.0.0.1:${server.address().port}${CALLBACK_PATH}`;
     const verifier = b64url(randomBytes(32));
     const state = b64url(randomBytes(24));
     const nonce = b64url(randomBytes(24));
-    pending = { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, at: Date.now(), server };
+    pending = { state, nonce, verifier, redirectUri, clientId, connectionId, returnUrl, signIn, at: Date.now(), server };
     setTimeout(() => { if (pending?.state === state) closePending(); }, ATTEMPT_TTL_MS).unref?.();
     // The browser is about to leave the app's page for OpenAI's: hold the
     // desktop server, and with it this callback, open until the attempt ends.
@@ -307,8 +312,8 @@ async function handleCallback(req, res) {
         if (answering === attempt.server) answering = null;
         if (!listenerKept) { try { attempt.server?.close(); } catch { /* already closed */ } }
         // The attempt is over: let the desktop server go, unless a sign-in
-        // started meanwhile holds it for its own attempt.
-        if (!listenerKept && !pending) releaseHold('chatgpt');
+        // started meanwhile holds it for its own attempt (still pending or not).
+        if (!listenerKept && attempt.signIn === signIns) releaseHold('chatgpt');
     }
 }
 
@@ -354,10 +359,11 @@ async function finishAttempt(attempt, q, res) {
         // fresh attempt already carries the issued id, as a returning sign-in
         // does. The browser goes straight to OpenAI again, which knows the id
         // now and shows its account picker, not the consent screen. A sign-in
-        // started anew meanwhile (`pending` set again) wins over the retry.
-        if (code === 'invalid_grant' && attempt.clientId === 'dynamic_agent_client' && !pending) {
+        // started anew meanwhile wins over the retry, even one that has
+        // already finished: it closed this attempt's listener.
+        if (code === 'invalid_grant' && attempt.clientId === 'dynamic_agent_client' && attempt.signIn === signIns) {
             console.log(`[chatgpt] code exchange refused (invalid_grant); starting again with the issued client id (${words(err?.message)})`);
-            const url = openAttempt({ server: attempt.server, clientId, connectionId: attempt.connectionId, returnUrl: attempt.returnUrl });
+            const url = openAttempt({ server: attempt.server, clientId, connectionId: attempt.connectionId, returnUrl: attempt.returnUrl, signIn: attempt.signIn });
             res.writeHead(302, { Location: url, 'Cache-Control': 'no-store' });
             res.end();
             return true;
