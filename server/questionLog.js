@@ -231,8 +231,9 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  *      and a lucky true/false says little;
  *   3. then the questions only ever missed: never got right, they say nothing
  *      about forgetting.
- * Before all three: a question missed on a look back or a mock with no right
- * answer since, so the recall card that says it comes from the look back asks
+ * Before all three: a question missed on a look back or a mock while its topic
+ * slips (fading.js SLIPPED_TOPIC: an earlier learner day, at most four weeks,
+ * nothing on the topic right since), so the recall card that says it comes from the look back asks
  * the question the learner missed there.
  * Within a tier and the same share of misses, the format a guess cannot pass
  * first in EVERY tier (a correct calculation known twice says more than a
@@ -261,11 +262,13 @@ export function recallOrder(nodeId, now = new Date()) {
         SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last,
             strftime('%Y-%m-%dT%H:%M:%fZ',
                 MAX(CASE WHEN surface = 'mock' AND correct = 0 AND asked_at < ? AND asked_at >= ? THEN asked_at END),
-                '+1 minute') AS mockMissPlus,
-            MAX(CASE WHEN correct = 1 THEN asked_at END) AS lastHit
+                '+1 minute') AS mockMissPlus
         FROM question_log WHERE quiz_id IN (${marks})${byUuid}
         GROUP BY k
     `).all(dayStart, oldest, ...quizIds, ...uuids).map(r => [r.k, r]));
+    // The slip clears on a right answer to ANY of the topic's questions, as the
+    // rule reads it, not only to the one missed.
+    const topicHit = db.prepare('SELECT MAX(asked_at) AS t FROM question_log WHERE node_id = ? AND correct = 1').get(nodeId)?.t ?? null;
     const previous = db.prepare(`
         SELECT ${LOG_KEY} AS k FROM question_log
         WHERE quiz_id IN (${marks}) AND surface = 'recall'
@@ -276,10 +279,10 @@ export function recallOrder(nodeId, now = new Date()) {
         const r = record.get(askKey(b));
         const hits = r?.hits || 0;
         const misses = r?.misses || 0;
-        // Missed on a look back or a mock, and not answered right since (from a
-        // minute after, as SLIPPED_TOPIC counts): the question the slip is
-        // about, asked first.
-        const slipped = !!r?.mockMissPlus && !(r.lastHit > r.mockMissPlus);
+        // Missed on a look back or a mock, and nothing on the topic answered
+        // right since (from a minute after, as SLIPPED_TOPIC counts): the
+        // question the slip is about, asked first.
+        const slipped = !!r?.mockMissPlus && !(topicHit > r.mockMissPlus);
         return {
             b, position, slipped,
             tier: hits > 0 ? 0 : misses > 0 ? 2 : 1,
