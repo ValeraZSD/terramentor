@@ -6,7 +6,7 @@ import { dayStudyTime, recentDays } from './studyTime.js';
 import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
-import { FADING_TOPIC, fadingCutoff } from './fading.js';
+import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
 import { refreshTopicDates } from './topicDates.js';
 
 /**
@@ -235,9 +235,9 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         ${ACTIVE_PROJECT_JOIN}
-        WHERE ${FADING_TOPIC}
-        ORDER BY nm.last_updated ASC
-    `).all(fadingCutoff(decayDays, now));
+        WHERE ${RECALL_TOPIC}
+        ORDER BY ${SLIPPED_TOPIC} DESC, nm.last_updated ASC
+    `).all(...recallCutoffs(decayDays, now), ...slipParams(now));
 
     // "What I did today": stamped inside the learner's day. completed_at is an
     // ISO string, quiz_attempts.created_at SQLite's CURRENT_TIMESTAMP; IN_DAY

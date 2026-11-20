@@ -16,6 +16,7 @@ import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questio
 import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
 import { preQuestionsFor } from './lessonPrompts.js';
+import { lookBackOffer } from './lookBack.js';
 
 /**
  * Learning-feed composition — the home page's algorithm.
@@ -1080,9 +1081,14 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         const nextInfos = nextCourse == null ? [] : projectInfos.filter(i => i.project.id === nextCourse);
         let fading = nextInfos.length ? fadingIn(nextInfos) : [];
         if (!fading.length) fading = fadingIn(projectInfos);
+        // A slip is promised back the next day the learner studies, whichever
+        // course they open: the other courses' slips join the round too.
+        else fading.push(...fadingIn(projectInfos.filter(i => i.project.id !== nextCourse)).filter(f => f.ghost.slipped));
         // Byte order, as the SQL that listed each course's topics sorted them.
+        // A topic that slipped on a look back first (fading.js SLIPPED_TOPIC).
         const stamp = (g) => String(g.lastUpdated ?? '');
-        fading.sort((a, b) => (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
+        fading.sort((a, b) => (b.ghost.slipped - a.ghost.slipped)
+            || (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
         for (const { ghost, info } of fading.slice(0, roundSize)) {
             const pick = ghost.picks[0];
             let daysSince = null;
@@ -1100,14 +1106,46 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                 projectColor: info.project.color,
                 nodeTitle: ghost.title,
                 daysSince,
+                slipped: ghost.slipped,
                 quizId: pick.quizId,
                 question: { ...pick.question, quizIndex: pick.index },
             });
         }
     }
 
+    // --- Look back (server/lookBack.js) -----------------------------------
+    // Every two weeks or so, or when a phase closes, the stream opens with an
+    // offer: ten questions from everything the course has taught so far, or the
+    // full mock in the weeks before a real exam. The same slot and rules as the
+    // recall round: the opening page only, never a topic's own page, and one
+    // card for one course (the one studied next, else the first that has one).
+    // A card the learner can clear with one tap; nothing below it waits on it.
+    const offers = [];
+    if (openingPage && !scoped) {
+        const next = nodeQueues.find(q => q.cards.length > 0)?.f.projectId ?? null;
+        const order = [...projectInfos].sort((a, b) => Number(b.project.id === next) - Number(a.project.id === next));
+        for (const info of order) {
+            let offer = null;
+            try {
+                offer = lookBackOffer(info.project.id, { now });
+            } catch (err) {
+                console.warn(`[feed] look back left out project ${info.project.id}: ${err?.message ?? err}`);
+            }
+            if (!offer) continue;
+            offers.push({
+                key: `lookback-${info.project.id}`,
+                kind: 'lookback',
+                projectId: info.project.id,
+                projectName: info.project.name,
+                projectColor: info.project.color,
+                offer,
+            });
+            break;
+        }
+    }
+
     // --- Interleave ---------------------------------------------------------
-    const items = [...review];
+    const items = [...offers, ...review];
     let queueIdx = 0;
     let sinceFlash = 0;
     let flashInterval = 3;
@@ -1175,7 +1213,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // "All caught up" is a claim about finished work, so it is made only when
     // there is work and all of it is closed. An empty course, or topics with
     // nothing yet to serve, gets what is actually true.
-    if (!scoped && items.length === 0 && projectInfos.length > 0) {
+    // A look back offer alone is no stream: the notices below still say why
+    // nothing else is there (all but "nothing left", which the offer belies).
+    if (!scoped && items.length === offers.length && projectInfos.length > 0) {
         const { topics, cards, open, openTaught, cardsLeft } = explainEmpty(projectInfos.map(i => i.project.id));
         // A first page: the learner holds nothing yet. Later, an empty draw just
         // means they hold everything there is, and the stream's own end says so.
@@ -1216,7 +1256,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         } else if (open > 0) {
             // Open topics nobody will write lessons for (the course does not
             // teach) and nothing of theirs to serve. Not finished either.
-            if (firstPage && !excluded('notice-clear')) {
+            if (firstPage && !excluded('notice-clear') && !offers.length) {
                 items.push({
                     key: 'notice-clear', kind: 'notice',
                     message: projectScope
@@ -1224,9 +1264,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         : "That's everything for now — come back later or open a project to go deeper.",
                 });
             }
-        } else if (!excluded('notice-clear') && !roundHeld) {
-            // Not under a review round the learner still holds: "no review is
-            // due" would sit below the questions it says are not there.
+        } else if (!excluded('notice-clear') && !roundHeld && !offers.length) {
+            // Not under a review round the learner still holds, nor a look back
+            // offered: "no review is due" would sit below the questions it says
+            // are not there.
             items.push({
                 key: 'notice-clear', kind: 'notice',
                 message: projectScope

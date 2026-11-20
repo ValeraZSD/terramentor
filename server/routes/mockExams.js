@@ -6,6 +6,7 @@ import {
     pauseSitting, resumeSitting, stopWriting, discardSitting, setPartScore, finishSitting,
     setExam, drawCourseMock, saveAnswer,
 } from '../mockExams.js';
+import { getLookBack, startLookBack, skipLookBack } from '../lookBack.js';
 import { AttemptReusedError } from '../mastery.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
@@ -70,5 +71,10 @@ app.put('/api/mock-sittings/:id/answers', handle(req => {
 }));
 
 app.delete('/api/mock-sittings/:id', handle(req => { discardSitting(idOf(req.params.id)); return { ok: true }; }));
+
+// The look back (server/lookBack.js): what the stream offers for a course, starting it, and "Not now".
+app.get('/api/projects/:projectId/look-back', handle(req => getLookBack(idOf(req.params.projectId))));
+app.post('/api/projects/:projectId/look-back', handle(req => startLookBack(idOf(req.params.projectId))));
+app.post('/api/projects/:projectId/look-back/skip', handle(req => skipLookBack(idOf(req.params.projectId))));
 
 export const routes = app.takeRoutes();

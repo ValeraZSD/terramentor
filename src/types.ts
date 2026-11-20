@@ -935,6 +935,8 @@ export interface FeedRecallCard extends FeedCardCommon {
     kind: 'recall';
     /** One of the review round that opens the stream (server/feed.js), drawn under one header. */
     review?: boolean;
+    /** Back because it was answered wrong in a look back (server/fading.js SLIPPED_TOPIC), not because time passed. */
+    slipped?: boolean;
     daysSince: number | null;
     quizId: number;
     question: QuizQuestion;
@@ -1218,6 +1220,26 @@ export interface FeedNoticeCard {
     message: string;
 }
 
+/**
+ * What the stream offers a course now and then (server/lookBack.js): a look
+ * back over what it has taught, the one left open, or the full mock in the
+ * weeks before a real exam.
+ */
+export type LookBackOffer =
+    | { kind: 'look_back'; projectId: number; questions: number }
+    | { kind: 'resume'; projectId: number; sittingId: number; answered: number; questions: number }
+    | { kind: 'mock'; projectId: number; daysLeft: number; questions: number };
+
+/** The offer at the head of the stream's opening page; no topic of its own. */
+export interface FeedLookBackCard {
+    key: string;
+    kind: 'lookback';
+    projectId: number;
+    projectName: string;
+    projectColor: string;
+    offer: LookBackOffer;
+}
+
 export type FeedCard =
     | FeedLessonCard
     | FeedQuestionCard
@@ -1225,7 +1247,8 @@ export type FeedCard =
     | FeedRecallCard
     | FeedCheckpointCard
     | FeedPracticeCard
-    | FeedNoticeCard;
+    | FeedNoticeCard
+    | FeedLookBackCard;
 
 export interface FeedStats {
     itemsDoneToday: number;

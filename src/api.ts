@@ -5,7 +5,7 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite, ProjectUpdate, RetentionForecast } from './types';
+import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
 import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
 import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
@@ -2365,6 +2365,11 @@ export const api = {
     finishMock: <D = MockDetail>(id: number, { attemptId, fillUnmarked = false }: { attemptId?: string; fillUnmarked?: boolean } = {}) =>
         request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null, fillUnmarked }) }),
     discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
+    // The look back the stream offers (server/lookBack.js): read, start (or reopen), "Not now".
+    getLookBack: (projectId: number) => request<{ offer: LookBackOffer | null }>(`/projects/${projectId}/look-back`),
+    startLookBack: (projectId: number) =>
+        request<{ sitting: MockSitting }>(`/projects/${projectId}/look-back`, { method: 'POST' }),
+    skipLookBack: (projectId: number) => request<{ ok: true }>(`/projects/${projectId}/look-back/skip`, { method: 'POST' }),
 
     // The documents an answer's Sources line names, entry by entry (null id:
     // no document of that title is in the library now).

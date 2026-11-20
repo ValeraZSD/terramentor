@@ -3,6 +3,7 @@ import { useAccentVars } from '../../hooks/useAccentVars';
 import { ArrowUpRight } from 'lucide-react';
 import ExternalSearchButton from '../ExternalSearchButton';
 import HeadStartBanner from './HeadStartBanner';
+import { useCourseLine } from './streamCourse';
 import { PlacementHeadStart, TransferInfo } from '../../types';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from '../ui/Button';
@@ -53,6 +54,8 @@ export default function ChapterGroup({
 }: Props) {
     const { t } = useTranslation();
     const accentStyle = useAccentVars(projectColor);
+    // Not on a course's own page, whose header already names it.
+    const courseLine = useCourseLine(projectName);
 
     // The project rail is ONE device in the feed and has to be drawn one way:
     // the card's own LEFT BORDER, 4px against the other three at 1px. A border
@@ -84,9 +87,9 @@ export default function ChapterGroup({
                     not have horizontal room, so the title wraps (capped at two
                     lines) and only the project line above it still truncates. */}
                 <div className="min-w-0 flex-1">
-                    {projectName && (
+                    {courseLine && (
                         <p className="text-2xs font-medium text-slate-500 dark:text-slate-400 truncate">
-                            {projectName}
+                            {courseLine}
                         </p>
                     )}
                     <h2 className="text-base sm:text-lg font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
