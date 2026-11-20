@@ -1248,7 +1248,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         // not; "being prepared" said it twice.
     } else if (anyDegradedServed && !excluded('notice-ai') && aiEnabled && !aiModelChosen) {
         if (scoped || projectScope) items.unshift({ key: 'notice-ai', kind: 'notice', message: 'Choose a model in Settings → AI & Models.' });
-    } else if (anyDegradedServed && !excluded('notice-ai')) {
+    } else if (anyDegradedServed && !excluded('notice-ai') && (openingPage || !homeStream)) {
+        // On Today only at the top: a later page's head lands inside the
+        // course block the reader is in and would cut it in two.
         items.unshift({
             key: 'notice-ai', kind: 'notice',
             message: aiEnabled
