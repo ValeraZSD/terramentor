@@ -118,6 +118,8 @@ const enPlurals: Record<string, string> = {
     "{{count}} questions answered._other": "{{count}} questions answered.",
     "{{count}} questions are not answered. They count as zero in the score._one": "{{count}} question is not answered. It counts as zero in the score.",
     "{{count}} questions are not answered. They count as zero in the score._other": "{{count}} questions are not answered. They count as zero in the score.",
+    "{{count}} questions from across this course_one": "{{count}} question from across this course",
+    "{{count}} questions from across this course_other": "{{count}} questions from across this course",
     "{{count}} questions to come back to_one": "{{count}} question to come back to",
     "{{count}} questions to come back to_other": "{{count}} questions to come back to",
     "{{count}} questions were reworded, so you will be asked them again as if for the first time._one": "{{count}} question was reworded, so you will be asked it again as if for the first time.",
@@ -450,6 +452,8 @@ const enPlurals: Record<string, string> = {
     "You reviewed {{count}} flashcards_other": "You reviewed {{count}} flashcards",
     "You reviewed all {{length}} flashcards_one": "You reviewed {{length}} flashcard",
     "You reviewed all {{length}} flashcards_other": "You reviewed all {{length}} flashcards",
+    "Your exam is in {{count}} days_one": "Your exam is in {{count}} day",
+    "Your exam is in {{count}} days_other": "Your exam is in {{count}} days",
     "Your last {{n}} weeks. Use the arrow keys to read one week._one": "Your last {{n}} week. Use the arrow keys to read one week.",
     "Your last {{n}} weeks. Use the arrow keys to read one week._other": "Your last {{n}} weeks. Use the arrow keys to read one week.",
 };

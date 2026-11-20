@@ -18,6 +18,7 @@ import { formatOf } from '../answer/formats';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
+import { useStudyClock } from '../../hooks/useStudyClock';
 import { uiLocale } from '../../utils/locale';
 import { k } from '../../i18n';
 import { Row } from './MockExamView';
@@ -472,6 +473,10 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
 
     const paused = timed && !sitting.running;
 
+    // A test: the time on the question in front of the learner counts for its
+    // topic, from the open to the hand-in, and not while the clock is paused.
+    useStudyClock(q?.nodeId != null && !paused && !finishing ? { nodeId: q.nodeId, activity: 'checks' } : null, { layer: 'session' });
+
     const leave = async () => {
         setLeaving(true);
         if (!(await flush())) {
@@ -506,7 +511,7 @@ export function CourseMockScreen({ detail, onChange, onLeave }: {
         : null;
 
     const frame = (children: React.ReactNode, footer?: React.ReactNode) => (
-        <ExamFrame title={t("Mock exam from this course")} status={status} actions={pauseButton}
+        <ExamFrame title={detail.paper.lookBack ? t("Look back") : t("Mock exam from this course")} status={status} actions={pauseButton}
             onLeave={() => void leave()} leaving={leaving} footer={footer} frameRef={frameRef}>
             {children}
         </ExamFrame>
@@ -630,7 +635,9 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
     return (
         <div className="space-y-4">
             <div>
-                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t("Mock exam from this course, {{date}}", { date })}</h2>
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    {detail.paper.lookBack ? t("Look back, {{date}}", { date }) : t("Mock exam from this course, {{date}}", { date })}
+                </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {sitting.timeAllowed > 0
                         // The clock runs on past the time while late answers are given; the score stops at the time.
@@ -662,6 +669,10 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                                 total: result.total, low: result.spread.low, high: result.spread.high,
                             })}
                         </p>
+                    )}
+                    {/* What the look back does with a miss (server/fading.js SLIPPED_TOPIC). */}
+                    {detail.paper.lookBack && result.right < result.total && (
+                        <p>{t("The topics you missed come back as a question the next day you study.")}</p>
                     )}
                     {result.notGrade && (
                         <p className="text-slate-600 dark:text-slate-300">

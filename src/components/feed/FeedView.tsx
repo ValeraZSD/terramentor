@@ -1,7 +1,7 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, scopeKey } from '../../store';
 import {
-    FeedCard, FeedCheckpointCard, FeedFlashcardCard, FeedLessonCard,
+    FeedCard, FeedCheckpointCard, FeedFlashcardCard, FeedLessonCard, FeedLookBackCard,
     FeedNoticeCard, FeedPracticeCard, FeedQuestionCard, FeedRecallCard,
 } from '../../types';
 import FeedHeader from './FeedHeader';
@@ -12,6 +12,8 @@ import FlashcardFeedCard from './FlashcardFeedCard';
 import CheckpointCard from './CheckpointCard';
 import PracticeCard from './PracticeCard';
 import NoticeCard from './NoticeCard';
+import LookBackCard from './LookBackCard';
+import MockSittingScreen from '../mockExam/MockSittingScreen';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
 import AiSetupCard from './AiSetupCard';
@@ -43,7 +45,7 @@ import { motionReduced } from '../../utils/accessibility';
 
 /** Cards that belong to a topic's own narrative, so they group into a chapter. */
 type ChapterCard = FeedLessonCard | FeedQuestionCard | FeedCheckpointCard | FeedPracticeCard;
-type StandaloneCard = FeedFlashcardCard | FeedRecallCard | FeedNoticeCard;
+type StandaloneCard = FeedFlashcardCard | FeedRecallCard | FeedNoticeCard | FeedLookBackCard;
 
 type FeedGroup =
     | { type: 'chapter'; head: ChapterCard; cards: ChapterCard[]; continued: boolean }
@@ -262,6 +264,14 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
     // and kept as a KEY so a scroll that stays on one card renders nothing.
     const scrollerRef = useRef<HTMLDivElement | null>(null);
     const [clockKey, setClockKey] = useState('');
+
+    // A look back opened from its card (LookBackCard) runs in place of the
+    // stream, on the course mock's own screen, which keeps the clock itself;
+    // closing it reloads the stream, so the card is gone once it is finished
+    // and says Continue if it is not.
+    const [lookBack, setLookBack] = useState<{ sittingId: number; projectId: number } | null>(null);
+    const openLookBack = useCallback((sittingId: number, projectId: number) => setLookBack({ sittingId, projectId }), []);
+    const closeLookBack = useCallback(() => { setLookBack(null); void loadFeed(feedScope); }, [loadFeed, feedScope]);
     useEffect(() => {
         const scroller = scrollerRef.current;
         if (!scroller) { setClockKey(''); return; }
@@ -281,7 +291,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                 }
             }
             const activity = best ? feedCardActivity(best.kind) : null;
-            const nodeId = !best ? null : best.kind === 'flashcard' ? best.card.node_id : best.kind === 'notice' ? null : best.nodeId;
+            const nodeId = !best ? null : best.kind === 'flashcard' ? best.card.node_id : best.kind === 'notice' || best.kind === 'lookback' ? null : best.nodeId;
             setClockKey(activity && nodeId != null ? `${nodeId}|${activity}` : '');
         };
         const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
@@ -295,7 +305,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         };
     }, [feedCards, headerHeight]);
     const [clockNode, clockActivity] = clockKey.split('|');
-    useStudyClock(clockKey ? { nodeId: Number(clockNode), activity: clockActivity as StudyActivity } : null);
+    useStudyClock(clockKey && !lookBack ? { nodeId: Number(clockNode), activity: clockActivity as StudyActivity } : null);
 
     // First load (deep-link/refresh straight to '/' before applyRoute fired).
     // On the study page applyRoute loads the scoped stream itself.
@@ -386,6 +396,16 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
             </div>
         </div>
     ) : null;
+
+    if (lookBack) {
+        return (
+            <div className="h-full flex flex-col bg-slate-100 dark:bg-slate-900">
+                <ContentLang projectId={lookBack.projectId}>
+                    <MockSittingScreen sittingId={lookBack.sittingId} onClose={closeLookBack} />
+                </ContentLang>
+            </div>
+        );
+    }
 
     if ((feedLoading && feedCards.length === 0) || (scoped && !scopeMatches)) {
         return (
@@ -558,7 +578,13 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
                             <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                             <span>
-                                {tr("Recall: what you haven't practiced in a while")}
+                                {/* A topic missed on a look back is back the next day, not
+                                    after a while: the header says which kind the round holds. */}
+                                {group.cards.every(c => c.slipped)
+                                    ? tr("Recall: from your look back")
+                                    : group.cards.some(c => c.slipped)
+                                        ? tr("Recall: from your look back and earlier topics")
+                                        : tr("Recall: what you haven't practiced in a while")}
                                 <span className="block font-normal text-slate-600 dark:text-slate-400">
                                     {tr("{{count}} questions", { count: group.cards.length })}
                                 </span>
@@ -573,7 +599,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                                     style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
                                     className="outline-none"
                                 >
-                                    {renderStandalone(card, !!feedDone[card.key], handleDone)}
+                                    {renderStandalone(card, !!feedDone[card.key], handleDone, openLookBack)}
                                 </div>
                             ))}
                         </div>
@@ -591,7 +617,7 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
                         className="outline-none"
                     >
-                        {renderStandalone(group.card, !!feedDone[group.card.key], handleDone)}
+                        {renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)}
                     </div>
                 ))}
                 {roundAt < 0 && <div ref={sentinelRef} aria-hidden="true" />}
@@ -694,12 +720,14 @@ function chapterCard(card: ChapterCard, done: boolean, onDone: (key: string) => 
     }
 }
 
-function renderStandalone(card: StandaloneCard, done: boolean, onDone: (key: string) => void) {
+type OpenLookBack = (sittingId: number, projectId: number) => void;
+
+function renderStandalone(card: StandaloneCard, done: boolean, onDone: (key: string) => void, onOpenLookBack: OpenLookBack) {
     const projectId = card.kind === 'flashcard' ? card.card.project_id : 'projectId' in card ? card.projectId : null;
-    return <ContentLang projectId={projectId}>{standaloneCard(card, done, onDone)}</ContentLang>;
+    return <ContentLang projectId={projectId}>{standaloneCard(card, done, onDone, onOpenLookBack)}</ContentLang>;
 }
 
-function standaloneCard(card: StandaloneCard, done: boolean, onDone: (key: string) => void) {
+function standaloneCard(card: StandaloneCard, done: boolean, onDone: (key: string) => void, onOpenLookBack: OpenLookBack) {
     switch (card.kind) {
         case 'flashcard':
             return <FlashcardFeedCard card={card} done={done} onDone={onDone} />;
@@ -707,5 +735,7 @@ function standaloneCard(card: StandaloneCard, done: boolean, onDone: (key: strin
             return <QuestionCard card={card} done={done} onDone={onDone} />;
         case 'notice':
             return <NoticeCard card={card} />;
+        case 'lookback':
+            return <LookBackCard card={card} done={done} onDone={onDone} onOpen={onOpenLookBack} />;
     }
 }
