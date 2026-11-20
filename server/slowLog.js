@@ -63,10 +63,16 @@ export function requestsDuring(from, to, list = recent) {
  * disk is slow to answer, or by memory Windows paged out while the app sat
  * idle, burns almost none. The two need different fixes, and the bare
  * duration cannot tell them apart. Pure, for the gate.
+ *
+ * `cpuMs` is read once per tick, so it covers the whole time since the last
+ * tick (`windowMs`: the sample period plus the lag), and it is weighed against
+ * that same time: against the lag alone, 450 ms of work then 550 ms of waiting
+ * read as computing.
  */
-export function stallKind(lagMs, cpuMs) {
-    if (cpuMs >= lagMs * 0.6) return 'busy';
-    if (cpuMs <= lagMs * 0.3) return 'waiting';
+export function stallKind(lagMs, cpuMs, windowMs = lagMs) {
+    const span = Math.max(lagMs, windowMs);
+    if (cpuMs >= span * 0.6) return 'busy';
+    if (cpuMs <= span * 0.3) return 'waiting';
     return 'mixed';
 }
 
@@ -77,9 +83,9 @@ const KIND_TEXT = {
 };
 
 /** One [Stall] line. Pure, for the gate. */
-export function stallLine({ at, lagMs, cpuMs, during }) {
+export function stallLine({ at, lagMs, cpuMs, windowMs = lagMs, during }) {
     const what = during.length ? ` during ${during.join(', ')}` : ' with no request in flight';
-    return `[Stall] ${at} the event loop was blocked for ${lagMs}ms (CPU ${cpuMs} ms, ${KIND_TEXT[stallKind(lagMs, cpuMs)]})${what}`;
+    return `[Stall] ${at} the event loop was blocked for ${lagMs}ms (CPU ${cpuMs} ms, ${KIND_TEXT[stallKind(lagMs, cpuMs, windowMs)]})${what}`;
 }
 
 /**
@@ -132,6 +138,7 @@ export function startEventLoopMonitor() {
     // "computing". (process.cpuUsage where the per-thread call is missing.)
     const usage = typeof process.threadCpuUsage === 'function' ? () => process.threadCpuUsage() : () => process.cpuUsage();
     let lastCpu = usage();
+    let lastTick = Date.now();
     const timer = setInterval(() => {
         const now = Date.now();
         const lag = now - expected;
@@ -139,13 +146,15 @@ export function startEventLoopMonitor() {
         const at = usage();
         const cpu = { user: at.user - lastCpu.user, system: at.system - lastCpu.system };
         lastCpu = at;
+        const windowMs = now - lastTick;
+        lastTick = now;
         if (lag < LOOP_LAG_MS) return;
         // What was in flight matters more than the number: the point of the line
         // is to name the suspect, and a stall with a task running reads very
         // differently from one with the process apparently idle. The CPU spent
         // says whether the thread was working or waiting (stallKind).
         console.warn(stallLine({
-            at: stamp(), lagMs: lag, cpuMs: Math.round((cpu.user + cpu.system) / 1000),
+            at: stamp(), lagMs: lag, cpuMs: Math.round((cpu.user + cpu.system) / 1000), windowMs,
             during: requestsDuring(now - lag - LAG_SAMPLE_MS, now),
         }));
     }, LAG_SAMPLE_MS);

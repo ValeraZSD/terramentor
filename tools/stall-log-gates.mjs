@@ -26,6 +26,12 @@ check('60% of the stall in CPU still counts as computing', stallKind(1000, 600),
 check('the measured field case (656 ms CPU in 16.9 s) is waiting', stallKind(16911, 656), 'waiting');
 check('30% is still waiting', stallKind(1000, 300), 'waiting');
 check('between the two is said as mixed', stallKind(1000, 450), 'mixed');
+// The CPU is read once per tick, so it covers the sample period plus the lag:
+// 450 ms of work then 550 ms of waiting is a 500 ms lag in a 1000 ms window.
+check('450 ms computing then 550 ms waiting is not "computing"', stallKind(500, 450, 1000), 'mixed');
+check('…and the line says so, with the lag as the number', stallLine({ at: 'x', lagMs: 500, cpuMs: 450, windowMs: 1000, during: [] }),
+    '[Stall] x the event loop was blocked for 500ms (CPU 450 ms, partly computing, partly waiting) with no request in flight');
+check('a whole window of work is still computing', stallKind(500, 980, 1000), 'busy');
 
 // --- what was in flight -------------------------------------------------------
 const list = [
