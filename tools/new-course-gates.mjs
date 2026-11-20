@@ -459,10 +459,12 @@ try {
     await settle();
     ok('a plain open asks first: create a course, or import one', (buttons().some(b => b.textContent.includes('Create a course')) && buttons().some(b => b.textContent.includes('Import a course'))), all().textContent.slice(0, 300));
     ok('the choice comes before the form: no Name field yet', !nameField());
+    ok('the first step has no way back', !buttonNamed('Back'));
     act(() => r.unmount());
     await act(async () => { r = mountModal(el, { name: 'Knots', description: '', color: '', icon: '', language: '', documents: [] }); });
     await settle();
     ok('a handed-back form opens on the form itself', nameField()?.value === 'Knots', nameField()?.value);
+    ok('…with its ← drawn, and the focus not on it', !!buttonNamed('Back') && focused() !== buttonNamed('Back'), focused()?.outerHTML?.slice(0, 120));
     act(() => r.unmount());
 
     await act(async () => { r = mountModal(el, null); });
@@ -471,8 +473,23 @@ try {
     if (create) { await act(async () => { create.focus(); }); await click(create); }
     ok('Create a course opens one form with a material field', !!nameField() && !!linkField(), all().textContent.slice(0, 300));
     ok('the focus moves into the form, not onto the page', focused() !== w.document.body && !!focused()?.closest('[role="dialog"]'), focused()?.outerHTML?.slice(0, 120));
+    // In the head, before the title: a row of its own in the body held one
+    // small button.
+    const backHead = buttonNamed('Back')?.parentElement;
+    const head = backHead?.closest('.border-b');
+    ok('past the choice, Back is a ← before the title', backHead?.querySelector('h2')?.textContent === 'New course' && !!head && !head.contains(nameField()) && !buttonNamed('Back').textContent.trim(), backHead?.outerHTML?.slice(0, 160));
     await press('Back');
     ok('Back puts the focus on the first choice', !!focused()?.hasAttribute?.('data-tile') && focused().textContent.includes('Create a course'), focused()?.outerHTML?.slice(0, 120));
+    // The chatbot view is reached from Import, so its ← goes back there, then
+    // to the choice.
+    const imp = buttons().find(b => b.textContent.includes('Import a course'));
+    if (imp) await click(imp);
+    const chatbot = buttons().find(b => b.textContent.includes('Or make a course with an external chatbot'));
+    if (chatbot) await click(chatbot);
+    const onChatbot = all().textContent.includes('Make a course with an external chatbot');
+    await press('Back');
+    ok('the chatbot view\'s ← goes to Import, not to the choice', onChatbot && !!buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')) && !!buttonNamed('Back'), all().textContent.slice(0, 200));
+    await press('Back');
     const again = buttons().find(b => b.textContent.includes('Create a course'));
     if (again) await click(again);
 

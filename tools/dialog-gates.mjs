@@ -543,7 +543,9 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     renderModal(true, { closeButton: false });
     const dlg = doc.querySelector('[role="dialog"]');
     check('no "Close dialog" button in its head', !!dlg && !dlg.querySelector('button[aria-label="Close dialog"]'));
-    const spacer = dlg?.querySelector('h2 + span[aria-hidden="true"]');
+    // The ✕'s place is the head's last child (the title, and a ← when there is
+    // one, sit together before it).
+    const spacer = dlg?.querySelector('h2')?.parentElement?.nextElementSibling;
     const spacerClasses = spacer ? spacer.className.split(/\s+/).filter(Boolean) : [];
     const before = closes;
     press('Escape');
@@ -556,7 +558,8 @@ section('a dialog whose foot holds its Close draws no ✕, and still closes');
     // height and the title's width stay put when the ✕ comes and goes.
     const xClasses = new Set(xButton ? xButton.className.split(/\s+/) : []);
     check('without the ✕ its place keeps the ✕\'s box (size classes and margin)',
-        ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
+        spacer?.tagName === 'SPAN' && spacer.getAttribute('aria-hidden') === 'true'
+            && ['h-8', 'w-8', '-mr-1.5'].every(c => spacerClasses.includes(c)) && spacerClasses.every(c => c === 'shrink-0' || xClasses.has(c)),
         `spacer "${spacerClasses.join(' ')}"`);
     renderModal(false);
     const run = read('src/components/creation/CreationRunView.tsx');

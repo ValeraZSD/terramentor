@@ -21,7 +21,7 @@
 // box of fixed size (`COURSE_DIALOG_SIZE`). Appearance is a single tile rather
 // than a set of open controls beside the form.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
-import { ArrowLeft, ChevronRight, FileInput, Link2, MessageSquare, PenLine } from 'lucide-react';
+import { ChevronRight, FileInput, Link2, MessageSquare, PenLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { api } from '../api';
@@ -75,6 +75,9 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
     // The first step, two tiles, takes the height it needs; the form and the
     // run that replaces it in place share the fixed box.
     const [choosing, setChoosing] = useState(!draft);
+    // Where the title's ← goes, set by the step on show; none on the first.
+    const [back, setBack] = useState<(() => void) | null>(null);
+    const onBack = useCallback((to: (() => void) | null) => setBack(() => to), []);
     // Always the FORM: a creation in progress has its own screen
     // (creation/CreationRunView), so this dialog never turns into one and
     // never stands between the reader and a new project.
@@ -82,8 +85,8 @@ export default function NewProjectModal({ isOpen, draft, onClose }: {
         // "New course": every line in the dialog says course (Course material,
         // Import a course, Lessons…), so the title says it too.
         <Modal isOpen={isOpen} onClose={cancel} title={t("New course")} maxWidth={COURSE_DIALOG_SIZE.maxWidth}
-            className={choosing ? '' : COURSE_DIALOG_SIZE.className} fill>
-            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} onChoosing={setChoosing} />
+            className={choosing ? '' : COURSE_DIALOG_SIZE.className} fill onBack={back ?? undefined}>
+            <NewProjectForm draft={draft} onClose={onClose} onCancel={cancel} release={release} onChoosing={setChoosing} onBack={onBack} />
         </Modal>
     );
 }
@@ -118,10 +121,12 @@ function Choice({ icon, title, line, onClick }: { icon: ReactNode; title: string
     );
 }
 
-function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
+function NewProjectForm({ draft, onClose, onCancel, release, onChoosing, onBack }: {
     draft: CreationInput | null;
     /** Whether the first step (create or import) is showing. */
     onChoosing: (choosing: boolean) => void;
+    /** What the title's ← does on this step; null on the first. */
+    onBack: (to: (() => void) | null) => void;
     /** Closes after a Create: the files went with it. */
     onClose: () => void;
     /** Closes and lets the staged files go. */
@@ -368,11 +373,19 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     };
 
     const bodyRef = useRef<HTMLDivElement>(null);
-    // A tile or Back unmounts the button that had the focus: move it into the
+    // A tile or the title's ← changes the view under the focus: move it into the
     // view that replaced it, the way the dialog's own open does
     // (`useDialogFocus`), or a keyboard or a screen reader is left on the page.
     const moved = useRef(false);
     const go = (mode: typeof createMode) => { moved.current = true; setCreateMode(mode); };
+    // Past the first choice, the title's ← says how to come back. The chatbot
+    // view is reached FROM the import view, so its ← goes there. Before paint,
+    // with the height (`onChoosing`), so the head never shows the old step's.
+    useLayoutEffect(() => {
+        onBack(createMode === 'choose' ? null : () => go(createMode === 'external' ? 'import' : 'choose'));
+        // `go` only sets state and a ref.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [createMode, onBack]);
     useEffect(() => {
         const box = bodyRef.current;
         if (!moved.current || !box) return;
@@ -486,23 +499,13 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
                 there is more (at 1280x800 the file list runs under the foot). */}
             <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col">
             <ScrollShade frameClassName="flex min-h-0 flex-1 flex-col" className="min-h-0 flex-1 px-6 py-4">
-                {/* Past the first choice, every view says how to come back. */}
-                {createMode !== 'choose' && (
-                    <div className="mb-4">
-                        {/* The chatbot view is reached FROM the import view, so
-                            its Back goes there. */}
-                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => go(createMode === 'external' ? 'import' : 'choose')} className="-ml-2">
-                            {t("Back")}
-                        </Button>
-                        {/* The chatbot view names itself; the import view's own
-                            zone already says what it takes, and a heading over
-                            it said the same thing twice. */}
-                        {createMode === 'external' && (
-                            <h3 className="mt-2 text-base font-semibold text-slate-900 dark:text-white">
-                                {t("Make a course with an external chatbot")}
-                            </h3>
-                        )}
-                    </div>
+                {/* The chatbot view names itself; the import view's own zone
+                    already says what it takes, and a heading over it said the
+                    same thing twice. */}
+                {createMode === 'external' && (
+                    <h3 className="mb-4 text-base font-semibold text-slate-900 dark:text-white">
+                        {t("Make a course with an external chatbot")}
+                    </h3>
                 )}
 
                 <div>
