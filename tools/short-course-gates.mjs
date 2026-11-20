@@ -1170,7 +1170,7 @@ ok('the assistant is told a short course is being written, not where from (a tit
 {
     const readerSource = readFileSync(join(ROOT, 'server/linkReader.js'), 'utf8').replace(/\r\n/g, '\n');
     const pageFetch = readerSource.match(/async function readPage[\s\S]*?fetchImpl\(link\.url, \{([\s\S]*?)\n {8}\}\);/)?.[1] ?? '';
-    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a short course's link[\s\S]*?\n\n/)?.[0] ?? '';
+    const capture = readFileSync(join(ROOT, 'SECURITY.md'), 'utf8').replace(/\r\n/g, '\n').match(/Reading a link added as course material[\s\S]*?\n\n/)?.[0] ?? '';
     ok('the traffic check names where a short course\'s redirects go and that each hop is a request',
         pageFetch !== '' && (/allowRedirect/.test(pageFetch) || (/redirect/i.test(capture) && /hop/i.test(capture))), capture);
 }
