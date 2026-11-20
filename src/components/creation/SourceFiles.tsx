@@ -71,9 +71,9 @@ const LINKISH = /^(?:https?:\/\/|www\.)\S+$|^[a-z0-9-]+(?:\.[a-z0-9-]+)+\/\S*$/i
  *  around it dropped, a closing bracket kept when the link opened it
  *  (`wiki/Mercury_(planet)`). */
 const linkWord = (word: string): string => {
-    let w = word.replace(/^[(<["']+/, '');
+    let w = word.replace(/^[(<["'«“„‘]+/, '');
     for (;;) {
-        const cut = w.replace(/[>\]"',.;:!?]+$/, '');
+        const cut = w.replace(/[>\]"'»”’,.;:!?]+$/, '');
         const close = cut.endsWith(')') && cut.split(')').length > cut.split('(').length;
         const next = close ? cut.slice(0, -1) : cut;
         if (next === w) return w;
