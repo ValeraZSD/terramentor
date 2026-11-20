@@ -1109,9 +1109,9 @@ node tools/contrast-audit.mjs
 ### 12.1 The activity log (`server/activityLog.js`)
 
 A local record of what the app DID: model calls, background jobs, projects created
-or deleted. **Metadata only**: no titles, prompts, notes or model output, which is
-what makes the file safe to hand to someone helping you debug; ids travel as ids
-and a project's name is looked up only on the way to the screen. A ring buffer of
+or deleted. **Metadata only**: no titles, prompts, notes or model output; ids travel
+as ids and a project's name is looked up only on the way to the screen. The download
+also says how much and when you studied (below), so read it before choosing who gets it. A ring buffer of
 `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
 switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in

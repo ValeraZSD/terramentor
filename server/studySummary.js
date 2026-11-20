@@ -125,7 +125,8 @@ export function studySummary({ now = Date.now(), timeZone = learnerTimeZone() } 
         const firstWeek = mondayOf(dates[0]);
         const floor = addDays(thisWeek, -7 * (MAX_WEEKS - 1));
         weeksCut = firstWeek < floor;
-        let week = weeksCut ? floor : firstWeek;
+        // Rows that all lie after this week fold into it, so it still starts here.
+        let week = weeksCut ? floor : (firstWeek > thisWeek ? thisWeek : firstWeek);
         const byWeek = new Map();
         for (const date of dates) {
             // A day after this week (a clock flush near midnight, a restored
