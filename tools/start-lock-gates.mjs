@@ -325,9 +325,22 @@ try {
             p.done = new Promise((res) => c.on('close', (code) => { p.exited = code; res(code); }));
             return p;
         };
+        // This process holds the library's start lock first, as a start in
+        // progress, and lets go only once both launchers say they are waiting
+        // for it. Started bare, the two raced on runner speed: on a slow runner
+        // one booted after the other already served, so it never waited.
+        const waitLine = /waiting for it instead of starting a second server/;
+        const held = claimStartLock(lockIn(dataDir));
         const a = run();
         const b = run();
         const deadline = Date.now() + 120_000;
+        while (Date.now() < deadline && ![a, b].every((p) => waitLine.test(p.out) || /Serving at /.test(p.out) || p.exited !== null)) {
+            await new Promise((r) => setTimeout(r, 100));
+        }
+        const bothWaited = [a, b].map((p) => waitLine.test(p.out));
+        const startedBeside = [a, b].some((p) => /Serving at /.test(p.out));
+        releaseStartLock(lockIn(dataDir), held.token);
+        check('two launchers, while another start holds the library: both wait, neither serves', [held.claimed, bothWaited, startedBeside], [true, [true, true], false]);
         const serving = () => [a, b].filter((p) => /Serving at /.test(p.out));
         // Wait until one serves and the other has left.
         while (Date.now() < deadline && !(serving().length >= 1 && [a, b].some((p) => p.exited !== null))) {
@@ -336,8 +349,7 @@ try {
         await new Promise((r) => setTimeout(r, 1500)); // a second server would have printed by now
         const servers = serving();
         const other = [a, b].find((p) => !servers.includes(p));
-        check('two launchers started at once on one library: one server', servers.length, 1);
-        check('…the other waited for that start', /waiting for it instead of starting a second server/.test(other?.out || ''), true);
+        check('…then one of them serves: one server', servers.length, 1);
         check('…found it and left', [/already running on port/.test(other?.out || ''), other?.exited], [true, 0]);
         if (servers.length === 0 || failures) console.log(`--- launcher A ---\n${a.out}\n--- launcher B ---\n${b.out}`);
         const url = servers[0]?.out.match(/Serving at (\S+)/)?.[1];
