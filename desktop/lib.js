@@ -734,7 +734,7 @@ const psValue = (s) => `([Text.Encoding]::UTF8.GetString([Convert]::FromBase64St
  *  `$env:APPDATA`-relative folder it goes in — Start Menu or Startup — because
  *  a .lnk is a COM object and only PowerShell can make one here. Deleting one
  *  needs no script, so there is no counterpart. */
-export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME }) {
+export function shortcutScript({ shellFolder, target, workingDir, icon, args = '', name = APP_NAME, report = false }) {
     return [
         '$ErrorActionPreference = "Stop"',
         `$dir = Join-Path $env:APPDATA ${psValue(shellFolder)}`,
@@ -757,7 +757,23 @@ export function shortcutScript({ shellFolder, target, workingDir, icon, args = '
         '$s.WindowStyle = 7',
         `$s.Description = ${psValue(DESCRIPTION)}`,
         '$s.Save()',
+        // `report`: print what this shortcut object now holds (Windows may have
+        // changed characters on the way in), base64 so no console code page can
+        // touch it. From this object, never by reading the file back: another
+        // library may write the same file in between (savedShortcutRecord).
+        report ? '$saved = [ordered]@{ arguments = [string]$s.Arguments; workingDir = [string]$s.WorkingDirectory } | ConvertTo-Json -Compress' : null,
+        report ? '[Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($saved)))' : null,
     ].filter(Boolean).join('\n');
+}
+
+/** The record a reporting shortcutScript printed, or null. */
+export function savedShortcutRecord(stdout) {
+    try {
+        const fields = JSON.parse(Buffer.from(String(stdout).trim(), 'base64').toString('utf8'));
+        return typeof fields?.arguments === 'string' && typeof fields?.workingDir === 'string' ? shortcutRecord(fields) : null;
+    } catch {
+        return null;
+    }
 }
 
 export const START_MENU_FOLDER = 'Microsoft\\Windows\\Start Menu\\Programs';
@@ -979,12 +995,14 @@ export function autostartPlan({ platform = process.platform, target, args = [], 
         // Quoting each argument: a packaged copy can sit under
         // "C:\Program Files" and an unquoted path stops at the space.
         const line = args.map(windowsArg).join(' ');
-        const dir = workingDir || dirname(target);
+        // win32.dirname, not this machine's: on Linux `dirname('C:\\A\\x.exe')`
+        // is '.', and every copy's plan would name the same folder.
+        const dir = workingDir || win32.dirname(target);
         return {
             supported: true,
             kind: 'shortcut',
             path: at(appData, STARTUP_FOLDER, `${name}.lnk`),
-            script: shortcutScript({ shellFolder: STARTUP_FOLDER, target, workingDir: dir, icon, name, args: line }),
+            script: shortcutScript({ shellFolder: STARTUP_FOLDER, target, workingDir: dir, icon, name, args: line, report: true }),
             record: shortcutRecord({ arguments: line, workingDir: dir }),
         };
     }
@@ -1200,11 +1218,14 @@ export function sameLibrary(a, b, platform = process.platform) {
  * - With no marker (an item from before markers, or a marker from before
  *   shortcut records, which held the script), the item is this library's when
  *   its own `--data-dir` is this library — the whole path, not a prefix — or
- *   when neither names one.
+ *   when neither names one. An item that names none (written before the flag
+ *   was pinned) opens whatever a start with no flag resolves: `unpinnedDir`,
+ *   which the launcher works out the same way it would at sign-in. It is
+ *   this library's when that is.
  * - A removed item is never put back, and an item that cannot be read is
  *   nobody's to judge.
  */
-export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, platform = process.platform }) {
+export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, unpinnedDir = null, platform = process.platform }) {
     if (!exists || current == null || wanted == null || current === wanted) return 'none';
     if (kind === 'shortcut' && marker != null) {
         // Markers written before shortcut records hold the PowerShell script:
@@ -1218,7 +1239,11 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
     }
     if (marker != null) return current === marker ? 'rewrite' : 'none';
     const args = loginItemArgs(kind, current);
-    return args && sameLibrary(dataDirOf(args), dataDir, platform) ? 'rewrite' : 'none';
+    if (!args) return 'none';
+    const named = dataDirOf(args);
+    if (named == null && dataDir == null) return 'rewrite';
+    const opens = named ?? unpinnedDir;
+    return opens != null && sameLibrary(opens, dataDir, platform) ? 'rewrite' : 'none';
 }
 
 /** The marker a shortcut write leaves: what was asked for, and what the file

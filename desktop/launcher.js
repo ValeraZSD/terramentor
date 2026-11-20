@@ -144,6 +144,12 @@ const launch = launchCommand({
 for (const name of ['TERRAMENTOR_LAUNCH_TARGET', 'TERRAMENTOR_LAUNCH_ARGS']) delete process.env[name];
 Object.assign(process.env, launchTargetEnv(launch, placement));
 process.env.TERRAMENTOR_LAUNCH_DIR = appRoot;
+// The library a login item WITHOUT --data-dir opens at sign-in (one written
+// before the flag was pinned): what this copy resolves with no flag and no
+// DATA_DIR. The server's login-item refresh (desktop/lib.js loginItemRefresh)
+// owns such an item only when that is its own library.
+process.env.TERRAMENTOR_LAUNCH_UNPINNED_LIBRARY = chooseDataDir({ appRoot, packaged, platform: process.platform, env: process.env }).dir
+    || resolveDataPaths({ env: {} }).dataDir;
 {
     const ico = join(appRoot, `${APP_NAME}.ico`);
     if (existsSync(ico)) process.env.TERRAMENTOR_LAUNCH_ICON = ico;

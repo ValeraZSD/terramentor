@@ -941,7 +941,7 @@ console.log('\n--- the log file and the shortcut ---');
     const A = 'C:\\Users\\u\\Terramentor-data', B = 'D:\\Libraries\\Second';
     const shortcut = { kind: 'shortcut', platform: 'win32', exists: true, wanted: win(NEW, A), dataDir: A };
     const mine = L.shortcutMarker?.(win(OLD, A), win(OLD, A));
-    check('shortcut: this library wrote it and the app moved: rewritten',refresh({ ...shortcut, marker: mine, current: win(OLD, A) }), 'rewrite');
+    check('shortcut: this library wrote it and the app moved: rewritten', refresh({ ...shortcut, marker: mine, current: win(OLD, A) }), 'rewrite');
     check('shortcut: already what this copy writes: left', refresh({ ...shortcut, marker: mine, current: win(NEW, A) }), 'none');
     // Library B rewrote the shared shortcut after A did, at any moment — the
     // same second included: it is B's, whatever the file times say.
@@ -961,11 +961,19 @@ console.log('\n--- the log file and the shortcut ---');
     const asked = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\café --autostart', workingDir: OLD });
     check('shortcut Windows stored differently, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
     check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
-    check('shortcut, older marker (a script), naming this library: rewritten',refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
+    check('shortcut, older marker (a script), naming this library: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
     check('shortcut, older marker (a script), naming another library: left', refresh({ ...shortcut, marker: script, current: win(OLD, B) }), 'none');
     check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
     check('shortcut, no marker, a library whose path starts with this one: left', refresh({ ...shortcut, current: win(OLD, `${A}-old`) }), 'none');
     check('shortcut, no marker, the default library while this one is named: left', refresh({ ...shortcut, current: win(OLD, null) }), 'none');
+    // An item written before --data-dir was pinned opens whatever a start with
+    // no flag resolves; the launcher says what that is (unpinnedDir).
+    check('shortcut naming no library, which opens this one: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedDir: A.toLowerCase() }), 'rewrite');
+    check('shortcut naming no library, which opens another one: left', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedDir: B }), 'none');
+    // The working folder is the app's folder whatever machine builds the plan:
+    // on Linux a host dirname turned every copy's into '.', so an update
+    // looked like no change at all.
+    check('a Windows plan names its app folder on any machine', JSON.parse(win(OLD, A)).workingDir, OLD);
 
     const plist = { kind: 'plist', platform: 'darwin', exists: true, wanted: mac('/Apps/new', '/lib/a'), dataDir: '/lib/a' };
     check('plist still as this library wrote it: rewritten', refresh({ ...plist, marker: mac('/Apps/old', '/lib/a'), current: mac('/Apps/old', '/lib/a') }), 'rewrite');
@@ -975,6 +983,7 @@ console.log('\n--- the log file and the shortcut ---');
     check('plist from before markers, this library with a trailing slash: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a/') }), 'rewrite');
     check('plist for the default library, server on a named one: left', refresh({ ...plist, current: mac('/Apps/old', null) }), 'none');
     check('plist where neither names a library: adopted', refresh({ ...plist, wanted: mac('/Apps/new', null), dataDir: null, current: mac('/Apps/old', null) }), 'rewrite');
+    check('plist naming no library, which opens this one: adopted', refresh({ ...plist, current: mac('/Apps/old', null), unpinnedDir: '/lib/a/' }), 'rewrite');
 
     const odd = '/home/u/My "Study" & <notes> 100% $HOME `x` \\ end';
     const entry = { kind: 'desktop-entry', platform: 'linux', exists: true, wanted: xdg('/opt/new app', odd), dataDir: odd };
@@ -986,7 +995,7 @@ console.log('\n--- the log file and the shortcut ---');
     const awkward = ['C:\\Program Files\\Terra mentor\\', 'a"b', 'end\\\\', 'tab\there', '', 'plain', 'x\\"y', '\\\\server\\share\\lib'];
     check('windowsArgs reads back what windowsArg wrote', L.windowsArgs?.(awkward.map(L.windowsArg).join(' ')), awkward);
     const posixAwkward = [odd, '50% off', 'semi;colon', "it's", '~/home', 'a  b'];
-    check('a .desktop Exec line reads back to its arguments',L.loginItemArgs?.('desktop-entry', L.autostartPlan({ platform: 'linux', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
+    check('a .desktop Exec line reads back to its arguments', L.loginItemArgs?.('desktop-entry', L.autostartPlan({ platform: 'linux', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
     check('a plist reads back to its arguments', L.loginItemArgs?.('plist', L.autostartPlan({ platform: 'darwin', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
     check('the library is the value after --data-dir, never a prefix', [L.dataDirOf?.(['x', '--data-dir', '/a']), L.dataDirOf?.(['x']), L.sameLibrary?.('/lib/a', '/lib/ab', 'linux')], ['/a', null, false]);
 
@@ -1001,7 +1010,7 @@ console.log('\n--- the log file and the shortcut ---');
             const made = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps],
                 { env: { ...process.env, APPDATA: scratchLnk }, windowsHide: true, encoding: 'utf8' });
             const fields = made.status === 0 && existsSync(plan.path) ? L.readShortcut?.(readFileSync(plan.path)) : null;
-            return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null };
+            return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
         };
         try {
             // Characters every code page has: Windows stores them as given.
@@ -1009,13 +1018,15 @@ console.log('\n--- the log file and the shortcut ---');
             check('Windows wrote the scratch shortcut', plain.status, 0);
             check('the .lnk reader sees what the plan asked for', plain.holds, plain.plan.record);
             check('…and the library in it', plain.holds && L.dataDirOf(L.windowsArgs(JSON.parse(plain.holds).arguments)), 'C:\\Users\\u\\My "library"\\');
+            check('the writing script reports what the file holds', plain.printed, plain.holds);
             // Characters some code pages lack may come back changed; whatever
             // Windows kept, the next start of the same copy leaves it alone.
             const wide = write('C:\\Apps\\Терра mentor é\\Terramentor.exe', 'C:\\Users\\u\\Мой café');
             check('a shortcut Windows may store differently is left alone by the same copy', refresh({
                 kind: 'shortcut', platform: 'win32', exists: true, dataDir: 'C:\\Users\\u\\Мой café',
-                wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.holds),
+                wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.printed),
             }), 'none');
+            check('…its report matching the file, changed characters and all', wide.printed, wide.holds);
         } finally {
             rmSync(scratchLnk, { recursive: true, force: true });
         }

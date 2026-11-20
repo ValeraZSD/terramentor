@@ -155,16 +155,21 @@ function setStartAtLogin(on, marker = null) {
         writeFileSync(file, autostart.script, 'utf8');
         const child = spawn('powershell.exe',
             ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file],
-            { stdio: 'ignore', windowsHide: true });
-        const { path: lnk, record: wrote } = autostart;
-        child.on('exit', (code) => {
+            { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+        const wrote = autostart.record;
+        let printed = '';
+        child.stdout.on('data', (b) => { printed += b; });
+        child.on('close', (code) => {
             try { rmSync(file, { force: true }); } catch { /* temp */ }
             if (code !== 0 || !marker) return;
-            // What was asked for, and what the file Windows wrote holds: the two
-            // can differ (see loginItemRefresh), and a later start needs both.
-            const fields = desktopLib?.readShortcut(readOrNull(lnk));
+            // What was asked for, and what the shortcut Windows saved holds: the
+            // two can differ (see loginItemRefresh), and a later start needs
+            // both. The saved half is what this write's own PowerShell printed,
+            // never the shared file read back afterwards, which another
+            // library may have rewritten by then.
+            const holds = desktopLib?.savedShortcutRecord(printed);
             try {
-                if (fields) writeFileSync(marker, desktopLib.shortcutMarker(wrote, desktopLib.shortcutRecord(fields)), 'utf8');
+                if (holds) writeFileSync(marker, desktopLib.shortcutMarker(wrote, holds), 'utf8');
                 else rmSync(marker, { force: true });
             } catch { /* the item then counts as unmarked: owned by its --data-dir */ }
         });
@@ -190,6 +195,7 @@ function refreshLoginItem(marker, dataDir) {
         wanted: shortcut ? autostart.record : autostart.contents,
         marker: readOrNull(marker, 'utf8'),
         dataDir,
+        unpinnedDir: process.env.TERRAMENTOR_LAUNCH_UNPINNED_LIBRARY || null,
     });
     if (action === 'rewrite') setStartAtLogin(true, marker);
 }
