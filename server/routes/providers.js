@@ -2,7 +2,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import db from '../database.js';
 import {
-    apiKeyOriginOf, checkOllamaHealth, clearActiveKey, deleteModel, getAISettings,
+    apiKeyOriginOf, statusHealth, clearActiveKey, deleteModel, getAISettings,
     getInstalledModels, modelEndpointPath, normalizeOpenAIBaseUrl, pullModel, saveActiveKey, servingEndpointRows,
 } from '../ai.js';
 import {
@@ -76,7 +76,7 @@ app.get('/api/ai/status', wrap(async (req, res) => {
     // Never echo the API key (it may come from .env, not just the settings the
     // client already knows) — expose only whether one is configured.
     const { apiKey, ...settings } = getAISettings();
-    const health = await checkOllamaHealth();
+    const health = await statusHealth(undefined, { fresh: req.query.fresh === '1' });
     // A ChatGPT plan has a sign-in, not a key; to everything that asks "can
     // this app reach a hosted model", the two are the same answer.
     const hasApiKey = !!apiKey || (settings.apiFormat === 'chatgpt' && hasPlanSignIn(settings.connectionId));

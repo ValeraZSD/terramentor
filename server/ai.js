@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { Ollama } from './ollamaClient.js';
 import db from './database.js';
 import { mediaContextForNode } from './mediaContext.js';
@@ -1288,6 +1289,47 @@ export async function checkOllamaHealth(settings = getAISettings()) {
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+/**
+ * `checkOllamaHealth` for the status panel, remembered briefly.
+ *
+ * The assistant asks for the status when it opens, every minute, and when each
+ * answer starts and ends, and each ask listed the provider's models over the
+ * network (several hundred entries from a hosted router). Callers that ask at
+ * the same time share one check; a reachable answer is kept for HEALTH_OK_MS
+ * and an unreachable one for HEALTH_FAIL_MS only, so "start the server, press
+ * retry" is answered fresh, and an explicit check (`fresh`, the settings
+ * panel's button) always asks. Any change to the AI settings (address, key,
+ * provider, model) is a different question and is checked at once. Course
+ * creation keeps calling `checkOllamaHealth` directly, which is never cached.
+ */
+export const HEALTH_OK_MS = 30_000;
+export const HEALTH_FAIL_MS = 2_000;
+let healthMemo = null;
+export function statusHealth(settings = getAISettings(), { check = checkOllamaHealth, now = Date.now, fresh = false } = {}) {
+    const key = createHash('sha256').update(JSON.stringify(settings)).digest('hex');
+    const memo = healthMemo;
+    // `fresh`: a person pressed "check connection" and expects it checked, by
+    // a check that starts now (one already running may predate what they fixed).
+    if (memo && memo.key === key && !fresh) {
+        if (memo.pending) return memo.pending;
+        if (now() - memo.at < (memo.value?.available ? HEALTH_OK_MS : HEALTH_FAIL_MS)) return Promise.resolve(memo.value);
+    }
+    const entry = { key, at: 0, value: null, pending: null };
+    entry.pending = Promise.resolve()
+        .then(() => check(settings))
+        .then((value) => {
+            entry.value = value;
+            entry.at = now();
+            entry.pending = null;
+            return value;
+        }, (err) => {
+            if (healthMemo === entry) healthMemo = null;
+            throw err;
+        });
+    healthMemo = entry;
+    return entry.pending;
 }
 
 // Quick liveness probe used *before* a long streaming generation. A cold model
