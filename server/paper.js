@@ -46,6 +46,7 @@ import {
     getAISettings,
     AI_PROMPTS,
     buildNodeContext,
+    questionSource,
     aiProvenance,
 } from './ai.js';
 import { firstChoice } from './aiJobs.js';
@@ -257,7 +258,7 @@ export async function generatePaperExercise(nodeId, nodeTitle, { signal } = {}) 
             const resp = await generateResponse(user, system, [], { temperature: 0.5, signal, operation: 'questions' });
             const exercise = validatePaperExercise(parseObjectResponse(resp));
             if (!exercise) continue;
-            const audit = await verifyQuestion(nodeTitle, paperAuditQuestion(exercise), { signal });
+            const audit = await verifyQuestion(nodeTitle, paperAuditQuestion(exercise), { signal, source: questionSource(nodeId) });
             if (!audit.ok) {
                 console.warn(`[Paper] Discarded an exercise on "${nodeTitle}": its reference solution failed the audit (${audit.reason})`);
                 continue;

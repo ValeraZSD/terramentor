@@ -2113,6 +2113,21 @@ export function buildNodeContext(nodeId, { completedTopics = false, curriculumPo
     return context;
 }
 
+// How much of a topic's material the answer check reads. A topic built on one
+// letter or one notice fits many times over; a whole imported chapter is cut,
+// and a question about its far end is then judged without it, as before.
+export const VERIFY_SOURCE_CHARS = 12000;
+
+/**
+ * The topic's material as the answer check reads it (`verifyQuestion`'s
+ * `source`): what the question writers are handed (`buildNodeContext`), less
+ * the learner profile, which says who the learner is and never what an answer
+ * is.
+ */
+export function questionSource(nodeId) {
+    return buildNodeContext(nodeId, { profile: false });
+}
+
 // Document Search
 
 // Keyword (lexical) retrieval — FTS5 BM25 with a LIKE fallback. Returns chunk
@@ -4407,8 +4422,28 @@ ${priorFault}` : ''}`
     // key goes wrong is a premise that cannot hold (asking which modifier to use
     // for a method that "must be overridden", when the answer offered cannot be
     // overridden at all).
-    feed_question_verify: (nodeTitle, question) => {
-        const opts = Array.isArray(question.options) && question.options.length
+    //
+    // "Cold" means without the KEY, not without the material. `source` is the
+    // text the question's writer had (the topic's Overview and notes, the
+    // lesson part): a question about a letter or a notice cannot be answered
+    // from a title, and a verifier that was never shown the letter called
+    // every such question broken. The text is not a hint at the key, since the
+    // writer read the same text and could still get it wrong; the verifier
+    // answers a question ABOUT the text from the text, and a question about the
+    // subject from the subject, so a text that teaches something false does
+    // not turn a wrong key into a right one. With a text in hand, "eliminable"
+    // still means options a learner throws away knowing nothing: not the
+    // subject, and not the text either. No source, and the prompt is exactly
+    // what it was.
+    feed_question_verify: (nodeTitle, question, { source = '' } = {}) => {
+        const text = String(source || '').trim();
+        const material = text
+            ? `\n\nSOURCE TEXT (the material this question was written from${text.length > VERIFY_SOURCE_CHARS ? ', cut short' : ''}):\n${text.slice(0, VERIFY_SOURCE_CHARS)}`
+            : '';
+        const sourceRule = text
+            ? `\nSOURCE TEXT: the material the question was written from is given below the topic. When the question asks about that text (what it says, who wrote it, a day, a time, a price, a rule it states), answer from the text: such a question is sound when the text settles it, and "broken" when the text does not settle it or settles it two ways. When the question asks about the subject itself, judge by the subject itself as the rules above say; a text that says otherwise does not make a wrong key right.`
+            : '';
+        const opts =Array.isArray(question.options) && question.options.length
             ? `\nOPTIONS:\n${question.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
             : question.type === 'true_false' ? '\nOPTIONS:\n1. True\n2. False' : '';
 
@@ -4439,8 +4474,8 @@ Rules:
 1. verdict "broken" if ANY of these hold: the solution does not produce the result the task requires on the example the task gives (trace it line by line); it would not run in the stated language (syntax error, undefined name, wrong call); it mishandles an input the task explicitly allows; the task is ambiguous enough that two different correct programs would give different results; or the task cannot be solved as stated.
 2. If TEST INPUTS are listed, verdict "broken" also when a test calls something the task does not ask for, passes an input the task rules out or leaves undefined, depends on randomness, the clock or the order of a set, or would be answered differently by another correct program (for example an output format the task never fixes); or when an "author expects" value is not what the reference produces.
 3. verdict "ok" if the solution is a correct program for the task as written. Style, naming and efficiency are NOT your business.
-4. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
-                user: `Subject/topic: ${nodeTitle}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}${tests}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
+4. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.${sourceRule}`,
+                user: `Subject/topic: ${nodeTitle}${material}\n\nTASK (${question.language || 'unspecified language'}):\n${question.question}\n\nPROPOSED REFERENCE SOLUTION:\n${question.correct_answer}${tests}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
             };
         }
         // An ordering is solved cold like a closed question: the verifier gets
@@ -4457,8 +4492,8 @@ Rules:
 2. If it is sound, verdict "ok" and put the items in "answer" in the correct order, copying each item's text EXACTLY as written — every item, no additions, no omissions.
 3. Judge by the subject itself, not by what a lesson might have claimed.
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
-5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
-                user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nITEMS (in no particular order):\n${items.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
+5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.${sourceRule}`,
+                user: `Subject/topic: ${nodeTitle}${material}\n\nQUESTION:\n${question.question}\n\nITEMS (in no particular order):\n${items.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
             };
         }
         // An assembly is solved cold too: the template and the bank, never the
@@ -4480,8 +4515,8 @@ Rules:
 2. If it is sound, verdict "ok" and give "answer": exactly ${gaps} piece(s), one per gap in order, each copied EXACTLY from the pieces listed. ${question.reuse === true ? 'A piece may be used in more than one gap.' : 'Each listed piece may be used at most once, and some pieces fit no gap.'}
 3. Judge by the subject itself, not by what a lesson might have claimed.
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
-5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.`,
-                user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nTEMPLATE (${gaps} gap${gaps === 1 ? '' : 's'}):\n${question.template}\n\nPIECES:\n${pieces.map(p => `- ${p}`).join('\n')}`
+5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.${sourceRule}`,
+                user: `Subject/topic: ${nodeTitle}${material}\n\nQUESTION:\n${question.question}\n\nTEMPLATE (${gaps} gap${gaps === 1 ? '' : 's'}):\n${question.template}\n\nPIECES:\n${pieces.map(p => `- ${p}`).join('\n')}`
             };
         }
         if (question.type === 'short_answer') {
@@ -4494,8 +4529,8 @@ Rules:
 2. Recompute every number that appears. A result that does not follow from the operands stated is "broken" even when the surrounding sentence is correct — that is the most common defect and the hardest to see.
 3. verdict "ok" if the answer is correct and self-consistent. Wording, length and style are NOT your business.
 4. Judge by the subject itself, not by what a lesson might have claimed.
-5. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.`,
-                user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}\n\nPROPOSED MODEL ANSWER:\n${question.correct_answer}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
+5. "reason" is one short sentence naming the specific fault. No rewrite, no suggestions.${sourceRule}`,
+                user: `Subject/topic: ${nodeTitle}${material}\n\nQUESTION:\n${question.question}\n\nPROPOSED MODEL ANSWER:\n${question.correct_answer}\n\nEXPLANATION SHOWN WITH IT:\n${question.explanation || '(none)'}`
             };
         }
         return {
@@ -4508,8 +4543,8 @@ Rules:
 3. Judge by the subject itself, not by what a lesson might have claimed. If a widely taught simplification conflicts with what is actually correct, follow what is correct.
 4. Do not be agreeable. Rejecting a flawed question is the job; there is no cost to saying "broken".
 5. "reason" is one short sentence. No deliberation, no alternatives, no restating the question.
-6. LAST, after you have settled your answer: "eliminable" is how many options a learner who knows NOTHING about this subject could still throw away — because the question stem itself states a rule that option breaks, because it is the odd one out in form or units, because it is absurd, or because it is "all/none of the above". Count only options a total novice discards with no subject knowledge whatsoever; an option that merely looks less likely to someone who has studied the topic does NOT count. This does not change your verdict — report the number and nothing else.`,
-            user: `Subject/topic: ${nodeTitle}\n\nQUESTION:\n${question.question}${opts}`
+6. LAST, after you have settled your answer: "eliminable" is how many options a learner who knows NOTHING about this subject could still throw away — because the question stem itself states a rule that option breaks, because it is the odd one out in form or units, because it is absurd, or because it is "all/none of the above". Count only options a total novice discards with no subject knowledge whatsoever; an option that merely looks less likely to someone who has studied the topic does NOT count. This does not change your verdict — report the number and nothing else.${sourceRule}${text ? ' For "eliminable", the text counts as knowledge the novice does NOT have: count only options thrown away without reading the text.' : ''}`,
+            user: `Subject/topic: ${nodeTitle}${material}\n\nQUESTION:\n${question.question}${opts}`
         };
     },
 

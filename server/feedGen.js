@@ -1,5 +1,5 @@
 import db, { NOT_REPORTED } from './database.js';
-import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, aiProvenanceFields, withAnswerScope } from './ai.js';
+import { generateResponse, getAISettings, AI_PROMPTS, buildNodeContext, questionSource, aiProvenanceFields, withAnswerScope } from './ai.js';
 import { parseObjectResponse, parseQuestionReply } from './agentic.js';
 import { getFocusNodes, normalizeModelQuestion, getFeedSettings, safeParse } from './feed.js';
 import { codeLanguageIn, countsProcedure, showsAssembly } from './answerFormats.js';
@@ -380,7 +380,10 @@ async function reverifyOne(f, entry, signal) {
     // A paper exercise is audited as it was when written: its reference
     // solution as the model answer to its brief.
     const practice = entry.kind === 'practice';
-    const verdict = await verifyQuestion(f.title, practice ? paperAuditQuestion(stored) : stored, { signal });
+    // The topic's material, as the first check had it (a feed question's
+    // lesson part is not kept with the question, so a re-check reads the
+    // topic without it).
+    const verdict = await verifyQuestion(f.title, practice ? paperAuditQuestion(stored) : stored, { signal, source: questionSource(f.nodeId) });
     const outcome = applyVerdict(entry, verdict);
     console.log(`[FeedGen] Re-verified a ${practice ? 'paper exercise' : `${entry.where} question`} on "${f.title}": ${outcome}${verdict.available ? '' : ` (${verdict.reason})`}`);
     return outcome;
@@ -1365,6 +1368,10 @@ async function generateOne(f, missing, signal) {
     // included — that is where a topic's real expectations live) and the
     // outline, but never the completed-topics list.
     const qContext = buildNodeContext(f.nodeId);
+    // What the answer check reads: the same lesson part and material the
+    // writer had, without the learner profile. The part goes first, so the
+    // check's length cap cuts the topic's material before the part.
+    const verifySource = `Lesson part "${partTitle}":\n${lessonText}\n\n${questionSource(f.nodeId)}`;
 
     let question = null;
     let veto = null;
@@ -1424,14 +1431,14 @@ async function generateOne(f, missing, signal) {
         // a learner for knowing the right answer, and the one thing no amount of
         // prompting the author reliably prevents. It also reports back how many
         // options it could have discarded WITHOUT knowing the subject.
-        let check = await verifyQuestion(f.title, candidate, { signal });
+        let check = await verifyQuestion(f.title, candidate, { signal, source: verifySource });
         // No verdict is not a pass. One more ask (a reasoning model that spent
         // its reply thinking often answers the second time); after that the
         // question is served, but STAMPED unverified on its stored content
         // (questionTrust.js): practice, never proof, until the re-verification
         // tier below confirms it. Re-authoring would only produce another
         // question the same verifier cannot answer about.
-        if (check.available === false) check = await verifyQuestion(f.title, candidate, { signal });
+        if (check.available === false) check = await verifyQuestion(f.title, candidate, { signal, source: verifySource });
         if (!check.ok) {
             veto = check.reason;
             fault = check.reason;
