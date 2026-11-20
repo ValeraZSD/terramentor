@@ -75,6 +75,7 @@ const { buildTodayData } = await import(S + 'today.js');
 const { getDecayingNodes } = await import(S + 'mastery.js');
 const { recallOrder } = await import(S + 'questionLog.js');
 const { studyToday } = await import(S + 'studyDay.js');
+const { setProjectTeaches } = await import(S + 'nodeRole.js');
 const mock = await import(S + 'mockExams.js');
 const lb = await import(S + 'lookBack.js').catch(() => ({}));
 const has = (f) => typeof lb[f] === 'function';
@@ -330,6 +331,29 @@ try {
         check('…not on the day of the miss (the question answered right leads)', orderAt(at(20, 3))[0] === 0, JSON.stringify(orderAt(at(20, 3))));
         check('…nor once the miss is over four weeks old', orderAt(at(50))[0] === 0, JSON.stringify(orderAt(at(50))));
 
+        // It leads while the topic slips: a right answer on ANY of its questions
+        // from a minute after the miss ends that, one seconds after does not.
+        // (Answered right on the missed question itself, its share of misses
+        // keeps it first anyway, so the other questions pin the rule.)
+        let lens = 0;
+        const freshLens = () => {
+            const id = node(project(`Lens ${++lens}`), 'Prism');
+            const qz = db.prepare('SELECT id, questions FROM quizzes WHERE id = ?').get(bank(id));
+            const u = JSON.parse(qz.questions).map(q => q.uuid);
+            const log = (index, surface, correct, when) => db.prepare(`INSERT INTO question_log (quiz_id, question_index, question_uuid, node_id, surface, correct, asked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`).run(qz.id, index, u[index], id, surface, correct, when.toISOString());
+            log(0, 'quiz', 1, at(10));
+            log(2, 'mock', 0, at(20, 2));
+            return { log, order: () => recallOrder(id, later).map(b => u.indexOf(b.question.uuid)) };
+        };
+        const missMs = at(20, 2).getTime();
+        const soonAfter = freshLens();
+        soonAfter.log(1, 'quiz', 1, new Date(missMs + 10_000));
+        check('another of its questions right seconds after the miss: the missed one still leads', soonAfter.order()[0] === 2, JSON.stringify(soonAfter.order()));
+        const wellAfter = freshLens();
+        wellAfter.log(1, 'quiz', 1, new Date(missMs + 2 * 60_000));
+        check('another of its questions right two minutes after: the missed one no longer leads', wellAfter.order()[0] !== 2, JSON.stringify(wellAfter.order()));
+
         // On Today the round reviews the course studied next (Biology here) when
         // it has topics fading; a slip in another course joins it all the same.
         db.prepare("UPDATE node_mastery SET mastery_score = 0.9, last_updated = ? WHERE node_id = ?").run(sqlStamp(at(0)), c1);
@@ -433,6 +457,14 @@ try {
         complete(unwritten, at(2));
         const closed = keysOf();
         check('every topic closed: the offer, and no "all caught up" claim under it', closed.includes(`lookback-${quiet}`) && !closed.includes('notice-clear'), JSON.stringify(closed));
+        // A course that does not teach (no lessons written) with a topic still
+        // open: no "That's everything this course has ready" under the offer.
+        const still = project('Still');
+        topics(still, ['S1', 'S2', 'S3', 'S4']).forEach(id => { studied(id, at(0)); complete(id, at(1)); });
+        node(still, 'Open, never taught');
+        setProjectTeaches(still, false);
+        const stillKeys = composeFeed({ projectId: still, now: at(15), excludeKeys: new Set() }).items.map(i => i.key ?? i.kind);
+        check('a course that does not teach, one topic open: the offer, and no "everything ready" claim', stillKeys.includes(`lookback-${still}`) && !stillKeys.includes('notice-clear'), JSON.stringify(stillKeys));
     });
 
     await block('7. the routes and the card', async () => {

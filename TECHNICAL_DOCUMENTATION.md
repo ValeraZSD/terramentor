@@ -346,8 +346,9 @@ same 28 days), with no right answer on it logged from one minute after that
 miss; a right answer in the same sitting does not clear it.
 `recallCutoffs(decayDays, now)` gives the three cutoffs. Slips from every course
 in scope join the round, not only the next course's. Slipped topics come first in the
-round, `recallOrder(nodeId, now)` asks the missed question itself first, by the
-same day and 28-day rule (unless it was the
+round, `recallOrder(nodeId, now)` asks the missed question itself first while
+the topic slips by the same rule (earlier day, 28 days, no right answer on any
+of its questions from a minute after) (unless it was the
 last one the recall round asked on that topic), and their cards carry
 `slipped: true`. A slip changes no status and no evidence: the miss is already a
 `mock` practice row, and the topic leaves the round once it is answered right.
@@ -518,7 +519,9 @@ old, or inside the mock window. Start on such a one finishes it when anything wa
 answered (the answers count), else drops it (`discardSitting`), and draws a fresh
 one. Start on a deck, an inactive course or one without enough to mix is a 409.
 A stream holding only the offer still gets the empty stream's notices (AI off, no
-model, today's cards done), but never "all caught up" beneath it.
+model, today's cards done), but never the two that say nothing is left ("That's
+everything this course has ready right now" / "That's everything for now", and
+"You're all caught up") beneath it.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
