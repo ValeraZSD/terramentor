@@ -65,7 +65,7 @@ body:
         - A quiz or mastery check
         - Importing (Anki deck, course file, documents)
         - The Atlas
-        - Calendar, timeline or schedule
+        - A course's plan, dates or pace
         - Settings
         - Something else
     validations:

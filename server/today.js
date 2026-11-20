@@ -77,7 +77,7 @@ export function workLeaves(nodes) {
 }
 
 // A topic's status as the learner reads it, for every surface that SAYS one
-// (the calendar, and what the assistant is told). Mirrors `leafStatus` in
+// (Today, search, and what the assistant is told). Mirrors `leafStatus` in
 // src/utils/tree.ts. A topic is completed only when somebody says so, but a
 // stored `not_started` is false over the learner's own work: cards met, or
 // answers of its own in the mastery record. A seeded prior (placement,
