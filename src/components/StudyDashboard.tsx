@@ -19,7 +19,6 @@ import Modal from './Modal';
 import { MaterialPassPanel } from './ExternalAuthoring';
 import PlacementCard, { PlacementTool, usePlacementStatus } from './PlacementCard';
 import { DashboardSection, ToolGrid, ToolRow } from './dashboard/DashboardSection';
-import { TodaysPlan } from './dashboard/TodaysPlan';
 import { PhaseProgress } from './dashboard/PhaseProgress';
 import { ProjectStudyTimeSection } from './studyTime/StudyTime';
 import { todayStr } from '../utils/tree';
@@ -48,7 +47,6 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
     const addToast = useStore(s => s.addToast);
     const dashboard = useStore(s => s.dashboardData);
     const dashboardLoading = useStore(s => s.dashboardLoading);
-    const dailyPlan = useStore(s => s.dailyPlan);
     const openAssistant = useStore(s => s.openAssistant);
     const openMasteryCheck = useOpenMasteryCheck();
 
@@ -390,22 +388,17 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
                     />
                 )}
 
-                {/* Four bands: the one thing to do; today's work (the plan and
-                    the cards, side by side from 40rem, where each keeps ~19rem:
-                    a plan row with its date, the counts beside their button);
-                    the phases, full width so every bar is one long row; and
-                    the time studied beside the tools (the quizzes are a row of
-                    the tools), two across from 40rem like the plan and cards. */}
+                {/* Four bands: the one thing to do; the cards; the phases, full
+                    width so every bar is one long row; and the time studied
+                    beside the tools (the quizzes are a row of the tools), two
+                    across from 40rem.
+                    No list of the other topics due today: Start Studying
+                    teaches them, in the same order, and a list that drew only
+                    on days a course needed two or more topics changed the
+                    page's shape from one day to the next. */}
                 <DashboardBands bands={[
                     { key: 'next', minRem: 0, slots: [{ key: 'next', node: nextUp }] },
-                    { key: 'today', minRem: 40, slots: [
-                        // Today's Plan — the consolidated agenda (server/dailyPlan.js),
-                        // the hero left out of it.
-                        {
-                            key: 'plan', node: dailyPlan && currentProjectId != null && (
-                                <TodaysPlan plan={dailyPlan} heroId={heroTask?.id ?? null} projectId={currentProjectId} />
-                            ),
-                        },
+                    { key: 'today', minRem: 0, slots: [
                         // A project with cards gets them counted here, with the
                         // rest of today's work; a project WITHOUT cards gets
                         // nothing: a tile could only ever say 0.
@@ -415,7 +408,7 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
                                     projectId={currentProjectId}
                                     compact
                                     reloadKey={cardsKey}
-                                    // Pace, progress and the plan count cards too.
+                                    // Pace and progress count cards too.
                                     onSessionEnd={() => {
                                         void useStore.getState().loadPaceData(currentProjectId);
                                         void useStore.getState().loadDashboard(currentProjectId);
