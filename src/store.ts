@@ -2728,6 +2728,9 @@ export const useStore = create<AppState>((set, get) => ({
 
     showConfirm: (options: ShowConfirmOptions) => {
         return new Promise<boolean>((resolve) => {
+            // One dialog at a time: a question asked over an open one answers
+            // the old one "no", so its caller is not left waiting forever.
+            get().confirmDialog.resolvePromise?.(false);
             set({
                 confirmDialog: {
                     isOpen: true,
