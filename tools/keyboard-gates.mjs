@@ -242,8 +242,8 @@ for (const k of ['HTMLElement', 'Element', 'Node', 'MutationObserver', 'Keyboard
 }
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-// A mouse: the menu below is the floating one (a finger gets the phone's sheet,
-// held in popover-gates.mjs).
+// A mouse (a finger gets the same floating menu with taller rows, held in
+// popover-gates.mjs).
 window.matchMedia = (q) => ({ matches: /hover:\s*hover/.test(q), media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
 
 const scratch = mkdtempSync(join(root, 'node_modules', '.cache', 'keyboard-gates-'));

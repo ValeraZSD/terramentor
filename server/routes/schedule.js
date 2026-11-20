@@ -6,8 +6,9 @@
 import db from '../database.js';
 import {
     allocateSchedule, calculatePace, cardPlan, lockedDeadlineError, persistSchedule, readStudyDays,
-    recalibrateSchedule, relayOpenTopics, removeSchedule, scheduleWindowError, writeRelay,
+    recalibrateSchedule, removeSchedule, scheduleWindowError, countStudyDays,
 } from '../scheduling.js';
+import { projectCountsInCards } from '../progress.js';
 import { OPEN_WORK_LEAF, WORK_LEAF } from '../today.js';
 import { isNodeWeight } from '../curriculumSchema.js';
 import { projectTeaches } from '../nodeRole.js';
@@ -15,7 +16,13 @@ import { requireProject } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
 import { libraryPace, projectVerdict } from '../pace.js';
+
+let openTopic = null;
+const openTopicStmt = () => (openTopic ??= db.prepare(`
+    SELECT 1 FROM nodes n WHERE n.project_id = ? AND ${OPEN_WORK_LEAF} LIMIT 1
+`));
 
 const app = routeTable('schedule');
 
@@ -60,12 +67,13 @@ app.get('/api/schedule/overview', (req, res) => {
             FROM nodes n WHERE ${WORK_LEAF} GROUP BY n.project_id
         `).all().map(r => [r.pid, r.c]));
 
+        refreshTopicDates();
         const extents = new Map(db.prepare(`
             SELECT n.project_id AS pid,
                    MIN(n.scheduled_start) AS first_start,
                    MAX(n.scheduled_end)   AS last_end,
                    COUNT(n.scheduled_start) AS scheduled_count
-            FROM nodes n
+            FROM plan_nodes n
             WHERE ${WORK_LEAF} AND n.scheduled_start IS NOT NULL
             GROUP BY n.project_id
         `).all().map(r => [r.pid, r]));
@@ -168,11 +176,12 @@ app.post('/api/projects/:id/schedule', (req, res) => {
     try {
         const reply = (extra) => {
             const updatedProject = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+            refreshTopicDates();
             const nodes = db.prepare(`
                 SELECT id, project_id, parent_id, title, description, notes, status,
                        is_note, position, scheduled_start, scheduled_end, estimated_weight,
                        completed_at, created_at, updated_at
-                FROM nodes WHERE project_id = ?
+                FROM plan_nodes WHERE project_id = ?
             `).all(id);
             res.json({ success: true, project: updatedProject, nodes, ...extra });
         };
@@ -192,21 +201,22 @@ app.post('/api/projects/:id/schedule', (req, res) => {
 
         const result = allocateSchedule(id, startDate, deadline, days);
         if (!result.success) return res.status(400).json({ error: result.error });
+        // A course under way with open topics and no study day left before
+        // its date: the plan this write asks for cannot be laid.
+        const today = studyToday();
+        if (startDate < today && deadline >= today && !projectCountsInCards(id)
+            && countStudyDays(today, deadline, days) === 0 && openTopicStmt().get(id)) {
+            return res.status(400).json({ error: 'No valid study days remaining between today and deadline.' });
+        }
 
-        // The ONE write path for a window. A course already under way has its
-        // open topics laid out from today to the deadline, never from the
-        // window's start: that dated open work in the past, so a plan made
-        // this minute read as days overdue. A window that starts today or
-        // later is laid out from its own start (the learner put the work
-        // there). Closed topics keep their dates.
-        const relaid = startDate < studyToday() ? relayOpenTopics(id, { deadline, studyDays: days }) : null;
-        if (relaid && !relaid.success) return res.status(400).json({ error: relaid.error });
-
+        // The ONE write path for a window: the window, the study week and the
+        // lock. No topic date is written; every reader derives them from this
+        // row and the record (server/topicDates.js), so a course under way has
+        // its open topics from today and a missed week never reads as overdue.
         db.transaction(() => {
             persistSchedule(id, result.assignments, result.baselineSnapshot, {
                 startDate, deadline, studyDays: days,
             });
-            if (relaid?.assignments) writeRelay(id, relaid.assignments);
             if (deadlineFixed !== undefined) {
                 db.prepare('UPDATE projects SET deadline_fixed = ? WHERE id = ?').run(deadlineFixed ? 1 : 0, id);
             }
@@ -230,13 +240,13 @@ app.post('/api/projects/:id/recalibrate', (req, res) => {
         }
         if (result.unchanged) return res.json({ success: true, message: 'All tasks completed!', unchanged: true });
 
-        writeRelay(id, result.assignments);
-
+        // Nothing to write: open topics already run from today on every read.
+        refreshTopicDates();
         const nodes = db.prepare(`
             SELECT id, project_id, parent_id, title, description, notes, status,
                    is_note, position, scheduled_start, scheduled_end, estimated_weight,
                    completed_at, created_at, updated_at
-            FROM nodes WHERE project_id = ?
+            FROM plan_nodes WHERE project_id = ?
         `).all(id);
 
         res.json({ success: true, nodes, warnings: result.warnings, stats: result.stats });

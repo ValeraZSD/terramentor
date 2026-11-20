@@ -131,6 +131,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                     control={
                         <SegmentedControl<ContrastPref>
                             label={tr("Contrast")}
+                            block="narrow"
                             value={a11y.contrast}
                             onChange={v => void setA11y('contrast', v)}
                             options={CONTRAST_PREFS.map(v => ({
@@ -147,6 +148,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                     control={
                         <SegmentedControl<MotionPref>
                             label={tr("Motion")}
+                            block="narrow"
                             value={a11y.motion}
                             onChange={v => void setA11y('motion', v)}
                             options={MOTION_PREFS.map(v => ({
@@ -195,6 +197,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                         control={
                             <SegmentedControl<SpacingLevel>
                                 label={label}
+                                block="narrow"
                                 value={a11y[field]}
                                 onChange={v => void setA11y(field, v)}
                                 options={spacingOptions}
@@ -289,6 +292,7 @@ export default function AccessibilitySettings({ active }: { active: boolean }) {
                     control={
                         <SegmentedControl<DrillTimeScale>
                             label={tr("Time limits")}
+                            block="narrow"
                             value={drillTimeScale}
                             onChange={v => void setDrillTimeScale(v)}
                             options={DRILL_TIME_SCALES.map(s => ({

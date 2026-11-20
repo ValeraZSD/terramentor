@@ -170,9 +170,16 @@ try {
     // ── 1. OpenRouter sign-in ───────────────────────────────────────────────
     console.log('\n1. the OpenRouter sign-in finishes only the attempt this app started');
     {
+        // The page leaves for openrouter.ai: the desktop server is held open
+        // for the return until the attempt is spent (server/signInHold.js).
+        // The holds read one pinned instant for the whole case.
+        const signInHold = await import('../server/signInHold.js');
+        const HOLD_AT = 1_900_000_000_000;
+        signInHold.setHoldClock(() => HOLD_AT);
         const start = await api('/api/ai/openrouter/start', { callbackUrl: `http://127.0.0.1:${APP}/connect/openrouter` });
         const state = start.json.url ? new URL(start.json.url).searchParams.get('state') : null;
         check('the sign-in URL carries a state the server chose', start.status === 200 && typeof state === 'string' && state.length >= 16, JSON.stringify(start.json));
+        check('the started attempt holds the desktop server open for its return', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 
         const before = offHost.length;
         const forged = await api('/api/ai/openrouter/finish', { code: 'someone-elses-code', state: 'not-the-state' });
@@ -180,12 +187,16 @@ try {
         const bare = await api('/api/ai/openrouter/finish', { code: 'someone-elses-code' });
         check('a return with no state is turned away', bare.status === 400 && /Connect button/.test(bare.json.error || ''), JSON.stringify(bare));
         check('neither one was sent to OpenRouter', !offHost.slice(before).some(h => /openrouter\.ai/.test(h)), offHost.slice(before).join(', '));
+        check('…and the learner\'s own attempt still holds the server open', signInHold.heldUntil() > HOLD_AT + 9 * 60_000);
 
         // The learner's own attempt is still pending: with the right state the
         // server goes on to exchange the code (which the network spy refuses,
         // so it answers "Could not reach", not "expired").
         const real = await api('/api/ai/openrouter/finish', { code: 'the-real-code', state });
         check('the real return still finishes after a forged one', real.status === 502 && /^OpenRouter (could not|timed out|answered)/.test(real.json.error || ''), JSON.stringify(real));
+        // Ended at the pinned instant exactly: a hold that was never taken reads 0.
+        check('the spent attempt lets the hold go', signInHold.heldUntil() === HOLD_AT, signInHold.heldUntil());
+        signInHold.setHoldClock(null);
     }
 
     // ── 2. model requests and redirects ─────────────────────────────────────

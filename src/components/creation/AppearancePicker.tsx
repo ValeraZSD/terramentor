@@ -10,8 +10,8 @@
 // The panel is a small dialog, not a menu: two grids and a value field are
 // not a list of commands. It is a `PanelPopover`, which makes it the topmost
 // dialog while it is open, so Escape and Tab are its own and the course dialog
-// under it keeps still; focus goes back to the tile when it closes. On a phone
-// it is the bottom sheet.
+// under it keeps still; focus goes back to the tile when it closes. It opens
+// at the tile on a phone too.
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import IconPicker from '../IconPicker';

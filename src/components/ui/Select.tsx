@@ -6,8 +6,8 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { placePopover, popoverBounds, followVisualViewport, scrolledAway, MENU_SURFACE } from './Popover';
-import { BottomSheet, opensAsSheet } from './Sheet';
+import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, FLOAT_LAYER, MENU_SURFACE } from './Popover';
+import { canHover } from '../../utils/platform';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 
@@ -23,17 +23,16 @@ import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
  * real list, but only in Chromium (Firefox ships it switched off, Safari from
  * 27), so it would have given two looks; this gives one.
  *
- *   - a mouse gets a list hung from the box (`placePopover`, the menus'
- *     material), the chosen row ticked and scrolled to, the row under the
- *     pointer lit. Focus STAYS on the box and the list is its
- *     `aria-activedescendant` (the WAI-ARIA select-only combobox), so a dialog's
- *     Tab trap and focus return never see a second element.
- *   - a finger (`hover: none`) gets a SHEET from the bottom of the screen:
- *     titled with the field's label, rows a thumb can hit, a close button, and
- *     a handle to pull it down by. A list hung from a box near a phone's bottom
- *     edge has no room to open into.
- *   - either way a list longer than its space fades out over a chevron while
- *     rows remain below, and opens downward when there is room for most of it.
+ *   - the list hangs from the box (`placePopover`, the menus' material), the
+ *     chosen row ticked and scrolled to, the row under the pointer lit. Focus
+ *     STAYS on the box and the list is its `aria-activedescendant` (the WAI-ARIA
+ *     select-only combobox), so a dialog's Tab trap and focus return never see
+ *     a second element.
+ *   - a finger (`hover: none`) gets the same list at the box, with rows a
+ *     thumb can hit. It was a sheet from the bottom of the screen once: a field
+ *     near the top then opened its choices at the far end of the screen.
+ *   - a list longer than its space fades out over a chevron while rows remain
+ *     below, and opens downward when there is room for most of it.
  *   - keys: ↑/↓, Home/End, PageUp/PageDown, Enter or Space to choose, Escape
  *     (claimed — the page and the dialog under it do not also act) and Tab to
  *     close, and typing a name jumps to it, open or closed.
@@ -48,7 +47,7 @@ import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
 export interface SelectOption {
     value: string;
     label: ReactNode;
-    /** The label as text: what type-ahead matches and the sheet announces. */
+    /** The label as text: what type-ahead matches. */
     text: string;
     disabled?: boolean;
     /** An instruction row ("Trace a course…"), marked `data-placeholder` on its
@@ -172,9 +171,9 @@ export function Select({
     const selected = selectedIndex >= 0 ? options[selectedIndex] : options[0];
 
     const [open, setOpen] = useState(false);
-    // Fixed for the life of one opening: a pointer change mid-list would swap
-    // the surface out from under the finger.
-    const [sheet, setSheet] = useState(false);
+    // Finger-sized rows, fixed for the life of one opening: a pointer change
+    // mid-list would resize the rows under the finger.
+    const [roomy, setRoomy] = useState(false);
     const [active, setActive] = useState(-1);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const listId = useId();
@@ -192,7 +191,7 @@ export function Select({
         // Safari and Firefox on macOS do not focus a button on a click, and
         // the open list's keys (and its claim on Escape) follow the box's focus.
         buttonRef.current?.focus({ preventScroll: true });
-        setSheet(opensAsSheet());
+        setRoomy(!canHover());
         // Lit on the choice; on nothing while the box stands on an instruction
         // row, which lit would read as chosen. ↓ then starts from the top.
         const start = selectedIndex >= 0
@@ -222,8 +221,8 @@ export function Select({
         return typeAhead(t.text, open ? active : selectedIndex, options);
     }, [open, active, selectedIndex, options]);
 
-    // The keys of an open list, wherever focus sits (the box on a mouse, the
-    // list in a sheet). Returns true when the key was used.
+    // The keys of an open list, heard while the box has focus. Returns true
+    // when the key was used.
     const onListKey = useCallback((e: KeyboardEvent | ReactKeyboardEvent): boolean => {
         if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
             const hit = typeTo(e.key);
@@ -274,7 +273,8 @@ export function Select({
                 aria-haspopup="listbox"
                 aria-expanded={open}
                 aria-controls={open ? listId : undefined}
-                aria-activedescendant={open && !sheet && active >= 0 ? optionId(active) : undefined}
+                // Under a finger the list holds focus and names the lit row itself.
+                aria-activedescendant={open && !roomy && active >= 0 ? optionId(active) : undefined}
                 aria-label={ariaLabel}
                 aria-labelledby={ariaLabelledBy}
                 disabled={disabled}
@@ -319,20 +319,7 @@ export function Select({
                     aria-hidden="true"
                 />
             </button>
-            {open && (sheet ? (
-                <SelectSheet
-                    listId={listId}
-                    optionId={optionId}
-                    options={options}
-                    current={current}
-                    active={active}
-                    setActive={setActive}
-                    choose={choose}
-                    close={() => close(true)}
-                    onListKey={onListKey}
-                    title={ariaLabel || labelFor(buttonRef.current)}
-                />
-            ) : (
+            {open && (
                 <SelectList
                     anchorRef={buttonRef}
                     listId={listId}
@@ -345,14 +332,15 @@ export function Select({
                     close={close}
                     onListKey={onListKey}
                     label={ariaLabel || labelFor(buttonRef.current)}
+                    roomy={roomy}
                 />
-            ))}
+            )}
         </>
     );
 }
 
 /** The visible label a `<label for>` or `aria-labelledby` gives the box, for
- *  the sheet's title and the list's name. */
+ *  the list's name. */
 function labelFor(button: HTMLButtonElement | null): string {
     if (!button) return '';
     const by = button.getAttribute('aria-labelledby');
@@ -392,7 +380,7 @@ function Rows({ options, current, active, setActive, choose, optionId, roomy }: 
                         // Lit by the pointer as it moves, like a platform list,
                         // and chosen on the press's END so a scroll that begins
                         // on a row does not choose it.
-                        // A finger dragging the sheet's list is scrolling, not pointing.
+                        // A finger dragging the list is scrolling, not pointing.
                         onPointerMove={e => { if (e.pointerType === 'mouse' && !o.disabled && i !== active) setActive(i); }}
                         onClick={() => choose(i)}
                         className={cx(
@@ -462,13 +450,19 @@ function MoreBelow({ from }: { from: string }) {
 const LIST_MAX_REM = 30;
 /** Room below the box that is enough to open there even if the list must scroll. */
 const LIST_BELOW_REM = 18;
+/** The same eight rows or so when they are a finger's (`min-h-12`, not `min-h-9`).
+ *  At 18rem a phone's language list opened below with five and a half rows
+ *  while ten fitted above it. */
+const LIST_BELOW_REM_ROOMY = 24;
 
 function SelectList(props: ListProps & {
     anchorRef: RefObject<HTMLButtonElement | null>;
     close: (refocus?: boolean) => void;
     label: string;
+    /** Rows a finger can hit (no hovering pointer when it opened). */
+    roomy: boolean;
 }) {
-    const { anchorRef, listId, optionId, active, close, onListKey, label } = props;
+    const { anchorRef, listId, optionId, active, close, onListKey, label, roomy } = props;
     // The frame (border, radius, shadow) and, inside it, the list that
     // scrolls. One element doing both put the scrollbar's square ends over
     // the rounded corners, and the bottom padding showed a row under the cue.
@@ -488,7 +482,9 @@ function SelectList(props: ListProps & {
         const r = btn.getBoundingClientRect();
         // The box scrolled out of sight, off the screen or out of the dialog or
         // panel that scrolls it: a list floating there belongs to nothing.
-        if (scrolledAway(btn, r)) { closeRef.current(false); return; }
+        // Focus in the list (a finger's) goes back to the box rather than
+        // falling to the page with the list; the box keeps it unscrolled.
+        if (scrolledAway(btn, r)) { closeRef.current(document.activeElement === list); return; }
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const margin = 8, gap = 4;
         const bounds = popoverBounds();
@@ -498,7 +494,8 @@ function SelectList(props: ListProps & {
         // that flips over the box covers what the reader was reading above it.
         // Only a cramped bottom sends it to the roomier side.
         const wanted = Math.min(list.scrollHeight, LIST_MAX_REM * rem);
-        const room = below >= Math.min(wanted, LIST_BELOW_REM * rem) ? below : Math.max(below, above);
+        const enough = (roomy ? LIST_BELOW_REM_ROOMY : LIST_BELOW_REM) * rem;
+        const room = below >= Math.min(wanted, enough) ? below : Math.max(below, above);
         // Less the border (the 2 px placed below), or a list sized to the room
         // overflows it by those 2 px and flips above after all.
         const maxHeight = Math.max(Math.min(LIST_MAX_REM * rem, room - 2), 3 * rem);
@@ -517,7 +514,7 @@ function SelectList(props: ListProps & {
             bounds, { gap, margin });
         // Its 3rem floor can be more than a keyboard leaves: then the room is the cap.
         setPlace({ ...p, maxHeight: p.maxHeight != null ? p.maxHeight - 2 : maxHeight, minWidth });
-    }, [anchorRef]);
+    }, [anchorRef, roomy]);
 
     useLayoutEffect(() => { measure(); }, [measure]);
 
@@ -528,6 +525,13 @@ function SelectList(props: ListProps & {
         const row = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
         scrollIntoViewWithin(row, { boundary: listRef.current, block: 'center' });
     }, [placed]);
+
+    // Under a finger the list takes focus: a screen reader on a phone walks
+    // what follows focus by swiping, and the list is portalled to the end of
+    // the page, far from the box. With a mouse the box keeps it.
+    useEffect(() => {
+        if (placed && roomy) listRef.current?.focus({ preventScroll: true });
+    }, [placed, roomy]);
 
     // Keep the lit row in view as the keys move it.
     useEffect(() => {
@@ -543,7 +547,9 @@ function SelectList(props: ListProps & {
             // The field's <label> hands its click on to the box, which then
             // closes the list itself; closing here first would reopen it.
             if ([...(anchorRef.current?.labels ?? [])].some(l => l.contains(t))) return;
+            const held = document.activeElement === listRef.current;
             closeRef.current(false);
+            endOutsidePress(e, held ? anchorRef.current : null);
         };
         const onMove = (e: Event) => {
             // Scrolling the list itself moves nothing else.
@@ -555,7 +561,12 @@ function SelectList(props: ListProps & {
         // under it (its Escape) or a page (its arrows) does not act on the same
         // press. A dialog's Tab trap still runs: Tab is let through.
         const onKey = (e: KeyboardEvent) => {
-            if (document.activeElement !== anchorRef.current) return;
+            const at = document.activeElement;
+            const inList = !!listRef.current && at === listRef.current;
+            if (at !== anchorRef.current && !inList) return;
+            // Tab leaves from the box, as it would have with the list shut: from
+            // the list, portalled to the end of the page, it would go nowhere.
+            if (inList && e.key === 'Tab') anchorRef.current?.focus({ preventScroll: true });
             if (keyRef.current(e)) { e.preventDefault(); e.stopPropagation(); }
         };
         document.addEventListener('pointerdown', onDown, true);
@@ -592,18 +603,21 @@ function SelectList(props: ListProps & {
                     // A press inside the list must not take focus off the box,
                     // which holds the keys and the screen reader's place.
                     onMouseDown={e => e.preventDefault()}
-                    className={cx('fixed z-[110] flex w-max flex-col overflow-hidden', MENU_SURFACE)}
+                    className={cx('fixed flex w-max flex-col overflow-hidden', FLOAT_LAYER, MENU_SURFACE)}
                 >
                     <div
                         ref={listRef}
                         id={listId}
                         role="listbox"
                         aria-label={label || undefined}
+                        tabIndex={roomy ? -1 : undefined}
+                        aria-activedescendant={roomy && active >= 0 ? optionId(active) : undefined}
                         style={{ maxHeight: place?.maxHeight }}
                         onScroll={checkMore}
-                        className="list-scroll min-h-0 overflow-y-auto overscroll-contain px-1 pt-1"
+                        // The lit row shows the place; a ring round the whole list adds nothing.
+                        className="list-scroll min-h-0 overflow-y-auto overscroll-contain px-1 pt-1 outline-none"
                     >
-                        <Rows {...props} roomy={false} />
+                        <Rows {...props} roomy={roomy} />
                         {/* The bottom inset as content, not padding: a sticky
                             cue stops at the padding edge and a row showed under it. */}
                         <div aria-hidden="true" className="h-1" />
@@ -613,44 +627,5 @@ function SelectList(props: ListProps & {
                 document.body,
             )}
         </>
-    );
-}
-
-function SelectSheet(props: ListProps & { close: () => void; title: string }) {
-    const { listId, optionId, active, close, onListKey, title } = props;
-    const listRef = useRef<HTMLDivElement>(null);
-    const { more, check: checkMore } = useMoreBelow(listRef);
-
-    useLayoutEffect(() => {
-        const row = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-        scrollIntoViewWithin(row, { boundary: listRef.current, block: 'center' });
-    }, []);
-
-    useEffect(() => {
-        if (active < 0) return;
-        scrollIntoViewWithin(document.getElementById(optionId(active)), { boundary: listRef.current, block: 'nearest', padding: 4 });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- optionId is a pure function of the list's id
-    }, [active]);
-
-    return (
-        <BottomSheet title={title} onClose={close} initialFocus={listRef}>
-            <div
-                ref={listRef}
-                id={listId}
-                role="listbox"
-                tabIndex={0}
-                aria-label={title || undefined}
-                aria-activedescendant={active >= 0 ? props.optionId(active) : undefined}
-                onKeyDown={e => { if (onListKey(e)) { e.preventDefault(); e.stopPropagation(); } }}
-                onScroll={checkMore}
-                className="list-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 outline-none"
-            >
-                <Rows {...props} roomy />
-                {/* The list's bottom gap as content, not padding: a
-                    sticky cue stops at the padding edge and rows showed under it. */}
-                <div aria-hidden="true" className="h-3" />
-                {more && <MoreBelow from="from-white dark:from-slate-800" />}
-            </div>
-        </BottomSheet>
     );
 }
