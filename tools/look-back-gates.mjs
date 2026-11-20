@@ -324,8 +324,11 @@ try {
             VALUES (?, ?, ?, ?, ?, ?, ?)`).run(oq.id, index, ouuid[index], optics, surface, correct, when.toISOString());
         logOn(0, 'quiz', 1, at(10));
         logOn(2, 'mock', 0, at(20, 2));
-        const order = recallOrder(optics).map(b => b.question.uuid);
-        check('the recall round asks the missed question first', order[0] === ouuid[2], JSON.stringify(order.map(u => ouuid.indexOf(u))));
+        const orderAt = (when) => recallOrder(optics, when).map(b => ouuid.indexOf(b.question.uuid));
+        check('the recall round asks the missed question first', orderAt(later)[0] === 2, JSON.stringify(orderAt(later)));
+        // The question follows the topic's slip rule: not the same day, not past four weeks.
+        check('…not on the day of the miss (the question answered right leads)', orderAt(at(20, 3))[0] === 0, JSON.stringify(orderAt(at(20, 3))));
+        check('…nor once the miss is over four weeks old', orderAt(at(50))[0] === 0, JSON.stringify(orderAt(at(50))));
 
         // On Today the round reviews the course studied next (Biology here) when
         // it has topics fading; a slip in another course joins it all the same.
@@ -388,6 +391,17 @@ try {
         db.prepare('UPDATE projects SET deadline = NULL WHERE id = ?').run(chem);
         check('the same day with no exam: the look back (15 days after the mock)', offerOf(chem, at(43))?.kind === 'look_back', JSON.stringify(offerOf(chem, at(43))));
 
+        // A past paper on the course: one question practised alone is no mock;
+        // the whole paper sat is.
+        const paper = Number(db.prepare("INSERT INTO exam_papers (project_id, title, minutes) VALUES (?, 'Past paper', 90)").run(chem).lastInsertRowid);
+        const sat = (question) => db.prepare(`INSERT INTO mock_sittings (paper_id, question, time_allowed, status, started_at, finished_at)
+            VALUES (?, ?, 0, 'done', ?, ?)`).run(paper, question, at(42).toISOString(), at(42, 1).toISOString());
+        sat('1');
+        check('one past-paper question practised the day before: the look back still', offerOf(chem, at(43))?.kind === 'look_back', JSON.stringify(offerOf(chem, at(43))));
+        sat(null);
+        check('the whole past paper sat the day before: nothing', offerOf(chem, at(43)) === null, JSON.stringify(offerOf(chem, at(43))));
+        db.prepare('DELETE FROM exam_papers WHERE id = ?').run(paper);
+
         db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(plusDays(studyToday({ now: at(20).getTime() }), 30), chem);
         check('30 days away is outside the window: the look back rules', offerOf(chem, at(20))?.kind !== 'mock', JSON.stringify(offerOf(chem, at(20))));
     });
@@ -407,6 +421,18 @@ try {
         const home = composeFeed({ now, excludeKeys: new Set() });
         check('Today carries one offer, for one course', home.items.filter(i => i.kind === 'lookback').length === 1,
             JSON.stringify(home.items.filter(i => i.kind === 'lookback').map(i => i.key)));
+
+        // An offer with nothing else to serve: the stream still says why (no
+        // model here), and never "all caught up" over a look back it offers.
+        const quiet = project('Quiet');
+        topics(quiet, ['Q1', 'Q2', 'Q3', 'Q4']).forEach(id => { studied(id, at(0)); complete(id, at(1)); });
+        const unwritten = node(quiet, 'Not written yet');
+        const keysOf = () => composeFeed({ projectId: quiet, now: at(15), excludeKeys: new Set() }).items.map(i => i.key ?? i.kind);
+        const kinds = keysOf();
+        check('an offer alone: the model notice still shows beside it', kinds.includes(`lookback-${quiet}`) && kinds.includes('notice-ai'), JSON.stringify(kinds));
+        complete(unwritten, at(2));
+        const closed = keysOf();
+        check('every topic closed: the offer, and no "all caught up" claim under it', closed.includes(`lookback-${quiet}`) && !closed.includes('notice-clear'), JSON.stringify(closed));
     });
 
     await block('7. the routes and the card', async () => {

@@ -346,7 +346,8 @@ same 28 days), with no right answer on it logged from one minute after that
 miss; a right answer in the same sitting does not clear it.
 `recallCutoffs(decayDays, now)` gives the three cutoffs. Slips from every course
 in scope join the round, not only the next course's. Slipped topics come first in the
-round, `recallOrder` asks the missed question itself first (unless it was the
+round, `recallOrder(nodeId, now)` asks the missed question itself first, by the
+same day and 28-day rule (unless it was the
 last one the recall round asked on that topic), and their cards carry
 `slipped: true`. A slip changes no status and no evidence: the miss is already a
 `mock` practice row, and the topic leaves the round once it is answered right.
@@ -501,8 +502,9 @@ offers: `resume` while a look back is open (until it is put off, below);
 `mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
 21 days away and no full mock was finished or offer put off in the last 7 days
 (nothing on the exam's own day);
-else `look_back` when 14 days have passed since the last look back, full mock or
-"Not now" (or since the course's first answer), or a phase (a top-level node with
+else `look_back` when 14 days have passed since the last look back, full mock
+(a whole sitting, course draw or past paper; one past-paper question practised
+alone is no mock) or "Not now" (or since the course's first answer), or a phase (a top-level node with
 two or more work leaves, each completed or skipped, at least one completed) has
 closed since then, at least 3 days after it; and in
 every case only when `courseReadiness` finds 4 topics and 10 questions it can
@@ -515,6 +517,8 @@ A look back left open stops being offered as Continue once put off, once 14 days
 old, or inside the mock window. Start on such a one finishes it when anything was
 answered (the answers count), else drops it (`discardSitting`), and draws a fresh
 one. Start on a deck, an inactive course or one without enough to mix is a 409.
+A stream holding only the offer still gets the empty stream's notices (AI off, no
+model, today's cards done), but never "all caught up" beneath it.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
