@@ -337,9 +337,9 @@ check('the log is a ring buffer, not an archive',
         edges.split('\n').filter(l => /^# {2}w/.test(l)).join(' | '));
     // Every row after `now` (a clock set back, a restored library): they all
     // fold into this week, which still gets its line.
-    const early = summaryModule.studySummary({ now: Date.parse('2024-01-03T10:00:00.000Z') });
+    const early = summaryModule?.studySummary({ now: Date.parse('2024-01-03T10:00:00.000Z') });
     eq('rows that all lie after now still give this week its line',
-        JSON.stringify(early.weeks.map(w => [w.week, w.days])), JSON.stringify([['2024-01-01', early.studyDays]]));
+        JSON.stringify(early?.weeks.map(w => [w.week, w.days])), JSON.stringify([['2024-01-01', early?.studyDays]]));
 
     // A summary that cannot be read still leaves the events in the file.
     logActivity({ area: 'server', event: 'server.started' });
