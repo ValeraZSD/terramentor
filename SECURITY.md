@@ -353,10 +353,13 @@ your data at all." Those are different claims and we only make the second one.
   answer has arrived. A job with its own list uses only that list, so text you keep on this
   computer is not carried to a cloud backup; if every connection on that list is removed, the job
   stops and asks you to choose again rather than falling back to the main model. With nothing
-  chosen, every request goes to the connection in use, as above. Each key still goes only to its
-  own service. Beside each model on that screen the server shows its price and, for the job that
-  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
-  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  chosen, every request goes to the connection in use, as above. The job that checks answers is
+  sent the topic's material with each question it checks, as the job that wrote the question was:
+  the topic's Overview, your notes on it and, for a feed question, its lesson part (up to 12,000
+  characters), so a model you choose for checking receives that text too. Each key still goes
+  only to its own service. Beside each model on that screen the server shows its price and, for
+  the job that reads pictures, whether the model can, asked of that model's own connection only:
+  OpenRouter's public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
   Nothing is asked of a provider that publishes neither. The screen also notes when each job last
   moved on to its next model; that note stays in the library and holds only the time, the model's
   name, the kind of failure and its HTTP status.

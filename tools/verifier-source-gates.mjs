@@ -18,11 +18,12 @@
 //      it, and tells the verifier to answer a question about the text from the
 //      text; with no source the prompt is exactly what it was;
 //   2. each caller that gave its writer a text hands the verifier that text:
-//      the mastery check and practice quiz (vetQuiz), the placement probe and
-//      the paper exercise, measured on the prompt the stub received;
-//   3. every verifyQuestion call in server/ passes a source (the feed's two
-//      calls are reached only through the burst, so they are read in the
-//      source).
+//      the mastery check and practice quiz (vetQuiz), the placement probe,
+//      the paper exercise, and the feed (its lesson part as well, on the first
+//      check and on the background re-check), measured on the prompt the stub
+//      received; the text is fenced and read after the question;
+//   3. every verifyQuestion call in server/ and the bank audit tool passes a
+//      source, read in the source so no caller is missed.
 //
 // `--server <dir>` runs the same assertions against another copy of server/
 // (the pre-fix code) to prove they fail there.
@@ -168,6 +169,18 @@ const huge = (() => { try { return AI_PROMPTS.feed_question_verify('Business let
 check('a long source is capped, not sent whole', !!huge && huge.user.length < 20000 && !huge.user.includes('TAIL-MARK'), String(huge?.user.length));
 check('...and a question the cut text does not settle is judged by the subject, not called broken for that',
     !!huge && /cut short/.test(huge.user) && /cut short[^.]*judge it by the subject/i.test(huge.system));
+// The text is fenced, read after the question, and its rule is a numbered
+// rule like the others, before the closing "LAST" one.
+for (const [name, q] of Object.entries(shapes)) {
+    const p = (() => { try { return AI_PROMPTS.feed_question_verify('Business letters', q, { source: LETTER }); } catch { return null; } })();
+    const at = p ? p.user.indexOf('<source_text>') : -1;
+    check(`${name}: the text sits between <source_text> tags, after the question`,
+        at > 0 && p.user.indexOf('</source_text>') > at + LETTER.length && p.user.indexOf(q.question) < at && p.user.indexOf(MARK) > at);
+    check(`${name}: the text's rule is a numbered rule`, !!p && /\n\d\. SOURCE TEXT:/.test(p.system));
+}
+check('closed questions: "answerable" includes the text, and the text\'s rule comes before the last one',
+    !!closed && /answerable at all from subject knowledge, or from the SOURCE TEXT/.test(closed.system)
+    && /\n6\. SOURCE TEXT:/.test(closed.system) && /\n7\. LAST/.test(closed.system));
 
 // ---------------------------------------------------------------------------
 // 2. the callers
@@ -192,6 +205,43 @@ const paperNode = mkNode('Letters: paper');
 try { await generatePaperExercise(paperNode, 'Letters: paper'); } catch (err) { console.log(`  (paper threw: ${err.message})`); }
 const paperPrompt = lastFor(/PAPER: write a short reply/);
 check('paper exercise: the auditor sees the topic text', !!paperPrompt && paperPrompt.user.includes(MARK));
+
+// The feed: a question for lesson part i sits at seq 2i, its part at 2i - 1.
+// The first check reads the part and the topic's material; a re-check after
+// a check that gave no verdict must read the same, or a question about the
+// part is deleted on the second look.
+const feedNode = mkNode('Letters: feed');
+const PART_MARK = 'the van leaves at seven';
+db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'lesson', 1, ?, ?, 'ready')")
+    .run(feedNode, `The second paragraph says why: ${PART_MARK} and is back after dark.`, JSON.stringify({ partTitle: 'Why not Thursday' }));
+const at = new Date(Date.now() - 60 * 60000);
+const stamped = (q) => ({ ...q, unverified: { reason: 'verifier returned nothing usable', tries: 1, at: at.toISOString(), next: new Date(at.getTime() + 15 * 60000).toISOString() } });
+const feedQ = db.prepare("INSERT INTO feed_items (node_id, kind, seq, content, meta, status) VALUES (?, 'question', 2, ?, ?, 'ready')")
+    .run(feedNode, JSON.stringify(stamped({ ...mc, question: 'FEED: when can the writer meet on Friday?', correct_answer: 'Friday morning' })),
+        JSON.stringify({ partTitle: 'Why not Thursday', questionType: 'multiple_choice', verified: false })).lastInsertRowid;
+const feed = await import(B + 'feedGen.js');
+const firstSource = feed.feedVerifySource?.(feedNode, 'Why not Thursday', `The second paragraph says why: ${PART_MARK} and is back after dark.`) ?? '';
+check('feed, first check: reads the lesson part, then the topic\'s material, without the profile',
+    firstSource.startsWith('Lesson part "Why not Thursday":') && firstSource.includes(PART_MARK) && firstSource.includes(MARK)
+    && firstSource.indexOf(PART_MARK) < firstSource.indexOf(MARK) && !firstSource.includes('PROFILE-LINE'));
+check('feed, a stored question: the same text is rebuilt from its row', (feed.feedQuestionSource?.(feedQ) ?? '') === firstSource);
+// Drive the real re-check: a draw that holds back a stamped bank question
+// wakes the background chain, which re-checks every due question on the topic.
+const { drawFromNode } = await import(B + 'questionLog.js');
+db.prepare('INSERT INTO quizzes (node_id, title, questions) VALUES (?, ?, ?)')
+    .run(feedNode, 'Bank', JSON.stringify([stamped({ ...mc, question: 'BANK: when can the writer meet on Friday?', correct_answer: 'Friday morning' })]));
+drawFromNode(feedNode, 10);
+const waitFor = async (pred, ms = 10000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { if (pred()) return true; await new Promise(r => setTimeout(r, 100)); }
+    return pred();
+};
+await waitFor(() => !!lastFor(/FEED: when can/));
+const recheck = lastFor(/FEED: when can/);
+check('feed, the background re-check: reads the lesson part too', !!recheck && recheck.user.includes(PART_MARK) && recheck.user.includes(MARK),
+    recheck ? 'no lesson part in the prompt' : 'the re-check never ran');
+const bankRecheck = lastFor(/BANK: when can/);
+check('bank, the background re-check: reads the topic text', !!bankRecheck && bankRecheck.user.includes(MARK));
 
 // ---------------------------------------------------------------------------
 // 3. no call site forgets
@@ -222,6 +272,9 @@ let calls = 0;
 for (const [rel, p] of files) {
     const text = readFileSync(p, 'utf8');
     for (const m of text.matchAll(/(?<!function )\bverifyQuestion\(/g)) {
+        // A comment that names the function is not a call.
+        const lineStart = text.lastIndexOf('\n', m.index) + 1;
+        if (/^\s*(\/\/|\*|\/\*)/.test(text.slice(lineStart, m.index))) continue;
         const args = argsAt(text, m.index + m[0].length - 1);
         calls++;
         const line = text.slice(0, m.index).split('\n').length;
