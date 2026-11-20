@@ -1155,16 +1155,32 @@ node tools/contrast-audit.mjs
 ### 12.1 The activity log (`server/activityLog.js`)
 
 A local record of what the app DID: model calls, background jobs, projects created
-or deleted. **Metadata only**: no titles, prompts, notes or model output, which is
-what makes the file safe to hand to someone helping you debug; ids travel as ids
-and a project's name is looked up only on the way to the screen. A ring buffer of
-`MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
-switched by `activity_log_enabled`
+or deleted. **Metadata only**: no titles, prompts, notes or model output; ids travel
+as ids and a project's name is looked up only on the way to the screen. The download
+also says how much and when you studied (below), so read it before choosing who gets
+it. A ring buffer of `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX`
+environment variable), switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
 Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
+
+The download opens with a **study summary** (`server/studySummary.js`,
+`activityExport()`): counts computed from `study_time`, `review_log` (source `app`),
+`mastery_evidence`, `nodes` (topics marked done, by `completed_at`), `node_mastery` (proven = `estimateProven` over work leaves, the
+finished-project screen's rule) and `mock_sittings` when the file is made, never from
+the log, so an empty, cleared, switched-off or capped log does not change it. Days are
+the learner's days (`studyDay.js`) in the zone the page puts in the link (`?tz=`, since
+a plain link sends no `X-Time-Zone`; an unknown name falls back to the stored zone).
+Weeks start on Monday in that calendar, empty weeks included, a day after this week
+counted in this week's line, at most 52, with a line saying so when older weeks are
+left out. A summary that cannot be worked out becomes one
+`#` line naming the error class plus an `activity.summary_failed` event, and the events
+still follow. Every line starts with `#`, so a reader of one event per line skips it; it
+selects no text column. The gate seeds a library with marked text and a non-UTC time
+zone and pins every count, the week lines and the absence of the marks, and holds the
+proven, answer, review and study-day counts to `projectCompletion()`'s on one course.
 
 ### 12.2 Module map
 

@@ -978,12 +978,25 @@ Download button hands the file to your browser, and what happens to it after tha
 What it does **not** contain is the point of it: no topic titles, no questions, no answers, no
 notes, no model output, no file names, no paths. A row is a fact about the software, and where
 it refers to something of yours it stores the numeric id. That is the same rule the bug-report
-block follows, and for the same reason: a file you might hand to a stranger for help should
-not need to be read line by line first.
+block follows. The events can go to someone helping you with a problem without being read line
+by line first. The study summary at the top of the file is different: it says how much and when
+you studied, so look at it before you decide who gets the file.
+
+The downloaded file starts with a study summary, worked out from your study record at the
+moment you press Download: study days, study minutes, proven topics, checks taken, questions
+answered, card reviews done in the app, mock exams finished, the number of courses, the first
+study day, and one line per week (days, minutes, checks, answers, reviews) for up to a year.
+It is numbers and dates only: it selects no title, note, card, question, answer or course name,
+so none can be in the file. It is not stored anywhere and is not sent anywhere either; it is
+in the file because the log alone, which keeps only its newest events, cannot show whether
+someone kept studying. Switching the log off or clearing it does not remove the summary from
+the download.
 
 You can switch the recording off in that panel, and Clear deletes every row. The rule is
 enforced in the code, not just here: `tools/activity-log-gates.mjs` scans every call site that
-writes to the log and fails the build if one passes something the learner wrote.
+writes to the log and fails the build if one passes something the learner wrote, and it
+seeds a library full of marked titles, notes, cards, answers and prompts and fails if any
+of them reaches the downloaded file.
 
 ## Reporting a vulnerability
 
