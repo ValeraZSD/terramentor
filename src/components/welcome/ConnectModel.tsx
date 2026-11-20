@@ -305,6 +305,7 @@ export default function ConnectModel({ onStatus }: {
                     <div className="space-y-3">
                         <SegmentedControl
                             label={t("Which local server")}
+                            block="narrow"
                             value={localKind}
                             onChange={v => { setLocalKind(v); setLocalUrl(LOCAL_DEFAULTS[v]); }}
                             options={[
