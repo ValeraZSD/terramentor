@@ -17,7 +17,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Archive, CheckCircle2, CircleAlert, ExternalLink, File, FileText, Globe, Link2,
-    Loader2, MoreVertical, Paperclip, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
+    Loader2, MoreVertical, PenLine, Play, RotateCcw, Trash2, X, SquarePlay,
 } from 'lucide-react';
 import { api } from '../../api';
 import { useStore } from '../../store';
@@ -313,9 +313,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                             aria-label={prompt}
                             aria-describedby={hintId}
                             placeholder={prompt}
-                            // 16px, as everywhere a phone's keyboard comes up: a
-                            // smaller field makes iOS zoom the page on focus.
-                            className={cx('text-base', dragOver && '!border-accent ring-2 ring-accent')}
+                            className={cx(dragOver && '!border-accent ring-2 ring-accent')}
                         />
                     </div>
                     {/* Both in one cell, the one not in use hidden: swapped
@@ -324,7 +322,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
                         <Button variant="primary" className={cx('[grid-area:1/1]', !typed && 'invisible')}
                             onClick={() => void readLink(text)}>{t("Read")}</Button>
                         <Button variant="neutral" className={cx('[grid-area:1/1]', typed && 'invisible')}
-                            icon={<Paperclip className="w-4 h-4" aria-hidden="true" />} onClick={chooseFile}>{t("Choose a file")}</Button>
+                            onClick={chooseFile}>{t("Choose a file")}</Button>
                     </div>
                 </div>
                 <p id={hintId} className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
