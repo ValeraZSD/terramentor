@@ -115,7 +115,7 @@ function page() {
         const k = kind(el.textContent ?? '');
         if (k && shown.at(-1) !== k) shown.push(k);
     };
-    useStore.setState({ currentProjectId: null, projects, dashboardData: null, dashboardLoading: false, dailyPlan: null, _navigate: () => { } });
+    useStore.setState({ currentProjectId: null, projects, dashboardData: null, dashboardLoading: false, _navigate: () => { } });
     // Answer the first (or, with last: true, the newest) pending request matching `pattern`.
     const answer = async (pattern, body, { status = 200, last = false } = {}) => {
         const hits = pending.map((p, i) => [p, i]).filter(([p]) => pattern.test(p.url));

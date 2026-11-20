@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { NavigateFunction } from 'react-router-dom';
 import { SearchProvider } from './utils/searchProviders';
-import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, DailyPlan, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
+import { Project, ProjectUpdate, Node, TreeNode, Resource, Toast, ScheduleConfig, PaceData, ConfirmDialogState, ShowConfirmOptions, DashboardData, SearchResults, FeedCard, FeedHeaderData, FeedStats, GlobalDueFlashcard, AITaskSummary, TransferInfo, PlacementHeadStart, LessonWrite, AtlasColorMode, AtlasSurface, AppVersion, UpdateStatus, UpdateChannel, ProjectCompletion, FeedScope, scopeKey, AuthTailscaleHint, CourseUpdatePreview } from './types';
 import { api, goToSiteSignIn } from './api';
 import type { ClientSettingKey } from './settingKeys';
 import { configureSrs } from './utils/srs';
@@ -621,8 +621,6 @@ interface AppState {
     confirmDialog: ConfirmDialogState;
     dashboardData: DashboardData | null;
     dashboardLoading: boolean;
-    dailyPlan: DailyPlan | null;
-    loadDailyPlan: (projectId: number) => Promise<void>;
     dueFlashcardCount: number;
     /** Learning feed (home page) — the card stream + header (GET /api/feed). */
     feedCards: FeedCard[];
@@ -1049,7 +1047,6 @@ export const useStore = create<AppState>((set, get) => ({
     },
     dashboardData: null,
     dashboardLoading: false,
-    dailyPlan: null,
     dueFlashcardCount: 0,
     feedCards: [],
     feedHeader: null,
@@ -2716,9 +2713,6 @@ export const useStore = create<AppState>((set, get) => ({
             }
             dashboardShownSeq = seq;
             set({ dashboardData: data, dashboardLoading: dashboardStillLoading(projectId) });
-            // Keep "Today's Plan" in lockstep with the dashboard: every refresh path
-            // (node completed/skipped, schedule edit, recalibrate) flows through here.
-            get().loadDailyPlan(projectId);
             return { success: true };
         } catch (e: any) {
             console.error('Failed to load dashboard:', e);
@@ -2728,15 +2722,6 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-    loadDailyPlan: async (projectId) => {
-        try {
-            const plan = await api.getDailyPlan(projectId);
-            if (get().currentProjectId === projectId) set({ dailyPlan: plan });
-        } catch (e) {
-            console.error('Failed to load daily plan:', e);
-            if (get().currentProjectId === projectId) set({ dailyPlan: null });
-        }
-    },
 
     loadDueFlashcardCount: async (projectId) => {
         // Use count from project list first (avoids a separate API call)

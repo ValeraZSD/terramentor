@@ -293,13 +293,12 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     check('sidebar: a ready topic with notes under it shows the shield, not its percentage',
         /\(isRoot \? !isNote : hasChildren\) && !untaught[\s\S]{0,400}?!node\.is_note && !readyToProve \?/.test(side));
 
+    // The Dashboard has no list of today's other topics (study-doors-gates):
+    // a ready topic is offered the check by Next up, the topic panel and the
+    // stream's checkpoint.
     const dash = src('src/components/StudyDashboard.tsx');
-    // The plan's lists live in their own file since the dashboard redesign.
-    const plan = src('src/components/dashboard/TodaysPlan.tsx');
     check('dashboard: Next up says ready to prove', /tr\("Ready to prove — it was due \{\{when\}\}\."/.test(dash));
     check('dashboard: Next up offers the check', /openMasteryCheck\(heroTask\.id/.test(dash));
-    check('dashboard: the plan row offers the check', /openMasteryCheck\(task\.id/.test(plan));
-    check('dashboard: the plan lists ready topics apart', /task\.readyToProve/.test(plan) && /t\("Ready to prove \(\{\{length\}\}\)"/.test(plan));
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));
