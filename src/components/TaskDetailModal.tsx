@@ -139,6 +139,19 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
             : t("Across the whole library"),
     ].filter(Boolean).join(' · ');
 
+    // A button that goes to the page the reader is already on does nothing
+    // when pressed, and the chip is most often pressed FROM the topic the work
+    // is for. Read from `window.location`, not the router: the dialog is also
+    // mounted where no router is (the dock's own harness).
+    const here = (() => {
+        if (!place) return false;
+        const route = place.go === 'route' ? place.route
+            : place.go === 'project' ? `/project/${place.projectId}/dashboard` : null;
+        if (!route) return false;
+        const { pathname, hash } = window.location;
+        return route === (route.includes('#') ? pathname + hash : pathname);
+    })();
+
     const goThere = () => {
         if (openAiTask(task)) onClose();
     };
@@ -247,7 +260,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 p-4 dark:border-slate-700">
-                    {place && (
+                    {place && !here && (
                         <Button variant="primary" data-task-go onClick={goThere} trailing={<ArrowUpRight className="h-4 w-4" aria-hidden="true" />}>
                             {t(place.openKey)}
                         </Button>

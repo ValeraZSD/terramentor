@@ -437,6 +437,10 @@ console.log('\n--- a press on a chip is never nothing --------------------------
 // do neither.
 const routes = [];
 act(() => { store.getState().setNavigate((to) => { routes.push(String(to)); }); });
+// Pressed from a page none of these tasks belongs to: jsdom starts on '/',
+// which IS the home feed, and the record offers no button to where you are.
+const ELSEWHERE = '/project/99/dashboard';
+window.history.pushState({}, '', ELSEWHERE);
 const escape = () => act(() => (window.document.activeElement ?? window.document.body).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
 const openButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Open'));
 
@@ -659,6 +663,17 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     await click(studyBtn);
     check('…and opens that topic\'s own stream', routes, ['/project/7/study/42']);
     if ($$('[role=dialog]').length) escape();
+
+    // Pressed FROM that stream, the record offers no button to the page the
+    // reader is already on: it would do nothing when pressed.
+    window.history.pushState({}, '', '/project/7/study/42');
+    await click(openButton());
+    await settleLabels();
+    dialog = $$('[role=dialog]')[0];
+    check('…and offers no way to the page the reader is already on',
+        [!!dialog, !!dialog?.querySelector('[data-task-go]'), dialog?.textContent.includes('Stop this task')], [true, false, true]);
+    if ($$('[role=dialog]').length) escape();
+    window.history.pushState({}, '', ELSEWHERE);
 
     // A drawing repaired inside a topic's Overview goes back to the topic.
     check('an Overview repair opens its topic',
