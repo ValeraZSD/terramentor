@@ -20,6 +20,7 @@ import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMar
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
 import { speakable } from '../utils/speakable';
+import { createPaintCoalescer } from '../utils/paintCoalescer';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
 import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } from '../types';
@@ -93,6 +94,8 @@ export const DOCK_QUERY = '(min-width: 1024px)';
 /** Re-follows of a running turn after a dropped socket, and the pause per try. */
 const MAX_REATTACH = 3;
 const REATTACH_DELAY_MS = 1500;
+/** How often an arriving answer is redrawn (see `setStreamed`). */
+const STREAM_PAINT_MS = 80;
 
 const QUICK_PROMPTS = [
     k('What should I do today?'),
@@ -360,7 +363,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // bubble (a task that settled while unwatched) — and the card says the same.
     const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' } | null>(null);
     const [streaming, setStreaming] = useState(false);
-    const [streamed, setStreamed] = useState('');
+    const [streamed, setStreamedNow] = useState('');
+    // The arriving answer is drawn as one markdown document, parsed whole on
+    // every render. One render per chunk kept the page's main thread busy for
+    // most of every answer; the text now catches up at most every
+    // STREAM_PAINT_MS, and a reset ('') still lands at once.
+    const [streamPaint] = useState(() => createPaintCoalescer(setStreamedNow, STREAM_PAINT_MS));
+    const setStreamed = streamPaint.push;
+    useEffect(() => () => streamPaint.cancel(), [streamPaint]);
     // A finished answer, said once by a screen reader. The conversation itself
     // is a log that does not speak: a live region over a streaming reply read
     // out every few words as they arrived.
@@ -567,12 +577,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const { aiProvider, aiModel } = useStore.getState();
         setStatus(s => (s && aiModel && s.provider === aiProvider ? { ...s, model: aiModel } : s));
     }, [aiConfigRev]);
+    // The server keeps a reachable answer for 30 s; right after a turn, which
+    // may have failed because the provider just went away, the drawer asks for
+    // a check of its own. A turn can end while the drawer is closed, so that
+    // ask is owed until the next check runs; interval checks take the cache.
+    const wasStreaming = useRef(false);
+    const freshCheckOwed = useRef(false);
     useEffect(() => {
+        const turnEnded = wasStreaming.current && !streaming;
+        wasStreaming.current = streaming;
+        if (turnEnded) freshCheckOwed.current = true;
         if (!open) return;
         let alive = true;
         const check = () => {
             setStatusLoading(true);
-            api.getAIStatus()
+            const asked = api.getAIStatus({ fresh: freshCheckOwed.current });
+            freshCheckOwed.current = false;
+            asked
                 .then(s => { if (alive) setStatus(s); })
                 .catch(() => { if (alive) setStatus(null); })
                 .finally(() => { if (alive) setStatusLoading(false); });
@@ -711,6 +732,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // never got mapped (a turn the server did not save) has nothing to
         // write to, and the in-session render is fixed either way.
         if (dbId > 0) api.updateChatMessage(dbId, newContent).catch(() => { });
+    };
+    // One handler per message, the same function on every render: `Markdown`
+    // is memoised, and a new arrow each render made every earlier answer
+    // re-parse its markdown on every token of the one arriving. It reads only
+    // refs, so the first one made for a message stays right.
+    const repairHandlers = useRef(new Map<number, (originalCode: string, repairedCode: string) => void>());
+    const repairHandlerFor = (messageId: number) => {
+        let handler = repairHandlers.current.get(messageId);
+        if (!handler) {
+            handler = (originalCode, repairedCode) => persistRepair(messageId, originalCode, repairedCode);
+            repairHandlers.current.set(messageId, handler);
+        }
+        return handler;
     };
 
     /** Add a reasoning delta to a turn, opening its panel while it is thinking. */
@@ -1608,7 +1642,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                             autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             surface="assistant"
                                                             messageId={savedMessageId(m.id)}
-                                                            onRepaired={(orig, fixed) => persistRepair(m.id, orig, fixed)}
+                                                            onRepaired={repairHandlerFor(m.id)}
                                                         />
                                                     ) : null;
                                                 })}
