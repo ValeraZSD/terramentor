@@ -590,7 +590,9 @@ export function releaseStartLock(file, token, fs = lockFs) {
 
 /**
  * The launcher's first decision: a server is running (`{ running, openedByHolder }`),
- * or this launch starts one (`{ token }`, or `{}` when no lock can be kept).
+ * or this launch starts one (`{ token }`, or `{}` when no lock can be kept), or
+ * another start holds the library and never settled (`{ stuck: true }`): the
+ * launch then stops rather than start a second server beside it.
  * `find` is `findRunningInstance` bound to this library. A launch that waited
  * for another start reports whether THAT start opened a window, so a second
  * click during a slow start makes one window, not two; a launch that did not
@@ -615,10 +617,18 @@ export async function settleStart({
     // well, so a holder that stalls after listening does not hold launches off
     // for the whole START_LOCK_MAX_MS.
     probeAfterPolls = 40,
+    // A lock being written this instant: asked again for at most this many
+    // polls. A young empty lock turns stale after START_LOCK_WRITE_MS, so this
+    // only runs out when new lock files keep appearing.
+    busyPolls = Math.ceil((2 * START_LOCK_WRITE_MS) / pollMs),
+    // When the probe finds a holder's server before its lock says `up`, the
+    // holder's window decision is still coming: waited for this many polls.
+    decisionPolls = 20,
 }) {
     let waitedFor = null;
     let retriedUp = false;
-    for (let round = 0; ; round++) {
+    let busy = 0;
+    for (let waits = 0; ;) {
         let running = await find();
         if (!running && !retriedUp && serving(read(lockFile))) {
             retriedUp = true;
@@ -630,18 +640,34 @@ export async function settleStart({
         if (running) return { running, openedByHolder: waitedFor?.state === 'up' && waitedFor.window === true };
         const c = claim(lockFile);
         if (c.claimed) return { token: c.token };
-        if (round >= maxRounds || (!c.lock && !c.busy)) return {};
-        if (c.busy) { await sleep(pollMs); continue; }
+        // Only a folder that cannot hold a lock starts unguarded. A lock that is
+        // busy or held does not: that start may be about to serve this library.
+        if (!c.lock && !c.busy) return {};
+        if (c.busy) {
+            if (++busy > busyPolls) return { stuck: true };
+            await sleep(pollMs);
+            continue;
+        }
+        if (waits++ >= maxRounds) return { stuck: true };
         onWait(c.lock);
         let lock = c.lock;
         let polls = 0;
         while (live(lock)) {
             await sleep(pollMs);
             if (++polls >= probeAfterPolls && polls % 4 === 0) {
-                // Whether that start opened a window is not known yet; a
-                // launch that has waited this long opens its own.
                 const found = await find();
-                if (found) return { running: found, openedByHolder: false };
+                if (found) {
+                    // Its server listens; its window decision may still be on
+                    // the way. Wait for it a little longer; a holder that never
+                    // makes it leaves the window to this launch.
+                    let after = read(lockFile);
+                    for (let i = 0; i < decisionPolls && after?.token === lock.token && after.state === 'starting'; i++) {
+                        await sleep(pollMs);
+                        after = read(lockFile);
+                    }
+                    const decided = after?.token === lock.token && after.state === 'up';
+                    return { running: found, openedByHolder: decided && after.window === true };
+                }
             }
             lock = read(lockFile);
         }
@@ -950,16 +976,16 @@ export function autostartPlan({ platform = process.platform, target, args = [], 
     if (platform === 'win32') {
         const appData = env.APPDATA;
         if (!appData) return { supported: false, why: 'no APPDATA' };
+        // Quoting each argument: a packaged copy can sit under
+        // "C:\Program Files" and an unquoted path stops at the space.
+        const line = args.map(windowsArg).join(' ');
+        const dir = workingDir || dirname(target);
         return {
             supported: true,
             kind: 'shortcut',
             path: at(appData, STARTUP_FOLDER, `${name}.lnk`),
-            // Quoting each argument: a packaged copy can sit under
-            // "C:\Program Files" and an unquoted path stops at the space.
-            script: shortcutScript({
-                shellFolder: STARTUP_FOLDER, target, workingDir: workingDir || dirname(target), icon, name,
-                args: args.map(windowsArg).join(' '),
-            }),
+            script: shortcutScript({ shellFolder: STARTUP_FOLDER, target, workingDir: dir, icon, name, args: line }),
+            record: shortcutRecord({ arguments: line, workingDir: dir }),
         };
     }
     if (platform === 'darwin') {
@@ -1011,5 +1037,192 @@ X-GNOME-Autostart-enabled=true
 `,
     };
 }
+
+// ---------------------------------------------------------------------------
+// Reading a login item back. There is one login item per user and any number
+// of libraries, so before a server rewrites the item it has to know whose it
+// is — from what the item itself says, never from a substring or a file time.
+
+/** What a Windows shortcut is compared by: the two fields this app sets that
+ *  change when it moves (the working folder is the app's own) or when the
+ *  library does (the arguments name it). Key order is fixed, so equal fields
+ *  are an equal string. */
+export const shortcutRecord = ({ arguments: args = '', workingDir = '' }) =>
+    JSON.stringify({ arguments: args, workingDir });
+
+/**
+ * The text fields of a .lnk file (MS-SHLLINK): the header, then the item-id
+ * list and the link info, both skipped by their sizes, then up to five
+ * counted strings in a fixed order, each present when its flag is set. UTF-16
+ * when the IsUnicode flag is; otherwise the bytes are read as Latin-1, which
+ * is wrong for other code pages but still equal to itself. Null for anything
+ * that is not a well-formed shortcut.
+ */
+export function readShortcut(buf) {
+    try {
+        if (!buf || buf.length < 0x4C || buf.readUInt32LE(0) !== 0x4C) return null;
+        const flags = buf.readUInt32LE(20);
+        let at = 0x4C;
+        if (flags & 0x01) at += 2 + buf.readUInt16LE(at);
+        if (flags & 0x02) at += buf.readUInt32LE(at);
+        const unicode = (flags & 0x80) !== 0;
+        const out = {};
+        for (const [bit, key] of [[0x04, 'name'], [0x08, 'relativePath'], [0x10, 'workingDir'], [0x20, 'arguments'], [0x40, 'icon']]) {
+            if (!(flags & bit)) continue;
+            const n = buf.readUInt16LE(at);
+            const bytes = unicode ? n * 2 : n;
+            if (at + 2 + bytes > buf.length) return null;
+            out[key] = buf.toString(unicode ? 'utf16le' : 'latin1', at + 2, at + 2 + bytes);
+            at += 2 + bytes;
+        }
+        return out;
+    } catch {
+        return null;
+    }
+}
+
+/** A Windows command line split the way the C runtime splits it: whitespace
+ *  between arguments, double quotes group, and backslashes count only before
+ *  a quote (2n then a quote: n backslashes and a quote that groups; 2n+1: n
+ *  backslashes and a literal quote). The inverse of windowsArg. */
+export function windowsArgs(line) {
+    const s = String(line), out = [];
+    let i = 0;
+    for (;;) {
+        while (i < s.length && /\s/.test(s[i])) i++;
+        if (i >= s.length) return out;
+        let arg = '', quoted = false;
+        while (i < s.length && (quoted || !/\s/.test(s[i]))) {
+            if (s[i] === '\\') {
+                let n = 0;
+                while (s[i] === '\\') { n++; i++; }
+                if (s[i] === '"') {
+                    arg += '\\'.repeat(n >> 1);
+                    if (n & 1) { arg += '"'; i++; }
+                } else arg += '\\'.repeat(n);
+            } else if (s[i] === '"') {
+                if (quoted && s[i + 1] === '"') { arg += '"'; i += 2; } else { quoted = !quoted; i++; }
+            } else arg += s[i++];
+        }
+        out.push(arg);
+    }
+}
+
+const XML_ENTITIES = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+const xmlText = (s) => s.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|quot|apos|amp);/gi, (m, e) => (
+    e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : XML_ENTITIES[e.toLowerCase()]));
+
+/** The Exec line of a .desktop file split back into its arguments: field codes
+ *  (`%%` is a literal `%`), then the string escapes, then the quoting rules —
+ *  desktopExecArg's three layers undone in reverse. */
+function desktopExecArgs(exec) {
+    const s = exec.replace(/%%/g, '%')
+        .replace(/\\([\\snrt])/g, (m, c) => ({ s: ' ', n: '\n', r: '\r', t: '\t', '\\': '\\' }[c]));
+    const out = [];
+    let i = 0;
+    for (;;) {
+        while (i < s.length && /\s/.test(s[i])) i++;
+        if (i >= s.length) return out;
+        let arg = '';
+        if (s[i] === '"') {
+            for (i++; i < s.length && s[i] !== '"'; i++) {
+                if (s[i] === '\\' && i + 1 < s.length) i++;
+                arg += s[i];
+            }
+            i++;
+        } else {
+            while (i < s.length && !/\s/.test(s[i])) arg += s[i++];
+        }
+        out.push(arg);
+    }
+}
+
+/**
+ * The command a login item runs, as a list: the program then its arguments
+ * for a plist or a .desktop entry, the arguments alone for a shortcut (its
+ * target is a separate field). Null when the text is not one this app could
+ * have written.
+ */
+export function loginItemArgs(kind, text) {
+    if (typeof text !== 'string') return null;
+    if (kind === 'plist') {
+        const array = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
+        return array ? [...array[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => xmlText(m[1])) : null;
+    }
+    if (kind === 'desktop-entry') {
+        const exec = text.match(/^Exec=(.*)$/m);
+        return exec ? desktopExecArgs(exec[1]) : null;
+    }
+    if (kind === 'shortcut') {
+        try { return windowsArgs(JSON.parse(text).arguments); } catch { return null; }
+    }
+    return null;
+}
+
+/** The library a command opens: the value after its first `--data-dir`, as the
+ *  launcher reads it, or null when it names none (the default library). */
+export function dataDirOf(args) {
+    const i = args.indexOf('--data-dir');
+    return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
+}
+
+/** Two library folders are one when they resolve to the same path — compared
+ *  whole, never by prefix — ignoring case on Windows, whose file system does. */
+export function sameLibrary(a, b, platform = process.platform) {
+    if (a == null || b == null) return a == null && b == null;
+    const p = platform === 'win32' ? win32 : posix;
+    const norm = (d) => {
+        const r = p.resolve(d);
+        const t = r.length > p.parse(r).root.length ? r.replace(/[\\/]+$/, '') : r;
+        return platform === 'win32' ? t.toLowerCase() : t;
+    };
+    return norm(a) === norm(b);
+}
+
+/**
+ * Whether a server rewrites the login item at start. A login item names the
+ * copy of the app that wrote it, and an update is a new folder with the old
+ * one deleted — left alone, nothing starts at sign-in after an update while
+ * Settings says it will. But the item is the user's one item, so a server
+ * rewrites only the item its own library owns:
+ *
+ * - `current` is the item as it is now, `wanted` what this copy would write,
+ *   `marker` what this library last wrote (all compared as records: the file
+ *   for a plist or .desktop entry, shortcutRecord for a .lnk).
+ * - With a marker, the item is this library's only while it is still exactly
+ *   what the library wrote. Another library writing the item since, or a
+ *   person editing it, makes it someone else's, and it is left alone.
+ *   A shortcut's marker keeps two records, because Windows does not always
+ *   store what it is given (WScript.Shell sends some fields through the ANSI
+ *   code page, so `é` on a Cyrillic system comes back as `e`): `holds`, read
+ *   back from the file, says whose it is; `wrote`, what this copy asked for,
+ *   says whether this copy would write anything different.
+ * - With no marker (an item from before markers, or a marker from before
+ *   shortcut records, which held the script), the item is this library's when
+ *   its own `--data-dir` is this library — the whole path, not a prefix — or
+ *   when neither names one.
+ * - A removed item is never put back, and an item that cannot be read is
+ *   nobody's to judge.
+ */
+export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, platform = process.platform }) {
+    if (!exists || current == null || wanted == null || current === wanted) return 'none';
+    if (kind === 'shortcut' && marker != null) {
+        // Markers written before shortcut records hold the PowerShell script:
+        // anything that is not both records counts as no marker.
+        let m = null;
+        try { m = JSON.parse(marker); } catch { /* the script */ }
+        if (typeof m?.wrote === 'string' && typeof m?.holds === 'string') {
+            return current === m.holds && m.wrote !== wanted ? 'rewrite' : 'none';
+        }
+        marker = null;
+    }
+    if (marker != null) return current === marker ? 'rewrite' : 'none';
+    const args = loginItemArgs(kind, current);
+    return args && sameLibrary(dataDirOf(args), dataDir, platform) ? 'rewrite' : 'none';
+}
+
+/** The marker a shortcut write leaves: what was asked for, and what the file
+ *  Windows wrote turned out to hold. */
+export const shortcutMarker = (wrote, holds) => JSON.stringify({ wrote, holds });
 
 export { userDataDir, dirname };

@@ -510,6 +510,10 @@ async function finishInterruptedSwap() {
             startLockToken = settled.token;
             process.on('exit', () => releaseStartLock(startLockFile, startLockToken));
         }
+        if (settled.stuck) {
+            fatal(`Another launch is still starting ${APP_NAME} on this library and has not finished. `
+                + 'Wait a minute and open it again.');
+        }
         const running = settled.running;
         if (running) {
             // Its own status carries both preferences; this process never reads

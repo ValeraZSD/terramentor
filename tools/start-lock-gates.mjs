@@ -21,6 +21,7 @@ import {
     START_LOCK, START_LOCK_MAX_MS, claimStartLock, readStartLock, startLockLive, markStartLockUp,
     releaseStartLock, settleStart, pidAlive, autostartPlan,
 } from '../desktop/lib.js';
+import { scratchApp } from './lib/scratchApp.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const cache = join(repoRoot, 'node_modules', '.cache');
@@ -42,16 +43,21 @@ const lockIn = (d) => join(d, START_LOCK);
 const realFs = { readFileSync: nodeFs.readFileSync, writeFileSync: nodeFs.writeFileSync, unlinkSync: nodeFs.unlinkSync, renameSync: nodeFs.renameSync, statSync: nodeFs.statSync, linkSync: nodeFs.linkSync };
 const alive = () => true;
 const dead = () => false;
+let app = null;
+// The lock rules are judged at one fixed instant; real time is used only for
+// the processes below, which really race.
+const T = Date.parse('2026-11-19T12:00:00Z');
+const at = () => T;
 
 try {
     // --- the lock's rules ---------------------------------------------------------
     {
         const f = lockIn(freshDir());
-        const a = claimStartLock(f, { pid: 111, alive });
+        const a = claimStartLock(f, { pid: 111, alive, now: at });
         check('the first launch on a library claims the lock', a.claimed, true);
         const lock = readStartLock(f);
         check('the lock names its process and says starting', [lock.pid, lock.state, lock.token === a.token], [111, 'starting', true]);
-        const b = claimStartLock(f, { pid: 222, alive });
+        const b = claimStartLock(f, { pid: 222, alive, now: at });
         check('a second launch while the first is starting is told to wait', [b.claimed, b.lock?.pid], [false, 111]);
         check('…and the lock is still the first one\'s', readStartLock(f).token, a.token);
 
@@ -59,43 +65,43 @@ try {
         check('the holder marks it up with its window decision', markStartLockUp(f, a.token, { window: true }), true);
         check('…which keeps the holder and says up', [readStartLock(f).pid, readStartLock(f).state, readStartLock(f).window], [111, 'up', true]);
         check('…and leaves no temporary file behind', existsSync(`${f}.${a.token}.tmp`), false);
-        check('an up lock holds nobody back', startLockLive(readStartLock(f), { alive }), false);
+        check('an up lock holds nobody back', startLockLive(readStartLock(f), { alive, now: T }), false);
 
         check('someone else\'s token cannot release the lock', releaseStartLock(f, 'not-mine'), false);
         check('the holder releases it on exit', [releaseStartLock(f, a.token), existsSync(f)], [true, false]);
     }
     {
         const f = lockIn(freshDir());
-        claimStartLock(f, { pid: 111, alive });
-        const c = claimStartLock(f, { pid: 222, alive: dead });
+        claimStartLock(f, { pid: 111, alive, now: at });
+        const c = claimStartLock(f, { pid: 222, alive: dead, now: at });
         check('a dead holder\'s lock is taken over', [c.claimed, readStartLock(f).pid], [true, 222]);
     }
     {
         const f = lockIn(freshDir());
-        const t0 = Date.now();
-        claimStartLock(f, { pid: 111, alive, now: () => t0 - START_LOCK_MAX_MS - 1 });
-        const c = claimStartLock(f, { pid: 222, alive });
+        claimStartLock(f, { pid: 111, alive, now: () => T - START_LOCK_MAX_MS - 1 });
+        const c = claimStartLock(f, { pid: 222, alive, now: at });
         check('a start older than the limit (a hung holder) is taken over', [c.claimed, readStartLock(f).pid], [true, 222]);
     }
     {
         const f = lockIn(freshDir());
-        const a = claimStartLock(f, { pid: 111, alive });
+        const a = claimStartLock(f, { pid: 111, alive, now: at });
         markStartLockUp(f, a.token, { window: false });
-        const c = claimStartLock(f, { pid: 222, alive });
+        const c = claimStartLock(f, { pid: 222, alive, now: at });
         check('an up lock from a living server is taken over (finding that server is not the lock\'s job)', c.claimed, true);
     }
     {
         const f = lockIn(freshDir());
         writeFileSync(f, '');
-        const c = claimStartLock(f, { pid: 222, alive });
+        utimesSync(f, T / 1000, T / 1000);
+        const c = claimStartLock(f, { pid: 222, alive, now: at });
         check('an empty lock written this instant means wait a moment, not take over', [c.claimed, c.busy, existsSync(f)], [false, true, true]);
-        const old = (Date.now() - 60_000) / 1000;
+        const old = (T - 60_000) / 1000;
         utimesSync(f, old, old);
-        check('an old unreadable lock is taken over', claimStartLock(f, { pid: 222, alive }).claimed, true);
+        check('an old unreadable lock is taken over', claimStartLock(f, { pid: 222, alive, now: at }).claimed, true);
     }
     {
         const missing = join(scratch, 'not-there', 'deeper');
-        const c = claimStartLock(lockIn(missing), { pid: 1, alive });
+        const c = claimStartLock(lockIn(missing), { pid: 1, alive, now: at });
         check('no folder: no lock, the launch goes ahead unguarded', [c.claimed, c.lock, c.busy], [false, undefined, undefined]);
         check('…and the folder is not created', existsSync(missing), false);
     }
@@ -110,11 +116,11 @@ try {
             ...realFs,
             readFileSync: (p, enc) => {
                 const text = realFs.readFileSync(p, enc);
-                if (p === f && !a) a = claimStartLock(f, { pid: 111, alive: deadButA });
+                if (p === f && !a) a = claimStartLock(f, { pid: 111, alive: deadButA, now: at });
                 return text;
             },
         };
-        const b = claimStartLock(f, { pid: 222, alive: deadButA, fs: fsB });
+        const b = claimStartLock(f, { pid: 222, alive: deadButA, fs: fsB, now: at });
         check('two launches taking over one stale lock: the first wins', a?.claimed, true);
         check('…and the second does not move the winner\'s lock away', [b.claimed, readStartLock(f)?.pid], [false, 111]);
         check('…nothing is left beside the lock', readdirSync(dirname(f)).filter((n) => n !== 'start.lock'), []);
@@ -131,7 +137,7 @@ try {
     // A simulated holder: starting for three polls, then up with `window`.
     const simulate = async ({ window, holderDies = false }) => {
         const f = lockIn(freshDir());
-        const holder = claimStartLock(f, { pid: 111, alive });
+        const holder = claimStartLock(f, { pid: 111, alive, now: at });
         let polls = 0;
         let serverUp = false;
         const sleep = async () => {
@@ -145,8 +151,8 @@ try {
         const result = await settleStart({
             lockFile: f,
             find: async () => (serverUp ? { port: 1, url: 'http://127.0.0.1:1' } : null),
-            claim: (file) => claimStartLock(file, { pid: 222, alive }),
-            live: (lock) => startLockLive(lock, { alive }),
+            claim: (file) => claimStartLock(file, { pid: 222, alive, now: at }),
+            live: (lock) => startLockLive(lock, { alive, now: T }),
             sleep,
             onWait: (lock) => { waited = lock.pid; },
         });
@@ -170,7 +176,7 @@ try {
         // A server already up long ago, its lock still saying window:true: a
         // later click did not wait, so it must open its window.
         const f = lockIn(freshDir());
-        const old = claimStartLock(f, { pid: 111, alive });
+        const old = claimStartLock(f, { pid: 111, alive, now: at });
         markStartLockUp(f, old.token, { window: true });
         const r = await settleStart({ lockFile: f, find: async () => ({ port: 1 }), sleep: async () => {} });
         check('a launch that did not wait never reads an old start\'s window', r.openedByHolder, false);
@@ -183,13 +189,13 @@ try {
         // A server that is up (its lock says so, its process lives) but missed
         // the first probes: busy with its start, or paged out.
         const f = lockIn(freshDir());
-        const holder = claimStartLock(f, { pid: 111, alive });
+        const holder = claimStartLock(f, { pid: 111, alive, now: at });
         markStartLockUp(f, holder.token, { window: true });
         let probes = 0;
         const r = await settleStart({
             lockFile: f,
             find: async () => (++probes >= 4 ? { port: 1 } : null),
-            claim: (file) => claimStartLock(file, { pid: 222, alive }),
+            claim: (file) => claimStartLock(file, { pid: 222, alive, now: at }),
             serving: (lock) => lock?.state === 'up' && alive(lock.pid),
             sleep: async () => {},
         });
@@ -197,13 +203,13 @@ try {
     }
     {
         const f = lockIn(freshDir());
-        const holder = claimStartLock(f, { pid: 111, alive });
+        const holder = claimStartLock(f, { pid: 111, alive, now: at });
         markStartLockUp(f, holder.token, { window: true });
         let probes = 0;
         const r = await settleStart({
             lockFile: f,
             find: async () => { probes++; return null; },
-            claim: (file) => claimStartLock(file, { pid: 222, alive }),
+            claim: (file) => claimStartLock(file, { pid: 222, alive, now: at }),
             serving: (lock) => lock?.state === 'up' && alive(lock.pid),
             sleep: async () => {},
         });
@@ -212,17 +218,55 @@ try {
     {
         // A holder that listens but never marks its lock up.
         const f = lockIn(freshDir());
-        claimStartLock(f, { pid: 111, alive });
+        claimStartLock(f, { pid: 111, alive, now: at });
         let polls = 0;
         const r = await settleStart({
             lockFile: f,
             find: async () => (polls > 0 ? { port: 1 } : null),
-            claim: (file) => claimStartLock(file, { pid: 222, alive }),
-            live: (lock) => startLockLive(lock, { alive }),
+            claim: (file) => claimStartLock(file, { pid: 222, alive, now: at }),
+            live: (lock) => startLockLive(lock, { alive, now: T }),
             sleep: async () => { polls++; },
         });
         check('a holder stuck after it listens: the waiting launch finds its server', [!!r.running, r.openedByHolder], [true, false]);
-        check('…after waiting a while, not at the first poll', polls >= 40 && polls < 50, true);
+        check('…after waiting a while, and a while longer for its window decision', polls >= 60 && polls < 70, true);
+    }
+    {
+        // A holder that listens, stalls past the probe, then decides its window.
+        const f = lockIn(freshDir());
+        const holder = claimStartLock(f, { pid: 111, alive, now: at });
+        let polls = 0;
+        const r = await settleStart({
+            lockFile: f,
+            find: async () => (polls > 0 ? { port: 1 } : null),
+            claim: (file) => claimStartLock(file, { pid: 222, alive, now: at }),
+            live: (lock) => startLockLive(lock, { alive, now: T }),
+            sleep: async () => { if (++polls === 45) markStartLockUp(f, holder.token, { window: true }); },
+        });
+        check('a holder that opens its window after the probe found its server: one window, not two', [!!r.running, r.openedByHolder], [true, true]);
+    }
+    {
+        // A lock that stays "being written" (new empty lock files keep appearing).
+        let claims = 0;
+        const r = await settleStart({
+            lockFile: lockIn(freshDir()),
+            find: async () => null,
+            claim: () => { claims++; return { claimed: false, busy: true }; },
+            sleep: async () => {},
+        });
+        check('a lock that stays busy never leads to an unguarded start: the launch stops', [r.stuck, r.token, claims > 5], [true, undefined, true]);
+    }
+    {
+        // Start after start holds the library, each live when asked.
+        const f = lockIn(freshDir());
+        let n2 = 0;
+        const r = await settleStart({
+            lockFile: f,
+            find: async () => null,
+            claim: () => ({ claimed: false, lock: { pid: 900 + n2++, state: 'starting', at: new Date(T).toISOString(), token: `t${n2}` } }),
+            live: () => false,
+            sleep: async () => {},
+        });
+        check('…nor do starts that keep holding it: the launch stops after a bounded wait', [r.stuck, r.token], [true, undefined]);
     }
 
     // --- real processes racing for one lock ------------------------------------
@@ -271,9 +315,10 @@ try {
         }
         // --data-dir is set in the launcher's own process (it writes DATA_DIR
         // before importing the server); VAULT_ROOT and the secrets file follow it.
-        const args = [join(repoRoot, 'desktop', 'launcher.js'), '--no-window', '--data-dir', dataDir, '--port', String(port)];
+        app = scratchApp(repoRoot, freshDir());
+        const args = [app.launcher, '--no-window', '--data-dir', dataDir, '--port', String(port)];
         const run = () => {
-            const c = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+            const c = spawn(process.execPath, args, { cwd: app.root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
             const p = { child: c, out: '', exited: null };
             c.stdout.on('data', (b) => { p.out += b; });
             c.stderr.on('data', (b) => { p.out += b; });
@@ -313,7 +358,10 @@ try {
         }
     }
 } finally {
-    try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a server still closing */ }
+    // The scratch app links into the repo: those links go first, or nothing is removed.
+    if (!app || app.dispose()) {
+        try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a server still closing */ }
+    }
 }
 
 console.log(`\n${passed} passed, ${failures} failed`);

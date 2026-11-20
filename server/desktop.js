@@ -41,7 +41,7 @@
 
 import { Router } from 'express';
 import { spawn } from 'node:child_process';
-import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, writeFileSync, rmSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -115,12 +115,14 @@ export const isTrayHosted = () => process.env.TERRAMENTOR_TRAY === '1';
 
 const UNSUPPORTED = { supported: false, why: 'the launcher did not say how it was started' };
 let autostart = UNSUPPORTED;
+/** desktop/lib.js once loaded: it reads a login item back as well as writing it. */
+let desktopLib = null;
 /** Loaded once, at import, and only under the launcher — so it has resolved
  *  long before a window exists to ask about it, and `status()` can stay
  *  synchronous (it is also the launcher's single-instance probe). */
 export const autostartLoaded = isDesktop() && launchTarget()
     ? import('../desktop/lib.js')
-        .then(({ autostartPlan }) => { autostart = autostartPlan(launchTarget()); return autostart; })
+        .then((lib) => { desktopLib = lib; autostart = lib.autostartPlan(launchTarget()); return autostart; })
         .catch(() => autostart)
     : Promise.resolve(autostart);
 
@@ -131,8 +133,8 @@ const startsAtLogin = () => !!(autostart.supported && existsSync(autostart.path)
 
 /** Write or remove that file. Windows needs PowerShell to make a .lnk (it is a
  *  COM object); removing one is an ordinary unlink on all three platforms.
- *  `marker` (Windows) records the script that wrote the shortcut once it has —
- *  see refreshLoginItem. */
+ *  `marker`, beside the library, records what this library wrote, so a later
+ *  start can tell its own item from another library's — see refreshLoginItem. */
 function setStartAtLogin(on, marker = null) {
     if (!autostart.supported) return false;
     if (!on) {
@@ -154,10 +156,17 @@ function setStartAtLogin(on, marker = null) {
         const child = spawn('powershell.exe',
             ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file],
             { stdio: 'ignore', windowsHide: true });
-        const script = autostart.script;
+        const { path: lnk, record: wrote } = autostart;
         child.on('exit', (code) => {
             try { rmSync(file, { force: true }); } catch { /* temp */ }
-            if (code === 0 && marker) try { writeFileSync(marker, script, 'utf8'); } catch { /* next start rewrites once more */ }
+            if (code !== 0 || !marker) return;
+            // What was asked for, and what the file Windows wrote holds: the two
+            // can differ (see loginItemRefresh), and a later start needs both.
+            const fields = desktopLib?.readShortcut(readOrNull(lnk));
+            try {
+                if (fields) writeFileSync(marker, desktopLib.shortcutMarker(wrote, desktopLib.shortcutRecord(fields)), 'utf8');
+                else rmSync(marker, { force: true });
+            } catch { /* the item then counts as unmarked: owned by its --data-dir */ }
         });
         child.on('error', () => { /* no PowerShell: reported by the next status read */ });
         return true;
@@ -166,50 +175,20 @@ function setStartAtLogin(on, marker = null) {
     }
 }
 
-/**
- * A login item names the copy of the app that wrote it, and an update is a new
- * folder with the old one deleted — left alone, nothing starts at sign-in after
- * an update while Settings says it will (the file exists). On every
- * start an EXISTING login item is compared with the one this copy would write
- * and rewritten when they differ: the file itself for a plist or a .desktop
- * entry, and for a Windows shortcut (a binary .lnk) the script that last wrote
- * it, kept in `marker` beside the library. A login item the person removed is
- * never put back.
- *
- * There is one login item per user and any number of libraries, so a server
- * only rewrites the item ITS library wrote: the marker says what that was. A
- * library with no marker (a second library, a scratch library under test) and
- * an item rewritten since the marker (by another library, or by hand) are left
- * alone. A plist or .desktop entry from before markers existed is adopted only
- * when it already names this library.
- */
-export function loginItemRefresh({ exists, wanted, marker = null, current = null, itemMs = 0, markerMs = 0, dataDir = null }) {
-    if (!exists || !wanted) return 'none';
-    const isText = current != null;
-    if (marker == null) {
-        if (!isText) return 'none';
-        const namesThis = dataDir ? current.includes(dataDir) : false;
-        const neitherNames = !current.includes('--data-dir') && !wanted.includes('--data-dir');
-        return (namesThis || neitherNames) && current !== wanted ? 'rewrite' : 'none';
-    }
-    if (isText) return current === marker && current !== wanted ? 'rewrite' : 'none';
-    // The marker is written after the shortcut, so a shortcut newer than it was
-    // written by someone else. Two seconds covers coarse file-system clocks.
-    if (itemMs > markerMs + 2000) return 'none';
-    return marker !== wanted ? 'rewrite' : 'none';
-}
+const readOrNull = (p, enc) => { try { return readFileSync(p, enc); } catch { return null; } };
 
+/** On every start, an existing login item this library owns is brought up to
+ *  date with this copy of the app; the rule is desktop/lib.js loginItemRefresh. */
 function refreshLoginItem(marker, dataDir) {
-    const read = (p) => { try { return readFileSync(p, 'utf8'); } catch { return null; } };
-    const mtime = (p) => { try { return statSync(p).mtimeMs; } catch { return 0; } };
-    const isText = !!autostart.contents;
-    const action = loginItemRefresh({
+    if (!desktopLib || !autostart.supported) return;
+    const shortcut = autostart.kind === 'shortcut';
+    const fields = shortcut ? desktopLib.readShortcut(readOrNull(autostart.path)) : null;
+    const action = desktopLib.loginItemRefresh({
+        kind: autostart.kind,
         exists: startsAtLogin(),
-        wanted: isText ? autostart.contents : autostart.script,
-        marker: read(marker),
-        current: isText ? read(autostart.path) : null,
-        itemMs: mtime(autostart.path),
-        markerMs: mtime(marker),
+        current: shortcut ? (fields && desktopLib.shortcutRecord(fields)) : readOrNull(autostart.path, 'utf8'),
+        wanted: shortcut ? autostart.record : autostart.contents,
+        marker: readOrNull(marker, 'utf8'),
         dataDir,
     });
     if (action === 'rewrite') setStartAtLogin(true, marker);
