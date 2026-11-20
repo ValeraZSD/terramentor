@@ -194,7 +194,11 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     };
 
     const typed = !!text.trim();
-    const chooseFiles = () => inputRef.current?.click();
+    // Each open says what the picked files replace: a picker closed with
+    // nothing picked fires no change, so a stale entry would drop the next
+    // Add files' failed link.
+    const chooseFiles = (replace: string | null = null) => { replacing.current = replace; inputRef.current?.click(); };
+    const chooseFolder = () => { replacing.current = null; folderRef.current?.click(); };
     // A folder where the browser can open one. A phone's picker cannot (and
     // where it pretends to, it hands back nothing), so on touch "Add files"
     // goes straight to the files.
@@ -280,7 +284,7 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                 </div>
                 <MenuPopover open={menuOpen} onClose={() => setMenuOpen(false)} anchorRef={addRef} label={t("Add files")} align="end">
                     <MenuItem icon={<FileText className="h-4 w-4" />} onSelect={() => { setMenuOpen(false); chooseFiles(); }}>{t("Add files")}</MenuItem>
-                    <MenuItem icon={<FolderOpen className="h-4 w-4" />} onSelect={() => { setMenuOpen(false); folderRef.current?.click(); }}>{t("Add a folder")}</MenuItem>
+                    <MenuItem icon={<FolderOpen className="h-4 w-4" />} onSelect={() => { setMenuOpen(false); chooseFolder(); }}>{t("Add a folder")}</MenuItem>
                 </MenuPopover>
             </div>
             {/* What belongs here, said once: without the kinds nobody learns
@@ -297,7 +301,7 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                         file={f}
                         onRemove={() => onRemove(f.key)}
                         fixes={fixes}
-                        onChooseFile={() => { replacing.current = f.key; chooseFiles(); }}
+                        onChooseFile={() => chooseFiles(f.key)}
                     />)}
                 </ul>
             )}
