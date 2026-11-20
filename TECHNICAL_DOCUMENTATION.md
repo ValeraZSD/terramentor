@@ -1117,6 +1117,16 @@ Settings → Library & about, downloaded one event per line (`GET /api/activity`
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
 
+The download opens with a **study summary** (`server/studySummary.js`,
+`activityExport()`): counts computed from `study_time`, `review_log` (source `app`),
+`mastery_evidence`, `node_mastery` (proven = `estimateProven` over work leaves, the
+finished-project screen's rule) and `mock_sittings` when the file is made, never from
+the log, so an empty, cleared, switched-off or capped log does not change it. Days are
+the learner's days (`studyDay.js`), weeks start on Monday in that calendar, empty weeks
+included, at most 52. Every line starts with `#`, so a reader of one event per line
+skips it; it selects no text column. The gate seeds a library with marked text and a
+non-UTC time zone and pins every count, the week lines and the absence of the marks.
+
 ### 12.2 Module map
 
 The modules the sections above do not cover, one line each.

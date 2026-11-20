@@ -978,9 +978,21 @@ it refers to something of yours it stores the numeric id. That is the same rule 
 block follows, and for the same reason: a file you might hand to a stranger for help should
 not need to be read line by line first.
 
+The downloaded file starts with a study summary, worked out from your study record at the
+moment you press Download: study days, study minutes, proven topics, checks taken, questions
+answered, card reviews done in the app, mock exams finished, the number of courses, the first
+study day, and one line per week (days, minutes, checks, answers, reviews) for up to a year.
+It is numbers and dates only: it selects no title, note, card, question, answer or course name,
+so none can be in the file. It is not stored anywhere and is not sent anywhere either; it is
+in the file because the log alone, which keeps only its newest events, cannot show whether
+someone kept studying. Switching the log off or clearing it does not remove the summary from
+the download.
+
 You can switch the recording off in that panel, and Clear deletes every row. The rule is
 enforced in the code, not just here: `tools/activity-log-gates.mjs` scans every call site that
-writes to the log and fails the build if one passes something the learner wrote.
+writes to the log and fails the build if one passes something the learner wrote, and it
+seeds a library full of marked titles, notes, cards, answers and prompts and fails if any
+of them reaches the downloaded file.
 
 ## Reporting a vulnerability
 
