@@ -67,9 +67,28 @@ export function hostOf(raw: string): string {
 
 /** Something that is meant as a link: a web address, or a site and a path. */
 const LINKISH = /^(?:https?:\/\/|www\.)\S+$|^[a-z0-9-]+(?:\.[a-z0-9-]+)+\/\S*$/i;
+/** One word as a link would be meant: the brackets, quotes and full stop
+ *  around it dropped, a closing bracket kept when the link opened it
+ *  (`wiki/Mercury_(planet)`). */
+const linkWord = (word: string): string => {
+    let w = word.replace(/^[(<["']+/, '');
+    for (;;) {
+        const cut = w.replace(/[>\]"',.;:!?]+$/, '');
+        const close = cut.endsWith(')') && cut.split(')').length > cut.split('(').length;
+        const next = close ? cut.slice(0, -1) : cut;
+        if (next === w) return w;
+        w = next;
+    }
+};
+const words = (text: string) => String(text ?? '').split(/\s+/).map(linkWord).filter(Boolean);
 /** The links in pasted or typed text: several at once, one per word. */
-export const linksIn = (text: string): string[] =>
-    [...new Set(String(text ?? '').split(/\s+/).map(w => w.replace(/[),.;]+$/, '')).filter(w => LINKISH.test(w)))];
+export const linksIn = (text: string): string[] => [...new Set(words(text).filter(w => LINKISH.test(w)))];
+/** Pasted text that is links and nothing else, which a paste may read at once;
+ *  anything more is left in the field for the learner to see. */
+export const onlyLinks = (text: string): boolean => {
+    const all = words(text);
+    return all.length > 0 && all.every(w => LINKISH.test(w));
+};
 
 /** What a FOLDER is filtered to: the kinds the server reads (`extractText`:
  *  PDF and Office by their parsers, the rest as text). A picked file is sent
@@ -247,12 +266,14 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                         onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229) { e.preventDefault(); readTyped(text); } }}
                         // A pasted link is read at once: pasting IS the request.
                         // Several links pasted together are read one by one; a
-                        // pasted file joins the files.
+                        // pasted file joins the files. A paste with any other
+                        // text in it lands in the field as it is: Enter reads
+                        // the links out of it, and nothing goes unseen.
                         onPaste={e => {
                             const pastedFiles = Array.from(e.clipboardData.files ?? []);
                             if (pastedFiles.length) { e.preventDefault(); take(pastedFiles); return; }
-                            const found = linksIn(e.clipboardData.getData('text'));
-                            if (found.length && !text.trim()) { e.preventDefault(); onLinks(found); }
+                            const pasted = e.clipboardData.getData('text');
+                            if (!text.trim() && onlyLinks(pasted)) { e.preventDefault(); onLinks(linksIn(pasted)); }
                         }}
                         aria-describedby="course-material-hint"
                         // Short: the hint under the row names what a link can
@@ -344,6 +365,7 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
     let tone = 'text-slate-500 dark:text-slate-400';
     let title: string | undefined;
     let fix: ReactNode = null;
+    let note = '';
     const [pasting, setPasting] = useState(false);
     const [transcript, setTranscript] = useState('');
     const pasteRef = useRef<HTMLTextAreaElement>(null);
@@ -363,6 +385,9 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
                 : fail.fix === 'transcript' && !pasting ? <Button size="sm" variant="neutral" onClick={() => setPasting(true)}>{t("Paste the transcript")}</Button>
                     : fail.fix === 'topic' && fail.title ? <Button size="sm" variant="neutral" onClick={() => fixes.onUseTitle(file.key)}>{t("Use its title as the name")}</Button>
                         : null;
+        // Create goes ahead without it, so the row says so, as a file with no
+        // text does.
+        note = fix || pasting ? t("Left out unless it is fixed.") : t("It will be left out.");
     } else if (file.error || (doc && !doc.ok)) {
         icon = <AlertCircle className="h-4 w-4 shrink-0 text-red-500" aria-hidden="true" />;
         line = file.error || (doc && !doc.ok ? doc.error : '');
@@ -406,7 +431,7 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
     // The size shows only beside a failed FILE, where it is the reason (the
     // 25 MB cap); a link has none.
     const failed = !isLink && !!(file.error || (doc && !doc.ok));
-    const leftOut = !!(doc?.ok && doc.noText);
+    const leftOut = !!(doc?.ok && doc.noText) || !!note;
     const name = file.fail?.title || file.name;
     return (
         // Every row is the height of a two-line one, and a one-line row
@@ -420,6 +445,7 @@ function SourceRow({ file, onRemove, fixes, onChooseFile }: {
                         {failed && <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{humanSize(file.size, fmt)}</span>}
                     </div>
                     {line && <p className={cx('text-sm', tone)} title={title}>{line}</p>}
+                    {note && <p className="text-sm text-slate-500 dark:text-slate-400">{note}</p>}
                     {fix && <div className="mt-2">{fix}</div>}
                 </div>
                 <IconButton size="sm" label={t("Remove {{name}}", { name })} icon={<X className="h-4 w-4" />} onClick={onRemove} />

@@ -30,12 +30,14 @@ import { StudyLanguageField } from './ProjectFormFields';
 import { freeColour } from '../utils/freeColour';
 import { OutlineBriefPanel } from './ExternalAuthoring';
 import ProjectImportZone from './ProjectImportZone';
-import SourceFiles, { MAX_FILE_BYTES, MAX_SOURCE_FILES, hostOf, linksIn, usableSource, type SourceFile } from './creation/SourceFiles';
+import SourceFiles, { MAX_FILE_BYTES, MAX_SOURCE_FILES, hostOf, linksIn, onlyLinks, usableSource, type SourceFile } from './creation/SourceFiles';
 import { Button } from './ui/Button';
 import { Field, TextArea, TextInput } from './ui/Field';
 import ScrollShade from './ui/ScrollShade';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
+import { firstField, focusableIn } from '../hooks/useDialogFocus';
+import { hasPhysicalKeyboard } from '../utils/platform';
 import { cx, FOCUS_RING } from './ui/vocabulary';
 import { COURSE_DIALOG_SIZE, openCreationRun, startCreationRun, type CreationInput } from './creation/creationRuns';
 import { preloadCreationRunView } from './creation/CreationRunHost';
@@ -49,6 +51,8 @@ import type { StagedDocument } from '../types';
  *  files and 256 MB per request, with room to spare. */
 const STAGE_BATCH_FILES = 20;
 const STAGE_BATCH_BYTES = 200 * 1024 * 1024;
+/** Links read at once; the rest wait their turn (see `addLinks`). */
+const LINK_READS_AT_ONCE = 4;
 /** The form's own width at which the foot is one row: its sentence, then the
  *  import button, then Create (the sentence may wrap to two lines there). */
 const ONE_ROW_FOOT_REM = 38;
@@ -225,14 +229,15 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
         for (const batch of batches) stageBatch(batch.map(b => b.file), batch.map(b => b.key));
     }, [stageBatch, t]);
 
-    // Read one link (or a transcript pasted for it) into its row. Many may be
-    // read at once, each by its own request.
-    const readInto = useCallback((key: string, body: { url?: string; transcript?: string; title?: string }) => {
+    // Read one link (or a transcript pasted for it) into its row, by its own
+    // request. A window closed or a row removed while it read is cleared up by
+    // the server, which drops what it staged for a request nobody waits for.
+    const readInto = useCallback((key: string, body: { url?: string; transcript?: string; title?: string }): Promise<void> => {
         readers.current.get(key)?.abort();
         const ac = new AbortController();
         readers.current.set(key, ac);
         setFiles(prev => prev.map(f => (f.key === key ? { ...f, status: 'reading', fail: undefined, error: undefined } : f)));
-        api.readShortSource(body, ac.signal).then(r => {
+        return api.readShortSource(body, ac.signal).then(r => {
             if (readers.current.get(key) === ac) readers.current.delete(key);
             // Removed, replaced or the window closed while it read.
             if (ac.signal.aborted || !mounted.current) {
@@ -251,15 +256,33 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
         });
     }, [t]);
 
+    const addToast = useStore(s => s.addToast);
     const addLinks = useCallback((urls: string[]) => {
         const stamp = Date.now().toString(36);
         // A link already in the list is not read twice.
         const have = new Set(filesRef.current.map(f => f.url).filter(Boolean));
-        const fresh = urls.filter(u => !have.has(u)).slice(0, Math.max(0, MAX_SOURCE_FILES - filesRef.current.length));
+        const wanted = urls.filter(u => !have.has(u));
+        const fresh = wanted.slice(0, Math.max(0, MAX_SOURCE_FILES - filesRef.current.length));
+        if (fresh.length < wanted.length) {
+            addToast('info', t("Some links were left out"), t("A course is made from at most 100 links and files."));
+        }
         const entries: SourceFile[] = fresh.map((url, i) => ({ key: `${stamp}-l${i}`, name: hostOf(url), size: 0, status: 'reading', url }));
+        // Now, not at the next render: a second paste in the same tick counts these.
+        filesRef.current = [...filesRef.current, ...entries];
         setFiles(prev => [...prev, ...entries]);
-        for (const e of entries) readInto(e.key, { url: e.url });
-    }, [readInto]);
+        // A few at a time: each read's timeout starts when it is sent, and a
+        // browser sends only about six at once to one server, so forty links
+        // sent together would time out waiting their turn. A row removed or a
+        // window closed before its turn is not read.
+        const queue = [...entries];
+        const next = (): Promise<void> => {
+            const e = queue.shift();
+            if (!e) return Promise.resolve();
+            if (!mounted.current || !filesRef.current.some(f => f.key === e.key)) return next();
+            return readInto(e.key, { url: e.url }).then(next);
+        };
+        for (let i = 0; i < LINK_READS_AT_ONCE; i++) void next();
+    }, [readInto, addToast, t]);
 
     const linkFixes = {
         onRetry: (key: string) => {
@@ -301,7 +324,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
             : '';
     // A link pasted into the Name: the learner meant it as material.
     const nameLinks = linksIn(newName);
-    const nameIsLink = nameLinks.length > 0 && nameLinks.length === newName.trim().split(/\s+/).length;
+    const nameIsLink = onlyLinks(newName);
 
     // ONE way to create here, with AI. A course is not built by hand, so the
     // dialog offers no empty-project button. The other doors are Import and
@@ -326,6 +349,19 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
     };
 
     const bodyRef = useRef<HTMLDivElement>(null);
+    // A tile or Back unmounts the button that had the focus: move it into the
+    // view that replaced it, the way the dialog's own open does
+    // (`useDialogFocus`), or a keyboard or a screen reader is left on the page.
+    const moved = useRef(false);
+    const go = (mode: typeof createMode) => { moved.current = true; setCreateMode(mode); };
+    useEffect(() => {
+        const box = bodyRef.current;
+        if (!moved.current || !box) return;
+        moved.current = false;
+        const target = createMode === 'choose' ? box.querySelector<HTMLElement>('[data-tile]')
+            : (hasPhysicalKeyboard() ? firstField(box) : null) ?? focusableIn(box)[0];
+        target?.focus({ preventScroll: true });
+    }, [createMode]);
     const width = useElementWidth(bodyRef);
     const rootPx = useRootFontSize();
     const wide = width >= ONE_ROW_FOOT_REM * rootPx;
@@ -436,7 +472,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
                     <div className="mb-4">
                         {/* The chatbot view is reached FROM the import view, so
                             its Back goes there. */}
-                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setCreateMode(createMode === 'external' ? 'import' : 'choose')} className="-ml-2">
+                        <Button variant="quiet" size="sm" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => go(createMode === 'external' ? 'import' : 'choose')} className="-ml-2">
                             {t("Back")}
                         </Button>
                         {/* The chatbot view names itself; the import view's own
@@ -460,13 +496,13 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
                                 icon={<PenLine className="h-5 w-5" />}
                                 title={t("Create a course")}
                                 line={t("Say what you want to learn, and add links or files if you have them. The AI sizes it to fit.")}
-                                onClick={() => setCreateMode('ai')}
+                                onClick={() => go('ai')}
                             />
                             <Choice
                                 icon={<FileInput className="h-5 w-5" />}
                                 title={t("Import a course")}
                                 line={t("A course file, an Anki deck, or a course another chatbot wrote.")}
-                                onClick={() => setCreateMode('import')}
+                                onClick={() => go('import')}
                             />
                         </div>
                     ) : createMode === 'external' ? (
@@ -488,7 +524,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, onChoosing }: {
                                 it. */}
                             {/* `wrap`: on a phone (and in most languages) the
                                 label takes two lines. */}
-                            <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => setCreateMode('external')}>
+                            <Button variant="subtle" wrap icon={<MessageSquare className="h-4 w-4 shrink-0" />} onClick={() => go('external')}>
                                 {t("Or make a course with an external chatbot")}
                             </Button>
                         </div>

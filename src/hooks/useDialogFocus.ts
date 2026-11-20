@@ -65,7 +65,7 @@ export function focusableIn(container: HTMLElement): HTMLElement[] {
 
 /** The first thing a form dialog should put the cursor in. Buttons and ticks are
  *  not it: landing on "Close dialog" or a checkbox says nothing about the task. */
-function firstField(container: HTMLElement): HTMLElement | null {
+export function firstField(container: HTMLElement): HTMLElement | null {
     for (const el of Array.from(container.querySelectorAll<HTMLElement>('input, select, textarea'))) {
         if (el.tagName === 'INPUT' && NOT_A_TEXT_FIELD.includes((el as HTMLInputElement).type)) continue;
         if (reachable(el, container)) return el;
