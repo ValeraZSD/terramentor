@@ -4,14 +4,18 @@ import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { BottomSheet, useOpensAsSheet } from './Sheet';
 import { FOCUS_RING, cx } from './vocabulary';
 
 /**
  * What opens from a button: a MENU (`MenuPopover`) or a small PANEL of
- * controls (`PanelPopover`). With a hovering pointer it floats, portalled to
- * the body, anchored to the button's own edge and kept on the screen; under a
- * finger it is the bottom sheet (`ui/Sheet.tsx`), the same one `Select` opens.
+ * controls (`PanelPopover`). It floats, portalled to the body, anchored to the
+ * button's own edge and kept on the screen, under a finger as with a mouse.
+ *
+ * On a phone it was a sheet from the bottom of the screen for a while: a menu
+ * tapped open from the top bar then appeared at the far end of the screen from
+ * the finger that opened it, and read as something else opening. A phone's own
+ * menus (Android's, iOS's pull-down menus) open at their button; so do these,
+ * with rows a finger can hit (`MenuItem`'s `touch:min-h-11`).
  *
  * Hand-written menus each get a different part wrong. Hanging a menu from the
  * button's RIGHT edge with `absolute right-0` runs it off a card's left edge
@@ -246,7 +250,7 @@ const KEEP_EVENTS = { onClick: stop, onPointerDown: stop };
 /** When a floating surface closes and focus fell to nothing (the chosen row
  *  unmounted with it; Safari never focused the clicked button), the button it
  *  opened from gets focus back. A surface that moved focus on (a dialog a row
- *  opened) keeps it. The sheet does the same through `returnFocus`. */
+ *  opened) keeps it. */
 function useFocusBackOnClose(active: boolean, anchorRef: RefObject<HTMLElement | null>) {
     useEffect(() => {
         if (!active) return;
@@ -285,27 +289,26 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
     onClose: () => void;
     /** The button the menu belongs to: where it is placed, and where focus goes back. */
     anchorRef: RefObject<HTMLElement | null>;
-    /** The menu's name; on a phone, the sheet's title. */
+    /** The menu's name, for a screen reader. */
     label: string;
     align?: 'start' | 'end';
     children: ReactNode;
 }) {
     const menuRef = useRef<HTMLDivElement>(null);
-    const sheet = useOpensAsSheet(open);
-    const place = useFloatingPlace({ active: open && !sheet, anchorRef, surfaceRef: menuRef, align, onClose });
-    const { anchor: accentAnchor, accent } = usePortalAccent(open && !sheet);
+    const place = useFloatingPlace({ active: open, anchorRef, surfaceRef: menuRef, align, onClose });
+    const { anchor: accentAnchor, accent } = usePortalAccent(open);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
 
     // The first row takes focus once the menu is PLACED, not when it mounts:
     // until then it is `visibility: hidden`, and a hidden element refuses focus
     // — measured in Edge, focus stayed on the button, so the arrows and Escape
-    // (which listened on the menu) did nothing at all. A sheet is placed by CSS.
-    const placed = sheet || place != null;
+    // (which listened on the menu) did nothing at all.
+    const placed = place != null;
     useEffect(() => {
         if (open && placed) focusItem(menuRef.current, 'first');
     }, [open, placed]);
-    useFocusBackOnClose(open && !sheet, anchorRef);
+    useFocusBackOnClose(open, anchorRef);
 
     useEffect(() => {
         if (!open) return;
@@ -338,21 +341,6 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
         document.addEventListener('keydown', onKey, true);
         return () => document.removeEventListener('keydown', onKey, true);
     }, [open, anchorRef]);
-
-    if (open && sheet) {
-        return (
-            <BottomSheet title={label} onClose={onClose} returnFocus={anchorRef}>
-                <div
-                    ref={menuRef}
-                    role="menu"
-                    aria-label={label}
-                    className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3"
-                >
-                    {children}
-                </div>
-            </BottomSheet>
-        );
-    }
 
     return (
         <>
@@ -393,18 +381,18 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
  * A small panel of controls that opens from a button (the course's icon and
  * colour, the export options): a non-menu `MenuPopover`. A dialog for focus —
  * Tab stays inside, Escape closes, focus goes back to the button — floating
- * beside the button with a hovering pointer and the bottom sheet under a finger.
+ * beside the button, under a finger as with a mouse.
  */
 export function PanelPopover({ open, onClose, anchorRef, label, align = 'start', width, className, initialFocus, children }: {
     open: boolean;
     onClose: () => void;
     anchorRef: RefObject<HTMLElement | null>;
-    /** The panel's name; on a phone, the sheet's title. */
+    /** The panel's name, for a screen reader. */
     label: string;
     align?: 'start' | 'end';
-    /** The floating panel's width class (`w-72`); the sheet is the screen's. */
+    /** The panel's width class (`w-72`); capped to the screen when narrower. */
     width: string;
-    /** The content's own layout, the same in both forms (`space-y-4`). */
+    /** The content's own layout (`space-y-4`). */
     className?: string;
     /** A selector inside the panel for where focus starts (the chosen swatch). */
     initialFocus?: string;
@@ -412,33 +400,22 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
 }) {
     const panelRef = useRef<HTMLDivElement>(null);
     const startRef = useRef<HTMLElement | null>(null);
-    const sheet = useOpensAsSheet(open);
-    const place = useFloatingPlace({ active: open && !sheet, anchorRef, surfaceRef: panelRef, align, gap: 4, onClose });
-    const { anchor: accentAnchor, accent } = usePortalAccent(open && !sheet);
+    const place = useFloatingPlace({ active: open, anchorRef, surfaceRef: panelRef, align, gap: 4, onClose });
+    const { anchor: accentAnchor, accent } = usePortalAccent(open);
     const closeRef = useRef(onClose);
     closeRef.current = onClose;
 
-    // Layout effects run before any passive one, so this is set before either
-    // form's `useDialogFocus` reads it.
+    // Layout effects run before any passive one, so this is set before
+    // `useDialogFocus` reads it.
     useLayoutEffect(() => {
         startRef.current = open && initialFocus ? panelRef.current?.querySelector<HTMLElement>(initialFocus) ?? null : null;
-    }, [open, sheet, initialFocus]);
-    useDialogFocus(open && !sheet, panelRef, {
+    }, [open, initialFocus]);
+    useDialogFocus(open, panelRef, {
         onEscape: e => { e.preventDefault(); closeRef.current(); },
         initialFocus: startRef,
     });
     // Declared after `useDialogFocus`, so its own hand-back runs first.
-    useFocusBackOnClose(open && !sheet, anchorRef);
-
-    if (open && sheet) {
-        return (
-            <BottomSheet title={label} onClose={onClose} initialFocus={startRef} returnFocus={anchorRef}>
-                <div ref={panelRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-1 pb-5">
-                    <div className={className}>{children}</div>
-                </div>
-            </BottomSheet>
-        );
-    }
+    useFocusBackOnClose(open, anchorRef);
 
     return (
         <>

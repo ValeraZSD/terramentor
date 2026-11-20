@@ -12,12 +12,19 @@
 //      status bar, and one opened from a field above the keyboard ran under it.
 //      Held as a property over a sweep of rooms, buttons, menus and alignments,
 //      and as the named cases that went wrong.
-//   2. UNDER A FINGER (no hovering pointer, the rule `Select` always used), a
-//      menu or panel opened from a button is the bottom sheet of `ui/Sheet.tsx`
-//      — one sheet: `Select`'s list, every `MenuPopover`, every `PanelPopover`.
+//   2. UNDER A FINGER TOO, what opens from a button opens AT the button:
+//      `Select`'s list, every `MenuPopover`, every `PanelPopover`, with rows a
+//      finger can hit. They were the bottom sheet of `ui/Sheet.tsx` for a
+//      while, and a menu tapped open from the top bar then appeared at the far
+//      end of the screen. The sheet is left to what belongs to the bottom edge.
 //      Held by mounting them in jsdom, and by reading the source for menus that
 //      are placed by hand (their own `placePopover` call, their own portalled
 //      menu panel, a panel hung `absolute … top-full` from its button).
+//   3. A SWITCH ALONE ON ITS LINE (`SegmentedControl block="narrow"`) fills
+//      the row it stands in while that row is narrow, and keeps its own width
+//      on a wide one. At its own width on a phone it left a gap at the right
+//      that read as a layout that had not finished. Held by mounting it in a
+//      narrow and a wide row, and by reading the Projects page's switch.
 //
 //   node tools/popover-gates.mjs              # this checkout
 //   node tools/popover-gates.mjs --root DIR   # another checkout (the pre-fix tree must fail)
@@ -81,7 +88,22 @@ try {
                 import DropdownMenu from './src/components/DropdownMenu';
                 import { IconButton } from './src/components/ui/Button';
                 import { Select } from './src/components/ui/Select';
+                import { SegmentedControl } from './src/components/ui/SegmentedControl';
                 globalThis.__pop = Pop;
+                // A switch with block="narrow" in a row of a given width.
+                globalThis.__switchIn = (el, width) => {
+                    el.innerHTML = '';
+                    Object.defineProperty(el, 'clientWidth', { value: width, configurable: true });
+                    const r = createRoot(el);
+                    React.act(() => r.render(h(SegmentedControl, {
+                        label: 'Show', block: 'narrow', value: 'a', onChange: () => { },
+                        options: [{ value: 'a', label: 'Active' }, { value: 'f', label: 'Finished' }, { value: 'x', label: 'Archived' }],
+                    })));
+                    const group = el.querySelector('[role="radiogroup"]');
+                    const cls = group?.className ?? '';
+                    React.act(() => r.unmount());
+                    return cls;
+                };
                 globalThis.__act = (fn) => React.act(fn);
                 const h = React.createElement;
                 // One opener of each kind, open or shut.
@@ -260,7 +282,7 @@ section('…and the app gives it that room');
 }
 
 // ---------------------------------------------------------------------------
-section('2. under a finger, what opens from a button is the ONE bottom sheet');
+section('2. under a finger too, what opens from a button opens at the button');
 {
     // Source: no menu placed by hand outside the primitives.
     const files = globSync('src/**/*.tsx', { cwd: ROOT }).map(f => f.replace(/\\/g, '/'));
@@ -285,8 +307,15 @@ section('2. under a finger, what opens from a button is the ONE bottom sheet');
     const handles = files.filter(f => /data-sheet-handle/.test(read(f)) && f !== 'src/components/AtlasView.tsx');
     check('one sheet: only ui/Sheet.tsx draws a pull handle (the atlas\'s index is a page, not an opener)',
         handles.length === 1 && handles[0] === 'src/components/ui/Sheet.tsx', handles.join(', ') || 'none');
-    check('Select opens that sheet, by the same rule', /<BottomSheet\b/.test(read('src/components/ui/Select.tsx')) && /opensAsSheet\(\)/.test(read('src/components/ui/Select.tsx')));
-    check('MenuPopover and PanelPopover open it', (read('src/components/ui/Popover.tsx').match(/<BottomSheet\b/g) ?? []).length >= 2);
+    check('no opener turns into the sheet: Popover.tsx and Select.tsx draw no BottomSheet',
+        !/<BottomSheet\b/.test(read('src/components/ui/Popover.tsx')) && !/<BottomSheet\b/.test(read('src/components/ui/Select.tsx')));
+    // The sheet is for a panel opened from the bottom edge: the mock exam's
+    // list of questions, from the number row along the bottom. A new user is
+    // a decision, named here.
+    const SHEET_USERS = new Set(['src/components/mockExam/CourseMock.tsx']);
+    const sheetUsers = files.filter(f => f !== 'src/components/ui/Sheet.tsx' && /<BottomSheet\b/.test(read(f)));
+    check('the bottom sheet opens only from the bottom edge (its users are named)',
+        sheetUsers.every(f => SHEET_USERS.has(f)), sheetUsers.filter(f => !SHEET_USERS.has(f)).join(', '));
     const sheet = read('src/components/ui/Sheet.tsx');
     check('the sheet clears the status bar and the sides, and pads the home indicator',
         /safe-pt-0 safe-px-0/.test(sheet) && /safe-pb-0/.test(sheet));
@@ -295,7 +324,6 @@ section('2. under a finger, what opens from a button is the ONE bottom sheet');
 const host = document.getElementById('root');
 const settle = () => globalThis.__act(async () => { await new Promise(r => setTimeout(r, 30)); });
 const pressKey = (k) => globalThis.__act(() => { document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })); });
-const dialogOf = (el) => el?.closest('[role="dialog"][aria-modal="true"]');
 // A press as a finger or a mouse makes it: pointerdown, then click.
 const press = (el) => globalThis.__act(() => {
     el?.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
@@ -319,33 +347,35 @@ if (bundled) {
         check('…a press inside it is not a press on the card it opened from', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         await m.render(false); m.unmount();
 
-        // A finger: the sheet.
+        // A finger: the same floating surface at the button, never the sheet.
         hovers = false;
         m = globalThis.__mount(host, kind);
         await m.render(false);
         document.getElementById('trigger').focus();
         await m.render(true); await settle();
-        const sheet = document.querySelector('[data-bottom-sheet]');
-        const dlg = sheet?.querySelector('[role="dialog"][aria-modal="true"]');
-        check(`${what} under a finger opens as the bottom sheet`, !!dlg, sheet ? 'a sheet with no modal dialog' : 'no sheet');
-        const title = dlg && document.getElementById(dlg.getAttribute('aria-labelledby'))?.textContent;
-        check('…titled with its name', title === (kind === 'menu' ? 'Project options' : 'Icon and colour'), String(title));
+        surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
+        check(`${what} under a finger opens at its button, not as a sheet from the bottom`,
+            !!surface && !document.querySelector('[data-bottom-sheet]'), document.querySelector('[data-bottom-sheet]') ? 'a bottom sheet' : 'nothing opened');
+        check('…fixed, portalled to the body, as with a mouse',
+            !!surface && surface.parentElement === document.body && /(^|\s)fixed(\s|$)/.test(surface.className), surface?.parentElement?.tagName);
         if (kind === 'menu') {
-            const items = [...(dlg?.querySelectorAll('[role="menu"] [role="menuitem"]') ?? [])];
+            const items = [...(surface?.querySelectorAll('[role="menuitem"]') ?? [])];
             check('…its rows inside, the first one focused', items.length === 3 && document.activeElement === items[0], document.activeElement?.textContent);
+            check('…each row a finger can hit (44px under touch)', items.length === 3 && items.every(i => /(^|\s)touch:min-h-11(\s|$)/.test(i.className)),
+                items.map(i => i.className.match(/\S*min-h-\S+/g)?.join(' ') ?? 'no min-h').join(' | '));
         } else {
-            check('…its controls inside', !!dlg?.querySelector('#inside'));
+            check('…its controls inside', !!surface?.querySelector('#inside'));
         }
         await pressKey('Escape');
         check('…Escape closes it', m.log.closes === 1, `${m.log.closes} close(s)`);
         await m.render(false); await settle();
         check('…and focus goes back to the button it opened from', document.activeElement?.id === 'trigger', document.activeElement?.tagName);
         await m.render(true); await settle();
-        const backdrop = document.querySelector('[data-bottom-sheet] > [aria-hidden="true"]');
-        await globalThis.__act(() => { backdrop?.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
+        await globalThis.__act(() => { document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); });
         check('…a tap outside it closes it', m.log.closes === 2, `${m.log.closes} close(s)`);
-        await press(inside(kind, document.querySelector('[data-bottom-sheet]')));
-        check('…and no tap on the sheet (the dimmed backdrop, a row) reaches the card behind it', m.log.card === 0, `${m.log.card} event(s) reached the card`);
+        surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
+        await press(inside(kind, surface));
+        check('…and a tap on a row inside it does not reach the card behind it', m.log.card === 0, `${m.log.card} event(s) reached the card`);
         await m.render(false); m.unmount();
     }
 
@@ -370,19 +400,42 @@ if (bundled) {
     await m.render(true); await settle();
     await globalThis.__act(() => { document.getElementById('trigger').click(); });
     await settle();
-    let dlg = dialogOf(document.querySelector('[role="menu"]')) ?? dialogOf(document.querySelector('[data-bottom-sheet] [role="dialog"]'));
-    check('a row\'s ⋮ menu (DropdownMenu) under a finger is the same sheet', !!dlg && !!document.querySelector('[data-bottom-sheet]'),
-        document.querySelector('[role="menu"], .fixed') ? 'it floats' : 'nothing opened');
+    const menu = document.querySelector('[role="menu"]');
+    check('a row\'s ⋮ menu (DropdownMenu) under a finger opens at the ⋮ too',
+        !!menu && menu.parentElement === document.body && !document.querySelector('[data-bottom-sheet]'),
+        document.querySelector('[data-bottom-sheet]') ? 'a bottom sheet' : 'nothing opened');
     m.unmount();
 
-    // Select, for the record: the sheet it opened before is the shared one now.
+    // Select: its list hangs from the field under a finger as under a mouse,
+    // with taller rows.
     m = globalThis.__mount(host, 'select');
     await m.render(true); await settle();
     await globalThis.__act(() => { document.getElementById('trigger').click(); });
     await settle();
-    check('Select under a finger opens the same sheet', !!document.querySelector('[data-bottom-sheet] [role="listbox"]'));
+    const list = document.querySelector('[role="listbox"]');
+    const opts = [...(list?.querySelectorAll('[role="option"]') ?? [])];
+    check('Select under a finger opens its list at the field, not as a sheet',
+        !!list && !document.querySelector('[data-bottom-sheet]'), document.querySelector('[data-bottom-sheet]') ? 'a bottom sheet' : 'no list');
+    check('…with rows a finger can hit (48px)', opts.length === 2 && opts.every(o => /(^|\s)min-h-12(\s|$)/.test(o.className)),
+        opts.map(o => o.className.match(/\S*min-h-\S+/g)?.join(' ') ?? 'no min-h').join(' | '));
     m.unmount();
 }
+
+// ---------------------------------------------------------------------------
+section('3. a switch alone on its line fills a narrow row, keeps its own width on a wide one');
+if (bundled) {
+    const row = document.createElement('div');
+    document.body.appendChild(row);
+    // 16px root: 360 is a phone, 1000 a desktop page (the line is 40rem).
+    const onPhone = globalThis.__switchIn(row, 360);
+    const onDesk = globalThis.__switchIn(row, 1000);
+    check('block="narrow" in a 360px row spans it', /(^|\s)w-full(\s|$)/.test(onPhone), onPhone);
+    check('…in a 1000px row it keeps its own width', /(^|\s)inline-flex(\s|$)/.test(onDesk) && !/(^|\s)w-full(\s|$)/.test(onDesk), onDesk);
+    row.remove();
+}
+const projects = read('src/components/ProjectsGrid.tsx');
+check('the Projects page\'s Active / Finished / Archived switch fills a narrow row',
+    /<SegmentedControl<Show>[^>]*?\bblock="narrow"/.test(projects));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }

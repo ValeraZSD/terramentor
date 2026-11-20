@@ -205,7 +205,7 @@ export default function ModelPicker({
             const target = e.target as Node;
             if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
             // The sort dropdown's own list is portalled beside this one: a press in it is a press in the picker.
-            if ((target as Element).closest?.('[data-select-list], [data-bottom-sheet]')) return;
+            if ((target as Element).closest?.('[data-select-list]')) return;
             close(false);
         };
         document.addEventListener('mousedown', onDown);
