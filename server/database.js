@@ -11,6 +11,12 @@ import {
 } from './secrets.js';
 import { FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
+import { bootMark } from './bootTimes.js';
+
+// The app's modules are all read and linked before the first one runs, and
+// this is the first that does real work (server/index.js imports it right
+// after the umask), so the time up to here is reading the app off the disk.
+bootMark('modules read');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,6 +59,7 @@ db.pragma('journal_mode = WAL');
 // older version gave them; new ones already follow the database (above).
 makePrivateFile(`${DB_FILE}-wal`);
 makePrivateFile(`${DB_FILE}-shm`);
+bootMark('library opened');
 
 // Enable foreign key enforcement. SQLite leaves this OFF by default per
 // connection, which silently disables every `ON DELETE CASCADE` clause in the
@@ -2400,6 +2407,7 @@ try {
   const v = currentAppVersion();
   if (v) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('app_version', v);
 } catch { /* a stamp is bookkeeping; never fatal */ }
+bootMark('schema');
 
 /** The file this process opened — for the desktop status panel and the logs. */
 export const DB_PATH = DB_FILE;

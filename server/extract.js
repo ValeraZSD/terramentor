@@ -23,9 +23,6 @@
 // Returns { text, kind, meta }. Throws on undecodable/binary input or parse
 // failure — the caller turns the thrown message into a per-file "declined".
 
-import mammoth from 'mammoth';
-import ExcelJS from 'exceljs';
-import { PDFParse } from 'pdf-parse';
 import { PDF_LOAD_OPTIONS } from './pdfOptions.js';
 import JSZip from 'jszip';
 import { inflateRaw } from 'node:zlib';
@@ -36,6 +33,19 @@ import { readPdfStructure } from './sourceMap.js';
 import { runIsolated } from './isolatedProcess.js';
 
 const inflateRawAsync = promisify(inflateRaw);
+
+// The parsers load on first use. mammoth and ExcelJS run only in the office
+// child process, and the server reads a PDF only when one is added, yet loading
+// all three at every start cost about 0.5 s of CPU and 50 MB of memory.
+const loadParser = {
+    mammoth: async () => (await import('mammoth')).default,
+    ExcelJS: async () => (await import('exceljs')).default,
+    PDFParse: async () => (await import('pdf-parse')).PDFParse,
+};
+const parsers = {};
+function parser(name) {
+    return (parsers[name] ??= loadParser[name]().catch((err) => { delete parsers[name]; throw err; }));
+}
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB per file
 const MAX_TEXT_CHARS = 4_000_000;               // ~4 MB of extracted text
@@ -293,6 +303,7 @@ function cellToString(v) {
 }
 
 async function extractXlsx(buffer) {
+    const ExcelJS = await parser('ExcelJS');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
     const parts = [];
@@ -314,6 +325,7 @@ async function extractXlsx(buffer) {
  *  only caller; everything else goes through `parseOfficeIsolated`. */
 export async function parseOffice(kind, buffer) {
     if (kind === 'docx') {
+        const mammoth = await parser('mammoth');
         const res = await mammoth.extractRawText({ buffer });
         return { text: res.value || '', meta: {} };
     }
@@ -347,15 +359,16 @@ export function parseOfficeIsolated(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_M
 }
 
 async function extractPdf(buffer) {
-    const parser = new PDFParse({ ...PDF_LOAD_OPTIONS, data: buffer });
+    const PDFParse = await parser('PDFParse');
+    const pdf = new PDFParse({ ...PDF_LOAD_OPTIONS, data: buffer });
     try {
-        const result = await parser.getText();
+        const result = await pdf.getText();
         // The outline, title and page labels, read from the document getText
         // already loaded — what a source map is built from (sourceMap.js).
-        const structure = await readPdfStructure(parser);
+        const structure = await readPdfStructure(pdf);
         return { text: result.text || '', meta: { pageCount: result.total ?? null, structure } };
     } finally {
-        await parser.destroy();
+        await pdf.destroy();
     }
 }
 

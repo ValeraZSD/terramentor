@@ -7,7 +7,7 @@ import { Button, IconButton } from '../../ui/Button';
 import { MenuItem, MenuPopover, menuTriggerKeys } from '../../ui/Popover';
 import Modal from '../../Modal';
 import { cx } from '../../ui/vocabulary';
-import { FAILURE_TEXT, REGION_KEY_HINT, providerOf } from './providers';
+import { FAILURE_TEXT, REGION_KEY_HINT, SIGN_IN_FAILURE_TEXT, providerOf } from './providers';
 import { ProviderMark } from './ProviderTile';
 import ProviderPicker from './ProviderPicker';
 import AddConnectionDialog from './AddConnectionDialog';
@@ -74,15 +74,20 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
     };
 
     // Back from "Continue with ChatGPT": the callback lands here with
-    // ?chatgpt=connected-<id> | declined | noplan | failed. Said once, then
-    // taken off the address so a reload does not say it again.
+    // ?chatgpt=connected-<id> | declined | noplan | failed, a failure with
+    // &chatgpt_reason=<step>[:<code>] (server/chatgptAuth.js). Said once, then
+    // taken off the address so a reload does not say it again. Anyone can
+    // write an address, so the reason is shown only in that short shape.
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const outcome = params.get('chatgpt');
+        const reason = params.get('chatgpt_reason') ?? '';
+        const shownReason = /^[a-z_]{2,24}(:[a-z0-9_.-]{1,48})?$/.test(reason) ? reason : undefined;
         void (async () => {
             const r = await load();
             if (!outcome) return;
             params.delete('chatgpt');
+            params.delete('chatgpt_reason');
             const rest = params.toString();
             window.history.replaceState(window.history.state, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
             if (outcome.startsWith('connected')) {
@@ -97,7 +102,11 @@ export default function ConnectionsPanel({ onChanged, onActive }: {
             } else if (outcome === 'declined') {
                 addToast('error', t("ChatGPT sign-in was cancelled."));
             } else {
-                addToast('error', t("ChatGPT sign-in did not complete. Try again."));
+                // The reason in words (its own, else its step's), then its code for a report.
+                const has = (key: string) => Object.prototype.hasOwnProperty.call(SIGN_IN_FAILURE_TEXT, key);
+                const textKey = [shownReason ?? '', shownReason?.split(':')[0] ?? ''].find(has);
+                addToast('error', t("ChatGPT sign-in did not complete. Try again."),
+                    textKey ? `${t(SIGN_IN_FAILURE_TEXT[textKey])} (${shownReason})` : shownReason);
             }
         })();
     }, []);
