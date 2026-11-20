@@ -644,8 +644,8 @@ function cardTotals(projectId) {
  * allowance at a time, so the plan is a straight line from the start to the
  * deadline — and a date stored on a stage would only make the feed's urgency call
  * thirty containers overdue by next week (the reason decks get a standing slot
- * rather than a schedule). Where a section falls on that line is worked out when
- * something asks (`cardPlan`), from the cards themselves.
+ * rather than a schedule). Where a section falls on that line can be worked out
+ * from the cards themselves (`cardPlan`); no screen shows it at present.
  *
  * Returns the same shape as `allocateSchedule` with no assignments, so
  * `persistSchedule` clears any date a node still carries and writes the window.
@@ -1135,8 +1135,10 @@ export function removeSchedule(projectId) {
 
 /**
  * Where each SECTION of a project measured in cards falls on its plan, worked
- * out on request, since nothing in such a project carries a stored date
- * (`allocateCardWindow`).
+ * out from the cards, since nothing in such a project carries a stored date
+ * (`allocateCardWindow`). Nothing in the app calls it at present: the views
+ * that drew section dates were removed. It stays as the one definition of a
+ * section's place on the pace line, pinned by `scheduling-gates`.
  *
  * The plan is the pace line: cards met at an even rate over the window's study
  * days, front to back in deck order. A section holding cards k..k+c of N sits on

@@ -190,7 +190,7 @@ Notes never carry schedule dates; a startup repair strips any left by older runs
 teaches it and it holds cards; client mirror `src/utils/projectShape.ts`) is
 scheduled as a window only (`allocateCardWindow` dates no node). Its pace is cards
 met against the share of the window's study days gone (`studyDayShare`), and where
-each section falls on that line can be derived on request (`cardPlan`). `removeSchedule`
+each section falls on that line can be derived (`cardPlan`; no screen shows it at present). `removeSchedule`
 is the one removal path: window, every node date and the baseline go, the study
 week stays.
 
