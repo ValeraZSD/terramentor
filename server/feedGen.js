@@ -390,7 +390,12 @@ export function feedVerifySource(nodeId, partTitle, lessonContent) {
  * reads what the first check read, so a question about the part is not judged
  * without it. A lesson since deleted, or reported by the learner (it is
  * hidden from them and nothing is taught from it), leaves the topic's
- * material.
+ * material: a part reported after its question was written is not read on
+ * the re-check, on purpose, even though the first check read it.
+ *
+ * Every question the generator writes names its part in its meta; the
+ * lesson row's title only serves a row that does not (one written by hand or
+ * by another tool).
  *
  * Exported for `tools/verifier-source-gates.mjs`.
  */
