@@ -153,7 +153,14 @@ function atlas(type, props) {
     const rows = () => [...w.document.querySelectorAll('button[data-row]')];
     return { w, went, act, rows, close: () => { act(() => r.unmount()); w.close(); } };
 }
-const accessibleName = (b) => b.getAttribute('aria-label') || b.textContent.replace(/\s+/g, ' ').trim();
+// The name a screen reader gives the row: its aria-label, else its text
+// without what is aria-hidden.
+const accessibleName = (b) => {
+    if (b.getAttribute('aria-label')) return b.getAttribute('aria-label');
+    const text = (n) => n.nodeType === 3 ? n.textContent
+        : n.nodeType === 1 && n.getAttribute('aria-hidden') === 'true' ? '' : [...n.childNodes].map(text).join(' ');
+    return text(b).replace(/\s+/g, ' ').trim();
+};
 const icon = (b) => [...b.querySelectorAll('svg')].map(s => s.getAttribute('class') || '').find(c => /lucide-/.test(c)) || '';
 
 section('a "Study next" row starts the lesson');
@@ -164,6 +171,10 @@ let nextIcon = '';
     check('the row is drawn', !!row);
     if (row) {
         check('its name starts with "Study"', /^Study\b/.test(accessibleName(row)), accessibleName(row));
+        check('…and names the topic', accessibleName(row) === 'Study Momentum', accessibleName(row));
+        // An aria-label would hide the line under the title from the name,
+        // which axe reports as a label that does not match the visible text.
+        check('the name comes from the row\'s own text, not an aria-label', !row.hasAttribute('aria-label'));
         // What the name no longer says is still read, as the description.
         const said = (row.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
             .map(i => s.w.document.getElementById(i)?.textContent ?? '(missing)').join(' | ');

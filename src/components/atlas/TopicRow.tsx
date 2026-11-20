@@ -48,9 +48,10 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
         <button
             data-row
             onClick={onOpen}
-            // The name says what pressing does; the status and the line under
-            // the name are still read, as its description.
-            aria-label={studies ? tr("Study {{title}}", { title: topic.title }) : undefined}
+            // A "Study next" row is named "Study <topic>" from a hidden phrase
+            // in its own text, not an aria-label, which would hide the line
+            // under the title from the name (label in name). The status and
+            // that line are read as its description.
             aria-describedby={studies ? `${statusId} ${detailId}` : undefined}
             className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-left can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
@@ -58,8 +59,9 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
                 aria-hidden="true"
                 className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[dot] || STATUS_DOT.not_started}`}
             />
-            <span id={statusId} className="sr-only">{tr(STATUS_WORD[dot] || STATUS_WORD.not_started)}</span>
-            <span className="min-w-0 flex-1">
+            <span id={statusId} aria-hidden={studies || undefined} className="sr-only">{tr(STATUS_WORD[dot] || STATUS_WORD.not_started)}</span>
+            {studies && <span className="sr-only">{tr("Study {{title}}", { title: topic.title })}</span>}
+            <span className="min-w-0 flex-1" aria-hidden={studies || undefined}>
                 <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
                     {topic.title}
                     {topic.transferred && (
