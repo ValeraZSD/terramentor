@@ -33,7 +33,7 @@ import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { daysUntil } from './scheduling.js';
 import { studyToday } from './studyDay.js';
-import { MockExamError, courseReadiness, discardSitting, drawCourseMock, finishSitting, getSitting, instantOf } from './mockExams.js';
+import { MockExamError, STUDIED, courseReadiness, discardSitting, drawCourseMock, finishSitting, getSitting, instantOf } from './mockExams.js';
 
 export const LOOK_BACK_SIZE = 10;
 export const LOOK_BACK_DAYS = 14;
@@ -142,13 +142,13 @@ function lastPhaseClosed(projectId, t) {
 
 /**
  * Enough to mix: questions the app marks by itself, from enough topics. The
- * topics holding any quiz at all bound what courseReadiness could count, and
- * cost one count instead of reading every bank on each stream open.
+ * studied topics holding any quiz at all bound what courseReadiness could
+ * count, and cost one count instead of reading every bank on each stream open.
  */
 function enough(projectId) {
     const withQuiz = stmt(`
         SELECT COUNT(DISTINCT q.node_id) AS n FROM quizzes q JOIN nodes n ON n.id = q.node_id
-        WHERE n.project_id = ? AND ${WORK_LEAF}
+        WHERE n.project_id = ? AND ${WORK_LEAF} AND ${STUDIED}
     `).get(projectId).n;
     if (withQuiz < LOOK_BACK_MIN_TOPICS) return null;
     const r = courseReadiness(projectId);
