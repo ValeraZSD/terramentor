@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { useStore } from '../store';
-import type { ProjectQuiz } from '../types';
 import CardsPanel from './deck/CardsPanel';
-import ProjectQuizzesList from './ProjectQuizzesList';
-import QuizView from './QuizView';
 import {
-    Brain, CheckCircle2, Zap, RefreshCw, Loader2,
+    CheckCircle2, Zap, RefreshCw, Loader2,
     MessageSquare, BarChart3, Play,
     Layers, FileText, LayoutGrid, Wrench, ShieldCheck, Compass, History, Timer
 } from 'lucide-react';
@@ -50,9 +47,6 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
     const openAssistant = useStore(s => s.openAssistant);
     const openMasteryCheck = useOpenMasteryCheck();
 
-    const [showAllQuizzes, setShowAllQuizzes] = useState(false);
-    const [selectedQuiz, setSelectedQuiz] = useState<ProjectQuiz | null>(null);
-    const [quizListKey, setQuizListKey] = useState(0);
     const [showBulk, setShowBulk] = useState(false);
     const [showMaterial, setShowMaterial] = useState(false);
 
@@ -126,32 +120,6 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
     // "N quick questions … before any of it is taught" is no longer the page's
     // first question. The offer moves to Tools (`PlacementTool`).
     const underWay = stats.completedNodes > 0 || quizSummary.totalQuizzes > 0;
-
-    if (showAllQuizzes && currentProjectId) {
-        if (selectedQuiz) {
-            return (
-                <QuizView
-                    quiz={selectedQuiz}
-                    onClose={() => {
-                        setSelectedQuiz(null);
-                        setQuizListKey(k => k + 1);
-                        useStore.getState().loadDashboard(currentProjectId);
-                    }}
-                />
-            );
-        }
-        return (
-            <ProjectQuizzesList
-                key={quizListKey}
-                projectId={currentProjectId}
-                onSelectQuiz={(quiz) => setSelectedQuiz(quiz)}
-                onClose={() => {
-                    setShowAllQuizzes(false);
-                    setSelectedQuiz(null);
-                }}
-            />
-        );
-    }
 
     // Hero task — the most urgent learning item, and the page's ONE primary.
     const nextUp = (
@@ -279,18 +247,9 @@ export default function StudyDashboard({ paceInHeader = true }: { paceInHeader?:
     const tools = (
         <DashboardSection icon={Wrench} title={tr("Tools")}>
             <ToolGrid>
-                {/* The saved quizzes, once there are any, as a row here rather
-                    than a box of their own: one number and one button stretched
-                    to the height of the boxes beside it was a big, nearly empty
-                    card. Before the first quiz there is nothing to open. */}
-                {quizSummary.totalQuizzes > 0 && (
-                    <ToolRow
-                        icon={Brain}
-                        title={tr("Quizzes")}
-                        hint={`${quizSummary.averageScore !== null ? `${quizSummary.averageScore}% ` : ''}${tr("average of {{count}} quizzes", { count: quizSummary.totalQuizzes })}`}
-                        onClick={() => setShowAllQuizzes(true)}
-                    />
-                )}
+                {/* No list of the course's quizzes to sit again: a topic's
+                    questions are served by its Study and proved by its check,
+                    the whole course by the mock exam below. */}
                 {/* No second AI surface here: the assistant already answers the
                     question better (it knows the deadline, the vault, what is on
                     screen) and costs nothing until asked. The question is
