@@ -294,6 +294,40 @@ check('the log is a ring buffer, not an archive',
     check('and the summary comes before the first event',
         full.indexOf('# Study summary') >= 0 && full.indexOf('# Study summary') < full.indexOf(' ai.request'));
     trimActivityLog();
+
+    // The edges the seed above does not reach. Evidence the writer stamped
+    // with CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS', no T, no Z): Thursday 19th
+    // in Auckland. A topic marked done on Friday 20th; a NOTE marked done
+    // the Saturday before, which is not work. A clock row past `now` (Monday
+    // 23rd in Auckland), which folds into this week instead of adding one. And
+    // a row from June 2025, which moves the first day but not the 52-line cap.
+    db.prepare("INSERT INTO mastery_evidence (node_id, evidence_type, score, total, created_at) VALUES (?, 'quiz', 1, 1, '2026-11-19 08:00:00')").run(quizzed);
+    db.prepare("UPDATE nodes SET completed_at = '2026-11-19 20:00:00' WHERE id = ?").run(quizzed);
+    db.prepare("UPDATE nodes SET completed_at = '2026-11-13 20:00:00' WHERE project_id = ? AND is_note = 1").run(course);
+    time.run(cardsOnly, '2026-11-22T11', 'reading', 10 * 60000);
+    time.run(proven, '2025-06-01T22', 'reading', 5 * 60000);
+    const edges = exportText();
+    const e = summaryFields(edges);
+    eq('a stored timestamp without T or Z lands on its learner\'s day, and a finished topic is a study day',
+        (e.get('study days') || '').split(' ')[0], '7');
+    eq('study minutes include the early and the late row', (e.get('study minutes') || '').split(' ')[0], '90');
+    eq('the CURRENT_TIMESTAMP-shaped check counts', e.get('checks'), '6 (mastery checks 3, quizzes 2, paper exercises 1)');
+    eq('the first study day is the oldest one', e.get('first study day'), '2025-06-02');
+    const rows = weekRows(edges);
+    eq('at most 52 week lines, a row after now included', rows.length, 52);
+    eq('they start 51 weeks before this one', rows[0]?.[0], '2025-11-24');
+    eq('and end on this week, holding the late row and the new days',
+        JSON.stringify(rows.slice(-2)), JSON.stringify([['2026-11-09', 1, 30, 0, 0, 3], ['2026-11-16', 5, 55, 6, 22, 2]]));
+
+    // A summary that cannot be read still leaves the events in the file.
+    logActivity({ area: 'server', event: 'server.started' });
+    db.exec('ALTER TABLE mock_sittings RENAME TO mock_sittings_gate_hidden');
+    let broken = '';
+    try { broken = exportText(); } catch (err) { broken = `threw ${err.name}`; }
+    db.exec('ALTER TABLE mock_sittings_gate_hidden RENAME TO mock_sittings');
+    check('a summary that fails says so in one line', /^# Study summary: could not be worked out \(\w+\)\.$/m.test(broken),
+        broken.split('\n').slice(0, 5).join(' | '));
+    check('and the events are still exported', /server\.started/.test(broken));
 }
 
 // ---- every call site keeps the promise --------------------------------------

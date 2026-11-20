@@ -7,8 +7,9 @@
 // made and writes COUNTS only: no title, note, card, question, answer or name
 // of a course is ever selected here, so none can reach the file.
 //
-// Days are the learner's days (server/studyDay.js), the same days the
-// finished-project screen counts in (server/completion.js): a review at
+// Days are the learner's days (server/studyDay.js), in the calendar the
+// finished-project screen counts in (server/completion.js), with a finished
+// mock exam counted as well: a review at
 // 20:05 UTC on a Sunday is Monday's for a learner in Auckland. The week lines
 // are Monday weeks in that calendar, empty ones included, because a gap is
 // the thing a reader of this file is looking for.
@@ -121,10 +122,12 @@ export function studySummary({ now = Date.now(), timeZone = learnerTimeZone() } 
         const firstWeek = mondayOf(dates[0]);
         const floor = addDays(thisWeek, -7 * (MAX_WEEKS - 1));
         let week = firstWeek > floor ? firstWeek : floor;
-        const last = dates[dates.length - 1] > thisWeek ? mondayOf(dates[dates.length - 1]) : thisWeek;
         const byWeek = new Map();
         for (const date of dates) {
-            const w = mondayOf(date);
+            // A day after this week (a clock flush near midnight, a restored
+            // row) folds into this week: the lines end now, whatever is stored.
+            const monday = mondayOf(date);
+            const w = monday > thisWeek ? thisWeek : monday;
             const row = byWeek.get(w) || { days: 0, ms: 0, checks: 0, answers: 0, reviews: 0 };
             const d = days.get(date);
             row.days++;
@@ -134,7 +137,7 @@ export function studySummary({ now = Date.now(), timeZone = learnerTimeZone() } 
             row.reviews += d.reviews;
             byWeek.set(w, row);
         }
-        for (; week <= last; week = addDays(week, 7)) {
+        for (; week <= thisWeek; week = addDays(week, 7)) {
             const row = byWeek.get(week) || { days: 0, ms: 0, checks: 0, answers: 0, reviews: 0 };
             weeks.push({ week, days: row.days, minutes: Math.round(row.ms / 60000), checks: row.checks, answers: row.answers, reviews: row.reviews });
         }
@@ -188,5 +191,14 @@ export function studySummaryLines(summary) {
  * the log is in (empty, cleared, switched off, at its cap): it never reads it.
  */
 export function* activityExport({ now = Date.now(), timeZone } = {}) {
-    yield* streamActivityLog({ now, preamble: studySummaryLines(studySummary({ now, timeZone })) });
+    let preamble;
+    try {
+        preamble = studySummaryLines(studySummary({ now, timeZone }));
+    } catch (e) {
+        // The events still go out: a summary that cannot be read must not
+        // cost the file that worked before it existed. The error's name only,
+        // never its message.
+        preamble = [`# Study summary: could not be worked out (${String(e?.name || 'Error').replace(/[^\w]/g, '')}).\n`, '#\n'];
+    }
+    yield* streamActivityLog({ now, preamble });
 }
