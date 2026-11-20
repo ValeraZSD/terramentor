@@ -1197,6 +1197,35 @@ export function sameLibrary(a, b, platform = process.platform) {
     return norm(a) === norm(b);
 }
 
+/** The app folder a login item starts: the folder above `desktop/launcher.js`
+ *  when the command runs that script (a checkout, or the bundled Node of a
+ *  macOS or Linux copy), else a shortcut's working folder, which is the app's
+ *  own folder in every shortcut this app writes. Null when the item says
+ *  neither. */
+export function loginItemRoot(kind, current, platform = process.platform) {
+    const args = loginItemArgs(kind, current);
+    if (!args) return null;
+    const p = platform === 'win32' ? win32 : posix;
+    const script = args.find((a) => /[\\/]desktop[\\/]launcher\.js$/i.test(a));
+    if (script) return p.dirname(p.dirname(script));
+    if (kind !== 'shortcut') return null;
+    try { return JSON.parse(current).workingDir || null; } catch { return null; }
+}
+
+/**
+ * The library a start with no `--data-dir` opens from the app folder `root`:
+ * chooseDataDir's answer for THAT copy, so a copy with a `data` folder of its
+ * own opens that one, and a checkout the historical layout under its
+ * `server/`. A folder that is gone resolves as an installed copy with no data
+ * folder, the only kind an update replaces; its item starts nothing, so
+ * adopting it takes no library's item away.
+ */
+export function unpinnedLibraryOf(root, { platform = process.platform, env = process.env, home, exists = existsSync, readFile = readFileSync } = {}) {
+    if (!root) return null;
+    const packaged = !exists(root) || exists(join(root, 'build.json'));
+    return chooseDataDir({ appRoot: root, packaged, platform, env, home, exists, readFile }).dir ?? join(root, 'server');
+}
+
 /**
  * Whether a server rewrites the login item at start. A login item names the
  * copy of the app that wrote it, and an update is a new folder with the old
@@ -1219,13 +1248,13 @@ export function sameLibrary(a, b, platform = process.platform) {
  *   shortcut records, which held the script), the item is this library's when
  *   its own `--data-dir` is this library — the whole path, not a prefix — or
  *   when neither names one. An item that names none (written before the flag
- *   was pinned) opens whatever a start with no flag resolves: `unpinnedDir`,
- *   which the launcher works out the same way it would at sign-in. It is
- *   this library's when that is.
+ *   was pinned) opens whatever its OWN copy resolves with no flag:
+ *   `unpinnedOf(loginItemRoot(...))`, unpinnedLibraryOf in production. It is
+ *   this library's when that is. An item whose copy cannot be told is left.
  * - A removed item is never put back, and an item that cannot be read is
  *   nobody's to judge.
  */
-export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, unpinnedDir = null, platform = process.platform }) {
+export function loginItemRefresh({ kind, exists, current, wanted, marker = null, dataDir = null, unpinnedOf = null, platform = process.platform }) {
     if (!exists || current == null || wanted == null || current === wanted) return 'none';
     if (kind === 'shortcut' && marker != null) {
         // Markers written before shortcut records hold the PowerShell script:
@@ -1242,7 +1271,8 @@ export function loginItemRefresh({ kind, exists, current, wanted, marker = null,
     if (!args) return 'none';
     const named = dataDirOf(args);
     if (named == null && dataDir == null) return 'rewrite';
-    const opens = named ?? unpinnedDir;
+    const root = named == null ? loginItemRoot(kind, current, platform) : null;
+    const opens = named ?? (root != null && unpinnedOf ? unpinnedOf(root) : null);
     return opens != null && sameLibrary(opens, dataDir, platform) ? 'rewrite' : 'none';
 }
 

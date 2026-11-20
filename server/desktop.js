@@ -195,7 +195,8 @@ function refreshLoginItem(marker, dataDir) {
         wanted: shortcut ? autostart.record : autostart.contents,
         marker: readOrNull(marker, 'utf8'),
         dataDir,
-        unpinnedDir: process.env.TERRAMENTOR_LAUNCH_UNPINNED_LIBRARY || null,
+        // An item with no --data-dir opens what ITS copy resolves, not this one.
+        unpinnedOf: (root) => desktopLib.unpinnedLibraryOf(root),
     });
     if (action === 'rewrite') setStartAtLogin(true, marker);
 }

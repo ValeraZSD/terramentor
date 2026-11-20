@@ -966,10 +966,32 @@ console.log('\n--- the log file and the shortcut ---');
     check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
     check('shortcut, no marker, a library whose path starts with this one: left', refresh({ ...shortcut, current: win(OLD, `${A}-old`) }), 'none');
     check('shortcut, no marker, the default library while this one is named: left', refresh({ ...shortcut, current: win(OLD, null) }), 'none');
-    // An item written before --data-dir was pinned opens whatever a start with
-    // no flag resolves; the launcher says what that is (unpinnedDir).
-    check('shortcut naming no library, which opens this one: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedDir: A.toLowerCase() }), 'rewrite');
-    check('shortcut naming no library, which opens another one: left', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedDir: B }), 'none');
+    // An item written before --data-dir was pinned opens whatever ITS copy
+    // resolves with no flag (unpinnedOf, given that copy's folder).
+    const opensFrom = (map) => (root) => map[root] ?? null;
+    check('shortcut naming no library, whose copy opens this one: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: A.toLowerCase() }) }), 'rewrite');
+    check('shortcut naming no library, whose copy opens another one: left', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: B }) }), 'none');
+    // Another copy with a data folder of its own, while this copy has one too:
+    // resolved from THIS copy, the old item looked like this library's.
+    check('shortcut naming no library, another copy with its own data: left', refresh({
+        ...shortcut, wanted: win(NEW, `${NEW}\\data`), dataDir: `${NEW}\\data`, current: win(OLD, null),
+        unpinnedOf: opensFrom({ [OLD]: `${OLD}\\data`, [NEW]: `${NEW}\\data` }),
+    }), 'none');
+    check('shortcut naming no library whose copy cannot be told: left', refresh({ ...shortcut, current: L.shortcutRecord({ arguments: '--autostart', workingDir: '' }), unpinnedOf: () => A }), 'none');
+    check('a shortcut item starts the app in its working folder', L.loginItemRoot?.('shortcut', win(OLD, null), 'win32'), OLD);
+    check('…and a checkout\'s, in the folder above its launcher script', L.loginItemRoot?.('shortcut', L.shortcutRecord({ arguments: '"C:\\src\\tm\\desktop\\wrappers\\launch-hidden.vbs" "C:\\node\\node.exe" "C:\\src\\tm\\desktop\\launcher.js" --autostart', workingDir: 'C:\\src\\tm' }), 'win32'), 'C:\\src\\tm');
+    {
+        // What a copy opens with no flag, from that copy's folder.
+        const home = '/home/u', env = {};
+        const has = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+        const of = (root, exists) => L.unpinnedLibraryOf?.(root, { platform: 'linux', env, home, exists, readFile: () => '' });
+        const perUser = L.userDataDir({ platform: 'linux', env, home });
+        check('a copy with its own data folder opens that one', of('/apps/old', has('/apps/old', '/apps/old/data', '/apps/old/build.json')), join('/apps/old', 'data'));
+        check('an installed copy without one opens the per-user library', of('/apps/old', has('/apps/old', '/apps/old/build.json')), perUser);
+        check('a copy that is gone resolves as an installed copy', of('/apps/gone', has()), perUser);
+        check('a checkout opens the folder under its server/', of('/src/tm', has('/src/tm')), join('/src/tm', 'server'));
+        check('no copy, no library', of(null, has()), null);
+    }
     // The working folder is the app's folder whatever machine builds the plan:
     // on Linux a host dirname turned every copy's into '.', so an update
     // looked like no change at all.
@@ -983,7 +1005,9 @@ console.log('\n--- the log file and the shortcut ---');
     check('plist from before markers, this library with a trailing slash: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a/') }), 'rewrite');
     check('plist for the default library, server on a named one: left', refresh({ ...plist, current: mac('/Apps/old', null) }), 'none');
     check('plist where neither names a library: adopted', refresh({ ...plist, wanted: mac('/Apps/new', null), dataDir: null, current: mac('/Apps/old', null) }), 'rewrite');
-    check('plist naming no library, which opens this one: adopted', refresh({ ...plist, current: mac('/Apps/old', null), unpinnedDir: '/lib/a/' }), 'rewrite');
+    const macNode = (app, dir) => L.autostartPlan({ platform: 'darwin', target: `${app}/runtime/node`, args: [`${app}/desktop/launcher.js`, ...lib(dir)], home: '/Users/u' }).contents;
+    check('plist naming no library, whose copy opens this one: adopted', refresh({ ...plist, current: macNode('/Apps/old', null), unpinnedOf: opensFrom({ '/Apps/old': '/lib/a/' }) }), 'rewrite');
+    check('plist naming no library and no launcher script: left', refresh({ ...plist, current: mac('/Apps/old', null), unpinnedOf: () => '/lib/a' }), 'none');
 
     const odd = '/home/u/My "Study" & <notes> 100% $HOME `x` \\ end';
     const entry = { kind: 'desktop-entry', platform: 'linux', exists: true, wanted: xdg('/opt/new app', odd), dataDir: odd };
