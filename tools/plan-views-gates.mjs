@@ -22,12 +22,23 @@
  *  - an old address lands on a screen that exists: /calendar on Projects,
  *    /project/:id/timeline and /project/:id/calendar, with or without a topic,
  *    on that course's Dashboard;
- *  - on the Dashboard of a course that misses its date, the verdict is on
- *    screen once: in the header on a wide screen, and on a phone (where the
- *    header keeps only a dot on the plan button) in words under Next up.
+ *  - on the Dashboard of a course that misses its date, the verdict is said
+ *    in words once: in the header on a wide screen, and on a phone (where the
+ *    header keeps only a dot on the plan button) under Next up. The dot is a
+ *    mark, not words, so it is not counted.
  *
  * Each check also asserts what IS there, so a page that never drew passes
  * nothing. On the code before the change every check but those fails.
+ *
+ * This gate reads the clock. The fixture's dates are built from `Date.now()`
+ * (`day()`), and the server the browser talks to judges them against its own
+ * real "today" (there is no clock to pin in a running app). That is accepted
+ * because nothing asserted depends on the hour: the record and the date sit
+ * a week or more from today, so a day's difference between the two clocks (the
+ * browser sends its own time zone, `day()` is UTC) leaves the course missing
+ * its date. If it ever did not, `prepare` reads the band back and throws when
+ * it is not one of `MISSES`, so the run fails on the fixture rather than
+ * checking a different case from the one described here.
  *
  * No model and no network. Without Edge or Chrome it is SKIPPED locally and
  * fails in CI.
@@ -117,9 +128,18 @@ async function prepare(ctx) {
 
 const tabsIn = (nav) => `[...document.querySelectorAll('nav[aria-label="${nav}"] [data-tab]')].map((e) => e.dataset.tab)`;
 /** Verdict marks a reader can see: the pill (`VerdictPill`) and the dot on the plan button (`VerdictDot`). */
-const SHOWN_VERDICTS = `[...document.querySelectorAll('[data-verdict]')]
-    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
-    .map((e) => e.textContent.trim() || \`dot on "\${(e.closest('button')?.textContent ?? '').trim().slice(0, 40)}"\`)`;
+const SHOWN_MARKS = `[...document.querySelectorAll('[data-verdict]')]
+    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')`;
+/**
+ * The verdict in words, one entry per pill on screen (the dot has no text),
+ * each named by where it sits: the course header (the row that holds the
+ * views), the Dashboard's line under Next up, or anywhere else.
+ */
+const SHOWN_WORDS = `${SHOWN_MARKS}.filter((e) => e.textContent.trim()).map((e) => {
+    const header = document.querySelector('nav[aria-label="Project views"]')?.parentElement;
+    const where = e.closest('[data-pace-here]') ? 'under Next up' : header?.contains(e) ? 'header' : 'elsewhere';
+    return \`\${where}: \${e.textContent.trim()}\`;
+})`;
 
 const states = {
     async 'plan views'(page, { ids }) {
@@ -143,11 +163,12 @@ const states = {
         // The header's verdict comes with the pace; the Dashboard's own sections
         // with the dashboard. Both have arrived once the Tools section is drawn
         // and the verdict is on screen; then the page is given time to settle.
-        await page.waitFor(`document.body.innerText.includes('Tools') && ${SHOWN_VERDICTS}.length > 0`, 'the Dashboard and its verdict');
+        await page.waitFor(`document.body.innerText.includes('Tools') && ${SHOWN_MARKS}.length > 0`, 'the Dashboard and its verdict');
         await new Promise((r) => setTimeout(r, 1500));
-        const shown = await page.evaluate(SHOWN_VERDICTS);
-        check('the verdict is on screen', shown.length >= 1, JSON.stringify(shown));
+        const shown = await page.evaluate(SHOWN_WORDS);
+        check('the verdict is said in words', shown.length >= 1, JSON.stringify(shown));
         check('...once', shown.length === 1, JSON.stringify(shown));
+        check('...in the course header', shown.length === 1 && shown[0].startsWith('header: '), JSON.stringify(shown));
 
         console.log('\nold addresses:');
         const OLD = [
@@ -176,23 +197,18 @@ const states = {
     },
 };
 
-/** The verdict in words: the pill (`VerdictPill`), not the dot on the plan button. */
-const SHOWN_WORDS = `[...document.querySelectorAll('[data-verdict]')]
-    .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && e.textContent.trim())
-    .map((e) => e.textContent.trim())`;
-
 const phone = {
     async 'plan views on a phone'(page, { ids }) {
         console.log('\non a phone, the Dashboard of a course that misses its date:');
         // The header has no room for the sentence there and keeps only a dot on
         // the plan button, so the Dashboard says it under Next up.
         await page.go(`/project/${ids.project}/dashboard`, 'Next up');
-        await page.waitFor(`document.body.innerText.includes('Tools') && ${SHOWN_VERDICTS}.length > 0`, 'the Dashboard and its verdict');
+        await page.waitFor(`document.body.innerText.includes('Tools') && ${SHOWN_MARKS}.length > 0`, 'the Dashboard and its verdict');
         await new Promise((r) => setTimeout(r, 1500));
         const words = await page.evaluate(SHOWN_WORDS);
         check('the verdict is said in words', words.length >= 1, JSON.stringify(words));
         check('...once', words.length === 1, JSON.stringify(words));
-        check('...under Next up', await page.evaluate(`!!document.querySelector('[data-pace-here] [data-verdict]')`));
+        check('...under Next up', words.length === 1 && words[0].startsWith('under Next up: '), JSON.stringify(words));
     },
 };
 
