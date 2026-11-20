@@ -544,7 +544,9 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         <div
             ref={scrollerRef}
             className="h-full overflow-y-auto bg-slate-100 dark:bg-slate-900"
-            style={{ '--feed-top': `${headerHeight}px` } as CSSProperties}
+            // On Today a course header is pinned at the top: a control that
+            // takes focus scrolls into view below it, not under it.
+            style={{ '--feed-top': `${headerHeight}px`, scrollPaddingTop: scoped ? undefined : '3.25rem' } as CSSProperties}
         >
             <div ref={headerWrapRef}>
                 {/* The scoped header REPLACES the activity strip. Keeping the

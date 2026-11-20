@@ -28,7 +28,9 @@ export default function CourseBlock({ name, color, icon, continued, children }: 
     return (
         // `--course-h`: the pinned header's height, so a card the stream scrolls
         // to stops below it (STREAM_SCROLL_MARGIN).
-        <section aria-labelledby={headingId} className="space-y-5" style={{ '--course-h': '2.75rem' } as CSSProperties}>
+        // A named group, not a <section>: a region landmark per course would
+        // list every course twice over in a screen reader's landmarks.
+        <div role="group" aria-labelledby={headingId} className="space-y-5" style={{ '--course-h': '2.75rem' } as CSSProperties}>
             <h2
                 id={headingId}
                 style={accent as CSSProperties | undefined}
@@ -47,6 +49,6 @@ export default function CourseBlock({ name, color, icon, continued, children }: 
                     {children}
                 </StreamHeadingShift.Provider>
             </StreamCourse.Provider>
-        </section>
+        </div>
     );
 }
