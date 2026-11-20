@@ -44,9 +44,10 @@ app.get('/api/feed', (req, res) => {
         // already knows its lesson is on the way and holds its chapter open.
         if (scopedNode) feedGen.requestNode(scopedNode);
         // ?courses= is the home stream's course blocks the client already
-        // holds, in its order: the one it is in continues before the next opens.
-        const courses = String(req.query.courses || '').split(',').slice(0, 200)
-            .map(s => Number(s)).filter(n => Number.isInteger(n) && n > 0);
+        // holds, in its order: the one it is in (the LAST) continues before the
+        // next opens, so a list past the cap keeps its end.
+        const courses = String(req.query.courses || '').split(',').filter(s => /^\d{1,9}$/.test(s))
+            .map(Number).filter(n => n > 0).slice(-200);
         const { items, exhausted, transfers, placements, lessonWrite } = composeFeed({
             limit, excludeKeys, gate, nodeId: scopedNode, projectId: scopedProject,
             lessonWrite: scopedNode ? feedGen.lessonWriteState(scopedNode) : null,

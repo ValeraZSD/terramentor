@@ -1098,7 +1098,16 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     const opensHere = (pid) => (homeStream
         ? (openingPage || held.length > 0) && !opened.has(pid)
         : openingPage);
-    const roundFor = (pid) => {
+    // Asked once per course per page: `exhausted` asks again for the blocks the
+    // page stopped before, and a failing course is warned about once.
+    const perCourse = (fn) => {
+        const seen = new Map();
+        return (pid) => {
+            if (!seen.has(pid)) seen.set(pid, fn(pid));
+            return seen.get(pid);
+        };
+    };
+    const roundFor = perCourse((pid) => {
         const info = projectInfos.find(i => i.project.id === pid);
         if (!info || roundSize <= 0) return [];
         let ghosts = [];
@@ -1136,7 +1145,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                 question: { ...pick.question, quizIndex: pick.index },
             };
         });
-    };
+    });
 
     // --- Look back (server/lookBack.js) -----------------------------------
     // Every two weeks or so, or when a phase closes, a block opens with an
@@ -1146,7 +1155,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // page), and one card per visit: the first block that has one.
     // A card the learner can clear with one tap; nothing below it waits on it.
     let offerOpen = !scoped && ![...excludeKeys].some(k => String(k).startsWith('lookback-'));
-    const offerFor = (pid) => {
+    const offerFor = perCourse((pid) => {
         const info = projectInfos.find(i => i.project.id === pid);
         if (!info) return null;
         let offer = null;
@@ -1163,7 +1172,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
             projectColor: info.project.color,
             offer,
         };
-    };
+    });
 
     // --- Interleave, one block at a time ------------------------------------
     const items = [];
@@ -1214,6 +1223,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                     const cp = checkpointCard(queue.f);
                     if (cp) items.push(cp);
                 }
+                queue.reached = true;
                 queueIdx++;
                 continue;
             }
@@ -1315,9 +1325,11 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     }
 
     // A block the page stopped before still opens a round when the next page
-    // asks: the stream is not over while one would.
+    // asks, and a taught-out topic the page never reached still owes its
+    // checkpoint: the stream is not over while either would come.
     const poolsEmpty = (by) => [...by.values()].every(list => list.length === 0);
     const exhausted = nodeQueues.every(q => q.cards.length === 0)
+        && !nodeQueues.some(q => q.taughtOut && !q.reached && !excluded(`checkpoint-${q.f.nodeId}`))
         && poolsEmpty(dueBy) && poolsEmpty(newsBy)
         && !blockOrder.some(pid => !visited.has(pid) && opensHere(pid)
             && ((offerOpen && offerFor(pid)) || roundFor(pid).length > 0));
