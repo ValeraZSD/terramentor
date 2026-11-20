@@ -43,9 +43,14 @@ app.get('/api/feed', (req, res) => {
         // (the burst starts after this handler returns), so the first page
         // already knows its lesson is on the way and holds its chapter open.
         if (scopedNode) feedGen.requestNode(scopedNode);
+        // ?courses= is the home stream's course blocks the client already
+        // holds, in its order: the one it is in continues before the next opens.
+        const courses = String(req.query.courses || '').split(',').slice(0, 200)
+            .map(s => Number(s)).filter(n => Number.isInteger(n) && n > 0);
         const { items, exhausted, transfers, placements, lessonWrite } = composeFeed({
             limit, excludeKeys, gate, nodeId: scopedNode, projectId: scopedProject,
             lessonWrite: scopedNode ? feedGen.lessonWriteState(scopedNode) : null,
+            courses,
         });
         const header = buildFeedHeader();
         res.json({
