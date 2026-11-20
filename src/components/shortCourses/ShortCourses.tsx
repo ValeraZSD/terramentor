@@ -261,7 +261,7 @@ function SourceBox({ projects, narrow, onCreated, onFullCourse }: {
     // On a phone the forward actions need the whole line, so Clear is the
     // box's own × beside the title instead of a button in that line.
     const clearButton = narrow ? null : <Button variant="quiet" onClick={() => clear()}>{t("Clear")}</Button>;
-    const corner = narrow && box.state !== 'empty' && box.state !== 'reading'
+    const corner = narrow && box.state !== 'reading'
         ? <IconButton label={t("Clear")} tooltip={false} icon={<X className="w-4 h-4" />} className="self-start -mr-1" onClick={() => clear()} />
         : null;
 
