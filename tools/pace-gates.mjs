@@ -558,7 +558,8 @@ console.log('\n--- routes: the verdict rides beside the old pace ---');
             db.prepare('UPDATE nodes SET scheduled_start = ?, scheduled_end = ? WHERE id = ?').run(ago(20 - i), ago(20 - i), n);
         }
         r = await send('POST', `/api/projects/${underway}/schedule`, { startDate: ago(30), deadline: ahead(30), studyDays: [1, 2, 3, 4, 5] });
-        const open = db.prepare(`SELECT scheduled_start AS s FROM nodes WHERE project_id = ? AND is_note = 0`).all(underway);
+        (await import('../server/topicDates.js')).refreshTopicDates();
+        const open = db.prepare(`SELECT scheduled_start AS s FROM plan_nodes WHERE project_id = ? AND is_note = 0`).all(underway);
         check('a schedule write lays the open topics out from today, not from the window\'s start', r.status === 200
             && open.length === 6 && open.every(n => n.s && n.s >= TODAY), show({ status: r.status, s: open.map(n => n.s) }));
         const stored = db.prepare('SELECT start_date FROM projects WHERE id = ?').get(underway).start_date;
