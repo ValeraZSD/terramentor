@@ -8,6 +8,7 @@ import '../../src/i18n';
 import { createRoot } from 'react-dom/client';
 import { act as domAct } from 'react';
 import TaskDock from '../../src/components/TaskDock';
+import ConfirmDialog from '../../src/components/ConfirmDialog';
 import { useStore } from '../../src/store';
 import { taskPlace, placeRoute, taskEta, durationParts } from '../../src/utils/taskPlace';
 
@@ -21,6 +22,11 @@ const act: any = (React as any).act || domAct;
 (globalThis as any).__place = { taskPlace, placeRoute, taskEta, durationParts };
 (globalThis as any).__mount = (el: HTMLElement) => {
     const root = createRoot(el);
-    act(() => { root.render(React.createElement(TaskDock as any)); });
+    // The app's one confirm dialog beside it, as Layout mounts both: the ✕ on a
+    // running task asks through it before anything stops.
+    act(() => {
+        root.render(React.createElement(React.Fragment, null,
+            React.createElement(TaskDock as any), React.createElement(ConfirmDialog as any)));
+    });
     return root;
 };

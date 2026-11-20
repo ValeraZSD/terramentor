@@ -212,6 +212,96 @@ check('the server was asked', calls, [['dismiss', 't2']]);
 dismissFails = false;
 globalThis.__pushTasks([]);
 
+console.log('\n--- the ✕ on a running task asks first --------------------------------');
+// One slip on a 28px ✕ used to throw away a long job. Now it asks, the safe
+// answer has the focus, and only "Stop" reaches the server.
+calls.length = 0;
+const stopButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Stop '));
+const confirmBox = () => $$('[role=dialog]').find(d => (d.textContent || '').includes('Stop this task?'));
+const answer = (label) => click($$('[role=dialog] button').find(b => b.textContent === label));
+for (const status of ['running', 'queued']) {
+    globalThis.__pushTasks([task({ id: 't9', label: 'Preparing feed lessons', status, progress: { percent: 40, content: 0, thinking: 0, phase: '', message: '' } })]);
+    const stop = stopButton();
+    check(`a ${status} chip carries a Stop button`, !!stop, true);
+    await click(stop);
+    await settle();
+    check(`pressing it on a ${status} task asks first`, !!confirmBox(), true);
+    check('...naming the task', (confirmBox()?.textContent || '').includes('Preparing feed lessons'), true);
+    check('...with the focus on the answer that keeps it', window.document.activeElement?.textContent, 'Continue');
+    check('...and nothing has been stopped yet', calls, []);
+    await answer('Continue');
+    await settle();
+    check('"Continue" closes the question', !!confirmBox(), false);
+    check('...and stops nothing', calls, []);
+    check('...and the chip is still there', liveChips().length, 1);
+    await click(stopButton());
+    await settle();
+    await act(() => (window.document.activeElement ?? window.document.body).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await settle();
+    check('Escape closes it', !!confirmBox(), false);
+    check('...and stops nothing either', calls, []);
+    await click(stopButton());
+    await settle();
+    await answer('Stop');
+    await settle();
+    check(`"Stop" stops the ${status} task`, calls, [['cancel', 't9']]);
+    calls.length = 0;
+    globalThis.__pushTasks([]);
+}
+// The job can finish while the question is open: there is nothing left to
+// stop, so the question goes, and the finished task is not marked cancelled.
+globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'done' })]);
+await settle();
+check('the question closes when the task ends under it', !!confirmBox(), false);
+check('...asks the server nothing', calls, []);
+check('...and the finished task is not marked cancelled', store.getState().aiTasks.find(t => t.id === 't11')?.status, 'done');
+globalThis.__pushTasks([]);
+// The task can leave the list altogether: the chip goes, and so does its question.
+globalThis.__pushTasks([task({ id: 't12', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+globalThis.__pushTasks([]);
+await settle();
+check('the question closes when its task leaves the list', !!confirmBox(), false);
+check('...and nothing was stopped', calls, []);
+// Another question asked over this one answers this one "no".
+globalThis.__pushTasks([task({ id: 't13', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+let other;
+await act(async () => { other = store.getState().showConfirm({ title: 'Something else?', message: 'x', confirmLabel: 'Yes', cancelLabel: 'No' }); });
+await settle();
+check('a second question replaces this one', [!!confirmBox(), $$('[role=dialog]').some(d => d.textContent.includes('Something else?'))], [false, true]);
+await answer('Yes');
+await settle();
+check('...and its "yes" stops nothing here', calls, []);
+check('...which got its own answer', await Promise.race([other, Promise.resolve('pending')]), true);
+{
+    // In the store itself: the replaced caller hears "no" instead of waiting forever.
+    let first, second;
+    await act(async () => { first = store.getState().showConfirm({ title: 'A?', message: 'a' }); });
+    await act(async () => { second = store.getState().showConfirm({ title: 'B?', message: 'b' }); });
+    check('a question asked over another answers the first "no"', await Promise.race([first, Promise.resolve('pending')]), false);
+    await act(async () => { store.getState().hideConfirm(false); });
+    await second;
+}
+await click(stopButton());
+await settle();
+check('the ✕ asks again afterwards', !!confirmBox(), true);
+await answer('Continue');
+await settle();
+globalThis.__pushTasks([]);
+globalThis.__pushTasks([task({ id: 't10', status: 'done' })]);
+await click(dismissButton());
+await settle();
+check('a finished chip is still dismissed without a question', !!$$('[role=dialog]').length, false);
+await afterExit();
+calls.length = 0;
+globalThis.__pushTasks([]);
+
 console.log('\n--- three at a time, and the three are the newest -------------------');
 calls.length = 0;
 const ago = (ms) => new Date(Date.now() - ms).toISOString();
