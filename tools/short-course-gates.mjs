@@ -1150,9 +1150,11 @@ ok('the box asks a touch screen for a link only, a mouse for a link or a file',
         /<TextInput\b[\s\S]*?placeholder=\{prompt\}/.test(emptyBox) && !/<input\b[^>]*type="text"/.test(emptyBox)
         && /aria-describedby=\{hintId\}/.test(emptyBox) && /<p id=\{hintId\}/.test(emptyBox));
     // Read and Choose a file share one grid cell, one shown at a time: Read
-    // once something is typed, Choose a file until then.
+    // once something is typed, Choose a file until then. The cell is the grid
+    // wrapper's: in a flex row the two would stand side by side.
     ok('…Read and Choose a file share one cell, one hidden while the other shows',
-        /<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?\{t\("Read"\)\}/.test(emptyBox)
+        /<div className="grid grow">\s*<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?<\/Button>\s*<Button variant="neutral"/.test(emptyBox)
+        && /<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?\{t\("Read"\)\}/.test(emptyBox)
         && /<Button variant="neutral" className=\{cx\('\[grid-area:1\/1\]', typed && 'invisible'\)\}[\s\S]*?\{t\("Choose a file"\)\}/.test(emptyBox));
 }
 ok('a video with no captions offers a course from its title, said to be without the video',
