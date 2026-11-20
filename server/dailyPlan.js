@@ -191,12 +191,13 @@ export function getGhostQuestions(projectId, maxTopics = 2, decayDays = 14, now 
     // ones have nothing a draw may hand out, a younger one still gets asked.
     for (const node of getDecayingNodes(projectId, decayDays, now, { limit: null })) {
         if (out.length >= maxTopics) break;
-        const picks = recallOrder(node.node_id).slice(0, Math.max(1, perTopic));
+        const picks = recallOrder(node.node_id, now).slice(0, Math.max(1, perTopic));
         if (!picks.length) continue;
         out.push({
             nodeId: node.node_id,
             title: node.title,
             lastUpdated: node.last_updated,
+            slipped: !!node.slipped,
             quizId: picks[0].quizId,
             questions: picks.map(p => ({ ...p.question, quizIndex: p.index })),
             picks,

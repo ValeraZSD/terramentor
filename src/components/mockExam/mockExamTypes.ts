@@ -119,6 +119,8 @@ export interface CourseReadiness {
 
 export interface CourseListSitting extends MockSitting {
     source: 'course';
+    /** A look back the stream offered (server/lookBack.js), not a mock set up by hand. */
+    lookBack: boolean;
     questions: number;
     answered: number;
     right: number | null;
@@ -128,6 +130,8 @@ export interface CourseListSitting extends MockSitting {
 /** One question of an open mock: what the input needs, never the key. */
 export interface CourseQuestion {
     partId: number;
+    /** The topic it was drawn from, for the study clock; never shown while the mock is open. */
+    nodeId: number | null;
     n: number;
     ref: string | null;
     question: QuizQuestion;
@@ -174,7 +178,7 @@ export interface CourseResult {
 
 export interface CourseMockDetail {
     sitting: MockSitting;
-    paper: { id: number; projectId: number; source: 'course'; title: string; questions: number; passRight: number | null };
+    paper: { id: number; projectId: number; source: 'course'; title: string; questions: number; passRight: number | null; lookBack: boolean };
     exam: RealExam | null;
     course: { questions: CourseQuestion[]; answered: number; left: number; later: number };
     result: CourseResult | null;

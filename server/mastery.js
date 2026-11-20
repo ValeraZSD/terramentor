@@ -1,6 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
-import { FADING_TOPIC, fadingCutoff } from './fading.js';
+import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -831,8 +831,9 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
 
 /**
  * Get decaying nodes — topics whose mastery has faded and are worth refreshing:
- * a proven-ish topic not touched within `decayDays` (`FADING_TOPIC` in
- * fading.js, which Today's list reads too). Used by the ghost-question /
+ * a proven-ish topic not touched within `decayDays`, or one a mock or look
+ * back found slipped (`RECALL_TOPIC` in fading.js, which Today's list reads
+ * too). Used by the ghost-question /
  * daily-plan paths, whose "cumulative exam" mechanic wants a broad net, and
  * that is how a fading topic comes back: in the feed, by itself.
  *
@@ -848,20 +849,24 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * @returns Array of nodes with decaying mastery
  */
 export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { limit = 10 } = {}) {
+    // A topic that slipped on a look back comes first: it was answered wrong
+    // lately, a fading one only has not been asked in a while.
     return db.prepare(`
         SELECT
             nm.node_id,
             nm.mastery_score,
             nm.last_updated,
             n.title,
-            n.status
+            n.status,
+            ${SLIPPED_TOPIC} AS slipped
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
-          AND ${FADING_TOPIC}
-        ORDER BY nm.last_updated ASC
+          AND ${RECALL_TOPIC}
+        ORDER BY slipped DESC, nm.last_updated ASC
         LIMIT ?
-    `).all(projectId, fadingCutoff(decayDays, now), limit ?? -1);
+    `).all(...slipParams(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1)
+        .map(r => ({ ...r, slipped: r.slipped === 1 }));
 }
 
 /**
