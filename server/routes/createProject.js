@@ -680,34 +680,51 @@ app.post('/api/ai/create-project', (req, res) => {
         // One short call judges it from the name, the goal and a summary of
         // the material; material longer than a short course holds is never
         // asked about, and a failed call keeps the course in phases.
+        // A language still open (one to confirm as learned, or several the
+        // course could be explained in) is settled only by the identity call
+        // of the phased pipeline, so such a run is never a short course.
         send({ phase: 'sizing', message: 'Choosing the course size', messageKey: 'Choosing the course size' });
         const shape = await decideCourseShape({
             name: learnerName, goal: learnerDescription, src, words: src.docs.map(d => sourceWords(d.text)), signal,
+            shortAllowed: !learningCandidates.length && !explainCandidates.length,
         });
         send({ phase: 'sized', shape: shape.shape, by: shape.by });
         if (shape.shape === 'short') {
             send({ phase: 'writing_topics', message: 'Writing the topics', messageKey: 'Writing the topics' });
-            const made = await writeShortCourseNow({
-                name: learnerName,
-                goal: learnerDescription,
-                color: projectColor,
-                icon: projectIcon,
-                // The language this run resolved above, from every signal it had.
-                language: { code: projectLanguage, learning: learningLanguage, lang: creationLang },
-                rows: stagedRows,
-                signal,
-            });
-            run.adopt(made.projectId, made.name);
-            markCreationFinished.run(made.projectId);
-            send({ phase: 'init', messageKey: 'Creating project…', projectId: made.projectId, projectName: made.name });
-            send({ phase: 'topics_written', projectId: made.projectId, topics: made.topics });
-            return run.finish({
-                phase: 'complete',
-                projectId: made.projectId,
-                shape: 'short',
-                message: 'Short course created',
-                stats: { categories: 0, elements: 0, subElements: made.topics.length, resources: 0 },
-            });
+            let made = null;
+            try {
+                made = await writeShortCourseNow({
+                    // A name the dialog filled in from a file is not the learner's:
+                    // the short course then names itself from its first source.
+                    name: ownName,
+                    goal: learnerDescription,
+                    color: projectColor,
+                    icon: projectIcon,
+                    // Settled above, with no language left open.
+                    language: { code: projectLanguage, learning: learningLanguage, lang: creationLang },
+                    rows: stagedRows,
+                    signal,
+                });
+            } catch (err) {
+                if (signal?.aborted || err?.name === 'AbortError') throw err;
+                // The short course is made only from a good answer (nothing is
+                // half-written), so a failed one builds the course in phases.
+                console.log(`[AI] Short course failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
+                send({ phase: 'topics_written', failed: true });
+                send({ phase: 'sized', shape: 'phased', by: 'fallback' });
+            }
+            if (made) {
+                run.adopt(made.projectId, made.name);
+                markCreationFinished.run(made.projectId);
+                send({ phase: 'topics_written', projectId: made.projectId, projectName: made.name, topics: made.topics });
+                return run.finish({
+                    phase: 'complete',
+                    projectId: made.projectId,
+                    shape: 'short',
+                    message: 'Short course created',
+                    stats: { categories: 0, elements: 0, subElements: made.topics.length, resources: 0 },
+                });
+            }
         }
 
         send({

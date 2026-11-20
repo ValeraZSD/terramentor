@@ -498,6 +498,9 @@ export interface AIProjectProgress {
     by?: ShapeBy;
     /** On `topics_written`: a short course's topics, written in one call. */
     topics?: Array<{ title: string; description: string }>;
+    /** On `topics_written`: the short course's answer was unusable, and the
+     *  run goes on in phases. */
+    failed?: boolean;
 }
 
 /**

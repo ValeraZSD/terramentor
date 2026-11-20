@@ -231,7 +231,12 @@ export function eventToLogEntry(event: any): LogEntry | null {
         case 'writing_topics':
         case 'topics_written':
             id = 'short-topics';
-            if (phase === 'topics_written') {
+            if (phase === 'topics_written' && event.failed) {
+                // The short answer was unusable: the run goes on in phases,
+                // and the size line below says so.
+                message = i18n.t("Writing the topics");
+                status = 'warning';
+            } else if (phase === 'topics_written') {
                 message = i18n.t("{{n}} topics written", { count: event.topics?.length || 0, n: event.topics?.length || 0 });
                 status = 'success';
             } else {

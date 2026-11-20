@@ -78,11 +78,13 @@ const SECOND = `# Choosing a fund\n\n${prose(18, 3)}\n\n# Costs you do not see\n
 // Over 40,000 words: more than one short course holds.
 const BOOK = Array.from({ length: 60 }, (_, i) => `# Chapter ${i + 1}\n\n${prose(40, i)}`).join('\n\n');
 const GOAL = 'I want to pick a cheap fund before my first payday next month.';
+const DUTCH = Array.from({ length: 12 }, () => 'Een indexfonds koopt alle bedrijven in een index, zodat het rendement gelijk is aan dat van de markt. Omdat niemand de aandelen kiest, kost het fonds heel weinig, en die lage kosten groeien over de jaren mee. Wie elk jaar herbalanceert, houdt de verdeling die hij zelf heeft gekozen.').join(' ');
 
 // ---- stub model -----------------------------------------------------------------------
 
 const calls = [];          // every model call: { kind, system, user }
 let shapeReply = 'short';  // 'short' | 'phased' | 'garbage' | 'fail'
+let shortReply = 'good';   // 'good' | 'garbage'
 const kindOf = (system) => system.includes('You decide what shape a new course takes') ? 'shape'
     : /SHORT COURSE/.test(system) ? 'short'
         : 'other';
@@ -103,6 +105,8 @@ const stub = createServer((req, res) => {
         let content = null;
         if (kind === 'shape' && shapeReply !== 'fail') {
             content = shapeReply === 'garbage' ? 'Hard to say, it could go either way.' : `\`\`\`json\n{"shape": "${shapeReply}"}\n\`\`\``;
+        } else if (kind === 'short' && shortReply === 'garbage') {
+            content = 'Here are some thoughts on index funds, in no particular format.';
         } else if (kind === 'short') {
             content = JSON.stringify({
                 name: 'Index funds in a few days',
@@ -197,7 +201,7 @@ const one = await create({ name: '', description: GOAL, documentIds: [smallDoc?.
 const shapeCall = one.calls.find(c => c.kind === 'shape');
 ok('the run says it is choosing the size, then which it chose', one.frames.some(f => f.phase === 'sizing') && one.sized?.shape === 'short' && one.sized?.by === 'model', one.frames.map(f => f.phase));
 ok('the shape call is shown the goal and the material\'s outline', !!shapeCall && shapeCall.user.includes(GOAL) && shapeCall.user.includes('Why fees matter') && shapeCall.user.includes('Rebalancing once a year'), shapeCall?.user);
-ok('the shape call is never shown the material\'s text', !!shapeCall && !shapeCall.user.includes(BODY_MARK) && !shapeCall.system.includes(BODY_MARK));
+ok('the shape call is shown the headings, not one sentence of the material', !!shapeCall && ![...SENTENCES, BODY_MARK].some(s => shapeCall.user.includes(s) || shapeCall.system.includes(s)));
 const { jobOf } = await import(`${S}aiJobs.js`);
 ok('the shape call runs on the courses job\'s models', jobOf({ operation: 'course_shape' }) === 'courses');
 const shortCall = one.calls.find(c => c.kind === 'short');
@@ -250,6 +254,34 @@ shapeReply = 'fail';
 const failed = await create({ name: 'Index funds once more', description: '' });
 ok('a failed shape call builds in phases', failed.sized?.shape === 'phased' && failed.sized?.by === 'fallback', failed.sized);
 shapeReply = 'short';
+{
+    // A short answer with no topics in it: nothing half-made, built in phases.
+    shortReply = 'garbage';
+    const shortsBefore = (await (await fetch(`${base}/api/short-courses`)).json()).courses?.length ?? -1;
+    const bad = await create({ name: 'Index funds, one more time', description: '' });
+    const shortsAfter = (await (await fetch(`${base}/api/short-courses`)).json()).courses?.length ?? -2;
+    shortReply = 'good';
+    const sizes = bad.frames.filter(f => f.phase === 'sized').map(f => `${f.shape}/${f.by}`);
+    ok('an unusable short-course answer builds in phases', sizes.join(',') === 'short/model,phased/fallback' && bad.calls.some(c => c.kind === 'other'), [sizes, bad.calls.map(c => c.kind)]);
+    ok('it leaves no short course behind', shortsAfter === shortsBefore && bad.done?.shape !== 'short', [shortsBefore, shortsAfter]);
+    // A name the window filled in from the file is not the learner's: the
+    // short course names itself (the stub answers "Index funds in a few days").
+    const fileNamed = await stage('Index funds.txt', SMALL);
+    const filled = await create({ name: 'Index funds', description: '', documentIds: [fileNamed?.id] });
+    const filledName = db.prepare('SELECT name FROM projects WHERE id = ?').get(filled.done?.projectId ?? -1)?.name;
+    ok('a name filled in from the file is not kept as the learner\'s', filled.done?.shape === 'short' && filledName === 'Index funds in a few days', [filled.done?.shape, filledName]);
+    // Material in another language than the learner writes in leaves the
+    // language open: only the phased pipeline settles it, so no short course.
+    const dutch = await stage('Indexfondsen.txt', `# Waarom kosten tellen\n\n${DUTCH}\n\n# Wat een index bevat\n\n${DUTCH}\n`);
+    const open = await create({ name: '', description: GOAL, documentIds: [dutch?.id] });
+    ok('a run whose language is still open is built in phases, and the size is not asked', open.sized?.shape === 'phased' && !open.calls.some(c => c.kind === 'shape' || c.kind === 'short'), [open.sized, open.calls.map(c => c.kind)]);
+    ok('its "writing the topics" step is closed, not left running', bad.frames.some(f => f.phase === 'topics_written' && f.failed === true));
+}
+{
+    // The short path's frames name the course on the step that made it.
+    const fin = one.frames.find(f => f.phase === 'topics_written');
+    ok('the short course\'s id and name ride on its topics frame, with no second init', fin?.projectId === one.done?.projectId && typeof fin?.projectName === 'string' && fin.projectName.length > 0 && !one.frames.some(f => f.phase === 'init' && f.projectId), fin);
+}
 const bare = await create({ name: 'Tying a bowline knot', description: 'just the knot' });
 ok('a name alone, judged short, is written from the name', bare.done?.shape === 'short' && JSON.parse(db.prepare('SELECT made_from FROM projects WHERE id = ?').get(bare.done?.projectId ?? -1)?.made_from || 'null')?.kind === 'topic', bare.done);
 
@@ -396,7 +428,6 @@ try {
     const create = buttons().find(b => b.textContent.includes('Create a course'));
     if (create) await click(create);
     ok('Create a course opens one form with a material field', !!nameField() && !!linkField(), all().textContent.slice(0, 300));
-    ok('the window never asks how big the course should be', !/short course|full course|course size/i.test(all().textContent), all().textContent.slice(0, 400));
 
     // A pasted link is read at once.
     await paste(linkField(), LINK);
@@ -444,7 +475,6 @@ try {
     if (buttonNamed('Create with AI')) await press('Create with AI');
     const ids = sent[0]?.documentIds ?? [];
     ok('Create sends the links and the file together', ids.includes('staged-link') && ids.includes('staged-pasted') && ids.includes('staged-file-0') && !ids.includes('staged-late'), sent[0]);
-    ok('Create sends no size: the run decides it', sent[0] && !('shape' in sent[0]) && !('size' in sent[0]), sent[0]);
 } catch (e) {
     ok('the window\'s cases ran to their end', false, e.stack || e.message);
 }
