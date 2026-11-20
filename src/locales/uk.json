@@ -400,7 +400,7 @@
   "{{label}} · {{nodeTitle}} — open the topic": "{{label}} · {{nodeTitle}} — відкрити тему",
   "{{label}} · {{nodeTitle}} — see each answer": "{{label}} · {{nodeTitle}} — переглянути кожну відповідь",
   "{{label}} · {{px}}px": "{{label}} · {{px}} px",
-  "{{label}} stops and will not finish. You can start it again later.": "«{{label}}» зупиниться і не буде завершено. Пізніше його можна запустити знову.",
+  "{{label}} stops and will not finish. You can start it again later.": "«{{label}}» зупиниться, не завершившись. Пізніше завдання можна запустити знову.",
   "{{label}}: {{count}} links found_few": "{{label}}: знайдено {{count}} посилання",
   "{{label}}: {{count}} links found_many": "{{label}}: знайдено {{count}} посилань",
   "{{label}}: {{count}} links found_one": "{{label}}: знайдено {{count}} посилання",

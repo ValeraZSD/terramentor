@@ -324,7 +324,7 @@
   "{{label}} · {{nodeTitle}} — open the topic": "{{label}} · {{nodeTitle}} — abrir el tema",
   "{{label}} · {{nodeTitle}} — see each answer": "{{label}} · {{nodeTitle}} — ver cada respuesta",
   "{{label}} · {{px}}px": "{{label}} · {{px}} px",
-  "{{label}} stops and will not finish. You can start it again later.": "{{label}} se detiene y no terminará. Puedes volver a iniciarlo más tarde.",
+  "{{label}} stops and will not finish. You can start it again later.": "{{label}} se detiene sin terminar. Puedes volver a iniciar la tarea más tarde.",
   "{{label}}: {{count}} links found_many": "{{label}}: {{count}} enlaces encontrados",
   "{{label}}: {{count}} links found_one": "{{label}}: {{count}} enlace encontrado",
   "{{label}}: {{count}} links found_other": "{{label}}: {{count}} enlaces encontrados",

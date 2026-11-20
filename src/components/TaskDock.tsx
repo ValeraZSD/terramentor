@@ -253,6 +253,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     const [showDetail, setShowDetail] = useState(false);
     const cancelAiTask = useStore(s => s.cancelAiTask);
     const showConfirm = useStore(s => s.showConfirm);
+    const hideConfirm = useStore(s => s.hideConfirm);
 
     const active = task.status === 'running' || task.status === 'queued';
     const failed = task.status === 'error';
@@ -281,8 +282,20 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     const title = taskTitle(task, tr);
 
     // Stopping throws the job away, and the ✕ is a small target beside the
-    // chip, so it asks; the safe answer has the focus. A task that ended while
-    // the question was open is left alone: there is nothing left to stop.
+    // chip, so it asks; the safe answer has the focus. A task that ends while
+    // the question is open closes the question: there is nothing left to stop.
+    // The same when the chip goes because its task left the list; a chip only
+    // clipped behind "+N" leaves its question open, since that task still runs.
+    const askingRef = useRef(false);
+    askingRef.current = asking;
+    useEffect(() => {
+        if (asking && !active) hideConfirm(false);
+    }, [asking, active, hideConfirm]);
+    useEffect(() => () => {
+        if (!askingRef.current) return;
+        const now = useStore.getState().aiTasks.find(x => x.id === task.id);
+        if (now?.status !== 'running' && now?.status !== 'queued') useStore.getState().hideConfirm(false);
+    }, [task.id]);
     const stop = async () => {
         setAsking(true);
         const ok = await showConfirm({

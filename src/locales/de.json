@@ -248,7 +248,7 @@
   "{{label}} · {{nodeTitle}} — open the topic": "{{label}} · {{nodeTitle}} — Thema öffnen",
   "{{label}} · {{nodeTitle}} — see each answer": "{{label}} · {{nodeTitle}} — jede Antwort ansehen",
   "{{label}} · {{px}}px": "{{label}} · {{px}} px",
-  "{{label}} stops and will not finish. You can start it again later.": "{{label}} wird gestoppt und nicht fertig. Du kannst es später erneut starten.",
+  "{{label}} stops and will not finish. You can start it again later.": "{{label}} wird gestoppt und nicht zu Ende geführt. Du kannst die Aufgabe später neu starten.",
   "{{label}}: {{count}} links found_one": "{{label}}: {{count}} Link gefunden",
   "{{label}}: {{count}} links found_other": "{{label}}: {{count}} Links gefunden",
   "{{label}}: {{count}} sections_one": "{{label}}: {{count}} Abschnitt",

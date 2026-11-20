@@ -248,18 +248,51 @@ for (const status of ['running', 'queued']) {
     calls.length = 0;
     globalThis.__pushTasks([]);
 }
-// The job can finish while the question is open: "Stop" then has nothing to
-// stop, and must not mark a finished task cancelled.
+// The job can finish while the question is open: there is nothing left to
+// stop, so the question goes, and the finished task is not marked cancelled.
 globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'running' })]);
 await click(stopButton());
 await settle();
 globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'done' })]);
 await settle();
-check('the question stays open when the task ends under it', !!confirmBox(), true);
-await answer('Stop');
-await settle();
-check('"Stop" on a task that already finished asks the server nothing', calls, []);
+check('the question closes when the task ends under it', !!confirmBox(), false);
+check('...asks the server nothing', calls, []);
 check('...and the finished task is not marked cancelled', store.getState().aiTasks.find(t => t.id === 't11')?.status, 'done');
+globalThis.__pushTasks([]);
+// The task can leave the list altogether: the chip goes, and so does its question.
+globalThis.__pushTasks([task({ id: 't12', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+globalThis.__pushTasks([]);
+await settle();
+check('the question closes when its task leaves the list', !!confirmBox(), false);
+check('...and nothing was stopped', calls, []);
+// Another question asked over this one answers this one "no".
+globalThis.__pushTasks([task({ id: 't13', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+let other;
+await act(async () => { other = store.getState().showConfirm({ title: 'Something else?', message: 'x', confirmLabel: 'Yes', cancelLabel: 'No' }); });
+await settle();
+check('a second question replaces this one', [!!confirmBox(), $$('[role=dialog]').some(d => d.textContent.includes('Something else?'))], [false, true]);
+await answer('Yes');
+await settle();
+check('...and its "yes" stops nothing here', calls, []);
+check('...which got its own answer', await Promise.race([other, Promise.resolve('pending')]), true);
+{
+    // In the store itself: the replaced caller hears "no" instead of waiting forever.
+    let first, second;
+    await act(async () => { first = store.getState().showConfirm({ title: 'A?', message: 'a' }); });
+    await act(async () => { second = store.getState().showConfirm({ title: 'B?', message: 'b' }); });
+    check('a question asked over another answers the first "no"', await Promise.race([first, Promise.resolve('pending')]), false);
+    await act(async () => { store.getState().hideConfirm(false); });
+    await second;
+}
+await click(stopButton());
+await settle();
+check('the ✕ asks again afterwards', !!confirmBox(), true);
+await answer('Continue');
+await settle();
 globalThis.__pushTasks([]);
 globalThis.__pushTasks([task({ id: 't10', status: 'done' })]);
 await click(dismissButton());
