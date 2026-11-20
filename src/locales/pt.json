@@ -600,7 +600,7 @@
   "Sit a mock from this course's questions, then go over what you missed before the exam.": "Faz um simulado com as perguntas deste curso e revê o que falhaste antes do exame.",
   "Stop {{label}}": "Parar {{label}}",
   "Stop this task?": "Parar esta tarefa?",
-  "The download starts with a summary of how much and when you studied, in numbers only: study days, minutes, topics proven by a check, checks and card reviews, one line per week. Nothing is sent anywhere; you decide who gets the file.": "O download começa com um resumo de quanto e quando estudou, só em números: dias de estudo, minutos, tópicos comprovados por uma verificação, verificações e revisões de cartões, uma linha por semana. Nada é enviado para lado nenhum; você decide quem recebe o ficheiro.",
+  "The download starts with a summary of how much and when you studied, in numbers only: study days, minutes, topics proven by a check, checks and card reviews, one line per week. Nothing is sent automatically; you decide who gets the file.": "O download começa com um resumo de quanto e quando estudou, só em números: dias de estudo, minutos, tópicos comprovados por uma verificação, verificações e revisões de cartões, uma linha por semana. Nada é enviado automaticamente; você decide quem recebe o ficheiro.",
   "The sign-in could not be saved on this computer.": "Não foi possível guardar o início de sessão neste computador.",
   "The topics you missed come back as a question the next day you study.": "Os tópicos que falhaste voltam como pergunta no próximo dia em que estudares.",
   "Topics you already know get a head start: a short review, then their mastery check.": "Os tópicos que já conheces recebem um avanço inicial: uma revisão curta e depois a sua verificação de domínio.",

@@ -987,7 +987,7 @@ moment you press Download: study days, study minutes, proven topics, checks take
 answered, card reviews done in the app, mock exams finished, the number of courses, the first
 study day, and one line per week (days, minutes, checks, answers, reviews) for up to a year.
 It is numbers and dates only: it selects no title, note, card, question, answer or course name,
-so none can be in the file. It is not stored anywhere and is not sent anywhere either; it is
+so none can be in the file. It is not stored anywhere and the app does not send it either; it is
 in the file because the log alone, which keeps only its newest events, cannot show whether
 someone kept studying. Switching the log off or clearing it does not remove the summary from
 the download.

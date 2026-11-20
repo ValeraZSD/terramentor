@@ -537,6 +537,10 @@ check('the panel states the rule to the reader',
     /no topic titles/i.test(panel) && /never the content of your courses/i.test(panel));
 check('the panel no longer calls the file safe to share unread: it now says how much and when you studied',
     !/safe to share/i.test(panel));
+// The person may well send the file on; what the app promises is that it
+// sends nothing by itself.
+check('the panel says nothing is sent automatically, not that nothing is sent at all',
+    /Nothing is sent automatically/.test(panel) && !/sent anywhere/i.test(panel));
 const apiSource = readFileSync(join(ROOT, 'src/api.ts'), 'utf8');
 check('the download link carries the page\'s time zone',
     /activityExportUrl:[^\n]*\btz=/.test(apiSource), (apiSource.match(/activityExportUrl:[^\n]*/) || [''])[0]);
