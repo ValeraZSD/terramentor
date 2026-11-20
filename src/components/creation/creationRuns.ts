@@ -34,12 +34,13 @@ import { type LogEntry, eventToLogEntry } from './creationLog';
  *  Import or pressing Create never resizes the dialog under the reader — the
  *  content changes inside a frame that stays put, and what does not fit
  *  scrolls. */
-// 35rem holds the form with one file read and a goal typed (548px measured at
-// 1280x800); a second file scrolls, with the shade saying so. Below
-// `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`), the
-// fields wrap and the foot stacks, so 35rem cut the language select off on a
-// 390x844 phone: there it takes up to 90% of the screen's height instead.
-export const COURSE_DIALOG_SIZE = { maxWidth: 'max-w-2xl', className: 'h-[min(48rem,90dvh)] sm:h-[min(35rem,90vh)]' } as const;
+// 44rem holds the form with several sources and a failed link's fix open
+// (35rem held only one file and cut the material list); a window lower than
+// that gets 90% of its height and the rest scrolls, with the shade saying so.
+// Below `sm` the dialog is the screen's width (the Modal's own `max-w` + `p-4`),
+// the fields wrap and the foot stacks: there it takes up to 90% of the screen's
+// height.
+export const COURSE_DIALOG_SIZE = { maxWidth: 'max-w-2xl', className: 'h-[min(48rem,90dvh)] sm:h-[min(44rem,90vh)]' } as const;
 
 export type CreationStatus ='starting' | 'live' | 'reattached' | 'complete' | 'cancelled' | 'error';
 
