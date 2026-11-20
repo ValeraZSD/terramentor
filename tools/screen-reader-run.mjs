@@ -264,8 +264,8 @@ const TASKS = {
     'maths-card': {
         open: async (page, { ids }) => {
             await page.go(`/project/${ids.project}/tree/${ids.cards}`, 'Details');
-            await page.waitFor(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
-            await page.press(`document.querySelector('[data-tab="flashcards"]')`, 'the Flashcards tab');
+            await page.waitFor(`document.querySelector('[data-tab="questions"]')`, 'the Questions and cards tab');
+            await page.press(`document.querySelector('[data-tab="questions"]')`, 'the Questions and cards tab');
             const review = byText('button', '/^Review these cards/');
             await page.waitFor(review, 'Review these cards');
             await page.press(review, 'Review these cards');

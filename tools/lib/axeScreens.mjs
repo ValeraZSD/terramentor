@@ -16,8 +16,7 @@ export const READY = {
     outline: `document.querySelector('main [data-category-id]')`,
     topic: `document.querySelector('[aria-label="Close detail panel"]')`,
     // The pressed tab wears the accent underline.
-    'topic-quizzes': `document.querySelector('[data-tab="quizzes"].border-accent')`,
-    'topic-cards': `document.querySelector('[data-tab="flashcards"].border-accent')`,
+    'topic-questions': `document.querySelector('[data-tab="questions"].border-accent')`,
     lesson: `document.querySelector('main h1') && document.querySelector('main .prose :is(h2, h3, p)')`,
     vault: `document.body.innerText.includes('Drop files or click to upload')`,
     // A phone keeps the region list in a closed sheet: the count line is drawn

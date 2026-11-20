@@ -39,8 +39,7 @@ The main reasons, each described under [Known gaps](#known-gaps):
 
 - Some structures are drawn for the eye and not described to assistive technology: the outline
   tree and the status icons on topics.
-- Some results are shown but not announced: drill verdicts, quiz results and the result of a
-  mastery check.
+- Some results are shown but not announced: drill verdicts and the result of a mastery check.
 - Much of what you study is written by a model (lessons, diagrams, charts, animations,
   assistant answers), and the app cannot promise that every piece of it is accessible.
 
@@ -110,8 +109,7 @@ Each of these is in the code on the date above.
 - The outline tree has arrow keys but is not marked up as a tree. A topic's status (done, in
   progress, overdue, skipped) is an icon with no text, and the status button does not say the
   current status.
-- Drill verdicts, a quiz's "Question N of M", quiz results and the mastery check's result are
-  shown but not announced.
+- Drill verdicts and the mastery check's result are shown but not announced.
 - During a card review, keyboard focus stays in the session, but a screen reader's browse mode
   can still move into the page behind it.
 - In a topic's own card list, turning a card over is read only as "pressed"; the answer has to
@@ -169,9 +167,9 @@ a page that did not do the thing fails it.
 
 **axe in a real browser.** `tools/axe-gates.mjs` builds the app, opens it in headless Edge or
 Chrome on an invented course, and runs [axe-core](https://github.com/dequelabs/axe-core) with
-the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 19 screens:
-Today, Projects, a new course, a course's dashboard, its outline, a topic with its quizzes and
-cards tabs, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
+the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 18 screens:
+Today, Projects, a new course, a course's dashboard, its outline, a topic with its questions and
+cards tab, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
 General, Accessibility, Learning, AI & Models and Web & research sections of Settings. Each is
 scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 76 scans. The
 allowed failures are listed in `tools/axe-allowlist.json`, which may only shrink; it is empty,
@@ -237,8 +235,8 @@ Latest result, 18 November 2026, NVDA 2026.3 with Microsoft Edge:
 - `control-gates.mjs`: buttons and fields take their size and shape from the shared controls,
   so the same action looks the same everywhere.
 
-**What these do not cover.** The axe gate does not open the mastery check, a quiz in
-progress, drills, mock exams, paper practice, the search dialog, the welcome steps of a new
+**What these do not cover.** The axe gate does not open the mastery check,
+drills, mock exams, paper practice, the search dialog, the welcome steps of a new
 library, the sign-in screen, or the Devices & security and Library & about sections of
 Settings. No check runs the app at 200% zoom, at 320 px wide, or with the widest text spacing
 on. The gates that mount components (`a11y-behaviour-gates.mjs`, `keyboard-gates.mjs`,
