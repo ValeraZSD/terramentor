@@ -161,6 +161,49 @@ export function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
     return false;
 }
 
+/** How long a finger's dismissing tap may take to arrive as a click. */
+const TAP_CLICK_MS = 700;
+
+/**
+ * The rest of a press that closed a floating surface from outside it.
+ *
+ * Under a finger the tap is spent on closing, as a native picker spends it:
+ * the click it would become is eaten, so a tap beside an open menu does not
+ * also press the button it landed on. A mouse press goes on to its target, as
+ * it does beside a desktop menu. Only `touch` and `pen` count as a finger.
+ *
+ * `back` is the button the surface opened from. When focus was inside the
+ * surface, it goes back there once the press is over, unless the press put it
+ * somewhere itself (a field it landed on): the surface left the page with
+ * focus in it, which drops focus to the page's start.
+ */
+export function endOutsidePress(e: PointerEvent, back?: HTMLElement | null) {
+    const restore = back
+        ? () => {
+            const at = document.activeElement;
+            if ((!at || at === document.body) && back.isConnected) back.focus({ preventScroll: true });
+        }
+        : () => { };
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') {
+        // pointerdown and its mousedown come from one input event: by the next
+        // task the mousedown has moved focus wherever it was going.
+        setTimeout(restore, 0);
+        return;
+    }
+    let timer = 0;
+    const done = () => {
+        window.clearTimeout(timer);
+        document.removeEventListener('click', eat, true);
+        document.removeEventListener('pointercancel', done, true);
+        restore();
+    };
+    const eat = (c: MouseEvent) => { c.preventDefault(); c.stopPropagation(); done(); };
+    document.addEventListener('click', eat, true);
+    // A tap that turned into a scroll sends no click.
+    document.addEventListener('pointercancel', done, true);
+    timer = window.setTimeout(done, TAP_CLICK_MS);
+}
+
 /**
  * A floating surface's place beside its button, kept up to date while `active`:
  * measured before paint, again as the page scrolls or the window or the visual
@@ -222,15 +265,22 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         const onDown = (e: PointerEvent) => {
             const t = e.target as Node;
             if (surfaceRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            const held = !!surfaceRef.current?.contains(document.activeElement);
             closeRef.current();
+            endOutsidePress(e, held ? anchorRef.current : null);
+        };
+        // Scrolling the surface's own rows moves nothing it is placed by.
+        const onScroll = (e: Event) => {
+            if (surfaceRef.current?.contains(e.target as Node)) return;
+            measure();
         };
         document.addEventListener('pointerdown', onDown, true);
-        window.addEventListener('scroll', measure, true);
+        window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', measure);
         const unfollow = followVisualViewport(measure);
         return () => {
             document.removeEventListener('pointerdown', onDown, true);
-            window.removeEventListener('scroll', measure, true);
+            window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', measure);
             unfollow();
         };
