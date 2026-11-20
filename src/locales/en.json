@@ -3228,6 +3228,7 @@
   "the defaults everyone starts on: a fit made under FSRS-6 does not carry over to FSRS-7, so fit again": "the defaults everyone starts on: a fit made under FSRS-6 does not carry over to FSRS-7, so fit again",
   "The download did not match the release, so it was thrown away. Nothing was installed.": "The download did not match the release, so it was thrown away. Nothing was installed.",
   "The download of version {{version}} failed.": "The download of version {{version}} failed.",
+  "The download starts with a summary in numbers only: study days, minutes, proven topics, checks and card reviews, with a line per week. Nothing is sent anywhere; you decide who gets the file.": "The download starts with a summary in numbers only: study days, minutes, proven topics, checks and card reviews, with a line per week. Nothing is sent anywhere; you decide who gets the file.",
   "The drawing alone, on the page colour.": "The drawing alone, on the page colour.",
   "The drawing appears here once it is made.": "The drawing appears here once it is made.",
   "The endpoint answered with an empty reply. Nothing was generated, and nothing about the request explains why — if it repeats, the model or the endpoint is the thing to change.": "The endpoint answered with an empty reply. Nothing was generated, and nothing about the request explains why — if it repeats, the model or the endpoint is the thing to change.",
