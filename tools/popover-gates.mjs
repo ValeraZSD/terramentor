@@ -20,11 +20,20 @@
 //      Held by mounting them in jsdom, and by reading the source for menus that
 //      are placed by hand (their own `placePopover` call, their own portalled
 //      menu panel, a panel hung `absolute … top-full` from its button).
+//      A tap outside closes it; under a finger that tap is spent on closing
+//      (it presses nothing under it) and focus that was inside goes back to
+//      the button. Scrolling its own rows does not re-place it.
 //   3. A SWITCH ALONE ON ITS LINE (`SegmentedControl block="narrow"`) fills
 //      the row it stands in while that row is narrow, and keeps its own width
-//      on a wide one. At its own width on a phone it left a gap at the right
-//      that read as a layout that had not finished. Held by mounting it in a
-//      narrow and a wide row, and by reading the Projects page's switch.
+//      on a wide one, or in a flex row where it shares the line. At its own
+//      width on a phone it left a gap at the right that read as a layout that
+//      had not finished. Held by mounting it in narrow, wide, column and row
+//      parents, and by reading the Projects page's switch.
+//   4. WHAT FLOATS STACKS ABOVE ITS HOST. Menus, panels, Select's list and
+//      the model picker share `FLOAT_LAYER`, above every dialog, sheet and
+//      viewer that can hold one (a menu at z-50 opened inside the z-[55]
+//      mastery check, under it and out of reach). Held by reading every
+//      full-screen layer and Modal layer in src/ against it.
 //
 //   node tools/popover-gates.mjs              # this checkout
 //   node tools/popover-gates.mjs --root DIR   # another checkout (the pre-fix tree must fail)
@@ -296,9 +305,9 @@ section('2. under a finger too, what opens from a button opens at the button');
     check('no component portals a menu panel of its own', panels.length === 0, panels.join(', '));
     const hung = files.filter(f => /className="[^"]*\babsolute\b[^"]*\b(top|bottom)-full\b[^"]*\bshadow/.test(read(f)));
     check('no panel hung from its button with absolute top-full', hung.length === 0, hung.join(', '));
-    // ModelPicker is a search field over a long list: the keyboard comes up,
-    // and a sheet at the bottom of the layout viewport would sit under it. It
-    // floats, placed in the same room.
+    // ModelPicker is a search field over a long list: the keyboard it raises
+    // shrinks the visual viewport, and a list placed in the layout viewport
+    // would sit under the keyboard. It is placed in the same room as the rest.
     check('the model picker (a typed search) floats in the visual viewport less the insets',
         /popoverBounds\(\)/.test(read('src/components/ModelPicker.tsx')));
     check('…and moves when the keyboard it raises shrinks the visual viewport',
@@ -330,6 +339,20 @@ const press = (el) => globalThis.__act(() => {
     el?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 });
 const inside = (kind, root) => root?.querySelector(kind === 'menu' ? '[role="menuitem"]' : '#inside');
+// A finger's pointerdown (jsdom's MouseEvent carries no pointerType of its own).
+const touchDown = (el) => {
+    const e = new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+    Object.defineProperty(e, 'pointerType', { value: 'touch' });
+    el.dispatchEvent(e);
+};
+// A button beside the opener that counts the clicks reaching it.
+const beside = () => {
+    const b = document.createElement('button');
+    b.clicks = 0;
+    b.addEventListener('click', () => { b.clicks++; });
+    document.body.appendChild(b);
+    return b;
+};
 
 if (bundled) {
     for (const kind of ['menu', 'panel']) {
@@ -343,19 +366,68 @@ if (bundled) {
         check(`${what} with a mouse floats beside its button (no sheet)`, !!surface && !document.querySelector('[data-bottom-sheet]'));
         check('…fixed, portalled to the body (no ancestor\'s transform or overflow traps it)',
             !!surface && surface.parentElement === document.body && /(^|\s)fixed(\s|$)/.test(surface.className), surface?.parentElement?.tagName);
+        {
+            // Placed from the button's box: re-read when the page scrolls,
+            // not when its own rows do.
+            const trig = document.getElementById('trigger');
+            let reads = 0;
+            const real = trig.getBoundingClientRect.bind(trig);
+            trig.getBoundingClientRect = () => { reads++; return real(); };
+            await globalThis.__act(() => { surface?.dispatchEvent(new window.Event('scroll')); });
+            const own = reads;
+            await globalThis.__act(() => { document.dispatchEvent(new window.Event('scroll')); });
+            check('…scrolling its own rows does not re-place it; the page scrolling does',
+                own === 0 && reads > own, `${own} measure(s) on its own scroll, ${reads - own} on the page's`);
+            delete trig.getBoundingClientRect;
+        }
+        {
+            // Placed from the button's box (a 200px-tall surface, the window
+            // 768px): under the button with room, over it without.
+            const trig = document.getElementById('trigger');
+            const P = window.HTMLElement.prototype;
+            Object.defineProperty(P, 'scrollHeight', { configurable: true, get() { return 200; } });
+            const at = async (top) => {
+                trig.getBoundingClientRect = () => ({ top, bottom: top + 40, left: 40, right: 120, width: 80, height: 40, x: 40, y: top });
+                await globalThis.__act(() => { document.dispatchEvent(new window.Event('scroll')); });
+                return { top: parseFloat(surface?.style.top ?? ''), left: parseFloat(surface?.style.left ?? '') };
+            };
+            const low = await at(100);
+            const high = await at(window.innerHeight - 60);
+            check('…placed under its button with room: top just below it, left at its left edge',
+                low.top >= 140 && low.top <= 160 && low.left === 40, JSON.stringify(low));
+            check('…and over it when the room below is short: its bottom above the button\'s top',
+                high.top + 200 <= window.innerHeight - 60 && high.top >= window.innerHeight - 60 - 200 - 20 && high.left === 40,
+                `${JSON.stringify(high)} for a button at ${window.innerHeight - 60}px`);
+            // Shadowed on HTMLElement for the check; deleting it uncovers Element's own.
+            delete P.scrollHeight;
+            delete trig.getBoundingClientRect;
+        }
         await press(inside(kind, surface));
         check('…a press inside it is not a press on the card it opened from', m.log.card === 0, `${m.log.card} event(s) reached the card`);
+        {
+            const b = beside();
+            await press(b);
+            check('…a mouse press outside closes it and still presses what it lands on, as beside a desktop menu',
+                m.log.closes === 1 && b.clicks === 1, `${m.log.closes} close(s), ${b.clicks} click(s) beside`);
+            b.remove();
+        }
         await m.render(false); m.unmount();
 
         // A finger: the same floating surface at the button, never the sheet.
         hovers = false;
         m = globalThis.__mount(host, kind);
         await m.render(false);
-        document.getElementById('trigger').focus();
+        const fingerTrigger = document.getElementById('trigger');
+        fingerTrigger.focus();
+        // The button 300-340px down the page: the surface belongs just under it.
+        fingerTrigger.getBoundingClientRect = () => ({ top: 300, bottom: 340, left: 40, right: 120, width: 80, height: 40, x: 40, y: 300 });
         await m.render(true); await settle();
         surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
+        const top = parseFloat(surface?.style.top ?? '');
         check(`${what} under a finger opens at its button, not as a sheet from the bottom`,
-            !!surface && !document.querySelector('[data-bottom-sheet]'), document.querySelector('[data-bottom-sheet]') ? 'a bottom sheet' : 'nothing opened');
+            !!surface && !document.querySelector('[data-bottom-sheet]') && top >= 340 && top <= 360,
+            document.querySelector('[data-bottom-sheet]') ? 'a bottom sheet' : surface ? `top ${surface.style.top} for a button whose bottom is at 340px` : 'nothing opened');
+        delete fingerTrigger.getBoundingClientRect;
         check('…fixed, portalled to the body, as with a mouse',
             !!surface && surface.parentElement === document.body && /(^|\s)fixed(\s|$)/.test(surface.className), surface?.parentElement?.tagName);
         if (kind === 'menu') {
@@ -376,6 +448,23 @@ if (bundled) {
         surface = kind === 'menu' ? document.querySelector('[role="menu"]') : document.querySelector('[role="dialog"]');
         await press(inside(kind, surface));
         check('…and a tap on a row inside it does not reach the card behind it', m.log.card === 0, `${m.log.card} event(s) reached the card`);
+        {
+            // The tap that closes it is spent on closing, as a native picker
+            // spends it; focus was inside it and goes back to its button.
+            const b = beside();
+            inside(kind, surface)?.focus();
+            await globalThis.__act(() => { touchDown(b); });
+            await m.render(false);
+            await globalThis.__act(() => { b.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
+            check('…a finger\'s tap outside closes it and presses nothing under it',
+                m.log.closes === 3 && b.clicks === 0, `${m.log.closes} close(s), ${b.clicks} click(s) on the button under the tap`);
+            check('…and focus, which was inside it, goes back to its button (not to the page)',
+                document.activeElement?.id === 'trigger', document.activeElement?.tagName);
+            const before = b.clicks;
+            await globalThis.__act(() => { b.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
+            check('…the next tap is a tap again', b.clicks === before + 1, `${b.clicks - before} click(s)`);
+            b.remove();
+        }
         await m.render(false); m.unmount();
     }
 
@@ -431,11 +520,65 @@ if (bundled) {
     const onDesk = globalThis.__switchIn(row, 1000);
     check('block="narrow" in a 360px row spans it', /(^|\s)w-full(\s|$)/.test(onPhone), onPhone);
     check('…in a 1000px row it keeps its own width', /(^|\s)inline-flex(\s|$)/.test(onDesk) && !/(^|\s)w-full(\s|$)/.test(onDesk), onDesk);
+    // The parent is the line it measures, so it must BE the line: in a flex
+    // row (a settings row with the switch beside its sentence) it shares it.
+    row.style.display = 'flex';
+    const column = (row.style.flexDirection = 'column', globalThis.__switchIn(row, 360));
+    row.style.flexDirection = 'row';
+    const beside = globalThis.__switchIn(row, 360);
+    check('…in a narrow flex column it spans it too', /(^|\s)w-full(\s|$)/.test(column), column);
+    check('…in a narrow flex ROW, beside something else, it keeps its own width', !/(^|\s)w-full(\s|$)/.test(beside), beside);
     row.remove();
 }
 const projects = read('src/components/ProjectsGrid.tsx');
+const projectsSwitch = projects.match(/<SegmentedControl<Show>[\s\S]*?\/>/)?.[0] ?? '';
 check('the Projects page\'s Active / Finished / Archived switch fills a narrow row',
-    /<SegmentedControl<Show>[^>]*?\bblock="narrow"/.test(projects));
+    /\bblock="narrow"/.test(projectsSwitch), projectsSwitch ? 'no block="narrow" on it' : 'no SegmentedControl<Show> found');
+
+// ---------------------------------------------------------------------------
+section('4. what floats from a button stacks above every dialog that can hold it');
+{
+    const zOf = (cls) => { const m = /\bz-(?:\[(\d+)\]|(\d+))/.exec(cls); return m ? Number(m[1] ?? m[2]) : null; };
+    const pop = read('src/components/ui/Popover.tsx');
+    const floatCls = /export const FLOAT_LAYER = '([^']+)'/.exec(pop)?.[1] ?? '';
+    const FLOAT = zOf(floatCls);
+    check('one shared layer for floating surfaces (FLOAT_LAYER in ui/Popover.tsx)', FLOAT != null, floatCls || 'none');
+    // MenuPopover and PanelPopover take it, with no layer of their own beside it.
+    const surfaces = [...pop.matchAll(/className=\{cx\('fixed[^)]*\)\}/g)].map(m => m[0]);
+    check('…MenuPopover and PanelPopover take it',
+        surfaces.length >= 2 && surfaces.every(s => s.includes('FLOAT_LAYER') && zOf(s) == null), surfaces.join(' | ') || 'none found');
+    check('…Select\'s list takes it', /className=\{cx\('fixed[^']*', FLOAT_LAYER/.test(read('src/components/ui/Select.tsx')));
+    check('…the model picker takes it', /className=\{cx\(FLOAT_LAYER\b/.test(read('src/components/ModelPicker.tsx')));
+    if (FLOAT != null) {
+        // Every full-screen layer (a dialog, a sheet, a viewer) and every
+        // Modal layer can host a menu or a list, so each sits under FLOAT.
+        // Named here: what sits at or above it, and why.
+        const ABOVE = new Map([
+            ['src/components/DesktopQuitScreen.tsx', 'the last thing the page shows: above everything'],
+            ['src/components/SearchBar.tsx', 'the search palette holds no menu, list or picker'],
+        ]);
+        const SAME = new Set(['src/components/ui/Sheet.tsx']); // the bottom sheet, at the same layer
+        const files = globSync('src/**/*.tsx', { cwd: ROOT }).map(f => f.replace(/\\/g, '/'));
+        const over = [];
+        const notAbove = [];
+        for (const f of files) {
+            const src = read(f);
+            const layers = [
+                ...src.split('\n').filter(l => /\binset-0\b/.test(l) && /\bfixed\b/.test(l)).map(zOf),
+                ...[...src.matchAll(/layer(?:=|\s*=\s*)["']([^"']+)["']/g)].map(m => zOf(m[1])),
+            ].filter(z => z != null);
+            if (!layers.length) continue;
+            const top = Math.max(...layers);
+            if (ABOVE.has(f)) { if (top <= FLOAT) notAbove.push(`${f} z ${top}`); continue; }
+            if (SAME.has(f) ? top > FLOAT : top >= FLOAT) over.push(`${f} z ${top}`);
+        }
+        check(`every dialog, sheet and viewer layer is under the floating layer (z ${FLOAT})`, over.length === 0, over.join(', '));
+        check('…and what is named as above it is above it', notAbove.length === 0, notAbove.join(', '));
+        const search = read('src/components/SearchBar.tsx');
+        check('…the search palette still holds no menu, list or picker',
+            !/<(MenuPopover|PanelPopover|Select|DropdownMenu|ModelPicker)\b/.test(search));
+    }
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }

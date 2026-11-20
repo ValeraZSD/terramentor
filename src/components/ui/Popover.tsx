@@ -161,6 +161,49 @@ export function scrolledAway(box: HTMLElement, r: DOMRect): boolean {
     return false;
 }
 
+/** How long a finger's dismissing tap may take to arrive as a click. */
+const TAP_CLICK_MS = 700;
+
+/**
+ * The rest of a press that closed a floating surface from outside it.
+ *
+ * Under a finger the tap is spent on closing, as a native picker spends it:
+ * the click it would become is eaten, so a tap beside an open menu does not
+ * also press the button it landed on. A mouse press goes on to its target, as
+ * it does beside a desktop menu. Only `touch` and `pen` count as a finger.
+ *
+ * `back` is the button the surface opened from. When focus was inside the
+ * surface, it goes back there once the press is over, unless the press put it
+ * somewhere itself (a field it landed on): the surface left the page with
+ * focus in it, which drops focus to the page's start.
+ */
+export function endOutsidePress(e: PointerEvent, back?: HTMLElement | null) {
+    const restore = back
+        ? () => {
+            const at = document.activeElement;
+            if ((!at || at === document.body) && back.isConnected) back.focus({ preventScroll: true });
+        }
+        : () => { };
+    if (e.pointerType !== 'touch' && e.pointerType !== 'pen') {
+        // pointerdown and its mousedown come from one input event: by the next
+        // task the mousedown has moved focus wherever it was going.
+        setTimeout(restore, 0);
+        return;
+    }
+    let timer = 0;
+    const done = () => {
+        window.clearTimeout(timer);
+        document.removeEventListener('click', eat, true);
+        document.removeEventListener('pointercancel', done, true);
+        restore();
+    };
+    const eat = (c: MouseEvent) => { c.preventDefault(); c.stopPropagation(); done(); };
+    document.addEventListener('click', eat, true);
+    // A tap that turned into a scroll sends no click.
+    document.addEventListener('pointercancel', done, true);
+    timer = window.setTimeout(done, TAP_CLICK_MS);
+}
+
 /**
  * A floating surface's place beside its button, kept up to date while `active`:
  * measured before paint, again as the page scrolls or the window or the visual
@@ -222,15 +265,22 @@ function useFloatingPlace({ active, anchorRef, surfaceRef, align, gap, onClose }
         const onDown = (e: PointerEvent) => {
             const t = e.target as Node;
             if (surfaceRef.current?.contains(t) || anchorRef.current?.contains(t)) return;
+            const held = !!surfaceRef.current?.contains(document.activeElement);
             closeRef.current();
+            endOutsidePress(e, held ? anchorRef.current : null);
+        };
+        // Scrolling the surface's own rows moves nothing it is placed by.
+        const onScroll = (e: Event) => {
+            if (surfaceRef.current?.contains(e.target as Node)) return;
+            measure();
         };
         document.addEventListener('pointerdown', onDown, true);
-        window.addEventListener('scroll', measure, true);
+        window.addEventListener('scroll', onScroll, true);
         window.addEventListener('resize', measure);
         const unfollow = followVisualViewport(measure);
         return () => {
             document.removeEventListener('pointerdown', onDown, true);
-            window.removeEventListener('scroll', measure, true);
+            window.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', measure);
             unfollow();
         };
@@ -367,7 +417,7 @@ export function MenuPopover({ open, onClose, anchorRef, label, align = 'start', 
                     // every other floating panel here; `p-1` so a highlighted
                     // row is inset from the panel's rounded edge rather than
                     // flush against it.
-                    className={cx('fixed z-50 min-w-[13rem] w-max overflow-y-auto overscroll-contain', MENU_PANEL)}
+                    className={cx('fixed min-w-[13rem] w-max overflow-y-auto overscroll-contain', FLOAT_LAYER, MENU_PANEL)}
                 >
                     {children}
                 </div>,
@@ -438,7 +488,7 @@ export function PanelPopover({ open, onClose, anchorRef, label, align = 'start',
                         // dialog takes it as it mounts, before it is placed.
                         opacity: place ? 1 : 0,
                     }}
-                    className={cx('fixed z-50 overflow-y-auto overscroll-contain p-3 outline-none', width, MENU_SURFACE)}
+                    className={cx('fixed overflow-y-auto overscroll-contain p-3 outline-none', FLOAT_LAYER, width, MENU_SURFACE)}
                 >
                     <div className={className}>{children}</div>
                 </div>,
@@ -498,3 +548,11 @@ export function MenuItem({ icon, children, href, onSelect, tone = 'default', rov
  *  INSIDE its frame (`Select`'s list). */
 export const MENU_SURFACE = 'rounded-xl border border-slate-300 dark:border-slate-500 bg-white dark:bg-slate-700 shadow-lg';
 export const MENU_PANEL = `p-1 ${MENU_SURFACE}`;
+
+/** The stacking layer of everything that floats from a button: `MenuPopover`,
+ *  `PanelPopover`, `Select`'s list, the model picker. Above every dialog and
+ *  sheet that can hold one of them (the mastery check `z-[55]`, the `z-[60]`
+ *  dialogs, `ConfirmDialog` `z-[100]`): one opened inside them would otherwise
+ *  open underneath, out of reach. Only the desktop quit screen sits higher,
+ *  as the last thing the page shows. */
+export const FLOAT_LAYER = 'z-[110]';

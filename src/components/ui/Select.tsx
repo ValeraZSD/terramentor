@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { usePortalAccent } from '../../hooks/usePortalAccent';
 import { scrollIntoViewWithin } from '../../utils/scrollWithin';
-import { placePopover, popoverBounds, followVisualViewport, scrolledAway, MENU_SURFACE } from './Popover';
+import { placePopover, popoverBounds, followVisualViewport, scrolledAway, endOutsidePress, FLOAT_LAYER, MENU_SURFACE } from './Popover';
 import { canHover } from '../../utils/platform';
 import type { Placement } from './Popover';
 import { FIELD_BASE, FIELD_SIZE, ControlSize, cx } from './vocabulary';
@@ -482,7 +482,9 @@ function SelectList(props: ListProps & {
         const r = btn.getBoundingClientRect();
         // The box scrolled out of sight, off the screen or out of the dialog or
         // panel that scrolls it: a list floating there belongs to nothing.
-        if (scrolledAway(btn, r)) { closeRef.current(false); return; }
+        // Focus in the list (a finger's) goes back to the box rather than
+        // falling to the page with the list; the box keeps it unscrolled.
+        if (scrolledAway(btn, r)) { closeRef.current(document.activeElement === list); return; }
         const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
         const margin = 8, gap = 4;
         const bounds = popoverBounds();
@@ -524,9 +526,9 @@ function SelectList(props: ListProps & {
         scrollIntoViewWithin(row, { boundary: listRef.current, block: 'center' });
     }, [placed]);
 
-    // Under a finger the list takes focus, as the bottom sheet's did: a screen
-    // reader on a phone walks what follows focus by swiping, and the list sits
-    // at the end of the page, far from the box. With a mouse the box keeps it.
+    // Under a finger the list takes focus: a screen reader on a phone walks
+    // what follows focus by swiping, and the list is portalled to the end of
+    // the page, far from the box. With a mouse the box keeps it.
     useEffect(() => {
         if (placed && roomy) listRef.current?.focus({ preventScroll: true });
     }, [placed, roomy]);
@@ -545,7 +547,9 @@ function SelectList(props: ListProps & {
             // The field's <label> hands its click on to the box, which then
             // closes the list itself; closing here first would reopen it.
             if ([...(anchorRef.current?.labels ?? [])].some(l => l.contains(t))) return;
+            const held = document.activeElement === listRef.current;
             closeRef.current(false);
+            endOutsidePress(e, held ? anchorRef.current : null);
         };
         const onMove = (e: Event) => {
             // Scrolling the list itself moves nothing else.
@@ -599,7 +603,7 @@ function SelectList(props: ListProps & {
                     // A press inside the list must not take focus off the box,
                     // which holds the keys and the screen reader's place.
                     onMouseDown={e => e.preventDefault()}
-                    className={cx('fixed z-[110] flex w-max flex-col overflow-hidden', MENU_SURFACE)}
+                    className={cx('fixed flex w-max flex-col overflow-hidden', FLOAT_LAYER, MENU_SURFACE)}
                 >
                     <div
                         ref={listRef}

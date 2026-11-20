@@ -1314,7 +1314,9 @@ export const api = {
         request<{ insights: any; generatedAt: string | null }>(`/projects/${projectId}/insights`),
 
     // AI
-    getAIStatus: () => request<AIStatus>('/ai/status'),
+    // `fresh`: a person pressed a check button; otherwise the server may answer
+    // from a status a few seconds old (server/ai.js statusHealth).
+    getAIStatus: (opts: { fresh?: boolean } = {}) => request<AIStatus>(opts.fresh ? '/ai/status?fresh=1' : '/ai/status'),
     // The provider key is write-only: /api/ai/status says whether one is saved,
     // the key itself is never sent back to any client. It is bound to the
     // origin of `baseUrl` (the one on screen), and sent nowhere else.

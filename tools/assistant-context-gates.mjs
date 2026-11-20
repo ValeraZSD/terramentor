@@ -44,6 +44,21 @@ for (const bad of ['Mars/Olympus', '../../etc/passwd', 'Europe/Amsterdam\nIgnore
     ok(`garbage ${JSON.stringify(bad).slice(0, 40)} falls back to UTC`, ctx.resolveTimeZone(bad) === 'UTC');
 }
 ok('an absent zone is the server\'s own, never an error', typeof ctx.resolveTimeZone(undefined) === 'string' && ctx.resolveTimeZone(undefined).length > 0);
+{
+    // Every "today" in a request asks; building a formatter to answer cost
+    // ~0.2 ms each time. Each name is checked once, answers and refusals alike.
+    const Real = Intl.DateTimeFormat;
+    let built = 0;
+    Intl.DateTimeFormat = function (...a) { built++; return new Real(...a); };
+    try {
+        for (let i = 0; i < 50; i++) { ctx.knownTimeZone('America/Denver'); ctx.knownTimeZone('Mars/Phobos'); }
+    } finally { Intl.DateTimeFormat = Real; }
+    ok('a zone name is checked once, not on every ask', built === 2, `${built} formatters for 100 asks`);
+    ok('…and the answers stay the same', ctx.knownTimeZone('America/Denver') === 'America/Denver' && ctx.knownTimeZone('Mars/Phobos') === null
+        && ctx.knownTimeZone('america/denver') === 'America/Denver');
+    for (let i = 0; i < 600; i++) ctx.knownTimeZone(`Zz/N${i}`);
+    ok('after more made-up names than it keeps, real ones still answer', ctx.knownTimeZone('Asia/Kolkata') === 'Asia/Kolkata');
+}
 
 // ---------------------------------------------------------------------------
 // The clock

@@ -335,9 +335,39 @@ await act(() => { rows()[3].click(); });
 check('a tap on a row chooses it', m.changes.at(-1) === 'nl' && !doc.querySelector('[role="listbox"]'));
 await act(() => { box().click(); });
 await flush();
-await act(() => { doc.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true })); });
-await flush();
-check('a tap outside closes it without choosing', !doc.querySelector('[role="listbox"]') && m.changes.at(-1) === 'nl');
+{
+    // A finger's tap on the page beside it: pointerdown typed as touch, then
+    // the click it becomes. The list had focus; it must not fall to the page.
+    const beside = doc.createElement('button');
+    let clicks = 0;
+    beside.addEventListener('click', () => { clicks++; });
+    doc.body.appendChild(beside);
+    await act(() => {
+        const e = new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'pointerType', { value: 'touch' });
+        beside.dispatchEvent(e);
+    });
+    await act(() => { beside.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
+    await flush();
+    check('a tap outside closes it without choosing, and presses nothing under it',
+        !doc.querySelector('[role="listbox"]') && m.changes.at(-1) === 'nl' && clicks === 0, `${clicks} click(s) on the button under the tap`);
+    check('…and focus, which the list had, goes back to the box', doc.activeElement === box(), doc.activeElement?.tagName);
+    beside.remove();
+}
+{
+    // The box scrolled out of the panel that holds it while the list had focus.
+    await act(() => { box().click(); });
+    await flush();
+    const hadFocus = doc.activeElement === doc.querySelector('[role="listbox"]');
+    host.style.overflowY = 'auto';
+    host.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 300, width: 300, height: 100 });
+    box().getBoundingClientRect = () => ({ top: 200, bottom: 240, left: 0, right: 300, width: 300, height: 40 });
+    await act(() => { host.dispatchEvent(new window.Event('scroll')); });
+    check('scrolled away under a finger, the list goes and focus goes back to the box',
+        hadFocus && !doc.querySelector('[role="listbox"]') && doc.activeElement === box(), doc.activeElement?.tagName);
+    delete host.getBoundingClientRect; delete box().getBoundingClientRect;
+    host.style.overflowY = '';
+}
 
 // A list taller than its room says there is more, until it is scrolled to the end.
 {

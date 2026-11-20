@@ -46,16 +46,23 @@ export function resolveTimeZone(raw) {
  */
 export function knownTimeZone(raw) {
     if (typeof raw !== 'string' || raw.length === 0 || raw.length > 64 || !/^[A-Za-z][A-Za-z0-9_+\-/]*$/.test(raw)) return null;
+    // Asked several times a request (every "today" reads it), and building a
+    // formatter to ask is the expensive part, so each name is checked once.
+    // Bounded: a header can carry any name, and only a handful are ever real.
+    if (zoneAnswers.has(raw)) return zoneAnswers.get(raw);
+    let answer = null;
     try {
         const resolved = new Intl.DateTimeFormat('en-US', { timeZone: raw }).resolvedOptions().timeZone;
-        if (!resolved) return null;
         // The name the page sent stands (Asia/Kolkata, not the platform's older
         // alias for it); only a difference of letter case takes the canonical form.
-        return resolved.toLowerCase() === raw.toLowerCase() ? resolved : raw;
-    } catch {
-        return null;
-    }
+        if (resolved) answer = resolved.toLowerCase() === raw.toLowerCase() ? resolved : raw;
+    } catch { /* not a zone this platform knows */ }
+    if (zoneAnswers.size >= ZONE_ANSWERS_MAX) zoneAnswers.clear();
+    zoneAnswers.set(raw, answer);
+    return answer;
 }
+const zoneAnswers = new Map();
+const ZONE_ANSWERS_MAX = 256;
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
