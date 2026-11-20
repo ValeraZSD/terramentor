@@ -30,16 +30,21 @@ export default function CourseBlock({ name, color, icon, continued, children }: 
         // list every course twice over in a screen reader's landmarks. What
         // scrolls into view stops below the pinned header through the
         // scroller's `scroll-padding-top` (FeedView), not a margin per card.
-        <div role="group" aria-labelledby={headingId} className="space-y-5">
+        // A block after another gets more room above it than the gap between
+        // two parts of one course, so the change of course reads as the
+        // bigger break. The header is wider than the cards so a card's shadow
+        // never shows past it while scrolling under; its rule is only as wide
+        // as the cards.
+        <div role="group" aria-labelledby={headingId} className="space-y-5 [&:not(:first-child)]:pt-6">
             <h2
                 id={headingId}
                 style={accent as CSSProperties | undefined}
-                className="sticky top-0 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 min-h-11 py-2 flex items-center gap-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700/70"
+                className="sticky top-0 z-[5] -mx-3 sm:-mx-4 px-3 sm:px-4 min-h-11 py-2 flex items-center gap-2.5 bg-slate-100 dark:bg-slate-900 after:absolute after:bottom-0 after:inset-x-3 sm:after:inset-x-4 after:h-px after:bg-slate-300 dark:after:bg-slate-700"
             >
-                <span className="w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-white bg-accent">
-                    <ProjectIcon icon={icon} className="h-3.5 w-3.5" />
+                <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-white bg-accent">
+                    <ProjectIcon icon={icon} className="h-4 w-4" />
                 </span>
-                <span className="min-w-0 truncate text-sm font-semibold text-slate-900 dark:text-white">{name}</span>
+                <span className="min-w-0 truncate text-lg font-bold text-slate-900 dark:text-white">{name}</span>
                 {continued && (
                     <span className="shrink-0 text-xs font-normal text-slate-500 dark:text-slate-400">{t("continued")}</span>
                 )}
