@@ -11,7 +11,9 @@
 export const READY = {
     home: `document.querySelector('main [aria-label^="Open "]')`,
     projects: `document.querySelector('[data-card-grid] h3')`,
-    'new-course': `document.querySelector('[role="dialog"] input, [role="dialog"] textarea')`,
+    // The window opens on its two choices; the form is one press further.
+    'new-course': `document.querySelector('[role="dialog"] [data-tile]')`,
+    'new-course-form': `document.querySelector('[role="dialog"] input, [role="dialog"] textarea')`,
     'course-dashboard': `document.querySelector('main [data-band]')`,
     outline: `document.querySelector('main [data-category-id]')`,
     topic: `document.querySelector('[aria-label="Close detail panel"]')`,

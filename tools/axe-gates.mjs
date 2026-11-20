@@ -143,6 +143,7 @@ const SCREENS = {
     home: go('/'),
     projects: go('/projects', 'New'),
     'new-course': STATES['new-course'],
+    'new-course-form': thenPress(STATES['new-course'], `document.querySelector('[role="dialog"] [data-tile]')`, 'Create a course'),
     'course-dashboard': go((ids) => `/project/${ids.project}/dashboard`, 'Dashboard', 1800),
     outline: go((ids) => `/project/${ids.project}/tree`),
     topic,
