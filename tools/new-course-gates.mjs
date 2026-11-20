@@ -237,6 +237,12 @@ shapeReply = 'short';
 const big = await create({ name: 'Investing', description: '', documentIds: [book?.id] });
 ok('a book is a course in phases, and no shape call is made', big.sized?.shape === 'phased' && big.sized?.by === 'bounds' && !big.calls.some(c => c.kind === 'shape'), [big.sized, big.calls.map(c => c.kind)]);
 ok('it goes on to the phased pipeline', big.calls.some(c => c.kind === 'other') && !big.calls.some(c => c.kind === 'short'));
+{
+    // What a reloaded page reattaches from keeps the reason with the shape.
+    const gens = (await (await fetch(`${base}/api/ai/creation-status`)).json()).generations ?? [];
+    const run = gens.find(g => g.shape === 'phased');
+    ok('the run\'s snapshot says the length decided it', run?.shapeBy === 'bounds', gens.map(g => [g.name, g.shape, g.shapeBy]));
+}
 shapeReply = 'garbage';
 const gar = await create({ name: 'Index funds again', description: '' });
 ok('a reply that names no shape builds in phases', gar.sized?.shape === 'phased' && gar.sized?.by === 'fallback' && !gar.calls.some(c => c.kind === 'short'), gar.sized);
@@ -275,7 +281,8 @@ const bundle = (await esbuild.build({
                 act(() => r.render(h(MemoryRouter, { initialEntries: ['/projects'] }, h(ProjectsGrid))));
                 return r;
             };
-            window.__gate = { useStore, mountModal, mountProjects, act };`,
+            import * as creationLog from './src/components/creation/creationLog';
+            window.__gate = { useStore, mountModal, mountProjects, act, creationLog };`,
         resolveDir: ROOT, loader: 'tsx',
     },
     // A copy outside this checkout still takes its packages from here.
@@ -337,7 +344,14 @@ w.fetch = (url, init = {}) => {
     return new Promise(() => { });
 };
 w.eval(bundle);
-const { useStore, mountModal, mountProjects, act } = w.__gate;
+const { useStore, mountModal, mountProjects, act, creationLog } = w.__gate;
+
+// The size line says why when the material alone decided it.
+const sizeSays = creationLog.shapeLine;
+ok('a course in phases because the material was long says so; the model\'s call gives no reason',
+    typeof sizeSays === 'function' && /long/.test(sizeSays('phased', 'bounds')) && !/long/.test(sizeSays('phased', 'model'))
+    && !/long/.test(sizeSays('phased', 'fallback')) && sizeSays('short', 'model') === 'A short course: a few topics on one level',
+    typeof sizeSays === 'function' ? [sizeSays('phased', 'bounds'), sizeSays('phased', 'model')] : 'no shapeLine');
 useStore.setState({ projects: library, _navigate: () => { } });
 const settle = async () => { await act(async () => { for (let i = 0; i < 30; i++) await new Promise(r => setImmediate(r)); }); };
 const el = w.document.getElementById('root');

@@ -17,7 +17,7 @@
  * never guessed from the project row.
  */
 import { create } from 'zustand';
-import { api, type AIProjectProgress, type CreationTrack } from '../../api';
+import { api, type AIProjectProgress, type CreationTrack, type ShapeBy } from '../../api';
 import type { AITaskSummary, StagedDocument } from '../../types';
 import type { FailureFacts } from '../../utils/failureCause';
 import i18n from '../../i18n';
@@ -81,6 +81,8 @@ export interface CreationRun {
     /** What the run judged the course to be (server/courseShape.js), once it
      *  has: a short course's tree is one level of topics. */
     shape: 'short' | 'phased' | null;
+    /** What judged it: 'bounds' = the material's length alone. */
+    shapeBy: ShapeBy | null;
     log: LogEntry[];
     model: string;
     summary: string;
@@ -185,7 +187,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
-        tree: [], shape: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
+        tree: [], shape: null, shapeBy: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
         error: null, failure: null, startedAt: Date.now(), finishedAt: null,
         attempt: 0, inputKnown: true,
         ...over,
@@ -220,6 +222,7 @@ function applyFrame(key: string, f: AIProjectProgress) {
         switch (f.phase) {
             case 'sized':
                 if (f.shape === 'short' || f.shape === 'phased') next.shape = f.shape;
+                if (f.by) next.shapeBy = f.by;
                 break;
             case 'topics_written':
                 // A short course: its topics are the whole tree, one level.
@@ -554,6 +557,7 @@ function applySnapshot(key: string, g: Snapshot) {
         error: g.error ?? run.error,
         failure: g.failure ?? run.failure,
         shape: g.shape ?? run.shape,
+        shapeBy: g.shapeBy ?? run.shapeBy,
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
         thinkingVersion.set(key, g.thinkingVersion);

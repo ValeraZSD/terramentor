@@ -404,6 +404,9 @@ export interface LiveTreeNode {
     depth: number;
 }
 
+/** What decided a new course's size (server/courseShape.js). */
+export type ShapeBy = 'bounds' | 'model' | 'fallback';
+
 export interface AIProjectProgress {
     phase: string;
     message: string;
@@ -491,6 +494,8 @@ export interface AIProjectProgress {
     queuePosition?: number;
     /** On `sized`: what the course became (server/courseShape.js). */
     shape?: 'short' | 'phased';
+    /** On `sized`: what judged it; 'bounds' = the material's length alone. */
+    by?: ShapeBy;
     /** On `topics_written`: a short course's topics, written in one call. */
     topics?: Array<{ title: string; description: string }>;
 }
@@ -949,6 +954,7 @@ export const api = {
             track: CreationTrack | null;
             /** Once judged: short (one level of topics) or in phases. */
             shape?: 'short' | 'phased' | null;
+            shapeBy?: ShapeBy | null;
         }>;
     }>('/ai/creation-status'),
     getProject: (id: number) => request<Project>(`/projects/${id}`),

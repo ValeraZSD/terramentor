@@ -2,6 +2,16 @@
 // Pure, so the run store (creationRuns.ts) can fold frames into a run without
 // importing any component.
 import i18n, { k } from '../../i18n';
+import type { ShapeBy } from '../../api';
+
+/** What the run made of the input, said once it has judged it: the log's
+ *  line and the run screen's subtitle. A course in phases because the
+ *  material alone was too long says so; the model's call needs no reason. */
+export function shapeLine(shape: 'short' | 'phased' | null | undefined, by: ShapeBy | null | undefined): string | null {
+    if (shape === 'short') return i18n.t("A short course: a few topics on one level");
+    if (shape !== 'phased') return null;
+    return by === 'bounds' ? i18n.t("Your material is long: a full course, in phases") : i18n.t("A full course, in phases");
+}
 
 // The creation-status sentences the SERVER authors (the send() sites in
 // server/routes/createProject.js). The log and the progress panel now write their own lines
@@ -210,9 +220,7 @@ export function eventToLogEntry(event: any): LogEntry | null {
         case 'sized':
             id = 'size';
             if (phase === 'sized') {
-                message = event.shape === 'short'
-                    ? i18n.t("A short course: a few topics on one level")
-                    : i18n.t("A full course, in phases");
+                message = shapeLine(event.shape === 'short' ? 'short' : 'phased', event.by) ?? '';
                 status = 'success';
             } else {
                 message = i18n.t("Choosing the course size");

@@ -27,6 +27,7 @@ import type { CreationTrack } from '../../api';
 import { plainCause } from '../../utils/failureCause';
 import ProgressBar from '../ui/ProgressBar';
 import { type CreationRun, isRunLive } from './creationRuns';
+import { shapeLine as sizeLine } from './creationLog';
 
 type StageKey = NonNullable<CreationTrack['stage']>;
 const ORDER: StageKey[] = ['queued', 'think', 'prepare', 'outline', 'build', 'done'];
@@ -115,8 +116,7 @@ function useRunProgress(run: CreationRun) {
     const serverNow = track ? track.at + Math.max(0, now - run.trackAt) : now;
 
     // What the run made of the input, said once it has judged it.
-    const shapeLine = run.shape === 'short' ? t("A short course: a few topics on one level")
-        : run.shape === 'phased' ? t("A full course, in phases") : null;
+    const shapeLine = sizeLine(run.shape, run.shapeBy);
 
     return { t, fmt, live, track, span, stages, current, failed, label, buildCount, activeMs, eta, serverNow, short, shapeLine };
 }

@@ -255,8 +255,11 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
             failure: null,
             queuePosition: null,
             track: null,
-            // Short or in phases, once the run has judged it (courseShape.js).
+            // Short or in phases, once the run has judged it (courseShape.js),
+            // and what judged it: 'bounds' (the material's length), 'model'
+            // or 'fallback'.
             shape: null,
+            shapeBy: null,
         },
     };
     activeGenerations.set(pendingGenKey, cancelHandle);
@@ -289,6 +292,7 @@ function beginRun(req, res, { name, color, curate, projectId: knownProjectId = n
         if (typeof data.error === 'string') s.error = data.error;
         if (data.failure) s.failure = data.failure;
         if (data.shape === 'short' || data.shape === 'phased') s.shape = data.shape;
+        if (data.by === 'bounds' || data.by === 'model' || data.by === 'fallback') s.shapeBy = data.by;
         if (typeof data.currentCategory === 'string') s.currentCategory = data.currentCategory;
         if (typeof data.currentElement === 'string') s.currentElement = data.currentElement;
         if (typeof data.currentSubElement === 'string') s.currentSubElement = data.currentSubElement;
