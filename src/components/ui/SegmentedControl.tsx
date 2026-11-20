@@ -52,6 +52,14 @@ interface Props<T extends string | number> {
      * phone or a side panel), its own width on a wider one. For a switch alone
      * on its line, such as the Projects page's Active / Finished / Archived:
      * across a desktop page three segments would be a long bar of air.
+     *
+     * The row is the PARENT element, so the parent must be the line: a block,
+     * or a flex column. In a flex row or a grid the switch shares its line,
+     * and it keeps its own width there whatever the width (a settings row
+     * that puts the switch beside its sentence from `sm:` up). A parent that
+     * shrinks to its content (a cell of a centred column) measures narrow
+     * always and gives the fill no room to take: wrap it in a block that
+     * spans the line, or leave the prop off.
      */
     block?: boolean | 'narrow';
     /**
@@ -63,6 +71,14 @@ interface Props<T extends string | number> {
      */
     onPage?: boolean;
     className?: string;
+}
+
+/** Whether `row` lays its children out one per line: a block, or a flex column. */
+function standsAlone(row: HTMLElement): boolean {
+    const s = getComputedStyle(row);
+    if (/grid/.test(s.display)) return false;
+    if (/flex/.test(s.display)) return /column/.test(s.flexDirection);
+    return true;
 }
 
 /**
@@ -96,7 +112,7 @@ export function SegmentedControl<T extends string | number>({
         const measure = () => {
             const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
             const w = row.clientWidth;
-            setNarrowRow(w > 0 && w < 40 * rem);
+            setNarrowRow(w > 0 && w < 40 * rem && standsAlone(row));
         };
         measure();
         if (typeof ResizeObserver === 'undefined') return;
