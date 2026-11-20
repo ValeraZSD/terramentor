@@ -3,7 +3,6 @@ import { useStore, MIN_UI_SCALE, MAX_UI_SCALE, DEFAULT_UI_SCALE, UI_SCALE_STEP }
 import { RotateCcw } from 'lucide-react';
 import { IconButton } from '../ui/Button';
 import { Select } from '../ui/Field';
-import SegmentedControl from '../ui/SegmentedControl';
 import Stepper from '../ui/Stepper';
 import Slider from '../ui/Slider';
 import { SettingGroup, SettingRow } from '../ui/SettingRow';
@@ -23,8 +22,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
     // ColourChooser, LanguageRow), which read the store themselves.
     const uiScale = useStore(s => s.uiScale);
     const setUiScale = useStore(s => s.setUiScale);
-    const weekStartDay = useStore(s => s.weekStartDay);
-    const setWeekStartDay = useStore(s => s.setWeekStartDay);
     const numberFormat = useStore(s => s.numberFormat);
     const setNumberFormat = useStore(s => s.setNumberFormat);
 
@@ -106,12 +103,10 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                 </SettingGroup>
             </section>
 
-            {/* LANGUAGE & REGION — the interface language, how numbers
-                are written, and which day a week starts on. A separate
-                "Calendar" section holding one control would spend a
-                heading and a card on a single two-way choice. They are one group for the same
-                reason every desktop OS groups them: they are all "how
-                this app should read where I live".
+            {/* LANGUAGE & REGION — the interface language and how numbers
+                are written. They are one group for the same reason every
+                desktop OS groups them: they are both "how this app should
+                read where I live".
 
                 The language here is the CHROME, never the content — a
                 Dutch course stays Dutch under an English interface and
@@ -158,26 +153,6 @@ export default function GeneralSettings({ active }: { active: boolean }) {
                                     <option key={style.id} value={style.id}>{style.id}</option>
                                 ))}
                             </Select>
-                        }
-                    />
-                    {/* Was a Mon-Sun / Sun-Sat toggle living in the
-                        calendar's own toolbar as component state: it reset
-                        to Monday on every navigation, the global calendar
-                        ignored it, and on a phone it spent 100px of a
-                        toolbar that also carries the month, the view mode
-                        and the arrows. Nobody sets it twice. */}
-                    <SettingRow
-                        label={tr("Week starts on")}
-                        control={
-                            <SegmentedControl
-                                label={tr("Week starts on")}
-                                value={weekStartDay}
-                                onChange={d => void setWeekStartDay(d as 0 | 1)}
-                                options={[
-                                    { value: 1, label: tr("Monday") },
-                                    { value: 0, label: tr("Sunday") },
-                                ]}
-                            />
                         }
                     />
                 </SettingGroup>

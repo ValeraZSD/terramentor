@@ -37,7 +37,7 @@ const check = (label, cond, extra = '') => {
 // the tabs Layout.tsx actually draws: when Schedule left the bar this list
 // still held five, and every case below kept passing for a bar that no longer
 // existed.
-const WIDTH = { today: 57.6, projects: 70.4, calendar: 76.2, atlas: 51.2 };
+const WIDTH = { today: 57.6, projects: 70.4, atlas: 51.2 };
 const layout = process.argv.includes('--head')
     ? execFileSync('git', ['show', 'HEAD:src/components/Layout.tsx'], { cwd: repoRoot, encoding: 'utf8' })
     : readFileSync(join(repoRoot, 'src/components/Layout.tsx'), 'utf8');
@@ -81,7 +81,7 @@ check(`no assistant (1280px header): centred search, ${all}`, f.centred && !f.se
 f = at(1400);
 check(`1920px window, assistant open: centred, ${all}`, f.centred && f.shown.length === ALL);
 f = at(410);
-check('1024px window, assistant at its widest (410px): the search is its icon and the rest go in More', f.searchIcon && f.shown.length >= 1 && f.shown.length < ALL, JSON.stringify(f));
+check(`1024px window, assistant at its widest (410px): the search is its icon, ${all} still in the rail`, f.searchIcon && f.shown.length === ALL && !f.switcher, JSON.stringify(f));
 f = at(410, ATLAS);
 check('…and on Atlas, Atlas stays in the rail', ATLAS >= 0 && f.shown.includes(ATLAS), JSON.stringify(f));
 

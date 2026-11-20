@@ -38,7 +38,7 @@ records how far it has come and what is still missing.
 The main reasons, each described under [Known gaps](#known-gaps):
 
 - Some structures are drawn for the eye and not described to assistive technology: the outline
-  tree, the calendar grid, and the status icons on topics.
+  tree and the status icons on topics.
 - Some results are shown but not announced: drill verdicts, quiz results and the result of a
   mastery check.
 - Much of what you study is written by a model (lessons, diagrams, charts, animations,
@@ -110,9 +110,6 @@ Each of these is in the code on the date above.
 - The outline tree has arrow keys but is not marked up as a tree. A topic's status (done, in
   progress, overdue, skipped) is an icon with no text, and the status button does not say the
   current status.
-- The month calendar's days are buttons named by their full date, but the grid is not
-  exposed as a table of weeks, today is marked only by colour and a ring, and on a phone a
-  day's dots tell courses apart by colour alone.
 - Drill verdicts, a quiz's "Question N of M", quiz results and the mastery check's result are
   shown but not announced.
 - During a card review, keyboard focus stays in the session, but a screen reader's browse mode
@@ -172,12 +169,11 @@ a page that did not do the thing fails it.
 
 **axe in a real browser.** `tools/axe-gates.mjs` builds the app, opens it in headless Edge or
 Chrome on an invented course, and runs [axe-core](https://github.com/dequelabs/axe-core) with
-the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 22 screens:
+the WCAG 2.0, 2.1 and 2.2 A and AA rules plus Deque's best practices. It covers 19 screens:
 Today, Projects, a new course, a course's dashboard, its outline, a topic with its quizzes and
-cards tabs, a lesson, the timeline, the course calendar, the course's files, the calendar for
-all courses, the atlas, the front and back of a flashcard in review, the assistant, and the
+cards tabs, a lesson, the course's files, the atlas, the front and back of a flashcard in review, the assistant, and the
 General, Accessibility, Learning, AI & Models and Web & research sections of Settings. Each is
-scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 88 scans. The
+scanned in light and dark, at desktop width (1,280 px) and phone width (390 px): 76 scans. The
 allowed failures are listed in `tools/axe-allowlist.json`, which may only shrink; it is empty,
 so one failure on any screen fails the gate. Before trusting a scan, the gate shows axe a
 broken button and checks that axe reports it. It runs in `npm test` and on the Windows leg of
@@ -277,10 +273,10 @@ has nothing the criterion is about.
 | 1.2.1 Audio-only and Video-only (Prerecorded) | Partially supports | Card recordings have a play button but no place for a transcript. |
 | 1.2.2 Captions (Prerecorded) | Not applicable | The app has no video with sound of its own; linked videos play on their own site. |
 | 1.2.3 Audio Description or Media Alternative (Prerecorded) | Not applicable | The app has no prerecorded video of its own. |
-| 1.3.1 Info and Relationships | Partially supports | Headings, landmarks and labels are marked up; the outline tree and calendar grid are not. |
+| 1.3.1 Info and Relationships | Partially supports | Headings, landmarks and labels are marked up; the outline tree is not. |
 | 1.3.2 Meaningful Sequence | Supports | Reading order follows the screen. (Browse mode reaching the page behind a card review is under Known gaps.) |
 | 1.3.3 Sensory Characteristics | Supports | Instructions name controls by their words, for example "drag or use arrow keys". |
-| 1.4.1 Use of Color | Partially supports | On a phone's month calendar, dots tell courses apart by colour alone. |
+| 1.4.1 Use of Color | Partially supports | A diagram or chart the model writes may use colour alone to tell things apart. |
 | 1.4.2 Audio Control | Supports | Card recordings have a play and stop button; playing by themselves can be switched off. |
 | 2.1.1 Keyboard | Partially supports | Resizing the sidebar and the detail panel needs a mouse; reordering and dialogs use the keyboard; the atlas map moves and zooms by keyboard, and its topics are picked from its index. |
 | 2.1.2 No Keyboard Trap | Supports | Dialogs keep and return focus; Escape then Tab leaves the code editor. |
