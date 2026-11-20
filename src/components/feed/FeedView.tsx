@@ -578,12 +578,12 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                         <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
                             <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
                             <span>
-                                {/* A topic missed on a look back is back the next day, not
-                                    after a while: the header says which kind the round holds. */}
+                                {/* A topic missed on a look back or a mock is back the next day,
+                                    not after a while: the header says which kind the round holds. */}
                                 {group.cards.every(c => c.slipped)
-                                    ? tr("Recall: from your look back")
+                                    ? tr("Recall: what you missed recently")
                                     : group.cards.some(c => c.slipped)
-                                        ? tr("Recall: from your look back and earlier topics")
+                                        ? tr("Recall: what you missed recently and earlier topics")
                                         : tr("Recall: what you haven't practiced in a while")}
                                 <span className="block font-normal text-slate-600 dark:text-slate-400">
                                     {tr("{{count}} questions", { count: group.cards.length })}
