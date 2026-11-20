@@ -185,7 +185,7 @@ function RealExamDialog({ projectId, exam, onClose, onSaved }: {
                 <p className="text-sm text-slate-600 dark:text-slate-300">
                     {t("How is the exam for this course taken? A mock gets a clock and a pass line only when the real exam is on screen in the same format.")}
                 </p>
-                <SegmentedControl label={t("How it is taken")} value={how} onChange={setHow}
+                <SegmentedControl label={t("How it is taken")} block="narrow" value={how} onChange={setHow}
                     options={[
                         { value: 'unknown', label: t("Not sure") },
                         { value: 'paper', label: t("On paper") },
