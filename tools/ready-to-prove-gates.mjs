@@ -307,7 +307,9 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));
-    check('checkpoint: offers the check', /onClick=\{startMasteryCheck\}/.test(cp));
+    // The button is a helper: pin both its action and the not-yet-proven
+    // branch that draws it, so removing the call site turns this red.
+    check('checkpoint: offers the check', /onClick=\{startMasteryCheck\}/.test(cp) && /checkButton\('primary'\)/.test(cp));
 
     // ONE way into the check: the hook calls the store's openMasteryGate, and
     // the assistant's button goes through it too.

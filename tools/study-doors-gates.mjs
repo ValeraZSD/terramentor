@@ -139,11 +139,12 @@ const topic = (id, title, projectId, projectName, extra = {}) => ({
 const region = {
     id: 7, label: 'Mechanics', labelTopicId: 21, labelSource: 'medoid', medoidLabel: 'Mechanics', signature: 's',
     size: 3, projects: [{ id: 9, name: 'Physics', color: '#0ea5e9', start: null, count: 3 }], crossProject: false,
-    mastery: { proven: 1, learning: 0, untouched: 1, avg: 0.5 }, isLandmark: false,
+    mastery: { proven: 1, learning: 0, untouched: 2, avg: 0.3 }, isLandmark: false,
     x: 0, y: 0, radius: 1, u: [0, 0, 1], cap: 1, topicRadius: 1,
     topics: [topic(21, 'Newton\'s laws', 9, 'Physics', { status: 'completed', mastery: 0.9 }), topic(22, 'Momentum', 9, 'Physics'),
-        // Started with a head start carried over from another course.
-        topic(23, 'Impulse', 9, 'Physics', { status: 'in_progress', transferred: true })],
+        // Not started, with a head start carried over from another course
+        // (Study next offers only topics not started).
+        topic(23, 'Impulse', 9, 'Physics', { transferred: true })],
 };
 const next = [
     { topicId: 22, regionId: 7, nearId: 21, nearTitle: 'Newton\'s laws', similarity: 0.8 },
