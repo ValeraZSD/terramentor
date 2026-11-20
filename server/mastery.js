@@ -1,6 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
-import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipCutoff } from './fading.js';
+import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -831,8 +831,9 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
 
 /**
  * Get decaying nodes — topics whose mastery has faded and are worth refreshing:
- * a proven-ish topic not touched within `decayDays` (`FADING_TOPIC` in
- * fading.js, which Today's list reads too). Used by the ghost-question /
+ * a proven-ish topic not touched within `decayDays`, or one a mock or look
+ * back found slipped (`RECALL_TOPIC` in fading.js, which Today's list reads
+ * too). Used by the ghost-question /
  * daily-plan paths, whose "cumulative exam" mechanic wants a broad net, and
  * that is how a fading topic comes back: in the feed, by itself.
  *
@@ -864,7 +865,7 @@ export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { 
           AND ${RECALL_TOPIC}
         ORDER BY slipped DESC, nm.last_updated ASC
         LIMIT ?
-    `).all(slipCutoff(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1);
+    `).all(...slipParams(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1);
 }
 
 /**

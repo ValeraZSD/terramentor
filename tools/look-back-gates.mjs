@@ -18,8 +18,9 @@
  *      spread across topics (the ones practised longest ago first), one
  *      sitting at a time (an open one is offered as Continue);
  *   4. what it writes: practice evidence per topic, never completes or reopens
- *      a topic; a topic answered wrong comes back in the recall round from 20
- *      hours later until one of its questions is answered right;
+ *      a topic; a topic answered wrong comes back in the recall round from the
+ *      learner's next day (in their time zone), the missed question first,
+ *      until one of its questions is answered right;
  *   5. the mock window: a real exam (a date that cannot move, or the exam
  *      described) 1 to 21 days away turns the offer into the full mock, at
  *      most once a week, and no look back is offered inside it;
@@ -69,6 +70,7 @@ const { default: db } = await import(S + 'database.js');
 if (!process.env.DB_PATH.startsWith(scratch)) throw new Error('refusing: not the scratch library');
 const { createApp } = await import(S + 'app.js');
 const { composeFeed } = await import(S + 'feed.js');
+const { buildTodayData } = await import(S + 'today.js');
 const { getDecayingNodes } = await import(S + 'mastery.js');
 const { recallOrder } = await import(S + 'questionLog.js');
 const { studyToday } = await import(S + 'studyDay.js');
@@ -100,6 +102,8 @@ const HOUR = 3_600_000;
 // own clock (the look back's question log) is re-stamped onto this timeline.
 const T0 = Math.floor((Date.now() - 20 * DAY) / DAY) * DAY + 12 * HOUR;
 const at = (d, h = 0) => new Date(T0 + d * DAY + h * HOUR);
+/** One millisecond before `date`: the edge of a rule that starts at `date`. */
+const justBefore = (date) => new Date(date.getTime() - 1);
 const sqlStamp = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 const plusDays = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -171,11 +175,14 @@ try {
         const refused = (pid) => { try { lb.startLookBack(pid, { now: at(15) }); return null; } catch (e) { return e.status; } };
         check('Start on a deck is refused (409), not a draw', has('startLookBack') && refused(deck) === 409, String(has('startLookBack') && refused(deck)));
         check('Start on an archived course is refused (409)', has('startLookBack') && refused(shelved) === 409);
+        check('Start with too little to mix (8 questions) is refused (409)', has('startLookBack') && refused(thin) === 409, String(has('startLookBack') && refused(thin)));
     });
 
     await block('2. the cadence: 14 days, or a phase that closed', async () => {
         studied(g1, at(0, 1));
         check('day 13 after the first answer: not yet', offerOf(bio, at(13)) === null, JSON.stringify(offerOf(bio, at(13))));
+        check('a moment before 14 days: not yet', offerOf(bio, justBefore(at(14))) === null, JSON.stringify(offerOf(bio, justBefore(at(14)))));
+        check('14 days to the minute: offered', offerOf(bio, at(14))?.kind === 'look_back', JSON.stringify(offerOf(bio, at(14))));
         const due = offerOf(bio, at(14, 2));
         check('day 14: a look back of 10 questions is offered', due?.kind === 'look_back' && due?.questions === 10, JSON.stringify(due));
         check('the offer names its course', due?.projectId === bio, JSON.stringify(due));
@@ -202,7 +209,8 @@ try {
         has('skipLookBack') && lb.skipLookBack(phys, { now: at(6) });
         w.forEach(id => complete(id, at(7)));
         check('a phase closing one day after "Not now": not yet (3 days apart)', offerOf(phys, at(7, 1)) === null, JSON.stringify(offerOf(phys, at(7, 1))));
-        check('three days after "Not now", that phase brings it', offerOf(phys, at(9, 1))?.kind === 'look_back', JSON.stringify(offerOf(phys, at(9, 1))));
+        check('a moment before three days after "Not now": not yet', offerOf(phys, justBefore(at(9))) === null, JSON.stringify(offerOf(phys, justBefore(at(9)))));
+        check('three days after "Not now", that phase brings it', offerOf(phys, at(9))?.kind === 'look_back', JSON.stringify(offerOf(phys, at(9))));
         has('skipLookBack') && lb.skipLookBack(phys, { now: at(10) });
         check('a phase that closed before the last "Not now" brings nothing again', offerOf(phys, at(13, 1)) === null, JSON.stringify(offerOf(phys, at(13, 1))));
     });
@@ -250,6 +258,17 @@ try {
         check('Start on a look back left open and put off draws a fresh one', fresh?.sitting?.id > 0 && fresh.sitting.id !== h?.sitting?.id && !fresh.resumed,
             JSON.stringify({ old: h?.sitting?.id, now: fresh?.sitting?.id, resumed: fresh?.resumed }));
         check('and the old one is gone', !db.prepare('SELECT 1 FROM mock_sittings WHERE id = ?').get(h?.sitting?.id ?? -1));
+
+        // Left open with an answer on it: Continue for up to 14 days, then it is
+        // stale; Start then finishes it (the answer counts) and draws afresh.
+        const fq = fresh?.sitting?.id ? mock.sittingDetail(fresh.sitting.id, { now: at(29) }).course.questions : [];
+        if (fq.length) mock.saveAnswer(fresh.sitting.id, { partId: fq[0].partId, answer: 'Beta', attemptId: aid(), now: at(29, 1) });
+        check('13 days on, it is still Continue', offerOf(hist, at(42))?.kind === 'resume', JSON.stringify(offerOf(hist, at(42))));
+        check('14 days on, it is stale: a fresh look back is offered', offerOf(hist, at(43))?.kind === 'look_back', JSON.stringify(offerOf(hist, at(43))));
+        const third = has('startLookBack') ? lb.startLookBack(hist, { now: at(43) }) : null;
+        const oldRow = db.prepare('SELECT status FROM mock_sittings WHERE id = ?').get(fresh?.sitting?.id ?? -1);
+        check('Start then draws afresh and finishes the stale one, keeping its answer', third?.sitting?.id !== fresh?.sitting?.id && oldRow?.status === 'done',
+            JSON.stringify({ third: third?.sitting?.id, old: oldRow }));
     });
 
     await block('4. what it writes, and how a slip comes back', async () => {
@@ -260,7 +279,7 @@ try {
         }
         const done = mock.finishSitting(sitting, { now: at(20, 2), attemptId: aid() });
         check('finished', done?.sitting?.status === 'done', JSON.stringify(done?.sitting));
-        const rows = db.prepare("SELECT node_id, evidence_type FROM mastery_evidence WHERE evidence_type = 'mock'").all();
+        const rows = db.prepare("SELECT e.node_id, e.evidence_type FROM mastery_evidence e JOIN nodes n ON n.id = e.node_id WHERE e.evidence_type = 'mock' AND n.project_id = ?").all(bio);
         check('one practice row per topic asked', rows.length === 4 && rows.every(r => r.evidence_type === 'mock'), JSON.stringify(rows));
         check('a completed topic stays completed, a started one stays started', statusOf(c2) === 'completed' && statusOf(g1) === 'in_progress');
         check('the result has no "likely between" range on a look back', done?.result?.spread == null, JSON.stringify(done?.result?.spread));
@@ -274,6 +293,7 @@ try {
 
         // The database stamped the sitting's answers with its own clock: put them on day 20.
         db.prepare("UPDATE question_log SET asked_at = ? WHERE surface = 'mock'").run(at(20, 2).toISOString());
+        db.prepare('UPDATE node_mastery SET last_updated = ? WHERE node_id IN (SELECT id FROM nodes WHERE project_id = ?)').run(sqlStamp(at(20, 2)), bio);
         const soon = at(20, 3);
         const later = at(21, -11);
         const recallIds = (when) => getDecayingNodes(bio, 14, when, { limit: null }).map(n => n.node_id);
@@ -304,24 +324,57 @@ try {
         logOn(2, 'mock', 0, at(20, 2));
         const order = recallOrder(optics).map(b => b.question.uuid);
         check('the recall round asks the missed question first', order[0] === ouuid[2], JSON.stringify(order.map(u => ouuid.indexOf(u))));
+
+        // On Today the round reviews the course studied next (Biology here) when
+        // it has topics fading; a slip in another course joins it all the same.
+        db.prepare("UPDATE node_mastery SET mastery_score = 0.9, last_updated = ? WHERE node_id = ?").run(sqlStamp(at(0)), c1);
+        db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, last_updated) VALUES (?, 0.3, 1, ?)').run(optics, sqlStamp(at(20, 2)));
+        const today = composeFeed({ now: later, excludeKeys: new Set() });
+        const recallOn = today.items.filter(i => i.kind === 'recall').map(i => i.nodeId);
+        check("Today: another course's slip is in the round beside the next course's fading topic", recallOn.includes(c1) && recallOn.includes(optics), JSON.stringify(recallOn));
+        const todayList = buildTodayData({ today: studyToday({ now: later.getTime() }), now: later }).decayingTopics.map(d => d.nodeId);
+        check("Today's list puts the slip ahead of a topic fading longer", todayList.indexOf(optics) > -1 && todayList.indexOf(optics) < todayList.indexOf(c1), JSON.stringify(todayList));
+        db.prepare("UPDATE node_mastery SET last_updated = ? WHERE node_id = ?").run(sqlStamp(at(20, 2)), c1);
+
+        // "The next day" is the learner's: in Tokyo (UTC+9, no summer time) a
+        // miss at 23:00 UTC is 08:00 the next morning there.
+        const kana = project('Kana');
+        const tz = node(kana, 'Hiragana');
+        const tq = bank(tz);
+        db.prepare('INSERT INTO node_mastery (node_id, mastery_score, total_attempts, last_updated) VALUES (?, 0.3, 1, ?)').run(tz, sqlStamp(at(25)));
+        db.prepare("INSERT INTO question_log (quiz_id, question_index, node_id, surface, correct, asked_at) VALUES (?, 0, ?, 'mock', 0, ?)").run(tq, tz, at(25, 11).toISOString());
+        db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('time_zone', 'Asia/Tokyo')").run();
+        const tzIds = (when) => getDecayingNodes(kana, 14, when, { limit: null }).map(n => n.node_id);
+        check('a miss at 08:00 Tokyo time is not back at 10:00 the same Tokyo day', !tzIds(at(25, 13)).includes(tz), JSON.stringify(tzIds(at(25, 13))));
+        check('it is back from the next Tokyo day', tzIds(at(26, 3.5)).includes(tz), JSON.stringify(tzIds(at(26, 3.5))));
+        db.prepare("DELETE FROM settings WHERE key = 'time_zone'").run();
+        check('a miss older than four weeks is left to the fading clock', !tzIds(at(54)).includes(tz), JSON.stringify(tzIds(at(54))));
     });
 
     await block('5. the mock window before a real exam', async () => {
         const chem = project('Chemistry');
         topics(chem, ['Atoms', 'Bonds', 'Acids', 'Rates']).forEach(id => studied(id, at(0)));
+        // A look back started weeks before the exam and left open.
+        has('startLookBack') && lb.startLookBack(chem, { now: at(9) });
         const exam = plusDays(studyToday({ now: at(20).getTime() }), 10);
         db.prepare('UPDATE projects SET deadline = ?, deadline_fixed = 1 WHERE id = ?').run(exam, chem);
         const m = offerOf(chem, at(20));
-        check('an exam date that cannot move, 10 days away: the full mock is offered', m?.kind === 'mock' && m?.daysLeft === 10, JSON.stringify(m));
+        check('an exam date that cannot move, 10 days away: the full mock is offered, over a look back left open', m?.kind === 'mock' && m?.daysLeft === 10, JSON.stringify(m));
+        db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(plusDays(studyToday({ now: at(20).getTime() }), 21), chem);
+        check('21 days away: the mock', offerOf(chem, at(20))?.kind === 'mock', JSON.stringify(offerOf(chem, at(20))));
+        db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(plusDays(studyToday({ now: at(20).getTime() }), 22), chem);
+        check('22 days away: not yet the mock', offerOf(chem, at(20))?.kind !== 'mock', JSON.stringify(offerOf(chem, at(20))));
+        db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(exam, chem);
 
         db.prepare('UPDATE projects SET deadline_fixed = 0 WHERE id = ?').run(chem);
-        check('a plain deadline is not an exam: the look back instead', offerOf(chem, at(20))?.kind === 'look_back', JSON.stringify(offerOf(chem, at(20))));
+        check('a plain deadline is not an exam: the look back instead (its Continue)', offerOf(chem, at(20))?.kind === 'resume', JSON.stringify(offerOf(chem, at(20))));
         db.prepare('UPDATE projects SET exam_on_screen = 1, exam_questions = 20 WHERE id = ?').run(chem);
         check('the exam described: the mock again', offerOf(chem, at(20))?.kind === 'mock', JSON.stringify(offerOf(chem, at(20))));
 
         has('skipLookBack') && lb.skipLookBack(chem, { now: at(20) });
         check('"Not now": nothing the next day, no look back inside the window either', offerOf(chem, at(21)) === null, JSON.stringify(offerOf(chem, at(21))));
-        check('a week later: the mock again', offerOf(chem, at(27, 1))?.kind === 'mock', JSON.stringify(offerOf(chem, at(27, 1))));
+        check('a moment before a week: nothing', offerOf(chem, justBefore(at(27))) === null, JSON.stringify(offerOf(chem, justBefore(at(27)))));
+        check('a week later: the mock again', offerOf(chem, at(27))?.kind === 'mock', JSON.stringify(offerOf(chem, at(27))));
 
         const full = mock.drawCourseMock(chem, { size: 12, now: at(28) });
         mock.finishSitting(full.sitting.id, { now: at(28, 1), attemptId: aid() });
@@ -382,7 +435,7 @@ try {
         check('its result shows no bar per topic', /result\.topics\.length > 0 && !detail\.paper\.lookBack/.test(result));
         check('its result shows no clock line', /!detail\.paper\.lookBack && <p[^>]*>\s*\{sitting\.timeAllowed > 0/.test(result));
         // A blank answer logs nothing, so only an answer given and wrong earns "comes back".
-        check('its "comes back" line counts only answers given wrong', /detail\.paper\.lookBack && result\.total - result\.right - result\.notAnswered > 0/.test(result));
+        check('its "comes back" line counts only answers given wrong', /\{result\.total - result\.right - result\.notAnswered > 0 && \(/.test(result));
     });
 } finally {
     server.close();

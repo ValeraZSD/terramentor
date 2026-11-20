@@ -1076,6 +1076,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         const nextInfos = nextCourse == null ? [] : projectInfos.filter(i => i.project.id === nextCourse);
         let fading = nextInfos.length ? fadingIn(nextInfos) : [];
         if (!fading.length) fading = fadingIn(projectInfos);
+        // A slip is promised back the next day the learner studies, whichever
+        // course they open: the other courses' slips join the round too.
+        else fading.push(...fadingIn(projectInfos.filter(i => i.project.id !== nextCourse)).filter(f => f.ghost.slipped));
         // Byte order, as the SQL that listed each course's topics sorted them.
         // A topic that slipped on a look back first (fading.js SLIPPED_TOPIC).
         const stamp = (g) => String(g.lastUpdated ?? '');

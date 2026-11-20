@@ -33,7 +33,7 @@ import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { daysUntil } from './scheduling.js';
 import { studyToday } from './studyDay.js';
-import { MockExamError, courseReadiness, discardSitting, drawCourseMock, getSitting, instantOf } from './mockExams.js';
+import { MockExamError, courseReadiness, discardSitting, drawCourseMock, finishSitting, getSitting, instantOf } from './mockExams.js';
 
 export const LOOK_BACK_SIZE = 10;
 export const LOOK_BACK_DAYS = 14;
@@ -70,6 +70,19 @@ function openLookBack(projectId) {
         ORDER BY s.id DESC LIMIT 1
     `).get(projectId) ?? null;
 }
+
+/**
+ * An open look back no longer worth a Continue: put off with "Not now" since it
+ * started, or as old as the gap between two look backs (its questions were
+ * picked for a day long gone).
+ */
+function putOff(open, skipped, t) {
+    const started = instantOf(open.started_at);
+    return skipped >= started || t - started >= LOOK_BACK_DAYS * DAY;
+}
+
+/** How many of a sitting's questions have an answer. */
+const answeredIn = (sittingId) => stmt('SELECT COUNT(*) AS n FROM mock_part_scores WHERE sitting_id = ? AND answer IS NOT NULL').get(sittingId).n;
 
 /** When the course's last finished look back (1) or other mock (0) ended. */
 function lastFinished(projectId, lookBack) {
@@ -145,24 +158,26 @@ export function lookBackOffer(projectId, { now = Date.now() } = {}) {
 
     const skipped = latest(t, p.look_back_skipped_at);
 
-    // One left open waits with Continue, until a "Not now" on it; then the
-    // next offer comes on the usual clock and Start draws a fresh one.
-    const open = openLookBack(projectId);
-    if (open && !(skipped >= instantOf(open.started_at))) {
-        const parts = stmt('SELECT COUNT(*) AS n FROM exam_paper_parts WHERE paper_id = (SELECT paper_id FROM mock_sittings WHERE id = ?)').get(open.id).n;
-        const answered = stmt('SELECT COUNT(*) AS n FROM mock_part_scores WHERE sitting_id = ? AND answer IS NOT NULL').get(open.id).n;
-        return { kind: 'resume', projectId, sittingId: open.id, answered, questions: parts };
-    }
-
-    const lastMock = latest(t, lastFinished(projectId, 0));
-    const lastLook = latest(t, lastFinished(projectId, 1));
-
     // A real exam: a date that cannot move, or the exam described.
     const realExam = p.deadline && (p.deadline_fixed === 1 || p.exam_on_screen != null);
     const daysLeft = realExam ? daysUntil(p.deadline, studyToday({ now: t })) : null;
     // The exam's own day: nothing is offered.
     if (daysLeft === 0) return null;
-    if (daysLeft != null && daysLeft >= 1 && daysLeft <= MOCK_WINDOW_DAYS) {
+    const inWindow = daysLeft != null && daysLeft >= 1 && daysLeft <= MOCK_WINDOW_DAYS;
+
+    // One left open waits with Continue, until it is put off (putOff); then
+    // the next offer comes on the usual clock and Start draws a fresh one.
+    // Inside the mock window the mock is the offer, even over an open one.
+    const open = inWindow ? null : openLookBack(projectId);
+    if (open && !putOff(open, skipped, t)) {
+        const parts = stmt('SELECT COUNT(*) AS n FROM exam_paper_parts WHERE paper_id = (SELECT paper_id FROM mock_sittings WHERE id = ?)').get(open.id).n;
+        return { kind: 'resume', projectId, sittingId: open.id, answered: answeredIn(open.id), questions: parts };
+    }
+
+    const lastMock = latest(t, lastFinished(projectId, 0));
+    const lastLook = latest(t, lastFinished(projectId, 1));
+
+    if (inWindow) {
         // Inside the window the mock is the offer, and the look back waits.
         if (t - Math.max(skipped, lastMock) < MOCK_AGAIN_DAYS * DAY) return null;
         const r = enough(projectId);
@@ -189,9 +204,11 @@ export function getLookBack(projectId, { now = Date.now() } = {}) {
 
 /**
  * Start the look back, or open the one already started. Asked for by hand, it
- * starts whether offered or not, on a course the stream could offer one on. A
- * look back left open and then dismissed with "Not now" is dropped and a
- * fresh one drawn: its questions were picked for a day that has passed.
+ * starts whether offered or not, on a course the stream could offer one on,
+ * with enough to mix. A look back left open and then put off (putOff) is
+ * closed and a fresh one drawn: its questions were picked for a day that has
+ * passed. Closed means finished when something on it was answered, so those
+ * answers count as practice, and dropped when nothing was.
  */
 export function startLookBack(projectId, { now = Date.now() } = {}) {
     const t = msOf(now);
@@ -199,11 +216,13 @@ export function startLookBack(projectId, { now = Date.now() } = {}) {
     if (!p) throw new MockExamError(404, 'Course not found');
     if (p.kind === 'deck' || p.status !== 'active') throw new MockExamError(409, 'This course has no look back');
     const open = openLookBack(projectId);
+    if (open && !putOff(open, latest(t, p.look_back_skipped_at), t)) {
+        return { sitting: getSitting(open.id, { now: t }), resumed: true };
+    }
+    if (!enough(projectId)) throw new MockExamError(409, 'Not enough studied yet to look back on');
     if (open) {
-        if (!(latest(t, p.look_back_skipped_at) >= instantOf(open.started_at))) {
-            return { sitting: getSitting(open.id, { now: t }), resumed: true };
-        }
-        discardSitting(open.id);
+        if (answeredIn(open.id) > 0) finishSitting(open.id, { now: t });
+        else discardSitting(open.id);
     }
     return drawCourseMock(projectId, { size: LOOK_BACK_SIZE, minutes: null, now: t, lookBack: true });
 }

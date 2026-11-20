@@ -71,10 +71,13 @@ export const FADING_TOPIC = `
     AND COALESCE(${SCORE_BEFORE_CLAIMS}, nm.mastery_score) > ${FADING_BAR}
 `;
 
+/** A slip older than this is left to the fading clock (an old mock miss is not news). */
+export const SLIP_MAX_DAYS = 28;
+
 /**
  * SLIPPED: a topic answered wrong on a look back or a mock exam (the question
- * log's 'mock' surface) on an earlier day than today, the learner's day, with
- * no right answer on it since. One wrong answer of ten cannot judge a topic, so
+ * log's 'mock' surface) on an earlier day than today, the learner's day, and
+ * within SLIP_MAX_DAYS, with no right answer on it since. One wrong answer of ten cannot judge a topic, so
  * a slip reopens nothing and takes no proof away: the topic comes back as a
  * recall question the next day the learner studies, as the screens promise
  * (the result screen showed the right answer; a retest a day later does more
@@ -82,13 +85,13 @@ export const FADING_TOPIC = `
  * question itself first) until one of its questions is
  * answered right, and the fading clock spaces it out from there. A right
  * answer counts from a minute after the miss, so the same sitting's other
- * answers never clear it. One `?`: `slipCutoff(now)`.
+ * answers never clear it. Two `?`: `...slipParams(now)`.
  */
 export const SLIPPED_TOPIC = `(
     n.status != 'skipped' AND n.is_note = 0
     AND EXISTS (
         SELECT 1 FROM question_log m
-        WHERE m.node_id = n.id AND m.surface = 'mock' AND m.correct = 0 AND m.asked_at < ?
+        WHERE m.node_id = n.id AND m.surface = 'mock' AND m.correct = 0 AND m.asked_at < ? AND m.asked_at >= ?
           AND NOT EXISTS (
               SELECT 1 FROM question_log r
               WHERE r.node_id = n.id AND r.correct = 1
@@ -99,20 +102,24 @@ export const SLIPPED_TOPIC = `(
 
 /**
  * What the recall round asks about: fading OR slipped, over `node_mastery nm
- * JOIN nodes n`, with TWO `?`: `recallCutoffs(decayDays, now)`. The plan's
+ * JOIN nodes n`, with THREE `?`: `...recallCutoffs(decayDays, now)`. The plan's
  * list (`getDecayingNodes`) and Today's both read this; the topic panel's
  * "fading" word reads FADING_TOPIC alone, because a slip is not fading.
  */
 export const RECALL_TOPIC = `((${FADING_TOPIC}) OR ${SLIPPED_TOPIC})`;
 
-/** When the learner's day holding `now` began, ISO: the question log's own shape. */
-export function slipCutoff(now = new Date()) {
-    return studyDay({ now: new Date(now).getTime() }).start;
+/**
+ * SLIPPED_TOPIC's two parameters: when the learner's day holding `now` began,
+ * and SLIP_MAX_DAYS before that, ISO (the question log's own shape).
+ */
+export function slipParams(now = new Date()) {
+    const { startMs } = studyDay({ now: new Date(now).getTime() });
+    return [new Date(startMs).toISOString(), new Date(startMs - SLIP_MAX_DAYS * 86_400_000).toISOString()];
 }
 
-/** RECALL_TOPIC's two parameters, in order. */
+/** RECALL_TOPIC's three parameters, in order. */
 export function recallCutoffs(decayDays, now = new Date()) {
-    return [fadingCutoff(decayDays, now), slipCutoff(now)];
+    return [fadingCutoff(decayDays, now), ...slipParams(now)];
 }
 
 /**
