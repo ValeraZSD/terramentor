@@ -59,6 +59,13 @@ export default function SequenceInput({ question, value, onChange, disabled, res
     const [held, setHeld] = useState<string | null>(null);
     const [preview, setPreview] = useState<string[] | null>(null);
     const [picked, setPicked] = useState<string | null>(null);
+    // Checking, or undoing a check, drops a half-made move: a tile picked or
+    // held before Check must not come back picked after Undo.
+    const [lockedWas, setLockedWas] = useState(locked);
+    if (lockedWas !== locked) {
+        setLockedWas(locked);
+        setHeld(null); setPreview(null); setPicked(null);
+    }
     const shown = tiles && preview ? preview : order;
 
     const sensors = useSensors(
@@ -236,7 +243,7 @@ function Tile({ item, index, locked, verdict, picked, onPick }: {
                 {...attributes}
                 {...listeners}
                 onClick={onPick}
-                aria-pressed={picked}
+                aria-pressed={picked || isDragging}
                 className={cx(TILE, 'transition cursor-grab select-none touch-none', FOCUS_RING,
                     picked || isDragging
                         ? 'border-dashed border-accent bg-accent/10'
