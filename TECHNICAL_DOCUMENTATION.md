@@ -328,10 +328,12 @@ Asserted by `tools/mcp-gates.mjs`, which also checks that both lists agree.
 
 Both lists read `RECALL_TOPIC`: a fading topic, or a SLIPPED one (`SLIPPED_TOPIC`,
 same file). A topic slips when a look back (§5.1) logged a wrong answer on it
-(`question_log` surface `mock`, correct 0) at least `SLIP_DELAY_HOURS` (20) ago,
-with no right answer on it logged from one minute after that miss; a right answer
-in the same sitting does not clear it. `recallCutoffs(decayDays)` gives both
-cutoffs. Slipped topics come first in the round, and their cards carry
+(`question_log` surface `mock`, correct 0) on an earlier learner day than today
+(`slipCutoff`: the start of `studyDay()`), so it comes back the next day the
+learner studies, with no right answer on it logged from one minute after that
+miss; a right answer in the same sitting does not clear it.
+`recallCutoffs(decayDays)` gives both cutoffs. Slipped topics come first in the
+round, `recallOrder` asks the missed question itself first, and their cards carry
 `slipped: true`. A slip changes no status and no evidence: the miss is already a
 `mock` practice row, and the topic leaves the round once it is answered right.
 The topic panel's "fading" word still reads `FADING_TOPIC` alone.
@@ -483,16 +485,20 @@ leads, above the recall round, for at most one course (on the home stream the
 course the stream studies next). `lookBackOffer(projectId, {now})` says what it
 offers: `resume` while a look back is open (until a "Not now" after it started);
 `mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
-21 days away and no full mock was finished or offer put off in the last 7 days;
+21 days away and no full mock was finished or offer put off in the last 7 days
+(nothing on the exam's own day);
 else `look_back` when 14 days have passed since the last look back, full mock or
 "Not now" (or since the course's first answer), or a phase (a top-level node with
-two or more work leaves) has closed since then, at least 3 days after it; and in
+two or more work leaves, each completed or skipped, at least one completed) has
+closed since then, at least 3 days after it; and in
 every case only when `courseReadiness` finds 4 topics and 10 questions it can
 mark alone. A deck, an archived course and a finished one get none. A look back is
 a course draw (`drawCourseMock(…, {lookBack: true})`, `exam_papers.look_back = 1`)
 of 10 questions with no clock: the topics practised longest ago take a question
 each first. Its result has no range and no pass line; it writes the same `mock`
-practice rows a mock does. "Not now" stamps `projects.look_back_skipped_at`.
+practice rows a mock does. "Not now" stamps `projects.look_back_skipped_at`;
+Start on a look back left open and then put off drops it (`discardSitting`) and
+draws a fresh one. Start on a deck or an inactive course is a 409.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,

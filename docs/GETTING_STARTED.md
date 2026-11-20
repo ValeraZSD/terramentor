@@ -149,8 +149,8 @@ Learning something once is not knowing it. Three mechanisms fight the forgetting
   stream opens with an offer of ten questions from across the course, the topics you practised
   longest ago first. It has no clock and no pass line, and it shows the right answers at the end.
   A topic you answer wrong comes back as a recall card the next day you study, until you answer it
-  right. In the three weeks before an exam whose date cannot move, the offer is the full mock exam
-  instead. **Not now** puts it off until the next one. A card deck has none: its reviews already
+  right. In the three weeks before an exam whose date cannot move, or one you have described, the
+  offer is the full mock exam instead. **Not now** puts it off until the next one. A card deck has none: its reviews already
   mix every card.
 
 This is what makes the plan cumulative instead of a checklist you sweep once and forget.

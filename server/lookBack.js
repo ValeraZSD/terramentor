@@ -14,8 +14,10 @@
 //     last look back so two never stack.
 //   - 4 topics and 10 questions: below that a "mixed" check is one topic's
 //     check over again, and a short one.
-//   - 21 and 7 days: the best single review before a test about three weeks
-//     away sits five to nine days out, so a weekly offer lands in it.
+//   - 21 and 7 days: our choice, not a study's. Cepeda et al. 2008 found the
+//     best gap about a day for a test a week away and about 11 days for one
+//     five weeks away, so for one about three weeks away it lies near a week,
+//     and a weekly offer lands near it.
 // A deck gets none: its card reviews are the mixed check already. A course
 // that is archived or finished gets none either, as the stream serves only
 // active courses.
@@ -31,7 +33,7 @@ import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { daysUntil } from './scheduling.js';
 import { studyToday } from './studyDay.js';
-import { MockExamError, courseReadiness, drawCourseMock, getSitting, instantOf } from './mockExams.js';
+import { MockExamError, courseReadiness, discardSitting, drawCourseMock, getSitting, instantOf } from './mockExams.js';
 
 export const LOOK_BACK_SIZE = 10;
 export const LOOK_BACK_DAYS = 14;
@@ -108,11 +110,15 @@ function lastPhaseClosed(projectId, t) {
         if (!phases.has(root)) phases.set(root, []);
         phases.get(root).push(leaf);
     }
+    // A skipped topic closes its place in the phase but carries no date
+    // (routes/nodes.js stores completed_at NULL for it), so the phase closed
+    // when its last COMPLETED topic did; a phase skipped whole taught nothing.
     let closed = -Infinity;
     for (const list of phases.values()) {
         if (list.length < 2) continue;
-        const at = list.map(l => (l.status === 'completed' || l.status === 'skipped' ? instantOf(l.completed_at) : null));
-        if (at.some(v => v == null || v > t)) continue;
+        if (list.some(l => l.status !== 'completed' && l.status !== 'skipped')) continue;
+        const at = list.filter(l => l.status === 'completed').map(l => instantOf(l.completed_at));
+        if (!at.length || at.some(v => v == null || v > t)) continue;
         closed = Math.max(closed, ...at);
     }
     return closed;
@@ -140,7 +146,7 @@ export function lookBackOffer(projectId, { now = Date.now() } = {}) {
     const skipped = latest(t, p.look_back_skipped_at);
 
     // One left open waits with Continue, until a "Not now" on it; then the
-    // next offer comes on the usual clock and Start picks that one up again.
+    // next offer comes on the usual clock and Start draws a fresh one.
     const open = openLookBack(projectId);
     if (open && !(skipped >= instantOf(open.started_at))) {
         const parts = stmt('SELECT COUNT(*) AS n FROM exam_paper_parts WHERE paper_id = (SELECT paper_id FROM mock_sittings WHERE id = ?)').get(open.id).n;
@@ -154,6 +160,8 @@ export function lookBackOffer(projectId, { now = Date.now() } = {}) {
     // A real exam: a date that cannot move, or the exam described.
     const realExam = p.deadline && (p.deadline_fixed === 1 || p.exam_on_screen != null);
     const daysLeft = realExam ? daysUntil(p.deadline, studyToday({ now: t })) : null;
+    // The exam's own day: nothing is offered.
+    if (daysLeft === 0) return null;
     if (daysLeft != null && daysLeft >= 1 && daysLeft <= MOCK_WINDOW_DAYS) {
         // Inside the window the mock is the offer, and the look back waits.
         if (t - Math.max(skipped, lastMock) < MOCK_AGAIN_DAYS * DAY) return null;
@@ -179,12 +187,24 @@ export function getLookBack(projectId, { now = Date.now() } = {}) {
     return { offer: lookBackOffer(projectId, { now }) };
 }
 
-/** Start the look back, or open the one already started. Asked for by hand, it starts whether offered or not. */
+/**
+ * Start the look back, or open the one already started. Asked for by hand, it
+ * starts whether offered or not, on a course the stream could offer one on. A
+ * look back left open and then dismissed with "Not now" is dropped and a
+ * fresh one drawn: its questions were picked for a day that has passed.
+ */
 export function startLookBack(projectId, { now = Date.now() } = {}) {
     const t = msOf(now);
-    if (!projectOf(projectId)) throw new MockExamError(404, 'Course not found');
+    const p = projectOf(projectId);
+    if (!p) throw new MockExamError(404, 'Course not found');
+    if (p.kind === 'deck' || p.status !== 'active') throw new MockExamError(409, 'This course has no look back');
     const open = openLookBack(projectId);
-    if (open) return { sitting: getSitting(open.id, { now: t }), resumed: true };
+    if (open) {
+        if (!(latest(t, p.look_back_skipped_at) >= instantOf(open.started_at))) {
+            return { sitting: getSitting(open.id, { now: t }), resumed: true };
+        }
+        discardSitting(open.id);
+    }
     return drawCourseMock(projectId, { size: LOOK_BACK_SIZE, minutes: null, now: t, lookBack: true });
 }
 

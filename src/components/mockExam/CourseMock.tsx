@@ -672,7 +672,8 @@ export function CourseResultScreen({ detail, onDone }: { detail: CourseMockDetai
                         </p>
                     )}
                     {/* What the look back does with a miss (server/fading.js SLIPPED_TOPIC). */}
-                    {detail.paper.lookBack && result.right < result.total && (
+                    {/* Only an answer given and wrong slips; a blank one writes nothing. */}
+                    {detail.paper.lookBack && result.total - result.right - result.notAnswered > 0 && (
                         <p>{t("The topics you missed come back as a question the next day you study.")}</p>
                     )}
                     {result.notGrade && (

@@ -30,6 +30,8 @@
 // topic follows its real score again; an answer's update starts from the
 // estimate the claims left, as every update starts from the current one.
 
+import { studyDay } from './studyDay.js';
+
 /** Over this, a topic left alone is worth a recall question. */
 export const FADING_BAR = 0.5;
 
@@ -69,16 +71,15 @@ export const FADING_TOPIC = `
     AND COALESCE(${SCORE_BEFORE_CLAIMS}, nm.mastery_score) > ${FADING_BAR}
 `;
 
-/** Hours a wrong answer on a look back or a mock waits before its topic is asked again. */
-export const SLIP_DELAY_HOURS = 20;
-
 /**
  * SLIPPED: a topic answered wrong on a look back or a mock exam (the question
- * log's 'mock' surface), at least SLIP_DELAY_HOURS ago, with no right answer
- * on it since. One wrong answer of ten cannot judge a topic, so a slip reopens
- * nothing and takes no proof away: the topic comes back as a recall question
- * from the next day (the result screen showed the right answer; a retest a
- * day later does more than one straight after) until one of its questions is
+ * log's 'mock' surface) on an earlier day than today, the learner's day, with
+ * no right answer on it since. One wrong answer of ten cannot judge a topic, so
+ * a slip reopens nothing and takes no proof away: the topic comes back as a
+ * recall question the next day the learner studies, as the screens promise
+ * (the result screen showed the right answer; a retest a day later does more
+ * than one straight after; questionLog.js `recallOrder` asks the missed
+ * question itself first) until one of its questions is
  * answered right, and the fading clock spaces it out from there. A right
  * answer counts from a minute after the miss, so the same sitting's other
  * answers never clear it. One `?`: `slipCutoff(now)`.
@@ -104,9 +105,9 @@ export const SLIPPED_TOPIC = `(
  */
 export const RECALL_TOPIC = `((${FADING_TOPIC}) OR ${SLIPPED_TOPIC})`;
 
-/** SLIP_DELAY_HOURS before `now`, ISO: the question log's own shape. */
+/** When the learner's day holding `now` began, ISO: the question log's own shape. */
 export function slipCutoff(now = new Date()) {
-    return new Date(new Date(now).getTime() - SLIP_DELAY_HOURS * 3_600_000).toISOString();
+    return studyDay({ now: new Date(now).getTime() }).start;
 }
 
 /** RECALL_TOPIC's two parameters, in order. */

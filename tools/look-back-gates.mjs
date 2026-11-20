@@ -70,6 +70,7 @@ if (!process.env.DB_PATH.startsWith(scratch)) throw new Error('refusing: not the
 const { createApp } = await import(S + 'app.js');
 const { composeFeed } = await import(S + 'feed.js');
 const { getDecayingNodes } = await import(S + 'mastery.js');
+const { recallOrder } = await import(S + 'questionLog.js');
 const { studyToday } = await import(S + 'studyDay.js');
 const mock = await import(S + 'mockExams.js');
 const lb = await import(S + 'lookBack.js').catch(() => ({}));
@@ -94,9 +95,10 @@ const call = (method, path, body) => new Promise((ok, no) => {
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
-// Twenty days ago, so the look back answered "on day 20" lands near the
-// database's own clock, which stamps the question log.
-const T0 = Math.floor((Date.now() - 20 * DAY) / 1000) * 1000;
+// Noon UTC (the learner's day here: no time zone is set), twenty days ago. The
+// gate never reads the clock after this line: what the database stamps with its
+// own clock (the look back's question log) is re-stamped onto this timeline.
+const T0 = Math.floor((Date.now() - 20 * DAY) / DAY) * DAY + 12 * HOUR;
 const at = (d, h = 0) => new Date(T0 + d * DAY + h * HOUR);
 const sqlStamp = (date) => date.toISOString().slice(0, 19).replace('T', ' ');
 const plusDays = (ymd, n) => { const d = new Date(`${ymd}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -165,6 +167,10 @@ try {
         const shelved = project('Shelved', { status: 'archived' });
         topics(shelved, ['E', 'F', 'G', 'H']).forEach(id => studied(id, at(0)));
         check('an archived course: no offer', offerOf(shelved, at(15)) === null);
+
+        const refused = (pid) => { try { lb.startLookBack(pid, { now: at(15) }); return null; } catch (e) { return e.status; } };
+        check('Start on a deck is refused (409), not a draw', has('startLookBack') && refused(deck) === 409, String(has('startLookBack') && refused(deck)));
+        check('Start on an archived course is refused (409)', has('startLookBack') && refused(shelved) === 409);
     });
 
     await block('2. the cadence: 14 days, or a phase that closed', async () => {
@@ -181,6 +187,24 @@ try {
         for (const id of [c1, c2, c3]) complete(id, at(18));
         check('the Cells phase closes on day 18 (3 days after "Not now"): offered then', offerOf(bio, at(18, 1))?.kind === 'look_back', JSON.stringify(offerOf(bio, at(18, 1))));
         check('a completion stamped later than the instant asked about does not count', offerOf(bio, at(17, 23)) === null);
+
+        // A phase holding a skipped topic: skipped carries no completed_at.
+        const phys = project('Physics');
+        const mech = node(phys, 'Mechanics');
+        const m = topics(phys, ['Forces', 'Energy', 'Momentum', 'Gravity', 'Friction'], mech);
+        const waves = node(phys, 'Waves');
+        const w = topics(phys, ['Sound', 'Light'], waves);
+        [...m, ...w].forEach(id => studied(id, at(0)));
+        check('Physics, day 5, no phase closed: nothing', offerOf(phys, at(5, 1)) === null, JSON.stringify(offerOf(phys, at(5, 1))));
+        m.slice(0, 4).forEach(id => complete(id, at(5)));
+        db.prepare("UPDATE nodes SET status = 'skipped', completed_at = NULL WHERE id = ?").run(m[4]);
+        check('a phase of four completed topics and one skipped closes: offered', offerOf(phys, at(5, 1))?.kind === 'look_back', JSON.stringify(offerOf(phys, at(5, 1))));
+        has('skipLookBack') && lb.skipLookBack(phys, { now: at(6) });
+        w.forEach(id => complete(id, at(7)));
+        check('a phase closing one day after "Not now": not yet (3 days apart)', offerOf(phys, at(7, 1)) === null, JSON.stringify(offerOf(phys, at(7, 1))));
+        check('three days after "Not now", that phase brings it', offerOf(phys, at(9, 1))?.kind === 'look_back', JSON.stringify(offerOf(phys, at(9, 1))));
+        has('skipLookBack') && lb.skipLookBack(phys, { now: at(10) });
+        check('a phase that closed before the last "Not now" brings nothing again', offerOf(phys, at(13, 1)) === null, JSON.stringify(offerOf(phys, at(13, 1))));
     });
 
     let sitting = null;
@@ -219,6 +243,13 @@ try {
         const asked = new Set(hq.map(q => KEY.get(refUuid(q))));
         check('12 topics: one question each from the 10 practised longest ago', hq.length === 10 && asked.size === 10 && !asked.has(many[10]) && !asked.has(many[11]),
             JSON.stringify(many.map(id => asked.has(id) ? 1 : 0)));
+
+        // Left open, then "Not now": Start draws afresh and drops the old one.
+        has('skipLookBack') && lb.skipLookBack(hist, { now: at(15, 1) });
+        const fresh = has('startLookBack') ? lb.startLookBack(hist, { now: at(29) }) : null;
+        check('Start on a look back left open and put off draws a fresh one', fresh?.sitting?.id > 0 && fresh.sitting.id !== h?.sitting?.id && !fresh.resumed,
+            JSON.stringify({ old: h?.sitting?.id, now: fresh?.sitting?.id, resumed: fresh?.resumed }));
+        check('and the old one is gone', !db.prepare('SELECT 1 FROM mock_sittings WHERE id = ?').get(h?.sitting?.id ?? -1));
     });
 
     await block('4. what it writes, and how a slip comes back', async () => {
@@ -241,11 +272,13 @@ try {
         const row = (list.courseSittings ?? []).find(s => s.id === sitting);
         check('the mock exam list names it a look back', row?.lookBack === true, JSON.stringify(row));
 
-        const soon = new Date(Date.now() + HOUR);
-        const later = new Date(Date.now() + 21 * HOUR);
+        // The database stamped the sitting's answers with its own clock: put them on day 20.
+        db.prepare("UPDATE question_log SET asked_at = ? WHERE surface = 'mock'").run(at(20, 2).toISOString());
+        const soon = at(20, 3);
+        const later = at(21, -11);
         const recallIds = (when) => getDecayingNodes(bio, 14, when, { limit: null }).map(n => n.node_id);
-        check('the topic answered wrong is not asked again the same hour', !recallIds(soon).includes(c2), JSON.stringify(recallIds(soon)));
-        check('from 20 hours later it is in the recall round, and only it', JSON.stringify(recallIds(later)) === JSON.stringify([c2]), JSON.stringify(recallIds(later)));
+        check('the topic answered wrong is not asked again the same day', !recallIds(soon).includes(c2) && !recallIds(at(20, 11)).includes(c2), JSON.stringify(recallIds(soon)));
+        check('from the next day it is in the recall round, and only it', JSON.stringify(recallIds(later)) === JSON.stringify([c2]), JSON.stringify(recallIds(later)));
         const page = composeFeed({ projectId: bio, now: later, excludeKeys: new Set() });
         check('the stream opens with a recall question on it', page.items.some(i => i.kind === 'recall' && i.nodeId === c2),
             JSON.stringify(page.items.slice(0, 4).map(i => [i.kind, i.nodeId])));
@@ -254,11 +287,23 @@ try {
         // what the look back found); one asked afterwards does.
         const quizId = db.prepare('SELECT id FROM quizzes WHERE node_id = ?').get(c2).id;
         const answerAt = (ms, correct) => db.prepare(`INSERT INTO question_log (quiz_id, question_index, node_id, surface, correct, asked_at)
-            VALUES (?, 1, ?, 'mock', ?, ?)`).run(quizId, c2, correct, new Date(Date.now() + ms).toISOString());
+            VALUES (?, 1, ?, 'mock', ?, ?)`).run(quizId, c2, correct, new Date(at(20, 2).getTime() + ms).toISOString());
         answerAt(10_000, 1);
         check('a right answer seconds after the miss leaves it in the round', recallIds(later).includes(c2), JSON.stringify(recallIds(later)));
         answerAt(2 * 60_000, 1);
         check('one right answer on it afterwards and it leaves the round', !recallIds(later).includes(c2), JSON.stringify(recallIds(later)));
+
+        // Which question the recall round asks: the one the look back missed,
+        // ahead of one answered right before it.
+        const optics = node(project('Optics'), 'Lenses');
+        const oq = db.prepare('SELECT id, questions FROM quizzes WHERE id = ?').get(bank(optics));
+        const ouuid = JSON.parse(oq.questions).map(q => q.uuid);
+        const logOn = (index, surface, correct, when) => db.prepare(`INSERT INTO question_log (quiz_id, question_index, question_uuid, node_id, surface, correct, asked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`).run(oq.id, index, ouuid[index], optics, surface, correct, when.toISOString());
+        logOn(0, 'quiz', 1, at(10));
+        logOn(2, 'mock', 0, at(20, 2));
+        const order = recallOrder(optics).map(b => b.question.uuid);
+        check('the recall round asks the missed question first', order[0] === ouuid[2], JSON.stringify(order.map(u => ouuid.indexOf(u))));
     });
 
     await block('5. the mock window before a real exam', async () => {
@@ -280,7 +325,13 @@ try {
 
         const full = mock.drawCourseMock(chem, { size: 12, now: at(28) });
         mock.finishSitting(full.sitting.id, { now: at(28, 1), attemptId: aid() });
-        check('a full mock finished: no offer for a week', offerOf(chem, at(30)) === null, JSON.stringify(offerOf(chem, at(30))));
+        check('a full mock finished: no offer for a week', offerOf(chem, at(29)) === null, JSON.stringify(offerOf(chem, at(29))));
+
+        // The exam's own day: nothing, not even the look back it would otherwise be.
+        db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(studyToday({ now: at(43).getTime() }), chem);
+        check("on the exam's own day nothing is offered", offerOf(chem, at(43)) === null, JSON.stringify(offerOf(chem, at(43))));
+        db.prepare('UPDATE projects SET deadline = NULL WHERE id = ?').run(chem);
+        check('the same day with no exam: the look back (15 days after the mock)', offerOf(chem, at(43))?.kind === 'look_back', JSON.stringify(offerOf(chem, at(43))));
 
         db.prepare('UPDATE projects SET deadline = ? WHERE id = ?').run(plusDays(studyToday({ now: at(20).getTime() }), 30), chem);
         check('30 days away is outside the window: the look back rules', offerOf(chem, at(20))?.kind !== 'mock', JSON.stringify(offerOf(chem, at(20))));
@@ -330,6 +381,8 @@ try {
         const result = readFileSync(join(ROOT, 'src', 'components', 'mockExam', 'CourseMock.tsx'), 'utf8');
         check('its result shows no bar per topic', /result\.topics\.length > 0 && !detail\.paper\.lookBack/.test(result));
         check('its result shows no clock line', /!detail\.paper\.lookBack && <p[^>]*>\s*\{sitting\.timeAllowed > 0/.test(result));
+        // A blank answer logs nothing, so only an answer given and wrong earns "comes back".
+        check('its "comes back" line counts only answers given wrong', /detail\.paper\.lookBack && result\.total - result\.right - result\.notAnswered > 0/.test(result));
     });
 } finally {
     server.close();

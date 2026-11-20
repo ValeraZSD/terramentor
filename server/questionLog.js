@@ -230,6 +230,9 @@ export function drawFromQuiz(quizId, size, opts = {}) {
  *      and a lucky true/false says little;
  *   3. then the questions only ever missed: never got right, they say nothing
  *      about forgetting.
+ * Before all three: a question missed on a look back or a mock with no right
+ * answer since, so the recall card that says it comes from the look back asks
+ * the question the learner missed there.
  * Within a tier and the same share of misses, the format a guess cannot pass
  * first in EVERY tier (a correct calculation known twice says more than a
  * correct true/false known twice), then the least recently asked, then
@@ -251,7 +254,9 @@ export function recallOrder(nodeId) {
     const uuids = [...new Set(bank.map(b => b.question.uuid).filter(u => typeof u === 'string' && u))];
     const byUuid = uuids.length ? ` OR question_uuid IN (${uuids.map(() => '?').join(',')})` : '';
     const record = new Map(db.prepare(`
-        SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last
+        SELECT ${LOG_KEY} AS k, SUM(correct = 1) AS hits, SUM(correct = 0) AS misses, MAX(asked_at) AS last,
+            MAX(CASE WHEN surface = 'mock' AND correct = 0 THEN asked_at END) AS mockMiss,
+            MAX(CASE WHEN correct = 1 THEN asked_at END) AS lastHit
         FROM question_log WHERE quiz_id IN (${marks})${byUuid}
         GROUP BY k
     `).all(...quizIds, ...uuids).map(r => [r.k, r]));
@@ -265,8 +270,11 @@ export function recallOrder(nodeId) {
         const r = record.get(askKey(b));
         const hits = r?.hits || 0;
         const misses = r?.misses || 0;
+        // Missed on a look back or a mock, and not answered right since: the
+        // question the slip is about (fading.js SLIPPED_TOPIC), asked first.
+        const slipped = !!r?.mockMiss && !(r.lastHit > r.mockMiss);
         return {
-            b, position,
+            b, position, slipped,
             tier: hits > 0 ? 0 : misses > 0 ? 2 : 1,
             missShare: hits + misses > 0 ? misses / (hits + misses) : 0,
             guess: GUESS_BY_FORMAT[b.question.type] ?? GUESS_BY_FORMAT.multiple_choice,
@@ -276,6 +284,7 @@ export function recallOrder(nodeId) {
     });
     ranked.sort((x, y) =>
         (x.previous - y.previous)
+        || (y.slipped - x.slipped)
         || (x.tier - y.tier)
         || (y.missShare - x.missShare)
         || (x.guess - y.guess)

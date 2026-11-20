@@ -2333,6 +2333,9 @@ addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
 // course's last "Not now" on its offer (ISO), which starts the clock again.
 addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
+// A topic's own answers, read per topic by the slip rule (fading.js
+// SLIPPED_TOPIC) on every recall round and by the look back's first answer.
+db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_node ON question_log(node_id, surface, correct, asked_at)');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;
