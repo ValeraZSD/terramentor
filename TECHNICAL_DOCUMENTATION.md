@@ -61,7 +61,7 @@ sign-in for the same account. `tools/secrets-gates.mjs` proves all of it in a se
 
 | Table | Holds |
 |---|---|
-| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`, `made_from` (a short course's source as JSON: kind, address or file name (and the chat attachment's id, for a file from the assistant's chat), the chapters picked and the topics the assistant showed, so Retry writes the same course; never the source's text; NULL for every other course). |
+| `projects` | A course. Colour, icon, schedule window, study days, `baseline_schedule`, `status` (`active`/`completed`/`archived`), `content_language`, `learning_language` (the language a course teaches, derived, never typed), `search_words` + `search_words_by` + `search_words_tries` (what its search links put before a topic's title; written by a model or the learner), `kind` (`curriculum`/`deck`), `version` (the course's edition, free text), `summary`, `insights`, `made_from` (a short course's source as JSON: kind, address or file name (and the chat attachment's id, for a file from the assistant's chat), the chapters picked and the topics the assistant showed, so Retry writes the same course; never the source's text; NULL for every other course), `look_back_skipped_at` (the last "Not now" on its look back offer, §5.1). |
 | `nodes` | The curriculum tree (`parent_id` recursive). `title`, `description` (public Overview), `notes` (private), `status`, `is_note`, `role` (`topic`, or `pagination` for a deck's "Stage N" slices), scheduling dates, `estimated_weight`, `completed_at`, `chat_draft`. |
 | `resources` | Links attached to a node. |
 | `settings` | Global key/value. Every tunable lives here. |
@@ -326,6 +326,16 @@ rebuild of the app's own moves the estimate, the topic is judged on its score
 again (an answer's update starts from the lowered estimate, like any update).
 Asserted by `tools/mcp-gates.mjs`, which also checks that both lists agree.
 
+Both lists read `RECALL_TOPIC`: a fading topic, or a SLIPPED one (`SLIPPED_TOPIC`,
+same file). A topic slips when a look back (§5.1) logged a wrong answer on it
+(`question_log` surface `mock`, correct 0) at least `SLIP_DELAY_HOURS` (20) ago,
+with no right answer on it logged from one minute after that miss; a right answer
+in the same sitting does not clear it. `recallCutoffs(decayDays)` gives both
+cutoffs. Slipped topics come first in the round, and their cards carry
+`slipped: true`. A slip changes no status and no evidence: the miss is already a
+`mock` practice row, and the topic leaves the round once it is answered right.
+The topic panel's "fading" word still reads `FADING_TOPIC` alone.
+
 ### 4.4 Seeded priors (`applySeededPrior`)
 
 Two features hand a topic an estimate the learner did not earn there: mastery
@@ -464,8 +474,25 @@ pages by exclude key. With no scope it is the whole library by urgency (`/`); wi
 `projectId` it is one course by the same urgency; with `nodeId` it is one topic or
 section with the schedule ignored (`getFocusForNode`), because the learner chose
 it. Card kinds: `lesson`, `question`, `flashcard`, `recall`, `checkpoint`,
-`practice`, `notice`. The recall round opens the stream (above); after it the
+`practice`, `notice`, `lookback`. The recall round opens the stream (above); after it the
 interleave is roughly lesson → question → … with a flashcard every 3–4 items.
+
+**The look back** (`server/lookBack.js`). On the opening page of the home stream
+and of a course's stream (never a topic's, never a later page) one `lookback` card
+leads, above the recall round, for at most one course (on the home stream the
+course the stream studies next). `lookBackOffer(projectId, {now})` says what it
+offers: `resume` while a look back is open (until a "Not now" after it started);
+`mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
+21 days away and no full mock was finished or offer put off in the last 7 days;
+else `look_back` when 14 days have passed since the last look back, full mock or
+"Not now" (or since the course's first answer), or a phase (a top-level node with
+two or more work leaves) has closed since then, at least 3 days after it; and in
+every case only when `courseReadiness` finds 4 topics and 10 questions it can
+mark alone. A deck, an archived course and a finished one get none. A look back is
+a course draw (`drawCourseMock(…, {lookBack: true})`, `exam_papers.look_back = 1`)
+of 10 questions with no clock: the topics practised longest ago take a question
+each first. Its result has no range and no pass line; it writes the same `mock`
+practice rows a mock does. "Not now" stamps `projects.look_back_skipped_at`.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
@@ -943,6 +970,7 @@ and a route an earlier one answers first.
 | Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
 | Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
+| Mock exams, look back | `/projects/:projectId/mock-exams` (+ `/draw`), `/projects/:projectId/exam`, `/mock-exams/papers/:paperId` (+ `/sittings`), `/mock-sittings/:id` (+ `/answers`, `/scores`, `/pause`, `/resume`, `/stop`, `/finish`), `/projects/:projectId/look-back` (GET offer, POST start, + `/skip`) |
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
 | Placement | `/placement/:projectId` (GET/DELETE), `/placement/:projectId/start`, `/placement/probe/:probeId/answer`, `/placement/probe/:probeId/finish` |

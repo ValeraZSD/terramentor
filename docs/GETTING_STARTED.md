@@ -137,7 +137,7 @@ search, so you can close the gap without leaving the app.
 
 ## Remembering: reviews and recall
 
-Learning something once is not knowing it. Two mechanisms fight the forgetting curve:
+Learning something once is not knowing it. Three mechanisms fight the forgetting curve:
 
 - **Flashcards**, scheduled by **FSRS-7**, the newest FSRS. Rate a card by how hard it was; easy cards come back in
   weeks, hard ones tomorrow, and "Again" means minutes. The scheduler fits itself to your own
@@ -145,6 +145,13 @@ Learning something once is not knowing it. Two mechanisms fight the forgetting c
 - **Recall cards**: saved questions from topics you did well on and have not practised for a
   while. They open the feed as a short round, one question per topic, starting with the hardest
   one you have answered right before. Answering one refreshes both the estimate and the timer.
+- **Look back**: every two weeks or so, or when you have just finished a part of a course, the
+  stream opens with an offer of ten questions from across the course, the topics you practised
+  longest ago first. It has no clock and no pass line, and it shows the right answers at the end.
+  A topic you answer wrong comes back as a recall card the next day you study, until you answer it
+  right. In the three weeks before an exam whose date cannot move, the offer is the full mock exam
+  instead. **Not now** puts it off until the next one. A card deck has none: its reviews already
+  mix every card.
 
 This is what makes the plan cumulative instead of a checklist you sweep once and forget.
 
