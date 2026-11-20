@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useTapGuard } from '../hooks/useTapGuard';
@@ -8,7 +8,7 @@ import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
-import { taskPlace, taskEta, durationParts, originSentence, KIND_LABEL, taskTitle } from '../utils/taskPlace';
+import { taskPlace, placeRoute, taskEta, durationParts, originSentence, KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
@@ -24,11 +24,23 @@ import { SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
  * naming, PDF recovery, interval tuning — the chip is the only place they are
  * visible at all, so those two facts have nowhere else to be said.
  *
- * So every chip opens this from its progress badge, and a task with no screen
- * of its own opens it on the press rather than going nowhere. The controls come
+ * So a press on a chip opens this, never the task's screen: the dock floats
+ * over whatever the reader is doing, and a press that navigated took them off
+ * that page. The way to the screen is this dialog's first button. A failed
+ * chip with a failure report opens that report instead. The controls come
  * with the facts: a runaway background job is stopped from where you noticed
  * it, not from wherever it was configured.
  */
+
+const readLocation = () => window.location.pathname + window.location.hash;
+const subscribeLocation = (onChange: () => void) => {
+    window.addEventListener('popstate', onChange);
+    window.addEventListener('hashchange', onChange);
+    return () => {
+        window.removeEventListener('popstate', onChange);
+        window.removeEventListener('hashchange', onChange);
+    };
+};
 
 /** How the state reads, as a whole word rather than a colour. */
 function statusKey(task: AITaskSummary): string {
@@ -51,13 +63,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     );
 }
 
-export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailure }: {
+export default function TaskDetailModal({ task, onClose, onDismiss }: {
     task: AITaskSummary;
     onClose: () => void;
     /** Clear a settled task THROUGH the dock, so it plays the same exit as the ✕. */
     onDismiss: (id: string) => void;
-    /** Hand a failed task over to the failure record, which is a different question. */
-    onShowFailure?: () => void;
 }) {
     const { t } = useTranslation();
     const openAiTask = useStore(s => s.openAiTask);
@@ -138,6 +148,30 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
             ? (title.includes(task.projectName) ? null : task.projectName)
             : t("Across the whole library"),
     ].filter(Boolean).join(' · ');
+
+    // A button that goes to the page the reader is already on does nothing
+    // when pressed, and the chip is often pressed FROM the topic the work is
+    // for. The assistant counts when its drawer is already open; a creation run
+    // never does, because its button opens that run's screen over this page.
+    // Read from `window.location` (the app runs a BrowserRouter with no base),
+    // because the dialog is also mounted where no router is: the dock harness.
+    const assistantOpen = useStore(s => s.assistantOpen);
+    // Where the reader is, kept current while the record stays open: Back,
+    // Forward or a hash change move them without closing it.
+    const where = useSyncExternalStore(subscribeLocation, readLocation);
+    const here = (() => {
+        if (!place) return false;
+        if (place.go === 'assistant') return assistantOpen;
+        const route = placeRoute(place);
+        if (!route) return false;
+        const trim = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p);
+        const [path, fragment] = route.split('#');
+        const [pathname, hash = ''] = where.split('#');
+        // A section's own sub-anchor (`#ai/models-jobs` under `#ai`) is
+        // still that section: the button would go nowhere from there.
+        return trim(path) === trim(pathname)
+            && (fragment === undefined || hash === fragment || hash.startsWith(`${fragment}/`));
+    })();
 
     const goThere = () => {
         if (openAiTask(task)) onClose();
@@ -247,13 +281,10 @@ export default function TaskDetailModal({ task, onClose, onDismiss, onShowFailur
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 p-4 dark:border-slate-700">
-                    {place && (
-                        <Button variant="primary" onClick={goThere} trailing={<ArrowUpRight className="h-4 w-4" aria-hidden="true" />}>
+                    {place && !here && (
+                        <Button variant="primary" data-task-go onClick={goThere} trailing={<ArrowUpRight className="h-4 w-4" aria-hidden="true" />}>
                             {t(place.openKey)}
                         </Button>
-                    )}
-                    {task.status === 'error' && task.failure && onShowFailure && (
-                        <Button variant="neutral" onClick={onShowFailure}>{t("Why it failed")}</Button>
                     )}
                     {active ? (
                         <Button variant="danger" onClick={() => { cancelAiTask(task.id); onClose(); }}>

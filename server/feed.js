@@ -11,6 +11,7 @@ import { getPlacementInfoMap, reviewPlanned } from './headStart.js';
 import { getNewPerDay } from './decks.js';
 import { projectTeaches } from './nodeRole.js';
 import { IN_DAY, studyDay, studyToday } from './studyDay.js';
+import { refreshTopicDates } from './topicDates.js';
 import { drawFromNode, parseSavedKey, logAsked, bankPartLookup } from './questionLog.js';
 import { feedAnswerIsProof, feedBankQuestion, bankRefOfFeedKey } from './questionTrust.js';
 import { getGateConfig } from './settingsStore.js';
@@ -266,6 +267,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     maxPerProject = maxPerProject ?? (onlyProject ? maxTotal : fs.focusPerProject);
     // `now`: a gate's pinned instant; everyone else asks for the learner's real today.
     const today = studyToday({ now });
+    refreshTopicDates({ today });
     const projects = db.prepare(`
         SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
                EXISTS(
@@ -280,13 +282,13 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
 
     const overdueStmt = db.prepare(`
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.role
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${OPEN_LEAF} AND n.scheduled_end < ?
         ORDER BY n.scheduled_end ASC, n.id ASC
     `);
     const todayStmt = db.prepare(`
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.role
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${OPEN_LEAF}
           AND n.scheduled_start <= ? AND n.scheduled_end >= ?
         ORDER BY n.position ASC, n.id ASC
@@ -295,7 +297,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // creation order (the AI pipeline creates nodes in curriculum order).
     const aheadStmt = db.prepare(`
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.role
-        FROM nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${OPEN_LEAF}
           AND (n.scheduled_start IS NULL OR n.scheduled_start > ?)
         ORDER BY CASE WHEN n.scheduled_start IS NULL THEN 1 ELSE 0 END,
@@ -306,7 +308,9 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     const infos = projects.map(p => {
         let pace = null;
         if (p.start_date && p.deadline) {
-            try { pace = calculatePace(p.id); } catch { pace = null; }
+            // On the same day as the queries below: a default refresh would
+            // lay the shared plan for the real today under them.
+            try { pace = calculatePace(p.id, { today }); } catch { pace = null; }
         }
         return {
             project: p,
@@ -429,6 +433,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
 export function getFocusForNode(nodeId, { maxTotal } = {}) {
     maxTotal = maxTotal ?? getFeedSettings().focusTotal;
     const today = studyToday();
+    refreshTopicDates({ today });
     const node = db.prepare(`
         SELECT n.id, n.project_id, n.is_note,
                p.id AS pid, p.name, p.color, p.icon, p.start_date, p.deadline
@@ -454,7 +459,7 @@ export function getFocusForNode(nodeId, { maxTotal } = {}) {
             FROM nodes n JOIN sub ON n.parent_id = sub.id WHERE n.is_note = 0
         )
         SELECT n.id, n.title, n.description, n.notes, n.scheduled_end, n.status, n.role
-        FROM nodes n JOIN sub ON sub.id = n.id
+        FROM plan_nodes n JOIN sub ON sub.id = n.id
         WHERE ${LEAF_NODE}
         ORDER BY CASE WHEN COALESCE(n.status, 'not_started') IN ('completed', 'skipped') THEN 1 ELSE 0 END,
                  sub.path ASC
@@ -1265,7 +1270,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // "All caught up" is a claim about finished work, so it is made only when
     // there is work and all of it is closed. An empty course, or topics with
     // nothing yet to serve, gets what is actually true.
-    if (!scoped && items.length === 0 && projectInfos.length > 0) {
+    // A look back offer alone is no stream: the notices below still say why
+    // nothing else is there (all but "nothing left", which the offer belies).
+    const offers = items.filter(i => i.kind === 'lookback');
+    if (!scoped && items.length === offers.length && projectInfos.length > 0) {
         const { topics, cards, open, openTaught, cardsLeft } = explainEmpty(projectInfos.map(i => i.project.id));
         // A first page: the learner holds nothing yet. Later, an empty draw just
         // means they hold everything there is, and the stream's own end says so.
@@ -1306,7 +1314,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         } else if (open > 0) {
             // Open topics nobody will write lessons for (the course does not
             // teach) and nothing of theirs to serve. Not finished either.
-            if (firstPage && !excluded('notice-clear')) {
+            if (firstPage && !excluded('notice-clear') && !offers.length) {
                 items.push({
                     key: 'notice-clear', kind: 'notice',
                     message: projectScope
@@ -1314,9 +1322,10 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                         : "That's everything for now — come back later or open a project to go deeper.",
                 });
             }
-        } else if (!excluded('notice-clear') && !roundHeld) {
-            // Not under a review round the learner still holds: "no review is
-            // due" would sit below the questions it says are not there.
+        } else if (!excluded('notice-clear') && !roundHeld && !offers.length) {
+            // Not under a review round the learner still holds, nor a look back
+            // offered: "no review is due" would sit below the questions it says
+            // are not there.
             items.push({
                 key: 'notice-clear', kind: 'notice',
                 message: projectScope
@@ -1406,9 +1415,10 @@ export function buildFeedHeader() {
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
     `).get(day.start, day.end).c;
 
+    refreshTopicDates({ today });
     const overdueRows = db.prepare(`
         SELECT n.project_id AS pid, p.name AS name, COUNT(*) AS c
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF} AND n.scheduled_end < ?
         GROUP BY n.project_id

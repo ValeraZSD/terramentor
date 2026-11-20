@@ -165,12 +165,22 @@ Allocation is **phase-aware**: a top-level phase gets a contiguous slice of the
 window, with a fallback path for a deadline too tight to fit them all.
 
 Initial scheduling and recalibration **share one engine** (`allocatePhaseAware` +
-`deriveParentDates` + `computeLeafWeight`). Recalibration simply runs it from
-today over the still-open leaves, preserving completed items' dates.
+`deriveParentDates` + `computeLeafWeight`). A course with a window stores no
+topic dates: `layTopicDates` derives them whenever they are read (the TEMP view
+`plan_nodes`, `server/topicDates.js`). A closed topic sits on the day it was
+completed, in the learner's zone; one with no completion time (skipped,
+imported) on the end date its row carries, else the day its row last changed.
+Open topics are laid by the engine from today to the deadline, so a missed week
+makes nothing overdue. Recalibrate and saving a window write no topic date;
+saving or changing a window clears the dates an older build stored on open
+topics.
 
 **Pace is schedule-aware, not calendar-linear.** `expectedProgress` is the share,
-counted in topics, of leaves whose `scheduled_end` is before today, not elapsed days
-over total days (and not their depth-discounted weight, which decides dates only).
+counted in topics, of leaves whose end date in the derived plan is before today,
+not elapsed days over total days (and not their depth-discounted weight, which
+decides dates only). In a course with a window only closed topics can be dated
+before today; whether the open work still fits is the pace verdict's question
+(`server/paceModel.js`).
 Actual progress is `projectProgress` from `server/progress.js`. With no leaf dated,
 it falls back to the elapsed share of the window.
 
@@ -180,8 +190,7 @@ Notes never carry schedule dates; a startup repair strips any left by older runs
 teaches it and it holds cards; client mirror `src/utils/projectShape.ts`) is
 scheduled as a window only (`allocateCardWindow` dates no node). Its pace is cards
 met against the share of the window's study days gone (`studyDayShare`), and where
-each section falls on that line is derived on read (`cardPlan`, returned on
-`GET /api/projects/:id/pace` and added to the global calendar). `removeSchedule`
+each section falls on that line can be derived (`cardPlan`; no screen shows it at present). `removeSchedule`
 is the one removal path: window, every node date and the baseline go, the study
 week stays.
 
@@ -338,7 +347,9 @@ same 28 days), with no right answer on it logged from one minute after that
 miss; a right answer in the same sitting does not clear it.
 `recallCutoffs(decayDays, now)` gives the three cutoffs. Slips from every course
 in scope join the round, not only the next course's. Slipped topics come first in the
-round, `recallOrder` asks the missed question itself first (unless it was the
+round, `recallOrder(nodeId, now)` asks the missed question itself first while
+the topic slips by the same rule (earlier day, 28 days, no right answer on any
+of its questions from a minute after) (unless it was the
 last one the recall round asked on that topic), and their cards carry
 `slipped: true`. A slip changes no status and no evidence: the miss is already a
 `mock` practice row, and the topic leaves the round once it is answered right.
@@ -505,8 +516,9 @@ offers: `resume` while a look back is open (until it is put off, below);
 `mock` when a real exam (`deadline_fixed = 1`, or `exam_on_screen` set) is 1 to
 21 days away and no full mock was finished or offer put off in the last 7 days
 (nothing on the exam's own day);
-else `look_back` when 14 days have passed since the last look back, full mock or
-"Not now" (or since the course's first answer), or a phase (a top-level node with
+else `look_back` when 14 days have passed since the last look back, full mock
+(a whole sitting, course draw or past paper; one past-paper question practised
+alone is no mock) or "Not now" (or since the course's first answer), or a phase (a top-level node with
 two or more work leaves, each completed or skipped, at least one completed) has
 closed since then, at least 3 days after it; and in
 every case only when `courseReadiness` finds 4 topics and 10 questions it can
@@ -519,6 +531,10 @@ A look back left open stops being offered as Continue once put off, once 14 days
 old, or inside the mock window. Start on such a one finishes it when anything was
 answered (the answers count), else drops it (`discardSitting`), and draws a fresh
 one. Start on a deck, an inactive course or one without enough to mix is a 409.
+A stream holding only the offer still gets the empty stream's notices (AI off, no
+model, today's cards done), but never the two that say nothing is left ("That's
+everything this course has ready right now" / "That's everything for now", and
+"You're all caught up") beneath it.
 
 Volume caps exist because unbounded queues destroy the format:
 `dueReviewsPerDay`, `newCardsPerProjectPerDay` and `recallPerBatch` in `FEED_DEFAULTS`,
@@ -993,9 +1009,9 @@ and a route an earlier one answers first.
 
 | Area | Routes |
 |---|---|
-| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan`, `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
+| Projects | `/projects`, `/projects/:id`, `/projects/reorder`, `/projects/:id/pace`, `/projects/:id/insights`, `/projects/:projectId/study-dashboard`, `/projects/:projectId/daily-plan` (no screen or gate requests it since the Dashboard's daily list was removed; the gates call `generateDailyPlan` directly), `/projects/:projectId/completion` (+ `/seen`), `/projects/:projectId/teaching` |
 | Nodes | `/projects/:projectId/nodes`, `/nodes` (POST), `/nodes/:id` (PUT/DELETE), `/nodes/:id/move`, `/nodes/:id/weight`, `/nodes/reorder`, `/nodes/labels`, `/nodes/:nodeId/resources`, `/resources`, `/resources/:id`, `/resources/reorder` |
-| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview`, `/calendar` |
+| Scheduling | `/projects/:id/schedule` (POST/DELETE), `/projects/:id/recalibrate`, `/schedule/overview` |
 | Mock exams, look back | `/projects/:projectId/mock-exams` (+ `/draw`), `/projects/:projectId/exam`, `/mock-exams/papers/:paperId` (+ `/sittings`), `/mock-sittings/:id` (+ `/answers`, `/scores`, `/pause`, `/resume`, `/stop`, `/finish`), `/projects/:projectId/look-back` (GET offer, POST start, + `/skip`) |
 | Feed | `/feed` (`?projectId=` / `?nodeId=` scopes), `/feed/consume`, `/feed/items/:id`, `/feed/nodes/:id/pre-questions`, `/feed/lessons/:id/explain`, `/projects/:projectId/ghost-questions` |
 | Mastery | `/nodes/:nodeId/mastery`, `/nodes/:nodeId/mastery/quiz`, `/nodes/:nodeId/mastery/drill`, `/nodes/:nodeId/drill-scores`, `/nodes/:nodeId/mastery-check/draw`, `/projects/:projectId/mastery`, `/projects/:projectId/mastery/mastery-check`, `/mastery/model`, `/mastery/optimize`, `/mastery/params` (a card's evidence has no route; it is written on the rating path, `server/cardEvidence.js`) |
@@ -1153,16 +1169,32 @@ node tools/contrast-audit.mjs
 ### 12.1 The activity log (`server/activityLog.js`)
 
 A local record of what the app DID: model calls, background jobs, projects created
-or deleted. **Metadata only**: no titles, prompts, notes or model output, which is
-what makes the file safe to hand to someone helping you debug; ids travel as ids
-and a project's name is looked up only on the way to the screen. A ring buffer of
-`MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX` environment variable),
-switched by `activity_log_enabled`
+or deleted. **Metadata only**: no titles, prompts, notes or model output; ids travel
+as ids and a project's name is looked up only on the way to the screen. The download
+also says how much and when you studied (below), so read it before choosing who gets
+it. A ring buffer of `MAX_ROWS` rows (overridable with the `ACTIVITY_LOG_MAX`
+environment variable), switched by `activity_log_enabled`
 (absent means on), with no FKs so a deleted project keeps its rows. Read in
 Settings → Library & about, downloaded one event per line (`GET /api/activity`,
 `/api/activity/export`, `DELETE /api/activity`). Guard:
 `tools/activity-log-gates.mjs`, which also scans every `logActivity(` call site for
 learner content.
+
+The download opens with a **study summary** (`server/studySummary.js`,
+`activityExport()`): counts computed from `study_time`, `review_log` (source `app`),
+`mastery_evidence`, `nodes` (topics marked done, by `completed_at`), `node_mastery` (proven = `estimateProven` over work leaves, the
+finished-project screen's rule) and `mock_sittings` when the file is made, never from
+the log, so an empty, cleared, switched-off or capped log does not change it. Days are
+the learner's days (`studyDay.js`) in the zone the page puts in the link (`?tz=`, since
+a plain link sends no `X-Time-Zone`; an unknown name falls back to the stored zone).
+Weeks start on Monday in that calendar, empty weeks included, a day after this week
+counted in this week's line, at most 52, with a line saying so when older weeks are
+left out. A summary that cannot be worked out becomes one
+`#` line naming the error class plus an `activity.summary_failed` event, and the events
+still follow. Every line starts with `#`, so a reader of one event per line skips it; it
+selects no text column. The gate seeds a library with marked text and a non-UTC time
+zone and pins every count, the week lines and the absence of the marks, and holds the
+proven, answer, review and study-day counts to `projectCompletion()`'s on one course.
 
 ### 12.2 Module map
 

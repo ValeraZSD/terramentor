@@ -231,7 +231,13 @@ try {
     } else ok('speakable exists', false);
     {
         const src = read('src/components/AssistantDrawer.tsx');
-        ok('nothing is said on the stream ending itself (it re-read the previous answer)', !/wasStreaming/.test(src));
+        // An effect may watch `streaming` (the status re-check after a turn does),
+        // but none that does may speak: saying the answer on the stream's end
+        // re-read the previous answer.
+        const streamEffects = [...src.matchAll(/useEffect\(\(\) => \{[\s\S]*?\n {4}\}, \[([^\]]*)\]\);/g)]
+            .filter((m) => /\bstreaming\b/.test(m[1])).map((m) => m[0]);
+        ok('nothing is said on the stream ending itself (it re-read the previous answer)',
+            streamEffects.length > 0 && streamEffects.every((b) => !/\bsay\(/.test(b)), `${streamEffects.length} effects on streaming`);
         const appends = [...src.matchAll(/setMessages\(prev => \[\.\.\.prev, \{\s*id: assistantId, role: 'assistant'[\s\S]*?\} as ChatMessage\]\);\s*say\(/g)].length;
         ok('both places a finished answer is put in the list say it (a send, a followed turn)', appends === 2, `${appends} of 2`);
         ok('a turn that finished while its socket was down is said from the history', /status === 'done' && last\?\.role === 'assistant'[^\n]*say\(last\.content\)/.test(src));

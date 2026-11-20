@@ -409,7 +409,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         setConnectionStatus('checking');
         setConnectionError(null);
         try {
-            const status = await api.getAIStatus();
+            const status = await api.getAIStatus({ fresh: true });
             // A switch of connection changes the protocol and the model at once.
             setProvider(status.provider);
             if (status.provider === 'openai') setOpenaiModel(status.model || '');

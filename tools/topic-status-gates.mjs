@@ -17,7 +17,7 @@
  * and a section reads in_progress once anything under it is under way.
  *
  * The real library had a topic at mastery 0.98 after seven answers that the
- * tree, the calendar and the assistant all called "not_started" and overdue.
+ * tree and the assistant both called "not_started" and overdue.
  * Each of those reads the status its own way, so each is asked here, on one
  * scratch library with one topic per case. `--table` prints what every surface
  * says, which is the before/after table in the PR.
@@ -65,9 +65,10 @@ process.on('exit', () => {
 const ANCHOR = '2026-06-15';
 const day = (offset) => new Date(Date.parse(`${ANCHOR}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
 
+// No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
 const projectId = db.prepare(
-    "INSERT INTO projects (name, position, start_date, deadline) VALUES ('Gate course', 0, ?, ?)",
-).run(day(-30), day(30)).lastInsertRowid;
+    "INSERT INTO projects (name, position) VALUES ('Gate course', 0)",
+).run().lastInsertRowid;
 const addNode = (parent, title, position, extra = {}) => db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, position, status, scheduled_start, scheduled_end)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -257,15 +258,7 @@ for (const [key, id] of Object.entries(CASES)) {
 }
 check('topicStatus.ts exports topicDotStatus, which the list and both maps draw', typeof atlas.topicDotStatus === 'function');
 
-// ---- the server: the calendar, and what the assistant reads -------------------
-
-const { buildCalendarRange } = await import('../server/today.js');
-const range = buildCalendarRange(day(-40), day(40));
-for (const [key, id] of Object.entries(CASES)) {
-    const task = range.tasks.find(t => t.nodeId === id);
-    record('Calendar (all projects)', key, task?.status);
-    eq(`calendar: ${key}`, task?.status, EXPECTED[key]);
-}
+// ---- the server: what the assistant reads ---------------------------------------
 
 const { projectStateText } = await import('../server/projectState.js');
 const state = projectStateText(projectId) || '';

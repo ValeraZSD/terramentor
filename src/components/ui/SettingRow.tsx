@@ -15,7 +15,7 @@
  * Anything else about the setting is available, never present:
  *
  *   hint   ONE short line under the name, and only when it changes which way
- *          you would set the thing. "Used by every calendar in the app" is not
+ *          you would set the thing. "Used by every screen in the app" is not
  *          a hint, it is a description of the obvious; "Off is fine" is.
  *   detail the longer version, READ ON THE PAGE. A page of identical grey
  *          chevrons is not a skimmable page (see `SettingNote` below), so

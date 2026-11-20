@@ -484,7 +484,7 @@ const refOf = (q) => (q && typeof q.uuid === 'string' && q.uuid ? `q:${q.uuid}` 
 /** The app grades it by itself; a written answer goes to the AI and is not drawn. */
 const checksAlone = (q) => ANSWER_FORMATS[q?.type]?.grading === 'local';
 // A placement answer is given BEFORE a topic is studied, so it starts nothing.
-const STUDIED = `(n.status IN ('in_progress', 'completed') OR EXISTS (SELECT 1 FROM mastery_evidence e WHERE e.node_id = n.id AND e.evidence_type <> 'placement'))`;
+export const STUDIED = `(n.status IN ('in_progress', 'completed') OR EXISTS (SELECT 1 FROM mastery_evidence e WHERE e.node_id = n.id AND e.evidence_type <> 'placement'))`;
 // A report stands until undone, or until the learner's own edit (server/itemReports.js).
 const STANDING_REPORT = `undone_at IS NULL AND (rewrite IS NULL OR json_extract(rewrite, '$.state') IS NOT 'edited')`;
 

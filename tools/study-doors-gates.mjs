@@ -107,8 +107,9 @@ section('the course Dashboard has one way into today\'s work');
     const went = [];
     useStore.setState({
         currentProjectId: 1, projects: [project], dashboardData: dashboard, dashboardLoading: false,
-        // The store has no such field any more, so this is a no-op; on the
-        // code before the change it is what put the list on the page.
+        // Seeded on purpose although the store no longer reads it: a store
+        // that still kept a daily plan would draw it, and this gate would go
+        // red (it did on the code before the list was removed).
         dailyPlan,
         _navigate: (to) => { went.push(to); },
     });
@@ -137,12 +138,18 @@ const topic = (id, title, projectId, projectName, extra = {}) => ({
 });
 const region = {
     id: 7, label: 'Mechanics', labelTopicId: 21, labelSource: 'medoid', medoidLabel: 'Mechanics', signature: 's',
-    size: 2, projects: [{ id: 9, name: 'Physics', color: '#0ea5e9', start: null, count: 2 }], crossProject: false,
-    mastery: { proven: 1, learning: 0, untouched: 1, avg: 0.5 }, isLandmark: false,
+    size: 3, projects: [{ id: 9, name: 'Physics', color: '#0ea5e9', start: null, count: 3 }], crossProject: false,
+    mastery: { proven: 1, learning: 0, untouched: 2, avg: 0.3 }, isLandmark: false,
     x: 0, y: 0, radius: 1, u: [0, 0, 1], cap: 1, topicRadius: 1,
-    topics: [topic(21, 'Newton\'s laws', 9, 'Physics', { status: 'completed', mastery: 0.9 }), topic(22, 'Momentum', 9, 'Physics')],
+    topics: [topic(21, 'Newton\'s laws', 9, 'Physics', { status: 'completed', mastery: 0.9 }), topic(22, 'Momentum', 9, 'Physics'),
+        // Not started, with a head start carried over from another course
+        // (Study next offers only topics not started).
+        topic(23, 'Impulse', 9, 'Physics', { transferred: true })],
 };
-const next = [{ topicId: 22, regionId: 7, nearId: 21, nearTitle: 'Newton\'s laws', similarity: 0.8 }];
+const next = [
+    { topicId: 22, regionId: 7, nearId: 21, nearTitle: 'Newton\'s laws', similarity: 0.8 },
+    { topicId: 23, regionId: 7, nearId: 21, nearTitle: 'Newton\'s laws', similarity: 0.7 },
+];
 
 function atlas(type, props) {
     const { w, gate } = page();
@@ -162,6 +169,8 @@ const accessibleName = (b) => {
     return text(b).replace(/\s+/g, ' ').trim();
 };
 const icon = (b) => [...b.querySelectorAll('svg')].map(s => s.getAttribute('class') || '').find(c => /lucide-/.test(c)) || '';
+const described = (w, b) => (b.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
+    .map(i => w.document.getElementById(i)?.textContent ?? '(missing)').join(' | ');
 
 section('a "Study next" row starts the lesson');
 let nextIcon = '';
@@ -176,10 +185,18 @@ let nextIcon = '';
         // which axe reports as a label that does not match the visible text.
         check('the name comes from the row\'s own text, not an aria-label', !row.hasAttribute('aria-label'));
         // What the name no longer says is still read, as the description.
-        const said = (row.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
-            .map(i => s.w.document.getElementById(i)?.textContent ?? '(missing)').join(' | ');
+        const said = described(s.w, row);
         check('its status and why it was picked are its description', said.includes('Not started') && said.includes("Near Newton's laws"), said);
         nextIcon = icon(row);
+        // Filled and in the accent at rest: the row's action, not a hover
+        // hint like a region row's grey arrow.
+        check('its mark is a filled play in the accent',
+            /lucide-play\b/.test(nextIcon) && /\bfill-current\b/.test(nextIcon) && /\btext-accent-fg\b/.test(nextIcon), nextIcon);
+        const headStart = s.rows().find(b => b.textContent.includes('Impulse'));
+        // The title block is hidden from the name, so the head-start note in
+        // it must reach the reader another way.
+        check('a topic started with a head start says so in its description',
+            !!headStart && described(s.w, headStart).includes('head start'), headStart ? described(s.w, headStart) : 'no row');
         await s.act(async () => { row.click(); });
     }
     check('pressing it lands on the topic\'s lesson', s.went.at(-1) === '/project/9/study/22', JSON.stringify(s.went));

@@ -11,6 +11,12 @@ import {
 } from './secrets.js';
 import { FIRST_UUID_TABLES, LOCAL_DEVICE, UUID_SQL, UUID_TABLES, deriveMissingUuids } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
+import { bootMark } from './bootTimes.js';
+
+// The app's modules are all read and linked before the first one runs, and
+// this is the first that does real work (server/index.js imports it right
+// after the umask), so the time up to here is reading the app off the disk.
+bootMark('modules read');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -53,6 +59,7 @@ db.pragma('journal_mode = WAL');
 // older version gave them; new ones already follow the database (above).
 makePrivateFile(`${DB_FILE}-wal`);
 makePrivateFile(`${DB_FILE}-shm`);
+bootMark('library opened');
 
 // Enable foreign key enforcement. SQLite leaves this OFF by default per
 // connection, which silently disables every `ON DELETE CASCADE` clause in the
@@ -1507,7 +1514,7 @@ try {
 
   // Notes are reference material, never work items — strip any schedule dates that
   // earlier scheduling runs may have left on them so they stop leaking into the
-  // calendar / pace / daily plan as phantom tasks. Idempotent.
+  // pace / daily plan / Today as phantom tasks. Idempotent.
   try {
     const fixed = db.prepare(
       `UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL
@@ -2333,9 +2340,10 @@ addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
 // course's last "Not now" on its offer (ISO), which starts the clock again.
 addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
-// A topic's own answers, read per topic by the slip rule (fading.js
-// SLIPPED_TOPIC) on every recall round and by the look back's first answer.
-db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_node ON question_log(node_id, surface, correct, asked_at)');
+// A topic's misses and right answers in time order, read per topic by the slip
+// rule (fading.js SLIPPED_TOPIC) on every recall round and by recallOrder's
+// "right since"; surface last, since the "right since" reads name none.
+db.exec('CREATE INDEX IF NOT EXISTS idx_question_log_node_correct ON question_log(node_id, correct, asked_at, surface)');
 // There is no Inbox any more: a link or a file becomes a short course, a fact a
 // card in its course. A library that had one keeps that project as an ordinary
 // course, under the name the learner knows, with every topic and answer in it;
@@ -2407,6 +2415,7 @@ try {
   const v = currentAppVersion();
   if (v) db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run('app_version', v);
 } catch { /* a stamp is bookkeeping; never fatal */ }
+bootMark('schema');
 
 /** The file this process opened — for the desktop status panel and the logs. */
 export const DB_PATH = DB_FILE;

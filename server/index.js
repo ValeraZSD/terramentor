@@ -28,12 +28,16 @@ import { isDesktop } from './desktop.js';
 import { refreshDesktopIcon } from './desktopIcon.js';
 import { createApp, distDir, servingSPA } from './app.js';
 import { getGateConfig } from './settingsStore.js';
+import { bootMark, bootLine } from './bootTimes.js';
 import { currentAppIcon } from './appIconSettings.js';
 import { startUpdatePoll } from './updatePoll.js';
 import { expireResult } from './appUpdate.js';
 import { sweepStaged } from './stagedDocuments.js';
 // For the desktop launcher, the one caller that can start the updater.
 export { setUpdateInstaller } from './appUpdate.js';
+
+// Every module above has run its top level by now.
+bootMark('modules run');
 
 // Process-level error handlers
 // Unhandled rejections are logged but NOT fatal — they typically
@@ -188,6 +192,8 @@ export const serverReady = listenWithFallback(PORT, PORT_ATTEMPTS).then((port) =
         console.log('API-only (dev mode) — run `npm run build` to serve the installable standalone app from here.');
     }
     console.log(`Data: ${DB_PATH}`);
+    bootMark('listen');
+    console.log(bootLine());
     // A restart is the boundary between two runs, and half of reading a log is
     // knowing which run a line belongs to. No path here: `DB_PATH` is a place on
     // someone's disk, which is exactly the kind of fact the export must not carry.

@@ -1,12 +1,13 @@
 import db, { NOT_REPORTED, NOW_ISO } from './database.js';
-import { calculatePace, daysUntil, countStudyDays, readStudyDays, cardPlan } from './scheduling.js';
+import { calculatePace, daysUntil, countStudyDays, readStudyDays } from './scheduling.js';
 import { reviewDue } from './decks.js';
 import { TOPIC_NODE, isPagination } from './nodeRole.js';
 import { dayStudyTime, recentDays } from './studyTime.js';
-import { canProve, isReadyToProve } from './readyToProve.js';
+import { isReadyToProve } from './readyToProve.js';
 import { getGateConfig } from './settingsStore.js';
 import { IN_DAY, dayBounds, studyToday } from './studyDay.js';
 import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipParams } from './fading.js';
+import { refreshTopicDates } from './topicDates.js';
 
 /**
  * Cross-project "Today" aggregation.
@@ -76,13 +77,13 @@ export function workLeaves(nodes) {
 }
 
 // A topic's status as the learner reads it, for every surface that SAYS one
-// (the calendar, and what the assistant is told). Mirrors `leafStatus` in
+// (Today, search, and what the assistant is told). Mirrors `leafStatus` in
 // src/utils/tree.ts. A topic is completed only when somebody says so, but a
 // stored `not_started` is false over the learner's own work: cards met, or
 // answers of its own in the mastery record. A seeded prior (placement,
 // transfer) has `total_attempts = 0` and is not work done. One topic on the
-// real library sat at mastery 0.98 after seven answers and the calendar, the
-// tree and the assistant all called it not started. Only a LEAF is promoted:
+// real library sat at mastery 0.98 after seven answers and the tree and the
+// assistant both called it not started. Only a LEAF is promoted:
 // the client asks `leafStatus` of leaves alone and rolls a section up from its
 // children, so a section's own stray mastery row or card must not say more.
 export const LEAF_STATUS = `CASE WHEN COALESCE(n.status, 'not_started') = 'not_started' AND ${LEAF_NODE} AND (
@@ -198,9 +199,10 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
         ORDER BY position ASC, created_at ASC
     `).all();
 
+    refreshTopicDates({ today });
     const overdueRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_end < ?
@@ -209,7 +211,7 @@ export function buildTodayData({ decayDays = 14, today = studyToday(), now = new
 
     const todayRows = db.prepare(`
         SELECT n.id, n.project_id, n.title, n.scheduled_start, n.scheduled_end, ${LEAF_STATUS} AS status
-        FROM nodes n
+        FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF}
           AND n.scheduled_start <= ?
@@ -451,10 +453,6 @@ export function buildTodayBriefingContext({ decayDays = 14, projectTool = '' } =
 }
 
 /**
- * Scheduled leaves of all active projects overlapping [from, to] — the global
- * calendar feed. Dates are the app-standard UTC YYYY-MM-DD strings.
- */
-/**
  * "What did I actually do today?" — the ledger behind the feed header's chips.
  *
  * Every row here is a real record with its own timestamp: a flashcard answer
@@ -644,83 +642,5 @@ export function buildTodayActivity(date) {
         // and each of those days opened like this one. Not limited to active
         // projects: a finished course reviewed today was studied today.
         time: { ...dayStudyTime(today), week: recentDays(today, 7) },
-    };
-}
-
-/**
- * The library calendar's rows: every scheduled topic of an active project that
- * touches `from`..`to`, PLUS every topic still open after its last day,
- * whatever its dates. The calendar shows late work once, on today
- * (`splitLateTasks`, src/utils/tree.ts); fetched by range alone, a topic that
- * ended before the three periods on screen was never sent, and a library weeks
- * behind showed one late chip. `today` is the learner's day; a gate pins it.
- * The late clause reads the stored status: `LEAF_STATUS` only turns
- * `not_started` into `in_progress`, so it decides nothing here.
- */
-export function buildCalendarRange(from, to, { today = studyToday() } = {}) {
-    const tasks = db.prepare(`
-        SELECT n.id AS nodeId, n.project_id AS projectId, n.title,
-               ${LEAF_STATUS} AS status,
-               n.scheduled_start, n.scheduled_end
-        FROM nodes n
-        ${ACTIVE_PROJECT_JOIN}
-        WHERE ${WORK_LEAF}
-          AND n.scheduled_start IS NOT NULL
-          AND n.scheduled_end IS NOT NULL
-          AND ((n.scheduled_start <= ? AND n.scheduled_end >= ?)
-            OR (n.scheduled_end < ? AND COALESCE(n.status, 'not_started') NOT IN ('completed', 'skipped')))
-        ORDER BY n.scheduled_start ASC, n.position ASC
-    `).all(to, from, today);
-    // The library calendar names a late topic the learner already knows
-    // "ready to prove" (`isReadyToProve`, src/utils/tree.ts, adds the date).
-    // Asked only of topics ending today or earlier, as the nodes payload is.
-    const gate = getGateConfig();
-    for (const t of tasks) {
-        t.provable = t.status !== 'completed' && t.status !== 'skipped'
-            && t.scheduled_end <= today && canProve(t.nodeId, gate);
-    }
-
-    const projects = db.prepare(`
-        SELECT id, name, color, start_date, deadline
-        FROM projects
-        WHERE COALESCE(status, 'active') = 'active'
-        ORDER BY position ASC, created_at ASC
-    `).all();
-
-    // A project measured in cards stores no topic dates (its schedule is a
-    // window), so its days come from the plan — the same sections the
-    // project's own calendar shows, so the two calendars agree. A section
-    // past its end with cards not yet met is late like a topic.
-    const titleOf = db.prepare('SELECT title FROM nodes WHERE id = ?');
-    for (const p of projects) {
-        if (!p.start_date || !p.deadline) continue;
-        // Nothing on screen, and nothing can be late before the window opens.
-        if ((p.start_date > to || p.deadline < from) && p.start_date >= today) continue;
-        const plan = cardPlan(p.id);
-        if (!plan) continue;
-        for (const s of plan) {
-            const status = s.cards > 0 && s.seen >= s.cards ? 'completed' : s.seen > 0 ? 'in_progress' : 'not_started';
-            const touches = s.start <= to && s.end >= from;
-            const late = s.end < today && status !== 'completed';
-            if (!touches && !late) continue;
-            tasks.push({
-                nodeId: s.nodeId,
-                projectId: p.id,
-                title: titleOf.get(s.nodeId)?.title ?? '',
-                status,
-                scheduled_start: s.start,
-                scheduled_end: s.end,
-            });
-        }
-    }
-
-    // `scheduled`: the course filter above the calendar lists every course
-    // that has dates, so its row does not change as the learner pages through
-    // periods where one course has nothing.
-    return {
-        projects: projects.map(({ id, name, color, start_date, deadline }) => ({
-            id, name, color, scheduled: !!(start_date && deadline),
-        })),
-        tasks,
     };
 }

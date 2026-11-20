@@ -197,20 +197,9 @@ if (clientRule) {
     eq('client rule: a closed topic is never ready', clientRule({ ...r, status: 'skipped' }, ANCHOR), false);
 }
 
-// ---- the calendar -------------------------------------------------------------
-
-const { buildCalendarRange, buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
-const range = buildCalendarRange(day(-40), day(40));
-for (const [key, id] of Object.entries(CASES)) {
-    if (key === 'notDue') continue; // outside the range by design
-    const task = range.tasks.find(t => t.nodeId === id);
-    const shown = task ? say({ status: task.status, scheduled_end: task.scheduled_end }, ANCHOR, task.provable) : '(absent)';
-    record('Calendar', key, shown);
-    eq(`calendar: ${key}`, shown, EXPECTED[key]);
-}
-
 // ---- what the home page and the briefing read --------------------------------
 
+const { buildTodayData, buildTodayBriefingContext } = await import('../server/today.js');
 const today = buildTodayData({ today: ANCHOR }).projects.find(p => p.id === projectId);
 for (const key of OPEN_LATE) {
     const task = today?.overdueTasks.find(t => t.id === CASES[key]);
@@ -296,15 +285,20 @@ eq('no surface wrote a mastery row for a placement-only topic', hasMasteryRow(CA
     check('sidebar: a ready topic with notes under it shows the shield, not its percentage',
         /\(isRoot \? !isNote : hasChildren\) && !untaught[\s\S]{0,400}?!node\.is_note && !readyToProve \?/.test(side));
 
-    // The Dashboard has no list of today's other topics (study-doors-gates):
-    // a ready topic is offered the check by Next up, the topic panel and the
-    // stream's checkpoint.
+    // The Dashboard's "Ready to prove (n)" group went with its list of
+    // today's other topics, on purpose (study-doors-gates). A ready topic is
+    // still offered the check by Next up when it is Next up's, and otherwise
+    // by the topic panel (reached from the sidebar's shield, both checked
+    // above) and by the stream's checkpoint card (below).
     const dash = src('src/components/StudyDashboard.tsx');
     check('dashboard: Next up says ready to prove', /tr\("Ready to prove — it was due \{\{when\}\}\."/.test(dash));
     check('dashboard: Next up offers the check', /openMasteryCheck\(heroTask\.id/.test(dash));
 
     const cp = src('src/components/feed/CheckpointCard.tsx');
     check('checkpoint: a ready topic is not "behind schedule"', /isReadyToProve\(/.test(cp) && /t\("Ready to prove ·"\)/.test(cp));
+    // The button is a helper: pin both its action and the not-yet-proven
+    // branch that draws it, so removing the call site turns this red.
+    check('checkpoint: offers the check', /onClick=\{startMasteryCheck\}/.test(cp) && /checkButton\('primary'\)/.test(cp));
 
     // ONE way into the check: the hook calls the store's openMasteryGate, and
     // the assistant's button goes through it too.

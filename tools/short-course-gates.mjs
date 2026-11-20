@@ -722,7 +722,7 @@ const { studyToday } = await import('../server/studyDay.js');
 const NOW = Date.parse('2026-06-15T12:00:00Z');
 const dayFrom = (n) => new Date(Date.parse(`${studyToday({ now: NOW })}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 const busy = (await api('POST', '/api/projects', { name: 'Busy course' })).json;
-db.prepare('UPDATE projects SET start_date = ?, deadline = ? WHERE id = ?').run(dayFrom(-60), dayFrom(300), busy.id);
+// No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
 for (let i = 0; i < 12; i++) db.prepare('INSERT INTO nodes (project_id, title, position, scheduled_start, scheduled_end) VALUES (?, ?, ?, ?, ?)').run(busy.id, `Overdue ${i}`, i, dayFrom(-60), dayFrom(-59));
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', pid2);
 db.prepare('UPDATE projects SET status = ? WHERE id = ?').run('archived', normal.id);
@@ -1141,6 +1141,22 @@ ok('the box asks a touch screen for a link only, a mouse for a link or a file',
 // The read says "3 topics"; the row under it counted the same topics as "items".
 // Two strangers read "Write it from the topic" as "from my video"; it is
 // written from the video's title alone, and the screen says so.
+// The empty box was a bare input drawn as a heading inside a card: strangers
+// read it as a title, a press on the card beside the words did nothing, and a
+// caret was all that showed focus. It is the app's own field now.
+{
+    const emptyBox = (stripSource.match(/if \(box\.state === 'empty'\) \{([\s\S]*?)\n {4}\}\n/) || [])[1] ?? '';
+    ok('the empty box is the app\'s TextInput (an edge, the focus ring, the whole field takes a press), its hint tied to it',
+        /<TextInput\b[\s\S]*?placeholder=\{prompt\}/.test(emptyBox) && !/<input\b[^>]*type="text"/.test(emptyBox)
+        && /aria-describedby=\{hintId\}/.test(emptyBox) && /<p id=\{hintId\}/.test(emptyBox));
+    // Read and Choose a file share one grid cell, one shown at a time: Read
+    // once something is typed, Choose a file until then. The cell is the grid
+    // wrapper's: in a flex row the two would stand side by side.
+    ok('…Read and Choose a file share one cell, one hidden while the other shows',
+        /<div className="grid grow">\s*<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?<\/Button>\s*<Button variant="neutral"/.test(emptyBox)
+        && /<Button variant="primary" className=\{cx\('\[grid-area:1\/1\]', !typed && 'invisible'\)\}[\s\S]*?\{t\("Read"\)\}/.test(emptyBox)
+        && /<Button variant="neutral" className=\{cx\('\[grid-area:1\/1\]', typed && 'invisible'\)\}[\s\S]*?\{t\("Choose a file"\)\}/.test(emptyBox));
+}
 ok('a video with no captions offers a course from its title, said to be without the video',
     stripSource.includes('{t("Write it from the title")}') && !stripSource.includes('"Write it from the topic"')
     && /no_captions: k\("[^"]*from its title alone, without the video\."\)/.test(readFileSync(join(ROOT, 'src/components/shortCourses/readReasons.ts'), 'utf8')));

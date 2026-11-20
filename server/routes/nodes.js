@@ -20,6 +20,7 @@ import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
 import { headStartsForProject } from '../headStart.js';
 import { markLearnerEdit } from '../courseUpdate.js';
 
@@ -70,6 +71,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     // the learner's own answers on the node (a seeded prior has none), which
     // is what keeps a topic at mastery 0.98 from reading "Not started"
     // (`leafStatus`, src/utils/tree.ts; `LEAF_STATUS`, server/today.js).
+    refreshTopicDates();
     const nodes = db.prepare(`
         SELECT n.id, n.uuid, n.project_id, n.parent_id, n.title, n.description, n.notes, n.status,
                n.is_note, n.role, n.position, n.scheduled_start, n.scheduled_end, n.estimated_weight,
@@ -77,7 +79,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
                COALESCE(fc.cards, 0) AS cards, COALESCE(fc.seen, 0) AS seen,
                COALESCE(nm.total_attempts, 0) AS attempts,
                ${TAUGHT_SQL} AS taught
-        FROM nodes n
+        FROM plan_nodes n
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         LEFT JOIN (
             SELECT f.node_id,
@@ -110,7 +112,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
 
 let provableTopics = null;
 const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
-    SELECT n.id FROM nodes n
+    SELECT n.id FROM plan_nodes n
     WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
       AND n.scheduled_end IS NOT NULL AND n.scheduled_end <= ?
       AND n.id IN (SELECT node_id FROM mastery_evidence)

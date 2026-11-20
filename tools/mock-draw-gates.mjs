@@ -171,7 +171,7 @@ try {
         const topicNames = db.prepare('SELECT title FROM nodes WHERE id IN (?, ?, ?)').all(heat, waves, optics).map(r => r.title);
         check('no topic name is shown while it is open', qs.every(q => !Object.values(q).some(v => typeof v === 'string' && topicNames.includes(v))),
             JSON.stringify(topicNames));
-        check('…the id is there for the clock, and only that', qs.every(q => Number.isInteger(q.nodeId)), JSON.stringify(qs.map(q => q.nodeId)));
+        check('…the topic id is there, for the clock', qs.every(q => Number.isInteger(q.nodeId)), JSON.stringify(qs.map(q => q.nodeId)));
 
         const big = await call('POST', `/api/projects/${course}/mock-exams/draw`, { size: 40, minutes: null });
         check('asking 40 of a course with 14 starts a mock of 14 and says so',

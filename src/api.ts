@@ -999,7 +999,9 @@ export const api = {
     },
     clearActivity: () => request<{ success: boolean }>('/activity', { method: 'DELETE' }),
     /** Not a fetch: the browser downloads it, so the file never passes through JS. */
-    activityExportUrl: () => `${BASE}/activity/export`,
+    // A plain link sends no X-Time-Zone header, so the zone rides in the URL:
+    // the summary's days are this device's days (server/routes/settings.js).
+    activityExportUrl: () => { const zone = clientTimeZone(); return `${BASE}/activity/export${zone ? `?tz=${encodeURIComponent(zone)}` : ''}`; },
 
     getSettings: () => request<Record<string, string>>('/settings'),
     setSetting: (key: ClientSettingKey, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
@@ -1308,7 +1310,9 @@ export const api = {
         request<{ insights: any; generatedAt: string | null }>(`/projects/${projectId}/insights`),
 
     // AI
-    getAIStatus: () => request<AIStatus>('/ai/status'),
+    // `fresh`: a person pressed a check button; otherwise the server may answer
+    // from a status a few seconds old (server/ai.js statusHealth).
+    getAIStatus: (opts: { fresh?: boolean } = {}) => request<AIStatus>(opts.fresh ? '/ai/status?fresh=1' : '/ai/status'),
     // The provider key is write-only: /api/ai/status says whether one is saved,
     // the key itself is never sent back to any client. It is bound to the
     // origin of `baseUrl` (the one on screen), and sent nowhere else.

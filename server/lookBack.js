@@ -33,7 +33,7 @@ import db from './database.js';
 import { WORK_LEAF } from './today.js';
 import { daysUntil } from './scheduling.js';
 import { studyToday } from './studyDay.js';
-import { MockExamError, courseReadiness, discardSitting, drawCourseMock, finishSitting, getSitting, instantOf } from './mockExams.js';
+import { MockExamError, STUDIED, courseReadiness, discardSitting, drawCourseMock, finishSitting, getSitting, instantOf } from './mockExams.js';
 
 export const LOOK_BACK_SIZE = 10;
 export const LOOK_BACK_DAYS = 14;
@@ -84,11 +84,14 @@ function putOff(open, skipped, t) {
 /** How many of a sitting's questions have an answer. */
 const answeredIn = (sittingId) => stmt('SELECT COUNT(*) AS n FROM mock_part_scores WHERE sitting_id = ? AND answer IS NOT NULL').get(sittingId).n;
 
-/** When the course's last finished look back (1) or other mock (0) ended. */
+/**
+ * When the course's last finished look back (1) or other mock (0) ended: a
+ * whole sitting only, since one past-paper question practised alone is no mock.
+ */
 function lastFinished(projectId, lookBack) {
     return stmt(`
         SELECT MAX(s.finished_at) AS t FROM mock_sittings s JOIN exam_papers e ON e.id = s.paper_id
-        WHERE e.project_id = ? AND e.look_back = ? AND s.status = 'done'
+        WHERE e.project_id = ? AND e.look_back = ? AND s.status = 'done' AND s.question IS NULL
     `).get(projectId, lookBack)?.t ?? null;
 }
 
@@ -137,8 +140,17 @@ function lastPhaseClosed(projectId, t) {
     return closed;
 }
 
-/** Enough to mix: questions the app marks by itself, from enough topics. */
+/**
+ * Enough to mix: questions the app marks by itself, from enough topics. The
+ * studied topics holding any quiz at all bound what courseReadiness could
+ * count, and cost one count instead of reading every bank on each stream open.
+ */
 function enough(projectId) {
+    const withQuiz = stmt(`
+        SELECT COUNT(DISTINCT q.node_id) AS n FROM quizzes q JOIN nodes n ON n.id = q.node_id
+        WHERE n.project_id = ? AND ${WORK_LEAF} AND ${STUDIED}
+    `).get(projectId).n;
+    if (withQuiz < LOOK_BACK_MIN_TOPICS) return null;
     const r = courseReadiness(projectId);
     return r.topics >= LOOK_BACK_MIN_TOPICS && r.ready >= LOOK_BACK_SIZE ? r : null;
 }

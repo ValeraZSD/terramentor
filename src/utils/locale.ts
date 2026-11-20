@@ -35,14 +35,14 @@ export function listFormat(items: string[]): string {
  * Weekday names in the INTERFACE language: hardcoded English arrays would print
  * "MON TUE WED" above Russian chrome, and no extractor would see them.
  *
- * Short weekday labels, starting from `weekStartDay` (0 = Sunday, 1 = Monday).
+ * Short weekday labels, starting from `firstDay` (0 = Sunday, 1 = Monday).
  * The reference week starts at 2021-08-01, which was a Sunday, so index 0 is
- * Sunday and `weekStartDay` indexes it directly.
+ * Sunday and `firstDay` indexes it directly.
  */
-export function dayHeaders(weekStartDay = 0): string[] {
+export function dayHeaders(firstDay = 0): string[] {
     const fmt = new Intl.DateTimeFormat(uiLocale(), { weekday: 'short', timeZone: 'UTC' });
     const days = Array.from({ length: 7 }, (_, i) => fmt.format(new Date(Date.UTC(2021, 7, 1 + i))));
-    return [...days.slice(weekStartDay), ...days.slice(0, weekStartDay)];
+    return [...days.slice(firstDay), ...days.slice(0, firstDay)];
 }
 
 /**
