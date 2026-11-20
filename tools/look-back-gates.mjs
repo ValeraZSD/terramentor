@@ -429,6 +429,9 @@ try {
         check('it holds two buttons at most', card.length > 0 && (card.match(/<Button\b/g) ?? []).length <= 2, String((card.match(/<Button\b/g) ?? []).length));
         const view = readFileSync(join(ROOT, 'src', 'components', 'feed', 'FeedView.tsx'), 'utf8');
         check('the stream renders it', /case 'lookback'/.test(view) && /LookBackCard/.test(view));
+        // A round in the stream (this offer, the recall round) wears one header above its card,
+        // never a title inside it: the offer names no nodeTitle and both use StreamRoundHeader.
+        check('it wears the recall round\'s header, above its card', /<StreamRoundHeader\b/.test(card) && /<StreamRoundHeader\b/.test(view) && !/nodeTitle=/.test(card));
         const api = readFileSync(join(ROOT, 'src', 'api.ts'), 'utf8');
         check('the client can start, skip and read it', ['startLookBack', 'skipLookBack', 'getLookBack'].every(f => api.includes(f)));
         // About one question per topic: the result shows no bar per topic and no clock line, only

@@ -13,6 +13,7 @@ import CheckpointCard from './CheckpointCard';
 import PracticeCard from './PracticeCard';
 import NoticeCard from './NoticeCard';
 import LookBackCard from './LookBackCard';
+import StreamRoundHeader from './StreamRoundHeader';
 import MockSittingScreen from '../mockExam/MockSittingScreen';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
@@ -575,21 +576,17 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     // no badge of their own, so without the foot the lesson after it
                     // reads as one more of them.
                     <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-2">
-                        <h2 className="flex items-start gap-1.5 px-1 text-sm font-medium text-slate-600 dark:text-slate-300">
-                            <History className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
-                            <span>
-                                {/* A topic missed on a look back or a mock is back the next day,
-                                    not after a while: the header says which kind the round holds. */}
-                                {group.cards.every(c => c.slipped)
-                                    ? tr("Recall: what you missed recently")
-                                    : group.cards.some(c => c.slipped)
-                                        ? tr("Recall: what you missed recently and earlier topics")
-                                        : tr("Recall: what you haven't practiced in a while")}
-                                <span className="block font-normal text-slate-600 dark:text-slate-400">
-                                    {tr("{{count}} questions", { count: group.cards.length })}
-                                </span>
-                            </span>
-                        </h2>
+                        {/* A topic missed on a look back or a mock is back the next day,
+                            not after a while: the header says which kind the round holds. */}
+                        <StreamRoundHeader
+                            icon={History}
+                            title={group.cards.every(c => c.slipped)
+                                ? tr("Recall: what you missed recently")
+                                : group.cards.some(c => c.slipped)
+                                    ? tr("Recall: what you missed recently and earlier topics")
+                                    : tr("Recall: what you haven't practiced in a while")}
+                            detail={tr("{{count}} questions", { count: group.cards.length })}
+                        />
                         <div className="space-y-5">
                             {group.cards.map(card => (
                                 <div

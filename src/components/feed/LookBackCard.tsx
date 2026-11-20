@@ -7,6 +7,7 @@ import { useStore } from '../../store';
 import type { FeedLookBackCard } from '../../types';
 import { Button } from '../ui/Button';
 import FeedCardShell from './FeedCardShell';
+import StreamRoundHeader from './StreamRoundHeader';
 
 /**
  * The look back the stream offers at its head now and then
@@ -69,23 +70,22 @@ export default function LookBackCard({ card, done, onDone, onOpen }: {
     const startLabel = mock ? t("Set up the mock") : offer.kind === 'resume' ? t("Continue") : t("Start");
     const Icon = mock ? Timer : History;
 
+    // A round of questions like the recall round below it, so it wears the
+    // same header above its card (StreamRoundHeader), not a title inside it.
     return (
-        <FeedCardShell
-            projectColor={card.projectColor}
-            projectName={card.projectName}
-            nodeTitle={title}
-            subtitle={subtitle}
-            badge={<Icon className="w-4 h-4 text-slate-400 dark:text-slate-500" aria-hidden="true" />}
-        >
-            <p className="text-sm text-slate-700 dark:text-slate-300 max-w-prose">{body}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-                <Button variant="primary" busy={busy === 'start'} disabled={busy != null} onClick={() => void start()}>
-                    {startLabel}
-                </Button>
-                <Button variant="quiet" busy={busy === 'skip'} disabled={busy != null} onClick={() => void skip()}>
-                    {t("Not now")}
-                </Button>
-            </div>
-        </FeedCardShell>
+        <section className="space-y-2 pb-2">
+            <StreamRoundHeader icon={Icon} title={title} detail={subtitle} />
+            <FeedCardShell projectColor={card.projectColor} projectName={card.projectName}>
+                <p className="text-sm text-slate-700 dark:text-slate-300 max-w-prose">{body}</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                    <Button variant="primary" busy={busy === 'start'} disabled={busy != null} onClick={() => void start()}>
+                        {startLabel}
+                    </Button>
+                    <Button variant="quiet" busy={busy === 'skip'} disabled={busy != null} onClick={() => void skip()}>
+                        {t("Not now")}
+                    </Button>
+                </div>
+            </FeedCardShell>
+        </section>
     );
 }
