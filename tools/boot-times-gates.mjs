@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { bootLine } from '../server/bootTimes.js';
+import { scratchApp } from './lib/scratchApp.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -52,22 +53,29 @@ check('no marks, no line', bootLine([]), null);
 {
     const cache = join(repoRoot, 'node_modules', '.cache');
     mkdirSync(cache, { recursive: true });
-    const dataDir = mkdtempSync(join(cache, 'boot-times-gates-'));
+    const scratch = mkdtempSync(join(cache, 'boot-times-gates-'));
+    const dataDir = join(scratch, 'library');
+    mkdirSync(dataDir);
+    const app = scratchApp(repoRoot, scratch);
     const env = { ...process.env };
     for (const k of ['DATA_DIR', 'DB_PATH', 'VAULT_ROOT', 'SECRETS_PATH', 'PORT', 'TERRAMENTOR_TRAY']) delete env[k];
+    // Nothing a start writes per user (a login item, a shortcut) reaches the real home.
+    Object.assign(env, { HOME: scratch, USERPROFILE: scratch, APPDATA: join(scratch, 'Roaming'), LOCALAPPDATA: join(scratch, 'Local'), XDG_CONFIG_HOME: join(scratch, '.config') });
     const port = 39000 + Math.floor(Math.random() * 800);
     // --data-dir is applied in the launcher's own process before the server is
     // imported; the vault and the secrets file follow it. --check starts,
     // verifies and quits.
-    const out = await new Promise((res) => {
-        const c = spawn(process.execPath, [join(repoRoot, 'desktop', 'launcher.js'), '--check', '--data-dir', dataDir, '--port', String(port)],
-            { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const { out, code, signal, timedOut } = await new Promise((res) => {
+        const c = spawn(process.execPath, [app.launcher, '--check', '--data-dir', dataDir, '--port', String(port)],
+            { cwd: app.root, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         let text = '';
+        let killed = false;
         c.stdout.on('data', (b) => { text += b; });
         c.stderr.on('data', (b) => { text += b; });
-        const timer = setTimeout(() => c.kill(), 180_000);
-        c.on('close', () => { clearTimeout(timer); res(text); });
+        const timer = setTimeout(() => { killed = true; c.kill(); }, 180_000);
+        c.on('close', (exitCode, sig) => { clearTimeout(timer); res({ out: text, code: exitCode, signal: sig, timedOut: killed }); });
     });
+    check('the launcher check ends by itself, successfully', { code, signal, timedOut }, { code: 0, signal: null, timedOut: false });
     const line = out.split(/\r?\n/).find((l) => l.startsWith('[Boot] '));
     check('a launcher start logs one [Boot] line', !!line, true);
     if (!line) console.log(out);
@@ -79,7 +87,9 @@ check('no marks, no line', bootLine([]), null);
     check('…which add up to the total', Math.abs(sum - total) <= 0.05 * phases.length, true);
     check('…and it says how much CPU that took', /\(CPU \d+\.\d+ s, (computing|partly waiting|mostly waiting)/.test(line || ''), true);
     check('…and the start still passes its check', /Check OK/.test(out), true);
-    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* a file still closing */ }
+    if (app.dispose()) {
+        try { rmSync(scratch, { recursive: true, force: true }); } catch { /* a file still closing */ }
+    }
 }
 
 console.log(`\n${passed} passed, ${failures} failed`);
