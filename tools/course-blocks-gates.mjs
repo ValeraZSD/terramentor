@@ -28,6 +28,7 @@
 // blocks the gate fails. A scratch library, no model, no network; every
 // fading stamp sits in 2020 and the stream is composed at a pinned instant.
 import { createRequire } from 'node:module';
+import http from 'node:http';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -123,21 +124,27 @@ const feed = (opts = {}) => composeFeed({ now: NOW, limit: 15, excludeKeys: new 
 // checkpoint after its own topic. Imported from the checkout under test.
 const placementPath = join(ROOT, 'src', 'utils', 'feedPlacement.ts');
 const { placeCheckpoints } = await import(pathToFileURL(placementPath).href);
+// The client's own helpers; a checkout without them falls back to the gate's
+// reading of the blocks, and fails section 4.
+const blocksPath = join(ROOT, 'src', 'components', 'feed', 'courseBlocks.ts');
+const cb = existsSync(blocksPath) ? await import(pathToFileURL(blocksPath).href).catch(e => ({ error: e })) : {};
+const heldCourses = typeof cb.heldCourses === 'function' ? cb.heldCourses : blocksOf;
 
 /** The client's paging: each page asked after the cards it holds, naming its blocks. */
 function pageThrough(limit, { useCourses = true, between } = {}) {
     let held = [];
     const pages = [];
+    let last = null;
     for (let n = 0; n < 40; n++) {
-        const res = feed({ limit, excludeKeys: new Set(held.map(c => c.key)), courses: useCourses ? blocksOf(held) : [] });
+        last = feed({ limit, excludeKeys: new Set(held.map(c => c.key)), courses: useCourses ? heldCourses(held) : [] });
         const seen = new Set(held.map(c => c.key));
-        const fresh = res.items.filter(c => !seen.has(c.key));
+        const fresh = last.items.filter(c => !seen.has(c.key));
         held = placeCheckpoints(held, fresh);
         pages.push(fresh);
-        if (res.exhausted || fresh.length === 0) break;
+        if (last.exhausted || fresh.length === 0) break;
         between?.(n, held);
     }
-    return { held, pages };
+    return { held, pages, last };
 }
 /** Every course's recall cards sit together at the head of its block. */
 const roundsLead = (items) => {
@@ -166,6 +173,18 @@ await block('1. one page of Today', async () => {
 });
 
 await block('2. paging through the whole visit', async () => {
+    // Every limit from 3 to 15: the stream ends by saying so, and only once each
+    // topic's checkpoint went out (a page that fills before an earlier block's
+    // late checkpoint must not call the stream over).
+    const unended = [], unfinished = [];
+    for (let limit = 3; limit <= 15; limit++) {
+        const { held, last } = pageThrough(limit);
+        if (last?.exhausted !== true) unended.push(limit);
+        const missing = [...P, ...D].filter(n => !held.some(i => i.key === `checkpoint-${n}`));
+        if (missing.length) unfinished.push(`${limit}: ${missing.join(' ')}`);
+    }
+    check('at every page size the last page says the stream is over', unended.length === 0, unended.join(', '));
+    check('...and by then every topic taught today has had its checkpoint', unfinished.length === 0, unfinished.join('; '));
     for (const limit of [15, 6, 4]) {
         const { held, pages } = pageThrough(limit);
         const order = blocksOf(held);
@@ -202,6 +221,34 @@ await block('2. paging through the whole visit', async () => {
         check('...where a page told nothing would have opened Dutch (the case is real)',
             courseOf(firstOf(untold.items)) === dutch, named(blocksOf(untold.items)));
         check('...and a page told nothing opens no round past the first page', !untold.items.some(i => i.kind === 'recall'));
+
+        // The same through the route the client calls (GET /api/feed?courses=).
+        const { createApp } = await import(S + 'app.js');
+        const server = createApp().listen(0, '127.0.0.1');
+        await new Promise(ok => server.once('listening', ok));
+        try {
+            const { port } = server.address();
+            const get = (path) => new Promise((ok, no) => {
+                http.get({ host: '127.0.0.1', port, path }, (res) => {
+                    let text = '';
+                    res.setEncoding('utf8');
+                    res.on('data', c => { text += c; });
+                    res.on('end', () => { try { ok(JSON.parse(text)); } catch (e) { no(new Error(`${res.statusCode}: ${text.slice(0, 200)}`)); } });
+                }).on('error', no);
+            });
+            const ask = (courses) => get(`/api/feed?limit=5&exclude=${encodeURIComponent([...exclude].join(','))}`
+                + (courses ? `&courses=${courses.join(',')}` : ''));
+            const viaTold = await ask(heldCourses(page1.items));
+            const viaUntold = await ask(null);
+            check('over HTTP, `courses=` reaches the stream: told, it continues Physics; untold, it opens Dutch',
+                courseOf(firstOf(viaTold.items)) === physics && courseOf(firstOf(viaUntold.items)) === dutch,
+                `${named(blocksOf(viaTold.items))} / ${named(blocksOf(viaUntold.items))}`);
+            const viaLong = await ask([...Array(250).fill(dutch), ...heldCourses(page1.items)]);
+            check('...and a list past the 200 cap keeps its END, the block the reader is in',
+                courseOf(firstOf(viaLong.items)) === physics, named(blocksOf(viaLong.items)));
+        } finally {
+            await new Promise(ok => server.close(ok));
+        }
     } finally {
         for (const id of extra) db.prepare('DELETE FROM nodes WHERE id = ?').run(id);
     }
@@ -212,14 +259,13 @@ await block('3. a course’s page and a topic’s page', async () => {
     check('a course’s page is one block', JSON.stringify(blocksOf(course.items)) === JSON.stringify([physics]), named(blocksOf(course.items)));
     check('...opening with its round', roundsLead(course.items) === null && course.items.some(i => i.kind === 'recall'));
     const keys = (r) => JSON.stringify(r.items.map(i => i.key));
-    check('...and `courses` changes nothing on it', keys(feed({ projectId: physics, courses: [dutch, kaishi] })) === keys(course));
+    // Regression guards: these two held before the blocks too.
+    check('...and `courses` changes nothing on it (a guard: true before the blocks too)', keys(feed({ projectId: physics, courses: [dutch, kaishi] })) === keys(course));
     const topicPage = feed({ nodeId: P[1] });
-    check('a topic’s page ignores `courses` too', keys(feed({ nodeId: P[1], courses: [dutch] })) === keys(topicPage));
+    check('a topic’s page ignores `courses` too (a guard: true before the blocks too)', keys(feed({ nodeId: P[1], courses: [dutch] })) === keys(topicPage));
 });
 
 // ---- the client ------------------------------------------------------------------
-const blocksPath = join(ROOT, 'src', 'components', 'feed', 'courseBlocks.ts');
-const cb = existsSync(blocksPath) ? await import(pathToFileURL(blocksPath).href).catch(e => ({ error: e })) : {};
 
 await block('4. the client: blocks, what it reports, where Again goes', async () => {
     check('courseBlocks.ts exists and loads', typeof cb.courseBlocks === 'function', cb.error?.message ?? 'missing');
@@ -243,6 +289,10 @@ await block('4. the client: blocks, what it reports, where Again goes', async ()
     const stream = [flash('a', physics), flash('bb', physics), flash('c', dutch)];
     check('a card rated Again goes back at the end of its own course’s block, not after the next course', cb.blockEnd(stream, 0) === 2);
     check('...and on a one-course stream at its end, as before', cb.blockEnd([flash('a', physics), flash('bb', physics)], 0) === 2);
+    const taught = [{ key: 'l', kind: 'lesson', nodeId: 7, projectId: physics }, { key: 'cp', kind: 'checkpoint', nodeId: 7, projectId: physics }];
+    const merged = placeCheckpoints(taught, [recall('r9', dutch), { ...recall('r7', physics), nodeId: 7 }]);
+    check('a merged page never puts a recall card inside a chapter, before its checkpoint',
+        JSON.stringify(merged.map(c => c.key)) === JSON.stringify(['l', 'cp', 'r9', 'r7']), JSON.stringify(merged.map(c => c.key)));
 });
 
 await block('5. on screen: the header, the name once, the headings', async () => {
@@ -254,6 +304,9 @@ await block('5. on screen: the header, the name once, the headings', async () =>
     const extend = store.slice(store.indexOf('extendFeed: async'), store.indexOf('pullFeedUpdates: async'));
     check('the next page puts a late checkpoint after its own topic, as the paging above does',
         /feedCards:[^\n]*placeCheckpoints\(state\.feedCards, fresh\)/.test(extend));
+    const requeue = store.slice(store.indexOf('requeueFeedCard: (key, card, dueAt) =>'));
+    check('a card rated Again goes back at its block’s end (`blockEnd`, tested above), where the store inserts it',
+        /const end = blockEnd\(state\.feedCards, at\);/.test(requeue.slice(0, 2500)) && /splice\(end\b|slice\(0, end\)/.test(requeue.slice(0, 3500)));
     const blockPath = join(ROOT, 'src', 'components', 'feed', 'CourseBlock.tsx');
     if (!existsSync(blockPath)) { check('CourseBlock.tsx exists', false); return; }
 
@@ -328,9 +381,10 @@ await block('5. on screen: the header, the name once, the headings', async () =>
     const host = await mount(h(CourseBlock, { name: 'Physics', color: '#2563eb', icon: 'atom', continued: false }, chapter, card));
     const said = (host.textContent.match(/Physics/g) ?? []).length;
     check('the course is named once in its block: in the header, by no card under it', said === 1, `${said} times`);
-    const header = host.querySelector('section > h2');
+    const header = host.querySelector('[role="group"] > h2');
     check('the header is the block’s heading and stays pinned', header?.textContent.includes('Physics') && /\bsticky\b/.test(header.className)
-        && host.querySelector('section')?.getAttribute('aria-labelledby') === header.id);
+        && host.querySelector('[role="group"]')?.getAttribute('aria-labelledby') === header.id);
+    check('a block is a named group, not a landmark per course', !host.querySelector('section, [role="region"]'));
     check('the header is opaque: nothing scrolls through it', /\bbg-slate-100\b/.test(header?.className ?? '') && !/\/\d+\b/.test((header?.className ?? '').match(/bg-slate-\S+/g)?.join(' ') ?? ''));
     check('a topic in a block is one heading level below the course', host.querySelector('h3')?.textContent.includes('Lenses'), host.innerHTML.slice(0, 200));
     check('...and a card’s title one below that', host.querySelector('h4')?.textContent.includes('A due card'));

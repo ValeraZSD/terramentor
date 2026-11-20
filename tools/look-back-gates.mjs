@@ -417,6 +417,11 @@ try {
         const home = composeFeed({ now, excludeKeys: new Set() });
         check('Today carries one offer, for one course', home.items.filter(i => i.kind === 'lookback').length === 1,
             JSON.stringify(home.items.filter(i => i.kind === 'lookback').map(i => i.key)));
+        const offer = home.items.find(i => i.kind === 'lookback');
+        const courseOf = (i) => i.kind === 'flashcard' ? i.card.project_id : i.kind === 'notice' ? null : i.projectId;
+        check("...and it opens its own course's block, ahead of that course's round",
+            offer != null && home.items.find(i => courseOf(i) === offer.projectId) === offer,
+            JSON.stringify(home.items.slice(0, 4).map(i => [i.kind, courseOf(i)])));
     });
 
     await block('7. the routes and the card', async () => {
