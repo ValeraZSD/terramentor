@@ -69,6 +69,51 @@ export const FADING_TOPIC = `
     AND COALESCE(${SCORE_BEFORE_CLAIMS}, nm.mastery_score) > ${FADING_BAR}
 `;
 
+/** Hours a wrong answer on a look back or a mock waits before its topic is asked again. */
+export const SLIP_DELAY_HOURS = 20;
+
+/**
+ * SLIPPED: a topic answered wrong on a look back or a mock exam (the question
+ * log's 'mock' surface), at least SLIP_DELAY_HOURS ago, with no right answer
+ * on it since. One wrong answer of ten cannot judge a topic, so a slip reopens
+ * nothing and takes no proof away: the topic comes back as a recall question
+ * from the next day (the result screen showed the right answer; a retest a
+ * day later does more than one straight after) until one of its questions is
+ * answered right, and the fading clock spaces it out from there. A right
+ * answer counts from a minute after the miss, so the same sitting's other
+ * answers never clear it. One `?`: `slipCutoff(now)`.
+ */
+export const SLIPPED_TOPIC = `(
+    n.status != 'skipped' AND n.is_note = 0
+    AND EXISTS (
+        SELECT 1 FROM question_log m
+        WHERE m.node_id = n.id AND m.surface = 'mock' AND m.correct = 0 AND m.asked_at < ?
+          AND NOT EXISTS (
+              SELECT 1 FROM question_log r
+              WHERE r.node_id = n.id AND r.correct = 1
+                AND r.asked_at > strftime('%Y-%m-%dT%H:%M:%fZ', m.asked_at, '+1 minute')
+          )
+    )
+)`;
+
+/**
+ * What the recall round asks about: fading OR slipped, over `node_mastery nm
+ * JOIN nodes n`, with TWO `?`: `recallCutoffs(decayDays, now)`. The plan's
+ * list (`getDecayingNodes`) and Today's both read this; the topic panel's
+ * "fading" word reads FADING_TOPIC alone, because a slip is not fading.
+ */
+export const RECALL_TOPIC = `((${FADING_TOPIC}) OR ${SLIPPED_TOPIC})`;
+
+/** SLIP_DELAY_HOURS before `now`, ISO: the question log's own shape. */
+export function slipCutoff(now = new Date()) {
+    return new Date(new Date(now).getTime() - SLIP_DELAY_HOURS * 3_600_000).toISOString();
+}
+
+/** RECALL_TOPIC's two parameters, in order. */
+export function recallCutoffs(decayDays, now = new Date()) {
+    return [fadingCutoff(decayDays, now), slipCutoff(now)];
+}
+
 /**
  * The decay cutoff, `decayDays` before `now`, in `last_updated`'s own shape.
  * last_updated is written by SQLite's CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS',

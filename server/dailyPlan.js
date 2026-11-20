@@ -195,6 +195,7 @@ export function getGhostQuestions(projectId, maxTopics = 2, decayDays = 14, now 
             nodeId: node.node_id,
             title: node.title,
             lastUpdated: node.last_updated,
+            slipped: !!node.slipped,
             quizId: picks[0].quizId,
             questions: picks.map(p => ({ ...p.question, quizIndex: p.index })),
             picks,

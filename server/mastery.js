@@ -1,6 +1,6 @@
 import db from './database.js';
 import { GUESS_BY_FORMAT } from './answerFormats.js';
-import { FADING_TOPIC, fadingCutoff } from './fading.js';
+import { RECALL_TOPIC, SLIPPED_TOPIC, recallCutoffs, slipCutoff } from './fading.js';
 
 // Bayesian Knowledge Tracing (BKT) Parameters
 // Based on standard BKT model with simplified parameters
@@ -848,20 +848,23 @@ export function decayedMastery(masteryScore, lastUpdated, decayDays = 14) {
  * @returns Array of nodes with decaying mastery
  */
 export function getDecayingNodes(projectId, decayDays = 14, now = new Date(), { limit = 10 } = {}) {
+    // A topic that slipped on a look back comes first: it was answered wrong
+    // lately, a fading one only has not been asked in a while.
     return db.prepare(`
         SELECT
             nm.node_id,
             nm.mastery_score,
             nm.last_updated,
             n.title,
-            n.status
+            n.status,
+            ${SLIPPED_TOPIC} AS slipped
         FROM node_mastery nm
         JOIN nodes n ON n.id = nm.node_id
         WHERE n.project_id = ?
-          AND ${FADING_TOPIC}
-        ORDER BY nm.last_updated ASC
+          AND ${RECALL_TOPIC}
+        ORDER BY slipped DESC, nm.last_updated ASC
         LIMIT ?
-    `).all(projectId, fadingCutoff(decayDays, now), limit ?? -1);
+    `).all(slipCutoff(now), projectId, ...recallCutoffs(decayDays, now), limit ?? -1);
 }
 
 /**
