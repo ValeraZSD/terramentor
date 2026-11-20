@@ -380,14 +380,17 @@ function heldBackTargets() {
 export function feedVerifySource(nodeId, partTitle, lessonContent) {
     const lessonText = teachingText(lessonContent || '').slice(0, LESSON_CONTEXT_CHARS);
     const material = questionSource(nodeId);
-    return lessonText ? `Lesson part "${partTitle}":\n${lessonText}\n\n${material}` : material;
+    if (!lessonText) return material;
+    return `${partTitle ? `Lesson part "${partTitle}"` : 'Lesson part'}:\n${lessonText}\n\n${material}`;
 }
 
 /**
  * The same text for a stored feed question, rebuilt from its row: a question
  * for part i sits at seq 2i and its lesson part at seq 2i - 1. A re-check
  * reads what the first check read, so a question about the part is not judged
- * without it. A lesson since deleted leaves the topic's material.
+ * without it. A lesson since deleted, or reported by the learner (it is
+ * hidden from them and nothing is taught from it), leaves the topic's
+ * material.
  *
  * Exported for `tools/verifier-source-gates.mjs`.
  */
@@ -396,7 +399,12 @@ export function feedQuestionSource(feedItemId) {
     if (!row) return '';
     let partTitle = '';
     try { partTitle = JSON.parse(row.meta || '{}')?.partTitle || ''; } catch { /* a meta that does not parse names no part */ }
-    const lesson = db.prepare(`SELECT content FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ?`).get(row.node_id, row.seq - 1);
+    const lesson = db.prepare(
+        `SELECT content, meta FROM feed_items WHERE node_id = ? AND kind = 'lesson' AND seq = ? AND ${NOT_REPORTED()}`,
+    ).get(row.node_id, row.seq - 1);
+    if (!partTitle && lesson) {
+        try { partTitle = JSON.parse(lesson.meta || '{}')?.partTitle || ''; } catch { /* no part title then */ }
+    }
     return feedVerifySource(row.node_id, partTitle, lesson?.content);
 }
 
