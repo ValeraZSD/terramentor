@@ -1891,7 +1891,7 @@
   "Model \"{{model}}\" is ready.": "Model \"{{model}}\" is ready.",
   "Model \"{{modelName}}\" deleted": "Model \"{{modelName}}\" deleted",
   "Model \"{{modelToInstall}}\" installed successfully": "Model \"{{modelToInstall}}\" installed successfully",
-  "Model calls, background jobs, and projects added or removed. It records what the app did, never what you study — no topic titles, questions, notes or answers — so the file is safe to share if you need help with a problem.": "Model calls, background jobs, and projects added or removed. It records what the app did, never what you study — no topic titles, questions, notes or answers — so the file is safe to share if you need help with a problem.",
+  "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.",
   "Model for place {{n}} of {{job}}": "Model for place {{n}} of {{job}}",
   "Model from {{name}}": "Model from {{name}}",
   "Model jobs": "Model jobs",

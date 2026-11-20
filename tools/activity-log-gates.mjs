@@ -271,6 +271,19 @@ check('the log is a ring buffer, not an archive',
     eq('one line per week, a Monday in the learner\'s calendar',
         JSON.stringify(weekRows(text)),
         JSON.stringify([['2026-11-09', 1, 30, 0, 0, 3], ['2026-11-16', 2, 45, 5, 21, 2]]));
+    check('a table that is not cut says nothing about a cut', !/latest \d+ only/.test(text));
+
+    // The finished-project screen (server/completion.js) counts the same
+    // things for one course with its own queries. On a one-course library the
+    // two must agree, or one of them drifted.
+    {
+        const { projectCompletion } = await import('../server/completion.js');
+        const c = projectCompletion(course);
+        eq('proven topics agree with the finished-project screen', count('proven topics'), String(c.mastery.proven));
+        eq('questions answered agree with it', count('questions answered'), String(c.effort.answers));
+        eq('card reviews agree with it', count('card reviews'), String(c.effort.reviews));
+        eq('study days agree with it', count('study days'), String(c.span?.studyDays));
+    }
 
     check('no title, note, card, answer or prompt from the library is in the file',
         !text.includes('CANARY'), text.split('\n').find(l => l.includes('CANARY')));
@@ -318,6 +331,10 @@ check('the log is a ring buffer, not an archive',
     eq('they start 51 weeks before this one', rows[0]?.[0], '2025-11-24');
     eq('and end on this week, holding the late row and the new days',
         JSON.stringify(rows.slice(-2)), JSON.stringify([['2026-11-09', 1, 30, 0, 0, 3], ['2026-11-16', 5, 55, 6, 22, 2]]));
+    // The totals cover all of it and the rows a year: the file says so, or
+    // the rows look like they fail to add up.
+    check('a cut week table says it holds the latest 52 weeks only', /^# {2}weeks: the latest 52 only/m.test(edges),
+        edges.split('\n').filter(l => /^# {2}w/.test(l)).join(' | '));
 
     // A summary that cannot be read still leaves the events in the file.
     logActivity({ area: 'server', event: 'server.started' });
@@ -328,6 +345,9 @@ check('the log is a ring buffer, not an archive',
     check('a summary that fails says so in one line', /^# Study summary: could not be worked out \(\w+\)\.$/m.test(broken),
         broken.split('\n').slice(0, 5).join(' | '));
     check('and the events are still exported', /server\.started/.test(broken));
+    const noted = readActivity({ limit: 5 }).find(r => r.event === 'activity.summary_failed');
+    check('a failed summary is logged as one event with facts only', !!noted && /^[a-z]+(?: · [\w ]+)*$/.test(noted.detail || ''),
+        JSON.stringify(noted));
 }
 
 // ---- every call site keeps the promise --------------------------------------
@@ -488,13 +508,33 @@ check('no call site puts an error\'s text in an event (only failureFacts reads a
         download.split('\n').slice(0, 5).join(' | '));
     eq('and carries the library\'s counts', (summaryFields(download).get('proven topics') || '').split(' ')[0], '1');
     check('and no text from the library', !download.includes('CANARY'));
+
+    // The button is a plain link, so it carries no X-Time-Zone header: the
+    // zone goes in the URL. With the stored zone at UTC, the page's own zone
+    // (Auckland) still decides the days: 2025-06-01T22Z is 2 June there.
+    {
+        const { setSettingValue } = await import('../server/settingsStore.js');
+        setSettingValue('time_zone', 'UTC');
+        const base = `http://127.0.0.1:${process.env.PORT}/api/activity/export`;
+        const read = (url) => fetch(url).then(r => r.text()).then(t => summaryFields(t).get('first study day'))
+            .catch(e => `fetch failed: ${e.message}`);
+        eq('without a zone the stored one decides', await read(base), '2025-06-01');
+        eq('the zone the page sends decides the days', await read(`${base}?tz=${encodeURIComponent('Pacific/Auckland')}`), '2025-06-02');
+        eq('an unknown zone is not obeyed', await read(`${base}?tz=Mars%2FOlympus`), '2025-06-01');
+        setSettingValue('time_zone', 'Pacific/Auckland');
+    }
 }
 
 // The panel's promise and the exported header have to say the same thing, or
 // one of them is a lie the other cannot see.
 const panel = readFileSync(join(ROOT, 'src/components/settings/ActivityLogPanel.tsx'), 'utf8');
 check('the panel states the rule to the reader',
-    /no topic titles/i.test(panel) && /never what you (?:are )?stud(?:y|ying)\b/i.test(panel));
+    /no topic titles/i.test(panel) && /never the content of your courses/i.test(panel));
+check('the panel no longer calls the file safe to share unread: it now says how much and when you studied',
+    !/safe to share/i.test(panel));
+const apiSource = readFileSync(join(ROOT, 'src/api.ts'), 'utf8');
+check('the download link carries the page\'s time zone',
+    /activityExportUrl:[^\n]*\btz=/.test(apiSource), (apiSource.match(/activityExportUrl:[^\n]*/) || [''])[0]);
 check('the panel says the download starts with a summary of numbers, before it is pressed',
     /summary of how much and when you studied/i.test(panel) && /numbers only/i.test(panel) && /study days/i.test(panel));
 

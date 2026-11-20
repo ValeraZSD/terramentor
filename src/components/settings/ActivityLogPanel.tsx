@@ -133,7 +133,7 @@ export default function ActivityLogPanel() {
                 />
             </div>
             <SettingNote className="mt-1">
-                {tr("Model calls, background jobs, and projects added or removed. It records what the app did, never what you study — no topic titles, questions, notes or answers — so the file is safe to share if you need help with a problem.")}
+                {tr("Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.")}
             </SettingNote>
             {/* Said before the button, not after the file is open: the
                 download carries the study summary (server/studySummary.js). */}
