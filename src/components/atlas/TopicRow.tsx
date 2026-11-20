@@ -40,7 +40,10 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
 }) {
     const { t: tr } = useTranslation();
     const dot = topicDotStatus(topic);
-    const describedBy = useId();
+    const uid = useId();
+    // Ids only where something points at them.
+    const statusId = studies ? `${uid}s` : undefined;
+    const detailId = studies ? `${uid}d` : undefined;
     return (
         <button
             data-row
@@ -48,14 +51,14 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
             // The name says what pressing does; the status and the line under
             // the name are still read, as its description.
             aria-label={studies ? tr("Study {{title}}", { title: topic.title }) : undefined}
-            aria-describedby={studies ? `${describedBy}s ${describedBy}d` : undefined}
+            aria-describedby={studies ? `${statusId} ${detailId}` : undefined}
             className="group w-full flex items-center gap-2 px-2 py-1.5 min-h-11 rounded-lg text-left can-hover:hover:bg-slate-100 dark:can-hover:hover:bg-slate-700/60 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
             <span
                 aria-hidden="true"
                 className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[dot] || STATUS_DOT.not_started}`}
             />
-            <span id={`${describedBy}s`} className="sr-only">{tr(STATUS_WORD[dot] || STATUS_WORD.not_started)}</span>
+            <span id={statusId} className="sr-only">{tr(STATUS_WORD[dot] || STATUS_WORD.not_started)}</span>
             <span className="min-w-0 flex-1">
                 <span className="block text-sm text-slate-700 dark:text-slate-200 truncate">
                     {topic.title}
@@ -66,7 +69,7 @@ export default function TopicRow({ topic, detail, onOpen, studies = false }: {
                         </>
                     )}
                 </span>
-                <span id={`${describedBy}d`} className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
+                <span id={detailId} className="block text-2xs text-slate-500 dark:text-slate-400 truncate">
                     {detail}
                 </span>
             </span>

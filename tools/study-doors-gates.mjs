@@ -107,6 +107,8 @@ section('the course Dashboard has one way into today\'s work');
     const went = [];
     useStore.setState({
         currentProjectId: 1, projects: [project], dashboardData: dashboard, dashboardLoading: false,
+        // The store has no such field any more, so this is a no-op; on the
+        // code before the change it is what put the list on the page.
         dailyPlan,
         _navigate: (to) => { went.push(to); },
     });
@@ -122,7 +124,8 @@ section('the course Dashboard has one way into today\'s work');
     check('the other topics due today are not listed as rows of their own',
         !text.includes('Continuity') && !text.includes('Derivatives'));
     check('nor is a "Ready to prove" group', !/Ready to prove \(\d+\)/.test(text));
-    check('loading the Dashboard asks for no daily plan',
+    check('the Dashboard did load (its own request was answered)', asked.some(u => u.endsWith('/study-dashboard')), JSON.stringify(asked));
+    check('…and loading it asks for no daily plan',
         !asked.some(u => u.includes('/daily-plan')), JSON.stringify(asked));
     act(() => r.unmount());
     w.close();
@@ -161,6 +164,10 @@ let nextIcon = '';
     check('the row is drawn', !!row);
     if (row) {
         check('its name starts with "Study"', /^Study\b/.test(accessibleName(row)), accessibleName(row));
+        // What the name no longer says is still read, as the description.
+        const said = (row.getAttribute('aria-describedby') || '').split(' ').filter(Boolean)
+            .map(i => s.w.document.getElementById(i)?.textContent ?? '(missing)').join(' | ');
+        check('its status and why it was picked are its description', said.includes('Not started') && said.includes("Near Newton's laws"), said);
         nextIcon = icon(row);
         await s.act(async () => { row.click(); });
     }

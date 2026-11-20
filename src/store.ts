@@ -2722,7 +2722,6 @@ export const useStore = create<AppState>((set, get) => ({
         }
     },
 
-
     loadDueFlashcardCount: async (projectId) => {
         // Use count from project list first (avoids a separate API call)
         const project = get().projects.find(p => p.id === projectId);

@@ -371,7 +371,7 @@ export default function StudyDashboard() {
                                     projectId={currentProjectId}
                                     compact
                                     reloadKey={cardsKey}
-                                    // Pace, progress and the plan count cards too.
+                                    // Pace and progress count cards too.
                                     onSessionEnd={() => {
                                         void useStore.getState().loadPaceData(currentProjectId);
                                         void useStore.getState().loadDashboard(currentProjectId);

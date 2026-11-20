@@ -104,7 +104,7 @@ function page() {
     w.IS_REACT_ACT_ENVIRONMENT = true;
     w.MessageChannel = MessageChannel;
     // Every request waits until the gate answers it; the ones a case never answers
-    // (pace, daily plan, placement…) just stay pending.
+    // (pace, placement…) just stay pending.
     const pending = [];
     w.fetch = (url) => new Promise((ok) => { pending.push({ url: String(url), ok }); });
     w.eval(bundle);

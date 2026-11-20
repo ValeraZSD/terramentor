@@ -231,14 +231,17 @@ for (const key of OPEN_LATE.slice(0, 3)) {
 }
 eq('briefing: overdueCount unchanged', briefed?.overdueCount, OPEN_LATE.length);
 
-// ---- the project dashboard ------------------------------------------------------
+// ---- the daily plan (server) ----------------------------------------------------
+// The server's agenda for a course. No screen lists it since the Dashboard's
+// Today's Plan went (study-doors-gates); the endpoint stays, so it still says
+// "ready" where the gate would pass.
 
 const { generateDailyPlan } = await import('../server/dailyPlan.js');
 const plan = generateDailyPlan(projectId, 14, ANCHOR).overdueTasks;
 for (const key of OPEN_LATE) {
     const task = plan.find(t => t.id === CASES[key]);
     const shown = !task ? '(absent)' : task.readyToProve ? 'ready' : 'overdue';
-    record("Dashboard: Today's Plan", key, shown);
+    record('Daily plan (server)', key, shown);
     eq(`daily plan: ${key}`, shown, EXPECTED[key]);
 }
 eq('daily plan: every late topic is still listed', plan.length, OPEN_LATE.length);
