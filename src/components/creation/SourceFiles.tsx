@@ -263,7 +263,7 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
                 {/* One cell, two buttons, the one not in use hidden: swapped
                     outright, the field jumped at the first letter typed. */}
                 <div className="grid shrink-0">
-                    <Button variant="neutral" className={cx('[grid-area:1/1]', !typed && 'invisible')}
+                    <Button variant="neutral" icon={<Plus className="h-4 w-4" />} className={cx('[grid-area:1/1]', !typed && 'invisible')}
                         tabIndex={typed ? undefined : -1} aria-hidden={typed ? undefined : true}
                         onClick={() => readTyped(text)}>{t("Add link")}</Button>
                     <Button
