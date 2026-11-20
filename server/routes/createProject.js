@@ -680,16 +680,52 @@ app.post('/api/ai/create-project', (req, res) => {
         // One short call judges it from the name, the goal and a summary of
         // the material; material longer than a short course holds is never
         // asked about, and a failed call keeps the course in phases.
-        // A language still open (one to confirm as learned, or several the
-        // course could be explained in) is settled only by the identity call
-        // of the phased pipeline, so such a run is never a short course.
+        // Judge what the learner typed: a good name or description is kept
+        // verbatim and only what is not good is rewritten, and a language
+        // left open (one to confirm as learned, or several the course could
+        // be explained in) is settled. One short call that never fails or
+        // blocks creation (server/projectIdentity.js), made at most once: a
+        // short course asks it only with a language open, a course in phases
+        // always, before anything is written.
+        let identity = null;
+        const settleIdentity = async () => {
+            if (identity) return;
+            identity = await decideProjectIdentity({
+                name: learnerName,
+                description: learnerDescription,
+                lang: creationLang,
+                // With a language to confirm, the files' own words as well as
+                // their headings (sourceMaterial.js languageCheckBlock). Files
+                // that are not the learned language are always among those.
+                sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
+                learningCandidates,
+                explainCandidates,
+                signals: languageSignals,
+                signal,
+            });
+            // A course from files whose name the model could not write takes
+            // the first file's own title.
+            name = identity.name || learnerName.trim() || runName;
+            description = identity.description;
+            if (identity.explainIn || identity.teachesLanguage) {
+                if (identity.explainIn) {
+                    projectLanguage = identity.explainIn;
+                    explainedIn = getLanguage(projectLanguage);
+                }
+                // Never learned in the language it is explained in.
+                const learned = identity.teachesLanguage || typed.named || '';
+                learningLanguage = learned !== projectLanguage ? learned : '';
+                creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
+            }
+        };
+
         send({ phase: 'sizing', message: 'Choosing the course size', messageKey: 'Choosing the course size' });
         const shape = await decideCourseShape({
             name: learnerName, goal: learnerDescription, src, words: src.docs.map(d => sourceWords(d.text)), signal,
-            shortAllowed: !learningCandidates.length && !explainCandidates.length,
         });
         send({ phase: 'sized', shape: shape.shape, by: shape.by });
         if (shape.shape === 'short') {
+            if (learningCandidates.length || explainCandidates.length) await settleIdentity();
             send({ phase: 'writing_topics', message: 'Writing the topics', messageKey: 'Writing the topics' });
             let made = null;
             try {
@@ -700,7 +736,7 @@ app.post('/api/ai/create-project', (req, res) => {
                     goal: learnerDescription,
                     color: projectColor,
                     icon: projectIcon,
-                    // Settled above, with no language left open.
+                    // Resolved above; one left open was settled by the identity call.
                     language: { code: projectLanguage, learning: learningLanguage, lang: creationLang },
                     rows: stagedRows,
                     signal,
@@ -711,6 +747,7 @@ app.post('/api/ai/create-project', (req, res) => {
                 // half-written), so a failed one builds the course in phases.
                 console.log(`[AI] Short course failed, building in phases: ${String(err?.message || err).slice(0, 120)}`);
                 send({ phase: 'topics_written', failed: true });
+                tracker.restartStages();
                 send({ phase: 'sized', shape: 'phased', by: 'fallback' });
             }
             if (made) {
@@ -733,37 +770,9 @@ app.post('/api/ai/create-project', (req, res) => {
             messageKey: 'Analyzing project scope',
         });
 
-        // Judge what the learner typed: a good name or description is kept
-        // verbatim and only what is not good is rewritten. One short call that
-        // never fails or blocks creation (server/projectIdentity.js); it runs
-        // first so the notes, summary and every phase read the final pair.
-        const identity = await decideProjectIdentity({
-            name: learnerName,
-            description: learnerDescription,
-            lang: creationLang,
-            // With a language to confirm, the files' own words as well as
-            // their headings (sourceMaterial.js languageCheckBlock). Files
-            // that are not the learned language are always among those.
-            sources: learningCandidates.length ? languageCheckBlock(src) : briefBlock(src),
-            learningCandidates,
-            explainCandidates,
-            signals: languageSignals,
-            signal,
-        });
-        // A course from files whose name the model could not write takes
-        // the first file's own title.
-        name = identity.name || learnerName.trim() || runName;
-        description = identity.description;
-        if (identity.explainIn || identity.teachesLanguage) {
-            if (identity.explainIn) {
-                projectLanguage = identity.explainIn;
-                explainedIn = getLanguage(projectLanguage);
-            }
-            // Never learned in the language it is explained in.
-            const learned = identity.teachesLanguage || typed.named || '';
-            learningLanguage = learned !== projectLanguage ? learned : '';
-            creationLang = withLearning(explainedIn, getLanguage(learningLanguage));
-        }
+        // Judge what the learner typed (settleIdentity, above): the notes,
+        // summary and every phase read the final pair.
+        await settleIdentity();
 
         try {
             startCall('thinking');

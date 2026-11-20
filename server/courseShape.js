@@ -65,16 +65,12 @@ MATERIAL: ${block ? `${words} words in all.${block}` : 'none'}`,
  * source). Never throws for the model's sake: a failed call is a course in
  * phases. A cancel still throws (the run stops).
  *
- * `shortAllowed: false` (a run whose language is still open) keeps it in
- * phases without asking the model; the length bound is still told apart.
- *
  * Returns `{ shape, by }`: `by` is 'bounds', 'model' or 'fallback'.
  */
-export async function decideCourseShape({ name = '', goal = '', src = null, words = [], signal, generate = generateResponse, shortAllowed = true } = {}) {
+export async function decideCourseShape({ name = '', goal = '', src = null, words = [], signal, generate = generateResponse } = {}) {
     const total = words.reduce((n, w) => n + (Number(w) || 0), 0);
     const bound = shapeByBounds({ words: total });
     if (bound) return { shape: bound, by: 'bounds', words: total };
-    if (!shortAllowed) return { shape: 'phased', by: 'fallback', words: total };
     const { system, user } = coursePrompt({ name, goal, block: shapeBlock(src, words), words: total });
     try {
         const raw = await generate(user, system, [], {

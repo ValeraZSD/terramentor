@@ -271,11 +271,15 @@ shapeReply = 'short';
     const filledName = db.prepare('SELECT name FROM projects WHERE id = ?').get(filled.done?.projectId ?? -1)?.name;
     ok('a name filled in from the file is not kept as the learner\'s', filled.done?.shape === 'short' && filledName === 'Index funds in a few days', [filled.done?.shape, filledName]);
     // Material in another language than the learner writes in leaves the
-    // language open: only the phased pipeline settles it, so no short course.
+    // language open: the identity call settles it before the short course.
     const dutch = await stage('Indexfondsen.txt', `# Waarom kosten tellen\n\n${DUTCH}\n\n# Wat een index bevat\n\n${DUTCH}\n`);
     const open = await create({ name: '', description: GOAL, documentIds: [dutch?.id] });
-    ok('a run whose language is still open is built in phases, and the size is not asked', open.sized?.shape === 'phased' && !open.calls.some(c => c.kind === 'shape' || c.kind === 'short'), [open.sized, open.calls.map(c => c.kind)]);
+    ok('a short run whose language is open settles it first, then is a short course', open.done?.shape === 'short' && /^shape,(other,)+short$/.test(open.calls.map(c => c.kind).join(',')), [open.done?.shape, open.calls.map(c => c.kind)]);
+    const plain = one.calls.map(c => c.kind).join(',');
+    ok('a short run with its language settled makes no identity call', plain === 'shape,short', plain);
     ok('its "writing the topics" step is closed, not left running', bad.frames.some(f => f.phase === 'topics_written' && f.failed === true));
+    const after = bad.frames.slice(bad.frames.findIndex(f => f.phase === 'sized' && f.shape === 'phased') + 1).filter(f => f.track);
+    ok('the phased run that follows keeps no clock from the failed attempt', after.length > 0 && after.every(f => !f.track.stageTimes?.build), after.map(f => [f.phase, Object.keys(f.track.stageTimes || {})]));
 }
 {
     // The short path's frames name the course on the step that made it.

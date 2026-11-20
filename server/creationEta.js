@@ -211,6 +211,14 @@ export function createCreationTracker({ seeds = {}, curate = true } = {}) {
         },
         /** Drop the current call without timing it (an abort, a failure). */
         abandon() { current = null; },
+        /** Start the stage clocks over (the time spent waiting for a slot is
+         *  kept): a short course whose answer was unusable goes on in phases,
+         *  and its stages must not keep the failed attempt's times. */
+        restartStages() {
+            for (const key of Object.keys(stageTimes)) if (key !== 'queued') delete stageTimes[key];
+            stage = null;
+            current = null;
+        },
         phasesPlanned(n) {
             shape.phases = Array.from({ length: Math.max(0, n) }, () => ({ sections: null, batchTried: false }));
         },
