@@ -78,6 +78,9 @@ export interface CreationRun {
     /** Client clock when `track` arrived — the countdown runs from here. */
     trackAt: number;
     tree: LiveNode[];
+    /** What the run judged the course to be (server/courseShape.js), once it
+     *  has: a short course's tree is one level of topics. */
+    shape: 'short' | 'phased' | null;
     log: LogEntry[];
     model: string;
     summary: string;
@@ -182,7 +185,7 @@ function newRun(key: string, input: CreationInput, over: Partial<CreationRun> = 
         status: 'starting', phase: '', messageKey: null, params: null,
         currentCategory: null, currentElement: null, currentSubElement: null,
         queuePosition: null, track: null, trackAt: Date.now(),
-        tree: [], log: [], model: '', summary: '', thinking: '', totalResources: 0,
+        tree: [], shape: null, log: [], model: '', summary: '', thinking: '', totalResources: 0,
         error: null, failure: null, startedAt: Date.now(), finishedAt: null,
         attempt: 0, inputKnown: true,
         ...over,
@@ -215,6 +218,17 @@ function applyFrame(key: string, f: AIProjectProgress) {
 
         let tree = run.tree;
         switch (f.phase) {
+            case 'sized':
+                if (f.shape === 'short' || f.shape === 'phased') next.shape = f.shape;
+                break;
+            case 'topics_written':
+                // A short course: its topics are the whole tree, one level.
+                // Drawn as topic rows (depth 1), not as phase headings.
+                if (f.topics?.length) {
+                    tree = addCategories([], f.topics.map((t, index) => ({ index, title: t.title, description: t.description || '' })))
+                        .map(node => ({ ...node, depth: 1 }));
+                }
+                break;
             case 'categories_generated':
                 if (f.categories?.length) tree = addCategories(tree, f.categories);
                 break;
@@ -539,6 +553,7 @@ function applySnapshot(key: string, g: Snapshot) {
         totalResources: g.resourceTotal || run.totalResources,
         error: g.error ?? run.error,
         failure: g.failure ?? run.failure,
+        shape: g.shape ?? run.shape,
     }));
     if (thinkingVersion.get(key) !== g.thinkingVersion) {
         thinkingVersion.set(key, g.thinkingVersion);

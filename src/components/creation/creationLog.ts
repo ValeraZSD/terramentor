@@ -21,6 +21,8 @@ export const SERVER_CREATION_MESSAGE_KEYS = [
     k('Generating details for "{{title}}"…'),
     k('Finding links for "{{title}}"…'),
     k("Picking up where it stopped"),
+    k("Choosing the course size"),
+    k("Writing the topics"),
 ];
 
 // ACTIVITY LOG
@@ -201,6 +203,34 @@ export function eventToLogEntry(event: any): LogEntry | null {
             id = 'sources';
             break;
         }
+
+        // Short or in phases (server/courseShape.js): one line, a spinner
+        // until the run has judged it, then what it became.
+        case 'sizing':
+        case 'sized':
+            id = 'size';
+            if (phase === 'sized') {
+                message = event.shape === 'short'
+                    ? i18n.t("A short course: a few topics on one level")
+                    : i18n.t("A full course, in phases");
+                status = 'success';
+            } else {
+                message = i18n.t("Choosing the course size");
+                status = 'running';
+            }
+            break;
+
+        case 'writing_topics':
+        case 'topics_written':
+            id = 'short-topics';
+            if (phase === 'topics_written') {
+                message = i18n.t("{{n}} topics written", { count: event.topics?.length || 0, n: event.topics?.length || 0 });
+                status = 'success';
+            } else {
+                message = i18n.t("Writing the topics");
+                status = 'running';
+            }
+            break;
 
         case 'queued':
         case 'thinking_done':

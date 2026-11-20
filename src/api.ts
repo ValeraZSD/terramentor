@@ -489,6 +489,10 @@ export interface AIProjectProgress {
     track?: CreationTrack;
     /** 1-based place in line while the run waits for a model slot. */
     queuePosition?: number;
+    /** On `sized`: what the course became (server/courseShape.js). */
+    shape?: 'short' | 'phased';
+    /** On `topics_written`: a short course's topics, written in one call. */
+    topics?: Array<{ title: string; description: string }>;
 }
 
 /**
@@ -943,6 +947,8 @@ export const api = {
             finishedAt: number | null;
             queuePosition: number | null;
             track: CreationTrack | null;
+            /** Once judged: short (one level of topics) or in phases. */
+            shape?: 'short' | 'phased' | null;
         }>;
     }>('/ai/creation-status'),
     getProject: (id: number) => request<Project>(`/projects/${id}`),
@@ -2293,18 +2299,6 @@ export const api = {
      *  video can take a while, so the wait is longer than a plain call's. */
     readShortSource: (body: { url?: string; transcript?: string; title?: string }, signal?: AbortSignal) =>
         request<ShortRead>('/short-courses/read', { method: 'POST', body: JSON.stringify(body), signal, timeout: 120_000 }),
-
-    readShortFile: async (file: File, signal?: AbortSignal): Promise<ShortRead> => {
-        const form = new FormData();
-        form.append('file', file);
-        const res = await apiFetch(`${BASE}/short-courses/read-file`, { method: 'POST', body: form, signal });
-        if (!res.ok) {
-            let msg = `Upload failed: ${res.status}`;
-            try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
-            throw new Error(msg);
-        }
-        return res.json();
-    },
 
     discardShortSource: (stagedId: string) =>
         request<{ ok: boolean }>(`/short-courses/read/${encodeURIComponent(stagedId)}`, { method: 'DELETE' }),
