@@ -215,9 +215,12 @@ export function loadStaged(ids = []) {
 /**
  * Move staged files into a project's vault. Returns `Map<stagedId, documentId>`
  * for the ones that were still staged (a second claim of the same id finds
- * nothing and claims nothing).
+ * nothing and claims nothing). Called inside an outer transaction, pass
+ * `jobs` (an array): the indexing and PDF recovery calls go into it, to be run
+ * once that transaction commits, so a rollback leaves no job queued for a
+ * document that no longer exists.
  */
-export function claimStaged(ids, projectId) {
+export function claimStaged(ids, projectId, jobs = null) {
     const claimed = new Map();
     const take = db.transaction(() => {
         const rows = loadStaged(ids);
@@ -235,7 +238,10 @@ export function claimStaged(ids, projectId) {
         }
     });
     take();
-    for (const { docId, kind } of claimed.values()) afterPersist(docId, kind);
+    for (const { docId, kind } of claimed.values()) {
+        if (jobs) jobs.push(() => afterPersist(docId, kind));
+        else afterPersist(docId, kind);
+    }
     return new Map([...claimed].map(([k, v]) => [k, v.docId]));
 }
 

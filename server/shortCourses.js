@@ -548,6 +548,7 @@ export async function writeShortCourseNow({ name = '', goal = '', color = '', ic
     if (src.docs.length > 1) madeFrom.sources = src.docs.length;
     const startName = title.slice(0, 500);
     let projectId = null;
+    const afterCommit = [];
     db.transaction(() => {
         projectId = Number(db.prepare(`INSERT INTO projects
             (name, description, color, icon, position, content_language, learning_language, ai_generating, generated_by, made_from)
@@ -556,10 +557,11 @@ export async function writeShortCourseNow({ name = '', goal = '', color = '', ic
                 language.code, language.learning, JSON.stringify(madeFrom)).lastInsertRowid);
         // Every staged row goes into the course, a scan with no text included,
         // as a course in phases keeps them.
-        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId) : new Map();
+        const claimed = rows.length ? claimStaged(rows.map(r => r.id), projectId, afterCommit) : new Map();
         const documentIdOf = (n) => claimed.get(src.docs[n - 1]?.stagedId) ?? null;
         writeCourse({ projectId, items, parsed, keepName: !!given, startName, src: withText ? src : null, documentIdOf, answered });
     })();
+    for (const job of afterCommit) job();
     const finalName = db.prepare('SELECT name FROM projects WHERE id = ?').get(projectId)?.name || startName;
     return { projectId, name: finalName, topics: items.map(t => ({ title: t.title, description: t.description })) };
 }
@@ -845,4 +847,19 @@ export function listShortCourses() {
 /** Drop a source Read staged and the learner did not use. */
 export function discardSource(stagedId) {
     return discardStaged(stagedId);
+}
+
+/**
+ * `readSource` for a client that may leave before the answer: when `signal`
+ * fired while it read (the window closed, the row removed), nobody will claim
+ * or discard what was staged, so it goes now rather than at the daily sweep,
+ * and null comes back.
+ */
+export async function readSourceFor(input, opts = {}) {
+    const out = await readSource(input, opts);
+    if (opts.signal?.aborted && out?.ok && out.stagedId) {
+        discardStaged(out.stagedId);
+        return null;
+    }
+    return out;
 }
