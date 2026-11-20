@@ -25,16 +25,24 @@
 //      goal reaches the short course's own prompt;
 //   3. several sources make one short course that says how many more it was
 //      made from; a pasted transcript is staged as a link the window can list;
+//      a read nobody waits for any more leaves nothing staged; files claimed in
+//      a write that rolls back queue no indexing until it commits;
+//   1b. (after 3, whose route fixtures it reuses) the bounds and fallbacks of 1
+//      through the real route: a book is phased with no shape call, an unusable
+//      short answer builds in phases and leaves nothing behind, an open
+//      language is settled before a short course;
 //   4. the run's new phases map onto the progress screen's stages;
 //   5. the REAL New course window (jsdom): it opens on the choice, a handed-back
-//      form opens on the form, a pasted link is read and its staged id goes to
-//      the creation beside a file's, a link that could not be read offers its
-//      fix and the transcript box sends the paste, and a link removed while it
-//      is read lets its late answer go;
+//      form opens on the form, the focus follows the choice and Back, a paste
+//      that is more than links stays in the field, a pasted link is read and
+//      its staged id goes to the creation beside a file's, a link that could
+//      not be read offers its fix (or says it will be left out) and the
+//      transcript box sends the paste, a link removed while it is read lets its
+//      late answer go, and many links are read four at a time up to the cap;
 //   6. the REAL Projects page has no link field, and no Short courses heading
 //      when there are none; a card made from several sources says "+N more".
 
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -175,7 +183,8 @@ try { shape = await import(`${S}courseShape.js`); } catch { /* not in this copy 
 
 // ---- 1. the bounds -----------------------------------------------------------------
 section('1. the shape is decided in code where code can');
-ok('server/courseShape.js decides a course\'s shape', !!shape?.decideCourseShape);
+// Only that it is there: what it decides is each check below.
+ok('server/courseShape.js is there', typeof shape?.decideCourseShape === 'function');
 if (shape) {
     let asked = 0;
     const counting = async () => { asked++; return '{"shape":"short"}'; };
@@ -226,6 +235,33 @@ const pasted = await (await fetch(`${base}/api/short-courses/read`, {
 })).json();
 ok('the read hands back the staged source as the window lists it', pasted?.ok === true && pasted.staged?.ok === true && pasted.staged.id === pasted.stagedId, pasted);
 ok('the staged source says it is a video from youtube.com, pasted', pasted?.staged?.source?.kind === 'video' && pasted.staged.source.pasted === true && pasted.staged.source.host === 'youtube.com', pasted?.staged?.source);
+// A read the window stopped waiting for (closed, or the row removed) while the
+// server was still reading: what it staged goes at once, not at the daily sweep.
+const stagedCount = () => db.prepare('SELECT COUNT(*) AS n FROM staged_documents').get().n;
+const sc = await import(`${S}shortCourses.js`);
+const beforeGone = stagedCount();
+let gone = 'no readSourceFor';
+try {
+    if (typeof sc.readSourceFor === 'function') gone = await sc.readSourceFor({ transcript: 'The words of a video nobody waits for any more.', title: 'Left behind' }, { signal: AbortSignal.abort() });
+} catch (e) { gone = e.message; }
+ok('a read nobody waits for any more leaves nothing staged', gone === null && stagedCount() === beforeGone, [gone, beforeGone, stagedCount()]);
+ok('the read route answers through it', /readSourceFor\(/.test(readFileSync(join(ROOT, 'server/routes/shortCourses.js'), 'utf8')));
+
+// Files claimed inside a write that rolls back queue no indexing or PDF
+// recovery for document ids that no longer exist; the jobs wait for the commit.
+const sd = await import(`${S}stagedDocuments.js`);
+const held = await stage('Held back.txt', SMALL.replace(BODY_MARK, ''));
+const jobs = [];
+try {
+    db.transaction(() => {
+        const pid = Number(db.prepare("INSERT INTO projects (name) VALUES ('Rolled back')").run().lastInsertRowid);
+        sd.claimStaged([held?.id], pid, jobs);
+        throw new Error('roll back');
+    })();
+} catch { /* rolled back, as a failed short write is */ }
+ok('files claimed in a write that rolls back queue nothing until it commits, and stay staged', jobs.length === 1 && !!db.prepare('SELECT 1 FROM staged_documents WHERE id = ?').get(held?.id ?? ''), [jobs.length, held?.id]);
+const shortSource = readFileSync(join(ROOT, 'server/shortCourses.js'), 'utf8');
+ok('the short course runs them only after its write commits', /projectId, afterCommit\)/.test(shortSource) && /\}\)\(\);\s+for \(const job of afterCommit\) job\(\);/.test(shortSource));
 const fileTwo = await stage('Fund costs.txt', SMALL.replace(BODY_MARK, ''));
 const two = await create({ name: 'Index funds', description: '', documentIds: [pasted?.stagedId, fileTwo?.id] });
 ok('a link and a file together are one short course', two.done?.shape === 'short', two.frames.map(f => f.phase));
@@ -410,7 +446,9 @@ const paste = async (node, text) => {
     ev.clipboardData = { files: [], getData: () => text };
     await act(async () => { node.dispatchEvent(ev); });
     await settle();
+    return ev;
 };
+const focused = () => w.document.activeElement;
 const nameField = () => [...all().querySelectorAll('input')].find(i => /Machine Learning/.test(i.placeholder || ''));
 const linkField = () => [...all().querySelectorAll('input')].find(i => /Paste a link/.test(i.placeholder || ''));
 
@@ -430,8 +468,23 @@ try {
     await act(async () => { r = mountModal(el, null); });
     await settle();
     const create = buttons().find(b => b.textContent.includes('Create a course'));
-    if (create) await click(create);
+    if (create) { await act(async () => { create.focus(); }); await click(create); }
     ok('Create a course opens one form with a material field', !!nameField() && !!linkField(), all().textContent.slice(0, 300));
+    ok('the focus moves into the form, not onto the page', focused() !== w.document.body && !!focused()?.closest('[role="dialog"]'), focused()?.outerHTML?.slice(0, 120));
+    await press('Back');
+    ok('Back puts the focus on the first choice', !!focused()?.hasAttribute?.('data-tile') && focused().textContent.includes('Create a course'), focused()?.outerHTML?.slice(0, 120));
+    const again = buttons().find(b => b.textContent.includes('Create a course'));
+    if (again) await click(again);
+
+    // A paste with words around its link is the learner's text: left in the field.
+    const mixed = await paste(linkField(), 'Watch this first: https://example.org/intro and then the rest');
+    ok('a paste with more than links in it is not taken over', reads.length === 0 && !mixed.defaultPrevented, [reads.length, mixed.defaultPrevented]);
+    const bracketed = await paste(linkField(), '(https://example.org/bracketed) https://en.wikipedia.org/wiki/Mercury_(planet).');
+    ok('links in brackets are read without them; a link\'s own brackets stay', bracketed.defaultPrevented && reads.map(x => x.body.url).join(' ') === 'https://example.org/bracketed https://en.wikipedia.org/wiki/Mercury_(planet)', reads.map(x => x.body.url));
+    for (const x of reads.splice(0)) await act(async () => { x.answer({ ok: false, reason: 'not_found', fix: null, url: x.body.url, host: 'example.org' }); });
+    await settle();
+    ok('a link that cannot be read says it will be left out', /It will be left out\./.test(all().textContent), all().textContent.slice(0, 600));
+    for (const b of buttons().filter(b => /^Remove .*(example\.org|wikipedia)/.test(b.getAttribute('aria-label') || ''))) await click(b);
 
     // A pasted link is read at once.
     await paste(linkField(), LINK);
@@ -479,6 +532,24 @@ try {
     if (buttonNamed('Create with AI')) await press('Create with AI');
     const ids = sent[0]?.documentIds ?? [];
     ok('Create sends the links and the file together', ids.includes('staged-link') && ids.includes('staged-pasted') && ids.includes('staged-file-0') && !ids.includes('staged-late'), sent[0]);
+    act(() => r.unmount());
+
+    // Many links at once are read a few at a time; links over the cap are said.
+    await act(async () => { r = mountModal(el, null); });
+    await settle();
+    const fresh = buttons().find(b => b.textContent.includes('Create a course'));
+    if (fresh) await click(fresh);
+    reads.length = 0;
+    const many = Array.from({ length: 6 }, (_, i) => `https://example.org/part-${i + 1}`);
+    await paste(linkField(), many.join('\n'));
+    ok('six links pasted at once: four are read, the rest wait their turn', reads.length === 4 && /Reading/.test(all().textContent), reads.map(x => x.body.url));
+    await act(async () => { reads[0].answer({ ok: false, reason: 'not_found', fix: null, url: many[0], host: 'example.org' }); });
+    await settle();
+    ok('one read done, the next starts', reads.length === 5 && reads[4].body.url === many[4], reads.map(x => x.body.url));
+    const toastsBefore = useStore.getState().toasts.length;
+    await paste(linkField(), Array.from({ length: 100 }, (_, i) => `https://example.org/more-${i}`).join(' '));
+    const toast = useStore.getState().toasts.slice(toastsBefore).find(x => /links were left out/.test(x.message));
+    ok('links over the 100 a course takes are left out, and it says so', !!toast && all().querySelectorAll('li').length === 100, [toast?.message, all().querySelectorAll('li').length]);
 } catch (e) {
     ok('the window\'s cases ran to their end', false, e.stack || e.message);
 }
