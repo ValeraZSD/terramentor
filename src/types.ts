@@ -858,30 +858,6 @@ export interface GhostResult {
     total: number;
 }
 
-// A consolidated "what to do today" agenda for a project (server/dailyPlan.js).
-export interface DailyPlanTask {
-    id: number;
-    title: string;
-    scheduled_start?: string | null;
-    scheduled_end?: string | null;
-    status?: string;
-    /** On an overdue task: the learner already knows it (server/readyToProve.js). */
-    readyToProve?: boolean;
-}
-
-export interface DailyPlan {
-    date: string;
-    overdueTasks: DailyPlanTask[];
-    todayTasks: DailyPlanTask[];
-    summary: {
-        overdueCount: number;
-        todayCount: number;
-        decayingCount: number;
-        dueFlashcardCount: number;
-        untestedCount: number;
-    };
-}
-
 // Learning feed (server/feed.js, GET /api/feed) — the home page card stream.
 // A discriminated union: `kind` selects the card component; `key` is the
 // stable identity used for exclude-list paging and consume calls.

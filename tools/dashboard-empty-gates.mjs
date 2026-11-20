@@ -104,7 +104,6 @@ async function show(dashboard, extra = {}) {
     const went = [];
     useStore.setState({
         currentProjectId: 1, projects: [{ ...project, ...extra }], dashboardData: { ...base, ...dashboard }, dashboardLoading: false,
-        dailyPlan: null,
         loadDashboard: async () => ({ success: true }),
         _navigate: (to) => { went.push(to); },
     });
