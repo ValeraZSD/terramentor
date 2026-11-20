@@ -108,7 +108,8 @@ function reducedMotion(): boolean {
  * (grey while queued), the task label, and live progress (percent where a
  * real total exists, character counts otherwise). Clicking a chip opens the
  * task's record, whose first button goes to the surface the task belongs to;
- * ✕ cancels an active task or dismisses a finished one. Navigating away never
+ * ✕ dismisses a finished task at once; on an active one it asks first, since
+ * one slip on a small button threw away a long job. Navigating away never
  * cancels anything — generations run server-side and the queue advances on
  * its own.
  */
@@ -251,6 +252,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     // Opened by a press on any chip that is not a failure with a report.
     const [showDetail, setShowDetail] = useState(false);
     const cancelAiTask = useStore(s => s.cancelAiTask);
+    const showConfirm = useStore(s => s.showConfirm);
 
     const active = task.status === 'running' || task.status === 'queued';
     const failed = task.status === 'error';
@@ -267,14 +269,33 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     // dock is what owns the countdown: a chip clipped behind the "+N" pill is
     // not mounted at all, and a timer living in it would never fire.
     const [hovered, setHovered] = useState(false);
+    // So does the question the ✕ asks on an active task.
+    const [asking, setAsking] = useState(false);
     useEffect(() => {
-        onHold(task.id, hovered || showFailure || showDetail);
+        onHold(task.id, hovered || showFailure || showDetail || asking);
         return () => onHold(task.id, false);
-    }, [hovered, showFailure, showDetail, task.id, onHold]);
+    }, [hovered, showFailure, showDetail, asking, task.id, onHold]);
 
     const detail = progressText(task);
     const kindLabel = tr(KIND_LABEL[task.kind] ?? k("AI task"));
     const title = taskTitle(task, tr);
+
+    // Stopping throws the job away, and the ✕ is a small target beside the
+    // chip, so it asks; the safe answer has the focus. A task that ended while
+    // the question was open is left alone: there is nothing left to stop.
+    const stop = async () => {
+        setAsking(true);
+        const ok = await showConfirm({
+            title: tr("Stop this task?"),
+            message: tr("{{label}} stops and will not finish. You can start it again later.", { label: title }),
+            confirmLabel: tr("Stop"),
+            cancelLabel: tr("Continue"),
+            variant: 'warning',
+        });
+        setAsking(false);
+        const now = useStore.getState().aiTasks.find(x => x.id === task.id);
+        if (ok && (now?.status === 'running' || now?.status === 'queued')) cancelAiTask(task.id);
+    };
     // The chip has room for a label and a number; the live detail line (which
     // topic, which part, how many of the batch are ready) goes in the tooltip.
     const tooltip = `${kindLabel}: ${title}` +
@@ -369,9 +390,9 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
 
             <button data-dock
                 type="button"
-                onClick={() => (active ? cancelAiTask(task.id) : onDismiss(task.id))}
-                aria-label={active ? tr("Cancel {{label}}", { label: title }) : tr("Dismiss {{label}}", { label: title })}
-                title={active ? tr("Cancel") : tr("Dismiss")}
+                onClick={() => (active ? stop() : onDismiss(task.id))}
+                aria-label={active ? tr("Stop {{label}}", { label: title }) : tr("Dismiss {{label}}", { label: title })}
+                title={active ? tr("Stop") : tr("Dismiss")}
                 className="shrink-0 grid place-items-center w-7 h-7 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
                 <X className="w-3.5 h-3.5" />
