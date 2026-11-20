@@ -1,9 +1,8 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, scopeKey } from '../../store';
-import {
-    FeedCard, FeedCheckpointCard, FeedFlashcardCard, FeedLessonCard, FeedLookBackCard,
-    FeedNoticeCard, FeedPracticeCard, FeedQuestionCard, FeedRecallCard,
-} from '../../types';
+import type { FeedCard } from '../../types';
+import { courseBlocks, groupCards, groupLead, type ChapterCard, type FeedGroup, type StandaloneCard } from './courseBlocks';
+import CourseBlock from './CourseBlock';
 import FeedHeader from './FeedHeader';
 import ChapterGroup, { ChapterSection } from './ChapterGroup';
 import LessonCard from './LessonCard';
@@ -14,7 +13,7 @@ import PracticeCard from './PracticeCard';
 import NoticeCard from './NoticeCard';
 import LookBackCard from './LookBackCard';
 import StreamRoundHeader from './StreamRoundHeader';
-import { StreamCourse } from './streamCourse';
+import { STREAM_SCROLL_MARGIN as CARD_SCROLL_MARGIN, StreamCourse } from './streamCourse';
 import MockSittingScreen from '../mockExam/MockSittingScreen';
 import OnboardingCard from './OnboardingCard';
 import LibraryNoticeCard from './LibraryNoticeCard';
@@ -44,59 +43,6 @@ import { motionReduced } from '../../utils/accessibility';
  * — no scroll jumps) and auto-scrolls the next one into view. Paging is
  * exclude-key based: the sentinel near the end fetches the next batch.
  */
-
-/** Cards that belong to a topic's own narrative, so they group into a chapter. */
-type ChapterCard = FeedLessonCard | FeedQuestionCard | FeedCheckpointCard | FeedPracticeCard;
-type StandaloneCard = FeedFlashcardCard | FeedRecallCard | FeedNoticeCard | FeedLookBackCard;
-
-type FeedGroup =
-    | { type: 'chapter'; head: ChapterCard; cards: ChapterCard[]; continued: boolean }
-    | { type: 'review'; cards: FeedRecallCard[] }
-    | { type: 'single'; card: StandaloneCard };
-
-const isChapterCard = (card: FeedCard): card is ChapterCard =>
-    card.kind === 'lesson' || card.kind === 'question'
-    || card.kind === 'checkpoint' || card.kind === 'practice';
-
-/**
- * Fold the flat card list into chapters. Order is never changed — the server's
- * interleave decides what comes when; this only draws a box around the runs
- * that already belong together. A topic the feed returns to later (after a
- * flashcard broke the run) opens a chapter marked "continued" rather than
- * silently repeating its title as if it were new.
- */
-function groupCards(cards: FeedCard[]): FeedGroup[] {
-    const groups: FeedGroup[] = [];
-    const seenNodes = new Set<number>();
-
-    for (const card of cards) {
-        // The review round: recall questions from several fading topics,
-        // under one line saying what they are.
-        if (card.kind === 'recall' && card.review) {
-            const last = groups[groups.length - 1];
-            if (last?.type === 'review') last.cards.push(card);
-            else groups.push({ type: 'review', cards: [card] });
-            continue;
-        }
-        if (!isChapterCard(card)) {
-            groups.push({ type: 'single', card });
-            continue;
-        }
-        const last = groups[groups.length - 1];
-        if (last?.type === 'chapter' && last.head.nodeId === card.nodeId) {
-            last.cards.push(card);
-            continue;
-        }
-        groups.push({
-            type: 'chapter',
-            head: card,
-            cards: [card],
-            continued: seenNodes.has(card.nodeId),
-        });
-        seenNodes.add(card.nodeId);
-    }
-    return groups;
-}
 
 /**
  * ONE STREAM, THREE SCOPES — the same component draws all of them, because
@@ -340,6 +286,8 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
 
     const shownCards = useMemo(() => (roundAt < 0 ? feedCards : feedCards.slice(0, roundAt + 1)), [feedCards, roundAt]);
     const groups = useMemo(() => groupCards(shownCards), [shownCards]);
+    // Today: one course at a time, each under its own header (courseBlocks.ts).
+    const blocks = useMemo(() => courseBlocks(groups), [groups]);
     // The topic's first lesson, still being written or failed to be: the page
     // shows that and nothing else until it lands.
     const pending = studying && lessonPending(feedCards, lessonWrite);
@@ -511,10 +459,87 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
         );
     }
 
+    const renderGroup = (group: FeedGroup) => group.type === 'chapter' ? (
+        <ChapterGroup
+            key={group.head.key}
+            projectColor={group.head.projectColor}
+            projectName={group.head.projectName}
+            projectId={group.head.projectId}
+            nodeTitle={group.head.nodeTitle}
+            continued={group.continued}
+            onOpenNode={() => openProjectNode(group.head.projectId, group.head.nodeId)}
+            nodeId={group.head.nodeId}
+            transfer={feedTransfers[group.head.nodeId] ?? null}
+            placement={feedPlacements[group.head.nodeId] ?? null}
+            taughtOut={group.cards.some(c => c.kind === 'checkpoint')}
+            // The chapter's own checkpoint knows the configured gate
+            // mode; a chapter still mid-teaching has no checkpoint
+            // yet, and advisory is the app default.
+            gateMode={group.cards.find(c => c.kind === 'checkpoint')?.gateMode}
+        >
+            {group.cards.map((card, i) => (
+                <ChapterSection key={card.key} innerRef={setCardRef(card.key)}>
+                    {/* A run of questions is labelled at its head
+                        and nowhere else (QuestionCard.labelled). */}
+                    {renderChapterCard(card, !!feedDone[card.key], handleDone,
+                        group.cards[i - 1]?.kind !== 'question',
+                        runDone(group.cards, i, feedDone),
+                        !group.continued)}
+                </ChapterSection>
+            ))}
+        </ChapterGroup>
+    ) : group.type === 'review' ? (
+        // The round says how long it is at its head and where it ends at its
+        // foot (a labelled rule under the last card): the cards in it carry
+        // no badge of their own, so without the foot the lesson after it
+        // reads as one more of them.
+        <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-2">
+            {/* A topic missed on a look back or a mock is back the next day,
+                not after a while: the header says which kind the round holds. */}
+            <StreamRoundHeader
+                icon={History}
+                title={group.cards.every(c => c.slipped)
+                    ? tr("Recall: what you missed recently")
+                    : group.cards.some(c => c.slipped)
+                        ? tr("Recall: what you missed recently and earlier topics")
+                        : tr("Recall: what you haven't practiced in a while")}
+                detail={tr("{{count}} questions", { count: group.cards.length })}
+            />
+            <div className="space-y-5">
+                {group.cards.map(card => (
+                    <div
+                        key={card.key}
+                        ref={setCardRef(card.key)}
+                        tabIndex={-1}
+                        style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
+                        className="outline-none"
+                    >
+                        {renderStandalone(card, !!feedDone[card.key], handleDone, openLookBack)}
+                    </div>
+                ))}
+            </div>
+            <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
+                <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+                {tr('End of recall')}
+                <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
+            </p>
+        </section>
+    ) : (
+        <div
+            key={group.card.key}
+            ref={setCardRef(group.card.key)}
+            tabIndex={-1}
+            style={{ scrollMarginTop: CARD_SCROLL_MARGIN }}
+            className="outline-none"
+        >
+            {renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)}
+        </div>
+    );
+
     return (
         // A course's or topic's page names its course in its header: the cards
-        // under it do not repeat that line (streamCourse.ts). Today mixes
-        // courses, so there every card keeps its name.
+        // under it do not repeat that line (streamCourse.ts). On Today each
+        // course block names its course in its own header (CourseBlock).
         <StreamCourse.Provider value={scoped ? studyProject?.name ?? null : null}>
         <div
             ref={scrollerRef}
@@ -546,82 +571,25 @@ export default function FeedView({ studyNodeId = null, studyProjectId = null }: 
                     or once the learner chooses to go without. */}
                 {!scoped && <AiSetupCard />}
                 {!scoped && <OnboardingCard />}
-                {groups.map(group => group.type === 'chapter' ? (
-                    <ChapterGroup
-                        key={group.head.key}
-                        projectColor={group.head.projectColor}
-                        projectName={group.head.projectName}
-                        projectId={group.head.projectId}
-                        nodeTitle={group.head.nodeTitle}
-                        continued={group.continued}
-                        onOpenNode={() => openProjectNode(group.head.projectId, group.head.nodeId)}
-                        nodeId={group.head.nodeId}
-                        transfer={feedTransfers[group.head.nodeId] ?? null}
-                        placement={feedPlacements[group.head.nodeId] ?? null}
-                        taughtOut={group.cards.some(c => c.kind === 'checkpoint')}
-                        // The chapter's own checkpoint knows the configured gate
-                        // mode; a chapter still mid-teaching has no checkpoint
-                        // yet, and advisory is the app default.
-                        gateMode={group.cards.find(c => c.kind === 'checkpoint')?.gateMode}
-                    >
-                        {group.cards.map((card, i) => (
-                            <ChapterSection key={card.key} innerRef={setCardRef(card.key)}>
-                                {/* A run of questions is labelled at its head
-                                    and nowhere else (QuestionCard.labelled). */}
-                                {renderChapterCard(card, !!feedDone[card.key], handleDone,
-                                    group.cards[i - 1]?.kind !== 'question',
-                                    runDone(group.cards, i, feedDone),
-                                    !group.continued)}
-                            </ChapterSection>
-                        ))}
-                    </ChapterGroup>
-                ) : group.type === 'review' ? (
-                    // The round says how long it is at its head and where it ends at its
-                    // foot (a labelled rule under the last card): the cards in it carry
-                    // no badge of their own, so without the foot the lesson after it
-                    // reads as one more of them.
-                    <section key={`review-${group.cards[0].key}`} className="space-y-2 pb-2">
-                        {/* A topic missed on a look back or a mock is back the next day,
-                            not after a while: the header says which kind the round holds. */}
-                        <StreamRoundHeader
-                            icon={History}
-                            title={group.cards.every(c => c.slipped)
-                                ? tr("Recall: what you missed recently")
-                                : group.cards.some(c => c.slipped)
-                                    ? tr("Recall: what you missed recently and earlier topics")
-                                    : tr("Recall: what you haven't practiced in a while")}
-                            detail={tr("{{count}} questions", { count: group.cards.length })}
-                        />
-                        <div className="space-y-5">
-                            {group.cards.map(card => (
-                                <div
-                                    key={card.key}
-                                    ref={setCardRef(card.key)}
-                                    tabIndex={-1}
-                                    style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
-                                    className="outline-none"
-                                >
-                                    {renderStandalone(card, !!feedDone[card.key], handleDone, openLookBack)}
-                                </div>
-                            ))}
-                        </div>
-                        <p className="flex items-center gap-3 pt-4 text-sm text-slate-600 dark:text-slate-400">
-                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
-                            {tr('End of recall')}
-                            <span className="h-px flex-1 bg-slate-300 dark:bg-slate-700" aria-hidden="true" />
-                        </p>
-                    </section>
-                ) : (
-                    <div
-                        key={group.card.key}
-                        ref={setCardRef(group.card.key)}
-                        tabIndex={-1}
-                        style={{ scrollMarginTop: 'calc(var(--feed-top, 0px) + 1rem)' }}
-                        className="outline-none"
-                    >
-                        {renderStandalone(group.card, !!feedDone[group.card.key], handleDone, openLookBack)}
-                    </div>
-                ))}
+                {scoped ? groups.map(renderGroup) : blocks.map(block => {
+                    const lead = groupLead(block.groups[0]);
+                    if (block.course == null || lead.kind === 'notice') {
+                        return <div key={`block-${lead.key}`} className="space-y-5">{block.groups.map(renderGroup)}</div>;
+                    }
+                    const name = lead.kind === 'flashcard' ? lead.card.project_name : lead.projectName;
+                    const color = lead.kind === 'flashcard' ? lead.card.project_color : lead.projectColor;
+                    return (
+                        <CourseBlock
+                            key={`block-${lead.key}`}
+                            name={name}
+                            color={color}
+                            icon={projects.find(p => p.id === block.course)?.icon}
+                            continued={block.continued}
+                        >
+                            {block.groups.map(renderGroup)}
+                        </CourseBlock>
+                    );
+                })}
                 {roundAt < 0 && <div ref={sentinelRef} aria-hidden="true" />}
                 {roundAt < 0 && feedLoading && feedCards.length > 0 && (
                     <div className="flex justify-center py-4">

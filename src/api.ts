@@ -2529,9 +2529,12 @@ export const api = {
         request<{ ok: boolean }>(`/atlas/regions/${signature}/name`, { method: 'DELETE' }),
 
     // LEARNING FEED (home page)
-    getFeed: (exclude?: string[], limit = 15, scope?: FeedScope) => {
+    getFeed: (exclude?: string[], limit = 15, scope?: FeedScope, courses?: number[]) => {
         const params = new URLSearchParams({ limit: String(limit) });
         if (exclude && exclude.length) params.set('exclude', exclude.join(','));
+        // Today's course blocks already on screen, in order: the block the
+        // reader is in continues before the next course opens.
+        if (!scope && courses && courses.length) params.set('courses', courses.join(','));
         // Three scopes, one endpoint: nothing (the whole library), one course,
         // or one topic/section. See `composeFeed` in server/feed.js.
         if (scope?.kind === 'node') params.set('nodeId', String(scope.id));

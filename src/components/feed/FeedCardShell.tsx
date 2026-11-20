@@ -2,7 +2,7 @@ import { ReactNode, CSSProperties, forwardRef } from 'react';
 import { useAccentVars } from '../../hooks/useAccentVars';
 import { CheckCircle2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useCourseLine } from './streamCourse';
+import { useCourseLine, useStreamHeading } from './streamCourse';
 
 interface Props {
     /** Project colour — re-points the accent vars inside the card (ProjectCard pattern). */
@@ -29,6 +29,7 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
 ) {
     const { t } = useTranslation();
     const projectName = useCourseLine(courseName);
+    const Heading = useStreamHeading(3);
     // The rail is drawn exactly as in ChapterGroup: the card's own left border
     // at 4px, so it follows `rounded-2xl` around the top-left and bottom-left
     // corners instead of being cut flat by them. The colour is inline because
@@ -65,9 +66,9 @@ const FeedCardShell = forwardRef<HTMLElement, Props>(function FeedCardShell(
                                         {nodeTitle}
                                     </button>
                                 ) : (
-                                    <h3 className="text-base font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
+                                    <Heading className="text-base font-semibold text-slate-900 dark:text-white line-clamp-2 break-words">
                                         {nodeTitle}
-                                    </h3>
+                                    </Heading>
                                 )
                             )}
                             {subtitle && (
