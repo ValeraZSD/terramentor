@@ -1122,7 +1122,7 @@ learner content.
 
 The download opens with a **study summary** (`server/studySummary.js`,
 `activityExport()`): counts computed from `study_time`, `review_log` (source `app`),
-`mastery_evidence`, `node_mastery` (proven = `estimateProven` over work leaves, the
+`mastery_evidence`, `nodes` (topics marked done, by `completed_at`), `node_mastery` (proven = `estimateProven` over work leaves, the
 finished-project screen's rule) and `mock_sittings` when the file is made, never from
 the log, so an empty, cleared, switched-off or capped log does not change it. Days are
 the learner's days (`studyDay.js`) in the zone the page puts in the link (`?tz=`, since
