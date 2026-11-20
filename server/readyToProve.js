@@ -75,6 +75,11 @@ export function canProve(nodeId, gate = getGateConfig()) {
  * The rule. `node` is a topic row: `id` (or `nodeId`), `status`,
  * `scheduled_end`. `today` is `YYYY-MM-DD` (UTC), the same day the reader's
  * own overdue test used.
+ *
+ * It is a reading of an OVERDUE topic, so it never fires in a course with a
+ * window: there no open topic is dated before today (server/topicDates.js), a
+ * missed week moves the work up instead, and the plan panel's "Check what you
+ * already know" (placement) is the offer for a learner who is behind.
  */
 export function isReadyToProve(node, today, gate = getGateConfig()) {
     if (!node || CLOSED.has(node.status)) return false;

@@ -145,6 +145,25 @@ console.log('\n=== create-project refuses a colour or icon the plain create refu
     ok('no stored colour or icon is longer than 64 characters', (stored.c ?? 0) <= 64 && (stored.i ?? 0) <= 64, JSON.stringify(stored));
 }
 
+// ---- PUT and the dates a topic row carries ------------------------------------
+// A course with no window keeps the dates its rows carry; resending its empty
+// window with an edit is not a window change and must keep them. Adding a
+// window clears the dates an older build stored on open topics.
+{
+    console.log('\n--- an edit that resends an empty window keeps the stored dates ---');
+    const pid = Number(db.prepare("INSERT INTO projects (name) VALUES ('No window')").run().lastInsertRowid);
+    const topic = Number(db.prepare(`INSERT INTO nodes (project_id, title, position, scheduled_start, scheduled_end)
+        VALUES (?, 'Stored', 0, '2030-01-07', '2030-01-08')`).run(pid).lastInsertRowid);
+    const dates = () => db.prepare('SELECT scheduled_start AS s, scheduled_end AS e FROM nodes WHERE id = ?').get(topic);
+    const renamed = await call('PUT', `/api/projects/${pid}`, { name: 'Renamed', start_date: null, deadline: null });
+    ok('the edit is accepted', renamed.status === 200, renamed.text);
+    ok('...and the open topic keeps its stored dates', dates().s === '2030-01-07' && dates().e === '2030-01-08', JSON.stringify(dates()));
+    const blank = await call('PUT', `/api/projects/${pid}`, { start_date: '', deadline: '' });
+    ok('an empty window sent as blank text keeps them too', blank.status === 200 && dates().s === '2030-01-07', JSON.stringify(dates()));
+    const windowed = await call('PUT', `/api/projects/${pid}`, { start_date: '2030-01-01', deadline: '2030-02-01' });
+    ok('adding a window clears the open topic\'s stored dates', windowed.status === 200 && dates().s === null && dates().e === null, JSON.stringify(dates()));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 await new Promise(r => server.close(r));
 await new Promise(r => stub.close(r));

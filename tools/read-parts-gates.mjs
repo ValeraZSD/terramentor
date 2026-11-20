@@ -152,7 +152,7 @@ console.log('\n--- "Next up" is where Start Studying begins ---');
     const longOverdue = mkNode(p, s1, 'S1 overdue since long', 2, { start: day(-12), end: day(-10) });
     const recentOverdue = mkNode(p, s2, 'S2 overdue lately', 0, { start: day(-6), end: day(-5) });
     db.prepare("UPDATE nodes SET status = 'completed' WHERE title = 'S1 done'").run();
-    db.prepare('UPDATE projects SET start_date = ?, deadline = ? WHERE id = ?').run(day(-40), day(40), p);
+    // No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
 
     const byPosition = db.prepare(`
         SELECT id FROM nodes WHERE project_id = ? AND is_note = 0 AND status <> 'completed'
