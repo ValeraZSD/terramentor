@@ -1,7 +1,6 @@
 import { THEME_CHOICES, MIN_UI_SCALE, MAX_UI_SCALE, type ThemeChoice } from '../store';
 import { MIN_SPEECH_RATE, MAX_SPEECH_RATE } from './accessibility';
 import i18n, { LANGUAGES, isSupportedLanguage, k } from '../i18n';
-import { weekdayName } from './locale';
 import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
 
 /**
@@ -25,8 +24,8 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
  * failure mode as an invented node id: silence, never a wrong action.
  *
  * WHY THIS LIST AND NOTHING ELSE. Every setting here is (a) visible the instant
- * it lands (or, for the number format and the week's first day, on the next
- * screen that shows a number or a week, and named in the chip meanwhile), so a
+ * it lands (or, for the number format, on the next screen that shows a
+ * number, and named in the chip meanwhile), so a
  * wrong one is self-reporting rather than discovered weeks later,
  * and (b) undone by a single tap, which the chip beside the answer offers. That
  * pair is what makes applying it immediately better than asking first: a
@@ -43,7 +42,7 @@ import { NUMBER_STYLES, AUTO as NUMBER_AUTO } from './numberFormat';
 
 // Spelled out, not built from the tables below: tools/settings-registry-gates.mjs
 // reads this line to check every key is a client ui row.
-export type SettingKey = 'theme' | 'theme_tint' | 'accent_color' | 'ui_scale' | 'week_start_day' | 'ui_language' | 'number_format'
+export type SettingKey = 'theme' | 'theme_tint' | 'accent_color' | 'ui_scale' | 'ui_language' | 'number_format'
     | 'contrast' | 'motion' | 'letter_spacing' | 'word_spacing' | 'line_spacing'
     | 'reading_line' | 'read_aloud' | 'card_audio_autoplay' | 'confirm_answers' | 'key_shortcuts' | 'speech_rate'
     | 'larger_ui';
@@ -236,14 +235,6 @@ export function validateSettingChange(rawKey: string, rawValue: string): Setting
         const style = v === 'auto' ? NUMBER_AUTO : NUMBER_STYLES.find(s => flat(s.id) === flat(value))?.id ?? null;
         if (!style) return null;
         return { key: 'number_format', value: style, label: i18n.t("Numbers → {{style}}", { style: style === NUMBER_AUTO ? i18n.t("Automatic") : style }) };
-    }
-
-    if (key === 'week_start_day' || key === 'week_start') {
-        const v = value.toLowerCase();
-        const day = v === 'monday' || v === 'mon' || v === '1' ? 1
-            : v === 'sunday' || v === 'sun' || v === '0' ? 0 : null;
-        if (day === null) return null;
-        return { key: 'week_start_day', value: day, label: i18n.t("Week starts → {{day}}", { day: weekdayName(day === 1 ? 1 : 7) }) };
     }
 
     return null;

@@ -4,9 +4,8 @@ import { AlertTriangle, CalendarPlus, Check, Edit2, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { Project, ScheduleOverviewRow } from '../../types';
 import { parseDate, todayStr } from '../../utils/tree';
-import { pretty } from '../../utils/scheduleAxis';
 import { VerdictPill, verdictLine } from '../plan/verdict';
-import { dateRangeLabel } from '../../utils/locale';
+import { dateRangeLabel, pretty } from '../../utils/locale';
 import { useNumberFormat } from '../../hooks/useNumberFormat';
 import { Button, IconButton } from '../ui/Button';
 

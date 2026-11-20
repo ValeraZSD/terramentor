@@ -141,7 +141,7 @@ export default function VaultProjectView() {
                         </Button>
 
                         {/* The bundle's options: a `PanelPopover` on the button's
-                            right edge, and the bottom sheet on a phone. */}
+                            right edge, on a phone too. */}
                         <PanelPopover
                             open={showOptions}
                             onClose={() => setShowOptions(false)}

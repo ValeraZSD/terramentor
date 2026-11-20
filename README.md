@@ -43,11 +43,13 @@ and you can also import a course file or an Anki deck.
 
 ### Plan
 
-Give it a start date, a deadline and the days of the week you study. Bigger topics get more
-days, and pace is measured against that plan. Change the dates and whatever is
-still open is planned again.
+Give it a start date, a deadline and the days of the week you study. Your pace is measured
+week by week against what the date needs, and the course's header says in one line whether you
+will make it. Open the plan to see your weeks as bars, the pace the date needs drawn across them,
+and what to do if it slips: plan a set number a week, study only the topics that fit, or move
+the date.
 
-![A course's calendar for November, with the topics planned for each study day and the course on track.](docs/screenshots/plan.webp)
+![A course's plan: the verdict, the learner's weeks as bars with the pace the date needs drawn across them, and the start date, deadline and study days.](docs/screenshots/plan.webp)
 
 ### Study
 

@@ -925,6 +925,137 @@ console.log('\n--- the log file and the shortcut ---');
     check('the app moved and the shortcut is there: it is pointed here', startMenuShortcutAction({ marker: before, target: here, shortcutExists: true }), 'update');
     check('the app moved and the shortcut was deleted: it stays deleted', startMenuShortcutAction({ marker: before, target: here, shortcutExists: false }), 'none');
     check('a pre-fix marker (a timestamp) with the shortcut there: one rewrite', startMenuShortcutAction({ marker: '2026-09-21T10:00:00.000Z', target: here, shortcutExists: true }), 'update');
+
+    // One login item per user, any number of libraries: a server rewrites only
+    // the item its own library owns (a scratch library under test once
+    // repointed a real user's login item at itself). Every item here is the one
+    // autostartPlan really writes, so the readers are tested against the
+    // writers' own quoting, not a hand-made imitation of it.
+    const L = desktopLib;
+    const refresh = (o) => (L.loginItemRefresh ? L.loginItemRefresh(o) : 'missing');
+    const lib = (dir) => (dir ? ['--data-dir', dir] : []);
+    const win = (app, dir) => L.autostartPlan({ platform: 'win32', target: `${app}\\Terramentor.exe`, args: lib(dir), env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' } }).record;
+    const mac = (app, dir) => L.autostartPlan({ platform: 'darwin', target: `${app}/Terramentor`, args: lib(dir), home: '/Users/u' }).contents;
+    const xdg = (app, dir) => L.autostartPlan({ platform: 'linux', target: `${app}/terramentor`, args: lib(dir), home: '/home/u' }).contents;
+    const OLD = 'C:\\Apps\\Terramentor-1.0.0', NEW = 'C:\\Apps\\Terramentor-1.0.1';
+    const A = 'C:\\Users\\u\\Terramentor-data', B = 'D:\\Libraries\\Second';
+    const shortcut = { kind: 'shortcut', platform: 'win32', exists: true, wanted: win(NEW, A), dataDir: A };
+    const mine = L.shortcutMarker?.(win(OLD, A), win(OLD, A));
+    check('shortcut: this library wrote it and the app moved: rewritten', refresh({ ...shortcut, marker: mine, current: win(OLD, A) }), 'rewrite');
+    check('shortcut: already what this copy writes: left', refresh({ ...shortcut, marker: mine, current: win(NEW, A) }), 'none');
+    // Library B rewrote the shared shortcut after A did, at any moment — the
+    // same second included: it is B's, whatever the file times say.
+    check('shortcut: another library wrote it after this one did: left', refresh({ ...shortcut, marker: mine, current: win(OLD, B) }), 'none');
+    check('shortcut: the same, when that library runs the same copy: left', refresh({ ...shortcut, marker: mine, current: win(NEW, B) }), 'none');
+    check('shortcut: changed by hand since this library wrote it: left', refresh({ ...shortcut, marker: mine, current: L.shortcutRecord({ arguments: `--data-dir "${A}" --autostart --port 4000`, workingDir: OLD }) }), 'none');
+    check('shortcut: the person removed it: not put back', refresh({ ...shortcut, exists: false, marker: mine, current: null }), 'none');
+    check('shortcut: unreadable: left', refresh({ ...shortcut, marker: mine, current: null }), 'none');
+    // Markers written before this rule hold the PowerShell script that made the
+    // shortcut. They are read as no marker, so an update still reaches those
+    // installs through the item's own --data-dir.
+    const script = L.autostartPlan({ platform: 'win32', target: `${OLD}\\Terramentor.exe`, args: lib(A), env: { APPDATA: 'C:\\x' } }).script;
+    // Windows stored a different string than it was given (a character outside
+    // the ANSI code page): the item is still this library's, and this copy
+    // asking for the same again is no reason to rewrite it at every start.
+    const lossy = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\cafe --autostart', workingDir: OLD });
+    const asked = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\café --autostart', workingDir: OLD });
+    check('shortcut Windows stored differently, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
+    check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
+    check('shortcut, older marker (a script), naming this library: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
+    check('shortcut, older marker (a script), naming another library: left', refresh({ ...shortcut, marker: script, current: win(OLD, B) }), 'none');
+    check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
+    check('shortcut, no marker, a library whose path starts with this one: left', refresh({ ...shortcut, current: win(OLD, `${A}-old`) }), 'none');
+    check('shortcut, no marker, the default library while this one is named: left', refresh({ ...shortcut, current: win(OLD, null) }), 'none');
+    // An item written before --data-dir was pinned opens whatever ITS copy
+    // resolves with no flag (unpinnedOf, given that copy's folder).
+    const opensFrom = (map) => (root) => map[root] ?? null;
+    check('shortcut naming no library, whose copy opens this one: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: A.toLowerCase() }) }), 'rewrite');
+    check('shortcut naming no library, whose copy opens another one: left', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: B }) }), 'none');
+    // Another copy with a data folder of its own, while this copy has one too:
+    // resolved from THIS copy, the old item looked like this library's.
+    check('shortcut naming no library, another copy with its own data: left', refresh({
+        ...shortcut, wanted: win(NEW, `${NEW}\\data`), dataDir: `${NEW}\\data`, current: win(OLD, null),
+        unpinnedOf: opensFrom({ [OLD]: `${OLD}\\data`, [NEW]: `${NEW}\\data` }),
+    }), 'none');
+    check('shortcut naming no library whose copy cannot be told: left', refresh({ ...shortcut, current: L.shortcutRecord({ arguments: '--autostart', workingDir: '' }), unpinnedOf: () => A }), 'none');
+    check('a shortcut item starts the app in its working folder', L.loginItemRoot?.('shortcut', win(OLD, null), 'win32'), OLD);
+    check('…and a checkout\'s, in the folder above its launcher script', L.loginItemRoot?.('shortcut', L.shortcutRecord({ arguments: '"C:\\src\\tm\\desktop\\wrappers\\launch-hidden.vbs" "C:\\node\\node.exe" "C:\\src\\tm\\desktop\\launcher.js" --autostart', workingDir: 'C:\\src\\tm' }), 'win32'), 'C:\\src\\tm');
+    {
+        // What a copy opens with no flag, from that copy's folder.
+        const home = '/home/u', env = {};
+        const has = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+        const of = (root, exists) => L.unpinnedLibraryOf?.(root, { platform: 'linux', env, home, exists, readFile: () => '' });
+        const perUser = L.userDataDir({ platform: 'linux', env, home });
+        check('a copy with its own data folder opens that one', of('/apps/old', has('/apps/old', '/apps/old/data', '/apps/old/build.json')), join('/apps/old', 'data'));
+        check('an installed copy without one opens the per-user library', of('/apps/old', has('/apps/old', '/apps/old/build.json')), perUser);
+        check('a copy that is gone resolves as an installed copy', of('/apps/gone', has()), perUser);
+        check('a checkout opens the folder under its server/', of('/src/tm', has('/src/tm')), join('/src/tm', 'server'));
+        check('no copy, no library', of(null, has()), null);
+    }
+    // The working folder is the app's folder whatever machine builds the plan:
+    // on Linux a host dirname turned every copy's into '.', so an update
+    // looked like no change at all.
+    check('a Windows plan names its app folder on any machine', JSON.parse(win(OLD, A)).workingDir, OLD);
+
+    const plist = { kind: 'plist', platform: 'darwin', exists: true, wanted: mac('/Apps/new', '/lib/a'), dataDir: '/lib/a' };
+    check('plist still as this library wrote it: rewritten', refresh({ ...plist, marker: mac('/Apps/old', '/lib/a'), current: mac('/Apps/old', '/lib/a') }), 'rewrite');
+    check('plist rewritten since by another library: left', refresh({ ...plist, marker: mac('/Apps/old', '/lib/a'), current: mac('/Apps/old', '/lib/b') }), 'none');
+    check('plist from before markers, naming this library: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a') }), 'rewrite');
+    check('plist from before markers, naming /lib/ab while this is /lib/a: left', refresh({ ...plist, current: mac('/Apps/old', '/lib/ab') }), 'none');
+    check('plist from before markers, this library with a trailing slash: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a/') }), 'rewrite');
+    check('plist for the default library, server on a named one: left', refresh({ ...plist, current: mac('/Apps/old', null) }), 'none');
+    check('plist where neither names a library: adopted', refresh({ ...plist, wanted: mac('/Apps/new', null), dataDir: null, current: mac('/Apps/old', null) }), 'rewrite');
+    const macNode = (app, dir) => L.autostartPlan({ platform: 'darwin', target: `${app}/runtime/node`, args: [`${app}/desktop/launcher.js`, ...lib(dir)], home: '/Users/u' }).contents;
+    check('plist naming no library, whose copy opens this one: adopted', refresh({ ...plist, current: macNode('/Apps/old', null), unpinnedOf: opensFrom({ '/Apps/old': '/lib/a/' }) }), 'rewrite');
+    check('plist naming no library and no launcher script: left', refresh({ ...plist, current: mac('/Apps/old', null), unpinnedOf: () => '/lib/a' }), 'none');
+
+    const odd = '/home/u/My "Study" & <notes> 100% $HOME `x` \\ end';
+    const entry = { kind: 'desktop-entry', platform: 'linux', exists: true, wanted: xdg('/opt/new app', odd), dataDir: odd };
+    check('.desktop entry naming this library through every escape: adopted', refresh({ ...entry, current: xdg('/opt/old app', odd) }), 'rewrite');
+    check('.desktop entry naming the folder this one sits in: left', refresh({ ...entry, current: xdg('/opt/old app', '/home/u') }), 'none');
+    check('.desktop entry naming a longer path that starts with this one: left', refresh({ ...entry, current: xdg('/opt/old app', `${odd}2`) }), 'none');
+
+    // The readers undo the writers exactly, for the characters each format escapes.
+    const awkward = ['C:\\Program Files\\Terra mentor\\', 'a"b', 'end\\\\', 'tab\there', '', 'plain', 'x\\"y', '\\\\server\\share\\lib'];
+    check('windowsArgs reads back what windowsArg wrote', L.windowsArgs?.(awkward.map(L.windowsArg).join(' ')), awkward);
+    const posixAwkward = [odd, '50% off', 'semi;colon', "it's", '~/home', 'a  b'];
+    check('a .desktop Exec line reads back to its arguments', L.loginItemArgs?.('desktop-entry', L.autostartPlan({ platform: 'linux', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
+    check('a plist reads back to its arguments', L.loginItemArgs?.('plist', L.autostartPlan({ platform: 'darwin', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
+    check('the library is the value after --data-dir, never a prefix', [L.dataDirOf?.(['x', '--data-dir', '/a']), L.dataDirOf?.(['x']), L.sameLibrary?.('/lib/a', '/lib/ab', 'linux')], ['/a', null, false]);
+
+    // Real shortcuts, written by Windows into a scratch Startup folder (never a
+    // checked-in .lnk: a real one carries the machine's name and the user's id).
+    if (process.platform === 'win32') {
+        const scratchLnk = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'lnk-'));
+        const write = (target, dir) => {
+            const plan = L.autostartPlan({ platform: 'win32', target, args: lib(dir), env: { APPDATA: scratchLnk } });
+            const ps = join(scratchLnk, 'make.ps1');
+            writeFileSync(ps, plan.script, 'utf8');
+            const made = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps],
+                { env: { ...process.env, APPDATA: scratchLnk }, windowsHide: true, encoding: 'utf8' });
+            const fields = made.status === 0 && existsSync(plan.path) ? L.readShortcut?.(readFileSync(plan.path)) : null;
+            return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
+        };
+        try {
+            // Characters every code page has: Windows stores them as given.
+            const plain = write('C:\\Apps\\Terra mentor 1.0\\Terramentor.exe', 'C:\\Users\\u\\My "library"\\');
+            check('Windows wrote the scratch shortcut', plain.status, 0);
+            check('the .lnk reader sees what the plan asked for', plain.holds, plain.plan.record);
+            check('…and the library in it', plain.holds && L.dataDirOf(L.windowsArgs(JSON.parse(plain.holds).arguments)), 'C:\\Users\\u\\My "library"\\');
+            check('the writing script reports what the file holds', plain.printed, plain.holds);
+            // Characters some code pages lack may come back changed; whatever
+            // Windows kept, the next start of the same copy leaves it alone.
+            const wide = write('C:\\Apps\\Терра mentor é\\Terramentor.exe', 'C:\\Users\\u\\Мой café');
+            check('a shortcut Windows may store differently is left alone by the same copy', refresh({
+                kind: 'shortcut', platform: 'win32', exists: true, dataDir: 'C:\\Users\\u\\Мой café',
+                wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.printed),
+            }), 'none');
+            check('…its report matching the file, changed characters and all', wide.printed, wide.holds);
+        } finally {
+            rmSync(scratchLnk, { recursive: true, force: true });
+        }
+    }
+    check('anything that is not a shortcut reads as none', [L.readShortcut?.(null), L.readShortcut?.(Buffer.from('not a link at all, long enough to pass the size check......................'))], [null, null]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1199,7 +1330,7 @@ console.log('\n--- the tray open path in source ---');
     const main = src.slice(src.indexOf('// --- main'));
     const at = (needle) => main.indexOf(needle);
     const armAt = main.search(/appProfile\s*=\s*profileDir/);
-    const anchors = { exit: at('process.exit(0)'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
+    const anchors = { exit: at('process.exitCode = 0;'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
     ok('the anchors the next two checks measure from are all there', Object.values(anchors).every(i => i > -1) && armAt > -1);
     ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
         armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);

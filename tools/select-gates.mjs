@@ -6,7 +6,7 @@
 // list it opened was the operating system's — on Windows a square grey panel
 // with a light-grey highlight under a dark theme, in the system font (21 Oct
 // 2026), and on a phone the platform's own picker. It is now a combobox button
-// with our own list (a mouse) or a bottom sheet (a finger). That trades the
+// with our own list, hung from the box on a mouse and on a finger. That trades the
 // browser's free behaviour for ours, so this holds the behaviour a native
 // select gave for nothing:
 //   - the options are read from the same `<option>` children, fragments and
@@ -16,7 +16,8 @@
 //   - focus stays on the box (aria-activedescendant), Escape is CLAIMED (a page
 //     listening on the window does not also act) and the letter shortcuts stand
 //     down on it, as they did on a select;
-//   - a finger gets a modal sheet titled with the field's label;
+//   - a finger gets the same list at the box, with rows a thumb can hit (it
+//     was a sheet from the bottom of the screen once, far from a box near the top);
 //   - no native <select> is left in src/, so no list of the OS's comes back.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -298,50 +299,77 @@ m.unmount();
 Date.now = realNow;
 
 // ---------------------------------------------------------------------------
-section('with a finger: a sheet from the bottom, titled with the field');
+section('with a finger: the same list at the box, rows a thumb can hit');
 hover = false;
 m = globalThis.__mount(host);
 await act(() => { box().click(); });
 await flush();
-const sheet = doc.querySelector('[role="dialog"][aria-modal="true"]');
-check('a press opens a modal sheet, not a hung list', !!sheet && sheet.contains(doc.querySelector('[role="listbox"]')));
-check('titled with the field’s label', sheet?.querySelector('h2')?.textContent === 'Interface language', sheet?.querySelector('h2')?.textContent);
-check('the sheet’s list takes focus (it holds the keys there)', doc.activeElement === doc.querySelector('[role="listbox"]'));
-check('rows a thumb can hit (min-h-12)', rows().every(r => r.className.includes('min-h-12')));
-check('it has a close button', !!sheet?.querySelector('button[aria-label]'));
+const fingerList = doc.querySelector('[role="listbox"]');
+check('a press opens the list at the box, not a sheet or a dialog',
+    !!fingerList && !doc.querySelector('[role="dialog"]') && !doc.querySelector('[data-bottom-sheet]'));
+check('the list is named by the field’s label', fingerList?.getAttribute('aria-label') === 'Interface language'
+    || doc.getElementById(fingerList?.getAttribute('aria-labelledby') ?? '')?.textContent === 'Interface language',
+    fingerList?.getAttribute('aria-label') ?? fingerList?.getAttribute('aria-labelledby'));
+// As the sheet's list did: a phone's screen reader walks what follows focus,
+// and the list is portalled to the end of the page, far from the box.
+check('the list takes focus and names the lit row itself (the box stands down)',
+    doc.activeElement === fingerList && !!fingerList?.getAttribute('aria-activedescendant')
+    && !box().getAttribute('aria-activedescendant'), doc.activeElement?.getAttribute('role') ?? doc.activeElement?.tagName);
+check('rows a thumb can hit (min-h-12)', rows().length > 0 && rows().every(r => r.className.includes('min-h-12')));
 await key('ArrowDown');
 await key('Enter');
-check('the keys work in the sheet too', m.changes.at(-1) === 'de', JSON.stringify(m.changes));
-check('choosing closes it and focus goes back to the box', !doc.querySelector('[role="dialog"]') && doc.activeElement === box());
+check('the keys work under a finger too', m.changes.at(-1) === 'de', JSON.stringify(m.changes));
+check('choosing closes it and focus goes back to the box', !doc.querySelector('[role="listbox"]') && doc.activeElement === box());
+await act(() => { box().click(); });
+await flush();
+await key('Tab');
+check('Tab from the list closes it and leaves from the box (not from the end of the page)',
+    !doc.querySelector('[role="listbox"]') && doc.activeElement === box(), doc.activeElement?.tagName);
 await act(() => { box().click(); });
 await flush();
 await key('Escape');
-check('Escape closes the sheet', !doc.querySelector('[role="dialog"]'));
+check('Escape closes it', !doc.querySelector('[role="listbox"]'));
 await act(() => { box().click(); });
 await flush();
 await act(() => { rows()[3].click(); });
-check('a tap on a row chooses it', m.changes.at(-1) === 'nl' && !doc.querySelector('[role="dialog"]'));
+check('a tap on a row chooses it', m.changes.at(-1) === 'nl' && !doc.querySelector('[role="listbox"]'));
 await act(() => { box().click(); });
 await flush();
-await act(() => { doc.querySelector('[role="dialog"] button[aria-label]').click(); });
-check('its close button closes it without choosing', !doc.querySelector('[role="dialog"]') && m.changes.at(-1) === 'nl');
+{
+    // A finger's tap on the page beside it: pointerdown typed as touch, then
+    // the click it becomes. The list had focus; it must not fall to the page.
+    const beside = doc.createElement('button');
+    let clicks = 0;
+    beside.addEventListener('click', () => { clicks++; });
+    doc.body.appendChild(beside);
+    await act(() => {
+        const e = new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true });
+        Object.defineProperty(e, 'pointerType', { value: 'touch' });
+        beside.dispatchEvent(e);
+    });
+    await act(() => { beside.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })); });
+    await flush();
+    check('a tap outside closes it without choosing, and presses nothing under it',
+        !doc.querySelector('[role="listbox"]') && m.changes.at(-1) === 'nl' && clicks === 0, `${clicks} click(s) on the button under the tap`);
+    check('…and focus, which the list had, goes back to the box', doc.activeElement === box(), doc.activeElement?.tagName);
+    beside.remove();
+}
+{
+    // The box scrolled out of the panel that holds it while the list had focus.
+    await act(() => { box().click(); });
+    await flush();
+    const hadFocus = doc.activeElement === doc.querySelector('[role="listbox"]');
+    host.style.overflowY = 'auto';
+    host.getBoundingClientRect = () => ({ top: 0, bottom: 100, left: 0, right: 300, width: 300, height: 100 });
+    box().getBoundingClientRect = () => ({ top: 200, bottom: 240, left: 0, right: 300, width: 300, height: 40 });
+    await act(() => { host.dispatchEvent(new window.Event('scroll')); });
+    check('scrolled away under a finger, the list goes and focus goes back to the box',
+        hadFocus && !doc.querySelector('[role="listbox"]') && doc.activeElement === box(), doc.activeElement?.tagName);
+    delete host.getBoundingClientRect; delete box().getBoundingClientRect;
+    host.style.overflowY = '';
+}
 
-// Pulled down by the header, as a phone's sheets are.
-const pull = (type, y) => act(() => {
-    const ev = new window.PointerEvent(type, { bubbles: true, cancelable: true, clientY: y, pointerId: 7, pointerType: 'touch' });
-    doc.querySelector('[data-sheet-handle]').dispatchEvent(ev);
-});
-await act(() => { box().click(); });
-await flush();
-await pull('pointerdown', 100); await pull('pointermove', 130); await pull('pointerup', 130);
-check('a short pull on the header lets it spring back open', !!doc.querySelector('[role="dialog"]'));
-await pull('pointerdown', 100); await pull('pointermove', 180);
-check('the sheet follows the finger', /translateY\(80px\)/.test(doc.querySelector('[role="dialog"]').getAttribute('style') ?? ''),
-    doc.querySelector('[role="dialog"]').getAttribute('style'));
-await pull('pointerup', 260);
-check('a long pull closes it without choosing', !doc.querySelector('[role="dialog"]') && m.changes.at(-1) === 'nl');
-
-// A list taller than its sheet says there is more, until it is scrolled to the end.
+// A list taller than its room says there is more, until it is scrolled to the end.
 {
     // Shadowed on HTMLElement for the check, and deleted after, which uncovers Element's own.
     const P = window.HTMLElement.prototype;

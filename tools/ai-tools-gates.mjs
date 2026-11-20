@@ -1079,10 +1079,11 @@ const fromRows = (rows) => (key, fallback) => (key in rows ? rows[key] : fallbac
 const empty = readSettable(fromRows({}));
 check('an empty library reads as the defaults, each a value the marker accepts',
     empty.theme === 'system' && empty.theme_tint === 'none' && empty.ui_scale === 100
-    && empty.week_start_day === 'monday' && empty.ui_language === 'auto' && empty.number_format === 'auto'
+    && empty.ui_language === 'auto' && empty.number_format === 'auto'
     && /^#[0-9a-f]{6}$/i.test(empty.accent_color), JSON.stringify(empty));
-const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', week_start_day: '0', ui_scale: '125' }));
-check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.week_start_day === 'sunday' && set.ui_scale === 125, JSON.stringify(set));
+const set = readSettable(fromRows({ theme: 'dark', theme_tint: '#000000', number_format: '1.234,5', ui_scale: '125' }));
+check('stored values are read back', set.theme === 'dark' && set.theme_tint === '#000000' && set.number_format === '1.234,5' && set.ui_scale === 125, JSON.stringify(set));
+check('a retired row is not offered', !('week_start_day' in readSettable(fromRows({ week_start_day: '0' }))));
 check('a legacy named theme reads as its mode', readSettable(fromRows({ theme: 'black' })).theme === 'dark' && readSettable(fromRows({ theme: 'warm' })).theme === 'light');
 check('an empty library reads the accessibility rows as the app shows them',
     empty.contrast === 'system' && empty.motion === 'system' && empty.letter_spacing === 'normal'
@@ -1107,7 +1108,7 @@ check('the before-values are what the setting held, not what was asked for',
     === JSON.stringify({ theme: 'light', theme_tint: '#f0e1d0' }));
 const block = assistantSettingsBlock({ now: set, recent: [{ minutesAgo: 3, before: { theme: 'light', theme_tint: 'none' } }] });
 check('the block states every settable value as it is now',
-    /theme: dark/.test(block) && /theme_tint: #000000/.test(block) && /week_start_day: sunday/.test(block));
+    /theme: dark/.test(block) && /theme_tint: #000000/.test(block) && /number_format: 1\.234,5/.test(block));
 check('the block states what the last change replaced', /theme was light/.test(block) && /theme_tint was none/.test(block));
 check('the block says how to undo with an ordinary marker', /undo/i.test(block) && /\[\[set:/.test(block));
 check('with no recent change it says so rather than inventing one',
@@ -1199,15 +1200,27 @@ for (const [i, end] of [shift(-3), shift(-2), shift(10), shift(20)].entries()) {
     db.prepare("INSERT INTO nodes (project_id, title, status, position, scheduled_start, scheduled_end) VALUES (?, ?, 'not_started', ?, ?, ?)")
         .run(paceId, `Pace topic ${i + 1}`, i, end, end);
 }
+// Topic dates of a course with a window are derived on read (server/topicDates.js):
+// the two stored dates before today are stale rows, and the open topics run from
+// today, so nothing is behind and project_state must not say it is.
 const paceRead = calculatePace(paceId);
-check('the case is one where the two counts differ (28 calendar days behind)', paceRead.daysBehind === 28, JSON.stringify(paceRead));
+check('stale stored dates do not put a course behind', paceRead.daysBehind === 0 && paceRead.studyDaysBehind === 0, JSON.stringify(paceRead));
 const paceCtx = (await stateTool.run(String(paceId))).context || '';
-check('project_state says 20 study days behind, never the calendar count under that name',
-    /20 study days behind/.test(paceCtx) && !/28 study days behind/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+check('project_state says no days behind', !/days behind/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
 // Same line: calculatePace's progress is a whole percent, read as a fraction it
 // printed "the plan expects 100%" for a plan half way through.
-check('...and the plan\'s share is the real one, not a percent read as a fraction',
-    /the plan expects 50%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+check('...and the plan\'s share is a whole percent', /the plan expects 0%, done 0%/.test(paceCtx), paceCtx.split('\n').find(l => l.startsWith('Pace')) || paceCtx);
+// At 0% both readings print 0%, so a share that is not zero: one of four topics
+// closed three days ago is a quarter of the plan, behind today, and done.
+const quarterId = Number(db.prepare("INSERT INTO projects (name, start_date, deadline, study_days) VALUES ('Quarter course', ?, ?, '[1,2,3,4,5,6,7]')")
+    .run(shift(-27), shift(28)).lastInsertRowid);
+for (let i = 0; i < 4; i++) {
+    db.prepare('INSERT INTO nodes (project_id, title, status, position, completed_at) VALUES (?, ?, ?, ?, ?)')
+        .run(quarterId, `Quarter topic ${i + 1}`, i === 0 ? 'completed' : 'not_started', i, i === 0 ? `${shift(-3)}T12:00:00.000Z` : null);
+}
+const quarterCtx = (await stateTool.run(String(quarterId))).context || '';
+check('...a share that is not zero is printed as that whole percent', /the plan expects 25%, done 25%/.test(quarterCtx),
+    quarterCtx.split('\n').find(l => l.startsWith('Pace')) || quarterCtx);
 const unscheduled = calculatePace(Number(db.prepare("INSERT INTO projects (name) VALUES ('No window yet')").run().lastInsertRowid));
 check('a project with no window carries the study count too, as 0', unscheduled.studyDaysBehind === 0, JSON.stringify(unscheduled));
 

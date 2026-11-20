@@ -165,12 +165,22 @@ Allocation is **phase-aware**: a top-level phase gets a contiguous slice of the
 window, with a fallback path for a deadline too tight to fit them all.
 
 Initial scheduling and recalibration **share one engine** (`allocatePhaseAware` +
-`deriveParentDates` + `computeLeafWeight`). Recalibration simply runs it from
-today over the still-open leaves, preserving completed items' dates.
+`deriveParentDates` + `computeLeafWeight`). A course with a window stores no
+topic dates: `layTopicDates` derives them whenever they are read (the TEMP view
+`plan_nodes`, `server/topicDates.js`). A closed topic sits on the day it was
+completed, in the learner's zone; one with no completion time (skipped,
+imported) on the end date its row carries, else the day its row last changed.
+Open topics are laid by the engine from today to the deadline, so a missed week
+makes nothing overdue. Recalibrate and saving a window write no topic date;
+saving or changing a window clears the dates an older build stored on open
+topics.
 
 **Pace is schedule-aware, not calendar-linear.** `expectedProgress` is the share,
-counted in topics, of leaves whose `scheduled_end` is before today, not elapsed days
-over total days (and not their depth-discounted weight, which decides dates only).
+counted in topics, of leaves whose end date in the derived plan is before today,
+not elapsed days over total days (and not their depth-discounted weight, which
+decides dates only). In a course with a window only closed topics can be dated
+before today; whether the open work still fits is the pace verdict's question
+(`server/paceModel.js`).
 Actual progress is `projectProgress` from `server/progress.js`. With no leaf dated,
 it falls back to the elapsed share of the window.
 
@@ -976,9 +986,12 @@ Streaming endpoints use **SSE**. Long-running generations register in
 
 ### 9.1 Routing
 
-**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/calendar`,
-`/atlas`, `/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule`
-redirects to `/projects`, where each course card carries its own dates.
+**The URL is the source of truth.** Routes: `/` (feed), `/projects`, `/atlas`,
+`/settings`, `/project/:projectId/:view?/:nodeId?`. The old `/schedule` and
+`/calendar` redirect to `/projects`, where each course card carries its own dates;
+a course's old `/timeline` and `/calendar` views (with or without a topic) redirect
+to its `/dashboard`. A course's plan is the pace verdict in its header and the plan
+dialog that opens from it.
 
 `useRouterStoreSync` decodes the pathname and calls `applyRoute`, which is the
 **only** writer of the mirrored nav fields (`view`, `currentProjectId`,
@@ -994,7 +1007,7 @@ position is never disturbed.
 
 ### 9.3 Shared utilities
 
-`src/utils/tree.ts` (tree build, UTC dates, gantt, calendar) ·
+`src/utils/tree.ts` (tree build, leaf rule, UTC dates) ·
 `src/utils/projectShape.ts` (`countsInCards`: is a project measured in cards met;
 it also decides that Study opens the review session, `deck/DeckStudy.tsx`) ·
 `src/utils/srs.ts` (FSRS-7 via `ts-fsrs`, the single source of interval logic) ·

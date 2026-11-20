@@ -65,9 +65,10 @@ process.on('exit', () => {
 const ANCHOR = '2026-06-15';
 const day = (offset) => new Date(Date.parse(`${ANCHOR}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
 
+// No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
 const projectId = db.prepare(
-    "INSERT INTO projects (name, position, start_date, deadline) VALUES ('Gate course', 0, ?, ?)",
-).run(day(-30), day(30)).lastInsertRowid;
+    "INSERT INTO projects (name, position) VALUES ('Gate course', 0)",
+).run().lastInsertRowid;
 const addNode = (parent, title, position, extra = {}) => db.prepare(`
     INSERT INTO nodes (project_id, parent_id, title, position, status, scheduled_start, scheduled_end)
     VALUES (?, ?, ?, ?, ?, ?, ?)
