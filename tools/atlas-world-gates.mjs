@@ -992,5 +992,88 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     }
 }
 
+// ---- the hand on the map: wheel, keys, buttons, the open card ---------------
+console.log('\n--- the hand on the map');
+{
+    const I = await load('src/components/atlas/globeInput.ts', ['wheelPixels', 'globeKeyAction', 'pressesMap', 'resolveHeld']);
+    if (I) {
+        // A line-mode wheel (Firefox, some mice) reports 3 for a notch; read as
+        // pixels it zoomed about thirty times slower than a pixel-mode one.
+        const line = I.wheelPixels({ deltaMode: 1, deltaY: 3 });
+        check('a line-mode wheel notch zooms about as far as a pixel-mode one (3 lines ~ 100 px)',
+            line >= 80 && line <= 120, `${line} px`);
+        check('a pixel-mode wheel is read as it is', I.wheelPixels({ deltaMode: 0, deltaY: 100 }) === 100);
+        const page = I.wheelPixels({ deltaMode: 2, deltaY: 1 });
+        check('a page-mode wheel step is a big step, not a screenful of zoom', page >= 200 && page <= 800, `${page} px`);
+
+        check('Ctrl + minus is the browser\'s page zoom, not the map\'s',
+            I.globeKeyAction({ key: '-', ctrlKey: true }) === null);
+        check('…and Cmd + plus, Alt + 0 too',
+            I.globeKeyAction({ key: '+', metaKey: true }) === null && I.globeKeyAction({ key: '0', altKey: true }) === null);
+        check('plain minus still zooms the map out, an arrow still turns it',
+            I.globeKeyAction({ key: '-' }) === 'zoomOut' && I.globeKeyAction({ key: 'ArrowLeft' }) === 'left');
+
+        check('a right or middle mouse button neither drags nor picks',
+            !I.pressesMap({ pointerType: 'mouse', button: 2 }) && !I.pressesMap({ pointerType: 'mouse', button: 1 }));
+        check('the main button, a finger and a pen do',
+            I.pressesMap({ pointerType: 'mouse', button: 0 }) && I.pressesMap({ pointerType: 'touch', button: 0 })
+            && I.pressesMap({ pointerType: 'pen', button: 0 }));
+
+        const region = (id, label, topics) => ({ region: { id, label }, topics: topics.map(t => ({ topic: t })) });
+        const before = [region(1, 'Mechanics', [{ id: 10, title: 'Momentum' }]), region(2, 'Optics', [{ id: 20, title: 'Lenses' }])];
+        const pinned = { kind: 'region', region: before[0].region, topic: null };
+        const renamed = [region(1, 'Classical mechanics', [{ id: 10, title: 'Momentum' }]), before[1]];
+        check('an open region card shows the region\'s new name after a rename',
+            I.resolveHeld(pinned, renamed)?.region.label === 'Classical mechanics', JSON.stringify(I.resolveHeld(pinned, renamed)));
+        check('…and closes once the region is gone', I.resolveHeld(pinned, [before[1]]) === null);
+        const topicCard = { kind: 'topic', region: before[0].region, topic: before[0].topics[0].topic };
+        const moved = [region(1, 'Mechanics', []), region(2, 'Optics', [{ id: 20, title: 'Lenses' }, { id: 10, title: 'Momentum' }])];
+        check('an open topic card follows its topic into another region',
+            I.resolveHeld(topicCard, moved)?.region.id === 2 && I.resolveHeld(topicCard, moved)?.topic.id === 10);
+        check('…and closes once the topic is gone', I.resolveHeld(topicCard, [region(1, 'Mechanics', [])]) === null);
+    }
+
+    // The renderer wires them in, at the place each one decides.
+    const globe = read('src/components/atlas/GlobeMap.tsx') ?? '';
+    const body = (head) => {
+        const at = globe.indexOf(head);
+        if (at < 0) return '';
+        let depth = 0;
+        for (let i = globe.indexOf('{', at + head.length - 1); i < globe.length; i++) {
+            if (globe[i] === '{') depth++;
+            else if (globe[i] === '}' && --depth === 0) return globe.slice(at, i + 1);
+        }
+        return '';
+    };
+    check('the wheel zooms by the pixels the wheel means, whatever its unit',
+        /Math\.exp\(-wheelPixels\(e\) \* /.test(body('const onWheel = (e: WheelEvent) => {')));
+    const down = body('const onDown = (e: PointerEvent) => {');
+    check('a press that is not the main button returns before it captures the pointer or starts a drag',
+        /^const onDown = \(e: PointerEvent\) => \{\s*(\/\/[^\n]*\n\s*)*if \(!pressesMap\(e\)\) return;/.test(down), down.slice(0, 200));
+    const keys = body('const onKeyDown = (e: ReactKeyboardEvent) => {');
+    const asks = keys.indexOf('globeKeyAction(e)'), stops = keys.indexOf('e.preventDefault()');
+    check('a key press asks globeKeyAction before it takes the key from the browser',
+        asks > 0 && stops > asks && /if \(!action\) return;/.test(keys.slice(asks, stops)));
+
+    // Every field the frame reads from `live` must redraw a still planet when
+    // it changes: the draw loop stops once nothing moves.
+    const draw = body('drawRef.current = () => {');
+    const readByDraw = new Set();
+    for (const m of draw.matchAll(/const \{([^}]*)\} = live\.current/g)) {
+        for (const part of m[1].split(',')) {
+            const key = part.split(':')[0].trim();
+            if (key) readByDraw.add(key);
+        }
+    }
+    const deps = /useEffect\(\(\) => \{ requestDraw\(\); \},\s*\[([^\]]*)\]\)/.exec(globe)?.[1] ?? '';
+    const depSet = new Set(deps.split(',').map(s => s.trim()).filter(Boolean));
+    const missing = [...readByDraw].filter(k => !depSet.has(k));
+    check('the redraw effect lists every field the frame reads from live (region names and pace included)',
+        readByDraw.size >= 10 && readByDraw.has('regionNames') && missing.length === 0,
+        `read ${readByDraw.size}, missing ${missing.join(', ') || '(none)'}`);
+    check('an open card is looked up again whenever the layout is rebuilt',
+        /useLayoutEffect\(\(\) => \{[\s\S]{0,400}?resolveHeld\(pinnedRef\.current, placed\)[\s\S]{0,800}?\}, \[placed\]\)/.test(globe));
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

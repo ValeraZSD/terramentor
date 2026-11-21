@@ -25,6 +25,7 @@ import AtlasCard, { AtlasFocus } from './AtlasCard';
 import MapOverlay from './MapOverlay';
 import { discView, viewAbove } from './framing';
 import { regionNamesShown } from './atlasSettings';
+import { GlobeKeyAction, HeldHit, globeKeyAction, pressesMap, resolveHeld, wheelPixels } from './globeInput';
 import {
     CAP_FILL, CapEllipse, Vec3, angleBetween, capEllipse, capPoint, faceOn, project, rotate,
     tangentBasis, topicOffset, unit3, unrotate, flatXY, flatLonLat, viewOfLonLat,
@@ -369,9 +370,7 @@ interface Placed {
     topics: { topic: AtlasTopic; u: Vec3 }[];
 }
 
-type Hit =
-    | { kind: 'region'; region: AtlasRegion; topic: null }
-    | { kind: 'topic'; region: AtlasRegion; topic: AtlasTopic };
+type Hit = HeldHit<AtlasRegion, AtlasTopic>;
 
 const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     regions, selectedId, onSelect, onOpenTopic, matches, dark, themeTint, accent,
@@ -2079,8 +2078,29 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
     // nothing moves, and a replay's first step can reach `live` AFTER the frame
     // `followJourney` asked for — that frame sees no step, stops, and without a
     // draw on the step change the planet stood still for a whole GIF render.
+    // Every field the draw reads from `live` is here: one left out (the region
+    // names switch, the replay's pace) changed nothing on a still planet until
+    // something else happened to move it.
     useEffect(() => { requestDraw(); },
-        [placed, selectedId, matches, colorMode, hues, palette, spinning, trace, journeyStep, requestDraw]);
+        [placed, terrain, selectedId, matches, colorMode, hues, palette, spinning, trace, journeyStep,
+            tracePlaces, tracedRegions, pace, regionNames, cityMap, topicById, requestDraw]);
+
+    // An open card holds a region and a topic, and the layout under it is
+    // rebuilt when a region is renamed or the atlas is drawn again: look the
+    // card's region up in the new one, so it shows the new name, and close it
+    // once that region (or topic) is gone.
+    useLayoutEffect(() => {
+        const was = pinnedRef.current || hoverRef.current;
+        if (!was) return;
+        const pin = resolveHeld(pinnedRef.current, placed);
+        const hov = resolveHeld(hoverRef.current, placed);
+        if (!pin && !hov) { dismissCard(); return; }
+        pinnedRef.current = pin; hoverRef.current = hov;
+        setPinned(pin); setHover(hov);
+        const a = anchorFor((pin || hov)!);
+        anchorRef.current = a; setAnchor(a);
+        requestDraw();
+    }, [placed]);  // eslint-disable-line react-hooks/exhaustive-deps
 
     /**
      * Move the ground under the hand by (dx, dy) screen pixels: a turn of the
@@ -2145,6 +2165,9 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         };
 
         const onDown = (e: PointerEvent) => {
+            // A right or middle click neither drags nor picks: with no drag
+            // started, its release reaches no pick in `onUp` either.
+            if (!pressesMap(e)) return;
             canvas.setPointerCapture(e.pointerId);
             pinches.set(e.pointerId, local(e));
             if (pinches.size >= 2) {
@@ -2312,7 +2335,7 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
             // close everywhere a zoomed-in reader points.
             const cam = camRef.current;
             const k0 = cam.k;
-            cam.k = clamp(k0 * Math.exp(-e.deltaY * 0.0015), surfaceRef.current.minK, surfaceRef.current.maxK);
+            cam.k = clamp(k0 * Math.exp(-wheelPixels(e) * 0.0015), surfaceRef.current.minK, surfaceRef.current.maxK);
             if (flatRef.current && cam.k !== k0) {
                 const { w, h } = sizeRef.current;
                 const { cx, cy } = discView(w, h, liftRef.current);
@@ -2512,26 +2535,26 @@ const GlobeMap = forwardRef<GlobeMapHandle, Props>(function GlobeMap({
         // One key press moves the land as far as a short drag would, on either
         // surface: `pan` already knows how far a pixel turns each.
         const step = Math.max(radius(), 1) * 0.12;
-        const acts: Record<string, () => void> = {
-            ArrowLeft: () => { takeCamera(); pan(step, 0); },
-            ArrowRight: () => { takeCamera(); pan(-step, 0); },
-            ArrowUp: () => { takeCamera(); pan(0, step); },
-            ArrowDown: () => { takeCamera(); pan(0, -step); },
-            '+': () => zoomBy(1.3),
-            '=': () => zoomBy(1.3),
-            '-': () => zoomBy(1 / 1.3),
-            '_': () => zoomBy(1 / 1.3),
-            '0': () => reset(),
-            f: () => onToggleFullscreen(),
+        const acts: Record<GlobeKeyAction, () => void> = {
+            left: () => { takeCamera(); pan(step, 0); },
+            right: () => { takeCamera(); pan(-step, 0); },
+            up: () => { takeCamera(); pan(0, step); },
+            down: () => { takeCamera(); pan(0, -step); },
+            zoomIn: () => zoomBy(1.3),
+            zoomOut: () => zoomBy(1 / 1.3),
+            reset: () => reset(),
+            fullscreen: () => onToggleFullscreen(),
             // No Escape here: the page owns it (`AtlasView`), one layer at a
             // time — the card, the selection, the traced course, full screen —
             // whatever holds focus. A second handler on the canvas is how one
             // press once closed the card AND left full screen.
         };
-        const act = acts[e.key];
-        if (!act) return;
+        // Null for a key that is not the map's, Ctrl/Cmd/Alt chords included:
+        // those go on to the browser untouched.
+        const action = globeKeyAction(e);
+        if (!action) return;
         e.preventDefault();
-        act();
+        acts[action]();
         requestDraw();
     };
 
