@@ -3244,6 +3244,7 @@
   "What you already know": "すでに知っていること",
   "What you already know (sets the floor)": "すでに知っていること（下限を設定）",
   "What you can do": "できること",
+  "What you typed and the material you added will not be kept.": "入力した内容と追加した資料は保存されません。",
   "What you typed in {{lowerLabel}} since the last save will be lost.": "最後に保存してから{{lowerLabel}}に入力した内容は失われます。",
   "What you were doing, and what the app did instead of what you expected.": "何をしていたか、そして期待した動作の代わりにアプリが何をしたか。",
   "What you'll be marked on": "評価基準",
