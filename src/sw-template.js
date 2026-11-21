@@ -128,8 +128,9 @@ self.addEventListener('fetch', (event) => {
                 try {
                     const res = await fetchWithTimeout(req, 3500);
                     // Only a real page becomes the offline shell: a proxy's 502
-                    // or a sign-in redirect stored here would be what an offline
-                    // launch shows from then on.
+                    // stored here would be what an offline launch shows from
+                    // then on. A navigation's redirect comes back opaque (not
+                    // ok); `redirected` covers a request that followed one.
                     if (res.ok && !res.redirected) cache.put('/', res.clone()).catch(() => { });
                     return res;
                 } catch {

@@ -130,6 +130,8 @@ let stampedPage = '';
     const built = (tag) => `<!doctype html><html><head>\n<script type="module" crossorigin src="/assets/index-${tag}.js"></script>\n</head><body></body></html>`;
     check('the stamp runs after Vite has written the asset tags in', plugin.transformIndexHtml.order, 'post');
     check('...and only in a build', plugin.apply, 'build');
+    const plugins = /plugins:\s*\[([^\]]*)\]/.exec(readFileSync(join(repoRoot, 'vite.config.ts'), 'utf8'))?.[1] ?? '';
+    ok('the build runs it (vite.config.ts lists it among its plugins)', /\bbuildIdPlugin\(\)/.test(plugins), plugins);
     const dist = join(scratch, 'stamped');
     mkdirSync(join(dist, 'assets'), { recursive: true });
     writeFileSync(join(dist, 'assets', 'index-AAAA.js'), '');

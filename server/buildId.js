@@ -25,7 +25,9 @@
 // an old cached shell whose first answer was already the new build never saw
 // itself as behind. The stamp is the hash of the document BEFORE the stamp went
 // in, so it moves exactly when the hash above would; a document with no stamp
-// (an older build) is hashed as before.
+// (an older build) is hashed as before. The flip side: a hand edit to a
+// stamped `index.html` after the build does not move the id, so only a build
+// is news.
 
 import { createHash } from 'node:crypto';
 import { statSync, readFileSync, existsSync } from 'node:fs';
