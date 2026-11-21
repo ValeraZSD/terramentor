@@ -515,9 +515,13 @@ console.log('--- words that stay English round a value ---');
 // server's reason and swaps the browser's words for the screen's own sentence.
 console.log('--- what a screen says when something failed ---');
 {
-    // `message || 'Two words'` / `error ?? "…"`: a sentence, not a one-word code
-    // (`reason ?? 'other'` is a lookup key, not text).
-    const BARE_FALLBACK = /\b(?:message|error|reason|detail)\s*(?:\|\||\?\?)\s*(['"])((?:(?!\1)[^\\\n])*[A-Za-z](?:(?!\1)[^\\\n])* (?:(?!\1)[^\\\n])*)\1/g;
+    // `message || 'Two words'` / `error ?? "…"` / `` msg || `Could not ${x}` `` /
+    // `e instanceof Error ? e.message : 'Two words'`: a sentence, not a one-word
+    // code (`reason ?? 'other'` is a lookup key, not text). Screens only: a
+    // module under src/components that builds its own Error (the GIF encoder,
+    // a sandboxed sketch) is a source of messages like api.ts, and the screen
+    // that catches it decides what the learner reads.
+    const BARE_FALLBACK = /(?:\b(?:message|error|reason|detail|msg)\s*(?:\|\||\?\?)|\.message\s*:)\s*(['"`])((?:(?!\1)[^\\\n])*[A-Za-z](?:(?!\1)[^\\\n])* (?:(?!\1)[^\\\n])*)\1/g;
     const bareFallbacks = (src) => [...src.matchAll(BARE_FALLBACK)].map((m) => m[2]);
     // Read by no learner: the reason goes to the model that repairs a drawing.
     const NOT_SHOWN = new Set(['src/components/visuals/VisualBlock.tsx|render failed']);
@@ -538,8 +542,11 @@ console.log('--- what a screen says when something failed ---');
         [
             ["setError(err.message || 'The placement could not be prepared.');", 1],
             ["patch(key, { state: 'failed', error: e?.message || 'Upload failed' });", 1],
+            ['setError(err.msg || `Could not save ${name}`);', 1],
+            ["setError(err instanceof Error ? err.message : 'Something went wrong');", 1],
             ['setError(failureText(err, t("The placement could not be prepared.")));', 0],
             ["text: failText(result.reason ?? 'other')", 0],
+            ["setError(err instanceof Error ? err.message : String(err));", 0],
         ].filter(([sample, want]) => bareFallbacks(sample).length !== want).map(([sample]) => sample));
 
     // failureText itself, run: which messages it keeps and which it replaces.
@@ -564,12 +571,29 @@ console.log('--- what a screen says when something failed ---');
             ['an empty message', new Error(''), 'FALLBACK'],
             ['nothing at all', undefined, 'FALLBACK'],
             ['a thrown string', 'boom', 'FALLBACK'],
-            ["a server's reason, kept", new Error('Onjuist wachtwoord'), 'Onjuist wachtwoord'],
-            ["a server's English reason, kept as it came", new Error('Too many attempts. Try again in 30s.'), 'Too many attempts. Try again in 30s.'],
+            ["the api client's prefix on a server reason", new Error('Server error: database is locked'), 'FALLBACK'],
+            ["a server's reason, kept as it came", new Error('Incorrect password'), 'Incorrect password'],
+            ["a server's reason with a number in it, kept", new Error('Too many attempts. Try again in 30s.'), 'Too many attempts. Try again in 30s.'],
         ];
         check('failureText keeps a server\'s reason and gives the browser\'s words way to the screen\'s sentence',
             cases.filter(([, err, want]) => failureText(err, 'FALLBACK') !== want)
                 .map(([label, err, want]) => `${label}: got ${JSON.stringify(failureText(err, 'FALLBACK'))}, want ${JSON.stringify(want)}`));
+
+        // Every sentence api.ts writes into an Error ITSELF is English under any
+        // interface language, so each must give way to the screen's sentence.
+        // Read from api.ts, so a new one fails here until failureText knows it.
+        const apiSrc = readFileSync(join(srcDir, 'api.ts'), 'utf8');
+        const LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g;
+        const own = new Set();
+        for (const line of apiSrc.split('\n')) {
+            if (!/new Error\(|\b(?:msg|message|errorMessage)\s*=/.test(line)) continue;
+            for (const m of line.matchAll(LITERAL)) {
+                if (/[A-Za-z]/.test(m[2]) && m[2].includes(' ')) own.add(m[2].replace(/\$\{[^}]*\}/g, '502'));
+            }
+        }
+        check(`api.ts writes sentences of its own (${own.size} found)`, own.size >= 20 ? [] : [`only ${own.size}: the scan no longer reads api.ts`]);
+        check('every sentence api.ts writes itself gives way to the screen\'s sentence',
+            [...own].filter((s) => failureText(new Error(s), 'FALLBACK') !== 'FALLBACK').map((s) => JSON.stringify(s)));
     } catch (e) {
         check('failureText (src/utils/failureText.ts) builds and runs', [e.message.split('\n')[0]]);
     } finally {
