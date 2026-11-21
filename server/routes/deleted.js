@@ -44,14 +44,17 @@ app.post('/api/deleted/:table/:id/restore', (req, res) => {
 app.delete('/api/deleted/:table/:id', (req, res) => {
     const t = target(req);
     if (!t) return res.status(400).json({ error: 'Nothing of that kind can be removed here.' });
-    const out = purge(t.table, t.id);
+    // Only a row the list offers: one taken along comes back with its parent.
+    const out = purge(t.table, t.id, { listed: true });
     if (out.error) return res.status(404).json({ error: 'That is not in Recently deleted.' });
+    if (t.table === 'projects' || t.table === 'nodes') scheduleNodeSync();
     logActivity({ area: 'project', event: 'item.purged', level: 'warn', detail: `${t.table} · ${out.docs} document(s)` });
     res.json({ removed: true });
 });
 
 app.delete('/api/deleted', (_req, res) => {
     const removed = emptyDeleted();
+    if (removed) scheduleNodeSync();
     logActivity({ area: 'project', event: 'deleted.emptied', level: 'warn', detail: `${removed} item(s)` });
     res.json({ removed });
 });

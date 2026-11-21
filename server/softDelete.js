@@ -17,6 +17,7 @@
 // brings back exactly those, and never a row the learner had deleted on its own
 // before (that one keeps its own mark and its own place in Recently deleted).
 
+import { randomUUID } from 'node:crypto';
 import db, { NOW_ISO } from './database.js';
 import { CONTENT_TABLES } from './syncTables.js';
 import { PROJECT_SETTING_PREFIXES } from './settingsSchema.js';
@@ -26,6 +27,15 @@ import { sweepOrphanMedia } from './ankiImport.js';
 
 export { CONTENT_TABLES };
 
+// Every statement here is prepared once: a list of a few hundred deleted rows
+// would otherwise prepare the same few statements per row.
+const statements = new Map();
+const prep = (sql) => {
+    let st = statements.get(sql);
+    if (!st) { st = db.prepare(sql); statements.set(sql, st); }
+    return st;
+};
+
 /** `deleted_by` of a row the app replaced or withdrew (never offered for Restore). */
 export const BY_APP = 'app';
 
@@ -33,8 +43,8 @@ export const BY_APP = 'app';
 const TITLE = { projects: 'name', nodes: 'title', resources: 'title', flashcards: 'front', quizzes: 'title' };
 
 const isContentTable = (t) => CONTENT_TABLES.includes(t);
-const now = () => db.prepare(`SELECT ${NOW_ISO}`).pluck().get();
-const rowOf = (table, id) => db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+const now = () => prep(`SELECT ${NOW_ISO}`).pluck().get();
+const rowOf = (table, id) => prep(`SELECT * FROM ${table} WHERE id = ?`).get(id);
 const markOf = (table, row) => `${table}:${row.uuid}`;
 
 // The rows a deleted row takes with it, as [table, WHERE clause over `?` = the
@@ -70,10 +80,10 @@ export function softDelete(table, id, { by = null } = {}) {
         const row = rowOf(table, id);
         if (!row || row.deleted_at) return 0;
         const at = now();
-        let marked = db.prepare(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`).run(at, by, id).changes;
+        let marked = prep(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`).run(at, by, id).changes;
         const mark = markOf(table, row);
         for (const [t, where] of TAKES[table]) {
-            marked += db.prepare(`UPDATE ${t} SET deleted_at = ?, deleted_by = ? WHERE deleted_at IS NULL AND ${where}`)
+            marked += prep(`UPDATE ${t} SET deleted_at = ?, deleted_by = ? WHERE deleted_at IS NULL AND ${where}`)
                 .run(at, mark, ...argsFor(where, id)).changes;
         }
         return marked;
@@ -86,7 +96,7 @@ function parentOf(table, row) {
     if (table === 'projects') return null;
     return ['nodes', row.node_id];
 }
-const isLive = ([t, id]) => !!db.prepare(`SELECT 1 FROM ${t} WHERE id = ? AND deleted_at IS NULL`).get(id);
+const isLive = ([t, id]) => !!prep(`SELECT 1 FROM ${t} WHERE id = ? AND deleted_at IS NULL`).get(id);
 
 /**
  * Bring back a deleted row and exactly the rows it took with it.
@@ -102,10 +112,10 @@ export function restore(table, id, { app = false } = {}) {
         if (row.deleted_by != null && !(app && row.deleted_by === BY_APP)) return { error: 'not_deleted' };
         const parent = parentOf(table, row);
         if (parent && !isLive(parent)) return { error: 'parent_deleted' };
-        let restored = db.prepare(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`).run(id).changes;
+        let restored = prep(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ?`).run(id).changes;
         const mark = markOf(table, row);
         for (const t of CONTENT_TABLES) {
-            restored += db.prepare(`UPDATE ${t} SET deleted_at = NULL, deleted_by = NULL WHERE deleted_by = ? AND deleted_at IS NOT NULL`).run(mark).changes;
+            restored += prep(`UPDATE ${t} SET deleted_at = NULL, deleted_by = NULL WHERE deleted_by = ? AND deleted_at IS NOT NULL`).run(mark).changes;
         }
         return { restored, row };
     })();
@@ -118,61 +128,67 @@ export function restore(table, id, { app = false } = {}) {
  */
 export function revive(table, ids) {
     if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
-    const back = db.prepare(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ? AND deleted_at IS NOT NULL`);
+    const back = prep(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ? AND deleted_at IS NOT NULL`);
     let n = 0;
     for (const id of ids) n += back.run(id).changes;
     return n;
 }
 
-/** Whether a deleted row went because the app removed it or a row the app removed took it along. */
-function deletedByApp(row) {
-    for (let guard = 0; row?.deleted_at && guard < 64; guard++) {
-        if (row.deleted_by === BY_APP) return true;
-        const mark = /^(\w+):(.+)$/.exec(row.deleted_by || '');
-        if (!mark || !isContentTable(mark[1])) return false;
-        row = db.prepare(`SELECT deleted_at, deleted_by FROM ${mark[1]} WHERE uuid = ?`).get(mark[2]);
-    }
-    return false;
-}
-
 /**
- * Give a uuid back when a course file brings a row back that the app removed
- * (an update dropped it, or an undo took back the update that added it): the
- * deleted row goes for good, so the row written next keeps the file's
- * identity. A row the learner deleted keeps its uuid and its place in Recently
- * deleted.
+ * Give a uuid back when a file brings back a row that is deleted here (a course
+ * deleted and imported again, a topic an update dropped and a later edition
+ * adds again): the deleted row takes a new uuid, and the rows it took along are
+ * marked with it, so the row written next keeps the file's identity and the
+ * deleted one stays where it was, in Recently deleted or among the app's.
+ * A live row is left alone: a second copy of a live course is a new course.
  */
 export function releaseUuid(table, uuid) {
     if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
     if (!uuid) return;
-    const row = db.prepare(`SELECT id, deleted_at, deleted_by FROM ${table} WHERE uuid = ?`).get(uuid);
-    if (row && deletedByApp(row)) purge(table, row.id);
+    const row = prep(`SELECT id, deleted_at FROM ${table} WHERE uuid = ?`).get(uuid);
+    if (!row?.deleted_at) return;
+    const fresh = randomUUID();
+    db.transaction(() => {
+        prep(`UPDATE ${table} SET uuid = ? WHERE id = ?`).run(fresh, row.id);
+        for (const t of CONTENT_TABLES) {
+            prep(`UPDATE ${t} SET deleted_by = ? WHERE deleted_by = ?`).run(`${table}:${fresh}`, `${table}:${uuid}`);
+        }
+        // Per-project dials are keyed by the project's uuid: they stay with it.
+        if (table === 'projects') {
+            for (const prefix of PROJECT_SETTING_PREFIXES) {
+                prep('UPDATE settings SET key = ? WHERE key = ?').run(prefix + fresh, prefix + uuid);
+            }
+        }
+    })();
 }
 
 /**
  * Remove a deleted row for good, with every row under it (the foreign keys'
  * cascade: its topics, cards, banks, links and all their history), and the
  * files no row names any more. Only a deleted row: a live one is refused.
+ * `listed: true` also refuses a row Recently deleted does not offer (one taken
+ * along with another, or one the app withdrew).
  */
-export function purge(table, id) {
+export function purge(table, id, { listed = false } = {}) {
     if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
     const row = rowOf(table, id);
     if (!row || !row.deleted_at) return { error: 'not_deleted' };
+    if (listed && row.deleted_by != null) return { error: 'not_deleted' };
     // The files outlive their rows unless freed: captured before the delete,
     // freed after it, as every other document delete does (documentAssets.js).
     let docs = [];
     if (table === 'projects') {
-        docs = db.prepare('SELECT id, file_hash FROM documents WHERE project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?)').all(id, id);
+        docs = prep('SELECT id, file_hash FROM documents WHERE project_id = ? OR node_id IN (SELECT id FROM nodes WHERE project_id = ?)').all(id, id);
     } else if (table === 'nodes') {
-        docs = db.prepare(`${SUBTREE} SELECT id, file_hash FROM documents WHERE node_id IN (SELECT id FROM sub)`).all(id);
+        docs = prep(`${SUBTREE} SELECT id, file_hash FROM documents WHERE node_id IN (SELECT id FROM sub)`).all(id);
     }
     const chunkIds = documentChunkIds(docs);
-    const hadMedia = table === 'projects' && !!db.prepare('SELECT 1 FROM media_files WHERE project_id = ? LIMIT 1').get(id);
+    const hadMedia = table === 'projects' && !!prep('SELECT 1 FROM media_files WHERE project_id = ? LIMIT 1').get(id);
     db.transaction(() => {
         // Per-project dials live in `settings`, keyed by the project's uuid,
         // where no foreign key reaches them.
         if (table === 'projects') for (const prefix of PROJECT_SETTING_PREFIXES) clearProjectSetting(prefix, id);
-        db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+        prep(`DELETE FROM ${table} WHERE id = ?`).run(id);
     })();
     freeDocumentAssets(docs, chunkIds);
     if (hadMedia) sweepOrphanMedia({ allowEmpty: true });
@@ -189,18 +205,18 @@ export function listDeleted() {
     // How many rows each mark took, over all five tables: one grouped read each.
     const tookBy = new Map();
     for (const t of CONTENT_TABLES) {
-        for (const { mark, n } of db.prepare(`SELECT deleted_by AS mark, COUNT(*) AS n FROM ${t} WHERE deleted_at IS NOT NULL AND deleted_by IS NOT NULL GROUP BY deleted_by`).all()) {
+        for (const { mark, n } of prep(`SELECT deleted_by AS mark, COUNT(*) AS n FROM ${t} WHERE deleted_at IS NOT NULL AND deleted_by IS NOT NULL GROUP BY deleted_by`).all()) {
             tookBy.set(mark, (tookBy.get(mark) ?? 0) + n);
         }
     }
     for (const table of CONTENT_TABLES) {
-        const rows = db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_by IS NULL`).all();
+        const rows = prep(`SELECT * FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_by IS NULL`).all();
         for (const row of rows) {
             const parent = parentOf(table, row);
             if (parent && !isLive(parent)) continue;
             const projectId = table === 'projects' ? row.id
                 : table === 'nodes' ? row.project_id
-                    : db.prepare('SELECT project_id FROM nodes WHERE id = ?').pluck().get(row.node_id);
+                    : prep('SELECT project_id FROM nodes WHERE id = ?').pluck().get(row.node_id);
             const took = tookBy.get(markOf(table, row)) ?? 0;
             out.push({
                 table, id: row.id, uuid: row.uuid,
@@ -211,7 +227,7 @@ export function listDeleted() {
                 title: String(row[TITLE[table]] ?? '').slice(0, 200),
                 deletedAt: row.deleted_at,
                 projectId: table === 'projects' ? null : projectId,
-                projectName: table === 'projects' ? null : db.prepare('SELECT name FROM projects WHERE id = ?').pluck().get(projectId) ?? null,
+                projectName: table === 'projects' ? null : prep('SELECT name FROM projects WHERE id = ?').pluck().get(projectId) ?? null,
                 took,
             });
         }
@@ -219,12 +235,16 @@ export function listDeleted() {
     return out.sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)) || b.id - a.id);
 }
 
-/** Remove every deleted row for good. Returns how many deleted rows the learner saw go. */
+/**
+ * Remove for good every row the learner deleted, with what went with each.
+ * Rows the app withdrew stay: an undo (a report taken back, an update undone)
+ * may still bring them back. Returns how many deleted rows the learner saw go.
+ */
 export function emptyDeleted() {
     let n = 0;
     // Parents first: purging a course takes its deleted topics with it.
     for (const table of CONTENT_TABLES) {
-        const ids = db.prepare(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND (deleted_by IS NULL OR deleted_by = ?)`).pluck().all(BY_APP);
+        const ids = prep(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_by IS NULL`).pluck().all();
         for (const id of ids) if (purge(table, id).purged) n++;
     }
     return n;
@@ -245,7 +265,7 @@ export function logScheduleEvent(cardId, kind, { schedule = null, reviewUuid = n
     const fields = schedule
         ? Object.fromEntries(SCHEDULE_FIELDS.filter(k => schedule[k] !== undefined).map(k => [k, schedule[k]]))
         : null;
-    db.prepare(`INSERT INTO schedule_events (card_id, kind, schedule, review_uuid, created_at) VALUES (?, ?, ?, ?, ${NOW_ISO})`)
+    prep(`INSERT INTO schedule_events (card_id, kind, schedule, review_uuid, created_at) VALUES (?, ?, ?, ?, ${NOW_ISO})`)
         .run(cardId, kind, fields ? JSON.stringify(fields) : null, reviewUuid);
 }
 

@@ -955,6 +955,7 @@ export const api = {
     listDeleted: () => request<{ items: DeletedItem[] }>('/deleted'),
     restoreDeleted: (table: DeletedItem['table'], id: number) => request<{ restored: number }>(`/deleted/${table}/${id}/restore`, { method: 'POST' }),
     emptyDeleted: () => request<{ removed: number }>('/deleted', { method: 'DELETE' }),
+    purgeDeleted: (table: DeletedItem['table'], id: number) => request<{ removed: boolean }>(`/deleted/${table}/${id}`, { method: 'DELETE' }),
 
     // Nodes
     getNodes: (projectId: number) => request<Node[]>(`/projects/${projectId}/nodes`),

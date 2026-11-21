@@ -7,11 +7,9 @@ import db, { NOW_ISO } from './database.js';
 import { ENTITY_FIELDS, KINDS, PROJECT_FIELDS, fieldHash } from './courseMerge.js';
 import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { claimUuid } from './courseFiles.js';
-import { BY_APP, releaseUuid, revive, softDelete } from './softDelete.js';
+import { BY_APP, revive, softDelete } from './softDelete.js';
 
 const ORDERED = new Set(['node', 'resource']);
-// The uuid a new row gets: the file's, freed first if a row the app removed holds it.
-const uuidFor = (table, uuid) => { releaseUuid(table, uuid); return claimUuid(table, uuid); };
 /** Statements prepared once: the readers and the writer run one per item. A
  *  statement whose text varies with a list's length is never put here. */
 const statements = new Map();
@@ -432,7 +430,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const s = o.source || {};
             const id = prep(`INSERT INTO nodes (project_id, parent_id, title, description, is_note, position, uuid, role)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(projectId, resolveNode(o.parent), s.title, s.description ?? null, s.is_note ? 1 : 0,
-                o.position, uuidFor('nodes', o.uuid), s.role || 'topic').lastInsertRowid;
+                o.position, claimUuid('nodes', o.uuid), s.role || 'topic').lastInsertRowid;
             const uuid = uuidOfNode(id);
             nodeIdByUuid.set(uuid, id);
             insertedUuid.set(`new:${o.ref}`, uuid);
@@ -525,7 +523,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             const c = o.source || {};
             const id = prep(`INSERT INTO flashcards (node_id, front, back, extra, extra_front, media, generated_by, uuid)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(nodeId, c.front, c.back, c.extra ?? null, c.extra_front ?? null,
-                resolveMedia(c.media), declaredBy(c.generated_by), uuidFor('flashcards', o.uuid)).lastInsertRowid;
+                resolveMedia(c.media), declaredBy(c.generated_by), claimUuid('flashcards', o.uuid)).lastInsertRowid;
             const uuid = prep('SELECT uuid FROM live_flashcards flashcards WHERE id = ?').get(id).uuid;
             writeBase('card', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });
         }
@@ -547,7 +545,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             if (nodeId == null) continue;
             const r = o.source || {};
             const id = prep('INSERT INTO resources (node_id, title, url, type, completed, position, uuid) VALUES (?, ?, ?, ?, 0, ?, ?)')
-                .run(nodeId, r.title, r.url ?? null, r.type || 'link', o.position, uuidFor('resources', o.uuid)).lastInsertRowid;
+                .run(nodeId, r.title, r.url ?? null, r.type || 'link', o.position, claimUuid('resources', o.uuid)).lastInsertRowid;
             const uuid = prep('SELECT uuid FROM live_resources resources WHERE id = ?').get(id).uuid;
             insertedResource.set(`new:${o.ref}`, uuid);
             writeBase('resource', uuid, { ...o.baseFields, parent: { hash: fieldHash(uuidOfNode(nodeId)), edited: 0 } });

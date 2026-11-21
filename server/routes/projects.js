@@ -9,6 +9,7 @@ import { invalidateProjectLanguage, isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { loadProjectSummaries } from '../projectSummary.js';
 import { softDelete } from '../softDelete.js';
+import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { clearModelSearchWords, courseRenamed, scheduleSearchWords, setSearchWords, validateUserSearchWords } from '../searchWords.js';
 import { nextProjectPosition, projectFieldError } from './projectRows.js';
 import { routeTable } from './routeTable.js';
@@ -213,6 +214,8 @@ app.delete('/api/projects/:id', (req, res) => {
     const projectId = Number(req.params.id);
     const marked = softDelete('projects', projectId);
     if (!marked) return res.status(404).json({ error: 'Project not found' });
+    // Its topics leave the topic index, as a deleted topic's do.
+    scheduleNodeSync();
     // The answer to "where did my project go".
     logActivity({
         area: 'project',

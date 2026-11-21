@@ -44,6 +44,12 @@ const insertStmt = db.prepare(`
                             source, external_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
+// A review an earlier import brought in for a card that is now deleted: the
+// deck was deleted and imported again, so the review follows the new card.
+const reclaimStmt = db.prepare(`
+    UPDATE review_log SET card_id = ? WHERE source = 'anki' AND external_id = ?
+      AND card_id IN (SELECT id FROM flashcards /* with deleted */ WHERE deleted_at IS NOT NULL)
+`);
 
 /**
  * Record one review performed in this app.
@@ -153,8 +159,9 @@ export function importAnkiRevlog(rows, cardIdOf) {
                         null, null, null, null, 'anki', String(r.id));
                     imported++;
                 } catch (err) {
-                    if (/UNIQUE/i.test(err.message)) { skipped++; continue; }
-                    throw err;
+                    if (!/UNIQUE/i.test(err.message)) throw err;
+                    if (!reclaimStmt.run(cardId, String(r.id)).changes) { skipped++; continue; }
+                    imported++;
                 }
                 prevAt = at;
             }

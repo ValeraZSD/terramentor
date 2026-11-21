@@ -47,8 +47,11 @@ db.function('topic_dates_touch_all', { deterministic: false }, () => {
 // completion, the window and study week, head starts (node_mastery), and what
 // decides whether a project is measured in cards (its cards, `projects.kind`,
 // the per-project "teaches" row in settings).
-const NODE_COLS = 'status, parent_id, position, is_note, role, estimated_weight, completed_at, project_id';
+const NODE_COLS = 'status, parent_id, position, is_note, role, estimated_weight, completed_at, project_id, deleted_at';
 const OF_NODE = (row) => `(SELECT project_id FROM live_nodes nodes WHERE id = ${row}.node_id)`;
+// A card deleted or restored with its topic: the topic is marked in the same
+// statement, so its project is read past the deleted filter.
+const OF_ANY_NODE = (row) => `(SELECT project_id FROM nodes /* with deleted */ WHERE id = ${row}.node_id)`;
 // A closed topic with no completion time sits on its row's end date, else on
 // the day the row last changed (`layTopicDates`).
 const CLOSED_UNDATED = "NEW.status IN ('completed', 'skipped') AND NEW.completed_at IS NULL";
@@ -92,6 +95,10 @@ db.exec(`
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_ins AFTER INSERT ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
+    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_gone AFTER UPDATE OF deleted_at ON flashcards
+    BEGIN SELECT topic_dates_touch(${OF_ANY_NODE('NEW')}); END;
+    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_project_gone AFTER UPDATE OF deleted_at ON projects
+    BEGIN SELECT topic_dates_touch(NEW.id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_del AFTER DELETE ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
 `);

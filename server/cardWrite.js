@@ -140,6 +140,10 @@ export function writeCard(id, body = {}) {
     // history never came back.
     const reviewRating = normalizeRating(rating);
     const isReview = !!reviewRating && last_reviewed !== undefined;
+    // An event records the schedule as stored (rounded, clamped, the fast
+    // trace cleared, the tally bumped), never the request: a replay of the
+    // events must arrive at the same card.
+    const stored = () => db.prepare('SELECT * FROM live_flashcards flashcards WHERE id = ?').get(before.id);
     db.transaction(() => {
         if (updates.length > 0) {
             db.prepare(`UPDATE flashcards SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -157,11 +161,11 @@ export function writeCard(id, body = {}) {
             const taken = [];
             if (undo_of != null) undoReview(before.id, undo_of, taken);
             else undoLastReview(before.id, taken);
-            logScheduleEvent(before.id, 'undo', { schedule: body, reviewUuid: taken[0] ?? null });
+            logScheduleEvent(before.id, 'undo', { schedule: stored(), reviewUuid: taken[0] ?? null });
         } else if (updates.length > 0 && writesSchedule(body)) {
             // A schedule written with no rating (a client or an agent setting a
             // due date): no review explains it, so the event is its record.
-            logScheduleEvent(before.id, 'set', { schedule: body });
+            logScheduleEvent(before.id, 'set', { schedule: stored() });
         }
     })();
     if (isReview) {

@@ -527,7 +527,7 @@ export function applyProbeSeeds(projectId, probe) {
 export function withdrawPlacement(projectId, { except = null } = {}) {
     const rows = db.prepare(`
         SELECT nm.node_id FROM node_mastery nm
-        JOIN live_nodes n ON n.id = nm.node_id
+        JOIN nodes n /* with deleted */ ON n.id = nm.node_id
         WHERE n.project_id = ? AND nm.placement_prior IS NOT NULL
     `).all(projectId);
     let cleared = 0;
@@ -598,10 +598,12 @@ export function finishProbe(probeId) {
 export function discardProbe(projectId) {
     const before = layTopicDates(projectId);
     const cleared = withdrawPlacement(projectId);
+    // Deleted topics too: a restore must not bring back a head start the
+    // learner discarded.
     db.prepare(`
         DELETE FROM mastery_evidence
         WHERE evidence_type = 'placement'
-          AND node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)
+          AND node_id IN (SELECT id FROM nodes /* with deleted */ WHERE project_id = ?)
     `).run(projectId);
     db.prepare('DELETE FROM placement_probes WHERE project_id = ?').run(projectId);
     const rescheduled = relaySchedule(projectId, before);

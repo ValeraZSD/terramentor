@@ -7,6 +7,7 @@ import { questionDefects } from './feedQuality.js';
 import { importedQuestion, portableQuestion } from './questionTrust.js';
 import { setNewPerDay } from './decks.js';
 import { mediaStorage } from './vaultStorage.js';
+import { releaseUuid } from './softDelete.js';
 
 // IMPORT / EXPORT
 
@@ -174,11 +175,14 @@ const projectMediaNames = (projectId) => {
  * otherwise abort the second import inside the transaction. Free = keep it (the
  * rows really are the same rows, on a new machine); taken = pass NULL and let
  * database.js's AFTER INSERT trigger mint a fresh one, because a second copy on
- * the SAME machine is a genuinely different project row.
+ * the SAME machine is a genuinely different project row. A uuid only a
+ * deleted row holds is freed first (softDelete.js `releaseUuid`): deleting a
+ * course and importing it again gives the same course back.
  */
 const uuidTaken = new Map();
 const claimUuid = (table, uuid) => {
     if (!uuid) return null;
+    releaseUuid(table, uuid);
     let taken = uuidTaken.get(table);
     if (!taken) { taken = db.prepare(`SELECT 1 FROM ${table} WHERE uuid = ?`); uuidTaken.set(table, taken); }
     return taken.get(uuid) ? null : uuid;

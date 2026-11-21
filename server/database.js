@@ -2395,7 +2395,7 @@ db.exec(`
     kind TEXT NOT NULL,
     schedule TEXT DEFAULT NULL,
     review_uuid TEXT DEFAULT NULL,
-    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    created_at TEXT NOT NULL DEFAULT (${NOW_ISO})
   );
   CREATE INDEX IF NOT EXISTS idx_schedule_events_card ON schedule_events(card_id, id);
 `);
