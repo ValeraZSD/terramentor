@@ -12,6 +12,7 @@
 // Everything else about a hosted copy holds too (server/hosted.js): the front
 // desk starts each library with TERRAMENTOR_HOSTED=1 as well.
 import crypto from 'node:crypto';
+import { isHosted } from './hosted.js';
 
 /** Is this process a library started by a site's front desk? */
 export function isSiteLibrary(env = process.env) {
@@ -73,7 +74,7 @@ export function siteLibraryStartProblem(env = process.env) {
     if (!siteSocketPath(env)) return 'TERRAMENTOR_SITE_LIBRARY=1 needs SITE_SOCKET: a site library listens on its socket only.';
     if (!noteKey || noteKey.length < 32) return 'TERRAMENTOR_SITE_LIBRARY=1 needs SITE_NOTE_KEY (32 bytes, hex).';
     if (!libraryId) return 'TERRAMENTOR_SITE_LIBRARY=1 needs SITE_LIBRARY_ID.';
-    if (env.TERRAMENTOR_HOSTED !== '1') return 'a site library is also a hosted copy: TERRAMENTOR_HOSTED=1.';
+    if (!isHosted(env)) return 'a site library is also a hosted copy: TERRAMENTOR_HOSTED=1.';
     return null;
 }
 

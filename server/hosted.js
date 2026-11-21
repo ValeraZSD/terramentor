@@ -25,9 +25,12 @@
 // docs/HOSTING.md is the operator's side of the same list.
 import { siteAuthRefusal } from './siteLibrary.js';
 
+/** TERRAMENTOR_HOSTED as written, without the spaces an env file may leave around it. */
+const hostedFlag = (env) => String(env.TERRAMENTOR_HOSTED ?? '').trim();
+
 /** Is this process a hosted copy? Read on every call: the gates change it. */
 export function isHosted(env = process.env) {
-    return env.TERRAMENTOR_HOSTED === '1';
+    return hostedFlag(env) === '1';
 }
 
 /** The shortest operator setup token taken. It is the only lock on a fresh
@@ -60,7 +63,7 @@ const isLoopbackBind = (host) => LOOPBACK_BIND.has(host) || /^127(?:\.\d{1,3}){3
  */
 export function hostedStartProblem({ env = process.env, passwordSet = false, restoreIncomplete = false } = {}) {
     // `true` or `yes` would otherwise start an ordinary copy with every rule off.
-    const flag = String(env.TERRAMENTOR_HOSTED ?? '').trim();
+    const flag = hostedFlag(env);
     if (flag !== '' && flag !== '0' && flag !== '1') {
         return `TERRAMENTOR_HOSTED is "${flag}"; it must be 1 (a hosted copy) or 0.`;
     }
@@ -120,10 +123,16 @@ const REFUSED = [
 /**
  * A request path as the router sees it. Express matches routes case-blind and
  * with or without a trailing slash, so `/API/ai/Key/` reaches the handler of
- * `/api/ai/key`; the guard must read it the same way.
+ * `/api/ai/key`; the guard must read it the same way. A request line may also
+ * name the whole address (`PUT http://host/api/ai/key`), which the router
+ * routes by its path alone, and a fragment is never part of the path.
  */
 export function requestPath(url) {
-    const path = String(url).split('?')[0].toLowerCase().replace(/\/{2,}/g, '/');
+    let raw = String(url);
+    if (!raw.startsWith('/')) {
+        try { raw = new URL(raw).pathname; } catch { /* not an address: read as written */ }
+    }
+    const path = raw.split(/[?#]/)[0].toLowerCase().replace(/\/{2,}/g, '/');
     return path.length > 1 ? path.replace(/\/+$/, '') : path;
 }
 

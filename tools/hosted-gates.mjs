@@ -149,6 +149,27 @@ try {
             /must be 1/.test(decide({ TERRAMENTOR_HOSTED: flag, HOST: '0.0.0.0' }) || ''));
     }
     ok('TERRAMENTOR_HOSTED=0 is an ordinary copy', decide({ TERRAMENTOR_HOSTED: '0', HOST: '127.0.0.1' }) === null);
+    // An env file may leave a space after the 1: the start-up check accepts
+    // it, so every other reader of the flag must read it as hosted too.
+    for (const flag of ['1 ', ' 1', '1\t']) {
+        ok(`TERRAMENTOR_HOSTED=${JSON.stringify(flag)} is a hosted copy, and held to its rules`,
+            hosted.isHosted({ TERRAMENTOR_HOSTED: flag })
+            && /no password and no TERRAMENTOR_SETUP_TOKEN/.test(decide({ TERRAMENTOR_HOSTED: flag, HOST: '0.0.0.0' }) || '')
+            && hosted.operatorSetupToken({ TERRAMENTOR_HOSTED: flag, TERRAMENTOR_SETUP_TOKEN: TOKEN }) === TOKEN);
+    }
+    {
+        // The site library reads its key when it loads, so each run is a fresh process.
+        const siteUrl = pathToFileURL(join(repoRoot, 'server', 'siteLibrary.js')).href;
+        const siteProblem = (flag) => spawnSync(process.execPath, ['--input-type=module', '-e',
+            `const m = await import(${JSON.stringify(siteUrl)}); process.stdout.write(String(m.siteLibraryStartProblem()));`], {
+            cwd: repoRoot, encoding: 'utf8', timeout: 30_000, windowsHide: true,
+            env: childEnv({ TERRAMENTOR_SITE_LIBRARY: '1', SITE_SOCKET: 'x', SITE_NOTE_KEY: 'ab'.repeat(32), SITE_LIBRARY_ID: 'lib-1', TERRAMENTOR_HOSTED: flag }),
+        });
+        const spaced = siteProblem('1 '), off = siteProblem('0');
+        ok('a site library reads the hosted flag the same way',
+            spaced.stdout === 'null' && /TERRAMENTOR_HOSTED=1/.test(off.stdout),
+            `"1 ": ${spaced.stdout} ${spaced.stderr?.slice(0, 200)} | "0": ${off.stdout}`);
+    }
     // The router matches case-blind and ignores a trailing slash; the guard must too.
     for (const [method, url] of [
         ['PUT', '/API/AI/KEY'], ['put', '/Api/ai/Key/'], ['POST', '/api/auth/disable/'], ['POST', '/API/auth/disable'],
@@ -157,6 +178,12 @@ try {
         ok(`${method} ${url} is refused like its lower-case form`, !!hosted.hostedRefusalOf(method, url));
     }
     ok('a read of the same path is not refused', hosted.hostedRefusalOf('GET', '/API/ai/key/') === null);
+    // A request line may name the whole address; the router routes it by its
+    // path, and a fragment is not part of the path.
+    for (const url of ['http://evil.example/api/ai/key', 'HTTP://x/API/ai/key/', 'https://x:8443/api/auth/disable?x=1', '/api/ai/key#x']) {
+        ok(`PUT ${url} is refused like its path`, !!hosted.hostedRefusalOf('PUT', url));
+    }
+    ok('…and read as that path', hosted.requestPath('HTTP://x/API/ai/key/?a=1') === '/api/ai/key');
     ok('the token is read only in hosted mode', hosted.operatorSetupToken({ TERRAMENTOR_SETUP_TOKEN: TOKEN }) === '');
     ok('a hosted copy trusts the proxy on its private network; off hosted mode only loopback',
         JSON.stringify(hosted.trustProxySetting({ TERRAMENTOR_HOSTED: '1' })) === '["loopback","uniquelocal"]'
@@ -221,6 +248,9 @@ try {
                 ['POST', '/API/auth/disable/', { password: 'a-long-password-1' }],
                 ['PUT', '/Api/AI/Key/', { key: 'sk-test' }],
                 ['POST', '/api/Searxng/Test', { url: 'http://10.0.0.5:8080' }],
+                // A request line naming the whole address, and one with a fragment.
+                ['PUT', `http://${PUBLIC_NAME}/api/ai/key`, { key: 'sk-test' }],
+                ['PUT', '/api/ai/key#x', { key: 'sk-test' }],
             ];
             for (const [method, path, body] of refusedCalls) {
                 const a = await request(port, method, path, { host: PUBLIC_NAME, body, cookie });
