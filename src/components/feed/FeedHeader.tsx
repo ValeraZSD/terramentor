@@ -12,7 +12,7 @@ import { IconButton } from '../ui/Button';
 // One chip, whether it counts or navigates: the row must stay one line tall on
 // a phone, so the touch rule is met by the header's own padding (see `Chip`).
 import { Chip } from '../ui/Chip';
-import { LABEL, MISSES } from '../plan/verdict';
+import { LABEL } from '../plan/verdict';
 
 interface Props {
     header: FeedHeaderData;
@@ -157,21 +157,15 @@ export default function FeedHeader({ header, loading }: Props) {
                             // pressure (its verdict against the learner's pace,
                             // then the soonest date). Showing days-LEFT regardless
                             // would bury the reason it is amber: "30d" reads as
-                            // relaxed while the colour is shouting. A date that
-                            // misses → the verdict's word, the same one the course
+                            // relaxed while the colour is shouting. A coloured
+                            // chip → the verdict's word, the same one the course
                             // header shows; otherwise days left, which is then the
                             // only interesting fact about it.
-                            const misses = MISSES.has(deadline.band);
-                            const metric = misses
-                                ? t(LABEL[deadline.band])
-                                : t("{{daysLeft}}d left", { daysLeft: deadline.daysLeft });
+                            const daysLeft = t("{{daysLeft}}d left", { daysLeft: deadline.daysLeft });
+                            const metric = deadline.paceStatus !== 'on_track' ? t(LABEL[deadline.band]) : daysLeft;
                             // Pieces that are each translated, joined by marks
-                            // only: no English frame around them.
-                            const tooltip = [
-                                deadline.name,
-                                t(LABEL[deadline.band]),
-                                t("{{count}} days", { count: deadline.daysLeft }),
-                            ].join(' · ');
+                            // only, inside the translated "open the project" frame.
+                            const tooltip = [deadline.name, t(LABEL[deadline.band]), daysLeft].join(' · ');
                             return (
                             <Chip
                                 onClick={() => openProject(deadline.projectId)}

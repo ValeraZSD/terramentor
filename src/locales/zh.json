@@ -89,7 +89,6 @@
   "{{count}} cards_other": "{{count}} 张卡片",
   "{{count}} chapters_other": "{{count}} 章",
   "{{count}} days to the project deadline_other": "距项目截止还有 {{count}} 天",
-  "{{count}} days_other": "{{count}} 天",
   "{{count}} items_other": "{{count}} 项",
   "{{count}} links found_other": "找到 {{count}} 个链接",
   "{{count}} media files could not be found and were left out._other": "有 {{count}} 个媒体文件未找到，已忽略。",

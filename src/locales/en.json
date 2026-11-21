@@ -120,8 +120,6 @@
   "{{count}} could not be matched and stay as they are_other": "{{count}} could not be matched and stay as they are",
   "{{count}} days to the project deadline_one": "{{count}} day to the project deadline",
   "{{count}} days to the project deadline_other": "{{count}} days to the project deadline",
-  "{{count}} days_one": "{{count}} day",
-  "{{count}} days_other": "{{count}} days",
   "{{count}} earlier release on GitHub_one": "{{count}} earlier release on GitHub",
   "{{count}} earlier release on GitHub_other": "{{count}} earlier releases on GitHub",
   "{{count}} items added_one": "{{count}} item added",
