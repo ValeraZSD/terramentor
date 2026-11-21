@@ -142,15 +142,15 @@ export default function ReportItem({ itemRef, surface, shown, onReported, onUndo
  * A model wrote this item. EU AI Act Art. 50 asks that a reader be told which
  * text is a model's; the flag sits on every item that teaches or tests, so the
  * mark rides beside it. Plain caption text, not a control: the model's name is
- * on hover and for a screen reader, the report dialog being the place to act.
+ * on hover, and a screen reader hears the one keyed sentence with it.
  */
 function WrittenByAi({ model }: { model: string | null }) {
     const { t } = useTranslation();
-    const named = model ? t('Written by AI ({{model}})', { model }) : undefined;
+    const named = model ? t('Written by AI ({{model}})', { model }) : t('Written by AI');
     return (
-        <span className="me-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400" title={named}>
-            {t('Written by AI')}
-            {model && <span className="sr-only"> ({model})</span>}
+        <span className="me-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400" title={model ? named : undefined} data-ai-written="">
+            <span aria-hidden="true">{t('Written by AI')}</span>
+            <span className="sr-only">{named}</span>
         </span>
     );
 }

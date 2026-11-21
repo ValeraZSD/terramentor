@@ -572,7 +572,7 @@ export function buildNoteRows(cards, { deckIdFor, crtSec, baseId = Date.now(), m
             guid: randomUUID(),
             did: deckIdFor(card),
             // Anki's own spelling: space-separated, a space either side.
-            tags: aiWrittenTag(card.generated_by) ? ` ${aiWrittenTag(card.generated_by)} ` : '',
+            tags: ((tag) => (tag ? ` ${tag} ` : ''))(aiWrittenTag(card.generated_by)),
             fields,
             sched,
         });

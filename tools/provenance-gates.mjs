@@ -295,12 +295,22 @@ const reStamp = (front) => reimported.find(c => c.front === front)?.generated_by
 eq(reStamp(aiFront) ? JSON.parse(reStamp(aiFront)) : null, { model: 'gate-model:9b', via: 'import' }, 'an Anki import stores the tag\'s claim on the card');
 eq(reStamp('hand written'), null, 'an Anki import leaves an untagged card unstamped');
 
+// A shared deck's tags are anyone's: the claim is bounded as a course file's is.
+const { splitAiWrittenTag } = await import('../server/ankiAiTag.js');
+eq(splitAiWrittenTag(['AI-Written::m:1', 'verbs']), { model: 'm:1', tags: ['verbs'] }, 'the tag is read whatever its case');
+eq(splitAiWrittenTag([`ai-written::${'x'.repeat(201)}`, 'ai-written::second:2']), { model: 'second:2', tags: [] },
+    'a name longer than a course file may claim is no claim, and every ai-written tag leaves the deck\'s tags');
+eq(splitAiWrittenTag(['ai-written::evil\u202emodel\u0007']).model, 'evilmodel', 'control and direction characters are dropped from the name');
+eq(splitAiWrittenTag(['ai-written::', 'ai-written::\u200b']), { model: null, tags: [] }, 'an empty name claims nothing');
+
 await new Promise(r => server.close(r));
 
 // --- 6. the flag says it -----------------------------------------------------
 //
 // The real ReportItem, bundled and rendered with the store holding the
-// server's answer: one control on every surface, so this is every surface.
+// server's answer. Every surface that teaches or tests mounts this one control
+// (CLAUDE.md "One flag, one endpoint"); that each passes its item's ref is
+// report-link-gates' and item-report-gates' to check, not this section's.
 
 const { JSDOM } = await import('jsdom');
 const page = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost:3001/' }).window;
@@ -347,14 +357,28 @@ const R = await import(pathToFileURL(renderBundle).href);
 await R.boot();
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 R.setWritten({ 'fi:1': { model: 'gate-model:9b' }, 'fi:2': { model: null }, 'card:3': null }, ['fi:1', 'fi:2', 'card:3']);
-const named = R.flag('fi:1');
-const unnamed = R.flag('fi:2');
-const none = R.flag('card:3');
-ok(/>Written by AI</.test(named), 'the flag of a model\'s item says "Written by AI"');
-ok(named.includes('Written by AI (gate-model:9b)'), 'and names the model where the learner can read it on request');
-ok(/>Written by AI</.test(unnamed) && !/\(\s*\)/.test(unnamed), 'an unnamed model\'s item says "Written by AI" with no empty name');
-ok(!/Written by AI/.test(none), 'an item no model wrote says nothing about AI');
-ok(/This is wrong/.test(none), 'and still carries its flag');
+// What a sighted reader sees, what hovering shows, and what a screen reader hears.
+const readMark = (html) => {
+    const box = page.document.createElement('div');
+    box.innerHTML = html;
+    const mark = box.querySelector('[data-ai-written]');
+    if (!mark) return null;
+    const seen = [...mark.querySelectorAll('*')].filter(e => !e.closest('.sr-only') && !e.classList.contains('sr-only'))
+        .map(e => e.textContent).join('').trim();
+    const heard = [...box.querySelectorAll('*')].filter(e => !e.closest('[aria-hidden="true"]') && !e.children.length)
+        .map(e => e.textContent).join(' ').replace(/\s+/g, ' ').trim();
+    return { seen, hover: mark.getAttribute('title'), heard, flag: /This is wrong/.test(html) };
+};
+const named = readMark(R.flag('fi:1'));
+const unnamed = readMark(R.flag('fi:2'));
+const noneHtml = R.flag('card:3');
+eq(named?.seen, 'Written by AI', 'the flag of a model\'s item shows "Written by AI"');
+eq(named?.hover, 'Written by AI (gate-model:9b)', 'hovering it names the model');
+ok(named?.heard.includes('Written by AI (gate-model:9b)') && named.heard.split('Written by AI').length === 2,
+    'a screen reader hears the model named, and the mark once');
+eq([unnamed?.seen, unnamed?.hover ?? null], ['Written by AI', null], 'an unnamed model\'s item says "Written by AI" with no empty name');
+ok(!/Written by AI/.test(noneHtml), 'an item no model wrote says nothing about AI');
+ok(/This is wrong/.test(noneHtml), 'and still carries its flag');
 
 db.close();
 rmSync(SCRATCH, { recursive: true, force: true });
