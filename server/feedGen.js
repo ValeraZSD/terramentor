@@ -649,7 +649,7 @@ export function askFirstLessons(projectId, count = FIRST_LESSON_TOPICS) {
 
 /**
  * The topic this course's Study opens on, and whether a lesson of it is
- * written: the creation screen offers "Start studying" once it is, so the
+ * written: the creation screen offers "Start Studying" once it is, so the
  * press lands on a lesson rather than on the Overview standing in for one.
  * The same pick as Study and `askFirstLessons`; "written" as in
  * `lessonWriteState`, any lesson row. `{ nodeId: null, written: false }`

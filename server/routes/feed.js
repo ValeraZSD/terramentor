@@ -189,8 +189,10 @@ app.get('/api/feed/nodes/:nodeId/checkpoint', (req, res) => {
 });
 
 // Which topic the course's Study opens on and whether its lesson is written
-// (`feedGen.firstLessonState`): the creation screen offers "Start studying"
-// once it is, asking again as the lesson writer moves on. Read-only.
+// (`feedGen.firstLessonState`): the creation screen offers "Start Studying"
+// once it is, asking again as the lesson writer moves on. It writes nothing of
+// its own; picking the topic refreshes the derived topic dates, as GET
+// /api/feed does.
 app.get('/api/feed/projects/:id/first-lesson', (req, res) => {
     try {
         const projectId = Number(req.params.id);

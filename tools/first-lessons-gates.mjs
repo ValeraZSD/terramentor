@@ -502,6 +502,16 @@ console.log("\n--- 6. the creation screen learns when the course's Study opens o
     const waiting = projectId ? await firstLesson(projectId) : null;
     ok("...so the screen hears the course's first topic, not written",
         waiting?.body.nodeId === first?.id && waiting?.body.written === false, JSON.stringify(waiting));
+    // A lesson for the SECOND topic only is not the first lesson: the button
+    // would open Study on the first topic's stand-in.
+    const second = projectId ? topicsOf(projectId)[1] : null;
+    const stray = second ? Number(db.prepare(
+        "INSERT INTO feed_items (node_id, kind, seq, content, meta) VALUES (?, 'lesson', 1, 'A part of the second topic.', '{}')",
+    ).run(second.id).lastInsertRowid) : null;
+    const otherTopic = stray ? await firstLesson(projectId) : null;
+    ok("...and a lesson for the second topic alone does not count as the first",
+        !!stray && otherTopic?.body.nodeId === first?.id && otherTopic?.body.written === false, JSON.stringify(otherTopic));
+    if (stray) db.prepare('DELETE FROM feed_items WHERE id = ?').run(stray);
 
     open();
     lessonHold = null;
