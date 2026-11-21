@@ -172,6 +172,9 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     // A failed link whose "Choose a file" opened the picker: the files picked
     // take its place in the list.
     const replacing = useRef<string | null>(null);
+    // The latest list, read when a pick is accepted rather than when it began.
+    const filesNow = useRef(files);
+    filesNow.current = files;
     const touch = useMediaQuery('(hover: none)');
 
     /** `loose` files are sent whatever they are and the server says why one
@@ -182,8 +185,10 @@ export default function SourceFiles({ files, onAdd, onRemove, onLinks, fixes }: 
     const take = (loose: File[], inFolder: File[] | null = null, replace: string | null = null) => {
         for (const input of [inputRef.current, folderRef.current]) if (input) input.value = '';
         // Links and files share one cap; a failed link the files replace gives
-        // its row back.
-        const room = Math.max(0, MAX_SOURCE_FILES - files.length + (replace && files.some(f => f.key === replace) ? 1 : 0));
+        // its row back. The list as it is NOW: a dropped folder is walked
+        // asynchronously, and links added meanwhile count too.
+        const current = filesNow.current;
+        const room = Math.max(0, MAX_SOURCE_FILES - current.length + (replace && current.some(f => f.key === replace) ? 1 : 0));
         let fromFolder: File[] = [];
         if (inFolder) {
             fromFolder = inFolder.filter(readableInFolder);
