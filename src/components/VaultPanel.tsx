@@ -254,7 +254,7 @@ export default function VaultPanel({
             const ok = documents.filter(d => d.ok).length;
             const failed = documents.filter(d => !d.ok);
             if (ok) addToast('success', tr("Added {{count}} files to the vault", { count: ok }));
-            failed.forEach(f => addToast('error', tr("Couldn't read \"{{title}}\"", { title: f.title }), f.error));
+            failed.forEach(f => addToast('error', tr("Couldn't read \"{{title}}\"", { title: f.title }), serverText(f) ?? f.error));
             await refresh();
         } catch (e: any) {
             addToast('error', tr("Upload failed"), e.message);
