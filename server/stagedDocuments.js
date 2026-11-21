@@ -24,7 +24,7 @@ import { buildSourceMap, withoutPageMarks } from './sourceMap.js';
 import { detectWrittenLanguage } from './creationLanguage.js';
 import vaultStorage from './vaultStorage.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
-import { keyed, publicMessage } from './clientError.js';
+import { keptBody, keyed } from './clientError.js';
 
 export const STAGED_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -162,8 +162,7 @@ export async function stageFile(buffer, originalname, now = Date.now(), { hint =
         // message (a parser bug's own text reads the code back); the no-text
         // test stays on the original words.
         const raw = String(err?.message || 'Extraction failed');
-        const message = String(err?.message ? publicMessage(err) : raw).slice(0, 500);
-        return { ok: false, title, error: message, reason: NO_TEXT.test(raw) ? 'no_text' : 'unreadable' };
+        return { ok: false, title, ...keptBody(err, keyed('Extraction failed')), reason: NO_TEXT.test(raw) ? 'no_text' : 'unreadable' };
     }
     const { text, kind, meta } = extracted;
     // A photo is accepted by the vault (kept as its original, shown as a

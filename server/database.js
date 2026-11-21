@@ -2340,6 +2340,11 @@ addColumnIfMissing('answer_attempts', 'subject', 'TEXT');
 // course's last "Not now" on its offer (ISO), which starts the clock again.
 addColumnIfMissing('exam_papers', 'look_back', 'INTEGER NOT NULL DEFAULT 0');
 addColumnIfMissing('projects', 'look_back_skipped_at', 'TEXT DEFAULT NULL');
+// A file the vault could not read keeps the key its reason was filled from and
+// the values (JSON), so the reason reads in the learner's language on every
+// later visit (routes/documents.js). NULL on older rows: they show the English.
+addColumnIfMissing('documents', 'error_key', 'TEXT DEFAULT NULL');
+addColumnIfMissing('documents', 'error_params', 'TEXT DEFAULT NULL');
 // A topic's misses and right answers in time order, read per topic by the slip
 // rule (fading.js SLIPPED_TOPIC) on every recall round and by recallOrder's
 // "right since"; surface last, since the "right since" reads name none.
