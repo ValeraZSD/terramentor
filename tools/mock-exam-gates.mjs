@@ -589,6 +589,11 @@ try {
             const tenHours = mock.getSitting(off.id, { now: t0 + 10 * 3600_000 });
             check('Off: no clock, and ten hours on the time is still not up',
                 off.timeAllowed === 0 && tenHours.timeUp === false && tenHours.elapsed === 36_000, JSON.stringify(tenHours));
+            let noClock = false;
+            try { mock.takeAwayTimeOff(off.id, 60, { now: t0 + 600_000 }); } catch (e) { noClock = e?.status === 400; }
+            const viaHttp = await call('POST', `/api/mock-sittings/${off.id}/away`, { seconds: 60 });
+            check('a paper with no clock takes no time off, called directly or over HTTP, so its "written in" stays true',
+                noClock && viaHttp.status === 400 && mock.getSitting(off.id, { now: t0 + 600_000 }).elapsed === 600, `${noClock} ${viaHttp.status}`);
             mock.discardSitting(off.id);
             setScale('5');
             check('a value this build does not know gives the normal time', timeFor() === 180 * 60, String(timeFor()));
@@ -622,6 +627,10 @@ try {
             /const timed = sitting\.timeAllowed > 0;/.test(clock) && /const timeUp = timed && left <= 0;/.test(clock));
         check('…it says it started with no clock (not what the setting is now), and offers no time off a clock it has not got',
             clock.includes('{t("This paper started with no clock.")}') && /awayOff >= AWAY_ASK && sitting\.running && timed && \(/.test(clock));
+        check('a hidden past-paper clock drops "used of allowed" too (it gives the time left away)',
+            /\) : hidden \? null : timed \? \(/.test(clock));
+        check('reading the paper in the tab "Open the paper" gave is not offered as time away',
+            /onClick=\{\(\) => \{ readingPaper\.current = true; \}\}/.test(clock) && /if \(!readingPaper\.current\) store\.set\(Date\.now\(\)\)/.test(clock));
         check('…and its result says how long it took, with no "of"',
             screen.includes('t("{{paper}} · written in {{used}}", ') && screen.includes('t("Written on paper in {{used}} · graded by you against the worked solution", '));
         const settings = readFileSync(join(ROOT, 'src', 'components', 'settings', 'AccessibilitySettings.tsx'), 'utf8');
@@ -658,8 +667,8 @@ try {
         check('a held Add says why in the footer, the first thing still to do: a name, then the upload, then the points',
             /const held = !title\.trim\(\) \? t\("Give the paper a name to add it\."\)\s*: uploading > 0 \? t\("Waiting for the upload to finish\."\)\s*: printedBad \|\| mismatch \? t\("Make the questions add up to the printed total\."\)\s*: null;/.test(dialog)
                 && /\{held && \(\s*<span [^>]*>\{held\}<\/span>/.test(dialog)
-                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\}>[^\n]*\n\s*<Button variant="primary"[^\n]*disabled=\{held != null\}[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
-        check('Cancel or Escape waits for an upload still running (it would land in the course with nothing pointing at it)',
+                && /<div className="ml-auto flex gap-2">\s*<Button onClick=\{leave\} disabled=\{uploading > 0\}>[^\n]*\n\s*<Button variant="primary"[^\n]*disabled=\{held != null\}[^\n]*\{t\("Add the paper"\)\}<\/Button>\s*<\/div>/.test(dialog));
+        check("Cancel is shown disabled, and Escape waits, while an upload runs (it would land in the course with nothing pointing at it)",
             /if \(busy \|\| uploading > 0\) return;/.test(dialog));
         const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
         check('the away offer\'s two buttons are full-size tap targets',
@@ -683,7 +692,7 @@ try {
         check('a score right on the pass line says so, not "0 points above"',
             /result\.earned === result\.passPoints\s*\?\s*t\("That is exactly the pass line\."\)/.test(screen));
         check('the add dialog asks before Escape, the backdrop or Cancel drops a typed paper',
-            /onClose=\{leave\}/.test(dialog) && /<Button onClick=\{leave\}>\{t\("Cancel"\)\}/.test(dialog)
+            /onClose=\{leave\}/.test(dialog) && /<Button onClick=\{leave\}(?: disabled=\{uploading > 0\})?>\{t\("Cancel"\)\}/.test(dialog)
                 && /if \(changed && !\(await showConfirm\(/.test(dialog));
     });
 } finally {

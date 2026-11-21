@@ -59,7 +59,7 @@ const iso = (ms) => new Date(ms).toISOString();
  * starts and kept in its time allowed, so a change mid-exam never moves a
  * running clock. A value this build does not know is the normal time
  * (src/components/drills/parseDrill.ts normalizeDrillTimeScale;
- * src/components/mockExam/mockFormat.ts mockClockSeconds shows the same).
+ * src/components/mockExam/mockClock.ts mockClockSeconds shows the same).
  */
 function clockSeconds(seconds) {
     const scale = stmt("SELECT value FROM settings WHERE key = 'drill_time_scale'").get()?.value;
@@ -348,6 +348,8 @@ export function takeAwayTimeOff(id, seconds, { now = Date.now() } = {}) {
     // Only a paper written at the desk: on a course mock the screen is the
     // exam, so time away from it is not time the learner can vouch for.
     if (isCourse(s)) throw bad('Time away is taken off a past paper only');
+    // Started with Time limits Off: no clock, and the time written it reports stays as written.
+    if (!s.time_allowed) throw bad('This paper has no clock to take time off');
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400) throw bad('The time away must be a whole number of seconds, from 1 to a day');
     if (s.status === 'writing' && s.running_since) {
         const from = Math.max(Date.parse(s.running_since), now - seconds * 1000);

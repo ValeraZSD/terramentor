@@ -102,7 +102,10 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
     // that fires pagehide on an app switch pauses the clock instead; then
     // nothing ran while away and nothing is offered.) Two tabs on one mock
     // share the moment: the tab that comes back first asks.
+    // Reading the paper in the tab (or app) "Open the paper" gave is writing
+    // it, not time away: leaving that way is not asked about.
     const awayKey = `mock-away:${sitting.id}`;
+    const readingPaper = useRef(false);
     const [away, setAway] = useState<number | null>(null);
     useEffect(() => {
         const store = {
@@ -112,7 +115,8 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
         };
         if (!sitting.running) { store.drop(); setAway(null); return; }
         const seen = () => {
-            if (document.visibilityState === 'hidden') { store.set(Date.now()); return; }
+            if (document.visibilityState === 'hidden') { if (!readingPaper.current) store.set(Date.now()); return; }
+            readingPaper.current = false;
             const since = store.get();
             store.drop();
             const seconds = since > 0 ? Math.floor((Date.now() - since) / 1000) : 0;
@@ -206,7 +210,7 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                             <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-300">{t("Write on paper. The app keeps the time.")}</p>
                         </div>
                         {paper.paperDocumentId != null && (
-                            <ButtonLink size="sm" href={api.documentOriginalUrl(paper.paperDocumentId)} target="_blank" rel="noopener" icon={<FileText className="w-4 h-4" aria-hidden="true" />}>
+                            <ButtonLink size="sm" href={api.documentOriginalUrl(paper.paperDocumentId)} target="_blank" rel="noopener" onClick={() => { readingPaper.current = true; }} icon={<FileText className="w-4 h-4" aria-hidden="true" />}>
                                 {t("Open the paper")}
                             </ButtonLink>
                         )}
@@ -246,7 +250,8 @@ function ClockScreen({ detail, onChange, reload, onLeave }: { detail: MockDetail
                                 <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
                                     {t("On the real exam you would hand in now. Finish your sentence, then grade what you wrote.")}
                                 </p>
-                            ) : timed ? (
+                            ) : hidden ? null : timed ? (
+                                // Hidden means hidden: time used and allowed would give the time left away.
                                 <p className="text-sm text-slate-600 dark:text-slate-300">
                                     {t("{{used}} used of {{allowed}}", { used: duration(elapsed), allowed: duration(sitting.timeAllowed) })}
                                 </p>
