@@ -35,7 +35,7 @@
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { collectKeys, englishEntries, pluralCategories } from './lib/i18nKeys.mjs';
+import { collectAppKeys, englishEntries, pluralCategories } from './lib/i18nKeys.mjs';
 import {
     parseTsx, forEachChild, isStringish, isTemplate, stringText, templateParts, isLogical, isBinaryLike,
     isCall, isPropertyAccess, isElementAccess, isPropertyAssignment, propertyNameText, isJsxElement, jsxExpressionOf,
@@ -127,7 +127,7 @@ for (const file of files) {
 // Existing entries win, so a hand-edited plural form survives a re-run; entries
 // no key uses any more are dropped.
 if (!dry) {
-    const keys = collectKeys(srcDir);
+    const keys = collectAppKeys(repoRoot);
     const n = writeEnglishLocale(localeFile, keys);
     process.stdout.write(`en.json: ${n} entries\n`);
     // A reworded or renamed English key orphans its translations. They are
