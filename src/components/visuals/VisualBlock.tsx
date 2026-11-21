@@ -365,6 +365,8 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const originRef = useRef(origin);
     originRef.current = origin;
     const [error, setError] = useState('');
+    const errorRef = useRef(error);
+    errorRef.current = error;
     /**
      * The failure is the APP's: the renderer's module never arrived, or the
      * renderer cannot draw a spec known to be good (rendererHealth.ts). No
@@ -526,6 +528,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     // guard so the button can try again.
     const runRepair = (badCode: string, message: string) => {
         repairTriedRef.current = true;
+        // A rebuild still running is superseded: stop listening to it, or its
+        // end would clear the busy state while this repair runs on.
+        repairAbortRef.current?.abort();
         const controller = new AbortController();
         repairAbortRef.current = controller;
         reviseFromRef.current = null;
@@ -637,7 +642,9 @@ const VisualBlock = memo(({ kind, language, code, live = false, autoRepair = fal
     const runRevise = (currentCode: string, feedback: string, feedbackId: string | null) => {
         const controller = new AbortController();
         repairAbortRef.current = controller;
-        reviseFromRef.current = { controller, status, error };
+        // Read now, not from the render the press came from: the note is
+        // written first, and a render may have finished in between.
+        reviseFromRef.current = { controller, status: statusRef.current, error: errorRef.current };
         setFeedbackSent(true);
         setRepairing(true);
         setRepairProgress({ chars: 0, thinking: 0 });

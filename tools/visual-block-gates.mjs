@@ -464,6 +464,10 @@ console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its r
     await settle(400);
     check('the rebuilt spec failed and a repair was started', globalThis.__repair.calls.length === 2 && globalThis.__repair.calls[1].opts === null, JSON.stringify(globalThis.__repair.calls.map(c => c.opts)));
     check('the footer says Repairing, not Rebuilding', footer() === 'Repairing', text());
+    // Cancel on a REPAIR (not a rebuild) still ends on the error card, as before.
+    await click([...host.querySelectorAll('button')].find(b => b.getAttribute('title') === 'Stop the AI fix'));
+    await settle(100);
+    check('cancelling a repair ends on the error card with the render\'s message', errorCard() && /unknown function BROKEN/.test(text()) && !footer(), text());
     m.unmount();
 
     console.log('\n--- the Fix this panel gives focus back when it closes ---');
@@ -477,7 +481,9 @@ console.log('\n--- the toolbar folds Save, Code and Copy under "More" when its r
     await act(async () => { area?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); });
     const name = () => window.document.activeElement?.textContent?.trim() || window.document.activeElement?.tagName;
     check('Escape closes the panel', !host.querySelector('textarea'));
-    check('…and focus is on Fix this (the one in the row), not the page', window.document.activeElement === button(/^Fix this$/), name());
+    const active = window.document.activeElement;
+    check('…and focus is on Fix this (the one in the row), not the page',
+        active === button(/^Fix this$/) && !active.closest('[data-toolbar-measure], [inert]'), name());
     await click(button(/^Fix this$/));
     await click(button(/^Cancel$/));
     check('Cancel does the same', !host.querySelector('textarea') && window.document.activeElement === button(/^Fix this$/), name());
