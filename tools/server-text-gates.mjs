@@ -13,14 +13,23 @@
 //   2. The real app on a scratch library: refusals a learner meets, named here
 //      by the sentence they should read, arrive keyed, with `error` equal to
 //      the key filled from the params, and every key is in en.json.
+//   2b. Text the server keeps and shows later, made on the same app: a task
+//      that failed (its dock line and its failure record), a course creation
+//      that failed (its error line, the record's copy, its dock task), a file
+//      the vault could not read (the stored row, read back later, and a file
+//      dropped into New course), the last update check's failure; and refusals
+//      built outside a route (a link's safety check, a search address, a
+//      project's fields). Each row keeps its key beside its English.
 //   3. The collector (tools/lib/i18nKeys.mjs) reads those same sentences out of
 //      the server source, and no setting name or code with them.
 //   4. The client: serverText() in English, in a language holding the key, in
-//      one without it, and with a plural key.
+//      one without it, and with a plural key; then every row from 2b, rendered
+//      the way its screen renders it, in German from the real de.json.
 
 import { createRequire } from 'node:module';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -30,6 +39,9 @@ process.env.DB_PATH = join(scratch, 'test.db');
 process.env.VAULT_ROOT = join(scratch, 'vault');
 process.env.DATA_DIR = scratch;
 process.env.HOST = '127.0.0.1';
+// The model settings are this library's rows, never a shell's overrides
+// (server/ai.js getAISettings reads these last).
+for (const name of ['AI_PROVIDER', 'AI_BASE_URL', 'AI_OLLAMA_URL', 'AI_MODEL', 'AI_API_KEY', 'OPENAI_API_KEY']) delete process.env[name];
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -102,23 +114,44 @@ const MET = [
     ['changed a password when none is set', 'POST', '/api/auth/change', {}, 409, 'No password is set', {}],
     ['let the assistant add an empty card', 'POST', '/api/assistant/cards', {}, 400, 'A card needs a front and a back.', {}],
 ];
+// Rows the server kept, read back the way a screen reads them, rendered in
+// section 4: [what it is, its shape, the row, the key it must carry].
+// `line` = { error, errorKey, errorParams } (a dock line, a run's error line,
+// the update check); `record` = a failure record { message, messageKey,
+// params }; `body` = { error, messageKey, params } (a document, a staged file).
+const STORED = [];
+const URL_SCHEME = 'This link starts with {{scheme}}; only http and https links can be saved.';
+const OLLAMA_DOWN = 'Ollama is not running at {{url}}. Please start Ollama first.';
 {
     const { default: db } = await import(B + 'database.js');
     const { createApp } = await import(B + 'app.js');
     const server = createApp().listen(0, '127.0.0.1');
     await new Promise((r) => server.once('listening', r));
     const port = server.address().port;
-    const call = (method, path, body) => new Promise((resolve, reject) => {
-        const req = request({ host: '127.0.0.1', port, path, method, headers: { 'Content-Type': 'application/json', Host: `127.0.0.1:${port}` } }, (res) => {
+    const send = (method, path, headers, payload) => new Promise((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port, path, method, headers: { ...headers, Host: `127.0.0.1:${port}` } }, (res) => {
             let text = '';
             res.setEncoding('utf8');
             res.on('data', (c) => { text += c; });
-            res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, body: json }); });
+            res.on('end', () => { let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, body: json, text }); });
         });
         req.on('error', reject);
-        if (body) req.write(JSON.stringify(body));
+        if (payload) req.write(payload);
         req.end();
     });
+    const call = (method, path, body) => send(method, path, { 'Content-Type': 'application/json' }, body ? JSON.stringify(body) : null);
+    // One file, as the vault's upload field sends it.
+    const upload = (path, fields, filename, bytes) => {
+        const boundary = `----gate${Date.now()}`;
+        const parts = [
+            ...Object.entries(fields).map(([name, value]) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`),
+            `--${boundary}\r\nContent-Disposition: form-data; name="files"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+        ];
+        const payload = Buffer.concat([Buffer.from(parts.join('')), bytes, Buffer.from(`\r\n--${boundary}--\r\n`)]);
+        return send('POST', path, { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, payload);
+    };
+    const frames = (text) => text.split('\n').filter((l) => l.startsWith('data: ')).map((l) => { try { return JSON.parse(l.slice(6)); } catch { return null; } }).filter(Boolean);
+    const taskList = async () => { const b = (await call('GET', '/api/tasks')).body; return Array.isArray(b) ? b : b?.tasks || []; };
     try {
         for (const [what, method, path, body, status, key] of MET) {
             const got = await call(method, path, body);
@@ -127,6 +160,87 @@ const MET = [
             ok('…its English is the key filled from its values', b.error === fill(key, b.params || {}) && !/\{\{/.test(b.error || '{{'), show(b));
             ok('…and en.json holds the key', inEn(key));
         }
+
+        console.log('\n--- text the server keeps and shows later ---');
+        const { setSettingValue } = await import(B + 'settingsStore.js');
+        const project = (await call('POST', '/api/projects', { name: 'Stored text' })).body;
+        const node = (await call('POST', '/api/nodes', { project_id: project?.id, title: 'Light' })).body;
+        ok('a project and a topic to fail on', !!project?.id && !!node?.id, show(node));
+
+        // A task that fails: cards asked for while AI is switched off.
+        setSettingValue('ai_enabled', 'false');
+        await call('POST', '/api/ai/flashcards/stream', { nodeId: node.id });
+        const cards = (await taskList()).find((t) => t.kind === 'flashcards');
+        ok('the cards task failed', cards?.status === 'error', show(cards));
+        STORED.push(['a failed task\'s line in the dock', 'line', cards, 'AI features are disabled']);
+        STORED.push(['…its failure record', 'record', cards?.failure, 'AI features are disabled']);
+
+        // A creation that fails: a model address nothing listens on, the way a
+        // learner's run fails when Ollama is not started.
+        const closed = await new Promise((resolve) => { const s = createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+        setSettingValue('ai_enabled', 'true');
+        setSettingValue('ai_provider', 'ollama');
+        setSettingValue('ai_ollama_url', `http://127.0.0.1:${closed}`);
+        setSettingValue('ai_model', 'm');
+        const stream = frames((await call('POST', '/api/ai/create-project', { name: 'Stored run' })).text);
+        const errorFrame = stream.find((f) => f.phase === 'error');
+        ok('the creation run failed on its stream', !!errorFrame, show(stream.at(-1)));
+        STORED.push(['a failed creation\'s error frame', 'line', errorFrame, OLLAMA_DOWN]);
+        const run = ((await call('GET', '/api/ai/creation-status')).body?.generations || []).find((g) => g.name === 'Stored run');
+        ok('…and is kept for a page that reattaches', run?.outcome === 'error', show(run));
+        STORED.push(['a failed creation\'s error line, read back', 'line', run, OLLAMA_DOWN]);
+        STORED.push(['…the failure copy beside it', 'record', run?.failure, OLLAMA_DOWN]);
+        STORED.push(['…and its task in the dock', 'line', (await taskList()).find((t) => t.kind === 'create_project'), OLLAMA_DOWN]);
+
+        // A file the vault cannot read, then read back on a later visit.
+        const notPdf = Buffer.from('plain words, not a PDF');
+        const uploaded = await upload('/api/documents/upload', { projectId: project.id }, 'notes.pdf', notPdf);
+        STORED.push(['a file the vault could not read, as answered', 'body', uploaded.body?.documents?.[0], 'File does not look like a valid PDF.']);
+        const listed = (await call('GET', `/api/documents?projectId=${project.id}`)).body;
+        STORED.push(['…and on a later visit', 'body', (Array.isArray(listed) ? listed : listed?.documents || []).find((d) => d.status === 'failed'), 'File does not look like a valid PDF.']);
+        const staged = await upload('/api/documents/staged', {}, 'notes.pdf', notPdf);
+        STORED.push(['a file dropped into New course that cannot be read', 'body', staged.body?.documents?.[0], 'File does not look like a valid PDF.']);
+
+        // The last update check's failure, as the poll stores it.
+        setSettingValue('update_last_error', 'GitHub responded 403');
+        STORED.push(['the last update check\'s failure', 'line', (await call('GET', '/api/updates')).body, 'GitHub responded {{status}}']);
+
+        for (const [what, shape, row, key] of STORED) {
+            const [text, gotKey, params] = shape === 'line' ? [row?.error, row?.errorKey, row?.errorParams]
+                : shape === 'record' ? [row?.message, row?.messageKey, row?.params] : [row?.error, row?.messageKey, row?.params];
+            ok(`${what} keeps "${key}" beside its English`, gotKey === key && text === fill(key, params || {}), show(row));
+        }
+
+        // Refusals built outside a route: a module's result, a field check.
+        const OUTSIDE = [
+            ['saved a link that runs script', 'POST', '/api/resources', { node_id: node.id, title: 'x', url: 'javascript:alert(1)' }, URL_SCHEME],
+            ['added a search address over plain http', 'POST', '/api/search-providers',
+                { id: 'mine', kind: 'search_provider', label: 'Mine', urlTemplate: 'http://example.com/?q={query}' }, 'urlTemplate must use https'],
+            ['pasted a search provider with a made-up kind', 'POST', '/api/search-providers', { id: 'mine', kind: 'plugin', label: 'Mine' }, 'kind must be one of: {{kinds}}'],
+            ['named a project with spaces only', 'POST', '/api/projects', { name: '   ' }, 'A project needs a name'],
+            // A program's mistakes are answered in English and carry no key:
+            // no screen sends them, so no learner reads them.
+            ['(a program) sent a description that is not text', 'POST', '/api/projects', { name: 'x', description: 5 }, null],
+            ['(a program) sent topic notes that are not text', 'POST', '/api/nodes', { project_id: project.id, title: 'x', notes: 5 }, null],
+        ];
+        for (const [what, method, path, body, key] of OUTSIDE) {
+            const got = await call(method, path, body);
+            const b = got.body || {};
+            if (key === null) { ok(`${what}: 400, English, no key`, got.status === 400 && typeof b.error === 'string' && !('messageKey' in b), `${got.status} ${show(b)}`); continue; }
+            ok(`a learner who ${what} gets 400, keyed "${key}"`, got.status === 400 && b.messageKey === key && b.error === fill(key, b.params || {}), `${got.status} ${show(b)}`);
+            ok('…and en.json holds the key', inEn(key));
+        }
+
+        // Every form the update check can fail in (server/version.js, which may
+        // import Node built-ins only) is keyed where it is read, or is one the
+        // panel already says as "could not reach GitHub".
+        const { updateErrorBody } = await import(B + 'updatePoll.js');
+        const versionSrc = readFileSync(join(repo, 'server/version.js'), 'utf8');
+        const fetchSrc = versionSrc.slice(versionSrc.indexOf('function fetchLatestRelease'));
+        const forms = [...fetchSrc.slice(0, fetchSrc.indexOf('\n}\n')).matchAll(/error:\s*(['"`])((?:(?!\1).)*)\1/g)].map((m) => m[2].replace(/\$\{[^}]*\}/g, '403'));
+        const offline = /fetch failed|timed out|ENOTFOUND|ECONN|EAI_AGAIN|network/i; // src/components/update/updateView.ts isOfflineError
+        const unkeyed = forms.filter((text) => { const b = typeof updateErrorBody === 'function' ? updateErrorBody(text) : {}; return !(b.messageKey && inEn(b.messageKey) && b.error === text) && !offline.test(text); });
+        ok(`every update-check failure in version.js is keyed or said as offline (${forms.length} read)`, forms.length >= 4 && unkeyed.length === 0, unkeyed.join(' | '));
     } finally {
         server.close();
         try { db.close(); } catch { /* closing a closed handle */ }
@@ -196,11 +310,11 @@ console.log('\n--- serverText() in the app ---');
         await build({
             bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent', packages: 'external',
             stdin: {
-                contents: `export { serverText } from './src/utils/serverText';\nexport { default as i18n } from './src/i18n';`,
+                contents: `export * from './src/utils/serverText';\nexport { default as i18n } from './src/i18n';`,
                 resolveDir: repo, loader: 'ts',
             },
         });
-        const { serverText, i18n } = await import(pathToFileURL(outfile).href);
+        const { serverText, storedError, failureMessage, i18n } = await import(pathToFileURL(outfile).href);
         await i18n.changeLanguage('en');
 
         ok('English shows the server\'s own sentence', serverText(keyed('Project not found')) === 'Project not found');
@@ -224,7 +338,26 @@ console.log('\n--- serverText() in the app ---');
             serverText(keyed('No such {{thing}} here', { thing: 'deck' })) === 'No such deck here');
         ok('a key that only looks like one (no locale has it) is the English as sent',
             serverText({ error: 'Node 12 not found', messageKey: 'Node {{id}} not found' }) === 'Node 12 not found');
+
+        // The rows the server kept (section 2b), each rendered by the helper its
+        // screen uses, in German from the shipped de.json.
+        console.log('\n--- what the server kept, in German ---');
+        const de = JSON.parse(readFileSync(join(repo, 'src/locales/de.json'), 'utf8'));
+        i18n.addResourceBundle('de', 'translation', de, true, true);
+        ok('the client renders a kept line and a failure record (storedError, failureMessage)',
+            typeof storedError === 'function' && typeof failureMessage === 'function');
+        const render = { line: storedError, record: failureMessage, body: serverText };
+        for (const [what, shape, row, key] of STORED) {
+            const params = (shape === 'line' ? row?.errorParams : row?.params) || {};
+            const german = typeof de[key] === 'string' ? fill(de[key], params) : null;
+            const shown = typeof render[shape] === 'function' ? render[shape](row) : undefined;
+            ok(`${what} reads in German`, !!german && german !== fill(key, params) && shown === german, `${show(shown)} ≠ ${show(german)}`);
+        }
         await i18n.changeLanguage('en');
+        const [, , firstLine] = STORED[0] || [];
+        ok('…and in English, the sentence the server wrote', !!firstLine && storedError?.(firstLine) === firstLine.error, show(firstLine));
+        ok('a line with no key, or none at all, is its English or nothing',
+            storedError?.({ error: 'Failed' }) === 'Failed' && storedError?.({ error: null }) === undefined && failureMessage?.(null) === undefined);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
