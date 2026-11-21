@@ -68,7 +68,8 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
         }))) return;
         setEmptying(true);
         try {
-            await api.emptyDeleted();
+            // The list is newest first: nothing deleted after what was shown goes.
+            await api.emptyDeleted(items[0].deletedAt);
             addToast('success', tr("Recently deleted is empty"));
             await load();
         } catch (e: any) {
@@ -106,7 +107,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
                                     <Button
                                         className="shrink-0"
                                         busy={restoring === key}
-                                        disabled={emptying || (restoring !== null && restoring !== key)}
+                                        disabled={failed || emptying || (restoring !== null && restoring !== key)}
                                         onClick={() => void restore(item)}
                                         icon={<RotateCcw className="w-4 h-4" aria-hidden="true" />}
                                     >
@@ -136,7 +137,7 @@ export default function RecentlyDeletedSection({ active }: { active: boolean }) 
                         variant="danger"
                         className="ml-auto shrink-0"
                         busy={emptying}
-                        disabled={!items?.length || restoring !== null}
+                        disabled={failed || !items?.length || restoring !== null}
                         onClick={() => void empty()}
                         icon={<Trash2 className="w-4 h-4" aria-hidden="true" />}
                     >

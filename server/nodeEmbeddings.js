@@ -222,11 +222,13 @@ export function pendingNodes({ force = false } = {}) {
 // *converted into a note*.
 //
 // The two have to be swept independently, and that is the whole subtlety here.
-// `node_embeddings` has a real FK, so deleting a node takes its bookkeeping row
+// `node_embeddings` has a real FK, so removing a node for good takes its bookkeeping row
 // with it — which means a sweep driven by the sidecar is structurally blind to
 // exactly the case it most needs to catch: the row that would have told us to
 // drop the vector is the row the cascade just deleted. So `vec_nodes` (no FK,
-// nothing cascades to it) is swept against `nodes` directly.
+// nothing cascades to it) is swept against `nodes` directly. A deleted node is
+// not embeddable either, so its vector and row go at once and a restore embeds
+// it again.
 function dropStaleRows() {
     let removed = 0;
     if (vecTableExists('vec_nodes')) {

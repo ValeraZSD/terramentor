@@ -7,9 +7,10 @@
 // topic back with everything that was studied in it.
 //
 // Every read in the app goes through the `live_<table>` views, which skip
-// deleted rows. This module is the one place that reads deleted rows and the
-// one place that removes a row for good (Delete forever, Empty), and
-// tools/soft-delete-gates.mjs holds both rules for every other module.
+// deleted rows. This module writes the marks, lists and restores deleted rows,
+// and is the one place that removes a row for good (one listed row, or Empty);
+// any other module that reads a deleted row says so on the line
+// (`/* with deleted */`), and tools/soft-delete-gates.mjs holds both rules.
 //
 // A delete reaches down, never up: a course takes its topics, a topic its
 // subtopics, and both the cards, question banks and links under them. Each row
@@ -46,6 +47,17 @@ const isContentTable = (t) => CONTENT_TABLES.includes(t);
 const now = () => prep(`SELECT ${NOW_ISO}`).pluck().get();
 const rowOf = (table, id) => prep(`SELECT * FROM ${table} WHERE id = ?`).get(id);
 const markOf = (table, row) => `${table}:${row.uuid}`;
+/** Whether the app withdrew this deleted row, itself or with the row that took it. */
+function withdrawnByApp(row) {
+    if (row.deleted_by === BY_APP) return true;
+    const [t, uuid] = String(row.deleted_by ?? '').split(':');
+    if (!isContentTable(t) || !uuid) return false;
+    return prep(`SELECT deleted_by FROM ${t} WHERE uuid = ?`).pluck().get(uuid) === BY_APP;
+}
+/** The course a row belongs to, deleted or not. */
+const projectIdOf = (table, row) => table === 'projects' ? row.id
+    : table === 'nodes' ? row.project_id
+        : prep('SELECT project_id FROM nodes WHERE id = ?').pluck().get(row.node_id);
 
 // The rows a deleted row takes with it, as [table, WHERE clause over `?` = the
 // row's id]. The CTE `sub` is the node and every node under it.
@@ -140,18 +152,23 @@ export function revive(table, ids) {
  * adds again): the deleted row takes a new uuid, and the rows it took along are
  * marked with it, so the row written next keeps the file's identity and the
  * deleted one stays where it was, in Recently deleted or among the app's.
- * A live row is left alone: a second copy of a live course is a new course.
+ * Only a row whose whole course is deleted, or one the app withdrew (an update
+ * removed it, or its undo took an added row back), gives its uuid up: a row
+ * the learner deleted inside a live course keeps it, since a second copy of a
+ * live course is a new course and that delete is still news to another copy.
  */
 export function releaseUuid(table, uuid) {
     if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
     if (!uuid) return;
-    const row = prep(`SELECT id, deleted_at FROM ${table} WHERE uuid = ?`).get(uuid);
+    const row = prep(`SELECT * FROM ${table} WHERE uuid = ?`).get(uuid);
     if (!row?.deleted_at) return;
+    const course = rowOf('projects', projectIdOf(table, row));
+    if (course && !course.deleted_at && !withdrawnByApp(row)) return;
     const fresh = randomUUID();
     db.transaction(() => {
         prep(`UPDATE ${table} SET uuid = ? WHERE id = ?`).run(fresh, row.id);
         for (const t of CONTENT_TABLES) {
-            prep(`UPDATE ${t} SET deleted_by = ? WHERE deleted_by = ?`).run(`${table}:${fresh}`, `${table}:${uuid}`);
+            prep(`UPDATE ${t} SET deleted_by = ? WHERE deleted_by = ? AND deleted_at IS NOT NULL`).run(`${table}:${fresh}`, `${table}:${uuid}`);
         }
         // Per-project dials are keyed by the project's uuid: they stay with it.
         if (table === 'projects') {
@@ -214,9 +231,7 @@ export function listDeleted() {
         for (const row of rows) {
             const parent = parentOf(table, row);
             if (parent && !isLive(parent)) continue;
-            const projectId = table === 'projects' ? row.id
-                : table === 'nodes' ? row.project_id
-                    : prep('SELECT project_id FROM nodes WHERE id = ?').pluck().get(row.node_id);
+            const projectId = projectIdOf(table, row);
             const took = tookBy.get(markOf(table, row)) ?? 0;
             out.push({
                 table, id: row.id, uuid: row.uuid,
@@ -238,14 +253,16 @@ export function listDeleted() {
 /**
  * Remove for good every row the learner deleted, with what went with each.
  * Rows the app withdrew stay: an undo (a report taken back, an update undone)
- * may still bring them back. Returns how many deleted rows the learner saw go.
+ * may still bring them back. Exactly the rows `listDeleted` offers, and with
+ * `upTo` (the newest `deletedAt` the learner was shown) none deleted after it,
+ * so a delete made elsewhere meanwhile is not removed unseen. Returns how many
+ * listed rows went.
  */
-export function emptyDeleted() {
+export function emptyDeleted({ upTo = null } = {}) {
     let n = 0;
-    // Parents first: purging a course takes its deleted topics with it.
-    for (const table of CONTENT_TABLES) {
-        const ids = prep(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_by IS NULL`).pluck().all();
-        for (const id of ids) if (purge(table, id).purged) n++;
+    for (const item of listDeleted()) {
+        if (upTo && String(item.deletedAt) > upTo) continue;
+        if (purge(item.table, item.id, { listed: true }).purged) n++;
     }
     return n;
 }

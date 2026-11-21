@@ -954,7 +954,7 @@ export const api = {
     // Recently deleted: a delete keeps the row until the learner empties the list.
     listDeleted: () => request<{ items: DeletedItem[] }>('/deleted'),
     restoreDeleted: (table: DeletedItem['table'], id: number) => request<{ restored: number }>(`/deleted/${table}/${id}/restore`, { method: 'POST' }),
-    emptyDeleted: () => request<{ removed: number }>('/deleted', { method: 'DELETE' }),
+    emptyDeleted: (upTo: string) => request<{ removed: number }>(`/deleted?upTo=${encodeURIComponent(upTo)}`, { method: 'DELETE' }),
     purgeDeleted: (table: DeletedItem['table'], id: number) => request<{ removed: boolean }>(`/deleted/${table}/${id}`, { method: 'DELETE' }),
 
     // Nodes

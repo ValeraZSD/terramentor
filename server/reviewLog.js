@@ -44,11 +44,16 @@ const insertStmt = db.prepare(`
                             source, external_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
-// A review an earlier import brought in for a card that is now deleted: the
-// deck was deleted and imported again, so the review follows the new card.
+// A review an earlier import brought in for a card whose whole deck is now
+// deleted: the deck was deleted and imported again, so the review follows the
+// new card (as the deck's uuids do, softDelete.js releaseUuid). A card deleted
+// inside a live deck keeps its reviews for its own restore.
 const reclaimStmt = db.prepare(`
     UPDATE review_log SET card_id = ? WHERE source = 'anki' AND external_id = ?
-      AND card_id IN (SELECT id FROM flashcards /* with deleted */ WHERE deleted_at IS NOT NULL)
+      AND card_id IN (SELECT f.id FROM flashcards f /* with deleted */
+                      JOIN nodes n /* with deleted */ ON n.id = f.node_id
+                      JOIN projects p /* with deleted */ ON p.id = n.project_id
+                      WHERE p.deleted_at IS NOT NULL)
 `);
 
 /**

@@ -4,7 +4,7 @@
 //   GET    /api/deleted                      the list, newest first
 //   POST   /api/deleted/:table/:id/restore   bring a row back with what went with it
 //   DELETE /api/deleted/:table/:id           remove one deleted row for good
-//   DELETE /api/deleted                      remove every deleted row for good
+//   DELETE /api/deleted[?upTo=<iso>]         remove every listed row for good
 import { CONTENT_TABLES, emptyDeleted, listDeleted, purge, restore } from '../softDelete.js';
 import { logActivity } from '../activityLog.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
@@ -52,8 +52,11 @@ app.delete('/api/deleted/:table/:id', (req, res) => {
     res.json({ removed: true });
 });
 
-app.delete('/api/deleted', (_req, res) => {
-    const removed = emptyDeleted();
+app.delete('/api/deleted', (req, res) => {
+    // `upTo`: the newest delete the learner was shown; anything later stays.
+    const upTo = typeof req.query.upTo === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(req.query.upTo) ? req.query.upTo : null;
+    if (req.query.upTo !== undefined && !upTo) return res.status(400).json({ error: 'upTo must be an ISO timestamp.' });
+    const removed = emptyDeleted({ upTo });
     if (removed) scheduleNodeSync();
     logActivity({ area: 'project', event: 'deleted.emptied', level: 'warn', detail: `${removed} item(s)` });
     res.json({ removed });

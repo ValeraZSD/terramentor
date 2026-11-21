@@ -97,8 +97,6 @@ db.exec(`
     BEGIN SELECT topic_dates_touch(${OF_NODE('NEW')}); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_gone AFTER UPDATE OF deleted_at ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_ANY_NODE('NEW')}); END;
-    CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_project_gone AFTER UPDATE OF deleted_at ON projects
-    BEGIN SELECT topic_dates_touch(NEW.id); END;
     CREATE TEMP TRIGGER IF NOT EXISTS topic_dates_card_del AFTER DELETE ON flashcards
     BEGIN SELECT topic_dates_touch(${OF_NODE('OLD')}); END;
 `);
