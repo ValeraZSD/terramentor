@@ -317,13 +317,22 @@ console.log('\n--- case 1, fast-forward: what the author changed arrives, the le
     const v2 = edition2(tag, (f) => {
         const a = topic(f, 'Lidwoorden');
         a.description = 'Overview A, second edition.';
+        // The second edition's author says a model wrote the new Overview, the changed card and the new topic.
+        a.generated_by = 'edition-model:2';
         a.questions[0] = { ...a.questions[0], question: 'Welk lidwoord hoort bij "krant" (de krant)?' };
-        a.flashcards[1] = { ...a.flashcards[1], back: 'house, home' };
-        unit1(f).push({ title: 'Werkwoorden', uuid: u(tag, 'C'), description: 'Overview C.',
+        a.flashcards[1] = { ...a.flashcards[1], back: 'house, home', generated_by: 'edition-model:2' };
+        unit1(f).push({ title: 'Werkwoorden', uuid: u(tag, 'C'), description: 'Overview C.', generated_by: 'edition-model:2',
             flashcards: [{ front: 'lopen', back: 'to walk', uuid: u(tag, 'C3') }] });
     });
     const r = await update(pid, v2);
     const a = nodeOf(r.projectId, 'Lidwoorden');
+    const claim = (row) => (row?.generated_by ? JSON.parse(row.generated_by) : null);
+    const EDITION = { model: 'edition-model:2', via: 'import' };
+    check('1 fast-forward: a rewritten Overview takes the file\'s claim of who wrote it', claim(a), EDITION);
+    check('1 fast-forward: ...and so does a new topic', claim(nodeOf(r.projectId, 'Werkwoorden')), EDITION);
+    check('1 fast-forward: a rewritten card takes the file\'s claim; an unchanged one keeps its own (none)',
+        cardsOf(a?.id).map(c => [c.front, claim(db.prepare('SELECT generated_by FROM flashcards WHERE id = ?').get(c.id))]),
+        [['de krant', null], ['het huis', EDITION]]);
     check('1 fast-forward: the library still holds ONE copy of the course', copiesOf(tag), 1);
     check('1 fast-forward: the learner’s course reads the new Overview', a?.description, 'Overview A, second edition.');
     check('1 fast-forward: ...and keeps the mastery the learner earned on it', [evidenceOn(a?.id), masteryOn(a?.id)], [1, 0.8]);

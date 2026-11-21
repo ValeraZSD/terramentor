@@ -227,9 +227,9 @@ export function markLearnerEdit(kind, uuid, fields) {
 // learner's own columns (status, notes, the schedule) are never put back, so a
 // review made after the update survives an undo.
 const RESTORE = {
-    nodes: ['title', 'description', 'is_note', 'role', 'parent_id', 'position'],
+    nodes: ['title', 'description', 'is_note', 'role', 'parent_id', 'position', 'generated_by'],
     resources: ['node_id', 'title', 'url', 'type', 'position'],
-    flashcards: ['node_id', 'front', 'back', 'extra', 'extra_front', 'media'],
+    flashcards: ['node_id', 'front', 'back', 'extra', 'extra_front', 'media', 'generated_by'],
     quizzes: ['node_id', 'title', 'questions'],
 };
 const scopeSql = {
@@ -411,6 +411,9 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
             return Object.keys(out).length ? JSON.stringify(out) : null;
         };
         const namesMedia = (media) => ['front', 'back'].some(side => (media?.[side] || []).length > 0);
+        // Who wrote an item's text, as the file claims it: text the update writes
+        // takes the file's claim with it, or the AI mark would follow the old text.
+        const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
 
         // The course header. `version` is the author's and nobody edits it.
         const pf = plan.project || {};
@@ -424,9 +427,9 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         // Topics: new ones in file order (a parent before its children), then changes.
         for (const o of byKind('insert', 'node')) {
             const s = o.source || {};
-            const id = prep(`INSERT INTO nodes (project_id, parent_id, title, description, is_note, position, uuid, role)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(projectId, resolveNode(o.parent), s.title, s.description ?? null, s.is_note ? 1 : 0,
-                o.position, claimUuid('nodes', o.uuid), s.role || 'topic').lastInsertRowid;
+            const id = prep(`INSERT INTO nodes (project_id, parent_id, title, description, is_note, position, uuid, role, generated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(projectId, resolveNode(o.parent), s.title, s.description ?? null, s.is_note ? 1 : 0,
+                o.position, claimUuid('nodes', o.uuid), s.role || 'topic', declaredBy(s.generated_by)).lastInsertRowid;
             const uuid = uuidOfNode(id);
             nodeIdByUuid.set(uuid, id);
             insertedUuid.set(`new:${o.ref}`, uuid);
@@ -440,6 +443,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 sets.push(`${f} = ?`); vals.push(v);
                 if (f === 'title' || f === 'description') touched.add(o.id);
             }
+            if ('title' in o.fields || 'description' in o.fields) { sets.push('generated_by = ?'); vals.push(declaredBy(o.source?.generated_by)); }
             prep(`UPDATE nodes SET ${sets.join(', ')}, updated_at = ${NOW_ISO} WHERE id = ?`).run(...vals, o.id);
         }
 
@@ -496,7 +500,6 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
         }
 
         // Cards.
-        const declaredBy = (model) => (model ? JSON.stringify({ model, via: 'import' }) : null);
         for (const o of byKind('update', 'card')) {
             const sets = [];
             const vals = [];
@@ -511,6 +514,7 @@ export function applyCourseUpdate(projectId, plan, { mediaByName = null } = {}) 
                 }
                 sets.push(`${f} = ?`); vals.push(v);
             }
+            if (['front', 'back', 'extra', 'extra_front'].some(f => f in o.fields)) { sets.push('generated_by = ?'); vals.push(declaredBy(o.source?.generated_by)); }
             if (sets.length) prep(`UPDATE flashcards SET ${sets.join(', ')} WHERE id = ?`).run(...vals, o.id);
         }
         for (const o of byKind('insert', 'card')) {
