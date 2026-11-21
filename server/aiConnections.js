@@ -39,6 +39,7 @@ import { LAB_RULES, hostWire, warmOpenRouterCatalogue, openRouterEffortsFor, wir
 import { anthropicModelEfforts } from './anthropicWire.js';
 import { safeFetch } from './netSafety.js';
 import { ERROR_BODY_BYTES, errorSummary, readCappedText } from './httpBody.js';
+import { statusError } from './clientError.js';
 
 /** Every kind of connection, and what it fixes. `baseUrl` is fixed for a
  *  hosted service and only a default for one the learner addresses. */
@@ -94,9 +95,9 @@ const kindOfHost = (base) => {
  *  server they address, else the fixed one. Throws 400 on a region it does not have. */
 export function baseUrlOf(kind, { baseUrl, region } = {}) {
     const k = CONNECTION_KINDS[kind];
-    if (!k) throw Object.assign(new Error('Unknown kind of connection'), { status: 400 });
+    if (!k) throw statusError(400, 'Unknown kind of connection');
     if (k.regions && region) {
-        if (!Object.hasOwn(k.regions, region)) throw Object.assign(new Error(`Unknown region "${region}"`), { status: 400 });
+        if (!Object.hasOwn(k.regions, region)) throw statusError(400, 'Unknown region "{{region}}"', { region });
         return k.regions[region].baseUrl;
     }
     if (k.editable && baseUrl) return kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl);
@@ -221,7 +222,7 @@ export function credentialsOf(row) {
 
 export function saveCredentials(id, creds) {
     const row = getRow(id);
-    if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!row) throw statusError(404, 'No such connection');
     setSecret(connectionSecret(refOf(row), 'credentials'), JSON.stringify(creds));
 }
 
@@ -288,7 +289,7 @@ export function reconcile() {
 export function useConnection(id, { keepCurrent = true } = {}) {
     if (keepCurrent) reconcile();
     const row = getRow(id);
-    if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!row) throw statusError(404, 'No such connection');
     const kind = CONNECTION_KINDS[row.kind] || {};
     db.transaction(() => {
         if (row.kind === 'ollama') {
@@ -321,11 +322,11 @@ function clearActive() {
 export function addConnection({ kind, baseUrl, region, apiKey = '', model = '' }) {
     assertCredentialsWritable();
     const k = CONNECTION_KINDS[kind];
-    if (!k || kind === 'chatgpt') throw Object.assign(new Error('Unknown kind of connection'), { status: 400 });
+    if (!k || kind === 'chatgpt') throw statusError(400, 'Unknown kind of connection');
     const base = baseUrlOf(kind, { baseUrl, region });
-    if (kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
+    if (kind !== 'ollama' && !apiKeyOriginOf(base)) throw statusError(400, 'That address is not a valid http(s) URL');
     const key = String(apiKey || '').trim();
-    if (k.key === 'required' && !key) throw Object.assign(new Error('This connection needs an API key'), { status: 400 });
+    if (k.key === 'required' && !key) throw statusError(400, 'This connection needs an API key');
     const id = Number(db.prepare(`INSERT INTO ai_connections (kind, base_url, model, created_at, secret_ref)
         VALUES (?, ?, ?, ?, ?)`).run(kind, base, String(model || ''), now(), newSecretRef()).lastInsertRowid);
     if (key) {
@@ -344,12 +345,12 @@ export function updateConnection(id, { model, apiKey, baseUrl, region } = {}) {
     assertCredentialsWritable();
     const activeId = reconcile();
     const row = getRow(id);
-    if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!row) throw statusError(404, 'No such connection');
     const k = CONNECTION_KINDS[row.kind] || {};
     let { base_url: base, model: chosen } = row;
     if (baseUrl !== undefined && k.editable) {
         base = row.kind === 'ollama' ? String(baseUrl).trim().replace(/\/+$/, '') : normalizeOpenAIBaseUrl(baseUrl);
-        if (row.kind !== 'ollama' && !apiKeyOriginOf(base)) throw Object.assign(new Error('That address is not a valid http(s) URL'), { status: 400 });
+        if (row.kind !== 'ollama' && !apiKeyOriginOf(base)) throw statusError(400, 'That address is not a valid http(s) URL');
     }
     if (region !== undefined && k.regions) base = baseUrlOf(row.kind, { region });
     if (model !== undefined) chosen = String(model || '');
@@ -372,7 +373,7 @@ export async function removeConnection(id) {
     assertCredentialsWritable();
     const activeId = reconcile();
     const row = getRow(id);
-    if (!row) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!row) throw statusError(404, 'No such connection');
     // A ChatGPT sign-in: no refresh may start, one in flight finishes first,
     // and the token revoked is the newest one OpenAI issued (a renewal held in
     // memory, if its save failed, is the only live one).
@@ -542,7 +543,7 @@ export async function testConnection(id) {
     // model picker writes them): test that one, not the row's older copy.
     reconcile();
     const settings = settingsForConnection(id);
-    if (!settings) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!settings) throw statusError(404, 'No such connection');
     // Taken before the test: a change made while it runs is not what it tested.
     const setup = setupOf(getRow(id));
     const result = await testSettings(settings);
@@ -560,7 +561,7 @@ export async function testConnection(id) {
 /** The models a saved connection lists, for its picker. */
 export async function modelsForConnection(id) {
     const settings = settingsForConnection(id);
-    if (!settings) throw Object.assign(new Error('No such connection'), { status: 404 });
+    if (!settings) throw statusError(404, 'No such connection');
     return listModelsFor(settings);
 }
 

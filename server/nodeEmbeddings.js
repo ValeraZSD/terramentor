@@ -61,7 +61,7 @@ import * as tasks from './tasks.js';
 import { estimateProven } from './mastery.js';
 import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE } from './nodeRole.js';
-import { publicMessage } from './clientError.js';
+import { publicBody } from './clientError.js';
 
 const NODE_BATCH = 32;      // topics per embedding request
 const OVERVIEW_CHARS = 1200; // an Overview is a blurb; more is noise in one vector
@@ -317,7 +317,7 @@ async function runSync({ force = false } = {}) {
             console.error(`[VEC] topic mapping failed: ${err.message}`);
             handle.fail(err.message);
         }
-        return { embedded, removed, error: publicMessage(err), status };
+        return { embedded, removed, ...publicBody(err), status };
     }
 }
 

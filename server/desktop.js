@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url';
 import { libraryId } from './paths.js';
 import { appPlacement } from './appPlacement.js';
 import { instanceProof, validNonce } from './instanceKey.js';
-import { clientError } from './clientError.js';
+import { apiError, errorBody, keyed } from './clientError.js';
 import { heldUntil as signInHeldUntil } from './signInHold.js';
 
 /** The app folder this server runs from (inside the bundle on macOS). */
@@ -473,9 +473,9 @@ export function createDesktop({
     });
     protectedRouter.post('/api/desktop/start-at-login', (req, res) => {
         const on = req.body?.enabled === true;
-        if (!autostart.supported) return res.status(400).json({ error: 'Not available on this install', why: autostart.why || null });
+        if (!autostart.supported) return res.status(400).json({ ...keyed('Not available on this install'), why: autostart.why || null });
         // A write that failed outright is an error, so the control goes back.
-        if (!setStartAtLogin(on, loginMarker)) return res.status(500).json({ error: 'Could not change the start-at-sign-in setting' });
+        if (!setStartAtLogin(on, loginMarker)) return res.status(500).json(keyed('Could not change the start-at-sign-in setting'));
         // The Windows shortcut is written by a spawned PowerShell, so the file
         // may not exist yet; report what was ASKED for and let the panel's next
         // status read report what is actually there. Claiming success from a
@@ -484,13 +484,13 @@ export function createDesktop({
     });
     protectedRouter.post('/api/desktop/window-mode', (req, res) => {
         const mode = String(req.body?.mode || '');
-        if (!['window', 'maximized', 'fullscreen'].includes(mode)) return res.status(400).json({ error: 'Unknown window mode' });
+        if (!['window', 'maximized', 'fullscreen'].includes(mode)) return res.status(400).json(apiError('Unknown window mode'));
         setSetting('desktop_window_mode', mode);
         res.json({ windowMode: mode });
     });
     protectedRouter.post('/api/desktop/autostart-window', (req, res) => {
         const mode = String(req.body?.mode || '');
-        if (!['show', 'hidden'].includes(mode)) return res.status(400).json({ error: 'Unknown autostart window mode' });
+        if (!['show', 'hidden'].includes(mode)) return res.status(400).json(apiError('Unknown autostart window mode'));
         setSetting('desktop_autostart_window', mode);
         res.json({ autostartWindow: mode });
     });
@@ -506,10 +506,10 @@ export function createDesktop({
         // was recorded at launch, and a caller who could name an arbitrary
         // directory here would be writing files anywhere the server can.
         if (!libraryFallback) {
-            return res.status(400).json({ error: 'This launch did not record a library to restore' });
+            return res.status(400).json(keyed('This launch did not record a library to restore'));
         }
         if (!existsSync(libraryFallback.lastDir)) {
-            return res.status(400).json({ error: 'That folder is not there right now' });
+            return res.status(400).json(keyed('That folder is not there right now'));
         }
         try {
             // Lazily, like the autostart plan above: the Docker image ships
@@ -518,7 +518,7 @@ export function createDesktop({
             const { libraryPointerFile } = await import('../desktop/lib.js');
             writeFileSync(libraryFallback.pointerPath, libraryPointerFile(libraryFallback.lastDir), 'utf8');
         } catch (e) {
-            return res.status(500).json({ error: clientError(e) });
+            return res.status(500).json(errorBody(e));
         }
         // Takes effect on the next launch: the launcher reads the pointer
         // before it starts the server, and this one already opened its

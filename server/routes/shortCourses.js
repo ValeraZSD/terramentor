@@ -5,7 +5,7 @@ import { createShortCourse, discardSource, listShortCourses, readSource, retrySh
 import { MAX_FILE_BYTES } from '../extract.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 
 const app = routeTable('shortCourses');
 
@@ -18,7 +18,7 @@ const handleOneFile = (req, res, next) =>
         oneFile.single('file')(req, res, (err) => {
             if (err) {
                 if (err.code === 'LIMIT_FILE_SIZE') return res.json({ ok: false, reason: 'too_large', fix: null });
-                return res.status(400).json({ error: clientError(err, 400) });
+                return res.status(400).json(errorBody(err, 400));
             }
             next();
         }));
@@ -31,8 +31,8 @@ function closedSignal(res) {
 }
 
 function fail(res, e) {
-    if (e instanceof ShortCourseError) return res.status(e.status).json({ error: clientError(e, e.status), ...e.extra });
-    return res.status(500).json({ error: clientError(e, 500) });
+    if (e instanceof ShortCourseError) return res.status(e.status).json({ ...errorBody(e, e.status), ...e.extra });
+    return res.status(500).json(errorBody(e, 500));
 }
 
 // Read: an unreadable source is an ANSWER (200, `ok: false`, its reason and
@@ -47,7 +47,7 @@ app.post('/api/short-courses/read', async (req, res) => {
 });
 
 app.post('/api/short-courses/read-file', handleOneFile, async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) return res.status(400).json(keyed('No file uploaded'));
     try {
         res.json(await readSource({ buffer: req.file.buffer, filename: req.file.originalname }, { acceptLanguage: req.headers['accept-language'] }));
     } catch (e) {

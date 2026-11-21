@@ -38,6 +38,7 @@ import {
     appIconHash, appIconSvg, normalizeAppIcon,
 } from './iconArt.js';
 import { pngFromSvg } from './iconRaster.js';
+import { keyed } from './clientError.js';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(serverDir, '..');
@@ -234,7 +235,7 @@ export function createAppIconRouter({ readIcon, readColors = () => DEFAULT_SURFA
 
     router.get('/api/icon/:name', async (req, res) => {
         const name = String(req.params.name);
-        if (name !== 'favicon.svg' && !Object.hasOwn(ICON_OUTPUTS, name)) return res.status(404).json({ error: 'No such icon' });
+        if (name !== 'favicon.svg' && !Object.hasOwn(ICON_OUTPUTS, name)) return res.status(404).json(keyed('No such icon'));
         const icon = normalizeAppIcon(readIcon());
         try {
             const rendered = await renderIcon(icon, name);
@@ -255,7 +256,7 @@ export function createAppIconRouter({ readIcon, readColors = () => DEFAULT_SURFA
                 const p = path.join(repoRoot, dir, 'icons', file);
                 if (fs.existsSync(p)) return res.sendFile(p, { dotfiles: 'allow' });
             }
-            res.status(500).json({ error: 'Icon unavailable' });
+            res.status(500).json(keyed('Icon unavailable'));
         }
     });
 

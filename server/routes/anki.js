@@ -12,7 +12,7 @@ import { mediaStorage } from '../vaultStorage.js';
 import { buildProjectApkg } from '../ankiExport.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import { routeTable } from './routeTable.js';
-import { clientError } from '../clientError.js';
+import { errorBody, keyed } from '../clientError.js';
 import { projectFieldError } from './projectRows.js';
 
 const app = routeTable('anki');
@@ -35,7 +35,7 @@ const ankiUpload = multer({
 });
 
 app.post('/api/import/anki/inspect', rejectOversizedBody(512 * 1024 * 1024), ankiUpload.single('deck'), async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file was uploaded.' });
+    if (!req.file) return res.status(400).json(keyed('No file was uploaded.'));
     try {
         const parsed = await parseApkg(req.file.buffer, {
             importMedia: req.body?.importMedia !== 'false',
@@ -44,9 +44,9 @@ app.post('/api/import/anki/inspect', rejectOversizedBody(512 * 1024 * 1024), ank
             // An honest dead end rather than an empty project: say what was found
             // and why none of it could become a card.
             return res.status(400).json({
-                error: parsed.stats.notes === 0
-                    ? 'This deck is empty — it contains no notes.'
-                    : `None of the ${parsed.stats.notes} notes in this deck could become a flashcard.`,
+                ...(parsed.stats.notes === 0
+                    ? keyed('This deck is empty — it contains no notes.')
+                    : keyed('None of the {{count}} notes in this deck could become a flashcard.', { count: parsed.stats.notes })),
                 stats: parsed.stats,
                 warnings: parsed.warnings,
             });
@@ -55,7 +55,7 @@ app.post('/api/import/anki/inspect', rejectOversizedBody(512 * 1024 * 1024), ank
         res.json({ stagingId, ...buildPreview(parsed) });
     } catch (err) {
         console.error('[Anki] inspect failed:', err);
-        res.status(400).json({ error: clientError(err, 400) });
+        res.status(400).json(errorBody(err, 400));
     }
 });
 
@@ -63,7 +63,7 @@ app.post('/api/import/anki/commit', (req, res) => {
     const { stagingId, projectName, swapFrontBack, keepSchedule, color, includeMedia } = req.body || {};
     const parsed = getStaged(stagingId);
     if (!parsed) {
-        return res.status(410).json({ error: 'That import expired — upload the deck again.' });
+        return res.status(410).json(keyed('That import expired — upload the deck again.'));
     }
     // Unset means the deck's own name and the default colour; anything else is
     // checked like every create.
@@ -71,7 +71,7 @@ app.post('/api/import/anki/commit', (req, res) => {
     const pickedName = unset(projectName) ? undefined : projectName;
     const pickedColor = unset(color) ? undefined : color;
     const fieldError = projectFieldError({ name: pickedName, color: pickedColor });
-    if (fieldError) return res.status(400).json({ error: fieldError });
+    if (fieldError) return res.status(400).json(keyed(fieldError));
     try {
         const result = commitImport(parsed, {
             projectName: pickedName?.trim(),
@@ -95,7 +95,7 @@ app.post('/api/import/anki/commit', (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[Anki] commit failed:', err);
-        res.status(500).json({ error: clientError(err) });
+        res.status(500).json(errorBody(err));
     }
 });
 
@@ -122,13 +122,13 @@ app.delete('/api/import/anki/:stagingId', (req, res) => {
 // through the JSON / .studyvault exporters that were built for them.
 app.get('/api/export/:projectId/anki', async (req, res) => {
     const projectId = Number(req.params.projectId);
-    if (!Number.isInteger(projectId)) return res.status(400).json({ error: 'Invalid project id' });
+    if (!Number.isInteger(projectId)) return res.status(400).json(keyed('Invalid project id'));
     try {
         const { zip, stats } = await buildProjectApkg({ db, mediaStorage }, projectId);
         if (!stats.notes) {
             // An empty .apkg is a valid archive and a useless download; say why
             // rather than handing over a file that imports as nothing.
-            return res.status(404).json({ error: 'This project has no flashcards to export.' });
+            return res.status(404).json(keyed('This project has no flashcards to export.'));
         }
         // Both headers go through `httpHeaders.js`: a header value is Latin-1,
         // so a non-Latin project name 500s in either of them without encoding.
@@ -155,8 +155,8 @@ app.get('/api/export/:projectId/anki', async (req, res) => {
         return stream.pipe(res);
     } catch (err) {
         const missing = String(err?.message || '').startsWith('No such project');
-        if (missing) return res.status(404).json({ error: 'No such project' });
-        return res.status(500).json({ error: clientError(err) });
+        if (missing) return res.status(404).json(keyed('No such project'));
+        return res.status(500).json(errorBody(err));
     }
 });
 

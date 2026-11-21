@@ -39,6 +39,7 @@ import { buildSourceMap, pageSpans, withoutPageMarks } from './sourceMap.js';
 import { claimStaged, discardStaged, loadStaged, stagedLanguage, stagedSummary, stageFile } from './stagedDocuments.js';
 import * as tasks from './tasks.js';
 import vaultStorage from './vaultStorage.js';
+import { KeyedError, k } from './clientError.js';
 
 /** The bounds of a short course. Under `minWords` a source is too little for
  *  a course; over `maxWords` it is a book, which wants a full course or a few of
@@ -63,9 +64,9 @@ export function sizeOf(words) {
 }
 
 /** A short-course failure the route answers with: a status and a body. */
-export class ShortCourseError extends Error {
-    constructor(status, message, extra = {}) {
-        super(message);
+export class ShortCourseError extends KeyedError {
+    constructor(status, key, extra = {}, params = undefined) {
+        super(key, params);
         this.status = status;
         this.extra = extra;
     }
@@ -425,7 +426,7 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
         if (readHere) discardStaged(staged.id);
         throw new ShortCourseError(status, message, extra);
     };
-    if (staged && body?.parts != null && !picked) refuse(400, 'Pick at least one chapter.');
+    if (staged && body?.parts != null && !picked) refuse(400, k('Pick at least one chapter.'));
     // A page or a transcript is a text file in the vault; the model is told
     // what it really is.
     const asKind = sourceOrigin && ['page', 'video'].includes(sourceOrigin.kind) && staged.file_type === 'text' ? sourceOrigin.kind : staged?.file_type;
@@ -447,14 +448,14 @@ export async function createShortCourse(body = {}, { acceptLanguage = '', origin
     // in by: the strip asks before Create, the assistant's card does not. Every
     // chapter of a book picked is still the whole book.
     if (staged && sizeOf(words) === 'too-big') {
-        refuse(413, picked ? 'Too much for one short course: pick fewer chapters.'
-            : 'This source is too long for one short course: choose a few of its chapters in Short courses on Projects.', { reason: 'too_big' });
+        refuse(413, picked ? k('Too much for one short course: pick fewer chapters.')
+            : k('This source is too long for one short course: choose a few of its chapters in Short courses on Projects.'), { reason: 'too_big' });
     }
     // A source under the floor is a note, not three topics, whichever door it
     // came in by: the strip offers no Create for it, the card can still send it.
     // Chapters picked are measured as what was picked.
     if (staged && sizeOf(words) === 'too-small') {
-        refuse(400, picked ? 'Too little for a course: pick a longer chapter, or more of them.' : 'Too little for a course.', { reason: 'too_small' });
+        refuse(400, picked ? k('Too little for a course: pick a longer chapter, or more of them.') : k('Too little for a course.'), { reason: 'too_small' });
     }
 
     // A second press of the same card that came in while the first was still
@@ -569,7 +570,7 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 }
                 const parsed = parseCreationJson(text);
                 const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
-                if (!items.length) throw new Error('The model wrote no topics for this short course.');
+                if (!items.length) throw new KeyedError('The model wrote no topics for this short course.');
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
                 emit({ phase: 'done', percent: 100 });
                 return { projectId, topics: items.length };

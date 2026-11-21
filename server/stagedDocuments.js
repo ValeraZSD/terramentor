@@ -24,7 +24,7 @@ import { buildSourceMap, withoutPageMarks } from './sourceMap.js';
 import { detectWrittenLanguage } from './creationLanguage.js';
 import vaultStorage from './vaultStorage.js';
 import { freeVaultBlobs } from './vaultBlobs.js';
-import { publicMessage } from './clientError.js';
+import { keyed, publicMessage } from './clientError.js';
 
 export const STAGED_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -168,7 +168,7 @@ export async function stageFile(buffer, originalname, now = Date.now(), { hint =
     const { text, kind, meta } = extracted;
     // A photo is accepted by the vault (kept as its original, shown as a
     // picture), but there is nothing in it a course outline can be built from.
-    if (!text) return { ok: false, title, error: 'No text to build a course from: a picture has no words to read.', reason: 'no_text' };
+    if (!text) return { ok: false, title, ...keyed('No text to build a course from: a picture has no words to read.'), reason: 'no_text' };
     const map = buildSourceMap({ text, kind, meta, filename: originalname });
     const { hash, size } = vaultStorage.put(buffer);
     const id = randomUUID();

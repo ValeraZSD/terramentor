@@ -28,6 +28,7 @@
 import db, { NOW_ISO } from './database.js';
 import { getAISettings, NO_BALANCE_RE, REASONING_EFFORTS } from './ai.js';
 import { reconcile, settingsForConnection } from './aiConnections.js';
+import { KeyedError, statusError } from './clientError.js';
 
 /** Every job, in the order the settings screen lists them. */
 export const AI_JOBS = ['conversation', 'courses', 'questions', 'checks', 'vision', 'small'];
@@ -63,7 +64,7 @@ export function jobOf({ job, operation } = {}) {
 const envOverride = () => !!(process.env.AI_PROVIDER || process.env.AI_BASE_URL
     || process.env.AI_OLLAMA_URL || process.env.AI_MODEL);
 
-const bad = (message) => Object.assign(new Error(message), { status: 400 });
+const bad = (key, params) => statusError(400, key, params);
 
 // Read on every model call: prepared once.
 let stmts = null;
@@ -100,7 +101,7 @@ export function getJobRoutes() {
 export function setJobRoute(job, route) {
     if (![...AI_JOBS, BACKUPS].includes(job)) throw bad('Unknown job');
     if (!Array.isArray(route)) throw bad('A route is a list');
-    if (route.length > MAX_ROUTE) throw bad(`A job takes at most ${MAX_ROUTE} models`);
+    if (route.length > MAX_ROUTE) throw bad('A job takes at most {{count}} models', { count: MAX_ROUTE });
     const seen = new Set();
     const entries = route.map((e) => {
         const connectionId = e?.connectionId;
@@ -216,7 +217,7 @@ export function chainFor(job, { model = null } = {}) {
     if (own.length) return stamped(own, job, true);
     if (listed.length) {
         throw Object.assign(
-            new Error('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
+            new KeyedError('The connection chosen for this job was removed. Choose another under Settings → AI & Models → Which model does each job.'),
             // Written for the learner: a route's 5xx keeps these words
             // (clientError.js) instead of the generic sentence.
             { jobRouteGone: true, job, expose: true },
