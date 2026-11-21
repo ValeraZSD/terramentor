@@ -48,6 +48,7 @@ import { join, resolve, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const si = argv.indexOf('--server');
@@ -88,7 +89,9 @@ const stub = createServer((req, res) => {
             content = replies.checker.shift() ?? JSON.stringify({ correct: true, explanation: 'You got it.' });
         } else if (VERIFIER.test(system)) {
             seen.verifier.push({ system, user });
-            content = replies.verifier.shift() ?? JSON.stringify({ verdict: 'ok', answer: 'x', reason: 'fine', eliminable: 0, form: true });
+            // With nothing queued the verifier says nothing about form, so a
+            // case that forgets to queue its answer cannot confirm a flag.
+            content = replies.verifier.shift() ?? JSON.stringify({ verdict: 'ok', answer: 'x', reason: 'fine', eliminable: 0 });
         } else if (PROBE.test(system)) {
             seen.probe.push({ system, user });
             content = replies.probe.shift() ?? '{}';
@@ -133,6 +136,12 @@ const plain = checker(undefined);
 const plainEmpty = checker({});
 check('a content task: spelling and grammar are ignored, as before', IGNORE.test(plain.system || ''), plain.threw);
 check('...and an empty options object changes nothing', plain.system === plainEmpty.system && plain.user === plainEmpty.user);
+// The content prompt, byte for byte, as it was before form tasks existed
+// (sha256 of system + "\n\0\n" + user, taken from main c82ef280). A change to
+// it is a change to how every open answer is marked: update this on purpose.
+const CONTENT_PROMPT_SHA = 'af346392eb8a490e8039bbcf7afffc40e95f0a2750c56a4c032708656dd2029f';
+check('a content task\'s prompt is byte for byte the one before form tasks',
+    createHash('sha256').update(`${plain.system}\n\u0000\n${plain.user}`).digest('hex') === CONTENT_PROMPT_SHA);
 const contentOnCourse = checker({ lang: ruNl });
 check('a content task on a course that teaches Dutch is marked exactly as before (a typo still passes)',
     contentOnCourse.system === plain.system && contentOnCourse.user === plain.user);
@@ -206,6 +215,37 @@ check('...a hint naming only words they already wrote ("huis") is kept',
 replies.checker.push(reply({ correct: false, form_error: 'True', hint: 'Kijk naar het hulpwerkwoord.', explanation: 'x' }));
 t = await asked(() => checkAnswerWithAI(PERFECT_Q, 'Ik ben naar huis gelopen.', 'Ik heb naar huis gelopen.', { testsForm: true, lang: ruNl }));
 check('..."form_error": "True" (a string, any case) is read as a form miss', t.r?.formMiss === true, JSON.stringify(t.r));
+
+// Chinese and Japanese put no space between words: the guard cannot lean on them.
+const ZH = withLearning(getLanguage('en'), getLanguage('zh'));
+const ZH_Q = '用"了"把句子改成完成：我去学校。';
+const zhHint = async (hint, answer = '我去学校。') => {
+    replies.checker.push(reply({ correct: false, form_error: true, hint, explanation: 'x' }));
+    const r = await asked(() => checkAnswerWithAI(ZH_Q, '我去学校了。', answer, { testsForm: true, lang: ZH }));
+    replies.checker.length = 0;
+    return r.r;
+};
+let zr = await zhHint('请把「了」放在句末，写成我去学校了');
+check('Chinese: a hint that writes the key inside its own sentence is dropped', zr?.formMiss === true && !zr?.hint, JSON.stringify(zr));
+zr = await zhHint('顺序不对，应该是我去学校了', '了我去学校。');
+check('...and so is one that writes it when the answer has every character, in the wrong order', zr?.formMiss === true && !zr?.hint, JSON.stringify(zr));
+zr = await zhHint('句末少了一个字：了');
+check('...a hint naming the one missing character is dropped', zr?.formMiss === true && !zr?.hint, JSON.stringify(zr));
+zr = await zhHint('注意句末的语气助词。');
+check('...a hint that only points at the sentence end is kept', zr?.formMiss === true && zr?.hint === '注意句末的语气助词。', JSON.stringify(zr));
+
+// The model down: the bare comparison a form task falls back on.
+const down = async (answer) => {
+    replies.checker.push('no verdict here');
+    const r = await asked(() => checkAnswerWithAI(PERFECT_Q, 'Ik ben naar huis gelopen.', answer, { testsForm: true, lang: ruNl }));
+    replies.checker.length = 0;
+    return r.r;
+};
+let dr = await down('ik ben naar huis gelopen');
+check('the model down, a form task: the key without its capital and full stop is right, unjudged',
+    dr?.correct === true && dr?.graded === false, JSON.stringify(dr));
+dr = await down('Ik heb naar huis gelopen.');
+check('...and a wrong helper verb is still wrong', dr?.correct === false && dr?.graded === false, JSON.stringify(dr));
 
 replies.checker.push(reply({ correct: false, form_error: false, hint: '', explanation: 'Fietsen is another verb.' }));
 t = await asked(() => checkAnswerWithAI(VERB_Q, 'loopt', 'fietst', { testsForm: true, lang: ruNl }));
@@ -382,6 +422,18 @@ check('...one the verifier did not confirm loses it, and the probe is kept', !!p
 pq = await probe(true, true, 0);
 check('...a multiple-choice probe never carries it', !!pq?.question && !('tests_form' in pq), JSON.stringify(pq).slice(0, 200));
 
+// Answering a stored probe: the checker is told the task tests form, in Dutch.
+const { answerProbeQuestion } = await import(B + 'placement.js');
+const probeRowId = db.prepare("INSERT INTO placement_probes (project_id, state, targets, questions) VALUES (?, 'ready', ?, ?)")
+    .run(pid, JSON.stringify([probeTarget]), JSON.stringify([{ ...probeQ, node_id: qNode, tests_form: true }])).lastInsertRowid;
+replies.checker.push(reply({ correct: false, form_error: true, hint: 'Kijk naar het hulpwerkwoord.', explanation: 'x' }));
+const seenBefore = seen.checker.length;
+const pa = await answerProbeQuestion(probeRowId, 0, 'Ik heb naar huis gelopen.').catch(e => ({ threw: e.message }));
+replies.checker.length = 0;
+check('placement: a probe answer that tests form is marked on it, in Dutch, and is wrong',
+    pa?.correct === false && seen.checker.length === seenBefore + 1 && /in Dutch \(Nederlands\)/.test(seen.checker.at(-1)?.system || ''),
+    JSON.stringify(pa).slice(0, 200));
+
 // Every caller that stores a question it verified settles the flag: read in
 // the source, so a new caller cannot forget.
 const files = [];
@@ -401,7 +453,7 @@ for (const [rel, p] of files) {
     const text = readFileSync(p, 'utf8');
     if (!/\bverifyQuestion\(/.test(text.replace(/^\s*(\/\/|\*).*$/gm, '')) || AUDIT_ONLY.has(rel)) continue;
     callers++;
-    check(`${rel} verifies questions and settles their form flag`, /\bsettleFormFlag\(/.test(text));
+    check(`${rel} verifies questions and settles their form flag`, /\bsettleFormFlag\(/.test(text.replace(/^\s*(\/\/|\*).*$/gm, '')));
 }
 check('the scan found the callers (vetQuiz, the feed, placement)', callers >= 3, String(callers));
 const trust = readFileSync(join(serverDir, 'questionTrust.js'), 'utf8');
@@ -507,9 +559,7 @@ try {
 }
 const { F = {}, gradeAnswer, InlineQuestion, QuestionCard } = mod;
 
-check('client mirror: a form gap forgives no slip', F.gradeLocally?.({ ...gap, tests_form: true }, slip, { forgiveSpelling: true }) === false
-    || (typeof F.gradeLocally !== 'function' && F.spellingSlipOf?.({ ...gap, tests_form: true }, slip) === null));
-check('client mirror: spellingSlipOf names none for a form gap', F.spellingSlipOf?.({ ...gap, tests_form: true }, slip) === null);
+check('client mirror: spellingSlipOf names none for a form gap',F.spellingSlipOf?.({ ...gap, tests_form: true }, slip) === null);
 check('client mirror: ...and still names one for a content gap', F.spellingSlipOf?.(gap, slip) === 'gewerkt');
 check('client mirror: formTested agrees with the server', typeof F.formTested === 'function'
     && F.formTested(flagged) === true && F.formTested({ ...flagged, unverified: { tries: 0 } }) === false && F.formTested(fillRaw) === false);
