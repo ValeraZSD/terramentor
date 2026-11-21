@@ -142,7 +142,8 @@ const SAME_BY_DESIGN = {
 };
 
 // The `{{x}} noun` keys that carry plural forms. Flat by the same
-// rules: German "Zeichen", "Links" and "-fache" do not inflect; "симв.", "с"
+// rules: German "Zeichen", "Links", "Mal" and "-fache" do not inflect; French
+// "cours" is the same word in the plural; "симв.", "с"
 // and "s" are abbreviations; Italian loanwords (file, pixel, frame) and Dutch
 // "links"/"keer" are invariable; Ukrainian -ання neuters as above; and a
 // sentence whose noun sits beside a DIFFERENT number than the one counted
@@ -153,10 +154,11 @@ const SAME_SINCE_PLURAL_SWEEP = {
     de: ['({{length}} chars)', '{{charCount}} characters generated', '{{chars}} chars', '{{length}} chars',
         '{{resourceCount}} links', '{{thinkingChars}} characters', '{{times}} times', '{{totalResources}} links',
         '{{width}} × {{height}} pixels', 'Building widget…', 'Designing the widget…', 'Drawing…', 'Generating…',
-        'Planning the scene…', 'Reasoning…', 'The model reasoned for'],
-    fr: ['({{length}} chars)', '{{chars}} chars', '{{rows}} of {{max}} events', '{{times}} times'],
+        'Planning the scene…', 'Reasoning…', 'The model reasoned for', 'It moved on {{count}} times'],
+    fr: ['({{length}} chars)', '{{chars}} chars', '{{rows}} of {{max}} events', '{{times}} times',
+        'Writing search words for {{count}} courses'],
     it: ['{{width}} × {{height}} pixels', 'Add {{length}} files', 'One loop,'],
-    nl: ['{{resourceCount}} links', '{{times}} times', '{{totalResources}} links'],
+    nl: ['{{resourceCount}} links', '{{times}} times', '{{totalResources}} links', 'It moved on {{count}} times'],
     pl: ['{{seconds}} seconds', 'You reviewed all {{length}} flashcards'],
     ru: ['({{length}} chars)', '{{date}}: {{done}} things done', '{{n}} projects scheduled', '{{seconds}} seconds',
         'A sitting of {{n}}', 'Building widget…', 'Busiest day', 'Designing the widget…', 'Drawing…', 'Generating…',
