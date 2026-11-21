@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useTapGuard } from '../hooks/useTapGuard';
 import { scrollIntoViewWithin } from '../utils/scrollWithin';
+import { failureText } from '../utils/failureText';
 import { useStudyClock } from '../hooks/useStudyClock';
 import ReportItem, { ReportLink, ReportScope, reportedLine } from './ui/ReportItem';
 import { probeRef } from '../utils/itemReports';
@@ -119,7 +120,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setPhase(next === -1 && p.questions.length > 0 && p.answeredCount > 0 ? 'done' : 'asking');
         } catch (err: any) {
             if (err?.cancelled || controller.signal.aborted) { setPhase('idle'); return; }
-            setError(err.message || 'The placement could not be prepared.');
+            setError(failureText(err, t("The placement could not be prepared.")));
             setPhase('idle');
         } finally {
             abortRef.current = null;
@@ -148,7 +149,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
                     begin();
                 }
             } catch (err: any) {
-                if (!cancelled) setError(err.message || 'Could not read the placement status.');
+                if (!cancelled) setError(failureText(err, t("Could not read the placement status.")));
             }
         })();
         return () => { cancelled = true; };
@@ -200,7 +201,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setProbe(res.probe);
         } catch (err: any) {
             setPicked('');
-            setError(err.message || 'That answer could not be recorded.');
+            setError(failureText(err, t("That answer could not be recorded.")));
         } finally {
             setBusy(false);
         }
@@ -231,7 +232,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             setPhase('done');
             if (currentProjectId === projectId) loadProjectData(projectId);
         } catch (err: any) {
-            setError(err.message || 'The placement could not be closed.');
+            setError(failureText(err, t("The placement could not be closed.")));
         } finally {
             setBusy(false);
         }
@@ -247,7 +248,7 @@ export default function PlacementModal({ isOpen, onClose, projectId, projectName
             if (currentProjectId === projectId) loadProjectData(projectId);
             close();
         } catch (err: any) {
-            setError(err.message || 'The placement could not be discarded.');
+            setError(failureText(err, t("The placement could not be discarded.")));
         } finally {
             setBusy(false);
         }

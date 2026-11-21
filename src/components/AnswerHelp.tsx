@@ -4,6 +4,7 @@ import Markdown from './Markdown';
 import ExternalSearchButton from './ExternalSearchButton';
 import { GraduationCap } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { failureText } from '../utils/failureText';
 import { Button } from './ui/Button';
 
 interface Props {
@@ -46,7 +47,7 @@ export default function AnswerHelp({ nodeId, nodeTitle, question, correctAnswer,
             const res = await api.explainQuestion(nodeId, question, correctAnswer, userAnswer);
             setExplanation(res.explanation);
         } catch (e: any) {
-            setError(e?.message || 'Could not reach the AI to explain this.');
+            setError(failureText(e, t("Could not reach the AI to explain this.")));
         } finally {
             setLoading(false);
         }

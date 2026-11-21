@@ -3,6 +3,7 @@ import { api } from '../api';
 import type { ChatAttachment } from '../types';
 import { isPicture, preflightFiles, isHeicFile, ATTACH_MAX_BYTES, type RefusalReason } from '../utils/attachments';
 import { prepareImage } from '../utils/attachImage';
+import { failureText } from '../utils/failureText';
 
 /**
  * The files waiting in the assistant composer, from the moment they are picked
@@ -112,7 +113,9 @@ export function useComposerAttachments() {
             }
         } catch (e: any) {
             if (e?.name === 'AbortError' || controller.signal.aborted) return;
-            patch(key, { state: 'failed', error: e?.message || 'Upload failed' });
+            // No error text of our own: the chip says "Upload failed" in the
+            // interface language when the server gave no reason.
+            patch(key, { state: 'failed', error: failureText(e, '') || null });
         } finally {
             controllers.current.delete(key);
         }

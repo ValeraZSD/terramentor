@@ -4,6 +4,7 @@ import QrScanner, { canScanLive, usePhotoScan } from './QrScanner';
 import { useStore } from '../store';
 import { api } from '../api';
 import { useTranslation } from 'react-i18next';
+import { failureText } from '../utils/failureText';
 import { Button } from './ui/Button';
 import { PasswordInput, TextInput } from './ui/Field';
 
@@ -109,7 +110,7 @@ function usePairing(recheckRef: RecheckRef) {
                     st.addToast('success', t("This device is connected. It stays connected unless it is removed on the computer or goes unused for six months."));
                 }
             })
-            .catch((err: any) => setState({ busy: false, error: err?.message || t("This code did not work. Show a new one on the computer.") }));
+            .catch((err: any) => setState({ busy: false, error: failureText(err, t("This code did not work. Show a new one on the computer.")) }));
     };
     useEffect(() => {
         const code = takePairCode();
@@ -272,7 +273,7 @@ function SetupCodeForm({ recheckRef }: { recheckRef: RecheckRef }) {
         try {
             await setupFromRemote(password, code);
         } catch (err: any) {
-            setError(err?.message || t("Failed to set password."));
+            setError(failureText(err, t("Failed to set password.")));
             // A password may have been set from elsewhere meanwhile.
             void recheckRef.current();
         } finally {
@@ -352,7 +353,7 @@ function Login() {
         try {
             await login(password);
         } catch (err: any) {
-            setError(err?.message || 'Login failed');
+            setError(failureText(err, t("Could not unlock. Try again.")));
             setPassword('');
             // The password may have been changed or removed while this form was
             // open — a wrong answer is the moment to find out, not to insist.

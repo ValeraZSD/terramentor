@@ -11,6 +11,7 @@ import CardText from './CardText';
 import { useStore } from '../store';
 import type { AnkiPreview, AnkiImportResult } from '../types';
 import { useTranslation } from 'react-i18next';
+import { failureText } from '../utils/failureText';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { useTapGuard } from '../hooks/useTapGuard';
@@ -163,7 +164,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             setPhase('preview');
         } catch (err: any) {
             if (upload.current !== mine) return;
-            setError(err.message || 'That deck could not be read.');
+            setError(failureText(err, t("That deck could not be read.")));
             setPhase('drop');
         }
     }
@@ -184,7 +185,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             setResult(res);
             setPhase('done');
         } catch (err: any) {
-            setError(err.message || 'The import could not be completed.');
+            setError(failureText(err, t("The import could not be completed.")));
             setBusy(false);
             return;
         }
@@ -205,7 +206,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             addToast('success', t("Import undone — every card it added has been removed."));
             close();
         } catch (err: any) {
-            setError(err.message || 'The import could not be undone.');
+            setError(failureText(err, t("The import could not be undone.")));
         } finally {
             setBusy(false);
         }

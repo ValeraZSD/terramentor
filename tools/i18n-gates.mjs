@@ -11,9 +11,14 @@
  *
  *   node tools/i18n-gates.mjs            asserts + coverage table
  *
- * Coverage is REPORTED, never asserted: a new key lands in English first and
- * the locales catch up (tools/i18n-translate.mjs); failing the build on an
- * 99% Dutch would only teach people to stop adding keys.
+ * A key MISSING from a locale fails: every key en.json holds is in every
+ * locale, and a plural key carries each form its language selects. "Falls back
+ * to English" was the reason this was once only reported, and it is the defect:
+ * keys a learner reads (Recall target, Course name, the whole model-per-job
+ * screen) sat in English inside every other interface for weeks (Nov 2026).
+ * A new key is translated in the change that adds it. How WELL a locale reads
+ * is still reported, never asserted: a value left identical to the English is
+ * counted in the table, and `i18n-audit.mjs` judges wording.
  */
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, basename } from 'node:path';
@@ -91,8 +96,16 @@ for (const code of files) {
     check(`${code}: every translation keeps its placeholders`, badPh.slice(0, 3).map(([k]) => k), []);
     const empty = Object.entries(data).filter(([, v]) => typeof v !== 'string' || !v.trim());
     check(`${code}: no empty translation`, empty.slice(0, 3).map(([k]) => k), []);
-    // A translation identical to its key is untranslated (unless it is a name).
+    // Nothing missing. A key in en.json that is absent here renders English in
+    // the middle of this language's screens; a plural key needs every form this
+    // language selects (ja/zh have only `other`, ru/uk/pl four), not en's two.
     const singular = Object.keys(en).filter((k) => !/_(one|other)$/.test(k));
+    const missingKeys = singular.filter((k) => !(k in data));
+    const firstOf = (list) => (list.length ? [`${list.length} missing`, ...list.slice(0, 4)] : []);
+    check(`${code}: no key en.json holds is missing`, firstOf(missingKeys), []);
+    const missingForms = [...pluralBases].flatMap((b) => cats.filter((c) => !(`${b}_${c}` in data)).map((c) => `${b}_${c}`));
+    check(`${code}: every plural key carries each form ${code} selects [${cats.join(', ')}]`, firstOf(missingForms), []);
+    // A translation identical to its key is untranslated (unless it is a name).
     const translated = singular.filter((k) => k in data && data[k] !== k).length;
     const pluralDone = pluralKeys.filter((k) => cats.every((c) => `${k}_${c}` in data)).length;
     rows.push({ code, coverage: ((translated + pluralDone) / (singular.length + pluralKeys.length) * 100).toFixed(1), missing: singular.length - singular.filter((k) => k in data).length });

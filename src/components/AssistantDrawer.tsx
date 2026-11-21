@@ -18,6 +18,7 @@ import AttachmentFigure from './attachments/AttachmentFigure';
 import { useComposerAttachments, type ComposerFile } from '../hooks/useComposerAttachments';
 import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMarkers } from '../utils/attachments';
 import { stripCitationMarkers } from '../utils/citations';
+import { failureText } from '../utils/failureText';
 import { readableAnswer } from '../utils/answerText';
 import { speakable } from '../utils/speakable';
 import { createPaintCoalescer } from '../utils/paintCoalescer';
@@ -1006,9 +1007,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                         created_at: new Date().toISOString(),
                     } as ChatMessage]);
                 }
-                setTurnError({ message: failed.error || 'Generation failed', text: question, keptIn: 'chat' });
+                setTurnError({ message: failed.error || tr("The answer could not be written."), text: question, keptIn: 'chat' });
             });
-    }, [open, streaming, aiTasks, loadHistory, conversationId]);
+    }, [open, streaming, aiTasks, loadHistory, conversationId, tr]);
 
     const send = useCallback(async (text: string) => {
         const message = text.trim();
@@ -1107,7 +1108,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             }
         } catch (e: any) {
             if (!controller.signal.aborted) {
-                failed = e.message || 'the request failed.';
+                failed = failureText(e, tr("The request failed."));
                 missing = Array.isArray(e?.data?.missing) ? e.data.missing.map(Number) : [];
             }
         } finally {
@@ -1205,7 +1206,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
         }
-    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
+    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say, tr]);
 
     // Coming back to the app re-reads the conversation. A phone suspends the
     // page while another app is in front; whatever this panel showed at that
