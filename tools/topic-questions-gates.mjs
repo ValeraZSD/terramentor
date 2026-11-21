@@ -61,6 +61,8 @@ check('the course\'s quiz list (ProjectQuizzesList) is gone', !existsSync(join(r
 const api = read('src/api.ts');
 check('no client call posts a quiz sitting', !/\/attempt`/.test(api) && !/submitQuizAttempt/.test(api));
 const dash = read('src/components/StudyDashboard.tsx');
+check('Practise all leaves out reported cards by the date the server parks them on (isReportedCard mirrors PARKED_UNTIL)',
+    /export const PARKED_UNTIL = '9999-/.test(read('server/itemReports.js')) && /startsWith\('9999-'\)/.test(read('src/utils/srs.ts')));
 check('the course dashboard has no Quizzes tool', !/title=\{tr\("Quizzes"\)\}/.test(dash) && !/ProjectQuizzesList|QuizView/.test(dash));
 
 // ---- 3-5. the tab itself, mounted ------------------------------------------
@@ -168,9 +170,14 @@ const click = async (b) => { if (!b) return; await act(async () => { b.dispatchE
 
 console.log('--- the tab: sets by their size, no sitting ---');
 {
-    quizzes = [set(1, 'Quadratic Equations', 10), set(2, 'Quiz - 2026-11-01', 4)];
+    // Set 1 was written before this tab: it also carries two copies of other
+    // topics' questions for review, which are not this topic's.
+    const old = set(1, 'Quadratic Equations', 10);
+    old.questions.push({ ...mcq(90), isGhost: true, ghostNodeId: 77 }, { ...mcq(91), isGhost: true, ghostNodeId: 78 });
+    quizzes = [old, set(2, 'Quiz - 2026-11-01', 4)];
     // One card due long ago, one due in twenty days, one never seen: all three run.
-    cards = [card(1, '2026-11-01T00:00:00.000Z'), card(2, later), card(3, null)];
+    // Card 6 is reported: parked by the server until the report is settled.
+    cards = [card(1, '2026-11-01T00:00:00.000Z'), card(2, later), card(6, '9999-12-31T00:00:00.000Z'), card(3, null)];
     const m = globalThis.__mount({ nodeId: 5, topicTitle: 'Quadratic equations' });
     await flush(); await flush();
     const text = m.el.textContent || '';
@@ -178,7 +185,7 @@ console.log('--- the tab: sets by their size, no sitting ---');
     check('two sections, Questions then Cards', heads.join('|') === 'Questions|Cards', heads.join('|'));
     check('no Take Quiz and no best score', !/Take Quiz/.test(text) && !/Best:/.test(text), text.slice(0, 200));
     const rows = [...m.el.querySelectorAll('[data-section="questions"] li')].map(li => li.textContent);
-    check('a set titled after its topic shows its size, not the topic again',
+    check('a set titled after its topic shows its own size (not the review copies), not the topic again',
         /10 questions/.test(rows[0] ?? '') && !/Quadratic/i.test(rows[0] ?? ''), rows[0]);
     check('...a set whose title adds something shows it', /4 questions/.test(rows[1] ?? '') && /2026-11-01/.test(rows[1] ?? ''), rows[1]);
     const setButtons = [...m.el.querySelectorAll('[data-section="questions"] li button')].map(b => b.getAttribute('aria-label'));
@@ -210,7 +217,7 @@ console.log('--- the tab: sets by their size, no sitting ---');
     await click(practise);
     await flush();
     const run = m.el.textContent || '';
-    check('pressing it runs every card of the topic, due or not (1 of 3)', /Front 1/.test(run) && /(?<!\d)1 of 3(?!\d)/.test(run), run.slice(0, 200));
+    check('pressing it runs every card of the topic, due or not, and not a reported one (1 of 3)', /Front 1/.test(run) && /(?<!\d)1 of 3(?!\d)/.test(run), run.slice(0, 200));
 
     // Card 1 is overdue, card 2 due in twenty days, card 3 never seen.
     const plate = () => m.el.querySelector('[role="button"][aria-pressed]');

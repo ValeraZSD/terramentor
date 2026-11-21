@@ -682,6 +682,15 @@ export function keepsItsDate(card: { next_review?: string | null; state?: number
     return Number.isFinite(due) && due > now;
 }
 
+/**
+ * A reported card is parked: `server/itemReports.js` moves its due date to
+ * `PARKED_UNTIL` (year 9999) until the report is settled, and a rating on it
+ * is refused.
+ */
+export function isReportedCard(card: { next_review?: string | null }): boolean {
+    return !!card.next_review && card.next_review.startsWith('9999-');
+}
+
 /** Days until a card's stored due date (0 when it has none or is past due). */
 export function daysUntilDue(card: { next_review?: string | null }, now: number = Date.now()): number {
     const due = card.next_review ? Date.parse(card.next_review) : NaN;

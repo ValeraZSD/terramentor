@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { api } from '../api';
 import { Quiz, Flashcard } from '../types';
@@ -13,6 +13,7 @@ import { Field, TextInput, Select } from './ui/Field';
 import { Plus, Loader2, Trash2, RotateCcw, Pencil, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import { isReportedCard } from '../utils/srs';
 
 interface Props {
     nodeId: number;
@@ -21,6 +22,13 @@ interface Props {
 }
 
 type QuestionType = 'multiple_choice' | 'true_false' | 'both' | 'code' | 'sequence' | 'assemble';
+
+/**
+ * A set's own questions. Sets written before this tab could carry copies of
+ * other topics' questions for review (`isGhost`); listed and counted here they
+ * would read as this topic's own.
+ */
+const ownQuestions = (quiz: Quiz) => quiz.questions.filter(q => !q.isGhost);
 
 /**
  * A topic's questions and cards, in one tab: see them, edit them, make more.
@@ -174,7 +182,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     // card editor's does.
     const handleDeleteQuiz = async (quiz: Quiz) => {
         const ok = await showConfirm({
-            title: t("Delete these {{count}} questions?", { count: quiz.questions.length }),
+            title: t("Delete these {{count}} questions?", { count: ownQuestions(quiz).length }),
             message: t("They are removed from this topic for good."),
             confirmLabel: t("Delete"),
             variant: 'danger',
@@ -211,14 +219,17 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     const forgetFlashcard = (id: number) => setFlashcards(prev => prev.filter(f => f.id !== id));
     // The run ends with its last card: left on, it would reopen by itself the
     // moment "More cards" wrote new ones.
+    // A reported card is parked until it is fixed: Study does not show it and
+    // a rating on it is refused, so the run leaves it out too.
+    const runnable = useMemo(() => flashcards.filter(c => !isReportedCard(c)), [flashcards]);
     useEffect(() => {
-        if (flashcards.length === 0) setPractising(false);
-    }, [flashcards.length]);
+        if (runnable.length === 0) setPractising(false);
+    }, [runnable.length]);
 
-    if (practising && flashcards.length > 0) {
+    if (practising && runnable.length > 0) {
         return (
             <FlashcardView
-                flashcards={flashcards}
+                flashcards={runnable}
                 onClose={() => {
                     setPractising(false);
                     loadData();
@@ -244,9 +255,9 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
     // can only view and delete reads as a dead end without it.
     const sectionHead = (id: string, title: string, action: ReactNode, use: string) => (
         <div className="space-y-1">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 id={id} className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</h3>
-                <div className="flex items-center gap-2">{action}</div>
+                <div className="flex flex-wrap items-center gap-2">{action}</div>
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400">{use}</p>
         </div>
@@ -332,7 +343,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                             >
                                 <div className="min-w-0 flex-1">
                                     <p className="font-medium text-slate-700 dark:text-slate-200">
-                                        {t("{{length}} questions", { count: quiz.questions.length, length: quiz.questions.length })}
+                                        {t("{{length}} questions", { count: ownQuestions(quiz).length, length: ownQuestions(quiz).length })}
                                     </p>
                                     {named && (
                                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">
@@ -362,7 +373,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                             before an exam. A small button beside More cards,
                             not a bar: it is reached for now and then, and the
                             panel's Study is the everyday door. */}
-                        {flashcards.length > 0 && (
+                        {runnable.length > 0 && (
                             <Button
                                 size="sm"
                                 variant="neutral"
@@ -383,7 +394,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                             {t("More cards")}
                         </Button>
                     </>
-                ), flashcards.length > 0
+                ), runnable.length > 0
                     ? t("Study shows each card on the day it is due. Practise all goes through every one now.")
                     : t("Study shows each card on the day it is due."))}
                 {generationCounter('cards')}
@@ -445,7 +456,7 @@ export default function StudyTools({ nodeId, topicTitle }: Props) {
                 {/* The dialog's body is the one scroller; Close stays in its foot. */}
                 <div className="space-y-4">
                     <p>{t("Correct answers:")}</p>
-                    {viewingQuiz?.questions.map((q, idx) => (
+                    {(viewingQuiz ? ownQuestions(viewingQuiz) : []).map((q, idx) => (
                         <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl">
                             <div className="flex items-start gap-3">
                                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-accent/10 text-accent-fg flex items-center justify-center text-sm font-medium">
