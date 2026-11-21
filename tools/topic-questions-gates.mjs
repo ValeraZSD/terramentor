@@ -18,7 +18,8 @@
 //      only the due ones); with no cards there is no button. In that run a
 //      card that is not due yet and that you knew keeps its date (nothing is
 //      written), a card you missed is recorded, and a due card is reviewed as
-//      Study reviews it;
+//      Study reviews it; a new or (re)learning card always moves on its
+//      ladder, so a miss in the run still gets its relearning step;
 //   5. each section says in one line where its items are used, and each
 //      delete asks first;
 //   6. questions written here carry no review questions from other topics
@@ -237,6 +238,47 @@ console.log('--- the tab: sets by their size, no sitting ---');
     await click(m.el.querySelector('[role="button"][aria-pressed]'));
     await click(buttons(m.el).find(b => (b.textContent || '').includes('Again')));
     check('a card not due yet that you missed is recorded (Again writes)', JSON.stringify(written) === '[2]', JSON.stringify(written));
+    // The miss put it on its relearning step, minutes away: it comes straight
+    // back, and knowing it now is that step, written like any other.
+    const back = m.el.textContent || '';
+    await click(m.el.querySelector('[role="button"][aria-pressed]'));
+    const shown = m.el.textContent || '';
+    await click(buttons(m.el).find(b => (b.textContent || '').includes('Good')));
+    check('...it comes back on its relearning step, and Good then writes too (no "keeps its date")',
+        /Front 2/.test(back) && JSON.stringify(written) === '[2,2]' && !/Not due yet/.test(shown), JSON.stringify({ written, shown: shown.slice(0, 160) }));
+    m.unmount();
+}
+{
+    // A card already on its relearning ladder (missed in Study, back in ten
+    // minutes) is not "not due yet": its step runs.
+    written.length = 0;
+    const soon = new Date(Date.now() + 5 * 60_000).toISOString();
+    cards = [{ ...card(4, soon), state: 3, lapses: 1, learning_steps: 0 }];
+    const m = globalThis.__mount({ nodeId: 8, topicTitle: 'Relearning' });
+    await flush(); await flush();
+    await click(button(m.el, 'Practise all'));
+    await click(m.el.querySelector('[role="button"][aria-pressed]'));
+    await click(buttons(m.el).find(b => (b.textContent || '').includes('Good')));
+    check('a relearning card due in minutes is rated as a step: Good writes', JSON.stringify(written) === '[4]', JSON.stringify(written));
+    m.unmount();
+}
+{
+    // A kept rating can be taken back, and the card then rated again.
+    written.length = 0;
+    cards = [card(2, later), card(5, later)];
+    const m = globalThis.__mount({ nodeId: 9, topicTitle: 'Undo' });
+    await flush(); await flush();
+    await click(button(m.el, 'Practise all'));
+    await click(m.el.querySelector('[role="button"][aria-pressed]'));
+    await click(buttons(m.el).find(b => (b.textContent || '').includes('Good')));
+    const after = m.el.textContent || '';
+    await click(button(m.el, 'Undo'));
+    const undone = m.el.textContent || '';
+    // Undo comes back with the answer showing, as it was when rated.
+    await click(buttons(m.el).find(b => (b.textContent || '').includes('Again')));
+    check('Undo after a kept Good returns to that card, and Again on it writes once',
+        /Front 5/.test(after) && /Front 2/.test(undone) && /(?<!\d)1 of 2(?!\d)/.test(undone) && JSON.stringify(written) === '[2]',
+        JSON.stringify({ written, after: after.slice(0, 80), undone: undone.slice(0, 120) }));
     m.unmount();
 }
 {
