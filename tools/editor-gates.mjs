@@ -277,6 +277,47 @@ await flush();
 check('Ctrl+Enter still saves', saves.length === 1 && saves[0] === 'saved by keys', JSON.stringify(saves));
 act(() => notesRoot3.unmount());
 
+section('Escape while an input method is composing belongs to the input method');
+{
+    const root4 = createRoot(host);
+    act(() => root4.render(h(React.Fragment, null,
+        h(MarkdownNotes, { value: 'Original text', onChange() { }, onSave, label: 'My notes', nodeId: 4 }),
+        h(ConfirmDialog))));
+    saves = []; saveMode = 'sync';
+    click(buttonNamed(/^Edit/)); await flush();
+    // Unchanged, so a plain Escape would leave at once: the clearest sign it
+    // was taken for the editor's own.
+    press('Escape', { isComposing: true }, textarea());
+    await flush();
+    check('Escape mid-composition does not leave the editor', !!textarea() && !confirmOpen(), textarea() ? 'asked to discard' : 'editor closed');
+    const legacy = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    Object.defineProperty(legacy, 'keyCode', { value: 229 });
+    if (textarea()) act(() => { textarea().dispatchEvent(legacy); });
+    await flush();
+    check('…nor does one a browser reports as key 229 (the IME\'s)', !!textarea() && !confirmOpen());
+    if (textarea()) press('Escape', {}, textarea());
+    await flush();
+    check('Escape after composition ends leaves as before', !textarea());
+    act(() => root4.unmount());
+}
+
+section('the word count counts words in languages written without spaces');
+{
+    const root5 = createRoot(host);
+    const countShown = () => (host.textContent.match(/(\d+) words/) || [])[1];
+    const show = (value, nodeId) => act(() => root5.render(h(MarkdownNotes, { value, onChange() { }, onSave, label: 'My notes', nodeId })));
+    show('今日は晴れです。散歩に行きましょう。', 5);
+    await flush();
+    check('a Japanese sentence is more than one word', Number(countShown()) > 2, `${countShown()} words`);
+    show('ฉันชอบเรียนภาษาไทยมาก', 6);
+    await flush();
+    check('so is a Thai one', Number(countShown()) > 2, `${countShown()} words`);
+    show('A well-known rule, stated twice: 3.14 is pi.', 7);
+    await flush();
+    check('English counts as it always did (one per space-separated run)', countShown() === '8', `${countShown()} words`);
+    act(() => root5.unmount());
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
 console.log(`\neditor gates: ${pass} passed, ${fail} failed${HEAD ? ' (against HEAD)' : ''}`);
 process.exit(fail ? 1 : 0);

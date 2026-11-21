@@ -11,6 +11,7 @@ import {
     Lock, Globe, type LucideIcon
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { countWords } from '../utils/wordCount';
 
 /** `false`, or a throw, means the text was NOT written; anything else is a save. */
 type SaveResult = boolean | void;
@@ -183,6 +184,10 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
         if (!textarea || mode !== 'edit') return;
 
         const handleNativeKeydown = (e: KeyboardEvent) => {
+            // A key pressed while an input method is composing (Japanese,
+            // Chinese, Korean) belongs to the IME: Escape there drops the
+            // half-typed word, not the edit.
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Escape') {
                 e.stopPropagation();        // stop bubble to document
                 void keysRef.current.cancel();
@@ -204,10 +209,7 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
         setIsDirty(next !== value);
     }, [value]);
 
-    const wordCount = useMemo(() => {
-        const t = localValue.trim();
-        return t ? t.split(/\s+/).length : 0;
-    }, [localValue]);
+    const wordCount = useMemo(() => countWords(localValue), [localValue]);
 
     const hasContent = localValue.trim().length > 0;
 
