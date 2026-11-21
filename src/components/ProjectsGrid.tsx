@@ -2,9 +2,11 @@
 // The Projects page: every project as a card, in Active, Completed and Archived
 // sections, reordered and moved between sections by dragging. Each card carries
 // its dates and pace (schedule/ProjectDates.tsx), which is all the Schedule
-// screen held that this one did not, so that screen is gone. Every course,
-// short or in phases, created or imported, starts in NewProjectModal; an AI
-// creation, once started, lives in creation/creationRuns.ts.
+// screen held that this one did not, so that screen is gone. Every course
+// started from this page, short or in phases, created or imported, starts in
+// NewProjectModal (the assistant makes short courses of its own, through
+// api.createShortCourse); an AI creation, once started, lives in
+// creation/creationRuns.ts.
 import {
     useState,
     useEffect,

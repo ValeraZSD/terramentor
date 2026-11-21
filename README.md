@@ -39,8 +39,9 @@ Describe what you want to learn and the model drafts a course: phases, then topi
 overview, in your language. Add a book or your notes and the course follows their chapters, and
 its lessons draw on their pages. The draft runs in the background, so you can keep
 studying meanwhile. Material can be any mix of files and links (a page, a PDF, a YouTube video),
-and you never pick a size: a small source with a plain goal becomes a short course of a few topics
-with no dates. You can also import a course file or an Anki deck.
+and you never pick a size: a small source with a plain goal can become a short course of a few
+topics with no dates, and anything the model cannot judge is built in phases. You can also import
+a course file or an Anki deck.
 
 ### Plan
 

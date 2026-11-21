@@ -590,8 +590,9 @@ section('a dialog of steps draws its ← before the title, and only when given o
     check('with onBack, a ← in the head', !!b && !!head()?.contains(b));
     check('…before the title', !!b && !!h2 && !!(b.compareDocumentPosition(h2) & window.Node.DOCUMENT_POSITION_FOLLOWING));
     check('…and the ✕ is still the head\'s last control', head()?.lastElementChild?.getAttribute('aria-label') === 'Close dialog', head()?.lastElementChild?.outerHTML?.slice(0, 80));
+    const closesBefore = closes;
     if (b) act(() => { b.dispatchEvent(new window.MouseEvent('click', { bubbles: true })); });
-    check('pressing it calls onBack, and does not close', backs === 1 && !!doc.querySelector('[role="dialog"]'), `${backs} call(s)`);
+    check('pressing it calls onBack, and not onClose', backs === 1 && closes === closesBefore && !!doc.querySelector('[role="dialog"]'), `${backs} onBack, ${closes - closesBefore} onClose call(s)`);
     renderModal(false);
     renderModal(true, { onBack: () => { }, closeButton: false });
     const last = head()?.lastElementChild;
