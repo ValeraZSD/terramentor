@@ -34,6 +34,7 @@ import { projectColour, projectIconName } from './projectFields.js';
 import { addProvenanceFields } from './projectIdentity.js';
 import { scheduleSearchWords } from './searchWords.js';
 import { getSetting } from './settingsStore.js';
+import { askFirstLessons } from './feedGen.js';
 import { creationSources, hasSources, sectionRefs, shortBlock, sourceRanges, withoutSourceRefs } from './sourceMaterial.js';
 import { buildSourceMap, pageSpans, withoutPageMarks } from './sourceMap.js';
 import { claimStaged, discardStaged, loadStaged, stagedLanguage, stagedSummary, stageFile } from './stagedDocuments.js';
@@ -571,6 +572,8 @@ function startBuild({ projectId, name, keepName, title, proposed, src, documentI
                 const items = topicsFrom(parsed, { src, proposed, shown: sources?.shown });
                 if (!items.length) throw new Error('The model wrote no topics for this short course.');
                 writeCourse({ projectId, items, parsed, keepName, startName: name.slice(0, 500), src, documentIdOf, answered });
+                // Its first lessons are written next, ahead of the look-ahead.
+                askFirstLessons(projectId);
                 emit({ phase: 'done', percent: 100 });
                 return { projectId, topics: items.length };
             } finally {

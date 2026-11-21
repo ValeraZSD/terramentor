@@ -21,6 +21,7 @@ import { BATCH_MAX, BATCH_MIN } from './creationEta.js';
 import { COURSE_SIZES, DEFAULT_COURSE_SIZE, keepNew, readCourseSize, titleKey } from './courseSize.js';
 import { findResourcesForSubElement, planSectionQueries } from './resourceSearch.js';
 import { buildSourceMap } from './sourceMap.js';
+import { askFirstLessons, FIRST_LESSON_TOPICS } from './feedGen.js';
 import {
     coverTopLevel, creationSources, hasSources, phaseBlock, planBlock, sectionRefs, subtree, topicsBlock,
     withoutSourceRefs,
@@ -636,8 +637,22 @@ export async function writeTopics(ctx, catIdx, elIdx, category, element, sibling
     // Each waits for its link pass until `linkTopic` has run it to the end.
     for (const s of subElements) ctx.pendingLinks.add(s.id);
     ctx.savePending();
+    // The course's first topics exist now: their lessons are written while the
+    // rest of the course is, so Study works before the creation ends.
+    firstLessons(ctx);
     await tick();
     return subElements;
+}
+
+/**
+ * Ask once per run for the lessons of the topics the course's Study starts on
+ * (feedGen.js `askFirstLessons`), as soon as there are any. A continuation
+ * calls it before it writes anything, for a course whose topics exist already.
+ */
+export function firstLessons(ctx) {
+    if (ctx.firstLessonsAsked) return;
+    // A first section of one topic asks again after the next section.
+    ctx.firstLessonsAsked = askFirstLessons(ctx.projectId).length >= FIRST_LESSON_TOPICS;
 }
 
 /**
