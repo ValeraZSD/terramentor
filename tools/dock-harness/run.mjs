@@ -325,6 +325,15 @@ check('so is the one that runs next', has('Queued two'), true);
 check('the far end of the queue is not', has('Queued five'), false);
 check('the rest are behind a "+N" pill',
     $$('button').filter(b => b.textContent === '+2').length, 1);
+const pillTitle = () => $$('button').find(b => /^\+\d+$/.test(b.textContent))?.getAttribute('title');
+check('a pill hiding only queued tasks says they are queued', pillTitle(), '2 more queued');
+
+// The progress text the chips redraw must not sit inside a live region, or a
+// screen reader reads every redraw out over whatever it was reading.
+const progressChip = $$('[aria-label^="Open"]').find(b => b.textContent.includes('Running now'));
+check('the bar is a labelled group', progressChip?.closest('[aria-label="Background AI tasks"]')?.getAttribute('role'), 'group');
+check('no chip is inside a live region',
+    $$('[aria-label^="Open"], [aria-label^="Why"]').filter(b => b.closest('[role="status"], [role="log"], [role="alert"], [aria-live]')).length, 0);
 
 // Finished chips: the three on the bar are the three that finished LAST. The
 // sort puts a queue oldest-first (the next to run is what you want to see) and
@@ -341,6 +350,7 @@ check('still only three', liveChips().length, 3);
 check('the newest finished is shown', has('Newest result'), true);
 check('and the next newest', has('Newer result'), true);
 check('the oldest is clipped', has('Oldest result'), false);
+check('a pill hiding finished results does not call them queued', pillTitle(), 'Show 2 more AI tasks');
 
 console.log('\n--- a finished chip clears itself ----------------------------------');
 calls.length = 0;
