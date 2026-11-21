@@ -99,7 +99,7 @@ app.get('/api/schedule/overview', (req, res) => {
         const library = projects.some(p => p.deadline) ? libraryPace() : null;
         // The library's one week shared out (server/capacity.js), with each
         // active course's verdict judged once on the same record.
-        const capacity = libraryCapacity(library ? { library } : {});
+        const capacity = libraryCapacity({ ...(library ? { library } : {}), offers: true });
 
         const rows = projects.map(p => {
             const ext = extents.get(p.id) || {};

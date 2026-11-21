@@ -1476,18 +1476,22 @@ export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     // the learned-pace verdict, the same one the course header shows: the old
     // "days behind" was a share of the window, not days, and with topic dates
     // derived on read it could no longer say behind at all. Dated means a
-    // deadline, as the verdict and the capacity read it; a paused course is
-    // left out.
+    // deadline, as the verdict and the capacity read it. A paused course, or
+    // one waiting behind a nearer date, is left out: the chip names a course
+    // the stream is serving. Ties go to the learner's own order.
     const scheduled = db.prepare(`
         SELECT id, name, color, deadline FROM projects
         WHERE COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
           AND deadline IS NOT NULL AND deadline >= ?
+        ORDER BY position ASC, created_at ASC, id ASC
     `).all(today);
     let deadline = null;
     if (scheduled.length) {
         let best = -1;
         for (const p of scheduled) {
-            const verdict = weekOf().courses.get(p.id)?.verdict;
+            const placed = weekOf().courses.get(p.id);
+            if (HELD.has(placed?.status)) continue;
+            const verdict = placed?.verdict;
             if (!verdict || verdict.band === 'done') continue;
             const severity = severityOf(verdict);
             const daysLeft = daysUntil(p.deadline, today);

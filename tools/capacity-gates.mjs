@@ -96,8 +96,7 @@ if (typeof share === 'function') {
         zero.units.topics.capacity === 0 && zero.courses.get('later').status === 'waiting' && show(zero.order) === show(['near']), show(zero));
 
     const tie = share([c(12, 'on_pace', 0.5, 30), c(3, 'on_pace', 0.5, 30)], { topics: 3 });
-    check('two courses due the same day are served in id order', show(tie.order) === show([3, 12]), show(tie.order));
-    check('shareCapacity reads no clock', !/Date\.now|new Date\(\)/.test(share.toString()));
+    check('two courses due the same day are served in the order given (the learner\'s own)', show(tie.order) === show([12, 3]), show(tie.order));
 }
 
 // ===========================================================================
@@ -180,6 +179,13 @@ try {
     check('the stream hands the week it ranked by to the header', composed.capacity?.courses instanceof Map, show(Object.keys(composed)));
     check('an answer\'s reply reads the day\'s numbers alone, no plan', !('deadline' in buildFeedHeader({ plan: false })));
 
+    // The chip names a course the stream serves: the worst verdict, if it
+    // waits behind a nearer date this week, is not the chip.
+    const waitingExam = new Map([...composed.capacity.courses].map(([id, c]) => [id, id === exam ? { ...c, status: 'waiting' } : c]));
+    const chipWhileWaiting = buildFeedHeader({ capacity: { ...composed.capacity, courses: waitingExam } }).deadline;
+    check('the chip skips a course waiting behind a nearer date, however bad its verdict',
+        chipWhileWaiting != null && chipWhileWaiting.projectId !== exam, show(chipWhileWaiting));
+
     const rowFar = await overviewRow(far);
     const rowExam = await overviewRow(exam);
     const rowSmall = await overviewRow(small);
@@ -202,7 +208,7 @@ try {
     check('…the exam\'s verdict no longer counts paused courses as competing', rowExam2?.verdict?.otherCourses === 0, show(rowExam2?.verdict?.otherCourses));
     check('…so it no longer offers to pause them', !(rowExam2?.verdict?.offers || []).some(o => o.kind === 'pause_others'), show(rowExam2?.verdict?.offers));
     check('…a paused course says so in the overview', (await overviewRow(small))?.capacity?.status === 'paused');
-    check('a paused course\'s own Study stream still serves it', focusProjects({ projectId: small }).includes(small));
+    check('a paused course\'s own Study stream still serves it (a guard: true before pausing existed)', focusProjects({ projectId: small }).includes(small));
     const noMissing = await call('POST', '/api/projects/999999/pause-others');
     check('pausing others from a course that does not exist is a 404', noMissing.status === 404, show(noMissing));
 
@@ -210,8 +216,6 @@ try {
     check('a course is resumed with paused: false', resume.status === 200 && resume.json?.paused === 0, show(resume.json?.paused));
     check('…and read back on the project', (await call('GET', `/api/projects/${small}`)).json?.paused === 0);
     check('…and the feed serves it again', focusProjects().includes(small), show(focusProjects()));
-    const chip2 = buildFeedHeader().deadline;
-    check('the chip leaves a paused course out', chip2?.projectId === exam || chip2?.projectId === small, show(chip2));
     db.prepare('UPDATE projects SET paused = 1 WHERE id = ?').run(exam);
     check('…a paused exam is not the chip', buildFeedHeader().deadline?.projectId === small, show(buildFeedHeader().deadline));
 

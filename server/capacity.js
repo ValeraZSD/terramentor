@@ -21,11 +21,13 @@ const bestOf = (pace) => (pace.weeksOfData >= VERDICT_FROM_WEEKS ? pace.best : n
 /**
  * The library's week: each active course's verdict and its place in the queue.
  *
- * @param {{ now?: number, timeZone?: string, library?: ReturnType<typeof libraryPace> }} [opts]
+ * @param {{ now?: number, timeZone?: string, library?: ReturnType<typeof libraryPace>, offers?: boolean }} [opts]
+ *   `offers: true` judges each verdict with its full offer list (the plan
+ *   screens); the feed reads only bands and leaves the placement probe out.
  * @returns {{ today: string, order: number[], courses: Map<number, { status: string, share: number|null,
  *   rank: number|null, verdict: object|null, unit: 'topics'|'cards' }>, units: object }}
  */
-export function libraryCapacity({ now = Date.now(), timeZone = learnerTimeZone(), library = null } = {}) {
+export function libraryCapacity({ now = Date.now(), timeZone = learnerTimeZone(), library = null, offers = false } = {}) {
     activeStmt ??= db.prepare(`
         SELECT id, deadline, COALESCE(paused, 0) AS paused FROM projects
         WHERE COALESCE(status, 'active') = 'active'
@@ -33,7 +35,7 @@ export function libraryCapacity({ now = Date.now(), timeZone = learnerTimeZone()
     `);
     const lib = library || libraryPace({ now, timeZone });
     const facts = activeStmt.all().map((p) => {
-        const verdict = p.deadline ? projectVerdict(p.id, { now, timeZone, library: lib }) : null;
+        const verdict = p.deadline ? projectVerdict(p.id, { now, timeZone, library: lib, offers }) : null;
         const unit = verdict?.unit || (projectCountsInCards(p.id) ? 'cards' : 'topics');
         return {
             id: p.id,
@@ -45,10 +47,13 @@ export function libraryCapacity({ now = Date.now(), timeZone = learnerTimeZone()
             verdict,
         };
     });
-    // The record is read only when some course is dated: a library with no
-    // date has nothing to ration.
-    const anyDated = facts.some(f => f.deadline);
-    const shared = shareCapacity(facts, anyDated ? { topics: bestOf(lib.topics), cards: bestOf(lib.cards) } : {});
+    // A unit's record is read only when a dated course counts in it: a
+    // library with no dated deck never runs the review log's window query.
+    const datedIn = (unit) => facts.some(f => f.deadline && f.unit === unit);
+    const shared = shareCapacity(facts, {
+        topics: datedIn('topics') ? bestOf(lib.topics) : null,
+        cards: datedIn('cards') ? bestOf(lib.cards) : null,
+    });
     const courses = new Map();
     for (const f of facts) courses.set(f.id, { ...shared.courses.get(f.id), verdict: f.verdict, unit: f.unit });
     return { today: lib.today, order: shared.order, courses, units: shared.units };

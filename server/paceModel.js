@@ -355,7 +355,8 @@ export function shareCapacity(courses, capacity = {}) {
         if (due != null && c.band !== 'passed' && c.band !== 'no_date') dated.push({ c, due });
         else rest.push(c);
     }
-    dated.sort((a, b) => a.due - b.due || String(a.c.id).localeCompare(String(b.c.id), 'en', { numeric: true }));
+    // Same day: the order given (the learner's own order of courses); the sort is stable.
+    dated.sort((a, b) => a.due - b.due);
 
     const order = [];
     for (const { c } of dated) {

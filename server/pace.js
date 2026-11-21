@@ -170,8 +170,10 @@ function dateOwnership(project) {
  * @param {number|string} projectId
  * @param {{ now?: number, timeZone?: string, library?: ReturnType<typeof libraryPace> }} [opts]
  *   `library` lets a screen judging many courses read the record once.
+ *   `offers: false` skips the placement probe behind the "check what you
+ *   know" offer, for a reader that uses only the band (the feed).
  */
-export function projectVerdict(projectId, { now = Date.now(), timeZone = learnerTimeZone(), library = null } = {}) {
+export function projectVerdict(projectId, { now = Date.now(), timeZone = learnerTimeZone(), library = null, offers = true } = {}) {
     const s = statements();
     const project = s.project.get(projectId);
     if (!project?.deadline) return null;
@@ -191,7 +193,7 @@ export function projectVerdict(projectId, { now = Date.now(), timeZone = learner
     // asked only then (it walks the course's tree). It places topics; a deck
     // has none to place. The offer is slotted in by OFFERS' order rather than
     // judged again, which would re-run both finish-range simulations.
-    if (!cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) {
+    if (offers && !cards && MISSES.has(verdict.band) && probeAvailability(project.id).available === true) {
         verdict.offers = [...verdict.offers, { kind: 'check_known' }]
             .sort((a, b) => OFFERS.indexOf(a.kind) - OFFERS.indexOf(b.kind));
     }
