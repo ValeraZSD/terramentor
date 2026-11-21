@@ -5,8 +5,8 @@ import { useStore } from '../store';
 /**
  * "Discard your changes?" before a form with unsaved work closes, whichever way
  * it was closed: its ✕ or Cancel, Escape, a tap outside, the system's Back.
- * One wording and one look for every form that asks (CLAUDE.md, "Saved means
- * written": a changed edit asks before Escape/Cancel).
+ * One wording and one look for every form that asks: a changed edit is never
+ * dropped by Escape or Cancel without asking first.
  *
  * Resolves true when the learner chose to discard. A second ask while one is
  * showing resolves false at once, so two ways out pressed together ask once.

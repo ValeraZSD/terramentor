@@ -155,6 +155,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     // A plain open asks first: create or import. A form handed back (a run's
     // Back, the assistant's "Open in New course") opens on the form itself.
     const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : 'choose');
+    // The chatbot path's own fields and the reply pasted back.
+    const [briefDirty, setBriefDirty] = useState(false);
     // Before paint, so a reopened dialog never shows the old height first.
     useLayoutEffect(() => { onChoosing(createMode === 'choose'); }, [createMode, onChoosing]);
     const [newName, setNewName] = useState(draft?.name ?? '');
@@ -176,7 +178,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     const filesRef = useRef(files);
     filesRef.current = files;
     // A row the learner added counts even when its read failed: it was theirs.
-    holdsWork.current = !!newName.trim() || !!newDescription.trim() || files.length > 0;
+    holdsWork.current = !!newName.trim() || !!newDescription.trim() || files.length > 0
+        || (createMode === 'external' && briefDirty);
     // The links being read, by row: removing a row, or closing the window,
     // stops its read, and a read that ends after that lets its source go.
     const readers = useRef(new Map<string, AbortController>());
@@ -565,6 +568,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                             setSubject={setNewName}
                             language={newLanguage}
                             onImported={(id) => { onCancel(); openProject(id); }}
+                            onDirty={setBriefDirty}
                         />
                     ) : createMode === 'import' ? (
                         <div className="space-y-4">

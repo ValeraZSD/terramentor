@@ -34,6 +34,15 @@
 //      text; Discard closes and lets the added material go; Create with AI
 //      never asks.
 //
+//   7b. a list (Select) open inside a dialog: Back closes the list, not the
+//      dialog; a list closed by a choice leaves no entry;
+//   and a chatbot's reply pasted into New course counts as typed work.
+//
+// Run with --root on a tree without this, some checks still hold, on
+// purpose: preconditions ("the form is showing") and the closes that already
+// worked (✕, an untouched window, Create with AI), kept so a fix cannot break
+// them. Every check of a Back or of an ask fails there.
+//
 // No model, no network.
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +71,8 @@ const bundle = (await esbuild.build({
             import ConfirmDialog from './src/components/ConfirmDialog';
             import NewProjectModal from './src/components/NewProjectModal';
             import { useRouterStoreSync } from './src/hooks/useRouterStoreSync';
-            import { createElement as h, act, useState } from 'react';
+            import { Select } from './src/components/ui/Select';
+            import { createElement as h, act, useState, StrictMode } from 'react';
             import { createRoot } from 'react-dom/client';
             import { BrowserRouter, useNavigate } from 'react-router-dom';
             // What the harness shows, set from outside; every close is logged.
@@ -82,11 +92,15 @@ const bundle = (await esbuild.build({
                         onBack: spec.steps > 0 ? () => { log.push('step'); set(s => ({ ...s, steps: s.steps - 1 })); } : undefined,
                     },
                         h('p', null, 'Body of A'),
+                        h(Select, { value: 'one', onChange: v => log.push('chose ' + v), 'aria-label': 'Pick one' },
+                            h('option', { value: 'one' }, 'One'), h('option', { value: 'two' }, 'Two')),
                         h('button', { type: 'button', id: 'go', onClick: () => { navigate('/atlas'); close(); } }, 'Go elsewhere')),
                     h(NewProjectModal, { isOpen: spec.nc, draft: spec.draft, onClose: () => { log.push('nc-close'); set(s => ({ ...s, nc: false })); } }),
                     h(ConfirmDialog));
             }
-            const mount = (el) => { const r = createRoot(el); act(() => r.render(h(BrowserRouter, null, h(Harness)))); return r; };
+            // StrictMode, as the app mounts: its development double-run of
+            // every effect must not leave a second entry per dialog.
+            const mount = (el) => { const r = createRoot(el); act(() => r.render(h(StrictMode, null, h(BrowserRouter, null, h(Harness))))); return r; };
             window.__gate = { useStore, mount, act, log, set: (patch) => act(() => setSpec(s => ({ ...s, ...patch }))) };`,
         resolveDir: ROOT, loader: 'tsx',
     },
@@ -248,20 +262,41 @@ await back();
 check('Back answers no and closes it', answer === false && !titled('Remove it?'), answer);
 check('on the same page', path() === '/projects', path());
 
-section('8. New course asks before it drops what was typed');
-// Each block starts from a closed window on /projects, so on a tree without
-// the asking every check fails on its own instead of the first one stopping
-// the walk.
+// Each block starts from a closed dialog on /projects, so on a tree without
+// this every check fails on its own instead of the first one stopping the walk.
 const block = async (fn) => {
     // A confirm an earlier Back failed to close (on a tree without this) is
     // not this block's.
     if (titled('Remove it?')) { await act(async () => { useStore.getState().hideConfirm(false); }); await settle(); }
     try { await fn(); } catch (e) { check('the block ran to its end', false, e.message.slice(0, 160)); }
     if (asking()) { await press('Keep editing').catch(() => { }); }
-    await set({ nc: false, draft: null }); await settle();
+    await set({ a: false, nc: false, draft: null }); await settle();
     if (path() !== '/projects') await goTo('/projects');
     log.splice(0);
 };
+
+section('7b. a list open inside a dialog');
+const listOpen = () => !!body().querySelector('[role="listbox"]');
+await block(async () => {
+    await set({ a: true }); await settle();
+    await click(buttonNamed('Pick one'));
+    check('the list is open over the dialog', listOpen() && !!titled('Dialog A'));
+    await back();
+    check('Back closes the list only, as Escape does', !listOpen() && !!titled('Dialog A') && logged() === '', { list: listOpen(), a: !!titled('Dialog A') });
+    check('the page did not move', path() === '/projects', path());
+    await back();
+    check('the next Back closes the dialog', !titled('Dialog A') && logged() === 'close');
+});
+await block(async () => {
+    await set({ a: true }); await settle();
+    await click(buttonNamed('Pick one'));
+    await click([...body().querySelectorAll('[role="option"]')].find(o => o.textContent.includes('Two')));
+    check('a list closed by a choice leaves no entry', !listOpen() && logged() === 'chose two');
+    await back();
+    check('so one Back then closes the dialog', !titled('Dialog A') && logged() === 'close' && path() === '/projects', path());
+});
+
+section('8. New course asks before it drops what was typed');
 const create = () => click(buttons().find(b => b.textContent.includes('Create a course')));
 const openTyped = async () => {
     await set({ nc: true, draft: null }); await settle();
@@ -332,6 +367,16 @@ await block(async () => {
     check('Escape asks: the file is the learner\'s material', !!asking());
     await press('Discard');
     check('Discard lets the file go', !titled('New course') && logged() === 'nc-close' && discarded.includes('staged-1'), discarded);
+});
+await block(async () => {
+    await set({ nc: true, draft: null }); await settle();
+    await click(buttons().find(b => b.textContent.includes('Import a course')));
+    await click(buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')));
+    const reply = body().querySelector('textarea[aria-label="The model\'s reply"]');
+    check('the chatbot path shows its reply box', !!reply);
+    await fill(reply, '{ "project": { "name": "Knots" }, "nodes": [] }');
+    await press('Close dialog', titled('New course'));
+    check('with a chat reply pasted back, ✕ asks', !!asking() && !!titled('New course'));
 });
 await block(async () => {
     await openTyped();
