@@ -156,8 +156,8 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
     // Read from `window.location` (the app runs a BrowserRouter with no base),
     // because the dialog is also mounted where no router is: the dock harness.
     const assistantOpen = useStore(s => s.assistantOpen);
-    // Where the reader is, kept current while the record stays open: Back,
-    // Forward or a hash change move them without closing it.
+    // Where the reader is, kept current while the record stays open: Forward
+    // or a hash change moves them without closing it (Back closes it).
     const where = useSyncExternalStore(subscribeLocation, readLocation);
     const here = (() => {
         if (!place) return false;

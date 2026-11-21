@@ -22,7 +22,10 @@
  * A dialog whose action navigates (Go to project) leaves its entry under the
  * new page; Back from that page lands on it, finds no dialog to own it and
  * steps over it, so one press still reaches the page the dialog was opened
- * on. Forward cannot get past such an entry; nothing else is lost.
+ * on. Forward cannot get past such an entry.
+ * A `navigate(…, { replace: true })` while a dialog is open writes over its
+ * mark; the rule pushes a new one, and the entry the replace meant to drop
+ * stays under it, so leaving that page takes one more Back.
  */
 
 import { useEffect, useRef } from 'react';
@@ -107,8 +110,12 @@ function onPop(e: PopStateEvent) {
     // Back over N marks closes the top N dialogs, top first. Landing on a mark
     // from below (Back from a page a dialog navigated to, or Forward) closes
     // nothing: the rule then steps over the stale entry.
-    if (dropped > 0) for (const d of open.slice(-dropped).reverse()) d.back();
-    schedule();
+    // A close that throws must not leave the rest of the rule undone.
+    try {
+        if (dropped > 0) for (const d of open.slice(-dropped).reverse()) d.back();
+    } finally {
+        schedule();
+    }
 }
 
 function listen() {

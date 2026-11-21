@@ -34,9 +34,13 @@
 //      text; Discard closes and lets the added material go; Create with AI
 //      never asks.
 //
+//   1 also: opening a dialog adds ONE entry, under StrictMode's double effects;
+//   6b. a dialog that stays open while the page under it changes: Back closes
+//      it on the new page, the next Back returns to the old one;
 //   7b. a list (Select) open inside a dialog: Back closes the list, not the
 //      dialog; a list closed by a choice leaves no entry;
-//   and a chatbot's reply pasted into New course counts as typed work.
+//   and a chatbot's reply pasted into New course counts as typed work, and
+//   survives a step back and in again.
 //
 // Run with --root on a tree without this, some checks still hold, on
 // purpose: preconditions ("the form is showing") and the closes that already
@@ -94,7 +98,8 @@ const bundle = (await esbuild.build({
                         h('p', null, 'Body of A'),
                         h(Select, { value: 'one', onChange: v => log.push('chose ' + v), 'aria-label': 'Pick one' },
                             h('option', { value: 'one' }, 'One'), h('option', { value: 'two' }, 'Two')),
-                        h('button', { type: 'button', id: 'go', onClick: () => { navigate('/atlas'); close(); } }, 'Go elsewhere')),
+                        h('button', { type: 'button', id: 'go', onClick: () => { navigate('/atlas'); close(); } }, 'Go elsewhere'),
+                        h('button', { type: 'button', id: 'stay', onClick: () => navigate('/atlas') }, 'Go elsewhere, staying open')),
                     h(NewProjectModal, { isOpen: spec.nc, draft: spec.draft, onClose: () => { log.push('nc-close'); set(s => ({ ...s, nc: false })); } }),
                     h(ConfirmDialog));
             }
@@ -196,8 +201,10 @@ await settle();
 await goTo('/projects');
 
 section('1. Back closes the dialog; the page stays');
+const entriesBefore = w.history.length;
 await set({ a: true }); await settle();
 check('the dialog is open on /projects', !!titled('Dialog A') && path() === '/projects', path());
+check('it added exactly one history entry (StrictMode runs its effects twice)', w.history.length === entriesBefore + 1, { before: entriesBefore, after: w.history.length });
 await back();
 check('Back closes it', !titled('Dialog A') && logged() === 'close');
 check('and the page stays on /projects', path() === '/projects', path());
@@ -255,6 +262,18 @@ check('one Back returns to the page it was opened on', path() === '/projects', p
 await back();
 check('and the next to the page before', path() === '/', path());
 await goTo('/projects');
+
+section('6b. a dialog that stays open over a new page');
+await set({ a: true }); await settle();
+await click(body().querySelector('#stay'));
+check('the page changed under the open dialog', path() === '/atlas' && !!titled('Dialog A'), path());
+await back();
+check('Back closes the dialog on the new page', !titled('Dialog A') && logged() === 'close' && path() === '/atlas', path());
+await back();
+check('the next Back returns to the page before', path() === '/projects', path());
+await set({ a: false }); await settle();
+if (path() !== '/projects') await goTo('/projects');
+log.splice(0);
 
 section('7. a ConfirmDialog alone');
 await ask();
@@ -377,6 +396,20 @@ await block(async () => {
     await fill(reply, '{ "project": { "name": "Knots" }, "nodes": [] }');
     await press('Close dialog', titled('New course'));
     check('with a chat reply pasted back, ✕ asks', !!asking() && !!titled('New course'));
+});
+await block(async () => {
+    await set({ nc: true, draft: null }); await settle();
+    await click(buttons().find(b => b.textContent.includes('Import a course')));
+    await click(buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')));
+    await fill(body().querySelector('textarea[aria-label="The model\'s reply"]'), '{ "nodes": [] }');
+    await back();
+    check('Back from the chatbot path steps back to the import view', !!titled('New course') && !body().querySelector('textarea[aria-label="The model\'s reply"]') && !asking());
+    await click(buttons().find(b => b.textContent.includes('Or make a course with an external chatbot')));
+    check('and the pasted reply is still there on the way in again', body().querySelector('textarea[aria-label="The model\'s reply"]')?.value === '{ "nodes": [] }');
+    await back(); await back();
+    check('two more Backs reach the first choice, keeping the window', !!titled('New course') && !asking() && buttons().some(b => b.textContent.includes('Create a course')));
+    await back();
+    check('and Back there asks, the reply being typed work', !!asking() && !!titled('New course'));
 });
 await block(async () => {
     await openTyped();
