@@ -12,7 +12,7 @@ import { chainFor } from '../aiJobs.js';
 import { avgSettingKey, callAnnouncedBy, createCreationTracker, CREATION_OPS } from '../creationEta.js';
 import { createSlotGate } from '../creationSlots.js';
 import {
-    WORK, batchTopics, buildProjectDescription, cleanSummary, linkTopic, outlineGapsError, planPhases, projectSources,
+    WORK, batchTopics, buildProjectDescription, cleanSummary, firstLessons, linkTopic, outlineGapsError, planPhases, projectSources,
     rememberWritten, sendBatchDone, writePhases, writeSections, writeTopics,
 } from '../creationStages.js';
 import { sizeForPhaseCount } from '../courseSize.js';
@@ -1120,6 +1120,9 @@ app.post('/api/ai/continue-creation', async (req, res) => {
         resuming();
         setGeneratingFlag(projectId, true);
         db.prepare('UPDATE projects SET creation_finished = 0 WHERE id = ?').run(projectId);
+        // Topics an earlier run wrote are taught while this one writes the rest.
+        // With none yet, the first section this run fills asks (`writeTopics`).
+        if (topics.length) firstLessons(ctx);
 
         // The work the bar is sized from: what exists counts as done, what is
         // missing as a fresh run would estimate it.

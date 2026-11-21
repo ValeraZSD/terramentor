@@ -608,6 +608,45 @@ async function generateStep(target, missing, signal) {
 /** Any non-feed task running or queued? Then the model belongs to the user. */
 const interactiveWorkActive = () => tasks.interactiveActive(['feed']);
 
+// The task kinds that write a course (server/routes/createProject.js,
+// server/shortCourses.js). A creation is minutes to an hour of calls with
+// nobody waiting on any one of them, so it does not hold back a lesson a
+// learner IS waiting on: the topic they opened, or the first topics of the
+// course being written (`askFirstLessons`). Everything else the writer would
+// do (the look-ahead, checks, cards) still waits for it.
+const CREATION_KINDS = ['create_project', 'short_course'];
+/** Any task running or queued that is neither the feed nor a course creation? */
+const nonCreationWorkActive = () => tasks.interactiveActive(['feed', ...CREATION_KINDS]);
+// The `nextMissing` steps that teach the topic, in the order its page shows
+// them: written beside a creation for a topic a learner waits on.
+const TEACHING_STEPS = new Set(['plan', 'lesson', 'question', 'bank-map']);
+
+// How many of a new course's topics are taught while it is still being
+// written: the first, and the one after it, so a learner who finishes the
+// first is not left waiting at the second.
+export const FIRST_LESSON_TOPICS = 2;
+
+/**
+ * Ask for the lessons of the topics this course's own stream starts with,
+ * while the rest of the course is still being written. The same pick as the
+ * course's Study (`getFocusNodes` for the project), so the topics written
+ * first are the ones Study opens on. Returns the topic ids asked for; none
+ * while the course has no topic yet, or when its topics are not taught.
+ * Never throws: a course creation must not fail because of its lessons.
+ */
+export function askFirstLessons(projectId, count = FIRST_LESSON_TOPICS) {
+    try {
+        if (!Number.isInteger(projectId) || projectId <= 0 || !aiEnabled()) return [];
+        const { focus } = getFocusNodes({ projectId, maxTotal: count });
+        const ids = focus.filter(f => f.teachable).map(f => f.nodeId);
+        for (const id of ids) requestNode(id);
+        return ids;
+    } catch (err) {
+        console.warn('[FeedGen] could not ask for a new course\'s first lessons:', err?.message);
+        return [];
+    }
+}
+
 /** Lessons already written and servable for this focus set. */
 function readyLessonCount(focusIds) {
     if (!focusIds.length) return 0;
@@ -1574,8 +1613,26 @@ async function runBurst() {
 
     try {
         while (!cancelled) {
-            if (interactiveWorkActive()) {
+            if (nonCreationWorkActive()) {
                 // The model belongs to the user right now — come back shortly.
+                setTimeout(ensureBuffer, YIELD_RETRY_MS).unref();
+                break;
+            }
+            // A topic the learner is waiting on comes first, whatever the
+            // buffer says. Taught, it stays on the list for its end-of-topic
+            // material below; with nothing left to write it drops off.
+            // Only a course creation may be running now (CREATION_KINDS): then a
+            // requested topic gets what its page shows first, its outline,
+            // parts and their questions, and nothing else goes ahead of it. Its
+            // practice and end-of-topic material wait, and so does its place
+            // on the list, until the creation is done.
+            const wanted = requestedTargets();
+            const creating = interactiveWorkActive();
+            let hit = pickTarget(wanted, f => {
+                const step = nextMissing(f.nodeId);
+                return creating && step && !TEACHING_STEPS.has(step.type) ? null : step;
+            }, f => { if (!creating && !pendingMaterial(f.nodeId)) requested.delete(f.nodeId); });
+            if (!hit && creating) {
                 setTimeout(ensureBuffer, YIELD_RETRY_MS).unref();
                 break;
             }
@@ -1592,7 +1649,6 @@ async function runBurst() {
             // are real topics and are taught once their project is switched on.
             const { focus } = getFocusNodes();
             const teachable = focus.filter(f => f.teachable);
-            const wanted = requestedTargets();
 
             // Teaching text first — a missing lesson stalls the feed, while a
             // missing widget only costs interactivity on a card that still
@@ -1600,10 +1656,6 @@ async function runBurst() {
             // full, because they enrich cards ALREADY in the buffer (gating them
             // on buffer depth would mean the card is served before its build).
             const buffer = bufferStatus(teachable.map(x => x.nodeId));
-            // A topic the learner is waiting on comes first, whatever the
-            // buffer says. Taught, it stays on the list for its end-of-topic
-            // material below; with nothing left to write it drops off.
-            let hit = pickTarget(wanted, f => nextMissing(f.nodeId), f => { if (!pendingMaterial(f.nodeId)) requested.delete(f.nodeId); });
             if (!hit && !buffer.full) {
                 hit = pickTarget(teachable, f => nextMissing(f.nodeId));
             }
@@ -1709,6 +1761,16 @@ async function runBurst() {
     } catch (err) {
         if (cancelled) {
             if (handle) handle.cancelled();
+            return;
+        }
+        // The topic's course was deleted while its step ran (deleting a course
+        // still being created is how a learner cancels it, and the writer is on
+        // its first topics then): the write failed on the missing node. The
+        // writer is fine, so no backoff; every other course's work carries on.
+        if (onTopic != null && !db.prepare('SELECT 1 FROM nodes WHERE id = ?').get(onTopic)) {
+            requested.delete(onTopic);
+            if (handle) handle.cancelled();
+            ensureBuffer();
             return;
         }
         consecutiveFailures++;
