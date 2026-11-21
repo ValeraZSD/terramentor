@@ -28,7 +28,9 @@
 //   * "Recently deleted" lists what the learner deleted (not what went with it,
 //     not what the app replaced); Restore brings back exactly the rows that
 //     went with the restored row, never one deleted on its own before;
-//     "Delete forever" and "Empty" remove the rows for good;
+//     removing one listed row (the route the Anki import's undo uses) and
+//     "Empty" remove the rows for good, Empty only up to the newest row the
+//     learner was shown;
 //   * every card schedule change that is not a review (a report parking a
 //     card, the edit that unparks it, a schedule written directly, a rating
 //     taken back) is written to `schedule_events`.
@@ -358,7 +360,19 @@ ok('Delete forever removes the row and its history', gone.status === 200 && !raw
     && db.prepare('SELECT COUNT(*) FROM review_log WHERE card_id = ?').pluck().get(gCard) === 0);
 ok('Delete forever refuses a row that is not deleted', (await call('DELETE', `/api/deleted/flashcards/${kCard}`)).status === 404 && !!raw('flashcards', kCard));
 await call('DELETE', `/api/projects/${ghost}`);
-const emptied = await call('DELETE', '/api/deleted');
+ok('Delete forever refuses a row taken along with its course', (await call('DELETE', `/api/deleted/nodes/${gLeaf}`)).status === 404 && !!raw('nodes', gLeaf));
+const under = await call('POST', `/api/deleted/nodes/${gAlone}/restore`);
+ok('restoring a row whose course is deleted is a 409 naming why', under.status === 409 && under.json?.code === 'parent_deleted' && !!raw('nodes', gAlone).deleted_at,
+    `${under.status} ${under.text.slice(0, 120)}`);
+// Empty takes only what the learner was shown: a row deleted after the list's
+// newest stays.
+const shownUpTo = (await call('GET', '/api/deleted')).json?.items?.[0]?.deletedAt;
+const late = card(kTopic, 'Deleted after the list was shown');
+db.prepare("UPDATE flashcards SET deleted_at = '2999-01-01T00:00:00.000Z' WHERE id = ?").run(late);
+ok('Empty refuses an upTo that is not a time', (await call('DELETE', '/api/deleted?upTo=yesterday')).status === 400 && !!raw('projects', ghost));
+const emptied = await call('DELETE', `/api/deleted?upTo=${encodeURIComponent(shownUpTo)}`);
+ok('…and leaves a row deleted after the newest it was shown', !!raw('flashcards', late));
+SD.purge('flashcards', late);
 ok('Empty removes every deleted row, with what went with it', emptied.status === 200 && !raw('projects', ghost) && !raw('nodes', gLeaf)
     && !raw('nodes', gAlone) && !raw('quizzes', gQuiz) && !raw('resources', gLink),
     emptied.text.slice(0, 200));
@@ -438,6 +452,16 @@ console.log('\n--- a delete or a restore reaches what is worked out from the row
     const back = topicDatesOf(windowed, at).get(second)?.start;
     ok('deleting a topic re-lays the others\' dates, and its restore lays them back',
         laid > day && without === day && back === laid, `${laid} -> ${without} -> ${back}`);
+    const deck = ins("INSERT INTO projects (name, kind, start_date, deadline, study_days) VALUES (?, 'deck', ?, ?, ?)",
+        'Window deck', day, '2026-03-11', JSON.stringify([1, 2, 3, 4, 5, 6, 7]));
+    const dTopic = node(deck, null, 'Window deck topic');
+    const dCard = card(dTopic, 'Window deck card');
+    const inCards = topicDatesOf(deck, at).size;
+    SD.softDelete('flashcards', dCard);
+    const byTopics = topicDatesOf(deck, at).size;
+    SD.restore('flashcards', dCard);
+    ok('deleting a deck\'s last card re-lays it by topics, and its restore by cards',
+        inCards === 0 && byTopics > 0 && topicDatesOf(deck, at).size === 0, `${inCards} -> ${byTopics} -> ${topicDatesOf(deck, at).size}`);
 
     // A course file's uuid names the course: importing the file again after
     // the course was deleted gives the new copy that uuid, and the deleted one
@@ -459,21 +483,31 @@ console.log('\n--- a delete or a restore reaches what is worked out from the row
         && !db.prepare('SELECT 1 FROM settings WHERE key = ?').get(dial));
     SD.restore('projects', old);
     ok('…so its restore still brings them back', !raw('nodes', oldTopic).deleted_at);
+    const loneCard = card(kTopic, 'Card deleted inside a live course');
+    const loneUuid = raw('flashcards', loneCard).uuid;
+    SD.softDelete('flashcards', loneCard);
+    ok('a row deleted inside a live course keeps its uuid from an import', claimUuid('flashcards', loneUuid) === null && raw('flashcards', loneCard).uuid === loneUuid);
 
-    // An Anki deck imported again after its course was deleted: the review
-    // history goes to the new cards, not to the deleted ones.
+    // An Anki deck imported again after the deck was deleted: the review
+    // history goes to the new cards. A card deleted inside a live deck keeps
+    // its reviews, for its own restore.
     const { importAnkiRevlog } = await import(B + 'reviewLog.js');
+    const holder = (id) => db.prepare("SELECT card_id FROM review_log WHERE source = 'anki' AND external_id = ?").pluck().get(String(id));
     const revlog = [{ cid: 1, id: 1_700_000_000_000, ease: 3, type: 1, lastIvl: 1 }];
-    const ankiOld = card(kTopic, 'Anki card, first import');
+    const ankiDeck = project('Anki deck');
+    const ankiTopic = node(ankiDeck, null, 'Anki deck topic');
+    const ankiOld = card(ankiTopic, 'Anki card, first import');
     importAnkiRevlog(revlog, () => ankiOld);
     const ankiNew = card(kTopic, 'Anki card, second import');
     const live = importAnkiRevlog(revlog, () => ankiNew);
-    ok('control: a review already on a live card is not imported twice', live.imported === 0
-        && db.prepare("SELECT card_id FROM review_log WHERE source = 'anki'").pluck().all().join() === String(ankiOld));
+    ok('control: a review already on a live card is not imported twice', live.imported === 0 && holder(revlog[0].id) === ankiOld);
     SD.softDelete('flashcards', ankiOld);
+    const alone = importAnkiRevlog(revlog, () => ankiNew);
+    ok('a review on a card deleted inside a live deck stays with it', alone.imported === 0 && holder(revlog[0].id) === ankiOld, JSON.stringify(alone));
+    SD.restore('flashcards', ankiOld);
+    SD.softDelete('projects', ankiDeck);
     const again = importAnkiRevlog(revlog, () => ankiNew);
-    ok('a review on a deleted card moves to the card imported again', again.imported === 1
-        && db.prepare("SELECT card_id FROM review_log WHERE source = 'anki'").pluck().all().join() === String(ankiNew), JSON.stringify(again));
+    ok('a review on a card whose deck is deleted moves to the card imported again', again.imported === 1 && holder(revlog[0].id) === ankiNew, JSON.stringify(again));
 }
 
 // ============================================================================
