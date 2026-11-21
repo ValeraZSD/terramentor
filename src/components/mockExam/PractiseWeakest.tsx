@@ -15,7 +15,7 @@ export function PractiseWeakest({ projectId, nodeId, line }: { projectId: number
     return (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-slate-200 dark:border-slate-700 pt-4">
             <p className="flex-1 min-w-[12rem] text-sm text-slate-700 dark:text-slate-200">{line}</p>
-            <Button variant="primary" icon={<Play className="w-4 h-4" aria-hidden="true" />} onClick={() => studyNode(projectId, nodeId)}>
+            <Button variant="primary" className="ml-auto" icon={<Play className="w-4 h-4" aria-hidden="true" />} onClick={() => studyNode(projectId, nodeId)}>
                 {t("Practise this topic")}
             </Button>
         </div>

@@ -570,6 +570,9 @@ try {
         const offer = screen.slice(screen.indexOf('takeOff(awayOff)') - 200, screen.indexOf('{t("I kept writing")}') + 30);
         check('the away offer\'s two buttons are full-size tap targets',
             /takeOff\(awayOff\)/.test(offer) && /I kept writing/.test(offer) && !/size="sm"/.test(offer));
+        const practise = readFileSync(join(dir, 'PractiseWeakest.tsx'), 'utf8');
+        check('"Practise this topic" stays at the right when a narrow result wraps it under its line',
+            /<Button variant="primary" className="ml-auto"[^\n]*>\s*\{t\("Practise this topic"\)\}/.test(practise));
     });
 
     await block('9b. what the review round found', async () => {
