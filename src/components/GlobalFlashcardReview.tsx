@@ -297,6 +297,8 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
      * whether a card exists.
      */
     const cardOnScreen = !!currentCard && !loading && !loadError && !sessionComplete && !waiting;
+    /** Finished, not paused: the last rating can still be taken back. */
+    const undoFromComplete = sessionComplete && queue.isComplete && !endedEarly && queue.canGoBack;
     // Each card on its own course's target: a mixed session holds several.
     const retention = useProjectRetention(currentCard?.project_id ?? projectId);
     const cardMedia = parseCardMedia(currentCard?.media);
@@ -446,12 +448,14 @@ export default function GlobalFlashcardReview({ projectId, fetchCards, title, on
     useFlashcardKeys({
         // The editor owns the keyboard while it is open, or typing a card's
         // answer would flip the card under the dialog and rate it "1". With no
-        // card on screen (Paused, Complete, waiting, an error), 1-4 would rate
-        // the hidden card End session left the queue on.
-        enabled: !editing && cardOnScreen,
+        // card on screen (Paused, Complete, waiting, an error), Space and 1-4
+        // would act on the hidden card End session left the queue on. Undo
+        // alone stays on the Complete screen of a session that ran out: it is
+        // the only way back from a mis-tap on the last card.
+        enabled: !editing && (cardOnScreen || undoFromComplete),
         flipped: queue.flipped,
-        onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
+        onFlip: () => { if (cardOnScreen) queue.setFlipped(f => !f); },
+        onRate: cardOnScreen ? (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])) : undefined,
         onUndo: handleUndo,
     });
 

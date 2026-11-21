@@ -264,14 +264,33 @@ console.log('\n--- GlobalFlashcardReview: no card on screen, nothing rated ---')
     await flush();
     const doc = window.document;
     await key(' ');
+    await key('4');
+    await key(' ');
     await click(button(doc.body, 'End session'));
     check('End session on a flipped card shows the Paused screen', text(doc.body).includes('Session Paused'), text(doc.body).slice(0, 120));
     await key('1');
     await key('4');
     // End session leaves the queue on the flipped card; the keys rated it unseen.
-    check('…and 1-4 there rate nothing', ratingCalls().length === 0, `${ratingCalls().length} ratings sent`);
+    check('…and 1-4 there rate nothing', ratingCalls().length === 1, `${ratingCalls().length - 1} ratings sent from Paused`);
+    await key('z');
+    check('…nor does z take back a rating the screen does not show', undoCalls().length === 0, `${undoCalls().length} undos`);
     await click(button(doc.body, 'Resume session'));
-    check('Resume brings the same card back unrated', text(doc.body).includes('Question 1') && ratingCalls().length === 0);
+    check('Resume brings the same card back unrated', text(doc.body).includes('Question 2') && ratingCalls().length === 1);
+    m.unmount();
+}
+{
+    reset();
+    respond = saved;
+    const m = globalThis.__mount('global', mkCards());
+    await flush();
+    const doc = window.document;
+    for (let i = 0; i < 3; i++) { await key(' '); await key('4'); }
+    check('every card rated: Session Complete', text(doc.body).includes('Session Complete'));
+    await key('z');
+    // The Complete screen has no Undo button: z is the way back from a
+    // mis-tap on the last card.
+    check('z there still takes back the last rating', undoCalls().length === 1 && text(doc.body).includes('Question 3'),
+        `${undoCalls().length} undos`);
     m.unmount();
 }
 
