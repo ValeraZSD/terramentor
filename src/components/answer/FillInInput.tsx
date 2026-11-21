@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FIELD_BASE, cx } from '../ui/vocabulary';
 import type { AnswerInputProps } from './AnswerInput';
@@ -29,8 +30,17 @@ import { submitOnEnter } from './formats';
 export default function FillInInput({ value, onChange, disabled, result, autoFocus, onSubmit }: AnswerInputProps) {
     const { t } = useTranslation();
     const shown = result ? result.answer : value;
+    const ref = useRef<HTMLInputElement>(null);
+    // Opened again for a second try, holding what they wrote: the caret goes
+    // after it, not before.
+    useEffect(() => {
+        const el = ref.current;
+        if (autoFocus && el && document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
+    }, []);
     return (
         <input
+            ref={ref}
             type="text"
             autoComplete="off"
             autoCorrect="off"

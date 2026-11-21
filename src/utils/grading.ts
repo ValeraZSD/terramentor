@@ -3,7 +3,7 @@ import { QuizQuestion } from '../types';
 import { useStore } from '../store';
 import {
     formatOf, parseSequence, parseNumber, defaultTolerance, normalizeTyped, acceptedAnswers, spellingSlipOf,
-    readPieces, arrangementsOf, foldPiece,
+    readPieces, arrangementsOf, foldPiece, formTested,
 } from '../components/answer/formats';
 import { testsToGradeBy, runnableLanguage } from '../runner/languages';
 import { runVerdict } from '../runner/verdict';
@@ -21,6 +21,15 @@ export interface GradedAnswer {
     explanation: string;
     /** The checker declined to judge: not marked either way (assessments read it as wrong). */
     unsure?: boolean;
+    /**
+     * Wrong on FORM alone, on a task that tests form (`formTested`): the
+     * meaning was right. A typed gap graded on this device is all form (the
+     * sentence fixes the meaning), so any miss there counts. The stream
+     * offers one more try on it; `hint` points
+     * at the slip without giving the answer ('' when there is none to show).
+     */
+    formMiss?: boolean;
+    hint?: string;
     /** The run behind a `run` verdict: one row per test, or why the code was stopped. */
     run?: RunResult;
 }
@@ -49,6 +58,8 @@ async function gradeByRunning(question: QuizQuestion, answer: string): Promise<G
 }
 
 const norm = (s: string) => s.toLowerCase().trim();
+/** The form task's comparison, as the server makes it: spaces folded, case kept. */
+const squash = (s: string) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
  * Verdict for a locally graded format; null when the format needs the checker.
@@ -105,10 +116,18 @@ export function gradeLocally(
  * slightly different fallbacks, leaves a format added to one silently
  * ungradeable in the other — so there is exactly one.
  */
-export async function gradeAnswer(question: QuizQuestion, answer: string): Promise<GradedAnswer> {
+export async function gradeAnswer(
+    question: QuizQuestion,
+    answer: string,
+    { nodeId }: { nodeId?: number | null } = {},
+): Promise<GradedAnswer> {
+    const form = formTested(question);
     const local = gradeLocally(question, answer);
     if (local !== null) {
-        return { correct: local, answer, gradedBy: 'local', explanation: question.explanation };
+        // A typed gap that tests form is all form: a miss there is a form miss,
+        // with no hint to give but the generic one.
+        const formMiss = form && !local && question.type === 'fill_in' && !!normalizeTyped(answer);
+        return { correct: local, answer, gradedBy: 'local', explanation: question.explanation, ...(formMiss ? { formMiss: true, hint: '' } : {}) };
     }
     if (question.type === 'code') {
         const ran = await gradeByRunning(question, answer);
@@ -118,6 +137,9 @@ export async function gradeAnswer(question: QuizQuestion, answer: string): Promi
         const res = await api.checkAnswer(question.question, question.correct_answer, answer, {
             format: question.type,
             language: question.language,
+            // Only for a task that tests form: the server then marks the form,
+            // in the language of the topic's course.
+            ...(form ? { testsForm: true, ...(nodeId ? { nodeId } : {}) } : {}),
         });
         return {
             correct: !!res.correct,
@@ -125,10 +147,12 @@ export async function gradeAnswer(question: QuizQuestion, answer: string): Promi
             gradedBy: res.graded === false ? 'fallback' : 'ai',
             explanation: res.explanation || question.explanation,
             ...(res.unsure ? { unsure: true } : {}),
+            ...(form && res.formMiss && !res.correct ? { formMiss: true, hint: typeof res.hint === 'string' ? res.hint : '' } : {}),
         };
     } catch {
         // Grader unreachable — the same bare comparison the server would have
         // made, and reported as such so it is never written as evidence.
-        return { correct: norm(answer) === norm(question.correct_answer), answer, gradedBy: 'fallback', explanation: question.explanation };
+        const same = form ? squash(answer) === squash(question.correct_answer) : norm(answer) === norm(question.correct_answer);
+        return { correct: same, answer, gradedBy: 'fallback', explanation: question.explanation };
     }
 }

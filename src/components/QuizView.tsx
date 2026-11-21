@@ -149,7 +149,7 @@ export default function QuizView({ quiz, onClose }: Props) {
     // not-correct here (the explanation says so).
     const checkAnswer = async (question: QuizQuestion, userAnswer: string): Promise<AnswerResult> => {
         if (!userAnswer.trim()) return { correct: false, explanation: question.explanation };
-        const graded = await gradeAnswer(question, userAnswer);
+        const graded = await gradeAnswer(question, userAnswer, { nodeId: question.ghostNodeId ?? quiz.node_id });
         return { correct: graded.correct, explanation: graded.explanation, run: graded.run };
     };
 

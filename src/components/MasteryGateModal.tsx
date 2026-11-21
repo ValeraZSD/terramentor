@@ -455,7 +455,7 @@ export default function MasteryGateModal({
                 // order; anything else: nothing, which is wrong).
                 const userAnswer = answers[i] || defaultAnswer(q);
                 if (!userAnswer.trim()) { results[i] = { correct: false, explanation: q.explanation }; continue; }
-                const graded = await gradeAnswer(q, userAnswer);
+                const graded = await gradeAnswer(q, userAnswer, { nodeId: q.ghostNodeId ?? nodeId });
                 if (graded.correct) correct++;
                 results[i] = { correct: graded.correct, explanation: graded.explanation, run: graded.run };
             }

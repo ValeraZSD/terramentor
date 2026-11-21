@@ -120,10 +120,24 @@ export const formatOf = (question: Pick<QuizQuestion, 'type'>): FormatSpec =>
  * The line under an open input, as the grader will actually judge it. A key,
  * not text: the caller renders it through `t()`.
  */
-export const answerHint = (question: Pick<QuizQuestion, 'type'>, forgiveSpelling: boolean): string | undefined => {
+export const answerHint = (question: Pick<QuizQuestion, 'type' | 'tests_form'>, forgiveSpelling: boolean): string | undefined => {
     const { hint, forgivingHint } = formatOf(question);
+    // A task about the form forgives no slip and marks the grammar too: the
+    // line says so before the learner types.
+    if (formTested(question)) {
+        return question.type === 'short_answer' ? k("Judged on meaning, grammar and spelling") : hint;
+    }
     return (forgiveSpelling && forgivingHint) || hint;
 };
+
+/**
+ * Does this question test FORM, so that the form counts when it is graded?
+ * Its flag, and the verifier has confirmed the question (an unchecked one is
+ * graded on meaning). Mirror of `formTested` in `server/answerFormats.js`.
+ */
+export function formTested(question: Pick<QuizQuestion, 'tests_form'> | null | undefined): boolean {
+    return !!question && question.tests_form === true && !(question as { unverified?: unknown }).unverified;
+}
 
 /**
  * What an UNTOUCHED input already answers. An ordering is an answer from the
@@ -257,8 +271,10 @@ function isSlipOf(word: string, key: string): boolean {
  * `forgive_spelling`. Mirror of `spellingSlipOf` in `server/answerFormats.js`;
  * `tolerant-grading-gates.mjs` runs both against one table.
  */
-export function spellingSlipOf(question: Pick<QuizQuestion, 'type' | 'correct_answer' | 'accept'>, answer: string): string | null {
+export function spellingSlipOf(question: Pick<QuizQuestion, 'type' | 'correct_answer' | 'accept' | 'tests_form'>, answer: string): string | null {
     if (question?.type !== 'fill_in') return null;
+    // The slip IS what a task about the form marks.
+    if (formTested(question)) return null;
     const given = normalizeTyped(answer);
     if (!given) return null;
     const written = [question.correct_answer, ...(Array.isArray(question.accept) ? question.accept : [])];
