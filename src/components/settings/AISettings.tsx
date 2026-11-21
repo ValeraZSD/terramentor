@@ -20,6 +20,7 @@ import ServingEndpointsPicker from './ServingEndpointsPicker';
 import ModelJobsSection from './ModelJobsSection';
 import JobModelsSection from './JobModelsSection';
 import { switchSaver } from '../../utils/switchSaver';
+import { failureText } from '../../utils/failureText';
 import { useEmbeddingStatus } from './useEmbeddingStatus';
 import type { SettingsSnapshot } from './settingsSnapshot';
 import type { ClientSettingKey } from '../../settingKeys';
@@ -394,12 +395,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
             } else {
                 setModels([]);
                 setConnectionStatus('disconnected');
-                setConnectionError(result.error || 'Failed to load models');
+                setConnectionError(result.error || tr("The models could not be listed."));
             }
         } catch (e: any) {
             setModels([]);
             setConnectionStatus('disconnected');
-            setConnectionError(e.message);
+            setConnectionError(failureText(e, tr("The models could not be listed.")));
         } finally {
             setModelsLoading(false);
         }
@@ -420,12 +421,12 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                 await loadModels();
             } else {
                 setConnectionStatus('disconnected');
-                setConnectionError(status.error || 'Cannot connect to the AI provider');
+                setConnectionError(status.error || tr("Cannot connect to the AI provider."));
                 setModels([]);
             }
         } catch (e: any) {
             setConnectionStatus('disconnected');
-            setConnectionError(e.message);
+            setConnectionError(failureText(e, tr("Cannot connect to the AI provider.")));
             setModels([]);
         }
     };

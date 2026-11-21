@@ -10,6 +10,7 @@ import { ruleExpansion, applyChoices, withChoices, choicesFromLegacy, choicesFro
 import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dragOrder';
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
+import { failureText } from './utils/failureText';
 import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate, replacedKeys } from './utils/feedPlacement';
 import { blockEnd, heldCourses } from './components/feed/courseBlocks';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
@@ -2419,7 +2420,7 @@ export const useStore = create<AppState>((set, get) => ({
             if (updates.status && projectId) get().checkProjectCompletion(projectId);
             return true;
         } catch (e: any) {
-            const msg = e.message || 'Failed to save changes';
+            const msg = e.message || '';
             if (e.data?.mastery_gate || msg.includes('mastery_gate')) {
                 // Completion was intercepted by the mastery gate. Open the mastery
                 // check modal; in advisory mode it also offers "mark done anyway".
@@ -2427,7 +2428,9 @@ export const useStore = create<AppState>((set, get) => ({
                 if (node) get().openMasteryGate(id, node.title, e.data?.advisory ?? true);
                 return false;
             } else {
-                get().addToast('error', i18n.t('Failed to save changes'), msg);
+                // The title already says it failed; the line under it is the
+                // server's reason, or nothing.
+                get().addToast('error', i18n.t('Failed to save changes'), failureText(e, '') || undefined);
                 return false;
             }
         }

@@ -10,6 +10,7 @@ import { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useStore } from '../store';
 import { aiRuntime, slowGenerationHint, timeoutHint } from '../utils/aiHints';
+import { failureText } from '../utils/failureText';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
@@ -325,7 +326,7 @@ export default function MasteryGateModal({
                             const raw = genErr?.rawResponse || genErr?.data?.raw_response || null;
                             setRawOutput(raw);
 
-                            const reason = genErr?.message || 'Unknown error';
+                            const reason = genErr?.message || t("Unknown error");
                             // The explanation is translated; the raw `reason` in
                             // brackets is not, on purpose — it is the upstream
                             // message, and a translated copy of it would not match
@@ -399,7 +400,7 @@ export default function MasteryGateModal({
             } catch (err: any) {
                 if (!cancelled) {
                     if (err?.data?.code === 'not_a_topic') setNotTopic(true);
-                    setError(err.message || 'Failed to load questions');
+                    setError(failureText(err, t("The questions could not be loaded.")));
                     setLoading(false);
                     setGenerating(false);
                 }

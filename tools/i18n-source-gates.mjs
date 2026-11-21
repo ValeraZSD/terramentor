@@ -504,5 +504,78 @@ console.log('--- words that stay English round a value ---');
     }
 }
 
+// --- 11. what a screen says when something failed ------------------------------
+// `setError(err.message || 'The placement could not be prepared.')` was the
+// shape of 19 error lines (placement, Anki import, the lock screen, the mastery
+// check, the atlas, the assistant, AI settings): the sentence a learner reads
+// exactly when something went wrong, in English under every interface
+// language. And `err.message` itself was English whenever the BROWSER wrote it
+// ("Failed to fetch" with the server down). The fallback is a key, and the
+// message goes through `failureText` (src/utils/failureText.ts), which keeps a
+// server's reason and swaps the browser's words for the screen's own sentence.
+console.log('--- what a screen says when something failed ---');
+{
+    // `message || 'Two words'` / `error ?? "…"`: a sentence, not a one-word code
+    // (`reason ?? 'other'` is a lookup key, not text).
+    const BARE_FALLBACK = /\b(?:message|error|reason|detail)\s*(?:\|\||\?\?)\s*(['"])((?:(?!\1)[^\\\n])*[A-Za-z](?:(?!\1)[^\\\n])* (?:(?!\1)[^\\\n])*)\1/g;
+    const bareFallbacks = (src) => [...src.matchAll(BARE_FALLBACK)].map((m) => m[2]);
+    // Read by no learner: the reason goes to the model that repairs a drawing.
+    const NOT_SHOWN = new Set(['src/components/visuals/VisualBlock.tsx|render failed']);
+    const screens = [...read.keys()].filter((f) => {
+        const rel = relative(root, f).replace(/\\/g, '/');
+        return rel.endsWith('.tsx') || rel.startsWith('src/hooks/') || rel === 'src/store.ts';
+    });
+    const bare = [];
+    for (const f of screens) {
+        const src = read.get(f);
+        const rel = relative(root, f).replace(/\\/g, '/');
+        for (const m of src.matchAll(BARE_FALLBACK)) {
+            if (!NOT_SHOWN.has(`${rel}|${m[2]}`)) bare.push(`${at(f, src, m.index)}  ${JSON.stringify(m[2])}`);
+        }
+    }
+    check('an error line a screen falls back to is a translation key, not a bare English literal', bare);
+    check('the rule still catches the shape it was written for (PlacementModal.tsx)',
+        [
+            ["setError(err.message || 'The placement could not be prepared.');", 1],
+            ["patch(key, { state: 'failed', error: e?.message || 'Upload failed' });", 1],
+            ['setError(failureText(err, t("The placement could not be prepared.")));', 0],
+            ["text: failText(result.reason ?? 'other')", 0],
+        ].filter(([sample, want]) => bareFallbacks(sample).length !== want).map(([sample]) => sample));
+
+    // failureText itself, run: which messages it keeps and which it replaces.
+    const { createRequire } = await import('node:module');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { pathToFileURL } = await import('node:url');
+    const esbuild = createRequire(import.meta.url)('esbuild');
+    const scratch = mkdtempSync(join(tmpdir(), 'i18n-failure-text-'));
+    try {
+        const outfile = join(scratch, 'failureText.mjs');
+        await esbuild.build({ entryPoints: [join(srcDir, 'utils/failureText.ts')], bundle: true, format: 'esm', platform: 'node', outfile, logLevel: 'silent' });
+        const { failureText } = await import(pathToFileURL(outfile).href);
+        const named = (name, message) => Object.assign(new Error(message), { name });
+        const cases = [
+            ['the server is down (Chrome, Edge)', new TypeError('Failed to fetch'), 'FALLBACK'],
+            ['the server is down (Safari)', new TypeError('Load failed'), 'FALLBACK'],
+            ['a request that timed out', named('AbortError', 'signal is aborted without reason'), 'FALLBACK'],
+            ['a reply that was not JSON', new SyntaxError('Unexpected token < in JSON at position 0'), 'FALLBACK'],
+            ["the api client's own status line", new Error('API error: 502'), 'FALLBACK'],
+            ['an upload status line', new Error('Upload failed (HTTP 413)'), 'FALLBACK'],
+            ['an empty message', new Error(''), 'FALLBACK'],
+            ['nothing at all', undefined, 'FALLBACK'],
+            ['a thrown string', 'boom', 'FALLBACK'],
+            ["a server's reason, kept", new Error('Onjuist wachtwoord'), 'Onjuist wachtwoord'],
+            ["a server's English reason, kept as it came", new Error('Too many attempts. Try again in 30s.'), 'Too many attempts. Try again in 30s.'],
+        ];
+        check('failureText keeps a server\'s reason and gives the browser\'s words way to the screen\'s sentence',
+            cases.filter(([, err, want]) => failureText(err, 'FALLBACK') !== want)
+                .map(([label, err, want]) => `${label}: got ${JSON.stringify(failureText(err, 'FALLBACK'))}, want ${JSON.stringify(want)}`));
+    } catch (e) {
+        check('failureText (src/utils/failureText.ts) builds and runs', [e.message.split('\n')[0]]);
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

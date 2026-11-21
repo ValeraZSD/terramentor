@@ -30,6 +30,7 @@ import {
 } from './atlas/sheetGesture';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { motionReduced } from '../utils/accessibility';
+import { failureText } from '../utils/failureText';
 
 /**
  * The atlas: the whole library as one space instead of one tree per course.
@@ -267,7 +268,7 @@ export default function AtlasView() {
         } catch (e: any) {
             // A revalidation that fails behind an already-drawn map is not an
             // error the reader can act on — the map on screen is still true.
-            if (!lastAtlas) setError(e?.message || 'Could not load the atlas.');
+            if (!lastAtlas) setError(failureText(e, tr("Could not load the atlas.")));
         } finally {
             setLoading(false);
         }
