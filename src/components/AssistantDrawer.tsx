@@ -1009,7 +1009,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 }
                 setTurnError({ message: failed.error || tr("The answer could not be written."), text: question, keptIn: 'chat' });
             });
-    }, [open, streaming, aiTasks, loadHistory, conversationId]);
+    }, [open, streaming, aiTasks, loadHistory, conversationId, tr]);
 
     const send = useCallback(async (text: string) => {
         const message = text.trim();
@@ -1206,7 +1206,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
         }
-    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
+    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say, tr]);
 
     // Coming back to the app re-reads the conversation. A phone suspends the
     // page while another app is in front; whatever this panel showed at that
