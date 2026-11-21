@@ -186,8 +186,12 @@ export default function MarkdownNotes({ value, onChange, onSave, placeholder, la
         const handleNativeKeydown = (e: KeyboardEvent) => {
             // A key pressed while an input method is composing (Japanese,
             // Chinese, Korean) belongs to the IME: Escape there drops the
-            // half-typed word, not the edit.
-            if (e.isComposing || e.keyCode === 229) return;
+            // half-typed word, not the edit, and it still stops here so a
+            // dialog around the editor does not close on it.
+            if (e.isComposing || e.keyCode === 229) {
+                if (e.key === 'Escape') e.stopPropagation();
+                return;
+            }
             if (e.key === 'Escape') {
                 e.stopPropagation();        // stop bubble to document
                 void keysRef.current.cancel();
