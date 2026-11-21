@@ -145,9 +145,12 @@ function EarlierParts({ card }: { card: FeedLessonCard }) {
     );
 }
 
-// Letters and digits of ANY script: an ASCII-only class reduced every Cyrillic
-// or Greek title to '', so two different titles compared equal.
-const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+// Letters, their marks and digits of ANY script: an ASCII-only class reduced
+// every Cyrillic or Greek title to '', so two different titles compared equal.
+// Marks stay because Devanagari, Thai and Arabic words can differ only in them.
+const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+/** Two titles that say the same words; one with no words at all restates nothing. */
+const sameTitle = (a: string, b: string) => a === b || (norm(a) !== '' && norm(a) === norm(b));
 
 /**
  * Split the lesson's own leading heading off its body.
@@ -168,7 +171,7 @@ export function splitLessonHeading(markdown: string, partTitle: string | null): 
     const leading = match?.[1]?.trim();
     if (!leading) return { heading: partTitle, body: markdown };
     if (!partTitle) return { heading: leading, body: markdown.slice(match![0].length) };
-    if (norm(leading) === norm(partTitle)) return { heading: partTitle, body: markdown.slice(match![0].length) };
+    if (sameTitle(leading, partTitle)) return { heading: partTitle, body: markdown.slice(match![0].length) };
     return { heading: partTitle, body: markdown };
 }
 

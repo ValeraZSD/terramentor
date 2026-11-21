@@ -67,6 +67,11 @@ try {
             JSON.stringify(same));
         const cased = splitLessonHeading('# ВВЕДЕНИЕ: часть 1\n\nТекст', 'Введение — часть 1');
         check('…across case and punctuation', cased.body.trim() === 'Текст', JSON.stringify(cased));
+        // कल ("tomorrow") and काल ("time") differ only in a vowel sign, a mark.
+        const hindi = splitLessonHeading('## काल\n\nपाठ', 'कल');
+        check('Hindi titles that differ only in a vowel sign are different', hindi.body.startsWith('## काल'), JSON.stringify(hindi));
+        const symbols = splitLessonHeading('## ★\n\nBody', '☆');
+        check('two titles with no letters at all are not a restatement', symbols.body.startsWith('## ★'), JSON.stringify(symbols));
         const latin = splitLessonHeading('## Frequency and Period Explained\n\nBody', 'Frequency and period, explained');
         check('a Latin restatement is still dropped (control)', latin.body.trim() === 'Body', JSON.stringify(latin));
         const latinOther = splitLessonHeading('## Worked example\n\nBody', 'Frequency');
