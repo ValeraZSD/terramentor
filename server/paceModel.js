@@ -315,7 +315,8 @@ export const CROWDING_BANDS = ['tight', 'out_of_reach'];
  * The learner has one week, not one per course. Each unit (topics, cards) is
  * shared on its own: a deck's new cards do not use up a course's topics. The
  * capacity of a unit is the best pace the learner has held in it; with no
- * such pace yet (under two weeks of data) nothing is rationed.
+ * such pace yet (under two weeks of data) nothing is rationed. A best of 0
+ * is a pace, not a missing one: the nearest date takes the week.
  *
  * Walked nearest date first, each dated course takes the pace its date needs
  * from what is left. A course whose date needs more than is left is `short`
@@ -343,7 +344,7 @@ export function shareCapacity(courses, capacity = {}) {
     const unitOf = (c) => (c.unit === 'cards' ? 'cards' : 'topics');
     for (const u of ['topics', 'cards']) {
         const cap = capacity[u];
-        units[u] = { capacity: Number.isFinite(cap) && cap > 0 ? cap : null, claimed: 0, crowdedBy: null };
+        units[u] = { capacity: Number.isFinite(cap) && cap >= 0 ? cap : null, claimed: 0, crowdedBy: null };
     }
     const dated = [];
     const rest = [];

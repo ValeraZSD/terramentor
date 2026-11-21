@@ -18,7 +18,7 @@
 // The clock is a parameter: every date derives from NOW; the handlers and the
 // chip read Date.now(), which is pinned to NOW while they run.
 
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
@@ -90,6 +90,11 @@ if (typeof share === 'function') {
     check('with no pace yet nothing is rationed: both served, nearest first',
         show(early.order) === show(['exam', 'far']) && early.units.topics.capacity === null, show(early));
 
+    // Two weeks of record and nothing closed is a pace of 0, not "no pace yet".
+    const zero = share([c('near', 'out_of_reach', 2, 10), c('later', 'out_of_reach', 1, 60)], { topics: 0 });
+    check('a best pace of 0 still rations: the nearest date takes the week, the later one waits',
+        zero.units.topics.capacity === 0 && zero.courses.get('later').status === 'waiting' && show(zero.order) === show(['near']), show(zero));
+
     const tie = share([c(12, 'on_pace', 0.5, 30), c(3, 'on_pace', 0.5, 30)], { topics: 3 });
     check('two courses due the same day are served in id order', show(tie.order) === show([3, 12]), show(tie.order));
     check('shareCapacity reads no clock', !/Date\.now|new Date\(\)/.test(share.toString()));
@@ -124,7 +129,7 @@ topics(exam, 20, 'exam');
 const small = mkProject('Small, due in 10', { deadline: ahead(10), start: ago(10) });
 topics(small, 1, 'small');
 
-const { getFocusNodes, buildFeedHeader } = await import('../server/feed.js');
+const { getFocusNodes, buildFeedHeader, composeFeed } = await import('../server/feed.js');
 const focusProjects = (opts = {}) => getFocusNodes({ maxTotal: 12, maxPerProject: 4, now: NOW_MS, ...opts }).focus.map(f => f.projectId);
 
 const realNow = Date.now;
@@ -154,7 +159,26 @@ try {
     check('the deadline chip names the exam (out of reach), not the nearer course on pace',
         header.deadline?.projectId === exam, show(header.deadline));
     check('…by its verdict', header.deadline?.band === 'out_of_reach' && header.deadline?.paceStatus === 'critical', show(header.deadline));
-    check('…and prints no "days behind"', header.deadline?.daysBehind === 0, show(header.deadline));
+    // The screen: a red chip once said "17d left" and "on track" in its
+    // tooltip, because its text read a "days behind" that is always 0.
+    const chipSrc = readFileSync(new URL('../src/components/feed/FeedHeader.tsx', import.meta.url), 'utf8');
+    check('…and the chip prints the verdict\'s word, never "days behind"',
+        /t\(LABEL\[deadline\.band\]\)/.test(chipSrc) && !/daysBehind|on track/.test(chipSrc));
+
+    // A course held this week is served no new work, so its overdue topics
+    // are not work to catch up on (a windowless course keeps stored dates).
+    const late = db.prepare('SELECT id FROM nodes WHERE project_id = ? ORDER BY id LIMIT 1').get(undated).id;
+    db.prepare('UPDATE nodes SET scheduled_start = ?, scheduled_end = ? WHERE id = ?').run(ago(6), ago(3), late);
+    const banner = buildFeedHeader().catchUp;
+    check('the catch-up banner leaves out a course waiting behind the exam', banner.active === false && banner.overdueLeaves === 0, show(banner));
+    const focusWhileLate = getFocusNodes({ maxTotal: 12, maxPerProject: 4, now: NOW_MS });
+    check('…and so does the stream\'s catch-up mark', focusWhileLate.catchUpActive === false, show(focusWhileLate.catchUpActive));
+    db.prepare('UPDATE nodes SET scheduled_start = NULL, scheduled_end = NULL WHERE id = ?').run(late);
+
+    // One feed load reads the library's week once: the stream hands it on.
+    const composed = composeFeed({ limit: 5 });
+    check('the stream hands the week it ranked by to the header', composed.capacity?.courses instanceof Map, show(Object.keys(composed)));
+    check('an answer\'s reply reads the day\'s numbers alone, no plan', !('deadline' in buildFeedHeader({ plan: false })));
 
     const rowFar = await overviewRow(far);
     const rowExam = await overviewRow(exam);
@@ -190,6 +214,20 @@ try {
     check('the chip leaves a paused course out', chip2?.projectId === exam || chip2?.projectId === small, show(chip2));
     db.prepare('UPDATE projects SET paused = 1 WHERE id = ?').run(exam);
     check('…a paused exam is not the chip', buildFeedHeader().deadline?.projectId === small, show(buildFeedHeader().deadline));
+
+    // Pressed on a course that is itself paused: it is resumed, or the week
+    // would go to nobody.
+    const press2 = await call('POST', `/api/projects/${exam}/pause-others`);
+    check('"Pause the other courses" on a paused course resumes it', press2.status === 200
+        && (await call('GET', `/api/projects/${exam}`)).json?.paused === 0, show(press2.json));
+    const stamp = db.prepare('SELECT updated_at FROM projects WHERE id = ?').get(small).updated_at;
+    check('…and stamps the paused courses in ISO time', /^\d{4}-\d\d-\d\dT/.test(String(stamp)), String(stamp));
+
+    // Dated means a deadline, as the verdict and the capacity read it: a
+    // course with no start date is still dated for the chip.
+    db.prepare('UPDATE projects SET paused = 0, start_date = NULL WHERE id = ?').run(small);
+    db.prepare('UPDATE projects SET paused = 1 WHERE id = ?').run(exam);
+    check('the chip names a dated course that has no start date', buildFeedHeader().deadline?.projectId === small, show(buildFeedHeader().deadline));
 } catch (err) {
     check('the library half ran to the end', false, err?.stack?.split('\n').slice(0, 3).join(' | '));
 } finally {

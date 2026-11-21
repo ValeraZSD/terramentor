@@ -1,6 +1,9 @@
 import db, { NOT_REPORTED, NOW_ISO } from './database.js';
 import { calculatePace, daysUntil } from './scheduling.js';
 import { libraryCapacity, paceStatusOf, severityOf } from './capacity.js';
+
+/** Capacity statuses that get no new work this week (server/capacity.js). */
+const HELD = new Set(['paused', 'waiting']);
 import { getGhostQuestions } from './dailyPlan.js';
 import { getNodeMasteryDetail, checkMasteryEligibility, updateMasteryFromAttempt, recordOnce } from './mastery.js';
 import { OPEN_LEAF, OPEN_WORK_LEAF, WORK_LEAF, LEAF_NODE, ACTIVE_PROJECT_JOIN } from './today.js';
@@ -328,13 +331,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // topics and "days behind", under which a course at 0% due next year
     // outranked an exam in 17 days.)
     const capacity = onlyProject ? null : libraryCapacity({ now: now == null ? undefined : Number(now) });
-    const rankOf = (i) => capacity?.courses.get(i.project.id)?.rank ?? Number.POSITIVE_INFINITY;
+    const rankOf = (i) => capacity?.courses.get(i.project.id)?.rank ?? Number.MAX_SAFE_INTEGER;
     if (capacity) infos.sort((a, b) => rankOf(a) - rankOf(b));
     // Held back this week: waiting behind a nearer date, or paused.
-    const held = (i) => {
-        const status = capacity?.courses.get(i.project.id)?.status;
-        return status === 'paused' || status === 'waiting';
-    };
+    const held = (i) => HELD.has(capacity?.courses.get(i.project.id)?.status);
 
     const anyScheduledWork = infos.some(i => !held(i) && (i.overdue.length || i.todays.length));
     // A CARD COLLECTION holds a STANDING SLOT: its unscheduled leaves are always
@@ -434,7 +434,8 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     return {
         focus,
         projectInfos: infos,
-        catchUpActive: infos.some(i => i.overdue.length > 0),
+        catchUpActive: infos.some(i => !held(i) && i.overdue.length > 0),
+        capacity,
     };
 }
 
@@ -662,7 +663,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // and never a second composer.
     const scoped = Number.isInteger(nodeId) && nodeId > 0;
     const projectScope = !scoped && Number.isInteger(projectId) && projectId > 0 ? projectId : null;
-    const { focus, projectInfos } = scoped
+    const { focus, projectInfos, capacity } = scoped
         ? getFocusForNode(nodeId)
         : getFocusNodes(projectScope ? { projectId: projectScope } : {});
     // The topic's first lesson, while the writer is on it, or after it failed.
@@ -1378,11 +1379,19 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         for (const id of Object.keys(map)) map[id].review = reviews.has(Number(id));
     }
 
-    return { items, exhausted, transfers, placements, lessonWrite: write };
+    // `capacity`: the library's week this stream was ranked by, for the
+    // header built in the same request (null on one course or one topic).
+    return { items, exhausted, transfers, placements, lessonWrite: write, capacity: capacity ?? null };
 }
 
 /** Slim header for the feed shell: today's activity, catch-up state, deadline chip. */
-export function buildFeedHeader() {
+/**
+ * @param {{ capacity?: ReturnType<typeof libraryCapacity>|null, plan?: boolean }} [opts]
+ *   `capacity` is the library's week when the caller already has it (the feed
+ *   route, from the stream it just composed); `plan: false` answers the day's
+ *   numbers only, for a caller that reads nothing else (an answer's reply).
+ */
+export function buildFeedHeader({ capacity = null, plan = true } = {}) {
     const day = studyDay();
     const today = day.date;
 
@@ -1433,14 +1442,29 @@ export function buildFeedHeader() {
         WHERE r.source = 'app' AND r.state_before = 0 AND ${IN_DAY('r.reviewed_at')}
     `).get(day.start, day.end).c;
 
+    const stats = {
+        itemsDoneToday: lessonsDone + ev.c + cardsReviewed,
+        lessonsReadToday: lessonsDone,
+        questionsAnsweredToday: ev.c,
+        accuracyToday: ev.t > 0 ? ev.s / ev.t : null,
+        cardsReviewedToday: cardsReviewed,
+        newCardsIntroducedToday: newIntroduced,
+    };
+    if (!plan) return { date: today, stats };
+
     refreshTopicDates({ today });
+    // The library's week, read once for the banner and the chip.
+    let week = capacity;
+    const weekOf = () => (week ??= libraryCapacity());
+    // A course held this week (paused, or waiting behind a nearer date) is
+    // served no new work, so its overdue topics are not work to catch up on.
     const overdueRows = db.prepare(`
         SELECT n.project_id AS pid, p.name AS name, COUNT(*) AS c
         FROM plan_nodes n
         ${ACTIVE_PROJECT_JOIN}
         WHERE ${OPEN_WORK_LEAF} AND n.scheduled_end < ?
         GROUP BY n.project_id
-    `).all(today);
+    `).all(today).filter(r => !HELD.has(weekOf().courses.get(r.pid)?.status));
     const catchUp = {
         active: overdueRows.length > 0,
         overdueLeaves: overdueRows.reduce((a, r) => a + r.c, 0),
@@ -1451,19 +1475,19 @@ export function buildFeedHeader() {
     // reach, then tight, then under pace), then the soonest date. Read from
     // the learned-pace verdict, the same one the course header shows: the old
     // "days behind" was a share of the window, not days, and with topic dates
-    // derived on read it could no longer say behind at all. `daysBehind`
-    // stays in the reply as 0 for an older screen; a paused course is left out.
+    // derived on read it could no longer say behind at all. Dated means a
+    // deadline, as the verdict and the capacity read it; a paused course is
+    // left out.
     const scheduled = db.prepare(`
         SELECT id, name, color, deadline FROM projects
         WHERE COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
-          AND start_date IS NOT NULL AND deadline IS NOT NULL AND deadline >= ?
+          AND deadline IS NOT NULL AND deadline >= ?
     `).all(today);
     let deadline = null;
     if (scheduled.length) {
-        const capacity = libraryCapacity();
         let best = -1;
         for (const p of scheduled) {
-            const verdict = capacity.courses.get(p.id)?.verdict;
+            const verdict = weekOf().courses.get(p.id)?.verdict;
             if (!verdict || verdict.band === 'done') continue;
             const severity = severityOf(verdict);
             const daysLeft = daysUntil(p.deadline, today);
@@ -1475,24 +1499,11 @@ export function buildFeedHeader() {
                 daysLeft,
                 band: verdict.band,
                 paceStatus: paceStatusOf(verdict),
-                daysBehind: 0,
             };
         }
     }
 
-    return {
-        date: today,
-        stats: {
-            itemsDoneToday: lessonsDone + ev.c + cardsReviewed,
-            lessonsReadToday: lessonsDone,
-            questionsAnsweredToday: ev.c,
-            accuracyToday: ev.t > 0 ? ev.s / ev.t : null,
-            cardsReviewedToday: cardsReviewed,
-            newCardsIntroducedToday: newIntroduced,
-        },
-        catchUp,
-        deadline,
-    };
+    return { date: today, stats, catchUp, deadline };
 }
 
 /**

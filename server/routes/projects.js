@@ -3,7 +3,7 @@
 // Mounted in 3 blocks (see createApp in server/app.js), because the server
 // registers other areas' routes between them and Express matches in registration
 // order. A new route goes in the block it belongs with.
-import db from '../database.js';
+import db, { NOW_ISO } from '../database.js';
 import { clearProjectSetting } from '../projectSettings.js';
 import { PROJECT_SETTING_PREFIXES } from '../settingsSchema.js';
 import { clearStoredOpenDates, daysBetween, isScheduleDate, lockedDeadlineError, MAX_SCHEDULE_DAYS, readStudyDays } from '../scheduling.js';
@@ -215,17 +215,21 @@ app.put('/api/projects/:id', (req, res) => {
 
 // The verdict's "Pause the other courses" offer, as one press: every other
 // active course stops getting new work, so the library's week goes to this
-// one. Undone per course with PUT { paused: false }.
+// one. Undone per course with PUT { paused: false }. The course it is pressed
+// on is resumed in the same write, or the week would go to nobody.
 app.post('/api/projects/:id/pause-others', (req, res) => {
     const id = Number(req.params.id);
     if (!db.prepare("SELECT 1 FROM projects WHERE id = ? AND COALESCE(status, 'active') = 'active'").get(id)) {
         return res.status(404).json({ error: 'Project not found' });
     }
-    const paused = db.prepare(`
-        UPDATE projects SET paused = 1, updated_at = CURRENT_TIMESTAMP
-        WHERE id != ? AND COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
-        RETURNING id
-    `).all(id).map(r => r.id);
+    const paused = db.transaction(() => {
+        db.prepare(`UPDATE projects SET paused = 0, updated_at = ${NOW_ISO} WHERE id = ? AND paused != 0`).run(id);
+        return db.prepare(`
+            UPDATE projects SET paused = 1, updated_at = ${NOW_ISO}
+            WHERE id != ? AND COALESCE(status, 'active') = 'active' AND COALESCE(paused, 0) = 0
+            RETURNING id
+        `).all(id).map(r => r.id);
+    })();
     res.json({ paused });
 });
 
