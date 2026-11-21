@@ -245,26 +245,29 @@ export default function NodeTree() {
                     </div>
                 </div>
 
-                {/* Center section - AI generation status */}
-                <div className="absolute left-1/2 transform -translate-x-1/2">
-                    {generatingProject && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
-                            <Loader2 className="w-4 h-4 text-amber-500 animate-spin shrink-0" />
-                            <span className="text-sm text-amber-700 dark:text-amber-300 font-medium whitespace-nowrap">{t("In progress — AI generation")}</span>
-                            <div className="w-px h-4 bg-amber-300 dark:bg-amber-600 shrink-0" />
-                            <Button
-                                size="sm"
-                                variant="quiet"
-                                onClick={() => openGenerationModal(generatingProject.id)}
-                                title={t("View AI generation progress")}
-                                icon={<Eye className="w-4 h-4" aria-hidden="true" />}
-                                className="shrink-0"
-                            >
-                                {t("View")}
-                            </Button>
-                        </div>
-                    )}
-                </div>
+                {/* Middle - AI generation status. In the row's flow, between the
+                    title and the button: the row is not positioned, so an
+                    absolute centre was the page's, and it sat over the title
+                    or the button whenever the tree pane was not centred on the
+                    page. When the row is too narrow it wraps to a line of its
+                    own. */}
+                {generatingProject && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+                        <Loader2 className="w-4 h-4 text-amber-500 animate-spin shrink-0" />
+                        <span className="text-sm text-amber-700 dark:text-amber-300 font-medium whitespace-nowrap">{t("In progress — AI generation")}</span>
+                        <div className="w-px h-4 bg-amber-300 dark:bg-amber-600 shrink-0" />
+                        <Button
+                            size="sm"
+                            variant="quiet"
+                            onClick={() => openGenerationModal(generatingProject.id)}
+                            title={t("View AI generation progress")}
+                            icon={<Eye className="w-4 h-4" aria-hidden="true" />}
+                            className="shrink-0"
+                        >
+                            {t("View")}
+                        </Button>
+                    </div>
+                )}
 
                 {/* Right section - Add Category button. `whitespace-nowrap`: beside a
                     narrow pane (detail panel open) its label would wrap onto the
