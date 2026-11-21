@@ -659,7 +659,7 @@ export function readLessonParts(nodeId, beforePart, { withText = true } = {}) {
  * now: the instant the recall round reads (which topics are fading, how many
  *   days ago); gates pin it, everyone else gets the real one.
  */
-export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null, lessonWrite = null, now = new Date() } = {}) {
+export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGateConfig(), nodeId = null, projectId = null, lessonWrite = null, now = new Date(), courses = [] } = {}) {
     // The learner's day as the instants it spans: every "today" counter below
     // counts what was stamped inside it (server/studyDay.js).
     const day = studyDay();
@@ -1070,67 +1070,106 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         .map(r => ({ key: `fcnew-${r.id}`, kind: 'flashcard', card: r, isNew: true }))
         .filter(c => !excluded(c.key));
 
+    // --- Course blocks --------------------------------------------------------
+    // The stream is one course at a time: a course's whole share of the day,
+    // then the next course's, never a card of one course between two of
+    // another's. A share is what that course's own page serves, in its order:
+    // its look back, its recall round, its topics each to their checkpoint
+    // with its own cards between them, then the rest of its cards. Two courses
+    // are not confusable categories, so mixing them buys no discrimination and
+    // costs a switch every few cards; the interleave WITHIN a course stays.
+    // A course's or a topic's page is one block, served as it always was.
+    //
+    // Which course first is the focus order (overdue and behind first, decks
+    // and short courses after), then any other course with cards owed or
+    // topics fading, in the same urgency order.
+    const homeStream = !scoped && !projectScope;
+    // The blocks the client already holds, in its order (`courses`). The one
+    // it is in goes on first, even when finishing a topic lowered that course's
+    // urgency: page 2 must not open the next course and leave this one's rest
+    // after it. A course it moved on from comes last, and only with work that
+    // arrived since.
+    const held = homeStream ? courses.filter(id => Number.isInteger(id) && id > 0) : [];
+    const opened = new Set(held);
+    const current = held.length ? held[held.length - 1] : null;
+    const urgencyOrder = [...new Set([
+        ...nodeQueues.map(q => q.f.projectId),
+        ...projectInfos.map(i => i.project.id),
+        ...[...due, ...news].map(c => c.card.project_id),
+    ])];
+    const blockOrder = [
+        ...urgencyOrder.filter(id => id === current),
+        ...urgencyOrder.filter(id => !opened.has(id)),
+        ...urgencyOrder.filter(id => opened.has(id) && id !== current),
+    ];
+    const poolsBy = (cards) => {
+        const by = new Map();
+        for (const c of cards) {
+            if (!by.has(c.card.project_id)) by.set(c.card.project_id, []);
+            by.get(c.card.project_id).push(c);
+        }
+        return by;
+    };
+    const dueBy = poolsBy(due);
+    const newsBy = poolsBy(news);
+
     // --- Review round (the Remember loop) -----------------------------------
-    // A fading topic comes back on its own, with no button to press: the
-    // stream OPENS with one recall question from each fading topic, oldest
-    // first, from the course studied next (below), at most `recallPerBatch` of them,
-    // each the topic's first pick by difficulty (`recallOrder`). The cards
-    // carry `review` so the stream can say what the run is. One round per
-    // visit, on the OPENING page only (the client holds nothing yet): a later
-    // page is paging on below what the learner already has, and a topic that
-    // faded since then waits for the next visit rather than open a round in
-    // the middle of the stream. The topics a learner skipped come back then
-    // too, still fading. Never longer than the page. A topic's own page has
-    // no `projectInfos`, so it never carries one.
+    // A fading topic comes back on its own, with no button to press: a
+    // course's block OPENS with one recall question from each of its fading
+    // topics, at most `recallPerBatch` of them, each the topic's first pick by
+    // difficulty (`recallOrder`), so the learner warms up in the subject they
+    // are about to study. The cards carry `review` so the stream can say what
+    // the run is. One round per course per visit, when its block opens: on a
+    // course's page the opening page; on Today a course the client holds
+    // nothing of yet. A block that continues later opens none, and a topic
+    // that faded since waits for the next visit rather than open a round in
+    // the middle of its block. A page that names no block it holds (a client
+    // from before blocks) opens none past the first page. Never longer than
+    // the page. A topic's own page has no `projectInfos`, so it never carries one.
     const openingPage = excludeKeys.size === 0;
     const roundHeld = [...excludeKeys].some(k => String(k).startsWith('recall-'));
-    const review = [];
     const roundSize = Math.min(fs.recallPerBatch, limit);
-    if (openingPage && roundSize > 0) {
-        const fadingIn = (infos) => {
-            const out = [];
-            for (const info of infos) {
-                let ghosts = [];
-                try {
-                    ghosts = getGhostQuestions(info.project.id, roundSize, gate.decayDays, now, { perTopic: 1 });
-                } catch (err) {
-                    // The other courses' reviews still go out; this one's failure is said.
-                    console.warn(`[feed] recall round left out project ${info.project.id}: ${err?.message ?? err}`);
-                    ghosts = [];
-                }
-                for (const ghost of ghosts) out.push({ ghost, info });
-            }
-            return out;
+    const opensHere = (pid) => (homeStream
+        ? (openingPage || held.length > 0) && !opened.has(pid)
+        : openingPage);
+    // Asked once per course per page: `exhausted` asks again for the blocks the
+    // page stopped before, and a failing course is warned about once.
+    const perCourse = (fn) => {
+        const seen = new Map();
+        return (pid) => {
+            if (!seen.has(pid)) seen.set(pid, fn(pid));
+            return seen.get(pid);
         };
-        // The round reviews the course whose new material comes right below
-        // it, so the learner warms up in the subject they are about to study.
-        // Nothing new below, or nothing fading in that course: every course in
-        // scope, oldest first.
-        const nextCourse = nodeQueues.find(q => q.cards.length > 0)?.f.projectId ?? null;
-        const nextInfos = nextCourse == null ? [] : projectInfos.filter(i => i.project.id === nextCourse);
-        let fading = nextInfos.length ? fadingIn(nextInfos) : [];
-        if (!fading.length) fading = fadingIn(projectInfos);
-        // A slip is promised back the next day the learner studies, whichever
-        // course they open: the other courses' slips join the round too.
-        else fading.push(...fadingIn(projectInfos.filter(i => i.project.id !== nextCourse)).filter(f => f.ghost.slipped));
-        // Byte order, as the SQL that listed each course's topics sorted them.
+    };
+    const roundFor = perCourse((pid) => {
+        const info = projectInfos.find(i => i.project.id === pid);
+        if (!info || roundSize <= 0) return [];
+        let ghosts = [];
+        try {
+            ghosts = getGhostQuestions(pid, roundSize, gate.decayDays, now, { perTopic: 1 });
+        } catch (err) {
+            // The other courses' reviews still go out; this one's failure is said.
+            console.warn(`[feed] recall round left out project ${pid}: ${err?.message ?? err}`);
+            return [];
+        }
+        // Byte order, as the SQL that listed the course's topics sorted them.
         // A topic that slipped on a look back first (fading.js SLIPPED_TOPIC).
         const stamp = (g) => String(g.lastUpdated ?? '');
-        fading.sort((a, b) => (b.ghost.slipped - a.ghost.slipped)
-            || (stamp(a.ghost) < stamp(b.ghost) ? -1 : stamp(a.ghost) > stamp(b.ghost) ? 1 : 0) || a.ghost.nodeId - b.ghost.nodeId);
-        for (const { ghost, info } of fading.slice(0, roundSize)) {
+        ghosts.sort((a, b) => (b.slipped - a.slipped)
+            || (stamp(a) < stamp(b) ? -1 : stamp(a) > stamp(b) ? 1 : 0) || a.nodeId - b.nodeId);
+        return ghosts.slice(0, roundSize).map(ghost => {
             const pick = ghost.picks[0];
             let daysSince = null;
             const ts = ghost.lastUpdated ? Date.parse(`${String(ghost.lastUpdated).replace(' ', 'T')}Z`) : NaN;
             if (Number.isFinite(ts)) daysSince = Math.max(0, Math.floor((now.getTime() - ts) / 86400000));
-            review.push({
+            return {
                 // The question's position in its own row: what an answer is
                 // recorded against (`bankRefOfFeedKey`).
                 key: `recall-${ghost.nodeId}-${pick.quizId}-${pick.index}`,
                 kind: 'recall',
                 review: true,
                 nodeId: ghost.nodeId,
-                projectId: info.project.id,
+                projectId: pid,
                 projectName: info.project.name,
                 projectColor: info.project.color,
                 nodeTitle: ghost.title,
@@ -1138,83 +1177,99 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
                 slipped: ghost.slipped,
                 quizId: pick.quizId,
                 question: { ...pick.question, quizIndex: pick.index },
-            });
-        }
-    }
+            };
+        });
+    });
 
     // --- Look back (server/lookBack.js) -----------------------------------
-    // Every two weeks or so, or when a phase closes, the stream opens with an
+    // Every two weeks or so, or when a phase closes, a block opens with an
     // offer: ten questions from everything the course has taught so far, or the
-    // full mock in the weeks before a real exam. The same slot and rules as the
-    // recall round: the opening page only, never a topic's own page, and one
-    // card for one course (the one studied next, else the first that has one).
+    // full mock in the weeks before a real exam. Ahead of the recall round, in
+    // the same slot and by its rules (when the block opens, never a topic's own
+    // page), and one card per visit: the first block that has one.
     // A card the learner can clear with one tap; nothing below it waits on it.
-    const offers = [];
-    if (openingPage && !scoped) {
-        const next = nodeQueues.find(q => q.cards.length > 0)?.f.projectId ?? null;
-        const order = [...projectInfos].sort((a, b) => Number(b.project.id === next) - Number(a.project.id === next));
-        for (const info of order) {
-            let offer = null;
-            try {
-                offer = lookBackOffer(info.project.id, { now });
-            } catch (err) {
-                console.warn(`[feed] look back left out project ${info.project.id}: ${err?.message ?? err}`);
-            }
-            if (!offer) continue;
-            offers.push({
-                key: `lookback-${info.project.id}`,
-                kind: 'lookback',
-                projectId: info.project.id,
-                projectName: info.project.name,
-                projectColor: info.project.color,
-                offer,
-            });
-            break;
+    let offerOpen = !scoped && ![...excludeKeys].some(k => String(k).startsWith('lookback-'));
+    const offerFor = perCourse((pid) => {
+        const info = projectInfos.find(i => i.project.id === pid);
+        if (!info) return null;
+        let offer = null;
+        try {
+            offer = lookBackOffer(pid, { now });
+        } catch (err) {
+            console.warn(`[feed] look back left out project ${pid}: ${err?.message ?? err}`);
         }
-    }
+        return offer && {
+            key: `lookback-${pid}`,
+            kind: 'lookback',
+            projectId: pid,
+            projectName: info.project.name,
+            projectColor: info.project.color,
+            offer,
+        };
+    });
 
-    // --- Interleave ---------------------------------------------------------
-    const items = [...offers, ...review];
-    let queueIdx = 0;
-    let sinceFlash = 0;
-    let flashInterval = 3;
-    let flashSlot = 0;
+    // --- Interleave, one block at a time ------------------------------------
+    const items = [];
+    // The blocks this page reached; one it stopped before is still to come.
+    const visited = new Set();
+    for (const pid of blockOrder) {
+        if (items.length >= limit) break;
+        const head = [];
+        const offer = opensHere(pid) && offerOpen ? offerFor(pid) : null;
+        if (offer) head.push(offer);
+        if (opensHere(pid)) head.push(...roundFor(pid));
+        // A round is asked as one, under one header: never cut across pages.
+        // The page ends before the block instead, and the next one opens it.
+        if (head.length && items.length && items.length + head.length > limit) break;
+        if (offer) offerOpen = false;
+        items.push(...head);
+        visited.add(pid);
 
-    const pushFlash = () => {
-        flashSlot++;
-        const pick = (flashSlot % 3 === 0 && news.length) ? news.shift() : (due.shift() || news.shift());
-        if (!pick) return false;
-        items.push(pick);
-        sinceFlash = 0;
-        flashInterval = flashInterval === 3 ? 4 : 3;
-        return true;
-    };
+        const queues = nodeQueues.filter(q => q.f.projectId === pid);
+        const dueHere = dueBy.get(pid) ?? [];
+        const newsHere = newsBy.get(pid) ?? [];
+        let queueIdx = 0;
+        let sinceFlash = 0;
+        let flashInterval = 3;
+        let flashSlot = 0;
 
-    while (items.length < limit && queueIdx < nodeQueues.length) {
-        const queue = nodeQueues[queueIdx];
-        if (queue.cards.length === 0) {
-            if (queue.taughtOut) {
-                // The topic's own new cards come BEFORE its checkpoint: the
-                // checkpoint is the chapter's end, and a topic stream must not
-                // open on "End of chapter" with the topic's first cards under it.
-                for (let i = 0; i < news.length && items.length < limit - 1;) {
-                    if (news[i].card.node_id === queue.f.nodeId) items.push(...news.splice(i, 1));
-                    else i++;
+        const pushFlash = () => {
+            flashSlot++;
+            const pick = (flashSlot % 3 === 0 && newsHere.length) ? newsHere.shift() : (dueHere.shift() || newsHere.shift());
+            if (!pick) return false;
+            items.push(pick);
+            sinceFlash = 0;
+            flashInterval = flashInterval === 3 ? 4 : 3;
+            return true;
+        };
+
+        while (items.length < limit && queueIdx < queues.length) {
+            const queue = queues[queueIdx];
+            if (queue.cards.length === 0) {
+                if (queue.taughtOut) {
+                    // The topic's own new cards come BEFORE its checkpoint: the
+                    // checkpoint is the chapter's end, and a topic stream must not
+                    // open on "End of chapter" with the topic's first cards under it.
+                    for (let i = 0; i < newsHere.length && items.length < limit - 1;) {
+                        if (newsHere[i].card.node_id === queue.f.nodeId) items.push(...newsHere.splice(i, 1));
+                        else i++;
+                    }
+                    const cp = checkpointCard(queue.f);
+                    if (cp) items.push(cp);
                 }
-                const cp = checkpointCard(queue.f);
-                if (cp) items.push(cp);
+                queue.reached = true;
+                queueIdx++;
+                continue;
             }
-            queueIdx++;
-            continue;
+            items.push(queue.cards.shift());
+            sinceFlash++;
+            if (sinceFlash >= flashInterval && (dueHere.length || newsHere.length)) pushFlash();
         }
-        items.push(queue.cards.shift());
-        sinceFlash++;
-        if (sinceFlash >= flashInterval && (due.length || news.length)) pushFlash();
-    }
 
-    // Teaching exhausted — fill the remainder with reviews.
-    while (items.length < limit && (due.length || news.length)) {
-        if (!pushFlash()) break;
+        // Teaching exhausted — the rest of this course's cards close its block.
+        while (items.length < limit && (dueHere.length || newsHere.length)) {
+            if (!pushFlash()) break;
+        }
     }
 
     // --- Notices ------------------------------------------------------------
@@ -1227,7 +1282,9 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         // not; "being prepared" said it twice.
     } else if (anyDegradedServed && !excluded('notice-ai') && aiEnabled && !aiModelChosen) {
         if (scoped || projectScope) items.unshift({ key: 'notice-ai', kind: 'notice', message: 'Choose a model in Settings → AI & Models.' });
-    } else if (anyDegradedServed && !excluded('notice-ai')) {
+    } else if (anyDegradedServed && !excluded('notice-ai') && (openingPage || !homeStream)) {
+        // On Today only at the top: a later page's head lands inside the
+        // course block the reader is in and would cut it in two.
         items.unshift({
             key: 'notice-ai', kind: 'notice',
             message: aiEnabled
@@ -1244,6 +1301,7 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
     // nothing yet to serve, gets what is actually true.
     // A look back offer alone is no stream: the notices below still say why
     // nothing else is there (all but "nothing left", which the offer belies).
+    const offers = items.filter(i => i.kind === 'lookback');
     if (!scoped && items.length === offers.length && projectInfos.length > 0) {
         const { topics, cards, open, openTaught, cardsLeft } = explainEmpty(projectInfos.map(i => i.project.id));
         // A first page: the learner holds nothing yet. Later, an empty draw just
@@ -1306,8 +1364,15 @@ export function composeFeed({ limit = 15, excludeKeys = new Set(), gate = getGat
         }
     }
 
+    // A block the page stopped before still opens a round when the next page
+    // asks, and a taught-out topic the page never reached still owes its
+    // checkpoint: the stream is not over while either would come.
+    const poolsEmpty = (by) => [...by.values()].every(list => list.length === 0);
     const exhausted = nodeQueues.every(q => q.cards.length === 0)
-        && due.length === 0 && news.length === 0;
+        && !nodeQueues.some(q => q.taughtOut && !q.reached && !excluded(`checkpoint-${q.f.nodeId}`))
+        && poolsEmpty(dueBy) && poolsEmpty(newsBy)
+        && !blockOrder.some(pid => !visited.has(pid) && opensHere(pid)
+            && ((offerOpen && offerFor(pid)) || roundFor(pid).length > 0));
 
     // Head starts for the topics on screen, keyed by node id rather than copied
     // onto every card: a four-part chapter would otherwise carry the same

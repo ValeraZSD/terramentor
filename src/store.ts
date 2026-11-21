@@ -11,6 +11,7 @@ import { createNodeWriter, nodesAfterMove, nodesAfterReorder } from './utils/dra
 import { dropFlashStart, endDropFlashIf } from './utils/dropFlash';
 import { deepReplaceStrings } from './utils/deepReplace';
 import { heldKeys, lessonPending, placeCheckpoints, pulledLessonWrite, pullGate, replacedKeys } from './utils/feedPlacement';
+import { blockEnd, heldCourses } from './components/feed/courseBlocks';
 import { accentSolidTriplet, accentFgTriplet, parseCssColor } from './utils/color';
 import { accentTextSurface } from './utils/accentVars';
 import { themeVars, themeColorFor, themeRamp } from './utils/themeRamp';
@@ -1895,16 +1896,20 @@ export const useStore = create<AppState>((set, get) => ({
         const retrySeq = lessonRetrySeq;
         try {
             const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
-            const res = await api.getFeed(exclude, 15, get().feedScope);
+            const res = await api.getFeed(exclude, 15, get().feedScope, heldCourses(get().feedCards));
             // A page for the stream the learner has left is not a page of this
             // one; the load that replaced it owns the spinner now.
             if (seq !== feedSeq) return;
-            // Append-only, deduped by key: cards already on screen are never
-            // reordered or replaced, so the scroll position can't jump.
+            // Deduped by key; cards already on screen are never reordered or
+            // replaced. Appended, except a topic's CHECKPOINT, which goes
+            // straight after its topic's last card (`placeCheckpoints`, as in
+            // `pullFeedUpdates`): a topic taught through its Overview gets its
+            // checkpoint only once the Overview is held, so it comes a page
+            // later, and appended it would reopen its course at the bottom.
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
             set(state => ({
-                feedCards: [...state.feedCards, ...fresh],
+                feedCards: fresh.length ? placeCheckpoints(state.feedCards, fresh) : state.feedCards,
                 feedHeader: res.header,
                 // Merged, not replaced: a later page carries head starts only
                 // for the topics IT holds, and dropping the earlier ones would
@@ -1941,7 +1946,7 @@ export const useStore = create<AppState>((set, get) => ({
         const retrySeq = lessonRetrySeq;
         try {
             const exclude = heldKeys(get().feedCards, get().feedReplacedKeys);
-            const res = await api.getFeed(exclude, 15, get().feedScope);
+            const res = await api.getFeed(exclude, 15, get().feedScope, heldCourses(get().feedCards));
             if (seq !== feedSeq) return;
             const seen = new Set(exclude);
             const fresh = res.items.filter(c => !seen.has(c.key));
@@ -2101,24 +2106,32 @@ export const useStore = create<AppState>((set, get) => ({
      * so it mounts unflipped and unanswered instead of inheriting the done state
      * of the copy above it. The row travels with it, so the next rating is
      * computed from the state the ladder actually left the card in.
+     *
+     * On Today it goes at the end of its own course's block, not after the
+     * next course's cards (`courseBlocks.ts`): still below the reader, so
+     * nothing above them moves. A course's page is one block, so there it is
+     * the end of the stream, as before.
      */
     requeueFeedCard: (key, card, dueAt) => {
         set(state => {
-            const original = state.feedCards.find(c => c.key === key);
+            const at = state.feedCards.findIndex(c => c.key === key);
+            const original = state.feedCards[at];
             if (!original || original.kind !== 'flashcard') return {};
             // Count from the ORIGINAL key, so a card that goes round three times
             // gets three distinct keys rather than colliding on the second.
             const round = state.feedCards.filter(
                 c => c.kind === 'flashcard' && c.card.id === card.id
             ).length;
+            const end = blockEnd(state.feedCards, at);
+            const again = {
+                ...original,
+                key: `${key}-again${round}`,
+                card,
+                isNew: false,
+                requeuedAt: dueAt,
+            };
             return {
-                feedCards: [...state.feedCards, {
-                    ...original,
-                    key: `${key}-again${round}`,
-                    card,
-                    isNew: false,
-                    requeuedAt: dueAt,
-                }],
+                feedCards: [...state.feedCards.slice(0, end), again, ...state.feedCards.slice(end)],
             };
         });
     },
