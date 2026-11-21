@@ -128,18 +128,19 @@ function PromptBox({ prompt, loading, error, onRetry }: {
  * no gain. The Import tab still takes files for everything that arrives as one.
  */
 function ReplyBox({
-    label, placeholder, busy, error, onSubmit, onText,
+    label, placeholder, busy, error, onSubmit, initialText, onText,
 }: {
     label: string;
     placeholder: string;
     busy: boolean;
     error: string;
     onSubmit: (parsed: unknown) => void;
+    initialText?: string;
     /** The box's text as it is typed or pasted. */
     onText?: (text: string) => void;
 }) {
     const { t: tr } = useTranslation();
-    const [text, setText] = useState('');
+    const [text, setText] = useState(initialText ?? '');
     const [parseError, setParseError] = useState('');
     const verb = usePointerVerb();
 
@@ -217,26 +218,30 @@ const DEPTHS = [
     k('everything there is'),
 ];
 
+export type BriefKept = { level: string; goal: string; reply: string };
+
 export function OutlineBriefPanel({
-    subject, setSubject, language, onImported, onDirty,
+    subject, setSubject, language, onImported, kept, onKeep,
 }: {
     subject: string;
     setSubject: (v: string) => void;
     /** The modal's language selection, so the two tabs cannot disagree. */
     language: string;
     onImported: (projectId: number, name: string) => void;
-    /** Whether the learner has typed or pasted anything here that closing
-     *  the window would lose: the level, the goal, the chat's reply. */
-    onDirty?: (dirty: boolean) => void;
+    /** What was typed here the last time the panel was open: a step back
+     *  and in again finds the level, the goal and the pasted reply still there. */
+    kept?: BriefKept;
+    /** Called as any of the three changes, for the window to keep and to
+     *  know there is work it would lose on close. */
+    onKeep?: (kept: BriefKept) => void;
 }) {
     const { t: tr } = useTranslation();
-    const [level, setLevel] = useState('');
-    const [goal, setGoal] = useState('');
-    const [reply, setReply] = useState('');
-    const onDirtyRef = useRef(onDirty);
-    onDirtyRef.current = onDirty;
-    const dirty = !!level.trim() || !!goal.trim() || !!reply.trim();
-    useEffect(() => { onDirtyRef.current?.(dirty); }, [dirty]);
+    const [level, setLevel] = useState(kept?.level ?? '');
+    const [goal, setGoal] = useState(kept?.goal ?? '');
+    const [reply, setReply] = useState(kept?.reply ?? '');
+    const onKeepRef = useRef(onKeep);
+    onKeepRef.current = onKeep;
+    useEffect(() => { onKeepRef.current?.({ level, goal, reply }); }, [level, goal, reply]);
     const [depth, setDepth] = useState(DEPTHS[1]);
     const [prompt, setPrompt] = useState('');
     const [loading, setLoading] = useState(false);
@@ -379,6 +384,7 @@ export function OutlineBriefPanel({
                     busy={busy}
                     error={error}
                     onSubmit={handleReply}
+                    initialText={reply}
                     onText={setReply}
                 />
             </Step>

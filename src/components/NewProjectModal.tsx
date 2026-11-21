@@ -29,6 +29,7 @@ import Modal from './Modal';
 import { StudyLanguageField } from './ProjectFormFields';
 import { freeColour } from '../utils/freeColour';
 import { OutlineBriefPanel } from './ExternalAuthoring';
+import type { BriefKept } from './ExternalAuthoring';
 import ProjectImportZone from './ProjectImportZone';
 import SourceFiles, { MAX_FILE_BYTES, MAX_SOURCE_FILES, hostOf, linksIn, onlyLinks, usableSource, type SourceFile } from './creation/SourceFiles';
 import { Button } from './ui/Button';
@@ -155,8 +156,9 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     // A plain open asks first: create or import. A form handed back (a run's
     // Back, the assistant's "Open in New course") opens on the form itself.
     const [createMode, setCreateMode] = useState<'choose' | 'ai' | 'external' | 'import'>(draft ? 'ai' : 'choose');
-    // The chatbot path's own fields and the reply pasted back.
-    const [briefDirty, setBriefDirty] = useState(false);
+    // The chatbot path's own fields and the reply pasted back, kept here so a
+    // step back (its ←, the system's Back) does not drop them.
+    const [brief, setBrief] = useState<BriefKept>({ level: '', goal: '', reply: '' });
     // Before paint, so a reopened dialog never shows the old height first.
     useLayoutEffect(() => { onChoosing(createMode === 'choose'); }, [createMode, onChoosing]);
     const [newName, setNewName] = useState(draft?.name ?? '');
@@ -179,7 +181,7 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
     filesRef.current = files;
     // A row the learner added counts even when its read failed: it was theirs.
     holdsWork.current = !!newName.trim() || !!newDescription.trim() || files.length > 0
-        || (createMode === 'external' && briefDirty);
+        || !!brief.level.trim() || !!brief.goal.trim() || !!brief.reply.trim();
     // The links being read, by row: removing a row, or closing the window,
     // stops its read, and a read that ends after that lets its source go.
     const readers = useRef(new Map<string, AbortController>());
@@ -568,7 +570,8 @@ function NewProjectForm({ draft, onClose, onCancel, release, holdsWork, onChoosi
                             setSubject={setNewName}
                             language={newLanguage}
                             onImported={(id) => { onCancel(); openProject(id); }}
-                            onDirty={setBriefDirty}
+                            kept={brief}
+                            onKeep={setBrief}
                         />
                     ) : createMode === 'import' ? (
                         <div className="space-y-4">
