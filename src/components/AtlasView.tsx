@@ -268,6 +268,9 @@ export default function AtlasView() {
             // A revalidation that fails behind an already-drawn map is not an
             // error the reader can act on — the map on screen is still true.
             if (!lastAtlas) setError(e?.message || 'Could not load the atlas.');
+            // …but a refresh the reader pressed for ("Check again") must say
+            // it did not happen, or the press reads as nothing changed.
+            else if (refresh) addToast('error', tr("Could not load this view"), e?.message || '');
         } finally {
             setLoading(false);
         }
@@ -556,22 +559,28 @@ export default function AtlasView() {
     const patchRegion = (signature: string, patch: Partial<AtlasRegion>) =>
         setData(d => d && ({ ...d, regions: d.regions.map(r => r.signature === signature ? { ...r, ...patch } : r) }));
 
-    const renameRegion = async (region: AtlasRegion, label: string) => {
+    // Both say whether the name was written, so the editor stays open with the
+    // reader's draft when it was not.
+    const renameRegion = async (region: AtlasRegion, label: string): Promise<boolean> => {
         try {
             await api.renameAtlasRegion(region.signature, label, region.size);
             patchRegion(region.signature, { label, labelSource: 'user' });
+            return true;
         } catch (e: any) {
             addToast('error', tr("Could not rename this region"), e?.message || '');
+            return false;
         }
     };
 
-    const resetRegionName = async (region: AtlasRegion) => {
+    const resetRegionName = async (region: AtlasRegion): Promise<boolean> => {
         try {
             await api.resetAtlasRegionName(region.signature);
             patchRegion(region.signature, { label: region.medoidLabel, labelSource: 'medoid' });
             addToast('info', tr("Back to the automatic name"), tr("A name will be written for it on the next naming pass."));
+            return true;
         } catch (e: any) {
             addToast('error', tr("Could not reset this name"), e?.message || '');
+            return false;
         }
     };
 
@@ -627,7 +636,7 @@ export default function AtlasView() {
                     >
                         {tr("Set it up in Settings")}
                     </Button>
-                    <Button onClick={() => load(true)} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
+                    <Button onClick={() => load(true)} busy={loading} icon={<RefreshCw className="w-4 h-4" aria-hidden="true" />}>
                         {tr("Check again")}
                     </Button>
                 </div>
