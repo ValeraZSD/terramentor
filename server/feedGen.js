@@ -647,6 +647,22 @@ export function askFirstLessons(projectId, count = FIRST_LESSON_TOPICS) {
     }
 }
 
+/**
+ * The topic this course's Study opens on, and whether a lesson of it is
+ * written: the creation screen offers "Start Studying" once it is, so the
+ * press lands on a lesson rather than on the Overview standing in for one.
+ * The same pick as Study and `askFirstLessons`; "written" as in
+ * `lessonWriteState`, any lesson row. `{ nodeId: null, written: false }`
+ * while the course has no topic.
+ */
+export function firstLessonState(projectId) {
+    const first = getFocusNodes({ projectId, maxTotal: 1 }).focus[0];
+    if (!first) return { nodeId: null, written: false };
+    const written = !!first.teachable
+        && !!db.prepare(`SELECT 1 FROM feed_items WHERE node_id = ? AND kind = 'lesson' LIMIT 1`).get(first.nodeId);
+    return { nodeId: first.nodeId, written };
+}
+
 /** Lessons already written and servable for this focus set. */
 function readyLessonCount(focusIds) {
     if (!focusIds.length) return 0;

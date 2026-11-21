@@ -111,7 +111,7 @@ interface RunsState {
 export const useCreationRuns = create<RunsState>(() => ({ runs: {}, order: [], viewing: null, draft: null }));
 
 const LIVE: ReadonlySet<CreationStatus> = new Set(['starting', 'live', 'reattached']);
-export const isRunLive = (run: CreationRun | undefined | null) => !!run && LIVE.has(run.status);
+export const isRunLive = (run: Pick<CreationRun, 'status'> | undefined | null) => !!run && LIVE.has(run.status);
 
 // ---- internal plumbing -----------------------------------------------------
 
@@ -371,7 +371,9 @@ const replacing = (taskId: string | null, open: Stream): Stream => async functio
 };
 
 export const canContinue = (run: CreationRun | undefined): run is CreationRun & { projectId: number } =>
-    !!run && run.projectId != null && (run.status === 'error' || run.status === 'cancelled');
+    !!run && stoppedWithCourse(run);
+const stoppedWithCourse = (run: Pick<CreationRun, 'status' | 'projectId'>) =>
+    run.projectId != null && (run.status === 'error' || run.status === 'cancelled');
 
 /**
  * Carry on a run that stopped with a project: the same record goes live again,
@@ -435,6 +437,35 @@ export function continueCreationForProject(projectId: number, name: string, colo
 
 export const canRetry = (run: CreationRun | undefined): run is CreationRun =>
     !!run && run.status === 'error' && run.projectId == null && run.inputKnown;
+
+/**
+ * What the run screen's foot holds. `firstLesson`: the topic the course's Study
+ * opens on has a written lesson (GET /api/feed/projects/:id/first-lesson).
+ *
+ *  - `live`: Stop creating, and Close, which says the creation carries on.
+ *  - `live-study`: Stop creating, and Start Studying in Close's place (the
+ *    head's ✕ closes then): the course can be studied while it is written.
+ *  - `continue`: stopped with a course; carrying on comes first, and the
+ *    course as it is can be opened. Not Study as well: a third button.
+ *  - `finished` / `finished-study`: Go to Project, with Start Studying as the
+ *    way on once the lesson is there, so a button offered mid-run stays put
+ *    when the run ends.
+ *  - `setup`: failed before it made a course; `close`: nothing more to do.
+ */
+export type RunFoot = 'live' | 'live-study' | 'continue' | 'finished' | 'finished-study' | 'setup' | 'close';
+
+export function runFoot(run: Pick<CreationRun, 'status' | 'projectId' | 'inputKnown'>, firstLesson: boolean): RunFoot {
+    const study = firstLesson && footOffersStudy(run);
+    if (isRunLive(run)) return study ? 'live-study' : 'live';
+    if (stoppedWithCourse(run)) return 'continue';
+    if (run.status === 'complete' && run.projectId != null) return study ? 'finished-study' : 'finished';
+    return run.status === 'error' && run.projectId == null ? 'setup' : 'close';
+}
+
+/** Could this run's foot offer Study: a course, live or finished. The screen
+ *  asks whether the first lesson is written only then. */
+export const footOffersStudy = (run: Pick<CreationRun, 'status' | 'projectId'> | undefined | null): boolean =>
+    !!run && run.projectId != null && (isRunLive(run) || run.status === 'complete');
 
 /** Start a run that failed before it made a project again, from the same
  *  input. Its files are still staged: no project claimed them. */

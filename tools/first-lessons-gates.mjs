@@ -28,10 +28,15 @@
 //      the continuation fetches their links, and a section still waiting for
 //      its topics is not;
 //   4. a short course: its first topic is taught as soon as it lands.
+//   5. a course deleted mid-lesson backs off no other course.
+//   6. the creation screen's question (GET /api/feed/projects/:id/first-lesson):
+//      which topic the course's Study opens on and whether its lesson is
+//      written: not while the lesson is still being written, yes once it is,
+//      both mid-creation, and the topic is the course's first, never a phase.
 //
 // `--server <dir>` runs the same cases against another copy of server/ (the
 // pre-change code, e.g. `git archive HEAD server | tar -x -C temp/head`); it is
-// expected to FAIL cases 1–4.
+// expected to FAIL cases 1–4 (and 6 on a server without the route).
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -143,6 +148,9 @@ const calls = [];
 // A topic title whose next model call answers late, once: the window case 5
 // deletes its course in.
 let slowFor = null;
+// While set, every lesson call waits for it: case 6 looks at a course whose
+// first lesson is still being written.
+let lessonHold = null;
 const stub = createServer((req, res) => {
     let raw = '';
     req.on('data', c => { raw += c; });
@@ -158,6 +166,7 @@ const stub = createServer((req, res) => {
         const stage = stageOf(system);
         calls.push({ stage, user });
         if (slowFor && user.includes(slowFor)) { slowFor = null; await sleep(1200); }
+        if (stage === 'lesson' && lessonHold) await lessonHold.p;
         const content = answer(stage, user);
         if (content == null) {
             res.writeHead(400, { 'content-type': 'application/json' });
@@ -459,6 +468,70 @@ console.log('\n--- 5. deleting a course mid-lesson holds up no other course ---'
         JSON.stringify({ plan: planParts(kept.n), lessons: rowsOf(kept.n, 'lesson') }));
     ok('...and nothing was written for the deleted topic', rowsOf(doomed.n, 'plan') === 0);
     creation.finish();
+}
+
+/* ── 6. the creation screen asks where Study opens ───────────────────────── */
+console.log("\n--- 6. the creation screen learns when the course's Study opens on a written lesson ---");
+{
+    await until(() => !tasks.listTasks().some(t => t.kind === 'feed' && t.status === 'running'), 30000);
+    const firstLesson = async (id) => {
+        const res = await fetch(`${base}/api/feed/projects/${id}/first-lesson`);
+        return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const empty = Number(db.prepare("INSERT INTO projects (name, position) VALUES ('Nothing yet', 9)").run().lastInsertRowid);
+    const none = await firstLesson(empty);
+    ok('a course with no topic yet: no topic to open on, nothing written',
+        none.status === 200 && none.body.nodeId === null && none.body.written === false, JSON.stringify(none));
+    const missing = await firstLesson(999999);
+    ok('a course that does not exist is not found', missing.status === 404, String(missing.status));
+    const malformed = await firstLesson('abc');
+    ok('...and a malformed id is refused', malformed.status === 400, String(malformed.status));
+
+    // Every lesson call held, so the first topic is planned and its lesson in
+    // flight, but not written, while the run sits at its link search.
+    let open;
+    lessonHold = { p: new Promise(r => { open = r; }) };
+    holdLinks('Wave behaviour: the idea');
+    const run = stream('/api/ai/create-project', { name: 'Sound and light', description: 'Understand sound, then light', color: '#0ea5e9' });
+    await until(() => heldAt != null, 20000);
+    const projectId = run.frames.find(f => f.projectId)?.projectId;
+    const [first] = projectId ? topicsOf(projectId) : [];
+    const planned = await until(() => !!first && rowsOf(first.id, 'plan') > 0, 20000);
+    ok('mid-creation, the first topic is planned and its lesson not yet written',
+        planned && rowsOf(first.id, 'lesson') === 0, first && JSON.stringify({ plan: rowsOf(first.id, 'plan'), lesson: rowsOf(first.id, 'lesson') }));
+    const waiting = projectId ? await firstLesson(projectId) : null;
+    ok("...so the screen hears the course's first topic, not written",
+        waiting?.body.nodeId === first?.id && waiting?.body.written === false, JSON.stringify(waiting));
+    // A lesson for the SECOND topic only is not the first lesson: the button
+    // would open Study on the first topic's stand-in.
+    const second = projectId ? topicsOf(projectId)[1] : null;
+    const stray = second ? Number(db.prepare(
+        "INSERT INTO feed_items (node_id, kind, seq, content, meta) VALUES (?, 'lesson', 1, 'A part of the second topic.', '{}')",
+    ).run(second.id).lastInsertRowid) : null;
+    const otherTopic = stray ? await firstLesson(projectId) : null;
+    ok("...and a lesson for the second topic alone does not count as the first",
+        !!stray && otherTopic?.body.nodeId === first?.id && otherTopic?.body.written === false, JSON.stringify(otherTopic));
+    if (stray) db.prepare('DELETE FROM feed_items WHERE id = ?').run(stray);
+
+    open();
+    lessonHold = null;
+    const landed = await until(() => !!first && rowsOf(first.id, 'lesson') > 0, 20000);
+    const ready = projectId ? await firstLesson(projectId) : null;
+    ok('once the lesson lands, the screen hears it is written', landed && ready?.body.nodeId === first?.id && ready?.body.written === true,
+        JSON.stringify(ready));
+    ok('...while the course is still being written',
+        !!projectId && generating(projectId) && !run.frames.some(f => f.done || f.phase === 'complete' || f.phase === 'error'));
+    // What the button opens: the course's Study, whose first lesson is that topic's written one.
+    const study = projectId ? composeFeed({ projectId, limit: 15 }).items : [];
+    const opening = study.find(c => c.kind === 'lesson');
+    ok("...and the course's Study opens on that written lesson", opening?.nodeId === first?.id && String(opening?.key).startsWith('fi-'),
+        JSON.stringify(study.slice(0, 3).map(c => [c.kind, c.nodeId, c.key])));
+
+    releaseLinks();
+    const frames = await run.done;
+    const after = projectId ? await firstLesson(projectId) : null;
+    ok('after the creation it still reads written', frames.some(f => f.phase === 'complete') && after?.body.written === true,
+        JSON.stringify(after));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
