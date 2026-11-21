@@ -587,6 +587,7 @@
   "Generate {{count}} questions_many": "Générer {{count}} questions",
   "Generate {{count}} questions_one": "Générer {{count}} question",
   "Generate {{count}} questions_other": "Générer {{count}} questions",
+  "Knew it": "Je savais",
   "Look back": "Retour en arrière",
   "Look back, {{date}}": "Retour en arrière, {{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Appels au modèle, tâches d'arrière-plan, projets ajoutés ou supprimés. Le journal consigne ce que l'application a fait, jamais le contenu de vos cours : ni titres de sujets, ni questions, ni notes, ni réponses.",

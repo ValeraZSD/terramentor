@@ -587,6 +587,7 @@
   "Generate {{count}} questions_many": "Gerar {{count}} perguntas",
   "Generate {{count}} questions_one": "Gerar {{count}} pergunta",
   "Generate {{count}} questions_other": "Gerar {{count}} perguntas",
+  "Knew it": "Eu sabia",
   "Look back": "Olhar para trás",
   "Look back, {{date}}": "Olhar para trás, {{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Chamadas ao modelo, tarefas em segundo plano e projetos adicionados ou removidos. Regista o que a aplicação fez, nunca o conteúdo dos seus cursos: sem títulos de tópicos, perguntas, notas ou respostas.",

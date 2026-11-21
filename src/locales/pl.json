@@ -708,6 +708,7 @@
   "Generate {{count}} questions_many": "Wygeneruj {{count}} pytań",
   "Generate {{count}} questions_one": "Wygeneruj {{count}} pytanie",
   "Generate {{count}} questions_other": "Wygeneruj {{count}} pytania",
+  "Knew it": "Pamiętam",
   "Look back": "Spojrzenie wstecz",
   "Look back, {{date}}": "Spojrzenie wstecz, {{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Wywołania modelu, zadania w tle oraz dodane lub usunięte projekty. Dziennik zapisuje, co robiła aplikacja, nigdy treści twoich kursów: żadnych tytułów tematów, pytań, notatek ani odpowiedzi.",

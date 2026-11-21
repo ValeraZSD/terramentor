@@ -345,6 +345,7 @@
   "Delete these {{count}} questions?_other": "删除这 {{count}} 道题？",
   "Delete these questions": "删除这些问题",
   "Generate {{count}} questions_other": "生成 {{count}} 个问题",
+  "Knew it": "记得",
   "Look back": "回顾",
   "Look back, {{date}}": "回顾，{{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "模型调用、后台任务，以及添加或移除的项目。它只记录应用做了什么，从不记录你的课程内容：没有主题标题、问题、笔记或回答。",

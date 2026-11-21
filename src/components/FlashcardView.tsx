@@ -61,6 +61,11 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
     const retention = useProjectRetention(useStore(s => s.currentProjectId));
     const media = parseCardMedia(currentCard?.media);
     const confirmRate = useConfirmPress<ReviewRating>(`${currentCard?.id}:${queue.flipped}`);
+    // A card not due yet offers two outcomes, not four: Hard, Good and Easy
+    // would all keep its date, so three tiles saying the same thing become one
+    // "Knew it" (a Good). Keys 2-4 press it; 1 is Again.
+    const notDueYet = !!currentCard && keepsItsDate(currentCard, 'good');
+    const ratings: ReviewRating[] = notDueYet ? ['again', 'good'] : RATING_ORDER;
     // A run through one topic's cards is a session like the full review: it
     // owns the study clock, including while one of its cards is being edited.
     useStudyClock(
@@ -142,7 +147,10 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
         enabled: !editing,
         flipped: queue.flipped,
         onFlip: () => queue.setFlipped(f => !f),
-        onRate: (i) => confirmRate.press(RATING_ORDER[i], () => handleRate(RATING_ORDER[i])),
+        onRate: (i) => {
+            const rating = ratings[i] ?? 'good';
+            confirmRate.press(rating, () => handleRate(rating));
+        },
         onUndo: () => void handleUndo(),
     });
 
@@ -255,15 +263,16 @@ export default function FlashcardView({ flashcards, onClose, onDelete }: Props) 
             {queue.flipped && (
                 <div className="space-y-3">
                     <p className="text-center text-sm text-slate-500 dark:text-slate-400">
-                        {keepsItsDate(currentCard, 'good')
+                        {notDueYet
                             ? t("Not due yet: if you knew it, it keeps its date.")
                             : t("How well did you know this?")}
                     </p>
                     <div className="flex gap-2">
-                        {RATING_ORDER.map(rating => (
+                        {ratings.map(rating => (
                             <RatingButton
                                 key={rating}
                                 rating={rating}
+                                label={notDueYet && rating === 'good' ? t("Knew it") : undefined}
                                 when={formatInterval(keepsItsDate(currentCard, rating)
                                     ? daysUntilDue(currentCard)
                                     : computeNextInterval(currentCard, rating, new Date(), retention).intervalDays, t)}

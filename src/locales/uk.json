@@ -708,6 +708,7 @@
   "Generate {{count}} questions_many": "Згенерувати {{count}} запитань",
   "Generate {{count}} questions_one": "Згенерувати {{count}} запитання",
   "Generate {{count}} questions_other": "Згенерувати {{count}} запитання",
+  "Knew it": "Пам'ятаю",
   "Look back": "Погляд назад",
   "Look back, {{date}}": "Погляд назад, {{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Виклики моделі, фонові завдання, додані й видалені проєкти. Журнал записує, що робив застосунок, але не вміст ваших курсів: жодних назв тем, запитань, нотаток чи відповідей.",

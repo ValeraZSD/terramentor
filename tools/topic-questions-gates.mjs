@@ -221,8 +221,8 @@ console.log('--- the tab: sets by their size, no sitting ---');
     const s1 = await rate('Good');
     check('a due card is reviewed as Study reviews it: Good writes its new schedule', JSON.stringify(written) === '[1]', JSON.stringify(written));
     check('...under the usual question', /How well did you know this\?/.test(s1), s1.slice(0, 160));
-    const s2 = await rate('Easy');
-    check('a card not due yet that you knew keeps its date: Easy writes nothing', JSON.stringify(written) === '[1]' && /Front 3/.test(m.el.textContent), JSON.stringify(written));
+    const s2 = await rate('Knew it');
+    check('a card not due yet that you knew keeps its date: Knew it writes nothing', JSON.stringify(written) === '[1]' && /Front 3/.test(m.el.textContent), JSON.stringify(written));
     check('...and the line above the ratings tells you it keeps its date', /Not due yet: if you knew it, it keeps its date\./.test(s2), s2.slice(0, 200));
     await rate('Good');
     check('a card never seen is a first review: Good writes it', JSON.stringify(written) === '[1,3]', JSON.stringify(written));
@@ -270,13 +270,18 @@ console.log('--- the tab: sets by their size, no sitting ---');
     await flush(); await flush();
     await click(button(m.el, 'Practise all'));
     await click(m.el.querySelector('[role="button"][aria-pressed]'));
-    await click(buttons(m.el).find(b => (b.textContent || '').includes('Good')));
+    const tiles = [...m.el.querySelectorAll('[data-rating]')].map(b => b.textContent.replace(/\s+/g, ' ').trim());
+    check('a card not due yet offers two tiles, Again and Knew it (Hard, Good and Easy would all keep its date)',
+        tiles.length === 2 && /^Again/.test(tiles[0]) && /^Knew it/.test(tiles[1]), JSON.stringify(tiles));
+    // Key 3 (Good on a due card) is Knew it here, as are 2 and 4.
+    await act(async () => { document.dispatchEvent(new window.KeyboardEvent('keydown', { key: '3', bubbles: true })); });
+    await flush();
     const after = m.el.textContent || '';
     await click(button(m.el, 'Undo'));
     const undone = m.el.textContent || '';
     // Undo comes back with the answer showing, as it was when rated.
     await click(buttons(m.el).find(b => (b.textContent || '').includes('Again')));
-    check('Undo after a kept Good returns to that card, and Again on it writes once',
+    check('key 3 keeps the date, Undo returns to that card, and Again on it writes once',
         /Front 5/.test(after) && /Front 2/.test(undone) && /(?<!\d)1 of 2(?!\d)/.test(undone) && JSON.stringify(written) === '[2]',
         JSON.stringify({ written, after: after.slice(0, 80), undone: undone.slice(0, 120) }));
     m.unmount();

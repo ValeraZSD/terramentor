@@ -345,6 +345,7 @@
   "Delete these {{count}} questions?_other": "この{{count}}問を削除しますか？",
   "Delete these questions": "これらの問題を削除",
   "Generate {{count}} questions_other": "{{count}}問を生成",
+  "Knew it": "覚えていた",
   "Look back": "振り返り",
   "Look back, {{date}}": "振り返り、{{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "モデルの呼び出し、バックグラウンドのジョブ、プロジェクトの追加と削除を記録します。記録するのはアプリが行ったことだけで、コースの内容（トピック名、問題、メモ、回答）は一切含まれません。",

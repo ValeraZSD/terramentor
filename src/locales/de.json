@@ -466,6 +466,7 @@
   "Delete these questions": "Diese Fragen löschen",
   "Generate {{count}} questions_one": "{{count}} Frage generieren",
   "Generate {{count}} questions_other": "{{count}} Fragen generieren",
+  "Knew it": "Gewusst",
   "Look back": "Rückblick",
   "Look back, {{date}}": "Rückblick, {{date}}",
   "Model calls, background jobs, and projects added or removed. It records what the app did, never the content of your courses: no topic titles, questions, notes or answers.": "Modellaufrufe, Hintergrundaufgaben sowie hinzugefügte oder entfernte Projekte. Es hält fest, was die App getan hat, nie den Inhalt deiner Kurse: keine Thementitel, Fragen, Notizen oder Antworten.",
