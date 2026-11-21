@@ -678,6 +678,28 @@ function coarse(value: number, unit: (n: string) => string): string {
  * without `t` it prints the English shorthand (this module is also run by
  * `srs-gates.mjs` with no i18n behind it, and those assertions are on that text).
  */
+/**
+ * Whether a rating in a run through ALL of a topic's cards (the topic panel's
+ * Practise all) leaves the card's schedule as it is.
+ *
+ * A card that is not due yet and that you know keeps its date: an early "Good"
+ * would otherwise count as a full review (with this scheduler a card due in 17
+ * days went to 58, on "Easy" to 100), so a run the night before a test would
+ * send the cards just recalled months away. A card you miss is news whenever it
+ * happens, and a card that is due is reviewed as Study would review it.
+ */
+export function keepsItsDate(card: { next_review?: string | null }, rating: ReviewRating, now: number = Date.now()): boolean {
+    if (rating === 'again' || !card.next_review) return false;
+    const due = Date.parse(card.next_review);
+    return Number.isFinite(due) && due > now;
+}
+
+/** Days until a card's stored due date (0 when it has none or is past due). */
+export function daysUntilDue(card: { next_review?: string | null }, now: number = Date.now()): number {
+    const due = card.next_review ? Date.parse(card.next_review) : NaN;
+    return Number.isFinite(due) ? Math.max(0, (due - now) / MS_PER_DAY) : 0;
+}
+
 export function formatInterval(days: number, t?: TFunction): string {
     const minutes = days * 1440;
     if (minutes < 59.5) {
