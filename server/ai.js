@@ -4985,6 +4985,9 @@ Write every sentence as if speaking to them directly.`,
     };
 }
 
+/** Scripts written without spaces between words. */
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
 /**
  * Does a hint give the answer away? It does when it writes the key out, or any
  * word of the key the learner's answer is missing (in its normalised
@@ -4996,9 +4999,17 @@ function hintWritesKey(hint, key, answer = '') {
     const h = normalizeTyped(hint);
     const k = normalizeTyped(key);
     if (!h || !k) return false;
-    const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(h)) return true;
-    const words = (s) => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    // Chinese, Japanese, Thai and their neighbours put no space between words,
+    // so there a word is no unit: the key is looked for anywhere, and each of
+    // its characters counts as a word of its own.
+    if (UNSPACED_SCRIPT.test(k)) {
+        const flat = (s) => s.replace(/\s+/g, '');
+        if (flat(h).includes(flat(k))) return true;
+    } else {
+        const esc = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(h)) return true;
+    }
+    const words = (s) => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean).flatMap(w => UNSPACED_SCRIPT.test(w) ? [...w] : [w]);
     const inHint = new Set(words(h));
     const given = new Set(words(normalizeTyped(answer)));
     return words(k).some(w => !given.has(w) && inHint.has(w));
@@ -5091,8 +5102,11 @@ export async function checkAnswerWithAI(question, correctAnswer, userAnswer, { f
     // grader never actually judged is NOT written as BKT evidence, because the
     // sentence below tells the learner to trust themselves and the estimate
     // must not quietly do the opposite.
+    // On a form task every letter counts here, but capitals and punctuation
+    // only when the task is about them, which this comparison cannot tell:
+    // it leaves both out rather than fail a right answer for a full stop.
     const ungraded = () => ({
-        correct: normalizedUser === normalizedCorrect,
+        correct: form ? normalizeTyped(userAnswer) === normalizeTyped(correctAnswer) : normalizedUser === normalizedCorrect,
         graded: false,
         explanation: code
             ? 'The AI grader could not be reached, so your code was only compared with the reference solution character by character — a different but working solution reads as wrong here. Compare the two yourself and trust what you can trace.'
