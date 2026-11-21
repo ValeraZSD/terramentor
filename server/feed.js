@@ -269,7 +269,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     const today = studyToday({ now });
     refreshTopicDates({ today });
     const projects = db.prepare(`
-        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from,
+        SELECT p.id, p.name, p.color, p.icon, p.start_date, p.deadline, p.made_from, p.ai_generating,
                EXISTS(
                    SELECT 1 FROM flashcards f JOIN nodes n ON n.id = f.node_id
                    WHERE n.project_id = p.id
@@ -304,6 +304,36 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
                  n.scheduled_start ASC, n.id ASC
         LIMIT ?
     `);
+    // A course still being written has phases and sections whose children are
+    // not written yet: childless, so LEAF_NODE takes them for topics. The
+    // creation writes every phase, then a phase's sections, then their topics,
+    // so in id order an undated course's Study opened on the second phase's
+    // title, and a lesson was written for it. While the course is being
+    // written, a childless node above the deepest level written so far is a
+    // container waiting for its children, not a topic. It reads depth only:
+    // before any topic exists the containers are the deepest level and still
+    // show, and a topic added by hand right under a phase while a continuation
+    // runs is hidden until the run ends.
+    let waitingStmt = null;
+    const waitingIn = (p) => {
+        if (!p.ai_generating) return null;
+        waitingStmt ??= db.prepare(`
+            WITH RECURSIVE tree(id, depth) AS (
+                SELECT id, 0 FROM nodes WHERE project_id = ? AND parent_id IS NULL AND is_note = 0
+                UNION ALL
+                SELECT n.id, tree.depth + 1 FROM nodes n JOIN tree ON n.parent_id = tree.id WHERE n.is_note = 0
+            )
+            SELECT t.id FROM tree t
+            WHERE t.depth < (SELECT MAX(depth) FROM tree)
+              AND NOT EXISTS (SELECT 1 FROM nodes c WHERE c.parent_id = t.id AND c.is_note = 0)
+        `);
+        const ids = new Set(waitingStmt.all(p.id).map(r => r.id));
+        return ids.size ? ids : null;
+    };
+    const topicsOnly = (rows, waiting) => (waiting ? rows.filter(n => !waiting.has(n.id)) : rows);
+    const aheadOf = (info, limit) => (info.waiting
+        ? topicsOnly(aheadStmt.all(info.project.id, today, limit + info.waiting.size), info.waiting).slice(0, limit)
+        : aheadStmt.all(info.project.id, today, limit));
 
     const infos = projects.map(p => {
         let pace = null;
@@ -312,11 +342,13 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
             // lay the shared plan for the real today under them.
             try { pace = calculatePace(p.id, { today }); } catch { pace = null; }
         }
+        const waiting = waitingIn(p);
         return {
             project: p,
             pace,
-            overdue: overdueStmt.all(p.id, today),
-            todays: todayStmt.all(p.id, today, today),
+            waiting,
+            overdue: topicsOnly(overdueStmt.all(p.id, today), waiting),
+            todays: topicsOnly(todayStmt.all(p.id, today, today), waiting),
         };
     });
 
@@ -353,7 +385,7 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     // on the larger share; the reservation only guarantees the tail exists.
     // Only one with a topic to serve: a short course still being written, or
     // one whose writing failed, would hold a slot and fill it with nothing.
-    const standingInfos = infos.filter(i => isStanding(i) && aheadStmt.all(i.project.id, today, 1).length > 0);
+    const standingInfos = infos.filter(i => isStanding(i) && aheadOf(i, 1).length > 0);
     const reserved = standingInfos.length
         ? Math.min(standingInfos.length, Math.max(1, Math.floor(maxTotal / 3)))
         : 0;
@@ -371,10 +403,10 @@ export function getFocusNodes({ maxPerProject, maxTotal, projectId = null, now }
     };
     const take = (info, cap) => {
         const nodes = isStanding(info)
-            ? aheadStmt.all(info.project.id, today, maxPerProject)
+            ? aheadOf(info, maxPerProject)
             : anyScheduledWork
                 ? [...info.overdue, ...info.todays]
-                : aheadStmt.all(info.project.id, today, maxPerProject);
+                : aheadOf(info, maxPerProject);
         for (const n of nodes.slice(0, maxPerProject)) {
             if (focus.length >= cap) break;
             // The standing loop below calls this once per PASS, so a node the
