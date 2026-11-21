@@ -6,34 +6,15 @@ import type { AnswerInputProps } from './AnswerInput';
 import { useTranslation } from 'react-i18next';
 import { useElementWidth } from '../../hooks/useElementWidth';
 import { useRootFontSize } from '../../hooks/useRootFontSize';
-import { choiceColumns } from './choiceLayout';
+import { choiceColumns, visualLength } from './choiceLayout';
+import { useStore } from '../../store';
+import { DOUBLE_PRESS_MS } from '../../hooks/useConfirmPress';
+import { usePointerVerb } from '../../utils/platform';
 
 const norm = (s: string) => s.toLowerCase().trim();
 
 /** Past this, an option is prose and gets a row of its own. */
 const COMPACT_CHARS = 32;
-
-/**
- * Roughly how much an option will PAINT, which is not how long it is: four
- * fractions that fill four full-width rows are `$f_s\frac{v - v_{\text{run}}}
- * {v + v_{\text{train}}}$` in source, and half of that source is markup.
- *
- * So strip the delimiters, keep the word inside a `\text{…}`, and count every
- * other command as the one symbol it draws. A fraction is still counted as
- * numerator PLUS denominator although it paints them stacked — the error is
- * deliberately toward "this is prose", where the full-width row is right.
- *
- * Used only until the options have been MEASURED (the first frame, and jsdom).
- */
-const visualLength = (option: string) => option
-    .replace(/\$+/g, '')
-    .replace(/\\(?:text|textrm|mathrm|mathbf|mathit|operatorname)\s*\{([^{}]*)\}/g, '$1')
-    .replace(/\\(?:displaystyle|limits|left|right|quad|qquad|[,;:!])/g, '')
-    .replace(/\\[a-zA-Z]+/g, 'x')
-    .replace(/[{}^_\\]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .length;
 
 /**
  * Pick one: the multiple-choice tiles and the True / False pair. One component
@@ -46,6 +27,7 @@ const visualLength = (option: string) => option
  */
 export default function ChoiceInput({ question, value, onChange, onCommit, disabled, result }: AnswerInputProps) {
     const { t } = useTranslation();
+    const pointerVerb = usePointerVerb();
     const pair = question.type === 'true_false';
     const options = pair ? ['True', 'False'] : (question.options ?? []);
 
@@ -105,9 +87,18 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
         return 'border-slate-200 dark:border-slate-600 can-hover:hover:border-accent/60 can-hover:hover:bg-accent/5';
     };
 
+    // Confirm before grading (Settings → Accessibility): where a press would
+    // grade at once, the first press only selects and the second, on the same
+    // answer, grades. Where there is a Check button already, nothing changes.
+    const confirm = useStore(s => s.a11y.confirmAnswers) && !!onCommit;
+    // When the shown answer was selected: a second press sooner than
+    // DOUBLE_PRESS_MS is the same shaky click landing twice.
+    const chosenAt = useRef(0);
     const choose = (option: string) => {
         if (disabled || result) return;
         onChange(option);
+        if (confirm && value !== option) { chosenAt.current = Date.now(); return; }
+        if (confirm && Date.now() - chosenAt.current < DOUBLE_PRESS_MS) return;
         onCommit?.(option);
     };
 
@@ -179,6 +170,13 @@ export default function ChoiceInput({ question, value, onChange, onCommit, disab
                     );
                 })}
             </div>
+            {/* Said for as long as the mode applies, not only once something is
+                chosen, so the options never move when the line appears. */}
+            {confirm && !result && (
+                <p className="mt-2 text-xs text-slate-600 dark:text-slate-300" aria-live="polite">
+                    {value ? t("{{pointerVerb}} the same answer again to check it.", { pointerVerb }) : t("{{pointerVerb}} an answer twice to check it.", { pointerVerb })}
+                </p>
+            )}
         </div>
     );
 }

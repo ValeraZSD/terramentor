@@ -98,6 +98,26 @@ export const FAILURE_TEXT: Record<ConnectionFailure, string> = {
     other: k("The provider answered with an error."),
 };
 
+/**
+ * Why "Continue with ChatGPT" did not complete, by the reason the callback
+ * names (`chatgpt_reason=<step>[:<code>]`, server/chatgptAuth.js): the whole
+ * reason when it has its own words, else its step. The code itself follows in
+ * brackets, so a report can quote it.
+ */
+export const SIGN_IN_FAILURE_TEXT: Record<string, string> = {
+    // Refused (a first sign-in only after the server's one retry with the
+    // issued client id). OAuth uses invalid_grant for any refused code, an
+    // expired one too, so the plan is something to check, not the cause.
+    'token:invalid_grant': k("OpenAI did not accept the sign-in. Start it again. If it keeps failing, check the account's plan: other apps can use only a paid ChatGPT plan."),
+    provider: k("OpenAI stopped the sign-in with an error. Try again in a few minutes."),
+    no_client_id: k("OpenAI's answer was incomplete. Start the sign-in again."),
+    client_mismatch: k("OpenAI's answer belonged to a different sign-in. Start the sign-in again."),
+    token: k("OpenAI did not accept the sign-in. Start it again."),
+    discovery: k("OpenAI's sign-in service could not be reached. Check the internet connection and try again."),
+    id_token: k("OpenAI's answer could not be verified, so nothing was saved. Start the sign-in again."),
+    save: k("The sign-in could not be saved on this computer."),
+};
+
 /** The thinking levels, weakest first, as the control names them. */
 export const EFFORT_LABEL: Record<string, string> = {
     minimal: k("Minimal"),

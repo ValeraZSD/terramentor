@@ -72,19 +72,24 @@ export function topicFraction(row) {
 let stmts = null;
 function statements() {
     if (stmts) return stmts;
-    const rows = `
+    const rows = (scope) => `
         SELECT n.project_id AS projectId, n.id AS nodeId, n.status AS status,
                COUNT(f.id) AS cards,
                SUM(CASE WHEN f.review_count > 0 AND f.last_reviewed IS NOT NULL THEN 1 ELSE 0 END) AS seen,
                ${TAUGHT_SQL} AS taught
         FROM live_nodes n
         LEFT JOIN live_flashcards f ON f.node_id = n.id
-        WHERE ${WORK_LEAF}
+        WHERE ${WORK_LEAF}${scope}
         GROUP BY n.id
     `;
     stmts = {
-        all: db.prepare(rows),
-        one: db.prepare(`SELECT * FROM (${rows}) WHERE projectId = ?`),
+        all: db.prepare(rows('')),
+        // The project filter goes INSIDE the grouping. Outside it, as
+        // `SELECT * FROM (…) WHERE projectId = ?`, SQLite does not push it into
+        // the aggregate: every call grouped every leaf of the library and threw
+        // all but one project away (357 ms for 26 projects on a 5,000-topic
+        // library; 22 ms inside, the same rows — tools/progress-scope-gates.mjs).
+        one: db.prepare(rows(' AND n.project_id = ?')),
     };
     return stmts;
 }
@@ -147,6 +152,11 @@ function cardStatement() {
         `);
     }
     return cardStmt;
+}
+
+/** The SQL behind `projectProgress`, so the gate can ask SQLite how it runs it. */
+export function projectProgressSource() {
+    return statements().one.source;
 }
 
 /** One project's progress. */

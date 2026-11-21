@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isAllowedOrigin, originGuard } from './originGuard.js';
 import { hostedGuard, trustProxySetting } from './hosted.js';
+import { siteNoteReader } from './siteLibrary.js';
 import { compressJson, precompressedStatic } from './httpCompression.js';
 import { slowRequestLog } from './slowLog.js';
 import { clientError } from './clientError.js';
@@ -60,6 +61,7 @@ import * as authoringApi from './routes/authoring.js';
 import * as mediaApi from './routes/media.js';
 import * as ankiApi from './routes/anki.js';
 import * as bundleApi from './routes/bundle.js';
+import * as courseUpdatesApi from './routes/courseUpdates.js';
 import * as scheduleApi from './routes/schedule.js';
 import * as completionApi from './routes/completion.js';
 import * as decksApi from './routes/decks.js';
@@ -69,8 +71,8 @@ import * as placementApi from './routes/placement.js';
 import * as itemReportsApi from './routes/itemReports.js';
 import * as feedApi from './routes/feed.js';
 import * as paperApi from './routes/paper.js';
+import * as mockExamsApi from './routes/mockExams.js';
 import * as devicesApi from './routes/devices.js';
-import * as calendarApi from './routes/calendar.js';
 import * as agentApi from './routes/agent.js';
 import * as shortCoursesApi from './routes/shortCourses.js';
 
@@ -356,6 +358,9 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     const mounted = new Set();
     const mount = (block) => { mountRoutes(app, block); mounted.add(block); };
     mount(headMiddleware);
+    // A library run by a site's front desk: who the front desk says this is
+    // (server/siteLibrary.js). A no-op anywhere else.
+    app.use(siteNoteReader);
     // Which other device this is, if it may come in without the password
     // (server/devices.js): read once here, before the public auth routes, so
     // the status probe and the gate below answer the same question the same way.
@@ -486,6 +491,7 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(mediaApi.routes);
     mount(ankiApi.routes);
     mount(bundleApi.routes);
+    mount(courseUpdatesApi.routes);
     mount(scheduleApi.scheduleRoutes);
     mount(completionApi.routes);
     mount(scheduleApi.scheduleEditRoutes);
@@ -499,10 +505,10 @@ export function createApp({ port = () => Number(process.env.PORT) || 3001, onShu
     mount(todayApi.todayRoutes);
     mount(feedApi.feedRoutes);
     mount(paperApi.routes);
+    mount(mockExamsApi.routes);
     mount(shortCoursesApi.routes);
     mount(feedApi.feedItemRoutes);
     mount(flashcardsApi.dueRoutes);
-    mount(calendarApi.routes);
     mount(agentApi.routes);
     mount(tailMiddleware);
     assertEveryBlockMounted(mounted);

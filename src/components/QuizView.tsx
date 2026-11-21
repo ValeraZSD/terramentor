@@ -9,7 +9,7 @@ import ProgressBar from './ui/ProgressBar';
 import QuestionStem from './QuestionStem';
 import AnswerInput from './answer/AnswerInput';
 import AnswerReviewItem from './answer/AnswerReviewItem';
-import { formatOf, defaultAnswer, hasUsableKey } from './answer/formats';
+import { formatOf, answerHint, defaultAnswer, hasUsableKey } from './answer/formats';
 import UncheckedKeyNote, { isUnchecked, askedEntry } from './UncheckedKeyNote';
 import { gradeAnswer, type GradedAnswer } from '../utils/grading';
 import { useTranslation } from 'react-i18next';
@@ -48,6 +48,7 @@ const SESSION_SIZE = 15;
 export default function QuizView({ quiz, onClose }: Props) {
     const { t } = useTranslation();
     const addToast = useStore(s => s.addToast);
+    const forgiveSpelling = useStore(s => s.forgiveSpelling);
     const sampled = quiz.questions.length > SESSION_SIZE;
     // The questions of THIS sitting, each carrying its index in the bank. A
     // question whose stored key cannot be graded is left out (the index is
@@ -113,7 +114,9 @@ export default function QuizView({ quiz, onClose }: Props) {
     const currentReport = currentRef ? reports[currentRef] ?? null : null;
     // Nothing of this topic is left to grade: the sitting can only be left.
     const nothingLeft = !questions.some((q, idx) => !q.isGhost && !isReported(idx));
-    const allAnswered = questions.every((_, idx) => isReported(idx) || answers[idx] !== undefined);
+    // An ordering left as served is already an answer (`defaultAnswer` grades
+    // that order), so it must not hold Submit back.
+    const allAnswered = questions.every((q, idx) => isReported(idx) || answers[idx] !== undefined || defaultAnswer(q) !== '');
 
     // Answering is time on the topic the question is ABOUT — a ghost question
     // from a fading topic is time on that topic — and reading the results,
@@ -420,9 +423,9 @@ export default function QuizView({ quiz, onClose }: Props) {
                         value={answers[currentIndex] || ''}
                         onChange={handleAnswer}
                     />
-                    {formatOf(currentQuestion).hint && (
+                    {answerHint(currentQuestion, forgiveSpelling) && (
                         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                            {t(formatOf(currentQuestion).hint!)}
+                            {t(answerHint(currentQuestion, forgiveSpelling)!)}
                         </p>
                     )}
                 </div>

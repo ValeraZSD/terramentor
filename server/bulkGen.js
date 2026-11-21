@@ -26,6 +26,7 @@ import db from './database.js';
 import { getAISettings, withAnswerScope } from './ai.js';
 import { generateMaterial } from './studyMaterial.js';
 import { WORK_LEAF } from './today.js';
+import { refreshTopicDates } from './topicDates.js';
 import { MIN_GATE_QUESTIONS } from './mastery.js';
 import * as tasks from './tasks.js';
 import { readAverageMs, recordAverageMs } from './durationAverages.js';
@@ -107,9 +108,10 @@ let chain = Promise.resolve();
  * good thing to build revision cards for, which is exactly what exam prep is.
  */
 export function bulkCandidates(projectId) {
+    refreshTopicDates();
     const rows = db.prepare(`
         SELECT n.id, n.title, n.status, n.parent_id, n.position, n.scheduled_end
-        FROM live_nodes n
+        FROM plan_nodes n
         WHERE n.project_id = ? AND ${WORK_LEAF}
         ORDER BY n.position ASC, n.id ASC
     `).all(projectId);

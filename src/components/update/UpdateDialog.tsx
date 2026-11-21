@@ -296,7 +296,7 @@ function RestartingDialog({ version }: { version: string }) {
     return (
         <Modal isOpen onClose={() => {}} closable={false} title={t("Installing Terramentor {{version}}", { version: unbroken(version) })} maxWidth="max-w-md">
             <div className="flex items-start gap-3 text-sm text-slate-700 dark:text-slate-200" role="status">
-                <Loader2 className="w-5 h-5 motion-safe:animate-spin shrink-0 text-accent-fg" aria-hidden="true" />
+                <Loader2 className="w-5 h-5 motion-on:animate-spin shrink-0 text-accent-fg" aria-hidden="true" />
                 <p>{slow
                     ? t("This is taking longer than usual. If Terramentor does not reopen, start it again from the Start menu or its folder.")
                     : t("Terramentor will close and open again by itself in a few seconds.")}</p>

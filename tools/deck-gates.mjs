@@ -328,6 +328,126 @@ for (let i = 0; i < 5; i++) addCard(stageB, {});                                
     decks.setNewPerDay(projectId, 20);
 }
 
+// ---- the course's recall target ---------------------------------------------
+{
+    const ownKey = 'desired_retention_' + db.prepare('SELECT uuid FROM projects WHERE id = ?').get(projectId).uuid;
+    const key = () => db.prepare('SELECT COUNT(*) AS n FROM settings WHERE key = ?').get(ownKey).n;
+    eq('a course with no target reads the standard 0.90', decks.getRetention(projectId), 0.9);
+    eq('the deck data carries the target', decks.buildDeckData(projectId, { now: NOW }).desiredRetention, 0.9);
+    eq('a target is stored as given', decks.setRetention(projectId, 0.85), 0.85);
+    eq('and read back', decks.getRetention(projectId), 0.85);
+    check('stored under the project uuid, not its id',
+        db.prepare('SELECT COUNT(*) AS n FROM settings WHERE key = ?').get(
+            'desired_retention_' + db.prepare('SELECT uuid FROM projects WHERE id = ?').get(projectId).uuid).n === 1);
+    eq('a target outside 0.70-0.97 is refused', decks.setRetention(projectId, 0.5), null);
+    eq('and leaves the stored one alone', decks.getRetention(projectId), 0.85);
+    eq('the standard target stores no row at all', (decks.setRetention(projectId, 0.9), key()), 0);
+    const { loadProjectSummaries } = await import('../server/projectSummary.js');
+    decks.setRetention(projectId, 0.95);
+    eq('the project row carries the target every review surface reads',
+        loadProjectSummaries().find(p => p.id === Number(projectId))?.desired_retention, 0.95);
+    const f = decks.retentionForecast(projectId, { now: NOW });
+    check('the forecast offers every choice and the course own target',
+        f.current === 0.95 && [0.8, 0.85, 0.9, 0.95].every(r => f.choices.some(c => c.retention === r)),
+        JSON.stringify(f));
+    check('the forecast prices a higher target higher',
+        f.choices.every((c, i) => i === 0 || c.perDay > f.choices[i - 1].perDay), JSON.stringify(f.choices));
+    eq('the forecast uses the course own allowance', f.newPerDay, decks.getNewPerDay(projectId));
+    check('a second ask on unchanged cards is the same answer',
+        decks.retentionForecast(projectId, { now: NOW }) === f);
+    // A write of the memory state alone (an older client's `stability` without
+    // a review) moves no count or date, yet changes the forecast's input.
+    const memCard = db.prepare('SELECT f.id, f.stability FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id LIMIT 1').get(projectId);
+    db.prepare('UPDATE flashcards SET stability = ? WHERE id = ?').run((memCard.stability ?? 1) + 7, memCard.id);
+    check('a memory-state write alone is not answered from the cache',
+        decks.retentionForecast(projectId, { now: NOW }) !== f);
+    db.prepare('UPDATE flashcards SET stability = ? WHERE id = ?').run(memCard.stability, memCard.id);
+
+    // Red on 2af46e9b: the saved target was part of the cache key, so saving
+    // one already offered threw away numbers that had not changed.
+    decks.setRetention(projectId, 0.85);
+    const f85 = decks.retentionForecast(projectId, { now: NOW });
+    decks.setRetention(projectId, 0.8);
+    const f80 = decks.retentionForecast(projectId, { now: NOW });
+    check('saving a target already offered is answered from the cache, with the new target',
+        f80.choices === f85.choices && f80.current === 0.8 && f85.current === 0.85, JSON.stringify([f85.current, f80.current]));
+
+    // A stored target that is not one of the four is offered too, priced in its place.
+    decks.setRetention(projectId, 0.92);
+    const f92 = decks.retentionForecast(projectId, { now: NOW });
+    const at = (r) => f92.choices.find(c => c.retention === r)?.perDay;
+    check('a target outside the four is a fifth choice, priced between its neighbours',
+        f92.choices.length === 5 && at(0.9) < at(0.92) && at(0.92) < at(0.95), JSON.stringify(f92.choices));
+    decks.setRetention(projectId, 0.9);
+}
+
+// ---- the recall-target forecast: cards it must count, and its cost -----------
+{
+    const course = (name) => {
+        const pid = Number(db.prepare("INSERT INTO projects (name, kind, position) VALUES (?, 'deck', 9)").run(name).lastInsertRowid);
+        const node = Number(db.prepare('INSERT INTO nodes (project_id, parent_id, title, position) VALUES (?, NULL, ?, 0)').run(pid, 'All').lastInsertRowid);
+        return { pid, node };
+    };
+    const memoryCard = db.prepare(`
+        INSERT INTO flashcards (node_id, front, back, review_count, last_reviewed, next_review, stability, stability_fast, fsrs_difficulty, state, last_interval)
+        VALUES (?, 'q', 'a', ?, ?, ?, ?, ?, 5, 2, ?)`);
+
+    // Red on 2af46e9b: a reviewed card with no due date (an older client's write
+    // of the memory state alone) was in no day of the forecast, though the queue
+    // serves it as due.
+    const noDue = course('Forecast: reviewed, no due date');
+    for (let i = 0; i < 20; i++) memoryCard.run(noDue.node, 3, iso(-5), null, 4, 1, 4);
+    decks.setNewPerDay(noDue.pid, 0);
+    const fNoDue = decks.retentionForecast(noDue.pid, { now: NOW });
+    check('a reviewed card with no due date counts as due now', fNoDue.choices.every(c => c.perDay > 0), JSON.stringify(fNoDue.choices));
+
+    // Red on 2af46e9b: past the sample size every card was simulated, so one ask
+    // on a big import held the server for seconds that grew with the deck.
+    const big = course('Forecast: past the sample size');
+    const n = deckApi.FORECAST_MAX_CARDS ?? 3200;
+    const insertMany = db.transaction(() => {
+        for (let i = 0; i < n + 400; i++) memoryCard.run(big.node, 5, iso(-(3 + (i % 30))), iso(i % 25), 3 + (i % 30), 1, 10);
+    });
+    insertMany();
+    decks.setNewPerDay(big.pid, 0);
+    const { forecastDailyReviews } = await import('../src/utils/srs.ts');
+    const rows = db.prepare(`
+        SELECT f.id, f.stability, f.stability_fast, f.fsrs_difficulty, f.state, f.lapses, f.learning_steps,
+               f.last_interval, f.ease_factor, f.difficulty, f.review_count, f.last_reviewed, f.next_review
+        FROM flashcards f JOIN nodes n ON n.id = f.node_id WHERE n.project_id = ? ORDER BY f.id`).all(big.pid);
+    const whole = Math.round(forecastDailyReviews(rows, { retention: 0.9, newPerDay: 0, days: 30, runs: 1, now: NOW }) * 10) / 10;
+    const sampled = decks.retentionForecast(big.pid, { now: NOW }).choices.find(c => c.retention === 0.9)?.perDay;
+    check('a course past the sample size is forecast from a sample, within 5% of the whole',
+        sampled !== whole && Math.abs(sampled - whole) / whole < 0.05, `sampled ${sampled}, whole ${whole}`);
+}
+
+// ---- the routes: PUT and GET over HTTP ----------------------------------------
+{
+    const { createServer } = await import('node:http');
+    const { createApp } = await import('../server/app.js');
+    const server = createServer(createApp());
+    const port = await new Promise(ok => server.listen(0, '127.0.0.1', () => ok(server.address().port)));
+    const call = async (method, path, body) => {
+        const r = await fetch(`http://127.0.0.1:${port}${path}`, {
+            method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+        return { status: r.status, json: await r.json().catch(() => null) };
+    };
+    const settings = `/api/projects/${projectId}/deck/settings`;
+    const bad = await call('PUT', settings, { retention: 0.5 });
+    eq('PUT: a target outside 0.70-0.97 is a 400', bad.status, 400);
+    eq('PUT: a target that is not a number is a 400', (await call('PUT', settings, { retention: 'high' })).status, 400);
+    eq('PUT: and nothing was stored', decks.getRetention(projectId), 0.9);
+    const ok = await call('PUT', settings, { retention: 0.8 });
+    check('PUT: a target is saved and answered', ok.status === 200 && ok.json?.retention === 0.8, JSON.stringify(ok));
+    const got = await call('GET', `/api/projects/${projectId}/deck/retention-forecast`);
+    check('GET: the forecast names the saved target and prices every choice',
+        got.status === 200 && got.json?.current === 0.8 && got.json?.choices?.length === 4, JSON.stringify(got));
+    eq('GET: an unknown course is a 404', (await call('GET', '/api/projects/999999/deck/retention-forecast')).status, 404);
+    await call('PUT', settings, { retention: 0.9 });
+    await new Promise(ok => server.close(ok));
+}
+
 {
     const q = decks.studyQueue(projectId);
     eq('the queue serves the reviews that are owed', q.reviews.length, 2);
@@ -697,6 +817,36 @@ rmSync(scratch, { recursive: true, force: true });
     check('the dashboard\'s Start Studying goes through it too',
         /studyProject\(currentProjectId\)/.test(read('src/components/StudyDashboard.tsx')));
 
+    // The deck page's statistics all come from one reload key.
+    const dash = read('src/components/deck/DeckDashboard.tsx');
+    // The tag is cut out whole (an arrow's ">" ends no tag here), so the order
+    // of its props does not matter.
+    const panelTag = dash.match(/<CardsPanel\b[\s\S]*?\/>/)?.[0] ?? '';
+    check('Refresh on the deck page reaches the cards panel it contains',
+        /\breloadKey=\{reloadKey\}/.test(panelTag));
+    check('a session ending in the cards panel refreshes the page header',
+        /\bonSessionEnd=\{\(\) => setReloadKey\(/.test(panelTag));
+    // The receiving end: the panel recounts when the key moves, and says so
+    // when a session closes. Without these the props above would go nowhere.
+    check('the cards panel recounts when its reloadKey moves',
+        /useEffect\(\(\) => \{[^}]*seenReloadKey\.current === reloadKey[^}]*load\(\{ silent: true \}\)[^}]*\}, \[reloadKey, load\]\)/.test(panel));
+    check('...and tells the page when a session ends',
+        /const endSession = \(\) => \{[\s\S]*?onSessionEnd\?\.\(\)/.test(panel));
+
+    // The strip's block name is the stage list's sentence, translated.
+    const strip = read('src/components/deck/DeckStageStrip.tsx');
+    check('a strip block\'s name is built from the translated "cards met" key',
+        /t\("\{\{title\}\}: \{\{fmt\}\} of \{\{fmt2\}\} cards met"/.test(strip));
+    check('…and its due part from the translated due key, not a template string',
+        /t\("· \{\{fmt\}\} due"/.test(strip) && !/cards met`|, \$\{fmt\(stage\.due\)\} due/.test(strip));
+
+    // A stage row's separators each carry the space JSX would drop.
+    const stages = read('src/components/deck/DeckStages.tsx');
+    for (const sep of ['mature', 'due', 'new']) {
+        check(`a stage row writes the space before "· N ${sep}"`,
+            new RegExp(`\\{' '\\}(<span[^>]*>)?\\{tr\\("· \\{\\{fmt\\}\\} ${sep}"`).test(stages));
+    }
+
     // What the atlas topic card says.
     const { topicStatusLines } = await bundle('src/components/atlas/topicStatus.ts');
     const num = (n) => String(n);
@@ -706,6 +856,10 @@ rmSync(scratch, { recursive: true, force: true });
     const freqRoot = { cards: 5168, seen: 491, topics: 6, closed: 0, inCards: true };
     eq('the root of a deck with 491 cards met says its cards met', keys(freqRoot), '{{value}} / {{value2}} cards met');
     eq('…with the numbers in it', says(freqRoot)[0]?.values?.value, '491');
+    // Every count goes through the reader's number style, so this one is checked
+    // with a formatter that is not `String`.
+    eq('the answers counted are written in the reader’s number style',
+        topicStatusLines({ ...base, attempts: 1234, mastery: 0.5 }, n => `<${n}>`)[0]?.values?.attempts, '<1234>');
     eq('a fully met section with answers says both', keys({ attempts: 76, mastery: 0.99, cards: 86, seen: 86, inCards: true }),
         '{{round}}% · {{attempts}} answered / {{value}} / {{value2}} cards met');
     eq('a course chapter says its topics done, and its cards', keys({ topics: 12, closed: 1, cards: 120, seen: 3 }),
@@ -744,33 +898,6 @@ rmSync(scratch, { recursive: true, force: true });
     eq('a named section with cards met is in progress (it read "Not started")', tree.findNode(section, 11).effectiveStatus, 'in_progress');
     const course = tree.buildTree([n(20, null), n(21, 20, { status: 'completed' }), n(22, 20)]);
     eq('a written course is exactly what it was', `${course[0].progress.percentage} ${course[0].effectiveStatus}`, '50 in_progress');
-
-    // The Timeline and Calendar draw a card plan's sections.
-    const plan = [
-        { nodeId: 2, start: '2026-09-01', end: '2026-09-11', cards: 50, seen: 50 },
-        { nodeId: 3, start: '2026-09-11', end: '2026-09-24', cards: 50, seen: 16 },
-        { nodeId: 4, start: '2026-09-24', end: '2026-10-07', cards: 50, seen: 0 },
-    ];
-    const rows = tree.buildGanttData(deckTree, plan);
-    const row = (id) => rows.find(r => r.id === id);
-    eq('a section takes its dates from the plan', `${row(3).scheduledStart}..${row(3).scheduledEnd}`, '2026-09-11..2026-09-24');
-    eq('the root spans its sections', `${row(1).scheduledStart}..${row(1).scheduledEnd}`, '2026-09-01..2026-10-07');
-    check('a section with every card met is done on the plan, never overdue', row(2).status === 'completed' && !row(2).isOverdue);
-    // Overdue is `end < today`, as everywhere else — dates are relative to the
-    // same clock the function reads, so this holds on any day.
-    const today = tree.todayStr();
-    const dated = (id, start, end, status = 'not_started') => n(id, null, { scheduled_start: start, scheduled_end: end, status });
-    const ganttRow = (node) => tree.buildGanttData(tree.buildTree([node]))[0];
-    check('a not-started topic whose window opens today is not overdue',
-        !ganttRow(dated(50, today, tree.addDays(today, 6))).isOverdue);
-    check('…nor one whose window opened last week and is still open',
-        !ganttRow(dated(51, tree.addDays(today, -7), tree.addDays(today, 3))).isOverdue);
-    check('a not-started topic whose window ended yesterday is overdue',
-        ganttRow(dated(52, tree.addDays(today, -8), tree.addDays(today, -1))).isOverdue);
-    check('without a plan the rows are the stored dates, as before',tree.buildGanttData(deckTree).every(r => r.scheduledStart === null));
-    const chips = tree.cardPlanCalendarTasks(deckTree, plan, '#123456');
-    eq('calendar chips carry the plan\'s status', chips.map(c => c.status).join(), 'completed,in_progress,not_started');
-    eq('…and the section\'s own title', chips[1]?.title, 'n3');
 
     rmd(dir, { recursive: true, force: true });
 }

@@ -2,7 +2,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import db from '../database.js';
 import {
-    apiKeyOriginOf, checkOllamaHealth, clearActiveKey, deleteModel, getAISettings,
+    apiKeyOriginOf, statusHealth, clearActiveKey, deleteModel, getAISettings,
     getInstalledModels, modelEndpointPath, normalizeOpenAIBaseUrl, pullModel, saveActiveKey, servingEndpointRows,
 } from '../ai.js';
 import {
@@ -13,6 +13,7 @@ import { routesProviders, wireFetch, wireOf } from '../aiWire.js';
 import { localEndpointFetch } from '../netSafety.js';
 import { readCappedJson } from '../httpBody.js';
 import { hasPlanSignIn } from '../chatgptAuth.js';
+import { holdOpen, releaseHold } from '../signInHold.js';
 import { aiConnected, reconcile } from '../aiConnections.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
@@ -44,7 +45,13 @@ app.post('/api/searxng/test', async (req, res) => {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        const cleanUrl = url.replace(/\/+$/, '') + '/healthz';
+        // Built from the parsed address: a pasted trailing space or a query
+        // string must not end up inside the path.
+        const probe = new URL(parsed.href);
+        probe.pathname = `${probe.pathname.replace(/\/+$/, '')}/healthz`;
+        probe.search = '';
+        probe.hash = '';
+        const cleanUrl = probe.href;
         // localEndpointFetch: local is the normal case, a cloud metadata
         // address never is, and a redirect is answered, not followed.
         const response = await localEndpointFetch()(cleanUrl, {
@@ -69,7 +76,7 @@ app.get('/api/ai/status', wrap(async (req, res) => {
     // Never echo the API key (it may come from .env, not just the settings the
     // client already knows) — expose only whether one is configured.
     const { apiKey, ...settings } = getAISettings();
-    const health = await checkOllamaHealth();
+    const health = await statusHealth(undefined, { fresh: req.query.fresh === '1' });
     // A ChatGPT plan has a sign-in, not a key; to everything that asks "can
     // this app reach a hosted model", the two are the same answer.
     const hasApiKey = !!apiKey || (settings.apiFormat === 'chatgpt' && hasPlanSignIn(settings.connectionId));
@@ -147,6 +154,9 @@ app.post('/api/ai/openrouter/start', (req, res) => {
     const verifier = randomBytes(32).toString('base64url');
     const state = randomBytes(24).toString('base64url');
     openRouterPending = { verifier, state, at: Date.now() };
+    // The page is about to leave for openrouter.ai: hold the desktop server
+    // open for the return (server/signInHold.js) until the attempt is spent.
+    holdOpen('openrouter', OPENROUTER_CONNECT_TTL_MS);
     const url = new URL('https://openrouter.ai/auth');
     url.searchParams.set('callback_url', callback.toString());
     url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
@@ -163,6 +173,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
     const pending = openRouterPending;
     if (!pending || Date.now() - pending.at > OPENROUTER_CONNECT_TTL_MS) {
         openRouterPending = null;
+        releaseHold('openrouter');
         return res.status(400).json({ error: 'This connection attempt has expired. Press Connect again.' });
     }
     // Checked BEFORE the attempt is spent: a return that is not this one
@@ -171,6 +182,7 @@ app.post('/api/ai/openrouter/finish', wrap(async (req, res) => {
         return res.status(400).json({ error: 'This sign-in did not come from the Connect button on this app. Press Connect again.' });
     }
     openRouterPending = null;   // single use, whatever happens next
+    releaseHold('openrouter');
     let key = '';
     try {
         const upstream = await fetch(`${OPENROUTER_BASE_URL}/auth/keys`, {
@@ -217,7 +229,7 @@ app.get('/api/search/keys', (req, res) => {
     res.json(searchKeysStatus());
 });
 app.put('/api/search/keys/:provider', (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     const { key } = req.body || {};
@@ -226,7 +238,7 @@ app.put('/api/search/keys/:provider', (req, res) => {
     res.json({ success: true, hasKey: saved });
 });
 app.delete('/api/search/keys/:provider', (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     setSearchBackendKey(req.params.provider, '');
@@ -237,7 +249,7 @@ app.delete('/api/search/keys/:provider', (req, res) => {
 // POST, not GET: it spends one search against the learner's own quota, so it
 // happens when they ask for it and never on a page load.
 app.post('/api/search/keys/:provider/test', wrap(async (req, res) => {
-    if (!SEARCH_BACKENDS[req.params.provider]) {
+    if (!Object.hasOwn(SEARCH_BACKENDS, req.params.provider)) {
         return res.status(400).json({ error: 'Unknown search backend' });
     }
     res.json(await testSearchBackend(req.params.provider));
@@ -286,14 +298,19 @@ app.get('/api/ai/endpoints', wrap(async (req, res) => {
             headers: settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {},
             signal: controller.signal,
         });
-        if (!upstream.ok) return res.json({ available: false, endpoints: [] });
+        // Only "there is no such route" is the endpoint saying it has no list.
+        // A timeout, a refused key, no credit left or a 5xx is a read that did
+        // not happen: it is told apart (502), so the panel asks again later
+        // rather than printing that the endpoint publishes nothing.
+        if (upstream.status === 404 || upstream.status === 405) return res.json({ available: false, endpoints: [] });
+        if (!upstream.ok) return res.status(502).json({ error: endpointError('The endpoint', { httpStatus: upstream.status }) });
         const json = await upstream.json();
         const raw = Array.isArray(json?.data?.endpoints) ? json.data.endpoints : [];
         if (!raw.length) return res.json({ available: false, endpoints: [] });
         // Only the fields the panel draws, one row per slug it can send back.
         res.json({ available: true, model, endpoints: servingEndpointRows(raw) });
-    } catch {
-        res.json({ available: false, endpoints: [] });
+    } catch (e) {
+        res.status(502).json({ error: endpointError('The endpoint', e) });
     } finally {
         clearTimeout(timer);
     }

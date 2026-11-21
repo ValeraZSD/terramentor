@@ -272,7 +272,7 @@ async function openSearch(s) {
     s.window.document.body.appendChild(host);
     const root = s.mountSearch(host);
     const doc = s.window.document;
-    await s.act(async () => { doc.querySelector('button[aria-label="Search"]').click(); });
+    await s.act(async () => { doc.querySelector('button[aria-label^="Search…"]').click(); });
     const input = () => doc.querySelector('input[type="text"]');
     const type = async (text) => {
         await s.act(async () => {
@@ -332,7 +332,6 @@ const SETTERS = [
     ['setUiScale', (st) => [st.uiScale === 130 ? 120 : 130], 'uiScale'],
     ['setSidebarWidth', (st) => [st.sidebarWidth === 300 ? 320 : 300], 'sidebarWidth'],
     ['setDetailPanelWidth', (st) => [st.detailPanelWidth === 480 ? 460 : 480], 'detailPanelWidth'],
-    ['setWeekStartDay', (st) => [st.weekStartDay === 1 ? 0 : 1], 'weekStartDay'],
     ['setNumberFormat', (st) => [st.numberFormat === '1.234,5' ? '1,234.5' : '1.234,5'], 'numberFormat'],
     ['setAtlasColorMode', (st) => [st.atlasColorMode === 'course' ? 'mastery' : 'course'], 'atlasColorMode'],
     ['setAtlasSurface', (st) => [st.atlasSurface === 'globe' ? 'map' : 'globe'], 'atlasSurface'],
@@ -485,6 +484,63 @@ const feedKeys = (s) => s.get().feedCards.map(c => c.key).join(',');
     const more = s.get().extendFeed();
     feed.calls[1].res(feedPage('a1', 'a1-page-2')); await more;
     check('a page that is still current is appended, as before', feedKeys(s) === 'a1,a1-page-2' && s.get().feedLoading === false, feedKeys(s));
+}
+
+// ---------------------------------------------------------------------------
+// The pace answer was guarded on the project id alone, so one asked for before
+// a save landed after the save's own answer and put the old verdict back.
+section('a pace answer from before a plan change is not drawn after it');
+{
+    const s = freshStore();
+    const pace = deferred();
+    s.api.getProjectPace = pace.fn;
+    s.useStore.setState({ currentProjectId: 7 });
+    const older = s.get().loadPaceData(7), newer = s.get().loadPaceData(7);
+    pace.calls[1].res({ tag: 'new' }); await newer;
+    pace.calls[0].res({ tag: 'old' }); await older; await settle();
+    check('two loads for one course, answered newest first: the newer answer stands', s.get().paceData?.tag === 'new',
+        JSON.stringify(s.get().paceData));
+}
+{
+    const s = freshStore();
+    const pace = deferred();
+    s.api.getProjectPace = pace.fn;
+    s.api.scheduleProject = async () => ({ success: true });
+    s.useStore.setState({ currentProjectId: 7, loadProjects: async () => { }, refreshNodes: async () => { }, loadDashboard: async () => { } });
+    const before = s.get().loadPaceData(7);
+    const saved = s.get().scheduleProject(7, {}); await settle();
+    pace.calls[0].res({ tag: 'before-save' }); await before; await settle();
+    check('a load asked for before a save, answered after it: not drawn', s.get().paceData?.tag !== 'before-save',
+        JSON.stringify(s.get().paceData));
+    pace.calls[1].res({ tag: 'after-save' }); await saved; await settle();
+    check('…and the save\'s own answer is', s.get().paceData?.tag === 'after-save' && s.get().paceLoading === false,
+        `${JSON.stringify(s.get().paceData)} loading ${s.get().paceLoading}`);
+}
+{
+    const s = freshStore();
+    const pace = deferred();
+    s.api.getProjectPace = pace.fn;
+    s.api.removeSchedule = async () => ({ success: true });
+    s.useStore.setState({ currentProjectId: 7, loadProjects: async () => { }, refreshNodes: async () => { }, loadDashboard: async () => { } });
+    const before = s.get().loadPaceData(7);
+    await s.get().removeSchedule(7);
+    pace.calls[0].res({ tag: 'before-remove' }); await before; await settle();
+    check('a load asked for before the plan was removed brings no verdict back', s.get().paceData === null && s.get().paceLoading === false,
+        `${JSON.stringify(s.get().paceData)} loading ${s.get().paceLoading}`);
+}
+{
+    const s = freshStore();
+    const pace = deferred();
+    s.api.getProjectPace = pace.fn;
+    s.api.scheduleProject = async () => ({ success: true });
+    s.api.removeSchedule = async () => ({ success: true });
+    s.useStore.setState({ currentProjectId: 7, loadProjects: async () => { }, refreshNodes: async () => { }, loadDashboard: async () => { } });
+    const open = s.get().loadPaceData(7);
+    await s.get().scheduleProject(9, {}); await s.get().removeSchedule(9);
+    pace.calls[0].res({ tag: 'open-course' }); await open; await settle();
+    check('a plan saved or removed for ANOTHER course leaves the open course\'s answer standing',
+        s.get().paceData?.tag === 'open-course' && s.get().paceLoading === false,
+        `${JSON.stringify(s.get().paceData)} loading ${s.get().paceLoading}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -183,7 +183,7 @@ is enforced **in the host**, never inside the sandbox.
 | `read:settings:<key>` | one named setting | key must be on a public list; auth and AI-endpoint keys are not on it |
 | `write:evidence` | record a mastery observation for a node in scope | goes through `updateMasteryFromAttempt` with its validation; evidence carries `source: addon:<id>`, so it can be withdrawn on uninstall |
 | `write:review` | rate a flashcard | goes through the same `PUT` the review screen uses; `review_log.source = addon:<id>` |
-| `write:settings:<key>` | change one named setting | the assistant's whitelist (`theme`, `theme_tint`, `accent_color`, `ui_scale`, `week_start_day`,
+| `write:settings:<key>` | change one named setting | the assistant's whitelist (`theme`, `theme_tint`, `accent_color`, `ui_scale`,
 `ui_language`, `number_format`) is the model: visible instantly, undone in one tap; nothing that changes what the engine measures |
 | `storage` | a per-add-on key/value store, capped (256 KB), on the host's SQLite | the sandbox has no storage of its own by design; this is the only place its state survives a reload |
 | `ui:panel` / `ui:card_face` / `ui:practice` / `ui:visual` | the surface the part occupies | a surface, not a permission, listed so the install dialog can say *where* the add-on will appear |
@@ -354,7 +354,7 @@ registry and lets the learner add others: a school's, a study group's, their own
 with the capability list on screen; update is an explicit action showing the diff of
 capabilities (a new capability on update is the one case where "update" is refused until the
 learner re-approves). Startup fetches nothing, the same rule the version check follows
-(`SECURITY.md`, "Check daily" is off unless you turned it on).
+(`SECURITY.md`, "Check automatically" is off unless you turned it on).
 
 **Ratings** are a percentage of positive ratings with the vote count beside it, never stars, and
 hidden below a floor of votes. A rating is stored where the learner chooses to send it (the

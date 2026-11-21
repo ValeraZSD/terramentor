@@ -124,7 +124,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
             className={cx('relative min-w-0', className)}
             onBlur={onBlur && (e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onBlur(e); })}
         >
-            <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pr-10 touch:pr-12" {...rest} />
+            <TextInput ref={ref} size={size} type={shown ? 'text' : 'password'} className="pr-10 touch:pr-12" data-reveal-field="" {...rest} />
             <IconButton
                 size="sm"
                 className="absolute right-1 top-1/2 -translate-y-1/2"

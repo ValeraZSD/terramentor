@@ -186,6 +186,7 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 </div>
                                 <SegmentedControl
                                     className="self-start"
+                                    block="narrow"
                                     label={tr("When it starts with the computer")}
                                     value={desktop.autostartWindow || 'hidden'}
                                     onChange={async mode => {
@@ -195,11 +196,6 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                         finally { setDesktopBusy(false); }
                                     }}
                                     options={[
-                                        // NOT the existing "Background" key: that one is the
-                                        // visual sense and is already translated as Фон, 背景,
-                                        // Tło, Fondo — the colour behind a thing, not the place
-                                        // a program runs. One English word, two meanings, and
-                                        // sharing the key would mistranslate this in six locales.
                                         { value: 'hidden', label: tr("In the background") },
                                         { value: 'show', label: tr("Window") },
                                     ]}
@@ -225,7 +221,11 @@ export default function ThisComputerSection({ active, onQuit }: { active: boolea
                                 // And no `shrink-0`, which the Button rows beside it
                                 // carry: this one is allowed to lose width and wrap
                                 // rather than push the sentence it belongs to narrow.
+                                // `block="narrow"`: alone on its line in the phone-width
+                                // column, it fills it; beside its sentence from `sm:` up
+                                // (a flex row) it keeps its own width.
                                 className="self-start"
+                                block="narrow"
                                 label={tr("How the window opens")}
                                 value={desktop.windowMode || 'maximized'}
                                 onChange={async mode => {

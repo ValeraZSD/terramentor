@@ -104,7 +104,6 @@ async function show(dashboard, extra = {}) {
     const went = [];
     useStore.setState({
         currentProjectId: 1, projects: [{ ...project, ...extra }], dashboardData: { ...base, ...dashboard }, dashboardLoading: false,
-        dailyPlan: null,
         loadDashboard: async () => ({ success: true }),
         _navigate: (to) => { went.push(to); },
     });
@@ -112,7 +111,7 @@ async function show(dashboard, extra = {}) {
     await act(async () => { await settle(); });
     const text = () => w.document.body.textContent;
     const button = (label) => [...w.document.querySelectorAll('button')].find(b => b.textContent.trim() === label);
-    return { text, button, went, act, close: () => { act(() => root.unmount()); w.close(); } };
+    return { text, button, doc: w.document, went, act, close: () => { act(() => root.unmount()); w.close(); } };
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +167,27 @@ section('the states that were already right stay as they were');
     const s = await show({ stats: { ...base.stats, totalNodes: 4, completedNodes: 4, progressPercent: 100 } }, { topic_count: 4 });
     check('every topic closed: "All caught up!" is still the message', s.text().includes('All caught up!'));
     check('…and the no-topics message is not shown', !s.text().includes('No topics yet.'));
+    s.close();
+}
+
+// ---------------------------------------------------------------------------
+// A phase's ticks differ by fill alone (emerald, slate, an empty track), which a
+// screen reader does not see: each tick's name carries its state in words.
+section('a phase\'s ticks say whether their topic is finished');
+{
+    const milestone = {
+        id: 10, title: 'Phase 1', percentage: 50, completed: 1, total: 3,
+        segments: [
+            { id: 11, title: 'Limits', completed: true },
+            { id: 12, title: 'Series', completed: true, skipped: true },
+            { id: 13, title: 'Integrals', completed: false },
+        ],
+    };
+    const s = await show({ milestones: [milestone], stats: { ...base.stats, totalNodes: 3, completedNodes: 2, progressPercent: 50 } }, { topic_count: 3 });
+    const names = new Map([...s.doc.querySelectorAll('[role="button"][title]')].map(e => [e.getAttribute('title'), e.getAttribute('aria-label')]));
+    check('a finished tick names its topic and says finished', /^Limits\b.*\bFinished$/.test(names.get('Limits') ?? ''), String(names.get('Limits')));
+    check('a skipped tick says skipped, not finished', /^Series\b.*\bSkipped$/.test(names.get('Series') ?? ''), String(names.get('Series')));
+    check('an open tick says not finished', /^Integrals\b.*\bNot finished$/.test(names.get('Integrals') ?? ''), String(names.get('Integrals')));
     s.close();
 }
 

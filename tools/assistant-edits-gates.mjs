@@ -339,6 +339,21 @@ const lv = [await checkLink(page('/waves')), await checkLink(page('/gone')), awa
 ok('a page that answers is ok, with its OWN title read', lv[0]?.verdict === 'ok' && lv[0]?.detail?.title === 'Standing Waves & Harmonics — Physics Notes', JSON.stringify(lv[0]));
 ok('a page that does not exist is disputed, said in words', lv[1]?.verdict === 'disputed' && lv[1]?.detail?.status === 404 && !/\d/.test(lv[1]?.reason ?? '1'), JSON.stringify(lv[1]));
 ok('a site that refuses robots is unchecked, not called missing', lv[2]?.verdict === 'unchecked' && lv[2]?.detail?.status === 403, JSON.stringify(lv[2]));
+// A page in a charset other than UTF-8 names it in its header or a <meta>;
+// its title is read in that charset, not as a row of replacement characters.
+{
+    const cp1251 = (s) => Uint8Array.from([...s].map(ch => {
+        const c = ch.charCodeAt(0);
+        return c >= 0x410 && c <= 0x44f ? c - 0x410 + 0xc0 : c;
+    }));
+    const served = (path, type, html) => checkLink(`https://pages.example/${path}`, {
+        fetchImpl: async () => new Response(cp1251(html), { status: 200, headers: { 'content-type': type } }),
+    });
+    const byHeader = await served('header', 'text/html; charset=windows-1251', '<html><head><title>Волны</title></head></html>');
+    ok('a windows-1251 page named in its header gets its own title', byHeader?.detail?.title === 'Волны', JSON.stringify(byHeader));
+    const byMeta = await served('meta', 'text/html', '<html><head><meta charset="windows-1251"><title>Гармоники</title></head></html>');
+    ok('...and one named in its <meta> too', byMeta?.detail?.title === 'Гармоники', JSON.stringify(byMeta));
+}
 const hitsBefore = pageHits.length;
 const reread = (await call('POST', '/api/assistant/checks', { links: [page('/waves'), page('/gone')] })).json?.links ?? [];
 ok('a preview drawn again reads what a press found, and opens nothing', reread[0]?.verdict === 'ok' && reread[1]?.verdict === 'disputed' && pageHits.length === hitsBefore, JSON.stringify(reread));

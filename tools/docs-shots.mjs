@@ -50,7 +50,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -189,7 +189,7 @@ async function startServer(mode, dir) {
 // The browser, over the DevTools protocol.
 // ---------------------------------------------------------------------------
 
-function findBrowser(explicit) {
+export function findBrowser(explicit) {
     if (explicit) return explicit;
     if (process.env.BROWSER_PATH) return process.env.BROWSER_PATH;
     const candidates = process.platform === 'win32'
@@ -203,10 +203,15 @@ function findBrowser(explicit) {
     return found;
 }
 
-async function openBrowser(exe, { width, height, scale }) {
+// A screen reader reads only a window it can see: tools/screen-reader-run.mjs
+// (a CI runner, never a desktop someone is using) opens the browser on screen.
+let headed = false;
+export function openOnScreen() { headed = true; }
+
+export async function openBrowser(exe, { width, height, scale }) {
     const port = await freePort();
     const profile = mkdtempSync(join(tmpdir(), 'docs-shots-browser-'));
-    const args = ['--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+    const args = [headed ? `--window-size=${width},${height + 120}` : '--headless=new', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
         '--mute-audio', '--lang=en-US', '--accept-lang=en-US', '--force-color-profile=srgb', '--ignore-certificate-errors',
         `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, 'about:blank'];
     // A Linux CI runner refuses Chromium's user-namespace sandbox.
@@ -254,12 +259,12 @@ async function openBrowser(exe, { width, height, scale }) {
         if (m.id === undefined) return;
         const p = pending.get(m.id);
         pending.delete(m.id);
-        if (m.error) p.bad(new Error(m.error.message)); else p.ok(m.result);
+        if (m.error) p.bad(new Error(`${m.error.message} (${p.method})`)); else p.ok(m.result);
     };
     const send = (method, params = {}) => new Promise((ok, bad) => {
         if (gone || ws.readyState !== WebSocket.OPEN) return bad(new Error(`the browser is gone (${method})`));
         const id = ++next;
-        pending.set(id, { ok, bad });
+        pending.set(id, { ok, bad, method });
         ws.send(JSON.stringify({ id, method, params }));
     });
     const evaluate = async (expression) => {
@@ -309,6 +314,7 @@ function pageKit(browser, base) {
     const { send, evaluate } = browser;
     const kit = {
         evaluate,
+        send,
         go: async (path, needle) => {
             // Mark the page being left: until the navigation commits, its document still answers.
             await evaluate('window.__docsLeaving = true').catch(() => { });
@@ -344,18 +350,19 @@ function pageKit(browser, base) {
     return kit;
 }
 
-const byText = (selector, re) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => ${re}.test((e.textContent || '').trim()))`;
-const DIALOG = `document.querySelector('[role="dialog"]')`;
+export const byText = (selector, re) => `[...document.querySelectorAll(${JSON.stringify(selector)})].find((e) => ${re}.test((e.textContent || '').trim()))`;
+export const DIALOG = `document.querySelector('[role="dialog"]')`;
 
 // ---------------------------------------------------------------------------
 // The states. Each one reaches a screen the way a learner would; `cast` says
 // which course and topics, `ids` their ids in the library being served.
 // ---------------------------------------------------------------------------
 
-const STATES = {
-    async 'calendar-month'(page, { ids }) {
-        await page.go(`/project/${ids.project}/calendar`, 'Today');
-        await page.press(byText('button', '/^Month$/'), 'the Month view');
+export const STATES = {
+    async 'plan-dialog'(page, { ids }) {
+        await page.go(`/project/${ids.project}/dashboard`, 'Next up');
+        await page.press(byText('button', '/^Open plan/'), 'Open plan');
+        await page.waitFor(DIALOG, 'the plan dialog');
         await sleep(1500);
     },
 
@@ -392,8 +399,8 @@ const STATES = {
         await page.go(`/project/${ids.project}/dashboard`, null);
         await page.waitFor(study, 'the cards owed');
         await page.press(study, 'Study the cards owed');
-        const flip = `document.querySelector('[aria-label="Flip flashcard"]')`;
-        await page.waitFor(flip, 'a card');
+        const flip = byText('button', '/^Reveal answer$/');
+        await page.waitFor(`document.querySelector('[data-review-card]')`, 'a card');
         // The session's own Skip rates nothing: pass cards until one from the named topic.
         const from = `(() => { const e = [...document.querySelectorAll('*')].find((x) => x.children.length > 1 && /^From:/.test((x.innerText || '').trim())); return e ? e.innerText.replace(/\\s+/g, ' ') : ''; })()`;
         for (let i = 0; cast.cards?.topic && !(await page.evaluate(from)).includes(cast.cards.topic); i++) {
@@ -705,7 +712,7 @@ function copyLibrary(from) {
     return { scratch, dir };
 }
 
-async function visit(mode, dir, entries, viewport, browserPath, onState, prepare) {
+export async function visit(mode, dir, entries, viewport, browserPath, onState, prepare, states = STATES) {
     const server = await startServer(mode, dir);
     let browser;
     try {
@@ -743,7 +750,7 @@ async function visit(mode, dir, entries, viewport, browserPath, onState, prepare
                         console.error(`docs-shots: ${state}: a request failed on the way in, starting the page again:\n  ${browser.failures().slice(-6).join('\n  ') || '(the browser named none)'}`);
                     }
                 }
-                await STATES[state](page, { ids: server.cast.ids, cast: server.cast });
+                await states[state](page, { ids: server.cast.ids, cast: server.cast });
                 await page.rest();
                 const open = await browser.settled();
                 // Said, so a request that never ends (and costs every state its wait) is seen.
@@ -776,7 +783,7 @@ async function visit(mode, dir, entries, viewport, browserPath, onState, prepare
  * outlive their exit by a moment on Windows. A folder that stays locked is
  * named, not thrown: it would hide the run's own result or error.
  */
-function removeScratch(dir) {
+export function removeScratch(dir) {
     try {
         rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     } catch (err) {
@@ -870,5 +877,8 @@ async function main() {
     }
 }
 
+// The scratch server runs this file as its child; `axe-gates.mjs` imports it for `visit` and the states.
+// Real paths on both sides: Node loads the module from its real path, and a
+// worktree reached through a junction would otherwise never run main().
 if (process.argv[2] === CHILD_FLAG) await serveChild(JSON.parse(process.argv[3]));
-else await main();
+else if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) await main();

@@ -39,6 +39,9 @@ let bootId: string | null = null;
 let lastCheck = 0;
 let started = false;
 let onStale: (() => void) | null = null;
+/** A build change that arrived while no handler was registered. It is noted
+ *  once (`bootId` moves on), so it is kept until the next handler can be told. */
+let stalePending = false;
 
 /** Reasons a reload would destroy something. Registered by the surfaces that
  *  know — a stream in flight, a review session, a modal mid-edit.
@@ -57,17 +60,28 @@ export function holdReload(reason: string): () => void {
     return () => { holds.delete(token); };
 }
 
+/** The `<input type>` values a person types characters into. `.type` reads
+ *  "text" for an input with no type or one the browser does not know. */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+
 /** Is this a moment where reloading loses nothing? */
 export function canReloadNow(): boolean {
     if (holds.size > 0) return false;
-    // Anything typed into and not yet saved. `closest` rather than a tag test:
-    // the assistant's composer and the note editors are contenteditable.
+    // Anything typed into and not yet saved. Not just a tag test: the
+    // assistant's composer and the note editors are contenteditable, and an
+    // input only counts when it takes text. A ticked checkbox or a moved slider
+    // has a `value` too ("on", "100") but nothing typed to lose.
     const el = document.activeElement as HTMLElement | null;
     if (el) {
         const tag = el.tagName;
-        if (tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable) {
+        const typesText = tag === 'INPUT'
+            ? TEXT_INPUT_TYPES.has((el as HTMLInputElement).type)
+            : tag === 'TEXTAREA';
+        if (typesText || el.isContentEditable) {
             const value = (el as HTMLInputElement).value ?? el.textContent ?? '';
             if (value.trim().length > 0) return false;
+            // A number box reads '' for "1e" while it is half typed.
+            if ((el as HTMLInputElement).validity?.badInput) return false;
         }
     }
     return true;
@@ -98,7 +112,8 @@ export async function checkFreshness(force = false): Promise<void> {
     if (bootId === null) { bootId = id; return; }
     if (id === bootId) return;
     bootId = id;                          // don't fire again for this one
-    onStale?.();
+    if (onStale) onStale();
+    else stalePending = true;
 }
 
 /** A stream reconnected — the server went away and came back, which is what a
@@ -110,11 +125,23 @@ export function noteServerReconnected(): void {
 /**
  * Start watching. `stale` is called on the first mismatch; it is the caller's
  * job to decide between reloading and prompting (see `canReloadNow`).
+ *
+ * Watching starts once per page, but the handler is the NEWEST caller's: the
+ * prompt that owns it unmounts when the app locks and mounts again after the
+ * login, and a handler kept from the first mount would set state on a tree that
+ * is gone, so the banner would never show. The returned function drops the
+ * handler when its owner unmounts; a build that changes in the meantime is kept
+ * and handed to the next handler the moment it registers.
  */
-export function watchFreshness(stale: () => void): void {
-    if (started) return;
-    started = true;
+export function watchFreshness(stale: () => void): () => void {
     onStale = stale;
+    const unwatch = () => { if (onStale === stale) onStale = null; };
+    if (stalePending) {
+        stalePending = false;
+        stale();
+    }
+    if (started) return unwatch;
+    started = true;
     void checkFreshness(true);
     window.addEventListener('focus', () => void checkFreshness());
     document.addEventListener('visibilitychange', () => {
@@ -123,6 +150,7 @@ export function watchFreshness(stale: () => void): void {
     window.setInterval(() => {
         if (document.visibilityState === 'visible') void checkFreshness();
     }, IDLE_CHECK_MS);
+    return unwatch;
 }
 
 /** Reload onto the build that is on disk, throwing away every cached asset of

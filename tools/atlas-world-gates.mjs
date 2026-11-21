@@ -319,6 +319,100 @@ if (C && T && P && libraries.length) {
     const same = a1.borders.length === a2.borders.length
         && a1.borders.every((b, i) => b.pts.length === a2.borders[i].pts.length && b.pts.every((x, k) => x === a2.borders[i].pts[k]));
     check('a country is cut the same way every time', same);
+
+    // City borders are cut at the coast when the cities are built, so the map
+    // strokes them with no clip (a screen-sized clip per country was most of
+    // what a drag cost up close). Cut wrong, it draws a picture: borders out
+    // over the sea, or a gap in the middle of the land. Both are measured, on
+    // each country's own patch: no border runs outside its country, and the
+    // borders inside add up to half of every city's outline inside it (each
+    // inland border is the edge of two cities; the rest of a city's outline is
+    // past the coast).
+    let outside = 0, segs = 0, borderLen = 0, cityLen = 0;
+    const plen = (patch, a, b) => {
+        const [x1, y1] = patch.to(a[0], a[1], a[2]), [x2, y2] = patch.to(b[0], b[1], b[2]);
+        return Math.hypot(x2 - x1, y2 - y1);
+    };
+    const at3 = (pts, i) => [pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]];
+    const mid = (a, b) => { const m = [a[0] + b[0], a[1] + b[1], a[2] + b[2]], l = Math.hypot(...m); return m.map(v => v / l); };
+    for (const c of countries) {
+        if (c.topics.length < 2) continue;
+        const territory = land.get(c.id);
+        const cut = territory && C.buildCountryCities(territory, c.u, c.topics, c.id);
+        if (!cut) continue;
+        const patch = C.equalAreaPatch(c.u);
+        for (const b of cut.borders) {
+            // A closed border (a city wholly inland) does not repeat its first
+            // point: its last edge runs back to it.
+            const n = b.pts.length / 3, edges = b.closed ? n : n - 1;
+            for (let i = 0; i < edges; i++) {
+                const p = at3(b.pts, i), q = at3(b.pts, (i + 1) % n);
+                segs++;
+                if (!inLoops(patch, territory.loops, mid(p, q))) outside++;
+                borderLen += plen(patch, p, q);
+            }
+        }
+        for (const city of cut.cities) for (const l of city.loops) {
+            const n = l.pts.length / 3;
+            for (let i = 0; i < n; i++) {
+                const p = at3(l.pts, i), q = at3(l.pts, (i + 1) % n);
+                // Finely, so a segment across the coast counts only its inland
+                // part, and along the straight segment on the patch, which is
+                // what the borders' own length is measured along.
+                const [px, py] = patch.to(p[0], p[1], p[2]), [qx, qy] = patch.to(q[0], q[1], q[2]);
+                for (let k = 0; k < 8; k++) {
+                    const ax = px + (qx - px) * k / 8, ay = py + (qy - py) * k / 8;
+                    const zx = px + (qx - px) * (k + 1) / 8, zy = py + (qy - py) * (k + 1) / 8;
+                    if (inLoops(patch, territory.loops, patch.from((ax + zx) / 2, (ay + zy) / 2))) cityLen += Math.hypot(zx - ax, zy - ay);
+                }
+            }
+        }
+    }
+    check('no city border runs out past its coast', segs > 0 && outside === 0, `${outside} of ${segs} segments outside`);
+    const ratio = cityLen > 0 ? (2 * borderLen) / cityLen : 0;
+    check('no inland city border is lost: borders = half the cities\' inland outline, within 2%',
+        Math.abs(ratio - 1) < 0.02, `ratio ${ratio.toFixed(4)}`);
+    console.log(`        (${segs} border segments, inland ratio ${ratio.toFixed(4)})`);
+    // The cutter itself, on shapes whose answer is known: a square with a
+    // square lake, crossed by a line and ringed by loops.
+    if (typeof C.clipToOutline === 'function' && typeof C.outlineOf === 'function') {
+        const sq = (x0, y0, s, cw) => {
+            const p = [[x0, y0], [x0 + s, y0], [x0 + s, y0 + s], [x0, y0 + s]];
+            return Float64Array.from((cw ? p.reverse() : p).flat());
+        };
+        const o = C.outlineOf([sq(0, 0, 10, false), sq(4, 4, 2, true)]);
+        const len = pieces => pieces.reduce((s, pc) => s + pc.line.slice(1).reduce((t, q, i) => t + Math.hypot(q[0] - pc.line[i][0], q[1] - pc.line[i][1]), 0), 0);
+        const across = C.clipToOutline([[-5, 5], [15, 5]], false, o);
+        check('a line across land and a lake keeps the two stretches of land', across.length === 2 && Math.abs(len(across) - 8) < 1e-9,
+            `${across.length} pieces, length ${len(across)}`);
+        // A line that only touches a lake's tip has not entered the lake: the
+        // touch must not be read as a crossing (and so cost the real ones).
+        const diamond = C.outlineOf([sq(0, 0, 10, false), Float64Array.from([5, 5, 6, 6, 5, 7, 4, 6])]);
+        const touch = C.clipToOutline([[-1, 5], [11, 5]], false, diamond);
+        check('a line touching a lake\'s tip stays one stretch of land', touch.length === 1 && Math.abs(len(touch) - 10) < 1e-9,
+            `${touch.length} pieces, length ${len(touch)}`);
+        // …and corners are where it does cross: this diagonal enters at one
+        // corner of the coast, crosses the lake corner to corner, and leaves at
+        // the other.
+        const corner = C.clipToOutline([[-2, 12], [12, -2]], false, o);
+        check('a line through corners of the coast and the lake keeps both stretches of land',
+            corner.length === 2 && Math.abs(len(corner) - 8 * Math.SQRT2) < 1e-9, `${corner.length} pieces, length ${len(corner)}`);
+        const ring = C.clipToOutline([[1, 1], [9, 1], [9, 9], [1, 9]], true, o);
+        check('a loop that never leaves the land comes back whole and closed', ring.length === 1 && ring[0].closed && ring[0].line.length === 4);
+        const half = C.clipToOutline([[5, -5], [5, 1], [8, 1], [8, -5]], true, o);
+        check('a loop half out at sea comes back as one open stretch',
+            half.length === 1 && !half[0].closed && Math.abs(len(half) - 5) < 1e-9, `${half.length} pieces, length ${len(half)}`);
+        // The same loop started on land: its inland stretch is cut in two by the
+        // loop's own start, and has to come back joined across it.
+        const joined = C.clipToOutline([[5, 1], [8, 1], [8, -5], [5, -5]], true, o);
+        const ends = joined[0]?.line ?? [];
+        check('a loop that starts on land and leaves comes back as one stretch joined across its start',
+            joined.length === 1 && !joined[0].closed && Math.abs(len(joined) - 5) < 1e-9
+                && ends.length === 4 && ends[0][1] === 0 && ends[3][1] === 0,
+            `${joined.length} pieces, length ${len(joined)}`);
+        const sea = C.clipToOutline([[20, 20], [30, 20]], false, o);
+        check('a line all at sea comes back as nothing', sea.length === 0);
+    } else check('globeCities.ts exports clipToOutline and outlineOf', false);
 }
 
 // ---- the cities' build always settles -----------------------------------------
@@ -676,15 +770,15 @@ if (S) {
     const atlasSrc = read('server/atlas.js') || '';
     check('the atlas build sends it', /studyNext\(/.test(atlasSrc) && /\bnext\b[^;]*builtAt/.test(atlasSrc));
     // …and the page shows it: at the top of the region list, out of the way of
-    // a search, each row the same row a region's topic list draws and opening
-    // the topic it names.
+    // a search, each row the same row a region's topic list draws, starting
+    // the lesson of the topic it names (study-doors-gates: with its own mark).
     const pageSrc = read('src/components/AtlasView.tsx') || '';
     const hintSrc = read('src/components/atlas/StudyNext.tsx') || '';
     check('the region list opens with it, except while searching',
         /\{!query\.trim\(\) && <StudyNext next=\{data\.next\} regions=\{data\.regions\} \/>\}\s*<RegionList/.test(pageSrc));
     // The reason leads the line: after a long course name it was cut off.
-    check('…each row a topic row that opens its topic and says first what it is near',
-        /<TopicRow[\s\S]{0,400}?tr\("Near \{\{topic\}\} · \{\{course\}\}"[\s\S]{0,200}?openProjectNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
+    check('…each row a topic row that starts its lesson and says first what it is near',
+        /<TopicRow[\s\S]{0,400}?tr\("Near \{\{topic\}\} · \{\{course\}\}"[\s\S]{0,200}?studyNode\(topic\.projectId, topic\.id\)/.test(hintSrc)
         && /<TopicRow\b/.test(read('src/components/atlas/RegionList.tsx') || ''));
 }
 
@@ -706,6 +800,54 @@ check('no prototype switch or dev hook is left in', leftovers.length === 0, left
 const stage = read('src/components/atlas/AtlasRenderStage.tsx') || '';
 check('the video stage draws with the same renderer', /GlobeMap/.test(stage) && !/AtlasMap\b/.test(stage));
 
+// ---- a recording that fails -------------------------------------------------------
+// The GIF encoder runs in a worker and can throw on its closing message (out of
+// memory on a long film). The page must hear that and stop waiting, and the
+// learner must be told in their own language, not in the thrown text.
+console.log('\n--- a recording that fails');
+{
+    const rec = await load('src/components/atlas/videoRecorder.ts', ['recordCanvasGif']);
+    if (rec) {
+        const workers = [];
+        class FakeWorker {
+            constructor() { this.terminated = false; workers.push(this); }
+            postMessage() {}
+            terminate() { this.terminated = true; }
+        }
+        const ctx2d = { drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }) };
+        const names = ['Worker', 'document', 'requestAnimationFrame', 'cancelAnimationFrame'];
+        const had = names.map(n => [n, n in globalThis, globalThis[n]]);
+        globalThis.Worker = FakeWorker;
+        globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx2d }) };
+        globalThis.requestAnimationFrame = () => 1;
+        globalThis.cancelAnimationFrame = () => {};
+        try {
+            const recorder = rec.recordCanvasGif({ width: 2, height: 2 }, 10);
+            const worker = workers[0];
+            const outcome = recorder.stop().then(() => 'resolved', e => `rejected: ${e.message}`);
+            // The encoder throws while writing the file, after `finish` was sent.
+            worker.onmessage({ data: { type: 'error', message: 'out of memory' } });
+            const result = await Promise.race([outcome, new Promise(r => setTimeout(() => r('still waiting'), 300))]);
+            check('a GIF encoder that throws on the closing message ends the stop with that error, not a wait for ever',
+                result === 'rejected: out of memory', result);
+            check('…and its worker is let go', worker.terminated === true);
+        } finally {
+            for (const [n, was, value] of had) { if (was) globalThis[n] = value; else delete globalThis[n]; }
+        }
+    }
+    const stageSrc = read('src/components/atlas/AtlasRenderStage.tsx') || '';
+    // Every call is the bare translated sentence: `onFailed(tr("…") + e.message)`
+    // and `onFailed(String(e))` would both pass a looser "no .message" scan.
+    const failedCalls = [...stageSrc.matchAll(/\bonFailed\(([^;]*)\);/g)].map(m => m[1].trim());
+    check('a failed recording is toasted in the learner’s language, never as the thrown message',
+        failedCalls.length === 3 && failedCalls.every(a => /^tr\("[^"]+"\)$/.test(a)), JSON.stringify(failedCalls));
+    check('…and the thrown error is still written to the console for whoever has to find out why',
+        (stageSrc.match(/console\.warn\(/g) || []).length >= 2);
+    const modalSrc = read('src/components/atlas/AtlasSettingsModal.tsx') || '';
+    check('the pause slider’s unit is a translated key, not a Latin "s" after the number',
+        /tr\("\{\{seconds\}\}s", \{ seconds: num\(settings\.holdMs/.test(modalSrc) && !/\)\}s\s*$/m.test(modalSrc));
+}
+
 // ---- what to study next, drawn -----------------------------------------------
 // Last, because it puts a DOM on the globals: the real StudyNext and TopicRow in
 // jsdom, with only the store and the translation stubbed.
@@ -721,8 +863,8 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     const stubs = {
         'react-i18next': `export const useTranslation = () => ({ i18n: { language: 'en' },
             t: (key, o) => o ? Object.keys(o).reduce((s, n) => s.split('{{' + n + '}}').join(String(o[n])), key) : key });`,
-        i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s;`,
-        store: `export const useStore = (sel) => sel({ openProjectNode: (p, n) => globalThis.__opened.push([p, n]) });`,
+        i18n: `export default { t: (s) => s, language: 'en' }; export const k = (s) => s; export const currentLocale = () => 'en';`,
+        store: `export const useStore = (sel) => sel({ studyNode: (p, n) => globalThis.__opened.push([p, n]) });`,
     };
     const stubPlugin = {
         name: 'stubs',
@@ -735,13 +877,22 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
     };
     const outfile = join(out, 'study-next.cjs');
     await esbuild.build({
-        stdin: { contents: `export { default as StudyNext } from './src/components/atlas/StudyNext.tsx';`, resolveDir: ROOT, loader: 'tsx' },
+        stdin: {
+            contents: [
+                `export { default as StudyNext } from './src/components/atlas/StudyNext.tsx';`,
+                `export { default as TopicRow } from './src/components/atlas/TopicRow.tsx';`,
+                `export { default as BridgeList } from './src/components/atlas/BridgeList.tsx';`,
+                `export { default as TracePanel } from './src/components/atlas/TracePanel.tsx';`,
+                `export { setNumberPreference } from './src/utils/numberFormat.ts';`,
+            ].join('\n'),
+            resolveDir: ROOT, loader: 'tsx',
+        },
         bundle: true, format: 'cjs', platform: 'node', outfile, jsx: 'automatic', packages: 'external',
         plugins: [stubPlugin], logLevel: 'silent',
     });
     const React = require('react');
     const { createRoot } = require('react-dom/client');
-    const { StudyNext } = require(outfile);
+    const { StudyNext, TopicRow, BridgeList, TracePanel, setNumberPreference } = require(outfile);
     globalThis.__opened = [];
     const el = document.createElement('div');
     document.body.appendChild(el);
@@ -761,11 +912,84 @@ if (existsSync(at('src/components/atlas/StudyNext.tsx'))) {
         rows.length === 1 && rows[0].textContent.includes('Derivatives') && rows[0].textContent.includes('Near Limits · Calculus'),
         rows.map(r => r.textContent).join(' | '));
     await React.act(async () => { rows[0]?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })); });
-    check('…and pressing it opens that topic in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
+    check('…and pressing it starts that topic\'s lesson in its course', JSON.stringify(globalThis.__opened) === '[[10,5]]',
         JSON.stringify(globalThis.__opened));
     await React.act(async () => root.render(React.createElement(StudyNext, { next: [], regions })));
     check('with nothing to suggest it draws nothing', el.innerHTML === '', el.innerHTML.slice(0, 120));
     await React.act(async () => root.unmount());
+
+    // The dot's colour is the only sighted cue for where a topic stands, so the
+    // row must say it in words too.
+    console.log('\n--- a topic row says its status in words');
+    {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const words = async (status, extra = {}) => {
+            await React.act(async () => r.render(React.createElement(TopicRow, {
+                topic: topic(7, 'Integrals', { status, ...extra }), detail: 'Calculus', onOpen: () => {},
+            })));
+            return [...host.querySelectorAll('.sr-only')].map(n => n.textContent).join('|');
+        };
+        check('a proven topic reads "Proven"', (await words('completed')).includes('Proven'));
+        check('a topic with answers of its own reads "In progress"', (await words('not_started', { attempts: 3 })).includes('In progress'));
+        check('a skipped topic reads "Skipped"', (await words('skipped')).includes('Skipped'));
+        check('an untouched topic reads "Not started"', (await words('not_started')).includes('Not started'));
+        await React.act(async () => r.unmount());
+    }
+
+    // The pairs are laid side by side by the list's own measured width. A list
+    // that first mounts with no pairs must still be measured when they arrive.
+    console.log('\n--- the pair list is measured when its pairs arrive late');
+    {
+        const observed = [];
+        globalThis.ResizeObserver = class {
+            constructor(cb) { this.cb = cb; }
+            observe(el) { observed.push({ el, cb: this.cb }); }
+            disconnect() {}
+        };
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const side = (id, title) => ({ id, projectId: id, title, projectName: `Course ${id}` });
+        const bridge = { a: side(1, 'Derivatives'), b: side(2, 'Differentiation'), similarity: 0.9, proven: false };
+        await React.act(async () => r.render(React.createElement(BridgeList, { bridges: [] })));
+        await React.act(async () => r.render(React.createElement(BridgeList, { bridges: [bridge] })));
+        await React.act(async () => {
+            for (const { cb } of observed) cb([{ contentRect: { width: 700 } }]);
+        });
+        const pair = host.querySelector('li > div');
+        check('pairs that arrive after the first render are laid across in a wide list',
+            !!pair && /\bflex-row\b/.test(pair.className), pair ? pair.className : 'no pair drawn');
+        await React.act(async () => r.unmount());
+        delete globalThis.ResizeObserver;
+    }
+
+    // A count is written the way the reader chose to read numbers (Settings,
+    // Numbers), the same on every surface that shows it.
+    console.log('\n--- the course player writes its counts in the chosen number style');
+    {
+        setNumberPreference('1.234,5');
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const r = createRoot(host);
+        const trace = {
+            projectId: 1, name: 'Calculus', points: new Map(), undated: 2345, startedAt: null,
+            journey: Array.from({ length: 1234 }, (_, i) => i + 1),
+        };
+        const props = (step) => ({
+            course: { name: 'Calculus' }, onClose() {}, trace, step, playing: false, onPlay() {}, onPause() {},
+            onRestart() {}, onOpenSettings() {}, progressAt: () => null,
+        });
+        await React.act(async () => r.render(React.createElement(TracePanel, props(null))));
+        check('the finished count follows the number style', host.textContent.includes('1.234 finished'), host.textContent);
+        check('the undated count follows it too', host.textContent.includes('2.345 finished with no date'), host.textContent);
+        await React.act(async () => r.render(React.createElement(TracePanel, props(5))));
+        check('the step counter follows it, both as drawn and as spoken',
+            host.textContent.includes('5/1.234') && host.textContent.includes('Step 5 of 1.234'), host.textContent);
+        await React.act(async () => r.unmount());
+        setNumberPreference('auto');
+    }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

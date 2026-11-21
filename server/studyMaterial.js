@@ -14,7 +14,7 @@
  */
 import db from './database.js';
 import { BY_APP, softDelete } from './softDelete.js';
-import { buildNodeContext, AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
+import { buildNodeContext, questionSource, AI_PROMPTS, aiProvenance, generateResponse } from './ai.js';
 import { parseJsonWithRepair, escapeLatexBackslashes, normalizeChoice } from './agentic.js';
 import { normalizeQuestionFormat } from './answerFormats.js';
 import { questionDefects, verifyQuestion, checkItemKeys } from './feedQuality.js';
@@ -211,6 +211,9 @@ export async function vetQuiz(nodeId, quiz, { signal, onProgress } = {}) {
     const storedQs = safeParse(db.prepare('SELECT questions FROM live_quizzes quizzes WHERE id = ?').get(quiz.id)?.questions);
     const source = Array.isArray(storedQs) ? storedQs : quiz.questions;
     const own = source.filter(q => q && typeof q === 'object' && !q.isGhost);
+    // The material the writer had (buildQuizPrompt), so a question about the
+    // topic's own text is answered from that text.
+    const material = questionSource(nodeId);
 
     const verdicts = new Array(own.length);
     let finished = 0;
@@ -220,10 +223,10 @@ export async function vetQuiz(nodeId, quiz, { signal, onProgress } = {}) {
             const i = cursor++;
             // Asked about the question, never about its stamp.
             const { unverified: _stamp, ...question } = own[i];
-            let verdict = await verifyQuestion(title, question, { signal });
+            let verdict = await verifyQuestion(title, question, { signal, source: material });
             // No verdict is not a pass: ask once more before keeping the
             // question on the strength of nothing.
-            if (verdict?.available === false) verdict = await verifyQuestion(title, question, { signal });
+            if (verdict?.available === false) verdict = await verifyQuestion(title, question, { signal, source: material });
             verdicts[i] = verdict;
             onProgress?.(++finished, own.length);
         }

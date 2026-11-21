@@ -2,7 +2,9 @@
 // versions compare (a nightly's run number is a NUMBER), which release each
 // channel is offered, that a switch never downgrades and never shows one
 // channel's answer as the other's, and that a switch reaches the network only
-// when the daily check is on, at most once a minute.
+// when the automatic check is on, at most once a minute; when the automatic
+// check asks (every four hours, back-off after a failure, on waking from
+// sleep); and that an unchanged answer is a 304.
 //
 // Run:  node tools/update-channel-gates.mjs
 //
@@ -163,7 +165,7 @@ try {
 
     fetchCalls.length = 0;
     state = await setUpdateChannel('nightly');
-    check('switching with the daily check OFF makes no request', fetchCalls.length, 0);
+    check('switching with the automatic check OFF makes no request', fetchCalls.length, 0);
     check('…and drops the stable answer instead of showing it as nightly\'s', [state.channel, state.latest, state.checkedAt], ['nightly', null, null]);
     state = await runUpdateCheck();
     check('Check now on nightly asks the list and finds the nightly', [fetchCalls.length, state.latest?.version], [1, '99.1.0-nightly.20261008.1']);
@@ -171,7 +173,7 @@ try {
     setSettingValue('update_check', 'on');
     fetchCalls.length = 0;
     state = await setUpdateChannel('stable');
-    check('switching with the daily check ON asks once, on the new channel',
+    check('switching with the automatic check ON asks once, on the new channel',
         fetchCalls, ['https://api.github.com/repos/ValeraZSD/terramentor/releases/latest']);
     check('…and answers with the stable release', [state.channel, state.latest?.version], ['stable', '99.0.0']);
     fetchCalls.length = 0;
@@ -220,46 +222,160 @@ try {
     check('a check overtaken by a channel switch writes nothing over the new channel\'s answer',
         [raced.channel, raced.latest?.version], ['stable', '99.0.0']);
 
-    // SECURITY.md: "a single retry ten minutes later if a scheduled check
-    // fails". Timers captured, GitHub failing every time.
-    console.log('\n--- a failed scheduled check retries once, not for ever ---');
-    const { startUpdatePoll } = await import('../server/updatePoll.js');
+    // SECURITY.md, "The update check": once at startup, then every four hours
+    // by the wall clock, retries at 10, 30 and 60 minutes after a failure, and
+    // an ask on waking from sleep when the answer is over an hour old. The
+    // decision is a pure function of the times it is handed: walked here
+    // through a day without a clock.
+    console.log('\n--- when the automatic check asks ---');
+    const { checkIsDue, startUpdatePoll, updateScheduleForTest } = await import('../server/updatePoll.js');
+    const MIN = 60 * 1000, HOUR = 60 * MIN;
+    const T0 = Date.UTC(2026, 10, 16, 8, 0, 0);
+    const due = (o) => checkIsDue({ lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0, ...o });
+    check('never asked in this process: due (the startup check)', due({ now: T0 }), true);
+    const ok = { lastAttemptAt: T0, lastSuccessAt: T0, failures: 0 };
+    check('an answer 3 h 59 min old is not asked again', due({ ...ok, now: T0 + 4 * HOUR - MIN, lastTickAt: T0 + 4 * HOUR - 2 * MIN }), false);
+    check('an answer 4 h old is asked again', due({ ...ok, now: T0 + 4 * HOUR, lastTickAt: T0 + 4 * HOUR - MIN }), true);
+    const failed = (n) => ({ lastAttemptAt: T0, lastSuccessAt: 0, failures: n });
+    check('after one failure: not at 9 min, at 10',
+        [due({ ...failed(1), now: T0 + 9 * MIN, lastTickAt: T0 + 8 * MIN }), due({ ...failed(1), now: T0 + 10 * MIN, lastTickAt: T0 + 9 * MIN })], [false, true]);
+    check('after two failures: not at 29 min, at 30',
+        [due({ ...failed(2), now: T0 + 29 * MIN, lastTickAt: T0 + 28 * MIN }), due({ ...failed(2), now: T0 + 30 * MIN, lastTickAt: T0 + 29 * MIN })], [false, true]);
+    check('after three failures: at 60 min',
+        due({ ...failed(3), now: T0 + 60 * MIN, lastTickAt: T0 + 59 * MIN }), true);
+    check('after four failures it waits the full four hours, not ten minutes',
+        [due({ ...failed(4), now: T0 + 3 * HOUR, lastTickAt: T0 + 3 * HOUR - MIN }), due({ ...failed(4), now: T0 + 4 * HOUR, lastTickAt: T0 + 4 * HOUR - MIN })], [false, true]);
+    // A laptop shut at 08:00 and opened at 10:30: the minute timer did not
+    // run in between, so the last tick is 2.5 h behind.
+    check('back from sleep with a 2.5 h old answer: asked at once',
+        due({ ...ok, now: T0 + 150 * MIN, lastTickAt: T0 }), true);
+    check('back from a 20-minute sleep with a 30-minute old answer: not asked',
+        due({ ...ok, lastAttemptAt: T0 + 10 * MIN, lastSuccessAt: T0 + 10 * MIN, now: T0 + 40 * MIN, lastTickAt: T0 + 20 * MIN }), false);
+    check('the clock set back behind the last ask: due, not silent until it catches up',
+        due({ ...ok, now: T0 - HOUR, lastTickAt: T0 - HOUR - MIN }), true);
+    // A laptop that sleeps and wakes every few minutes while offline: each wake
+    // must not be an ask, or the back-off is spent in minutes.
+    check('back from sleep while failing: not before the first back-off step, then asked',
+        [due({ ...failed(1), now: T0 + 4 * MIN, lastTickAt: T0 }), due({ ...failed(1), now: T0 + 10 * MIN, lastTickAt: T0 + 5 * MIN })], [false, true]);
+    check('a switch held back by the minute limit: due when that minute is up, not before',
+        [due({ ...ok, askAt: T0 + MIN, now: T0 + 30_000, lastTickAt: T0 }), due({ ...ok, askAt: T0 + MIN, now: T0 + MIN, lastTickAt: T0 + 30_000 })], [false, true]);
+
+    // The real timers, captured: what each look of the minute clock does.
+    console.log('\n--- the automatic check, on its timers ---');
     const timers = [];
+    const intervals = [];
     const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout;
     const realSetInterval = globalThis.setInterval, realClearInterval = globalThis.clearInterval;
     globalThis.setTimeout = (fn, ms) => { const t = { fn, ms, unref() {} }; timers.push(t); return t; };
     globalThis.clearTimeout = () => {};
-    globalThis.setInterval = (fn, ms) => ({ fn, ms, unref() {} });
+    globalThis.setInterval = (fn, ms) => { const t = { fn, ms, unref() {} }; intervals.push(t); return t; };
     globalThis.clearInterval = () => {};
+    const settle = () => new Promise((resolve) => realSetTimeout(resolve, 20));
     const failing = globalThis.fetch;
     let asked = 0;
     globalThis.fetch = async () => { asked++; return { status: 503, ok: false, json: async () => ({}) }; };
+    // One pinned clock, moved by hand: whether a look is due must not depend on
+    // how long the runner took between two lines.
+    const unpinnedNow = Date.now;
+    let clock = T0 + 100 * HOUR;
+    Date.now = () => clock;
     try {
         setSettingValue('update_check', 'on');
-        await startUpdatePoll({ checkNow: true });
-        const retries = timers.filter((t) => t.ms === 10 * 60 * 1000);
-        check('the failed check schedules one retry', [asked, retries.length], [1, 1]);
-        await retries[0]?.fn();
-        await new Promise((resolve) => realSetTimeout(resolve, 20));
-        check('the failed retry schedules nothing more', [asked, timers.filter((t) => t.ms === 10 * 60 * 1000).length], [2, 1]);
+        updateScheduleForTest.set({ lastAttemptAt: 0, lastSuccessAt: 0, failures: 0, lastTickAt: 0 });
+        await startUpdatePoll();
+        check('at startup nothing is asked before the 15-second look', [asked, timers.map((t) => t.ms), intervals.map((t) => t.ms)], [0, [15_000], [60_000]]);
+        timers[0].fn();
+        await settle();
+        check('the startup look asks once', asked, 1);
+        intervals[0].fn();
+        await settle();
+        check('a look a minute after a failure asks nothing (the retry is at 10 min)', asked, 1);
+        // Ten minutes on: the last ask moved back instead of waiting.
+        updateScheduleForTest.set({ lastAttemptAt: Date.now() - 10 * MIN, lastTickAt: Date.now() - MIN });
+        intervals[0].fn();
+        await settle();
+        check('a look ten minutes after the failure retries', [asked, updateScheduleForTest.get().failures], [2, 2]);
 
-        // Turned off while a check is still on the wire: when it fails, it
-        // must not arm a retry for the poll that was just stopped.
-        timers.length = 0;
-        let release;
-        globalThis.fetch = async () => { asked++; await new Promise((r) => { release = r; }); return { status: 503, ok: false, json: async () => ({}) }; };
-        const inFlight = startUpdatePoll({ checkNow: true });
-        await new Promise((resolve) => realSetTimeout(resolve, 10));
+        // The lid shut for 2.5 h: no look ran, and the answer is 2.5 h old. The
+        // real tick must notice the gap and record its own look, or the wake
+        // rule never fires outside the pure walk above.
+        clock += 150 * MIN;
+        updateScheduleForTest.set({ lastAttemptAt: clock - 150 * MIN, lastSuccessAt: clock - 150 * MIN, failures: 0, lastTickAt: clock - 150 * MIN });
+        intervals[0].fn();
+        await settle();
+        check('back from sleep, the running poll asks at once and records its look', [asked, updateScheduleForTest.get().lastTickAt], [3, clock]);
+
+        // Turned off: the minute clock of the stopped poll asks nothing even
+        // when a check is long overdue.
         stopUpdatePoll();
         setSettingValue('update_check', 'off');
-        release();
-        await inFlight;
-        check('a check that fails after the poll was stopped arms no retry', timers.filter((t) => t.ms === 10 * 60 * 1000).length, 0);
+        updateScheduleForTest.set({ lastAttemptAt: Date.now() - 10 * HOUR, lastTickAt: Date.now() - MIN });
+        intervals[0].fn();
+        await settle();
+        check('a stopped poll\'s clock asks nothing', asked, 3);
     } finally {
+        Date.now = unpinnedNow;
         globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
         globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
         globalThis.fetch = failing;
         setSettingValue('update_check', 'off');
+    }
+
+    // A channel switch and the schedule: an answer overtaken by the switch does
+    // not count, and a switch the one-a-minute limit held back leaves the next
+    // look due, so the new channel is not blank for hours.
+    console.log('\n--- a channel switch and the schedule ---');
+    {
+        const before = globalThis.fetch;
+        const set0 = { lastAttemptAt: 111, lastSuccessAt: 0, failures: 1, lastTickAt: 0 };
+        updateScheduleForTest.set(set0);
+        setSettingValue('update_channel', 'stable');
+        globalThis.fetch = async () => {
+            setSettingValue('update_channel', 'nightly');   // switched while this one is on the wire
+            return { status: 200, ok: true, headers: new Headers(), json: async () => ({ tag_name: 'v99.0.0' }) };
+        };
+        await runUpdateCheck();
+        const after = updateScheduleForTest.get();
+        check('a check overtaken by a channel switch leaves the schedule alone',
+            [after.lastAttemptAt, after.failures], [set0.lastAttemptAt, set0.failures]);
+        // Flipping the channel inside the minute: the held switch asks once the
+        // minute is up, never at the next look, so flipping stays one request a minute.
+        const unpinned = Date.now;
+        const at = T0 + 200 * HOUR;
+        Date.now = () => at;
+        try {
+            updateScheduleForTest.set({ lastAttemptAt: at, lastSuccessAt: at, failures: 0, lastTickAt: at, askAt: 0 });
+            await setUpdateChannel('stable', { checkNow: false });
+            const held = updateScheduleForTest.get();
+            check('a switch held back by the minute limit asks when that minute is up, not at the next look',
+                [checkIsDue({ ...held, now: at + 30_000 }), checkIsDue({ ...held, now: at + 60_000 })], [false, true]);
+            globalThis.fetch = async () => ({ status: 200, ok: true, headers: new Headers(), json: async () => ({ tag_name: 'v99.0.0' }) });
+            await runUpdateCheck();
+            check('the ask it waited for clears the hold', updateScheduleForTest.get().askAt, 0);
+        } finally {
+            Date.now = unpinned;
+            globalThis.fetch = before;
+        }
+    }
+
+    // Asking every few hours stays light: an unchanged list comes back as an
+    // empty 304, answered from the last full body.
+    console.log('\n--- an unchanged answer costs a 304 ---');
+    {
+        const sent = [];
+        const release = { tag_name: 'v77.0.0', name: '77', html_url: 'https://github.com/x/y/releases/tag/v77.0.0', assets: [], body: '' };
+        const stub = async (url, opts) => {
+            sent.push(opts?.headers?.['If-None-Match'] ?? null);
+            const tag = opts?.headers?.['If-None-Match'];
+            if (tag === '"abc"') return { status: 304, ok: false, headers: new Headers(), json: async () => { throw new Error('no body on a 304'); } };
+            return { status: 200, ok: true, headers: new Headers({ etag: '"abc"' }), json: async () => release };
+        };
+        const first = await fetchLatestRelease(stub, { channel: 'stable', current: '1.0.0' });
+        const second = await fetchLatestRelease(stub, { channel: 'stable', current: '1.0.0' });
+        check('the second ask sends the ETag the first answer carried', sent, [null, '"abc"']);
+        check('a 304 is the same answer as the full one', [first.ok, second.ok, second.latest?.version], [true, true, '77.0.0']);
+        const bare304 = await fetchLatestRelease(async () => ({ status: 304, ok: false, headers: new Headers(), json: async () => ({}) }), { channel: 'nightly', current: '1.0.0' });
+        check('a 304 with no answer kept is a failure, never an empty "up to date"', bare304.ok, false);
     }
 
     // The route, through the real app: its validation and its one-a-minute
@@ -288,7 +404,7 @@ try {
         setSettingValue('update_check', 'off');
         fetchCalls.length = 0;
         out = await call('PUT', '/api/updates/channel', { channel: 'nightly' });
-        check('with the daily check off, switching asks GitHub nothing', [out.status, out.json.channel, fetchCalls.length], [200, 'nightly', 0]);
+        check('with the automatic check off, switching asks GitHub nothing', [out.status, out.json.channel, fetchCalls.length], [200, 'nightly', 0]);
         out = await call('POST', '/api/updates/check');
         check('…and does not spend the minute: Check now right after it asks', [fetchCalls.length, out.json.throttled ?? false], [1, false]);
         setSettingValue('update_check', 'on');

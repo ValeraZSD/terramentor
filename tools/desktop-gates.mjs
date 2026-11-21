@@ -13,11 +13,11 @@
  *   node tools/desktop-gates.mjs --base <sha>   (the macOS bundle's executable
  *                                               taken from that commit instead)
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve, delimiter } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import express from 'express';
@@ -35,9 +35,14 @@ import * as desktopLib from '../desktop/lib.js';
 // reports the missing decision as failed assertions instead of a load error.
 const launcherInstanceKey = desktopLib.launcherInstanceKey
     ?? ((chosen) => loadInstanceKey(resolveDataPaths({ env: { DATA_DIR: chosen.dir } }).dataDir));
+// The same for the launcher's log file: the old launcher prepared its log in
+// the chosen folder before it stopped on a missing library.
+const launcherLogFile = desktopLib.launcherLogFile
+    ?? ((chosen, appRoot) => prepareLogFile(chosen.dir || join(appRoot, 'server')));
 import { INSTANCE_KEY_FILE, instanceProof, loadInstanceKey, newNonce, provesInstance, readInstanceKeyFile, validNonce } from '../server/instanceKey.js';
 import { buildIco, buildIcns, readIcoTable, ICO_SIZES } from './lib/icons.mjs';
 import { runtimeSources, RUNTIME_DIRS, RUNTIME_DATA } from './lib/runtimeSources.mjs';
+import { readmeForPlatform, PLATFORMS, PLATFORM_OF, LABEL } from './lib/readmeForPlatform.mjs';
 import { deployment, readBuildInfo, updateCommand } from '../server/version.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -220,7 +225,11 @@ console.log('\n--- which browser opens the window ---');
     ok('Windows: every candidate is checked in Program Files, x86 and the user profile',
         cands.filter((c) => c.includes('msedge.exe')).length === 3);
     ok('macOS: Chrome first', browserCandidates('darwin')[0].includes('Google Chrome'));
-    ok('Linux: bare names, resolved on PATH', browserCandidates('linux').every((c) => !c.includes('/')));
+    const linux = browserCandidates('linux', { HOME: '/home/u' });
+    const firstFlatpak = linux.findIndex((c) => c.includes('/'));
+    ok('Linux: bare names, resolved on PATH, before any Flatpak',
+        firstFlatpak > 0 && linux.slice(0, firstFlatpak).every((c) => !c.includes('/')));
+    ok('Linux: every later candidate is a Flatpak export', linux.slice(firstFlatpak).every((c) => /\/flatpak\/exports\/bin\/[^/]+$/.test(c)));
     ok('Firefox is never a candidate (no --app mode)', !browserCandidates('win32', winEnv).concat(browserCandidates('darwin'), browserCandidates('linux')).some((c) => /firefox/i.test(c)));
 
     const onlyChrome = (p) => p.replace(/\\/g, '/') === 'C:/PF/Google/Chrome/Application/chrome.exe';
@@ -236,6 +245,29 @@ console.log('\n--- which browser opens the window ---');
         findBrowser({ platform: 'darwin', env: {}, exists: macHas('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') }),
         '/Applications/Google Chrome.app');
     check('Linux: PATH lookup', (whichOnPath('chromium', { PATH: ['/nope', '/usr/bin'].join(delimiter) }, (p) => p.replace(/\\/g, '/') === '/usr/bin/chromium') || '').replace(/\\/g, '/'), '/usr/bin/chromium');
+
+    // A Linux machine whose only Chromium-family browser is one of these used
+    // to get a plain tab in the default browser: the launcher knew none of them.
+    const linuxHas = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+    const linuxFind = (env, ...paths) => (findBrowser({ platform: 'linux', env: { PATH: ['/usr/local/bin', '/usr/bin'].join(delimiter), ...env }, exists: linuxHas(...paths) }) || '').replace(/\\/g, '/');
+    check('Linux: Arch\'s AUR Brave, installed as `brave`', linuxFind({}, '/usr/bin/brave'), '/usr/bin/brave');
+    check('Linux: Brave from Flathub, installed for every user', linuxFind({ HOME: '/home/u' }, '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/var/lib/flatpak/exports/bin/com.brave.Browser');
+    check('Linux: Chromium from Flathub, installed for one user (that folder is often not on PATH)',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium'),
+        '/home/u/.local/share/flatpak/exports/bin/org.chromium.Chromium');
+    check('Linux: …under XDG_DATA_HOME when that is set', linuxFind({ HOME: '/home/u', XDG_DATA_HOME: '/data/u' }, '/data/u/flatpak/exports/bin/com.google.Chrome'),
+        '/data/u/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: a relative XDG_DATA_HOME is ignored (invalid by the XDG spec)',
+        linuxFind({ HOME: '/home/u', XDG_DATA_HOME: 'rel' }, '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome'),
+        '/home/u/.local/share/flatpak/exports/bin/com.google.Chrome');
+    check('Linux: the per-user install before the system one, for the same browser',
+        linuxFind({ HOME: '/home/u' }, '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser', '/var/lib/flatpak/exports/bin/com.brave.Browser'),
+        '/home/u/.local/share/flatpak/exports/bin/com.brave.Browser');
+    ok('Linux: with no HOME, only the system Flatpak folder is searched',
+        browserCandidates('linux', {}).filter((c) => c.includes('/')).every((c) => c.startsWith('/var/lib/flatpak/exports/bin/')));
+    check('Linux: a browser on PATH wins over a Flatpak one', linuxFind({ HOME: '/home/u' }, '/usr/bin/chromium', '/var/lib/flatpak/exports/bin/com.google.Chrome'),
+        '/usr/bin/chromium');
 
     const args = browserArgs('http://127.0.0.1:3001', '/data/browser-profile');
     check('app mode', args[0], '--app=http://127.0.0.1:3001');
@@ -323,6 +355,35 @@ console.log('\n--- is that server ours? ---');
     writeFileSync(join(kd, INSTANCE_KEY_FILE), '');
     const k2 = loadInstanceKey(kd);
     ok('a file cut off empty is replaced with a working key', Buffer.isBuffer(k2) && k2.length === 32 && readInstanceKeyFile(join(kd, INSTANCE_KEY_FILE))?.equals(k2));
+    ok('…which every later call returns', loadInstanceKey(kd)?.equals(k2) && loadInstanceKey(kd)?.equals(k2));
+    ok('…and leaves no temporary file beside it', readdirSync(kd).every((f) => !f.endsWith('.tmp')), readdirSync(kd).join(', '));
+    // The key file must never be visible empty: a second process that reads it
+    // in that gap takes it for a leftover and writes a different key over it.
+    // So the real name is only ever given to a file that is already whole (a
+    // `link` or a `rename`), never opened for writing in place.
+    const keySrc = readFileSync(join(repoRoot, 'server', 'instanceKey.js'), 'utf8');
+    // Every call that opens or writes a file in there targets the temporary name;
+    // only `linkSync` and `renameSync` ever give a file the real one.
+    const writers = [...keySrc.matchAll(/\b(?:openSync|writeFileSync|appendFileSync|createWriteStream)\(\s*([^,)\s]+)/g)].map((m) => m[1]);
+    ok('the key file is published whole, never opened for writing under its own name',
+        /linkSync\(/.test(keySrc) && writers.length > 0 && writers.every((target) => target === 'tmp'), writers.join(', '));
+    // Several processes starting on one new library at once all end with the one key.
+    const raceDir = mkdtempSync(join(tmpdir(), 'desktop-key-race-'));
+    const keyUrl = pathToFileURL(join(repoRoot, 'server', 'instanceKey.js')).href;
+    const asker = () => new Promise((done) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e',
+            `import { loadInstanceKey } from ${JSON.stringify(keyUrl)}; process.stdout.write(loadInstanceKey(${JSON.stringify(raceDir)})?.toString('hex') ?? 'none');`],
+            { stdio: ['ignore', 'pipe', 'ignore'] });
+        let out = '';
+        child.stdout.on('data', (c) => { out += c; });
+        child.on('close', () => done(out));
+    });
+    const answers = await Promise.all(Array.from({ length: 8 }, asker));
+    ok('eight processes starting on one new library all get the same key',
+        answers.every((a) => /^[0-9a-f]{64}$/.test(a) && a === answers[0]) && readInstanceKeyFile(join(raceDir, INSTANCE_KEY_FILE))?.toString('hex') === answers[0],
+        answers.map((a) => a.slice(0, 6)).join(' '));
+    ok('…and no temporary file is left', readdirSync(raceDir).every((f) => !f.endsWith('.tmp')), readdirSync(raceDir).join(', '));
+    rmSync(raceDir, { recursive: true, force: true });
     // A first launch on a new library: the launcher reads the key before the
     // server has started, so before anything has made the data folder. The
     // packaged build's self-check starts on exactly such a folder, and a key
@@ -344,20 +405,27 @@ console.log('\n--- is that server ours? ---');
     const moved = join(kd, 'big-disk', 'Library');
     mkdirSync(perUser, { recursive: true });
     writeFileSync(join(perUser, LIBRARY_POINTER), libraryPointerFile(moved));
+    // The launcher also prepares its log file before that stop, and a log
+    // file needs its folder: `mkdir -p <library>/logs` makes the library.
     const launch = () => {
         const chosen = chooseDataDir({ appRoot: join(kd, 'app'), packaged: true, platform: 'linux', env: {}, home });
-        return { chosen, key: launcherInstanceKey(chosen) };
+        return { chosen, key: launcherInstanceKey(chosen), logFile: launcherLogFile(chosen, join(kd, 'app')) };
     };
     const first = launch();
     ok('a pointer at a folder that is gone stops the first launch', first.chosen.missing === true);
     ok('…without making that folder', !existsSync(moved));
     ok('…or a key for it', first.key === null);
+    ok('…or a log file for it', first.logFile === null);
     const second = launch();
     ok('the second launch still stops, rather than opening an empty library there', second.chosen.missing === true);
     ok('…and the folder is still not there', !existsSync(moved));
     rmSync(join(perUser, LIBRARY_POINTER));
     const firstRun = launch();
     ok('a first run on the default folder still gets its key', firstRun.chosen.why === 'user' && Buffer.isBuffer(firstRun.key));
+    ok('…and its log folder', !!firstRun.logFile && existsSync(dirname(firstRun.logFile)));
+    ok('the launcher prepares its log through that one decision',
+        /launcherLogFile\(chosen, appRoot\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
+        && !/prepareLogFile\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
     ok('the launcher reads its key through that one decision',
         /const instanceKey = launcherInstanceKey\(chosen\)/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8'))
         && !/loadInstanceKey\(/.test(readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8')));
@@ -370,6 +438,15 @@ console.log('\n--- is that server ours? ---');
     const launcherSrc = readFileSync(join(repoRoot, 'desktop', 'launcher.js'), 'utf8');
     const startUpdaterSrc = launcherSrc.slice(launcherSrc.indexOf('function startUpdater'), launcherSrc.indexOf('async function finishInterruptedSwap'));
     ok('the updater runner is given the instance-key module', /copyFileSync\([^\n]*'instanceKey\.js'[^\n]*'instanceKey\.js'\)/.test(startUpdaterSrc));
+    // The comments that list the runner's contents are what someone trimming
+    // it reads, so they have to name every module the updater really imports.
+    const updaterSrc = readFileSync(join(repoRoot, 'desktop', 'updater.js'), 'utf8');
+    const updaterHeader = updaterSrc.slice(0, updaterSrc.indexOf('\nimport '));
+    const updaterNeeds = [...updaterSrc.matchAll(/from '(\.\.?\/[^']+)'/g)].map((m) => m[1].split('/').pop());
+    ok('the updater imports the three modules its runner copy holds', updaterNeeds.length === 3, updaterNeeds.join(','));
+    ok('…every one of them is copied into the runner', updaterNeeds.every((f) => startUpdaterSrc.includes(`'${f}'`)));
+    ok('…the updater\'s header names each of them', updaterNeeds.every((f) => updaterHeader.includes(f)));
+    ok('…and the launcher\'s comment counts them', /updater and the three modules it imports/.test(launcherSrc));
     ok('…and the plan names the key file, never the key', /instanceKeyFile:/.test(startUpdaterSrc) && !/instanceKey:\s/.test(startUpdaterSrc));
     ok('a desktop build never packs a checkout\'s key or credentials',
         /rel === 'instance\.key'/.test(readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8'))
@@ -382,16 +459,87 @@ console.log('\n--- when the server stops itself ---');
     const t0 = 1_000_000;
     const base = { startedAt: t0, lastPing: 0, everConnected: false, lastBye: 0, keepRunning: false };
     ok('just started, no window yet: keep waiting', !shouldShutDown({ ...base, now: t0 + IDLE_MS }));
-    ok('no window ever came: give up after 4 idle periods', shouldShutDown({ ...base, now: t0 + 4 * IDLE_MS + 1 }));
+    // The wait for a first window is its own number, three minutes, and does not
+    // follow the idle limit.
+    ok('no window ever came: give up after three minutes', shouldShutDown({ ...base, now: t0 + 180_000 + 1 }));
+    ok('…and not before', !shouldShutDown({ ...base, now: t0 + 180_000 - 1 }));
     const live = { ...base, everConnected: true, lastPing: t0 + 60_000 };
     ok('pinging: stay', !shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS - 1 }));
     ok('silent past IDLE_MS: stop', shouldShutDown({ ...live, now: t0 + 60_000 + IDLE_MS + 1 }));
+    // A window minimised or covered for minutes has its timers woken about once
+    // a minute, so its 10 s ping arrives every ~60 s: still a live window.
+    ok('a long-hidden window pinging once a minute (plus 20 s of slack) stays up',
+        !shouldShutDown({ ...live, now: live.lastPing + 60_000 + 20_000 }));
     const bye = { ...live, lastBye: t0 + 61_000 };
     ok('goodbye, then silence: stop after the short grace', shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS + 1 }));
     ok('goodbye inside the grace: not yet (a reload sends one)', !shouldShutDown({ ...bye, now: t0 + 61_000 + BYE_GRACE_MS - 1 }));
     ok('a ping after the goodbye cancels it', !shouldShutDown({ ...bye, lastPing: t0 + 62_000, now: t0 + 62_000 + BYE_GRACE_MS + 1 }));
     ok('keep-running: never', !shouldShutDown({ ...live, keepRunning: true, now: t0 + 10 * IDLE_MS }));
     ok('keep-running even when no window ever came', !shouldShutDown({ ...base, keepRunning: true, now: t0 + 100 * IDLE_MS }));
+    // A sign-in (ChatGPT, OpenRouter) sends the window to the provider's site:
+    // the page said goodbye on the way out and pings nothing until it is back
+    // (server/signInHold.js). Before the hold, this stopped the server about
+    // eight seconds in, callback and all.
+    const away = { ...live, lastBye: t0 + 61_000, heldUntil: t0 + 61_000 + 600_000 };
+    ok('away on a sign-in page: the goodbye\'s grace does not stop it', !shouldShutDown({ ...away, now: t0 + 61_000 + BYE_GRACE_MS + 1 }));
+    ok('…nor the idle limit, for as long as the attempt can live', !shouldShutDown({ ...away, now: away.heldUntil - 1 }));
+    const ended = { ...away, heldUntil: t0 + 200_000 };   // the callback came, or the attempt lapsed
+    ok('the attempt ended: the page coming back gets the idle limit, not the spent grace', !shouldShutDown({ ...ended, now: ended.heldUntil + IDLE_MS - 1 }));
+    ok('…and a window that never came back stops once it has passed', shouldShutDown({ ...ended, now: ended.heldUntil + IDLE_MS + 1 }));
+    ok('a goodbye after the attempt ended is a close again',
+        shouldShutDown({ ...ended, lastPing: ended.heldUntil + 1_000, lastBye: ended.heldUntil + 2_000, now: ended.heldUntil + 2_000 + BYE_GRACE_MS + 1 }));
+    // The page's first ping is fire-and-forget: if it was lost, a sign-in can
+    // start on a server that never saw a ping. The hold ending past the first
+    // window must not stop it under the returning page.
+    const unseen = { ...base, heldUntil: t0 + 400_000 };
+    ok('never pinged, the sign-in ended after the first window: the returning page gets the idle limit',
+        !shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS - 1 }));
+    ok('…and no page came back: it stops once that has passed', shouldShutDown({ ...unseen, now: unseen.heldUntil + IDLE_MS + 1 }));
+    ok('a sign-in that ended early does not shorten the first window',
+        !shouldShutDown({ ...base, heldUntil: t0 + 5_000, now: t0 + 180_000 - 1 }));
+}
+
+// The same rule through the process's own tick, which reads the hold each time.
+{
+    let clock = 9_000_000;
+    let stopped = null;
+    let held = 0;
+    const make = (extra) => createDesktop({
+        dataDir: '/data', dbPath: '/data/terramentor.db', version: '9.9.9', port: () => 0,
+        getSetting: (k, f) => f, setSetting: () => {},
+        onShutdown: (reason) => { stopped = reason; },
+        ...extra,
+    });
+    const settle = () => new Promise((r) => setImmediate(r));
+    const d = make({ now: () => clock, heldUntil: () => held });
+    ok('the lifecycle hands its tick to the gate', typeof d.tick === 'function');
+    const tick = async () => { d.tick?.(); await settle(); };
+    // The page pings, the sign-in starts (a ten-minute hold), the page leaves.
+    Object.assign(d.state, { everConnected: true, lastPing: clock, lastBye: clock + 500 });
+    held = clock + 600_000;
+    clock += 500 + BYE_GRACE_MS + 3_000; await tick();
+    check('on the provider\'s page past the goodbye\'s grace: still running', stopped, null);
+    clock += IDLE_MS + 30_000; await tick();
+    check('…and past the idle limit', stopped, null);
+    held = clock;   // the callback arrived
+    clock += IDLE_MS - 2_000; await tick();
+    check('the attempt ended: the returning page still has the idle limit', stopped, null);
+    clock += 4_000; await tick();
+    check('no page came back: it stops as a closed window', stopped, 'every window has closed');
+
+    // Left to itself, the lifecycle reads server/signInHold.js: the module both
+    // sign-in flows hold. One pinned instant for the lifecycle and the holds.
+    const hold = await import('../server/signInHold.js');
+    stopped = null;
+    const t = 7_000_000;
+    const real = make({ now: () => t });
+    Object.assign(real.state, { everConnected: true, lastPing: t - 20_000, lastBye: t - 10_000 });
+    hold.holdOpen('gate', 60_000, t);
+    real.tick?.(); await settle();
+    check('by default the hold comes from the module the sign-ins write', stopped, null);
+    hold.releaseHold('gate', t - IDLE_MS - 5_000);
+    real.tick?.(); await settle();
+    check('…and a released hold lets the goodbye stop it', stopped, 'every window has closed');
 }
 
 // The lifecycle router, on a real Express app.
@@ -777,6 +925,137 @@ console.log('\n--- the log file and the shortcut ---');
     check('the app moved and the shortcut is there: it is pointed here', startMenuShortcutAction({ marker: before, target: here, shortcutExists: true }), 'update');
     check('the app moved and the shortcut was deleted: it stays deleted', startMenuShortcutAction({ marker: before, target: here, shortcutExists: false }), 'none');
     check('a pre-fix marker (a timestamp) with the shortcut there: one rewrite', startMenuShortcutAction({ marker: '2026-09-21T10:00:00.000Z', target: here, shortcutExists: true }), 'update');
+
+    // One login item per user, any number of libraries: a server rewrites only
+    // the item its own library owns (a scratch library under test once
+    // repointed a real user's login item at itself). Every item here is the one
+    // autostartPlan really writes, so the readers are tested against the
+    // writers' own quoting, not a hand-made imitation of it.
+    const L = desktopLib;
+    const refresh = (o) => (L.loginItemRefresh ? L.loginItemRefresh(o) : 'missing');
+    const lib = (dir) => (dir ? ['--data-dir', dir] : []);
+    const win = (app, dir) => L.autostartPlan({ platform: 'win32', target: `${app}\\Terramentor.exe`, args: lib(dir), env: { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' } }).record;
+    const mac = (app, dir) => L.autostartPlan({ platform: 'darwin', target: `${app}/Terramentor`, args: lib(dir), home: '/Users/u' }).contents;
+    const xdg = (app, dir) => L.autostartPlan({ platform: 'linux', target: `${app}/terramentor`, args: lib(dir), home: '/home/u' }).contents;
+    const OLD = 'C:\\Apps\\Terramentor-1.0.0', NEW = 'C:\\Apps\\Terramentor-1.0.1';
+    const A = 'C:\\Users\\u\\Terramentor-data', B = 'D:\\Libraries\\Second';
+    const shortcut = { kind: 'shortcut', platform: 'win32', exists: true, wanted: win(NEW, A), dataDir: A };
+    const mine = L.shortcutMarker?.(win(OLD, A), win(OLD, A));
+    check('shortcut: this library wrote it and the app moved: rewritten', refresh({ ...shortcut, marker: mine, current: win(OLD, A) }), 'rewrite');
+    check('shortcut: already what this copy writes: left', refresh({ ...shortcut, marker: mine, current: win(NEW, A) }), 'none');
+    // Library B rewrote the shared shortcut after A did, at any moment — the
+    // same second included: it is B's, whatever the file times say.
+    check('shortcut: another library wrote it after this one did: left', refresh({ ...shortcut, marker: mine, current: win(OLD, B) }), 'none');
+    check('shortcut: the same, when that library runs the same copy: left', refresh({ ...shortcut, marker: mine, current: win(NEW, B) }), 'none');
+    check('shortcut: changed by hand since this library wrote it: left', refresh({ ...shortcut, marker: mine, current: L.shortcutRecord({ arguments: `--data-dir "${A}" --autostart --port 4000`, workingDir: OLD }) }), 'none');
+    check('shortcut: the person removed it: not put back', refresh({ ...shortcut, exists: false, marker: mine, current: null }), 'none');
+    check('shortcut: unreadable: left', refresh({ ...shortcut, marker: mine, current: null }), 'none');
+    // Markers written before this rule hold the PowerShell script that made the
+    // shortcut. They are read as no marker, so an update still reaches those
+    // installs through the item's own --data-dir.
+    const script = L.autostartPlan({ platform: 'win32', target: `${OLD}\\Terramentor.exe`, args: lib(A), env: { APPDATA: 'C:\\x' } }).script;
+    // Windows stored a different string than it was given (a character outside
+    // the ANSI code page): the item is still this library's, and this copy
+    // asking for the same again is no reason to rewrite it at every start.
+    const lossy = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\cafe --autostart', workingDir: OLD });
+    const asked = L.shortcutRecord({ arguments: '--data-dir C:\\lib\\café --autostart', workingDir: OLD });
+    check('shortcut Windows stored differently, same copy: left', refresh({ ...shortcut, wanted: asked, marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'none');
+    check('…and after an update: rewritten', refresh({ ...shortcut, wanted: win(NEW, A), marker: L.shortcutMarker?.(asked, lossy), current: lossy }), 'rewrite');
+    check('shortcut, older marker (a script), naming this library: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, A) }), 'rewrite');
+    check('shortcut, older marker (a script), naming another library: left', refresh({ ...shortcut, marker: script, current: win(OLD, B) }), 'none');
+    check('shortcut, no marker, this library in other letter case: adopted', refresh({ ...shortcut, current: win(OLD, A.toUpperCase()) }), 'rewrite');
+    check('shortcut, no marker, a library whose path starts with this one: left', refresh({ ...shortcut, current: win(OLD, `${A}-old`) }), 'none');
+    check('shortcut, no marker, the default library while this one is named: left', refresh({ ...shortcut, current: win(OLD, null) }), 'none');
+    // An item written before --data-dir was pinned opens whatever ITS copy
+    // resolves with no flag (unpinnedOf, given that copy's folder).
+    const opensFrom = (map) => (root) => map[root] ?? null;
+    check('shortcut naming no library, whose copy opens this one: rewritten', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: A.toLowerCase() }) }), 'rewrite');
+    check('shortcut naming no library, whose copy opens another one: left', refresh({ ...shortcut, marker: script, current: win(OLD, null), unpinnedOf: opensFrom({ [OLD]: B }) }), 'none');
+    // Another copy with a data folder of its own, while this copy has one too:
+    // resolved from THIS copy, the old item looked like this library's.
+    check('shortcut naming no library, another copy with its own data: left', refresh({
+        ...shortcut, wanted: win(NEW, `${NEW}\\data`), dataDir: `${NEW}\\data`, current: win(OLD, null),
+        unpinnedOf: opensFrom({ [OLD]: `${OLD}\\data`, [NEW]: `${NEW}\\data` }),
+    }), 'none');
+    check('shortcut naming no library whose copy cannot be told: left', refresh({ ...shortcut, current: L.shortcutRecord({ arguments: '--autostart', workingDir: '' }), unpinnedOf: () => A }), 'none');
+    check('a shortcut item starts the app in its working folder', L.loginItemRoot?.('shortcut', win(OLD, null), 'win32'), OLD);
+    check('…and a checkout\'s, in the folder above its launcher script', L.loginItemRoot?.('shortcut', L.shortcutRecord({ arguments: '"C:\\src\\tm\\desktop\\wrappers\\launch-hidden.vbs" "C:\\node\\node.exe" "C:\\src\\tm\\desktop\\launcher.js" --autostart', workingDir: 'C:\\src\\tm' }), 'win32'), 'C:\\src\\tm');
+    {
+        // What a copy opens with no flag, from that copy's folder.
+        const home = '/home/u', env = {};
+        const has = (...paths) => (p) => paths.includes(p.replace(/\\/g, '/'));
+        const of = (root, exists) => L.unpinnedLibraryOf?.(root, { platform: 'linux', env, home, exists, readFile: () => '' });
+        const perUser = L.userDataDir({ platform: 'linux', env, home });
+        check('a copy with its own data folder opens that one', of('/apps/old', has('/apps/old', '/apps/old/data', '/apps/old/build.json')), join('/apps/old', 'data'));
+        check('an installed copy without one opens the per-user library', of('/apps/old', has('/apps/old', '/apps/old/build.json')), perUser);
+        check('a copy that is gone resolves as an installed copy', of('/apps/gone', has()), perUser);
+        check('a checkout opens the folder under its server/', of('/src/tm', has('/src/tm')), join('/src/tm', 'server'));
+        check('no copy, no library', of(null, has()), null);
+    }
+    // The working folder is the app's folder whatever machine builds the plan:
+    // on Linux a host dirname turned every copy's into '.', so an update
+    // looked like no change at all.
+    check('a Windows plan names its app folder on any machine', JSON.parse(win(OLD, A)).workingDir, OLD);
+
+    const plist = { kind: 'plist', platform: 'darwin', exists: true, wanted: mac('/Apps/new', '/lib/a'), dataDir: '/lib/a' };
+    check('plist still as this library wrote it: rewritten', refresh({ ...plist, marker: mac('/Apps/old', '/lib/a'), current: mac('/Apps/old', '/lib/a') }), 'rewrite');
+    check('plist rewritten since by another library: left', refresh({ ...plist, marker: mac('/Apps/old', '/lib/a'), current: mac('/Apps/old', '/lib/b') }), 'none');
+    check('plist from before markers, naming this library: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a') }), 'rewrite');
+    check('plist from before markers, naming /lib/ab while this is /lib/a: left', refresh({ ...plist, current: mac('/Apps/old', '/lib/ab') }), 'none');
+    check('plist from before markers, this library with a trailing slash: adopted', refresh({ ...plist, current: mac('/Apps/old', '/lib/a/') }), 'rewrite');
+    check('plist for the default library, server on a named one: left', refresh({ ...plist, current: mac('/Apps/old', null) }), 'none');
+    check('plist where neither names a library: adopted', refresh({ ...plist, wanted: mac('/Apps/new', null), dataDir: null, current: mac('/Apps/old', null) }), 'rewrite');
+    const macNode = (app, dir) => L.autostartPlan({ platform: 'darwin', target: `${app}/runtime/node`, args: [`${app}/desktop/launcher.js`, ...lib(dir)], home: '/Users/u' }).contents;
+    check('plist naming no library, whose copy opens this one: adopted', refresh({ ...plist, current: macNode('/Apps/old', null), unpinnedOf: opensFrom({ '/Apps/old': '/lib/a/' }) }), 'rewrite');
+    check('plist naming no library and no launcher script: left', refresh({ ...plist, current: mac('/Apps/old', null), unpinnedOf: () => '/lib/a' }), 'none');
+
+    const odd = '/home/u/My "Study" & <notes> 100% $HOME `x` \\ end';
+    const entry = { kind: 'desktop-entry', platform: 'linux', exists: true, wanted: xdg('/opt/new app', odd), dataDir: odd };
+    check('.desktop entry naming this library through every escape: adopted', refresh({ ...entry, current: xdg('/opt/old app', odd) }), 'rewrite');
+    check('.desktop entry naming the folder this one sits in: left', refresh({ ...entry, current: xdg('/opt/old app', '/home/u') }), 'none');
+    check('.desktop entry naming a longer path that starts with this one: left', refresh({ ...entry, current: xdg('/opt/old app', `${odd}2`) }), 'none');
+
+    // The readers undo the writers exactly, for the characters each format escapes.
+    const awkward = ['C:\\Program Files\\Terra mentor\\', 'a"b', 'end\\\\', 'tab\there', '', 'plain', 'x\\"y', '\\\\server\\share\\lib'];
+    check('windowsArgs reads back what windowsArg wrote', L.windowsArgs?.(awkward.map(L.windowsArg).join(' ')), awkward);
+    const posixAwkward = [odd, '50% off', 'semi;colon', "it's", '~/home', 'a  b'];
+    check('a .desktop Exec line reads back to its arguments', L.loginItemArgs?.('desktop-entry', L.autostartPlan({ platform: 'linux', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
+    check('a plist reads back to its arguments', L.loginItemArgs?.('plist', L.autostartPlan({ platform: 'darwin', target: '/t', args: posixAwkward, home: '/h' }).contents), ['/t', ...posixAwkward, '--autostart']);
+    check('the library is the value after --data-dir, never a prefix', [L.dataDirOf?.(['x', '--data-dir', '/a']), L.dataDirOf?.(['x']), L.sameLibrary?.('/lib/a', '/lib/ab', 'linux')], ['/a', null, false]);
+
+    // Real shortcuts, written by Windows into a scratch Startup folder (never a
+    // checked-in .lnk: a real one carries the machine's name and the user's id).
+    if (process.platform === 'win32') {
+        const scratchLnk = mkdtempSync(join(repoRoot, 'node_modules', '.cache', 'lnk-'));
+        const write = (target, dir) => {
+            const plan = L.autostartPlan({ platform: 'win32', target, args: lib(dir), env: { APPDATA: scratchLnk } });
+            const ps = join(scratchLnk, 'make.ps1');
+            writeFileSync(ps, plan.script, 'utf8');
+            const made = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps],
+                { env: { ...process.env, APPDATA: scratchLnk }, windowsHide: true, encoding: 'utf8' });
+            const fields = made.status === 0 && existsSync(plan.path) ? L.readShortcut?.(readFileSync(plan.path)) : null;
+            return { plan, status: made.status, holds: fields ? L.shortcutRecord(fields) : null, printed: L.savedShortcutRecord?.(made.stdout) ?? null };
+        };
+        try {
+            // Characters every code page has: Windows stores them as given.
+            const plain = write('C:\\Apps\\Terra mentor 1.0\\Terramentor.exe', 'C:\\Users\\u\\My "library"\\');
+            check('Windows wrote the scratch shortcut', plain.status, 0);
+            check('the .lnk reader sees what the plan asked for', plain.holds, plain.plan.record);
+            check('…and the library in it', plain.holds && L.dataDirOf(L.windowsArgs(JSON.parse(plain.holds).arguments)), 'C:\\Users\\u\\My "library"\\');
+            check('the writing script reports what the file holds', plain.printed, plain.holds);
+            // Characters some code pages lack may come back changed; whatever
+            // Windows kept, the next start of the same copy leaves it alone.
+            const wide = write('C:\\Apps\\Терра mentor é\\Terramentor.exe', 'C:\\Users\\u\\Мой café');
+            check('a shortcut Windows may store differently is left alone by the same copy', refresh({
+                kind: 'shortcut', platform: 'win32', exists: true, dataDir: 'C:\\Users\\u\\Мой café',
+                wanted: wide.plan.record, current: wide.holds, marker: L.shortcutMarker?.(wide.plan.record, wide.printed),
+            }), 'none');
+            check('…its report matching the file, changed characters and all', wide.printed, wide.holds);
+        } finally {
+            rmSync(scratchLnk, { recursive: true, force: true });
+        }
+    }
+    check('anything that is not a shortcut reads as none', [L.readShortcut?.(null), L.readShortcut?.(Buffer.from('not a link at all, long enough to pass the size check......................'))], [null, null]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,7 +1330,7 @@ console.log('\n--- the tray open path in source ---');
     const main = src.slice(src.indexOf('// --- main'));
     const at = (needle) => main.indexOf(needle);
     const armAt = main.search(/appProfile\s*=\s*profileDir/);
-    const anchors = { exit: at('process.exit(0)'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
+    const anchors = { exit: at('process.exitCode = 0;'), ready: at('serverReady'), check: at('Check OK'), window: at('if (wantWindow) {') };
     ok('the anchors the next two checks measure from are all there', Object.values(anchors).every(i => i > -1) && armAt > -1);
     ok('the launcher that runs the server arms it: after the already-running exit, the start and the --check return',
         armAt > anchors.exit && armAt > anchors.ready && armAt > anchors.check);
@@ -1136,6 +1415,19 @@ console.log('\n--- macOS: the browser is started through `open` ---');
             { cmd: 'C:\\PF\\msedge.exe', args: browserArgs(url, 'C:\\p', 'window'), byExit: false });
         check('Linux: the browser itself, unchanged', lib.browserCommand('/usr/bin/chromium', url, '/p', 'fullscreen', 'linux'),
             { cmd: '/usr/bin/chromium', args: browserArgs(url, '/p', 'fullscreen'), byExit: false });
+        // The sandbox of Flathub's Brave cannot see ~/.local/share/Terramentor,
+        // where the profile lives: the run is granted that one folder.
+        const lp = '/home/u/.local/share/Terramentor/browser-profile';
+        check('Linux: a Flatpak browser through `flatpak run`, granted the profile folder only',
+            lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, lp, 'window', 'linux'),
+            { cmd: 'flatpak', args: ['run', `--filesystem=${lp}`, 'com.brave.Browser', ...browserArgs(url, lp, 'window')], byExit: false });
+        // Flatpak reads the text after a `:` as a mode: an unescaped one would
+        // grant `/home/u/My` and leave the profile out of the sandbox.
+        const colon = lib.browserCommand('/var/lib/flatpak/exports/bin/com.brave.Browser', url, '/home/u/My:Lib\\x/browser-profile', 'window', 'linux');
+        check('Linux: a `:` or `\\` in the library path is escaped for Flatpak only', [colon.args[1], colon.args.find((a) => a.startsWith('--user-data-dir='))],
+            ['--filesystem=/home/u/My\\:Lib\\\\x/browser-profile', '--user-data-dir=/home/u/My:Lib\\x/browser-profile']);
+        check('Linux: a program merely NAMED like an app id is not run through Flatpak',
+            lib.browserCommand('/usr/bin/com.brave.Browser', url, lp, 'window', 'linux').cmd, '/usr/bin/com.brave.Browser');
     }
     const darwin = browserCandidates('darwin', { HOME: '/Users/x' });
     ok('macOS: the candidates are app bundles, in /Applications and the user\'s own Applications',
@@ -1428,10 +1720,59 @@ console.log('\n--- packaging pieces are present ---');
     ok('the auth gate is mounted in createApp', gateAt > 0);
     ok('the desktop probe is mounted BEFORE the auth gate', appSrc.indexOf('desktop.publicRouter') >= 0 && appSrc.indexOf('desktop.publicRouter') < gateAt);
     ok('…and the controls after it', appSrc.indexOf('desktop.protectedRouter') > gateAt);
-    const readme = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
-    ok('the zip README names the data folder on every platform', ['%LOCALAPPDATA%', 'Application Support', '.local/share'].every((s) => readme.includes(s)));
     const wf = readFileSync(join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
     ok('the release workflow builds the desktop packages on all three OSes', ['windows-latest', 'macos-latest', 'ubuntu-latest'].every((s) => wf.includes(s)) && wf.includes('build-desktop'));
+}
+
+// ---------------------------------------------------------------------------
+// THE ZIP'S README, ONE PER SYSTEM. desktop/README.txt is one template; the
+// build keeps only the blocks for the system it packages. Each system's copy
+// must carry its own way in (the launcher, the warning its OS shows the first
+// time, its data folder) and none of another system's: a Windows user who
+// reads about xattr and Applications has been handed the wrong page.
+console.log('\n--- the zip README carries its own system only ---');
+{
+    const template = readFileSync(join(repoRoot, 'desktop', 'README.txt'), 'utf8');
+    // Each phrase and the systems whose copy must say it; every other copy
+    // must not.
+    const SAYS = [
+        ['Terramentor.exe', ['windows']], ['Run anyway', ['windows']], ['%LOCALAPPDATA%', ['windows']],
+        ['notification area', ['windows']], ['runtime\\node.exe', ['windows']],
+        ['When it starts with the computer', ['windows']], ['Terramentor.cmd', ['windows']],
+        ['More info', ['windows']], ['Start Menu', ['windows']],
+        ['Terramentor.app', ['macos']], ['Open Anyway', ['macos']], ['xattr', ['macos']],
+        ['Application Support', ['macos']], ['Apple Silicon', ['macos']],
+        ['terramentor.sh', ['linux']], ['install-desktop-entry.sh', ['linux']], ['.local/share', ['linux']],
+        ['Keep running in', ['macos', 'linux']], ['Closing the last window', ['macos', 'linux']],
+        ['runtime/node', ['macos', 'linux']],
+        ['Portable use', ['windows', 'linux']], ['delete this folder', ['windows', 'linux']],
+    ];
+    check('the build names all three systems', Object.keys(PLATFORM_OF).map((p) => PLATFORM_OF[p]).sort().join(), [...PLATFORMS].sort().join());
+    const built = {};
+    for (const p of PLATFORMS) {
+        built[p] = readmeForPlatform(template, p, '9.8.7');
+        const text = built[p];
+        const missing = SAYS.filter(([s, ps]) => ps.includes(p) && !text.includes(s)).map(([s]) => s);
+        ok(`${p}: its own steps are there`, missing.length === 0, missing.join(', '));
+        const foreign = SAYS.filter(([s, ps]) => !ps.includes(p) && text.includes(s)).map(([s]) => s);
+        ok(`${p}: no other system's steps`, foreign.length === 0, foreign.join(', '));
+        ok(`${p}: no marker or placeholder left`, !/^@(only|end)\b|__VERSION__|__SYSTEM__/m.test(text));
+        const title = text.split(/\r?\n/)[0];
+        ok(`${p}: the title names the version and the system`, title.includes('9.8.7') && title.includes(LABEL[p]), title);
+    }
+    check('CRLF in, CRLF out', readmeForPlatform('a\r\n@only linux\r\nb\r\n@end\r\nc\r\n', 'linux', '1'), 'a\r\nb\r\nc\r\n');
+    check('a block for other systems drops out', readmeForPlatform('a\n@only macos\nb\n@end\nc', 'windows', '1'), 'a\nc');
+    const throws = (src) => { try { readmeForPlatform(src, 'linux', '1'); return false; } catch { return true; } };
+    ok('a misspelt system is refused', throws('@only linuxx\nb\n@end'));
+    ok('an @only with no system is refused', throws('@only\nb\n@end'));
+    ok('an unclosed block is refused', throws('@only linux\nb'));
+    ok('an @end with no @only is refused', throws('b\n@end'));
+    ok('a nested block is refused', throws('@only linux\n@only macos\nb\n@end\n@end'));
+    ok('an upper-case marker is refused, not shipped as text', throws('@ONLY macos\nb\n@END'));
+    ok('an indented marker is refused, not shipped as text', throws('  @only macos\nb\n  @end'));
+    ok('an unknown target system is refused', (() => { try { readmeForPlatform('a', 'freebsd', '1'); return false; } catch { return true; } })());
+    const build = readFileSync(join(repoRoot, 'tools', 'build-desktop.mjs'), 'utf8');
+    ok('the build writes the README through readmeForPlatform for its own system', /readmeForPlatform\(readme, PLATFORM_OF\[platform\]/.test(build));
 }
 
 // ---------------------------------------------------------------------------
@@ -1527,6 +1868,40 @@ console.log('\n--- the icon the operating system reads ---');
         ok('the same icon a second time does not', again.written === false, again.why);
         const changed = await refreshDesktopIcon({ ...a, background: '#000000' }, { env, write: spy });
         ok('a different icon does', changed.written === true);
+
+        // A slider sends a request per step, so several refreshes arrive while
+        // the first is still writing. Writes to the one file must never overlap,
+        // and the last choice made is the one left on disk.
+        let active = 0;
+        let overlapped = false;
+        // The first write is the slowest, so a write that skipped the queue would
+        // finish last and leave the oldest choice on disk.
+        const delays = [90, 30, 0];
+        let started = 0;
+        const slow = async (p, data) => {
+            active++;
+            if (active > 1) overlapped = true;
+            await new Promise((r) => setTimeout(r, delays[started++] ?? 0));
+            await writeFile(p, data);
+            active--;
+        };
+        const steps = [{ ...a, radius: 10 }, { ...a, radius: 20 }, { ...a, radius: 30 }];
+        await Promise.all(steps.map((s) => refreshDesktopIcon(s, { env, write: slow })));
+        ok('quick refreshes write one at a time', overlapped === false);
+        ok('…and the last one asked for is on disk',
+            readFileSync(scratch).equals(await icoFor(steps[2])));
+
+        // The slider can also go back to the picture already on disk while a
+        // newer one is still being written: the answer to that request is not
+        // "unchanged", because the write in flight is about to replace it.
+        const onDisk = { ...a, radius: 30 };
+        delays.push(80, 0);
+        const away = refreshDesktopIcon({ ...a, radius: 40 }, { env, write: slow });
+        await new Promise((r) => setTimeout(r, 15));
+        const back = refreshDesktopIcon(onDisk, { env, write: slow });
+        await Promise.all([away, back]);
+        ok('moving away and straight back leaves the picture asked for last',
+            readFileSync(scratch).equals(await icoFor(onDisk)));
         rmSync(scratch, { force: true });
     }
 

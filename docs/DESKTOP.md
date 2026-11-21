@@ -107,7 +107,7 @@ macOS), then the pointer file, then the per-user folder above.
 The app updates itself, in two presses:
 
 1. When a check finds a newer version (Settings → Library & about → About → *Check now*,
-   or *Check daily*), a button appears at the top of the window: **Update to**
+   or *Check automatically*, which asks every four hours, and on waking when the last answer is over an hour old), a button appears at the top of the window: **Update to**
    and the new version's number (**Update available** on the nightly channel). Resting the pointer on it shows what the new version changes;
    on a phone, a tap opens a dialog with the same list. Press it and the new
    version downloads in the background. The press first asks GitHub once more,
@@ -208,7 +208,9 @@ new location is written into it.
 app starts: the window is a Chromium app window and its state is chosen at
 launch, not from inside the page. With no Chromium-based browser installed (Edge, Chrome,
 Brave, Vivaldi, Chromium) the app
-opens in your default browser instead, which ignores this choice.
+opens in your default browser instead, which ignores this choice. On Linux these browsers
+also count when they are installed from Flathub; the app starts them with `flatpak run` and
+lets that run reach only the window's own profile folder.
 
 ### No tray icon elsewhere
 
@@ -294,7 +296,7 @@ Design decisions worth knowing before changing it:
 - **The window is not the process.** A native app dies with its window; a
   server does not know a tab closed. So the page heartbeats
   (`src/hooks/useDesktop.ts` → `POST /api/desktop/ping`) and the server stops
-  itself when every window has been silent for 45 s (`server/desktop.js`).
+  itself when every window has been silent for 90 s (`server/desktop.js`).
   The rule is wall-clock, not "the browser process I spawned exited", because
   Chromium hands off to a running instance and exits at once, and because a
   phone over Tailscale is a window too.
@@ -342,6 +344,10 @@ Design decisions worth knowing before changing it:
 - **Not code-signed.** A Windows Authenticode certificate and an Apple
   Developer ID are recurring costs; until they exist the README and the zip's
   README.txt say what SmartScreen and Gatekeeper will show.
+- **One README per system.** `desktop/README.txt` is one template; lines
+  between `@only <systems>` and `@end` go only into those systems' zips
+  (`tools/lib/readmeForPlatform.mjs`), so a Windows zip carries no macOS or
+  Linux steps and the three copies cannot drift apart.
 
 Guard: `node tools/desktop-gates.mjs` (path resolution on every platform, the
 launcher's decisions, the shutdown rule, the lifecycle router on a real Express

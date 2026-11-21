@@ -47,8 +47,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.ResizeObserver = class { observe() { } unobserve() { } disconnect() { } };
 globalThis.ResizeObserver = window.ResizeObserver;
 window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() { }, removeEventListener() { }, addListener() { }, removeListener() { } });
-// No hovering pointer above, so "More" opens as the phone's bottom sheet, which
-// slides up on the next frame.
+// No hovering pointer above, as on a phone; the "More" menu is placed on the
+// next frame.
 globalThis.requestAnimationFrame ??= (cb) => setTimeout(() => cb(Date.now()), 0);
 globalThis.cancelAnimationFrame ??= (id) => clearTimeout(id);
 

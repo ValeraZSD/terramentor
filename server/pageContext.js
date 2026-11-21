@@ -10,7 +10,7 @@ import db from './database.js';
 import { buildNodeContext } from './ai.js';
 import { LEAF_STATUS } from './today.js';
 import { projectColourName } from './projectFields.js';
-import { canonicalRef, listReports, resolveTarget } from './itemReports.js';
+import { canonicalRef, isOpenMockRef, listReports, resolveTarget } from './itemReports.js';
 
 // Budgets for the parts that are not the topic's own context. It sits in front
 // of the cross-project snapshot, so it has to stay a briefing, not a dump.
@@ -203,7 +203,11 @@ function screenItems(raw) {
         const now = !named && (marked ? it.current === true : i === 0);
         if (now) named = true;
         const r = standing.get(target.ref);
-        const line = `- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${r ? ` — already reported (report ${r.id}, ${r.reason})` : ''}\n  ${itemLine(target, it, now ? PAGE_ITEM_CHARS : PAGE_ITEM_SHORT)}`;
+        // An open mock never shows right or wrong, whatever its screen claims.
+        // Only the mock's own listing: the same question met in a quiz or the
+        // feed keeps its key while a mock that holds it waits to be resumed.
+        const shown = it.surface === 'mock' && isOpenMockRef(target.ref) ? { answer: it.answer } : it;
+        const line = `- [${target.ref}] ${target.kind}${now ? ' — on screen now' : ''}${r ? ` — already reported (report ${r.id}, ${r.reason})` : ''}\n  ${itemLine(target, shown, now ? PAGE_ITEM_CHARS : PAGE_ITEM_SHORT)}`;
         if (out.length && used + line.length > PAGE_ITEMS_BUDGET) {
             out.push(`- and ${found.length - i} more on their screen, not listed here`);
             break;
@@ -317,7 +321,6 @@ export function buildPageContext(context) {
     const SCREENS = {
         today: 'the learning feed (the home page)',
         projects: 'the projects grid',
-        calendar: 'the global calendar',
         settings: 'the settings screen',
         workspace: 'a project workspace',
     };

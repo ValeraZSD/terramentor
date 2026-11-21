@@ -1,9 +1,10 @@
 // Mastery: per-topic state, quiz and drill evidence, the mastery check, the daily plan.
 import db from '../database.js';
 import {
-    ATTEMPT_ID_ERROR, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
+    ATTEMPT_ID_ERROR, AttemptReusedError, getNodeMasteryDetail, getProjectMasteryStats, readAttemptId, updateMasteryFromAttempt,
 } from '../mastery.js';
 import { recordMasteryCheck } from '../masteryCheck.js';
+import { getEvidenceTrail } from '../evidenceTrail.js';
 import { masteryCheckTarget } from '../today.js';
 import { generateDailyPlan, getGhostQuestions } from '../dailyPlan.js';
 import { getGateConfig } from '../settingsStore.js';
@@ -25,6 +26,20 @@ app.get('/api/nodes/:nodeId/mastery', (req, res) => {
         const gate = getGateConfig();
         const detail = getNodeMasteryDetail(req.params.nodeId, { threshold: gate.threshold, checkPass: gate.checkPass });
         res.json(detail);
+    } catch (err) {
+        res.status(500).json({ error: clientError(err) });
+    }
+});
+
+// What the app thinks the learner knows about one topic and the evidence
+// behind it (server/evidenceTrail.js). Reads only.
+app.get('/api/nodes/:nodeId/evidence', (req, res) => {
+    const nodeId = Number(req.params.nodeId);
+    if (!Number.isInteger(nodeId) || nodeId < 1) return res.status(400).json({ error: 'Invalid node id' });
+    try {
+        const trail = getEvidenceTrail(nodeId, getGateConfig());
+        if (!trail) return res.status(404).json({ error: 'Node not found' });
+        res.json(trail);
     } catch (err) {
         res.status(500).json({ error: clientError(err) });
     }
@@ -145,6 +160,7 @@ app.post('/api/projects/:projectId/mastery/mastery-check', (req, res) => {
         });
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
+        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
         res.status(500).json({ error: clientError(err) });
     }
 });

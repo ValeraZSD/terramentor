@@ -19,6 +19,8 @@ import { useComposerAttachments, type ComposerFile } from '../hooks/useComposerA
 import { ATTACH_MAX_FILES, isFileDrag, nextDragDepth, pastedFiles, splitImageMarkers } from '../utils/attachments';
 import { stripCitationMarkers } from '../utils/citations';
 import { readableAnswer } from '../utils/answerText';
+import { speakable } from '../utils/speakable';
+import { createPaintCoalescer } from '../utils/paintCoalescer';
 import SettingChangeChips from './SettingChangeChips';
 import AiActions from './AiActions';
 import { AIStatus, ChatConversation, ChatMessage, AiAction, ChatAttachment } from '../types';
@@ -44,6 +46,8 @@ import type { TFunction } from 'i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
 import { useNumberFormat } from '../hooks/useNumberFormat';
+import ReadAloudButton from './ui/ReadAloudButton';
+import { speechAvailable } from '../utils/readAloud';
 
 interface Props {
     open: boolean;
@@ -90,6 +94,8 @@ export const DOCK_QUERY = '(min-width: 1024px)';
 /** Re-follows of a running turn after a dropped socket, and the pause per try. */
 const MAX_REATTACH = 3;
 const REATTACH_DELAY_MS = 1500;
+/** How often an arriving answer is redrawn (see `setStreamed`). */
+const STREAM_PAINT_MS = 80;
 
 const QUICK_PROMPTS = [
     k('What should I do today?'),
@@ -295,6 +301,9 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     const feedFocusItemId = useStore(s => s.feedFocusItemId);
     const openProjectNode = useStore(s => s.openProjectNode);
     const addToast = useStore(s => s.addToast);
+    // The speaker button draws only when the browser can speak too, and the
+    // Copy button's edge follows whether it did.
+    const readAloudOn = useStore(s => s.a11y.readAloud) && speechAvailable();
     const consumeAssistantPrefill = useStore(s => s.consumeAssistantPrefill);
     // The live background-task list (the TaskDock's own feed).
     const aiTasks = useStore(s => s.aiTasks);
@@ -354,7 +363,25 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
     // bubble (a task that settled while unwatched) — and the card says the same.
     const [turnError, setTurnError] = useState<{ message: string; text: string; keptIn?: 'composer' | 'chat' } | null>(null);
     const [streaming, setStreaming] = useState(false);
-    const [streamed, setStreamed] = useState('');
+    const [streamed, setStreamedNow] = useState('');
+    // The arriving answer is drawn as one markdown document, parsed whole on
+    // every render. One render per chunk kept the page's main thread busy for
+    // most of every answer; the text now catches up at most every
+    // STREAM_PAINT_MS, and a reset ('') still lands at once.
+    const [streamPaint] = useState(() => createPaintCoalescer(setStreamedNow, STREAM_PAINT_MS));
+    const setStreamed = streamPaint.push;
+    useEffect(() => () => streamPaint.cancel(), [streamPaint]);
+    // A finished answer, said once by a screen reader. The conversation itself
+    // is a log that does not speak: a live region over a streaming reply read
+    // out every few words as they arrived.
+    // Said where a finished answer is put into the list, and only there: a
+    // stream that ends with nothing new (Stop before a word, a dropped socket,
+    // a failure) has no answer to read, and the previous one is not repeated.
+    const [spoken, setSpoken] = useState('');
+    const say = useCallback((content: string) => {
+        const { text, cut } = speakable(readableAnswer(content));
+        setSpoken(cut ? `${text} ${tr("The answer goes on in the conversation.")}` : text);
+    }, [tr]);
     // Whether the assistant may look something up, read for the line under the
     // composer and for nothing else: the decision is the model's, taken
     // mid-answer, and the permission is the Settings switch.
@@ -550,12 +577,23 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         const { aiProvider, aiModel } = useStore.getState();
         setStatus(s => (s && aiModel && s.provider === aiProvider ? { ...s, model: aiModel } : s));
     }, [aiConfigRev]);
+    // The server keeps a reachable answer for 30 s; right after a turn, which
+    // may have failed because the provider just went away, the drawer asks for
+    // a check of its own. A turn can end while the drawer is closed, so that
+    // ask is owed until the next check runs; interval checks take the cache.
+    const wasStreaming = useRef(false);
+    const freshCheckOwed = useRef(false);
     useEffect(() => {
+        const turnEnded = wasStreaming.current && !streaming;
+        wasStreaming.current = streaming;
+        if (turnEnded) freshCheckOwed.current = true;
         if (!open) return;
         let alive = true;
         const check = () => {
             setStatusLoading(true);
-            api.getAIStatus()
+            const asked = api.getAIStatus({ fresh: freshCheckOwed.current });
+            freshCheckOwed.current = false;
+            asked
                 .then(s => { if (alive) setStatus(s); })
                 .catch(() => { if (alive) setStatus(null); })
                 .finally(() => { if (alive) setStatusLoading(false); });
@@ -695,6 +733,19 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
         // write to, and the in-session render is fixed either way.
         if (dbId > 0) api.updateChatMessage(dbId, newContent).catch(() => { });
     };
+    // One handler per message, the same function on every render: `Markdown`
+    // is memoised, and a new arrow each render made every earlier answer
+    // re-parse its markdown on every token of the one arriving. It reads only
+    // refs, so the first one made for a message stays right.
+    const repairHandlers = useRef(new Map<number, (originalCode: string, repairedCode: string) => void>());
+    const repairHandlerFor = (messageId: number) => {
+        let handler = repairHandlers.current.get(messageId);
+        if (!handler) {
+            handler = (originalCode, repairedCode) => persistRepair(messageId, originalCode, repairedCode);
+            repairHandlers.current.set(messageId, handler);
+        }
+        return handler;
+    };
 
     /** Add a reasoning delta to a turn, opening its panel while it is thinking. */
     const appendReasoning = useCallback((id: number, delta: string) => {
@@ -815,6 +866,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     actions: rows,
                     created_at: new Date().toISOString(),
                 } as ChatMessage]);
+                say(shown);
             }
             setStreaming(false);
             setStreamed('');
@@ -853,7 +905,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 }
             }
         }
-    }, [appendReasoning, noteContentStarted, loadHistory, trackActions]);
+    }, [appendReasoning, noteContentStarted, loadHistory, trackActions, say]);
 
     // Pick up a global turn that is already in flight.
     //
@@ -1084,7 +1136,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             if (dropped && taskId) {
                 attachedRef.current.delete(taskId);
                 setReasoningByMsg(prev => { const next = { ...prev }; delete next[assistantId]; return next; });
-                loadHistory().catch(() => { });
+                // A turn still running is followed again, and that follow says
+                // its answer; one that finished meanwhile arrives only here.
+                const lost = taskId;
+                loadHistory().then(rows => {
+                    const last = rows?.[rows.length - 1];
+                    const task = useStore.getState().aiTasks.find(t => t.id === lost);
+                    if (task?.status === 'done' && last?.role === 'assistant' && last.content) say(last.content);
+                }).catch(() => { });
             } else if (full.trim()) {
                 // Stored RAW, markers and all — exactly what the server persists,
                 // so this message and the same one re-read from history resolve
@@ -1125,6 +1184,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     actions: stored && settledRows ? settledRows : (looked.length ? looked : null),
                     created_at: new Date().toISOString(),
                 } as ChatMessage]);
+                say(stored && settledText ? settledText : full);
                 trackActions([]);
             } else if (failed) {
                 // Nothing came back, so the turn did not happen: drop the
@@ -1145,7 +1205,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
             // What the outdated load came to read; a dropped turn reads it above.
             if (outdated && !dropped) loadHistory().catch(() => { });
         }
-    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList]);
+    }, [streaming, view, currentProjectId, selectedNodeId, feedFocusItemId, loadHistory, trackActions, switchTo, refreshList, say]);
 
     // Coming back to the app re-reads the conversation. A phone suspends the
     // page while another app is in front; whatever this panel showed at that
@@ -1467,9 +1527,13 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                 </div>
             </header>
 
+            <div className="sr-only" aria-live="polite">{spoken}</div>
             <div
                 ref={scroll.ref}
                 onScroll={scroll.onScroll}
+                role="log"
+                aria-live="off"
+                aria-label={tr("Conversation")}
                 className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4 select-text"
             >
                 {showList ? (
@@ -1518,19 +1582,22 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                     return (
                     <div key={m.id} className="space-y-4">
                         {dayStarts.has(m.id) && <DateBlob iso={m.created_at} />}
-                        <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'}>
+                        <div className={m.role === 'user' ? 'flex justify-end' : 'group space-y-3'} data-read-turn>
                             {m.role === 'user' ? (
                                 // The files it was sent with sit above the question, as they were attached.
                                 <div className="flex flex-col items-end gap-1.5 w-full">
                                     {m.attachments?.length ? <MessageAttachments attachments={m.attachments} /> : null}
                                     {m.content ? (
                                         <p className="max-w-[85%] px-3 py-2 rounded-2xl rounded-br-sm bg-accent text-white text-sm whitespace-pre-wrap break-words select-text">
+                                            {/* Who is speaking, for a screen reader reading the log. */}
+                                            <span className="sr-only">{tr("You said:")} </span>
                                             {m.content}
                                         </p>
                                     ) : null}
                                 </div>
                             ) : (
                                 <>
+                                    <span className="sr-only">{tr("Assistant said:")}</span>
                                     {/* What the model worked through before it
                                         answered. Not a character count: a count
                                         says a long turn is alive and nothing
@@ -1568,13 +1635,14 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                         <Markdown
                                                             key={j}
                                                             content={shown}
-                                                            className="text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
+                                                            // `read-answer`: what Read aloud reads.
+                                                            className="read-answer text-sm leading-6 text-slate-700 dark:text-slate-200 select-text"
                                                             streaming={arriving && j === pieces.length - 1}
                                                             autoRepair={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             autoBuild={!isStreaming && freshIdsRef.current.has(m.id)}
                                                             surface="assistant"
                                                             messageId={savedMessageId(m.id)}
-                                                            onRepaired={(orig, fixed) => persistRepair(m.id, orig, fixed)}
+                                                            onRepaired={repairHandlerFor(m.id)}
                                                         />
                                                     ) : null;
                                                 })}
@@ -1672,13 +1740,24 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                                                 are an instruction to this app, and mean
                                                 nothing anywhere else. */}
                                             {(body.trim() || prepared) && (
-                                                <div className="flex items-center">
+                                                <div className="flex items-center gap-1">
+                                                    <ReadAloudButton
+                                                        find={b => {
+                                                            // Every rendered piece of THIS answer, as one text.
+                                                            const parts = Array.from(b.closest('[data-read-turn]')?.querySelectorAll<HTMLElement>('.read-answer') ?? []);
+                                                            if (!parts.length) return null;
+                                                            const box = document.createElement('div');
+                                                            for (const p of parts) box.appendChild(p.cloneNode(true));
+                                                            return box;
+                                                        }}
+                                                        className="-ml-2"
+                                                    />
                                                     <CopyButton
                                                         text={readableAnswer(m.content, false, m.actions)}
                                                         label={tr("Copy answer")}
                                                         // The icon's own edge on the answer's: the
                                                         // button's padding indented it off the text.
-                                                        className="-ml-2"
+                                                        className={readAloudOn ? '' : '-ml-2'}
                                                         onFailed={() => addToast('error', tr("Could not copy"), tr("Your browser blocked clipboard access."))}
                                                     />
                                                 </div>
@@ -1817,6 +1896,7 @@ export default function AssistantDrawer({ open, onClose, docked, width, onResize
                             composer.add(pasted);
                         }}
                         rows={1}
+                        aria-label={tr("Message to the assistant")}
                         placeholder={tr("Ask anything…")}
                         className="flex-1 min-w-0 min-h-11 px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-1 focus:ring-inset focus:ring-accent focus:border-accent dark:focus:border-accent transition resize-none select-text"
                     />

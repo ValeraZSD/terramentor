@@ -40,6 +40,7 @@ import { Project, ScheduleOverviewRow, StagedDocument } from '../types';
 import { api } from '../api';
 import { usePointerVerb } from '../utils/platform';
 import { useTranslation } from 'react-i18next';
+import { useDragA11y, useDragKeyboard, useMovedSay, projectName } from '../hooks/useDragA11y';
 import { takeDraft, type CreationInput } from './creation/creationRuns';
 import ShortCourses, { SectionLabel } from './shortCourses/ShortCourses';
 import type { ShortCourseRow } from './shortCourses/shortCourseTypes';
@@ -104,7 +105,7 @@ export default function ProjectsGrid() {
         } catch { /* the cards keep their dates; the pills wait for the next load */ }
     }, []);
     const scheduleKey = [...projects].sort((a, b) => a.id - b.id)
-        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.completed_topic_count}:${p.progress_fraction}`)
+        .map(p => `${p.id}:${p.status}:${p.start_date}:${p.deadline}:${p.deadline_fixed}:${p.completed_topic_count}:${p.progress_fraction}`)
         .join(',');
     useEffect(() => { void loadSchedule(); }, [loadSchedule, scheduleKey]);
 
@@ -151,8 +152,11 @@ export default function ProjectsGrid() {
         useSensor(MouseSensor, { activationConstraint: { distance: 10 } }),
         // Touch: require a short press-and-hold before a drag begins, so a normal
         // swipe scrolls the page and only a deliberate long-press reorders a card.
-        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+        useDragKeyboard(),
     );
+    const dragA11y = useDragA11y(projectName, { positions: true });
+    const sayMoved = useMovedSay();
 
     // "Create your first project" (the welcome's last step, the home checklist)
     // arrives asking for the creation dialog, not the list it sits behind. The
@@ -220,6 +224,28 @@ export default function ProjectsGrid() {
         }
     };
 
+    // The menu's Move earlier / Move later: the two cards trade places in the
+    // one stored order, the same write a drag ends in.
+    const swapProjects = async (id: number, otherId: number) => {
+        const a = projects.findIndex(p => p.id === id);
+        const b = projects.findIndex(p => p.id === otherId);
+        if (a < 0 || b < 0) return;
+        const newOrder = [...projects];
+        [newOrder[a], newOrder[b]] = [newOrder[b], newOrder[a]];
+        setProjects(newOrder);
+        // Its place among the active cards, the list the menu moves it in.
+        const shown = activeProjects.map(p => p.id);
+        sayMoved(projects[a].name, shown.indexOf(otherId) + 1, shown.length);
+        const flash = flashAfterDrop(`project:${id}`);
+        try {
+            await api.reorderProjects(newOrder.map(p => p.id));
+        } catch (e: any) {
+            endDropFlashIf(`project:${id}`, flash);
+            await loadProjects();
+            addToast('error', t("Failed to move project"), e.message);
+        }
+    };
+
     // Group projects for display: active (reorderable) on top, then completed &
     // archived below their own dividers.
     // The learner's own order is the only order: a "Sort: Deadline" control
@@ -281,7 +307,7 @@ export default function ProjectsGrid() {
         <>
             <div className="h-full overflow-auto px-4 py-6 sm:p-8 bg-slate-100 dark:bg-slate-900">
                 <div className="max-w-6xl mx-auto">
-                    <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center justify-between gap-4 mb-8">
                         <div>
                             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
                                 {t("Your Projects")}
@@ -311,6 +337,7 @@ export default function ProjectsGrid() {
                             <SegmentedControl<Show>
                                 label={t("Which courses")}
                                 onPage
+                                block="narrow"
                                 value={show}
                                 onChange={setShow}
                                 options={(['active', 'finished', 'archived'] as const).map(v => ({
@@ -339,15 +366,25 @@ export default function ProjectsGrid() {
                                 Move to active). */}
                             <DndContext
                                 sensors={sensors}
+                                accessibility={dragA11y}
                                 collisionDetection={closestCorners}
                                 measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                                 onDragStart={handleDragStart}
                                 onDragEnd={handleDragEnd}
                             >
                                 <SortableContext items={activeProjects.map(p => p.id)} strategy={rectSortingStrategy}>
-                                    <div className={GRID}>
-                                        {activeProjects.map(project => (
-                                            <ProjectCard key={project.id} project={project} schedule={schedule.get(project.id)} onScheduleChanged={loadSchedule} />
+                                    <div className={GRID} data-card-grid="">
+                                        {activeProjects.map((project, i) => (
+                                            <ProjectCard
+                                                key={project.id}
+                                                project={project}
+                                                schedule={schedule.get(project.id)}
+                                                onScheduleChanged={loadSchedule}
+                                                onMove={{
+                                                    up: i > 0 ? () => void swapProjects(project.id, activeProjects[i - 1].id) : undefined,
+                                                    down: i < activeProjects.length - 1 ? () => void swapProjects(project.id, activeProjects[i + 1].id) : undefined,
+                                                }}
+                                            />
                                         ))}
                                     </div>
                                 </SortableContext>

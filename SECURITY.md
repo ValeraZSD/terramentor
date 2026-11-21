@@ -64,7 +64,9 @@ your data at all." Those are different claims and we only make the second one.
   nothing about you or your library; (d) the update check described below, which is **off
   by default**, and the update download, which happens only when you press the update button;
   and (e) web search for an ANSWER, described next, which is also **off by
-  default**. Nothing else. There is **no telemetry, no analytics and no crash reporting**;
+  default**; and (f) only on a server running the site front desk (`server/site/`, never in
+  the app on your own machine), the breached-password check when someone sets a password there,
+  described under "Accounts on a site". Nothing else. There is **no telemetry, no analytics and no crash reporting**;
   see "Verifying the no-telemetry claim" below, because you should not take our word for it.
 - **No model or asset is fetched at first use.** The one thing that could be: PDF math recovery
   falls back to OCR, and tesseract.js downloads its language model from a CDN unless it is told
@@ -351,10 +353,13 @@ your data at all." Those are different claims and we only make the second one.
   answer has arrived. A job with its own list uses only that list, so text you keep on this
   computer is not carried to a cloud backup; if every connection on that list is removed, the job
   stops and asks you to choose again rather than falling back to the main model. With nothing
-  chosen, every request goes to the connection in use, as above. Each key still goes only to its
-  own service. Beside each model on that screen the server shows its price and, for the job that
-  reads pictures, whether the model can, asked of that model's own connection only: OpenRouter's
-  public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
+  chosen, every request goes to the connection in use, as above. The job that checks answers is
+  sent the topic's material with each question it checks, as the job that wrote the question was:
+  the topic's Overview, your notes on it and, for a feed question, its lesson part (up to 12,000
+  characters), so a model you choose for checking receives that text too. Each key still goes
+  only to its own service. Beside each model on that screen the server shows its price and, for
+  the job that reads pictures, whether the model can, asked of that model's own connection only:
+  OpenRouter's public model list and its `/models/<id>/endpoints` route, or a local Ollama's own model details.
   Nothing is asked of a provider that publishes neither. The screen also notes when each job last
   moved on to its next model; that note stays in the library and holds only the time, the model's
   name, the kind of failure and its HTTP status.
@@ -444,6 +449,59 @@ your data at all." Those are different claims and we only make the second one.
   Archive entry names are never used as filesystem paths — media files and vault originals are
   stored under the SHA-256 of their own bytes.
 
+## Accounts on a site
+
+`server/site/` is a front desk for a server where several people each have their own library at
+one address (`docs/HOSTING.md`, "Many people at one address"). The app on your own machine never
+loads it. What it does:
+
+- **Each person's library is a separate process under its own system user.** The front desk
+  starts one `server/index.js` per account, as a numeric user of its own (from `SITE_UID_BASE`,
+  default 100000), with the library's folder owned by that user and readable by no one else
+  (`0700`). A library listens only on a Unix socket inside its own folder, never on a port, so
+  another library cannot connect to it. `tools/site-proofs.mjs` checks this on Linux: a library
+  is refused reading another's database, listing or writing its folder, connecting to its socket
+  and reading its environment.
+- **The front desk vouches for the person, the library checks the voucher.** Every request it
+  passes on carries a short-lived note (30 seconds) signed with a key only that library and the
+  front desk hold; a library treats a request without a valid note for itself as signed out
+  (below, "What answers without a session"), and a note
+  sent by a browser is removed before the request is passed on. Signing in and out happens only
+  at the front desk; the library's own password routes are refused.
+- **Passwords**: at least 15 characters, at most 128, stored as argon2id (19 MiB, two passes,
+  one lane, Node's built-in `crypto.argon2`), at most two hashed at once. A wrong sign-in costs
+  the same time whether or not the address has an account, and gives the same answer.
+- **Wrong guesses are counted in the site's database**, per account (five free, then a doubling
+  wait up to 15 minutes; after 100 in a row the password stops working until the operator
+  runs `node server/site/cli.js unlock <email>`) and per network (an IPv4 address or an IPv6 /64; twenty free).
+- **Sessions**: a random 32-byte token in a `__Host-` cookie (`Secure`, `HttpOnly`,
+  `SameSite=Lax`, `Path=/`); only its SHA-256 is stored. A session ends after 30 days unused or
+  90 days in all. Settings → Devices & security lists the account's sessions (device name, last
+  used, signed in; `GET /site/sessions.json`, never the token) and signs out any one of them or all
+  but the current one (`POST /site/sessions/<id>/sign-out`, `POST /site/sign-out-others`, both
+  under the same same-origin check as every other form post).
+- **Signing out clears the browser, and so does signing in.** Both answers carry
+  `Clear-Site-Data: "cache", "storage"` (signing in too, for whatever a session that ran out or
+  was ended from another device left behind), every answer from a library is sent
+  `Cache-Control: no-store`, and the app's service worker never caches `/site` pages, so the
+  next person on the same browser is not shown the last person's pages. Ending a session also
+  closes any answer still streaming to it.
+- **What answers without a session**: at the front desk, only its own `/site` pages (sign-in,
+  invite, health); every other request is sent to sign in. Behind it, a library treats the note
+  as its sign-in, so what the app answers signed out (its auth status route and the built
+  static files, the same for everyone) also answers a request with no note; only the front desk
+  can reach a library's socket to ask.
+- **Names**: bound beyond loopback, the front desk refuses to start without `SITE_HOSTS`, and
+  answers 421 to any other `Host`.
+- **The breached-password check** is the one outbound call the front desk makes. When someone
+  sets a password, the first five characters of its SHA-1 are sent to
+  `https://api.pwnedpasswords.com/range/<five characters>` with `Add-Padding: true`; the
+  password and the rest of its hash never leave the server, and the match is made on the
+  server. A password found there is refused. `SITE_BREACH_CHECK=0` turns the check off; if the
+  service does not answer in 5 seconds the password is accepted.
+- **Not there yet**: public sign-up, email, password reset, a second factor and export. The
+  front desk itself runs as root, because it must start each library as its own user.
+
 ## What is NOT protected
 
 - **The database is not encrypted at rest.** `terramentor.db` is a plain SQLite file, kept in
@@ -524,12 +582,21 @@ would reach the network without you asking for something, so it is built to be c
 
 - **"Check now"** (Settings → Library & about → About) is a **button**. A press is you asking, so it
   is allowed to make the request.
-- **"Check daily"** is a separate toggle and **ships off**. Turning it on checks once straight
-  away; after that it is one request each time the app starts (15 seconds in) and one a day
-  while it runs, plus a single retry ten minutes later if a scheduled check fails. Nothing
-  else in the app enables it.
+- **"Check automatically"** is a separate toggle and **ships off**. Turning it on checks once
+  straight away; after that it is one request each time the app starts (15 seconds in) and one
+  every four hours while it runs, counted on the wall clock so the hours a computer sleeps
+  count too. When the computer wakes and the last answer is over an hour old, it asks once
+  straight away, unless checks are failing and the last try was under 10 minutes ago. A failed
+  check is tried again 10 minutes later, then 30 minutes after that, then 60, then every four
+  hours. Nothing else in the app enables it.
 - **What it sends:** an HTTP GET to `https://api.github.com/repos/<owner>/<repo>/releases/latest`
-  with a `User-Agent` naming the app and its version. No install identifier, no machine name,
+  with a `User-Agent` naming the app and its version, and, from the second ask on, an
+  `If-None-Match` header carrying the ETag GitHub gave the last answer, so an unchanged answer
+  comes back as an empty `304 Not Modified`. The ETag is a value GitHub chose for its last
+  answer; the app keeps it in memory only, never on disk, and a restart drops it. It is the
+  one header the app cannot vouch for: if GitHub ever issued a different ETag to each caller,
+  echoing it back would let GitHub link this copy's asks to each other within one run. No
+  install identifier, no machine name,
   no library contents, no request body. GitHub can see that some copy of the app asked what
   the newest release is, from your IP address (the same thing it would see if you opened the
   releases page in a browser).
@@ -537,11 +604,14 @@ would reach the network without you asking for something, so it is built to be c
   the request is the one above. On Nightly it is a GET to
   `https://api.github.com/repos/<owner>/<repo>/releases?per_page=30` instead, with the same
   header, because GitHub has no "latest prerelease" to ask for: still one request, to the same
-  host, on the same schedule. Switching channels makes no request while "Check daily" is off;
+  host, on the same schedule. Switching channels makes no request while "Check automatically" is off;
   with it on, the switch checks once, at most once a minute.
 - **Who makes it:** the server process, on the schedule above and when you press a button that
   asks (below), never once per page load. The once-a-minute limits are the server's, so the
-  number of requests does not depend on how many devices or tabs you have open.
+  number of requests does not depend on how many devices or tabs you have open. While the
+  automatic check is on, an open page re-reads the server's stored answer every two minutes
+  while it is visible, so a new version the server found shows without a reload; that read
+  goes only to the Terramentor server the page came from and never reaches GitHub.
 - **The check installs nothing, and downloads nothing.** It only tells you a new version exists.
   The same answer carries the release notes shown under "What's new", so reading them asks
   nothing more of the network.
@@ -855,7 +925,7 @@ Do not trust this file. Trust a packet capture. The claim is designed to be fals
 about ten minutes:
 
 1. Stop the app. Turn **off** AI features in Settings (or point them at a local endpoint).
-   Leave "Check daily" off; it is off unless you turned it on.
+   Leave "Check automatically" off; it is off unless you turned it on.
 2. Start a capture: `tcpdump`/Wireshark, or your OS firewall's outbound logging.
 3. Start the app, use it hard: browse the feed, open projects, add notes, run a review. Upload a
    PDF whose equations came out as empty brackets and let recovery run in "OCR only"; that is
@@ -873,7 +943,7 @@ about ten minutes:
    each vetted like the first address (never your own machine or network, unless the server
    was started with `ALLOW_PRIVATE_FETCH=1`; cloud metadata addresses stay refused): a page link's
    redirect may reach another host, a caption request's only one on `youtube.com`.
-6. Optional, to check the update-check paragraph rather than believe it: turn "Check daily"
+6. Optional, to check the update-check paragraph rather than believe it: turn "Check automatically"
    on. You should see exactly one connection, to `api.github.com`, and no others. Turn it off
    again and the connection should not recur.
 
@@ -908,12 +978,25 @@ Download button hands the file to your browser, and what happens to it after tha
 What it does **not** contain is the point of it: no topic titles, no questions, no answers, no
 notes, no model output, no file names, no paths. A row is a fact about the software, and where
 it refers to something of yours it stores the numeric id. That is the same rule the bug-report
-block follows, and for the same reason: a file you might hand to a stranger for help should
-not need to be read line by line first.
+block follows. The events can go to someone helping you with a problem without being read line
+by line first. The study summary at the top of the file is different: it says how much and when
+you studied, so look at it before you decide who gets the file.
+
+The downloaded file starts with a study summary, worked out from your study record at the
+moment you press Download: study days, study minutes, proven topics, checks taken, questions
+answered, card reviews done in the app, mock exams finished, the number of courses, the first
+study day, and one line per week (days, minutes, checks, answers, reviews) for up to a year.
+It is numbers and dates only: it selects no title, note, card, question, answer or course name,
+so none can be in the file. It is not stored anywhere and the app does not send it either; it is
+in the file because the log alone, which keeps only its newest events, cannot show whether
+someone kept studying. Switching the log off or clearing it does not remove the summary from
+the download.
 
 You can switch the recording off in that panel, and Clear deletes every row. The rule is
 enforced in the code, not just here: `tools/activity-log-gates.mjs` scans every call site that
-writes to the log and fails the build if one passes something the learner wrote.
+writes to the log and fails the build if one passes something the learner wrote, and it
+seeds a library full of marked titles, notes, cards, answers and prompts and fails if any
+of them reaches the downloaded file.
 
 ## Reporting a vulnerability
 

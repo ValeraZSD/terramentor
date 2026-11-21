@@ -112,6 +112,44 @@ export function restore(table, id, { app = false } = {}) {
 }
 
 /**
+ * Bring back rows that were live in a snapshot, whatever deleted them since: a
+ * course update's undo puts back exactly the rows it recorded before the update
+ * (server/courseUpdate.js). Returns the number of rows brought back.
+ */
+export function revive(table, ids) {
+    if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
+    const back = db.prepare(`UPDATE ${table} SET deleted_at = NULL, deleted_by = NULL WHERE id = ? AND deleted_at IS NOT NULL`);
+    let n = 0;
+    for (const id of ids) n += back.run(id).changes;
+    return n;
+}
+
+/** Whether a deleted row went because the app removed it or a row the app removed took it along. */
+function deletedByApp(row) {
+    for (let guard = 0; row?.deleted_at && guard < 64; guard++) {
+        if (row.deleted_by === BY_APP) return true;
+        const mark = /^(\w+):(.+)$/.exec(row.deleted_by || '');
+        if (!mark || !isContentTable(mark[1])) return false;
+        row = db.prepare(`SELECT deleted_at, deleted_by FROM ${mark[1]} WHERE uuid = ?`).get(mark[2]);
+    }
+    return false;
+}
+
+/**
+ * Give a uuid back when a course file brings a row back that the app removed
+ * (an update dropped it, or an undo took back the update that added it): the
+ * deleted row goes for good, so the row written next keeps the file's
+ * identity. A row the learner deleted keeps its uuid and its place in Recently
+ * deleted.
+ */
+export function releaseUuid(table, uuid) {
+    if (!isContentTable(table)) throw new Error(`No soft delete for ${table}`);
+    if (!uuid) return;
+    const row = db.prepare(`SELECT id, deleted_at, deleted_by FROM ${table} WHERE uuid = ?`).get(uuid);
+    if (row && deletedByApp(row)) purge(table, row.id);
+}
+
+/**
  * Remove a deleted row for good, with every row under it (the foreign keys'
  * cascade: its topics, cards, banks, links and all their history), and the
  * files no row names any more. Only a deleted row: a live one is refused.

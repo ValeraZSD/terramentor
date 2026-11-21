@@ -5,8 +5,9 @@ import type { ItemReport, ItemReportTarget, ReportReason, ReportSurface, ScreenI
 import { todayStr } from './utils/tree';
 import type { FailureFacts } from './utils/failureCause';
 import type { ShortCourseCreate, ShortCourseRow, ShortRead } from './components/shortCourses/shortCourseTypes';
-import type { LessonWrite } from './types';
-import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, DailyPlan, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, GlobalCalendarData, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, DeletedItem, AuthTailscaleHint, PairingOffer } from './types';
+import type { LessonWrite, LookBackOffer, ProjectUpdate, RetentionForecast } from './types';
+import type { CourseMockDetail, ExamPaper, ExamPaperInput, MockDetail, MockExamList, MockSitting, RealExam } from './components/mockExam/mockExamTypes';
+import { Project, Node, Resource, ExportData, ImportResult, ChatMessage, ChatConversation, ChatAttachment, AttachmentRefusal, AiAction, Quiz, QuizAttempt, Flashcard, Document, CitedDocument, UploadedDocument, StagedDocument, AIStatus, LearningInsights, ScheduleConfig, ScheduleResult, PaceData, DashboardData, ProjectFlashcard, ProjectQuiz, SearchResults, SearchSuggestion, GhostResult, FeedResponse, FeedStats, FeedConsumeResult, GlobalDueFlashcard, TodayActivity, AITaskSummary, AITaskFailure, EmbeddingStatus, EmbeddingConfig, PaperRubricPoint, PaperGradeResponse, BulkCandidate, BulkJobStatus, BulkKind, ScheduleOverview, AtlasData, AtlasNamingStats, PlacementStatus, PlacementProbe, PlacementAnswerResult, PlacementSummary, AnkiPreview, AnkiImportResult, DeckData, OutlineBriefFields, AuthoringPhases, MaterialBrief, MaterialMergeResult, AppVersion, UpdateStatus, UpdateChannel, ActivityEvent, ActivityStats, ProjectCompletion, FeedScope, FeedReadPart, FeedCheckpointCard, DrawnQuestion, AskedQuestion, DrillScore, SittingReview, SittingReviewItem, EvidenceTrail, AssistantCheck, AssistantEditKind, AssistantEditResult, AssistantEditRecord, ConnectedDevice, AuthTailscaleHint, PairingOffer, DeletedItem, CourseUpdatePreview, CourseUpdateSummary } from './types';
 
 const BASE = '/api';
 
@@ -17,6 +18,34 @@ const BASE = '/api';
 let onAuthRequired: (() => void) | null = null;
 export function setAuthRequiredHandler(fn: (() => void) | null) {
     onAuthRequired = fn;
+}
+
+/** A library on a shared site is signed into at the site's own page, not the lock screen. */
+export function goToSiteSignIn() {
+    window.location.assign('/site/sign-in');
+}
+
+/** One signed-in device of a site account (server/site/accounts.js `listSessions`). */
+export interface SiteSession { id: number; device: string; created_at: string; last_seen_at: string; current: boolean }
+
+/** The site's own routes (server/site/frontDesk.js), outside /api: the account's signed-in devices. */
+async function siteRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
+    const res = await fetch(path, { method, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && body?.site) goToSiteSignIn();
+    if (!res.ok) throw new Error(body?.error || `Error ${res.status}`);
+    return body as T;
+}
+
+export const siteApi = {
+    sessions: () => siteRequest<{ email: string; sessions: SiteSession[] }>('/site/sessions.json'),
+    signOutSession: (id: number) => siteRequest<{ ok: boolean }>(`/site/sessions/${id}/sign-out`, 'POST'),
+    signOutOthers: () => siteRequest<{ ended: number }>('/site/sign-out-others', 'POST'),
+};
+
+function authRequired(body: { site?: boolean } | null | undefined) {
+    if (body?.site) goToSiteSignIn();
+    else onAuthRequired?.();
 }
 
 // SSE streams go through the same relative `/api` as everything else. In dev
@@ -81,9 +110,7 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
                 // Response body is not JSON — fall back to the HTTP status
             }
 
-            if (res.status === 401 && errorData.authRequired && onAuthRequired) {
-                onAuthRequired();
-            }
+            if (res.status === 401 && errorData.authRequired) authRequired(errorData);
 
             const err = new Error(errorMessage) as any;
             err.status = res.status;
@@ -92,10 +119,27 @@ async function request<T>(url: string, options?: RequestInit & { timeout?: numbe
             throw err;
         }
 
-        return res.json();
+        const body = await res.json();
+        noteEvidenceWrite(url, options?.method);
+        return body;
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+/**
+ * Writes that add, void or undo evidence about a topic. A screen that shows
+ * the evidence (the topic panel's card) listens for EVIDENCE_CHANGED, so an
+ * answer given beside it shows without reopening the topic. A placement
+ * probe's finish applies its seeds and a DELETE of the placement withdraws them.
+ */
+const EVIDENCE_WRITE = /^\/(ai\/quizzes\/\d+\/attempt|nodes\/\d+\/mastery\/drill|ai\/flashcards\/\d+|projects\/\d+\/mastery\/mastery-check|feed\/consume|paper\/|placement\/(probe\/\d+\/(answer|finish)|\d+$)|item-reports)/;
+export const EVIDENCE_CHANGED = 'terramentor:evidence-changed';
+
+/** After a successful write: tell the evidence readers if it was evidence. */
+function noteEvidenceWrite(url: string, method?: string) {
+    const m = method?.toUpperCase();
+    if (m && m !== 'GET' && EVIDENCE_WRITE.test(url)) window.dispatchEvent(new Event(EVIDENCE_CHANGED));
 }
 
 /** What the server says after a study-clock flush (server/studyTime.js). */
@@ -565,6 +609,20 @@ function bundleParams(options?: BundleExportOptions): URLSearchParams {
     });
 }
 
+/** A course file sent to the course-update door, multipart like the bundle door. */
+async function courseUpdateUpload<T>(step: 'inspect' | 'commit', file: File, fields: Record<string, string> = {}): Promise<T> {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
+    form.append('file', file);
+    const res = await apiFetch(`${BASE}/course-updates/${step}`, { method: 'POST', body: form });
+    if (!res.ok) {
+        let msg = `Update failed: ${res.status}`;
+        try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
+        throw Object.assign(new Error(msg), { status: res.status });
+    }
+    return res.json();
+}
+
 function filenameFrom(res: Response, fallback: string): string {
     const cd = res.headers.get('Content-Disposition') || '';
     const star = /filename\*=UTF-8''([^;]+)/i.exec(cd);
@@ -889,7 +947,7 @@ export const api = {
     }>('/ai/creation-status'),
     getProject: (id: number) => request<Project>(`/projects/${id}`),
     createProject: (projectData: Partial<Project>) => request<Project>('/projects', { method: 'POST', body: JSON.stringify(projectData) }),
-    updateProject: (id: number, updates: Partial<Project>) => request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
+    updateProject: (id: number, updates: ProjectUpdate) => request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
     deleteProject: (id: number) => request<{ success: boolean }>(`/projects/${id}`, { method: 'DELETE' }),
     reorderProjects: (projectIds: number[]) => request<Project[]>('/projects/reorder', { method: 'PUT', body: JSON.stringify({ projectIds }) }),
 
@@ -946,7 +1004,9 @@ export const api = {
     },
     clearActivity: () => request<{ success: boolean }>('/activity', { method: 'DELETE' }),
     /** Not a fetch: the browser downloads it, so the file never passes through JS. */
-    activityExportUrl: () => `${BASE}/activity/export`,
+    // A plain link sends no X-Time-Zone header, so the zone rides in the URL:
+    // the summary's days are this device's days (server/routes/settings.js).
+    activityExportUrl: () => { const zone = clientTimeZone(); return `${BASE}/activity/export${zone ? `?tz=${encodeURIComponent(zone)}` : ''}`; },
 
     getSettings: () => request<Record<string, string>>('/settings'),
     setSetting: (key: ClientSettingKey, value: string) => request<{ success: boolean }>(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
@@ -980,7 +1040,7 @@ export const api = {
     // `exposed`: no password, and the server is set up to be reachable from
     // other machines (HOST beyond loopback, a listed public name); the app
     // shows a banner until a password is set.
-    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean }>('/auth/status', { timeout: 4000 }),
+    getAuthStatus: () => request<{ enabled: boolean; authenticated: boolean; setupRequired?: boolean; tailscale?: AuthTailscaleHint; exposed?: boolean; site?: boolean }>('/auth/status', { timeout: 4000 }),
     // Spend the one-time code from a QR shown in Settings (server/devices.js).
     claimPairing: (code: string) => request<{ ok: boolean }>('/auth/pair', { method: 'POST', body: JSON.stringify({ code }) }),
     getDevices: () => request<{ devices: ConnectedDevice[]; tailscale: { login: string | null; on: boolean; served: boolean } }>('/devices'),
@@ -1082,6 +1142,21 @@ export const api = {
         return res.json();
     },
 
+    // UPDATING AN INSTALLED COURSE FROM A NEWER FILE
+
+    /** What a course file would change in the copy of its course already in
+     *  the library. Writes nothing. */
+    inspectCourseUpdate: (file: File) => courseUpdateUpload<CourseUpdatePreview>('inspect', file),
+    /** Apply it. `choices` takes the file's version of a conflict by its key. */
+    commitCourseUpdate: (file: File, projectId: number, choices: Record<string, 'file' | 'mine'>) =>
+        courseUpdateUpload<{ projectId: number; summary: CourseUpdateSummary; undo: { available: boolean } }>('commit', file, {
+            projectId: String(projectId), choices: JSON.stringify(choices),
+        }),
+    courseUpdateUndoAvailable: (projectId: number) =>
+        request<{ available: boolean; at?: string; version?: string | null }>(`/course-updates/${projectId}/undo`),
+    undoCourseUpdate: (projectId: number) =>
+        request<{ ok: true }>(`/course-updates/${projectId}/undo`, { method: 'POST' }),
+
     // SCHEDULING
 
     scheduleProject: (projectId: number, config: ScheduleConfig) =>
@@ -1091,11 +1166,9 @@ export const api = {
                 startDate: config.startDate,
                 deadline: config.deadline,
                 studyDays: config.studyDays,
+                deadlineFixed: config.deadlineFixed,
             }),
         }),
-
-    recalibrateSchedule: (projectId: number) =>
-        request<ScheduleResult>(`/projects/${projectId}/recalibrate`, { method: 'POST' }),
 
     getProjectPace: (projectId: number) =>
         request<PaceData>(`/projects/${projectId}/pace`),
@@ -1153,6 +1226,17 @@ export const api = {
             method: 'PUT',
             body: JSON.stringify({ newPerDay }),
         }),
+
+    /** The course's recall target (0.7-0.97); 0.9 stores no row. */
+    setDeckRetention: (projectId: number, retention: number) =>
+        request<{ newPerDay: number; retention: number }>(`/projects/${projectId}/deck/settings`, {
+            method: 'PUT',
+            body: JSON.stringify({ retention }),
+        }),
+
+    /** Answers a day each recall target would ask of this course; a simulation, no model. */
+    getRetentionForecast: (projectId: number) =>
+        request<RetentionForecast>(`/projects/${projectId}/deck/retention-forecast`),
 
     /** Whether this project's topics may be taught (lessons, checkpoints). Off
      *  by default for an import — see server/nodeRole.js. */
@@ -1231,7 +1315,9 @@ export const api = {
         request<{ insights: any; generatedAt: string | null }>(`/projects/${projectId}/insights`),
 
     // AI
-    getAIStatus: () => request<AIStatus>('/ai/status'),
+    // `fresh`: a person pressed a check button; otherwise the server may answer
+    // from a status a few seconds old (server/ai.js statusHealth).
+    getAIStatus: (opts: { fresh?: boolean } = {}) => request<AIStatus>(opts.fresh ? '/ai/status?fresh=1' : '/ai/status'),
     // The provider key is write-only: /api/ai/status says whether one is saved,
     // the key itself is never sent back to any client. It is bound to the
     // origin of `baseUrl` (the one on screen), and sent nowhere else.
@@ -1411,7 +1497,7 @@ export const api = {
                     const first = body.attachments[0];
                     return resolve(first.ok ? { ...first, modelSees: body.modelSees ?? null } : first);
                 }
-                if (xhr.status === 401 && body?.authRequired && onAuthRequired) onAuthRequired();
+                if (xhr.status === 401 && body?.authRequired) authRequired(body);
                 // A refused body (too big, too many) is an answer about the file.
                 if (xhr.status === 413 || (xhr.status === 400 && body?.reason)) {
                     return resolve({ ok: false, name, reason: body?.reason || 'too_large', error: body?.error || 'Upload refused' });
@@ -2253,6 +2339,45 @@ export const api = {
     // URL to view/download a stored original (open in a new tab).
     documentOriginalUrl: (id: number) => `${BASE}/documents/${id}/original`,
 
+    // MOCK EXAMS: past papers sat by hand and marked by the learner (server/mockExams.js).
+    getMockExams: (projectId: number) => request<MockExamList>(`/projects/${projectId}/mock-exams`),
+    addExamPaper: (projectId: number, paper: ExamPaperInput) =>
+        request<{ paper: ExamPaper }>(`/projects/${projectId}/mock-exams`, { method: 'POST', body: JSON.stringify(paper) }),
+    deleteExamPaper: (paperId: number) => request<{ ok: true }>(`/mock-exams/papers/${paperId}`, { method: 'DELETE' }),
+    startMock: (paperId: number, question: string | null) =>
+        request<{ sitting: MockSitting }>(`/mock-exams/papers/${paperId}/sittings`, { method: 'POST', body: JSON.stringify({ question }) }),
+    getMock: (id: number) => request<MockDetail | CourseMockDetail>(`/mock-sittings/${id}`),
+    // A mock from the course's own questions, answered on screen.
+    setRealExam: (projectId: number, exam: Partial<RealExam>) =>
+        request<{ exam: RealExam | null }>(`/projects/${projectId}/exam`, { method: 'PUT', body: JSON.stringify(exam) }),
+    drawMock: (projectId: number, size: number, minutes: number | null) =>
+        request<{ sitting: MockSitting; asked: number; drawn: number; short: boolean }>(`/projects/${projectId}/mock-exams/draw`, { method: 'POST', body: JSON.stringify({ size, minutes }) }),
+    /**
+     * One save, written once per `attemptId` (resent unchanged on a retry).
+     * `keepalive`: the save sent as the page goes away outlives the page.
+     */
+    saveMockAnswer: (id: number, save: { partId: number; answer?: string; later?: boolean; attemptId: string }, keepalive = false) =>
+        request<{ duplicate: boolean; answered: number; left: number; later: number }>(`/mock-sittings/${id}/answers`, { method: 'PUT', body: JSON.stringify(save), keepalive }),
+    mockClock: (id: number, action: 'pause' | 'resume' | 'stop') =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/${action}`, { method: 'POST' }),
+    /** The pause sent as the page goes away: `keepalive` lets it outlive the page. */
+    pauseMockOnLeave: (id: number) =>
+        request<{ sitting: MockSitting }>(`/mock-sittings/${id}/pause`, { method: 'POST', keepalive: true }),
+    markMockPart: (id: number, partId: number, points: number | null) =>
+        request<MockDetail>(`/mock-sittings/${id}/scores`, { method: 'PUT', body: JSON.stringify({ partId, points }) }),
+    /**
+     * `attemptId`: a course mock's finish, resent on retry, is written once.
+     * `fillUnmarked`: give every ungraded part 0 in the same write ("Give them 0").
+     */
+    finishMock: <D = MockDetail>(id: number, { attemptId, fillUnmarked = false }: { attemptId?: string; fillUnmarked?: boolean } = {}) =>
+        request<D>(`/mock-sittings/${id}/finish`, { method: 'POST', body: JSON.stringify({ attemptId: attemptId ?? null, fillUnmarked }) }),
+    discardMock: (id: number) => request<{ ok: true }>(`/mock-sittings/${id}`, { method: 'DELETE' }),
+    // The look back the stream offers (server/lookBack.js): read, start (or reopen), "Not now".
+    getLookBack: (projectId: number) => request<{ offer: LookBackOffer | null }>(`/projects/${projectId}/look-back`),
+    startLookBack: (projectId: number) =>
+        request<{ sitting: MockSitting }>(`/projects/${projectId}/look-back`, { method: 'POST' }),
+    skipLookBack: (projectId: number) => request<{ ok: true }>(`/projects/${projectId}/look-back/skip`, { method: 'POST' }),
+
     // The documents an answer's Sources line names, entry by entry (null id:
     // no document of that title is in the library now).
     citedDocuments: (entries: string[]) => {
@@ -2375,15 +2500,15 @@ export const api = {
     getProjectMastery: (projectId: number) =>
         request<any[]>(`/projects/${projectId}/mastery`),
 
+    /** What the app thinks the learner knows about one topic, and the evidence behind it. */
+    getEvidenceTrail: (nodeId: number) =>
+        request<EvidenceTrail>(`/nodes/${nodeId}/evidence`),
+
     submitMasteryCheck: (projectId: number, nodeId: number, score: number, total: number, questions?: any[], asked?: AskedQuestion[], attemptId?: string, review?: SittingReviewItem[]) =>
         request<any>(`/projects/${projectId}/mastery/mastery-check`, {
             method: 'POST',
             body: JSON.stringify({ nodeId, score, total, questions, asked, attemptId, review }),
         }),
-
-    // DAILY PLAN
-    getDailyPlan: (projectId: number) =>
-        request<DailyPlan>(`/projects/${projectId}/daily-plan`),
 
     getGhostQuestions: (projectId: number, max?: number) =>
         request<any[]>(`/projects/${projectId}/ghost-questions${max ? `?max=${max}` : ''}`),
@@ -2413,9 +2538,12 @@ export const api = {
         request<{ ok: boolean }>(`/atlas/regions/${signature}/name`, { method: 'DELETE' }),
 
     // LEARNING FEED (home page)
-    getFeed: (exclude?: string[], limit = 15, scope?: FeedScope) => {
+    getFeed: (exclude?: string[], limit = 15, scope?: FeedScope, courses?: number[]) => {
         const params = new URLSearchParams({ limit: String(limit) });
         if (exclude && exclude.length) params.set('exclude', exclude.join(','));
+        // Today's course blocks already on screen, in order: the block the
+        // reader is in continues before the next course opens.
+        if (!scope && courses && courses.length) params.set('courses', courses.join(','));
         // Three scopes, one endpoint: nothing (the whole library), one course,
         // or one topic/section. See `composeFeed` in server/feed.js.
         if (scope?.kind === 'node') params.set('nodeId', String(scope.id));
@@ -2431,6 +2559,14 @@ export const api = {
     // Try again on a topic whose first lesson could not be written.
     retryLessonWrite: (nodeId: number) =>
         request<{ lessonWrite: LessonWrite | null }>(`/feed/nodes/${nodeId}/lesson/retry`, { method: 'POST' }),
+
+    // A topic's questions asked before its first part: recorded once, never evidence.
+    recordPreQuestions: (nodeId: number, body: { outcome: 'answered' | 'skipped'; items: { ref: string; correct: boolean | null }[] }) =>
+        request<{ ok: true; duplicate?: true }>(`/feed/nodes/${nodeId}/pre-questions`, { method: 'POST', body: JSON.stringify(body) }),
+
+    // The learner's own account of a lesson part, marked against the part.
+    explainBack: (feedItemId: number, text: string) =>
+        request<{ verdict: 'good' | 'weak' | 'unsure'; reason: string }>(`/feed/lessons/${feedItemId}/explain`, { method: 'POST', body: JSON.stringify({ text }) }),
 
     // A checkpoint card's numbers as they are now (CheckpointCard re-asks as
     // the learner answers the topic above it).
@@ -2489,7 +2625,9 @@ export const api = {
             try { const d = await res.json(); if (d.error) msg = d.error; } catch { /* non-JSON */ }
             throw new Error(msg);
         }
-        return res.json();
+        const graded = await res.json();
+        noteEvidenceWrite(`/paper/${feedItemId}/grade`, 'POST');
+        return graded;
     },
 
     selfGradePaperAttempt: (feedItemId: number, metCount: number) =>
@@ -2508,9 +2646,6 @@ export const api = {
         request<TodayActivity>(`/today/activity${date ? `?date=${date}` : ''}`),
     /** One check or quiz from that ledger, with each answer (server/sittingReview.js). */
     getSittingReview: (evidenceId: number) => request<SittingReview>(`/today/sittings/${evidenceId}`),
-
-    getCalendarRange: (from: string, to: string) =>
-        request<GlobalCalendarData>(`/calendar?from=${from}&to=${to}`),
 
     /** Each project's pace and topic extent, for the dates on its Projects card
      *  (one row per non-archived project). */
@@ -2569,6 +2704,19 @@ export const api = {
 
     cancelMediaDescriptions: () =>
         request<{ ok: boolean }>('/media-descriptions/cancel', { method: 'POST' }),
+
+    /** What is known about one card file: the description a screen reader reads instead. */
+    mediaInfo: (hash: string) =>
+        request<import('./types').MediaInfo>(`/media/${hash}/info`),
+
+    /** `after`: the `cursor` of the last row shown, for the next page. */
+    listMediaDescriptions: (after?: string) =>
+        request<{ items: import('./types').MediaDescriptionRow[] }>(`/media-descriptions${after ? `?after=${encodeURIComponent(after)}` : ''}`),
+
+    setMediaDescription: (hash: string, description: string) =>
+        request<{ description: string | null; described_by: import('./types').MediaDescriber | null }>(`/media/${hash}/description`, {
+            method: 'PUT', body: JSON.stringify({ description }),
+        }),
 
     describeMedia: (hash: string, force = false) =>
         request<{ ok: boolean; description: string }>(`/media/${hash}/describe`, {

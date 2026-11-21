@@ -10,7 +10,7 @@ import {
     streamResponse,
 } from '../ai.js';
 import {
-    ATTEMPT_ID_ERROR, MIN_GATE_QUESTIONS, readAttemptId, recordOnce, updateMasteryFromAttempt,
+    ATTEMPT_ID_ERROR, AttemptReusedError, MIN_GATE_QUESTIONS, readAttemptId, recordOnce, updateMasteryFromAttempt,
 } from '../mastery.js';
 import { masteryCheckTarget } from '../today.js';
 import {
@@ -306,9 +306,11 @@ app.post('/api/ai/quizzes/:quizId/attempt', (req, res) => {
     const attemptId = readAttemptId(req.body.attemptId);
     if (attemptId === undefined) return res.status(400).json({ error: ATTEMPT_ID_ERROR });
     try {
-        const { duplicate, outcome } = recordOnce('quiz', attemptId, () => writeQuizAttempt(req, attempt.score, attempt.total));
+        const { duplicate, outcome } = recordOnce('quiz', attemptId, () => writeQuizAttempt(req, attempt.score, attempt.total),
+            `quiz:${Number(req.params.quizId)}`);
         res.json(duplicate ? { ...outcome, duplicate: true } : outcome);
     } catch (err) {
+        if (err instanceof AttemptReusedError) return res.status(err.status).json({ error: clientError(err, err.status) });
         res.status(500).json({ error: clientError(err) });
     }
 });

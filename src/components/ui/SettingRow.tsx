@@ -15,7 +15,7 @@
  * Anything else about the setting is available, never present:
  *
  *   hint   ONE short line under the name, and only when it changes which way
- *          you would set the thing. "Used by every calendar in the app" is not
+ *          you would set the thing. "Used by every screen in the app" is not
  *          a hint, it is a description of the obvious; "Off is fine" is.
  *   detail the longer version, READ ON THE PAGE. A page of identical grey
  *          chevrons is not a skimmable page (see `SettingNote` below), so
@@ -30,7 +30,8 @@
  * surface with hairlines between the rows. Group captions are how a long page
  * stays skimmable — the eye reads six captions, not thirty labels.
  */
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useId, useLayoutEffect, useRef, useState } from 'react';
+import { SettingHintContext } from './settingHint';
 
 /**
  * A GROUP'S CAPTION IS NOT SHOUTED.
@@ -138,8 +139,7 @@ const NAME_MIN_REM = 12;
  * the same row is one line in one language and a ribbon in the next, inside a
  * card whose width is not the screen's.
  *
- * So it is measured, on the row's own box — the rule the calendar and both lane
- * charts already follow. It is measured from the CONTROL's natural width, which
+ * So it is measured, on the row's own box. It is measured from the CONTROL's natural width, which
  * is the same whether the control is beside the name or under it, so the
  * decision cannot feed back into itself: stacking does not change any number
  * this reads, and there is no flicker to damp.
@@ -180,7 +180,9 @@ function useStacksWhenTight(enabled: boolean) {
     return { row, control, stacked: enabled && stacked };
 }
 
-export function SettingRow({ label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+export function SettingRow({ id, label, hint, detail, control, more, block = false, htmlFor, className = '' }: {
+    /** Lets a settings link ending `#<section>/<target>` scroll to and flash this row (`settingTargetId`). */
+    id?: string;
     label: React.ReactNode;
     hint?: React.ReactNode;
     /** The long explanation, closed, under the name. Sits in the LEFT column
@@ -198,6 +200,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
     const Name = htmlFor ? 'label' : 'span';
     const { row, control: controlRef, stacked } = useStacksWhenTight(!block && !!control);
     const under = block || stacked;
+    const hintId = useId();
     const name = (
         <Name
             {...(htmlFor ? { htmlFor } : {})}
@@ -208,7 +211,8 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
     );
 
     return (
-        <div className={`px-4 py-3 ${className}`}>
+        <SettingHintContext.Provider value={hint ? hintId : undefined}>
+        <div id={id} className={`px-4 py-3 ${className}`}>
             {/* THE CONTROL NEVER DROPS BELOW THE NAME.
                 `flex-wrap` with a fixed 192px name column breaks the row
                 whenever the name's column plus the control exceeds the card,
@@ -216,7 +220,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
                 Three things are wrong with that. A switch on the left is a
                 switch a thumb cannot reach one-handed, which is why every
                 phone OS puts them on the right. A fixed basis breaks rows that
-                fit perfectly well — "Week starts on" plus Monday/Sunday is
+                fit perfectly well — a short name plus a two-option switch was
                 303px of content inside a 347px card. And a wrapped row and an
                 unwrapped one read as two different kinds of setting when they
                 are the same kind.
@@ -235,7 +239,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
                 <div className="min-w-0 flex-1">
                     {name}
                     {hint && (
-                        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
+                        <p id={hintId} className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
                     )}
                     {detail && <SettingNote className="mt-0.5">{detail}</SettingNote>}
                 </div>
@@ -253,6 +257,7 @@ export function SettingRow({ label, hint, detail, control, more, block = false, 
             )}
             {more && <div className="mt-3">{more}</div>}
         </div>
+        </SettingHintContext.Provider>
     );
 }
 

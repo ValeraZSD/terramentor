@@ -2,12 +2,10 @@
 import db from '../database.js';
 import { contentDisposition } from '../httpHeaders.js';
 import { chunkText } from '../ai.js';
-import { isSupportedLanguage } from '../language.js';
 import { logActivity } from '../activityLog.js';
 import { indexDocument } from '../embeddings.js';
 import { scheduleNodeSync } from '../nodeEmbeddings.js';
 import { learnersSearchWords, scheduleSearchWords, setSearchWords } from '../searchWords.js';
-import { MAX_MEDIA_BYTES, storeMediaBuffer } from '../ankiMedia.js';
 import { projectTeaches, setProjectTeaches } from '../nodeRole.js';
 import multer from 'multer';
 import fs from 'node:fs';
@@ -16,16 +14,17 @@ import vaultStorage, { mediaStorage } from '../vaultStorage.js';
 import { assertZipSafe, extractText, MAX_FILE_BYTES, readZipEntry } from '../extract.js';
 import { LIBRARY_MANIFEST, parseLibraryManifest } from '../libraryArchive.js';
 import { queueRecovery } from '../pdfRecovery.js';
-import { ImportError, normalizeImportProject, normalizeImportTree } from '../curriculumSchema.js';
 import { rejectOversizedBody } from '../uploadGuard.js';
 import {
     applyImportedCardDial, childrenLookup, claimUuid, exportedFlashcards, exportedQuestions, exportedResourceRows,
-    IMPORT_QUESTION_DEPS, insertImportedTree, newPerDaySetting, projectMediaNames,
+    insertImportedTree, newPerDaySetting, projectMediaNames,
 } from '../courseFiles.js';
+import { BUNDLE_ZIP_LIMITS, BundleRefusal, readBundleCourse, restoreCardMedia, underlying } from '../bundleCourse.js';
 import { wrap } from './request.js';
 import { nextProjectPosition } from './projectRows.js';
 import { routeTable } from './routeTable.js';
 import { clientError, publicMessage } from '../clientError.js';
+import { recordInstalledBase } from '../courseUpdate.js';
 
 const app = routeTable('bundle');
 
@@ -43,14 +42,6 @@ const bundleUpload = multer({
     limits: { fileSize: 1024 * 1024 * 1024 },
 });
 
-// A bundle legitimately packs many originals, so the per-file Office caps are
-// too tight here — but it's still untrusted input that must be bounded.
-const BUNDLE_ZIP_LIMITS = { maxEntries: 20000, maxTotalBytes: 1024 * 1024 * 1024 };
-
-/** The course itself, as one JSON document. A course of 150 topics with
- *  thousands of questions and cards is a few MB, so this is more than ten times
- *  the size of a very large course. */
-const MAX_BUNDLE_MANIFEST_BYTES = 64 * 1024 * 1024;
 /** One vault original inside a bundle. Nothing can legitimately be bigger than
  *  `MAX_FILE_BYTES` — that is the cap every vault upload passed on its way in —
  *  and the ceiling is twice it so a bundle written by another build is not
@@ -247,18 +238,6 @@ app.get('/api/export/:projectId/bundle', async (req, res) => {
         { filename: `${built.project.name || 'project'}.studyvault` });
 });
 
-/** A bundle (or library) refused for what is in it. The message is the answer
- *  and the status is always 400, so it is thrown rather than written to `res`:
- *  the importer below is now called once per project of a library, where a
- *  refusal is one project's entry in a report and not the whole response. */
-class BundleRefusal extends Error {}
-
-// What a refusal says about the error under it. A bundle is somebody else's
-// file, so its manifest failing to parse is the bundle's fault and said so;
-// any other error keeps the words of a check this code wrote, and a file
-// system or database error becomes publicMessage's fixed sentence.
-const underlying = (e) => (e instanceof SyntaxError ? 'its manifest is not valid JSON' : publicMessage(e));
-
 /**
  * Import ONE already-opened bundle as a new project. The only bundle parser:
  * the single-file door and every entry of a library archive come through here,
@@ -271,52 +250,8 @@ const underlying = (e) => (e instanceof SyntaxError ? 'its manifest is not valid
  *   each entry; alone, a bundle gets its own.
  */
 async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_LIMITS.maxTotalBytes } = {}) {
-    let manifest;
-    try {
-        // A .studyvault is untrusted input (the marketplace's whole point is
-        // sharing them). `assertZipSafe` reads the archive's own declared sizes,
-        // which its author wrote, so it is a pre-filter and not the bound: every
-        // entry below is read through `readZipEntry`, which stops inflating at a
-        // ceiling instead of measuring what arrived.
-        const raw = await readZipEntry(zip, 'manifest.json', { cap: MAX_BUNDLE_MANIFEST_BYTES, what: 'This bundle' });
-        if (!raw) throw new BundleRefusal('Invalid bundle: missing manifest.json');
-        manifest = JSON.parse(raw.toString('utf8'));
-    } catch (e) {
-        if (e instanceof BundleRefusal) throw e;
-        throw new BundleRefusal(`Invalid bundle: ${underlying(e)}`);
-    }
-
-    // Valid JSON is not yet a manifest: `null`, a list, a number or a string
-    // all parse, and `null` threw on the destructuring below.
-    if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
-        throw new BundleRefusal('Invalid bundle: manifest.json must hold an object');
-    }
-    for (const key of ['documents', 'nodes']) {
-        if (manifest[key] != null && !Array.isArray(manifest[key])) {
-            throw new BundleRefusal(`Invalid bundle: "${key}" in manifest.json must be a list`);
-        }
-    }
-
+    const { manifest, project, nodes, warnings, cardCount, questionCount } = await readBundleCourse(zip);
     const { documents } = manifest;
-
-    // Exactly the same normalizer as POST /api/import. These two paths had
-    // drifted into different opinions about the same file — the bundle clamped
-    // an unknown status where the JSON path rejected it, and neither looked at a
-    // resource URL — even though a bundle is the *more* likely thing to have
-    // been handed to you by a stranger.
-    let project, nodes, warnings, cardCount = 0, questionCount = 0;
-    try {
-        const header = normalizeImportProject(manifest.project, { isSupportedLanguage });
-        const tree = normalizeImportTree(manifest.nodes || [], IMPORT_QUESTION_DEPS);
-        project = header.project;
-        nodes = tree.nodes;
-        cardCount = tree.cardCount;
-        questionCount = tree.questionCount;
-        warnings = [...header.warnings, ...tree.warnings];
-    } catch (err) {
-        if (err instanceof ImportError) throw new BundleRefusal(`Invalid bundle: ${err.message}`);
-        throw err;
-    }
 
     const twin = project.uuid ? db.prepare('SELECT id, name, version FROM live_projects projects WHERE uuid = ?').get(project.uuid) : null;
     if (twin) {
@@ -367,52 +302,8 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
         throw new BundleRefusal(`Failed to restore vault files: ${underlying(e)}`);
     }
 
-    // The cards' media, the same way the Anki door takes it: only the files
-    // the cards actually NAME are read, the type comes from the bytes and never
-    // the extension, and the stored key is the true content hash. Blobs go to
-    // disk before the transaction — a row is what makes one referenced, and
-    // the rows are written inside it, so a failed import leaves orphans the
-    // startup sweep gives back.
-    const mediaByName = new Map();
-    const mediaSkipped = [];
-    try {
-        const wanted = new Set();
-        const collect = (list) => list.forEach(n => {
-            for (const c of n.flashcards) for (const side of ['front', 'back']) for (const m of c.media?.[side] || []) wanted.add(m.name);
-            collect(n.children);
-        });
-        collect(nodes);
-        let mediaBytes = 0;
-        let done = 0;
-        for (const name of wanted) {
-            // The same ceiling `storeMediaBuffer` applies, moved to where the
-            // bytes are produced: the cap it enforces is now reached by a file
-            // already known to fit.
-            let buf;
-            try {
-                buf = await readZipEntry(zip, `media/${name}`, { cap: MAX_MEDIA_BYTES, what: 'This bundle' });
-            } catch (err) {
-                if (!err?.tooLarge) throw err;
-                mediaSkipped.push({ name, reason: 'refused' });
-                continue;
-            }
-            if (!buf) { mediaSkipped.push({ name, reason: 'missing' }); continue; }
-            charge(buf.length);
-            const stored = storeMediaBuffer(buf, { budgetUsed: mediaBytes });
-            if (stored.reason) { mediaSkipped.push({ name, reason: stored.reason }); continue; }
-            mediaBytes += stored.size;
-            mediaByName.set(name, { ...stored, filename: name });
-            if (++done % 25 === 0) await new Promise(r => setImmediate(r));
-        }
-    } catch (e) {
-        throw new BundleRefusal(`Failed to restore card media: ${underlying(e)}`);
-    }
-    if (mediaSkipped.length) {
-        const missing = mediaSkipped.filter(m => m.reason === 'missing').length;
-        const refused = mediaSkipped.length - missing;
-        if (missing) warnings.push(`${missing} card media file(s) named by the course are not in the bundle — those cards were imported without them.`);
-        if (refused) warnings.push(`${refused} card media file(s) were refused (not a supported image or audio type, or too large) — those cards were imported without them.`);
-    }
+    // The cards' media: blobs go to disk before the transaction (bundleCourse.js).
+    const mediaByName = await restoreCardMedia(zip, nodes, charge, warnings);
 
     try {
         const pathKey = (titles) => (titles || []).join('\u0000');
@@ -449,6 +340,8 @@ async function importBundleZip(zip, { spent = { bytes: 0 }, limit = BUNDLE_ZIP_L
             }, { mediaByName });
             applyImportedCardDial(newProjectId, project, cardCount);
             if (typeof project.teaches === 'boolean') setProjectTeaches(newProjectId, project.teaches);
+            // What the file installed, so a newer edition can update this copy.
+            recordInstalledBase(newProjectId, { exportedAt: manifest.exported_at });
 
             const insertChunk = db.prepare('INSERT INTO document_chunks (document_id, chunk_index, content) VALUES (?, ?, ?)');
             for (const d of (documents || [])) {

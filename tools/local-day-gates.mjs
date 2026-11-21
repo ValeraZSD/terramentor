@@ -134,7 +134,8 @@ function build(l) {
     const course = Number(db.prepare(`
         INSERT INTO projects (name, position, start_date, deadline, study_days)
         VALUES (?, 0, ?, ?, '[1,2,3,4,5,6,7]')
-    `).run(`Course — ${l.name}`, addDays(l.local, -30), addDays(l.local, 60)).lastInsertRowid);
+    `).run(`Course — ${l.name}`, null, null).lastInsertRowid);
+    // No window: a course with one derives its own topic dates (server/topicDates.js), so these stored dates stand for a course without one.
     const topic = (title, start, end, position) => Number(db.prepare(`
         INSERT INTO nodes (project_id, title, description, position, scheduled_start, scheduled_end)
         VALUES (?, ?, 'Read this first.', ?, ?, ?)

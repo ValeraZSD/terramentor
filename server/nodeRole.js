@@ -104,7 +104,7 @@ export function backfillNodeRoles({ force = false } = {}) {
 
 // ---- may this project's topics be taught? -----------------------------------
 
-const TEACH_PREFIX = 'teach_topics_';
+export const TEACH_PREFIX = 'teach_topics_';
 
 /**
  * Whether the teaching machinery (lesson generation, checkpoints) may run on

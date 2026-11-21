@@ -145,6 +145,38 @@ export function parseColor(raw: string | null | undefined): Rgb | null {
     return null;
 }
 
+/**
+ * The opacity a colour string states: `rgba(…, .2)`, `rgb(0 0 0 / 20%)`, an
+ * 8-digit or 4-digit hex. 1 when it states none.
+ *
+ * `parseColor` returns the three channels only, so on its own a translucent
+ * shadow, gridline or highlight band came back as a solid colour and covered
+ * what it was meant to sit over.
+ */
+export function colorAlpha(raw: string | null | undefined): number {
+    if (!raw) return 1;
+    const s = String(raw).trim().toLowerCase();
+    if (s.startsWith('#')) {
+        const h = s.slice(1);
+        const n = h.length === 4 ? parseInt(h[3] + h[3], 16) : h.length === 8 ? parseInt(h.slice(6), 16) : NaN;
+        return Number.isNaN(n) ? 1 : n / 255;
+    }
+    const m = /^rgba?\(([^)]*)\)$/.exec(s);
+    if (!m) return 1;
+    const parts = m[1].split(/[\s,/]+/).filter(Boolean);
+    if (parts.length < 4) return 1;
+    const a = parts[3].endsWith('%') ? parseFloat(parts[3]) / 100 : Number(parts[3]);
+    return Number.isFinite(a) ? clamp01(a) : 1;
+}
+
+/** A `#rrggbb` colour at an opacity below 1, as `rgba()`; the colour itself at 1. */
+export function withAlpha(hex: string, alpha: number): string {
+    const rgb = parseColor(hex);
+    if (!rgb || alpha >= 1) return hex;
+    const c = (n: number) => Math.round(clamp01(n) * 255);
+    return `rgba(${c(rgb.r)},${c(rgb.g)},${c(rgb.b)},${Math.round(clamp01(alpha) * 1000) / 1000})`;
+}
+
 /** WCAG relative luminance. */
 export function luminance({ r, g, b }: Rgb): number {
     const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -226,12 +258,26 @@ export function ensureContrast(color: Rgb, bg: Rgb, min = MIN_GRAPHIC_CONTRAST):
  *
  * `role` decides one thing: a near-invisible FILL was the page itself and
  * becomes the canvas, while the same value as a STROKE was a faint hairline.
+ *
+ * A colour that states an opacity keeps it: the adapted colour comes back as
+ * `rgba()` at the author's alpha, so a 10% gridline stays a faint line and a
+ * 20% highlight band stays a wash instead of becoming a solid slab.
  */
 export function adaptColor(
     raw: string | null | undefined,
     palette: VisualPalette,
     role: 'fill' | 'stroke' | 'text' = 'stroke',
     assumedBg: string = DEFAULT_ASSUMED_BG,
+): string | null {
+    const solid = adaptSolidColor(raw, palette, role, assumedBg);
+    return solid === null ? null : withAlpha(solid, colorAlpha(raw));
+}
+
+function adaptSolidColor(
+    raw: string | null | undefined,
+    palette: VisualPalette,
+    role: 'fill' | 'stroke' | 'text',
+    assumedBg: string,
 ): string | null {
     const rgb = parseColor(raw);
     if (!rgb) return null;
@@ -339,14 +385,30 @@ function declaredBackdrop(svg: SVGSVGElement): { color: string; el: Element } | 
     const [vx, vy, vw, vh] = vb;
     if (!(vw > 0 && vh > 0)) return null;
 
+    // A length in a rect is user units or a percentage of the viewBox. The
+    // common full-bleed backdrop is `width="100%" height="100%"`, which
+    // `parseFloat` alone reads as 100 units and so never as a backdrop.
+    const length = (raw: string | null, whole: number) => {
+        const s = (raw || '0').trim();
+        const n = parseFloat(s);
+        return s.endsWith('%') ? (whole * n) / 100 : n;
+    };
     for (const el of Array.from(svg.querySelectorAll('rect'))) {
-        const x = parseFloat(el.getAttribute('x') || '0');
-        const y = parseFloat(el.getAttribute('y') || '0');
-        const w = parseFloat(el.getAttribute('width') || '0');
-        const h = parseFloat(el.getAttribute('height') || '0');
+        const x = length(el.getAttribute('x'), vw);
+        const y = length(el.getAttribute('y'), vh);
+        const w = length(el.getAttribute('width'), vw);
+        const h = length(el.getAttribute('height'), vh);
         // 96%: a scene often insets its backdrop by a pixel or two.
         if (!(w >= vw * 0.96 && h >= vh * 0.96 && x <= vx + vw * 0.04 && y <= vy + vh * 0.04)) continue;
-        const fill = parseColor(el.getAttribute('fill'));
+        const stated = el.getAttribute('fill');
+        // A translucent rect over the whole drawing is a dim or a wash drawn
+        // after the content, not the surface the content sits on.
+        const veiled = ['fill-opacity', 'opacity'].some((a) => {
+            const v = parseFloat(el.getAttribute(a) ?? '');
+            return Number.isFinite(v) && v < 1;
+        });
+        if (veiled || colorAlpha(stated) < 1) continue;
+        const fill = parseColor(stated);
         if (fill) return { color: rgbToHex(fill), el };
     }
     return null;

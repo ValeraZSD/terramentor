@@ -143,7 +143,13 @@ function seed(conn, tag) {
     one("INSERT INTO assistant_edits (kind, target_id, source, before, after, applied_at) VALUES ('project', ?, 'chat', '{}', '{}', '2026-11-01T10:00:00.000Z')", p);
     one("INSERT INTO item_reports (kind, item_key, node_id, project_id, reason, item, created_at) VALUES ('question', 'q:x', ?, ?, 'wrong', '{}', '2026-11-01T10:00:00.000Z')", n, p);
     one("INSERT INTO mastery_claims (node_id, source, correct, created_at) VALUES (?, 'mcp', 1, '2026-11-01T10:00:00.000Z')", n);
+    one("INSERT INTO pre_questions (node_id, outcome, asked, answered, correct, items, created_at) VALUES (?, 'answered', 2, 2, 1, '[]', '2026-11-01T10:00:00.000Z')", n);
+    one("INSERT INTO explain_backs (node_id, part_index, explanation, verdict, reason, created_at) VALUES (?, 1, 'mine', 'weak', 'why', '2026-11-01T10:00:00.000Z')", n);
     one("INSERT INTO answer_attempts (surface, attempt_id, outcome, created_at) VALUES ('feed', ?, 'right', '2026-11-01 10:00:00')", `att-${tag}`);
+    const ep = one("INSERT INTO exam_papers (project_id, title, minutes, created_at) VALUES (?, 'Paper', 180, '2026-11-01T10:00:00.000Z')", p);
+    const part = one("INSERT INTO exam_paper_parts (paper_id, position, question, part, points, node_id) VALUES (?, 0, '1', 'a', 8, ?)", ep, n);
+    const ms = one("INSERT INTO mock_sittings (paper_id, time_allowed, status, started_at) VALUES (?, 10800, 'marking', '2026-11-01T10:00:00.000Z')", ep);
+    one('INSERT INTO mock_part_scores (sitting_id, part_id, points) VALUES (?, ?, 6)', ms, part);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T10', 'reading', 600000)", n);
     one("INSERT INTO study_time (node_id, hour, activity, active_ms) VALUES (?, '2026-11-01T11', 'cards', 120000)", n);
     const conn2 = one("INSERT INTO ai_connections (kind, created_at) VALUES ('openai', '2026-11-01T10:00:00.000Z')");

@@ -29,12 +29,13 @@ import {
     SHEET_SETTLE_MS, beginSheetDrag, cancelSheetDrag, moveSheetDrag, releaseSheetDrag, type SheetDrag,
 } from './atlas/sheetGesture';
 import { useRootFontSize } from '../hooks/useRootFontSize';
+import { motionReduced } from '../utils/accessibility';
 
 /**
  * The atlas: the whole library as one space instead of one tree per course.
  *
  * Every other cross-project surface in this app is organised by time (the feed,
- * the calendar, each card's dates) or by container (the projects grid). None of
+ * each card's dates) or by container (the projects grid). None of
  * them can answer *what do I know?*, because knowledge doesn't live in the
  * course that happened to teach it — a learner who proved standing waves in a
  * language course's physics unit knows standing waves, and no view built
@@ -869,7 +870,7 @@ export default function AtlasView() {
     };
     const sheetSettle = (open: boolean, px: number) => {
         setSheetOpen(open);
-        if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { endSheetDrag(); return; }
+        if (motionReduced()) { endSheetDrag(); return; }
         sheetPx(px, true);
         settleTimer.current = window.setTimeout(endSheetDrag, SHEET_SETTLE_MS);
     };

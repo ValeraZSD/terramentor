@@ -389,6 +389,7 @@ export default function JobModelsSection({ active }: { active: boolean }) {
                             <div className="space-y-3">
                                 <SegmentedControl
                                     label={tr("Which model does {{job}}", { job: title })}
+                                    block="narrow"
                                     value={own ? 'own' : 'main'}
                                     options={[
                                         { value: 'main', label: tr("Main model") },

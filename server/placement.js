@@ -60,9 +60,8 @@
 
 import db from './database.js';
 import { applySeededPrior, forgetSeed, GUESS_BY_QUESTION_TYPE } from './mastery.js';
-import { allocateSchedule, persistSchedule, readStudyDays } from './scheduling.js';
-import { projectCountsInCards } from './progress.js';
-import { AI_PROMPTS, buildNodeContext, generateResponse, checkAnswerWithAI } from './ai.js';
+import { layTopicDates } from './scheduling.js';
+import { AI_PROMPTS, buildNodeContext, questionSource, generateResponse, checkAnswerWithAI } from './ai.js';
 import { parseQuestionReply, normalizeChoice, sanitizeExplanation } from './agentic.js';
 import { questionDefects, verifyQuestion } from './feedQuality.js';
 import { getProjectLanguage } from './language.js';
@@ -541,81 +540,63 @@ export function withdrawPlacement(projectId, { except = null } = {}) {
 }
 
 /**
- * Give the project's schedule the weights the head starts now imply — inside
- * the window the learner already chose, and only while NOTHING in it has been
- * closed.
+ * Whether the head starts moved any date on the plan.
  *
- * A placement is taken before studying, and a schedule is usually set when the
- * project is created, so the dates were laid out for a learner who knew
- * nothing. Re-laying the same window moves time from the topics that became a
- * review to the ones that did not, and keeps both the start and the deadline.
- * Once a topic is closed the dates are history as well as a plan, and moving
- * them unasked would rewrite the drift the pace readout is measuring — so then
- * nothing moves, and the new weights apply the next time the learner changes
- * the window or recalibrates (scheduling.js reads them on every build).
+ * Nothing is written: topic dates are derived whenever they are read
+ * (`layTopicDates`, server/scheduling.js) from the weights a head start sets,
+ * so time moves from the topics that became a review to the ones that did not,
+ * inside the window the learner chose, start and deadline kept. A closed topic
+ * sits on the day it was completed either way, so a course under way is
+ * re-weighted too.
  *
- * @returns {boolean} whether any date actually changed
+ * With `before` (the layout read before a change, or laid without the head
+ * starts in question) it compares against that; without, against the same
+ * course laid as if nothing were known. False when
+ * the course has no topic window or nothing moved.
+ *
+ * @returns {boolean}
  */
-export function relaySchedule(projectId) {
-    const project = db.prepare('SELECT start_date, deadline, study_days FROM live_projects projects WHERE id = ?').get(projectId);
-    if (!project?.start_date || !project?.deadline) return false;
-    // Its plan is a window of cards, with no topic dates for a weight to move.
-    if (projectCountsInCards(projectId)) return false;
-    const closed = db.prepare(`
-        SELECT 1 FROM live_nodes nodes WHERE project_id = ? AND is_note = 0 AND status IN ('completed', 'skipped') LIMIT 1
-    `).get(projectId);
-    if (closed) return false;
-
-    // Lay from where the plan on screen starts, not from the window's first day:
-    // after a Recalibrate the dates run from the day it was pressed while
-    // `start_date` still holds the original, and re-laying from that would move
-    // every open topic back into the past.
-    const firstPlanned = db.prepare(`
-        SELECT MIN(scheduled_start) AS d FROM live_nodes nodes
-        WHERE project_id = ? AND is_note = 0 AND scheduled_start IS NOT NULL
-    `).get(projectId)?.d;
-    const from = firstPlanned && firstPlanned > project.start_date ? firstPlanned : project.start_date;
-    if (from > project.deadline) return false;
-
-    const studyDays = readStudyDays(project.study_days);
-    const result = allocateSchedule(projectId, from, project.deadline, studyDays);
-    if (!result.success) return false;
-
-    const stored = new Map(db.prepare(`
-        SELECT id, scheduled_start, scheduled_end FROM live_nodes nodes WHERE project_id = ?
-    `).all(projectId).map(r => [r.id, r]));
-    let changed = false;
-    for (const [id, a] of result.assignments) {
-        const s = stored.get(id);
-        if (!s || s.scheduled_start !== a.scheduled_start || s.scheduled_end !== a.scheduled_end) { changed = true; break; }
-    }
-    if (!changed) return false;
-    persistSchedule(projectId, result.assignments, result.baselineSnapshot, {
-        startDate: project.start_date, deadline: project.deadline, studyDays,
-    });
-    return true;
+export function relaySchedule(projectId, before = undefined) {
+    const now = layTopicDates(projectId);
+    if (!now) return false;
+    const base = before === undefined ? layTopicDates(projectId, undefined, undefined, { headStarts: false }) : before;
+    return sameLayout(now, base) === false;
 }
+
+const sameLayout = (a, b) => {
+    if (!a || !b || a.size !== b.size) return !a && !b;
+    for (const [id, d] of a) {
+        const o = b.get(id);
+        if (!o || o.start !== d.start || o.end !== d.end) return false;
+    }
+    return true;
+};
 
 /** Close the probe. A probe can be finished early — it seeds what it measured. */
 export function finishProbe(probeId) {
     db.prepare("UPDATE placement_probes SET state = 'done', completed_at = CURRENT_TIMESTAMP WHERE id = ?")
         .run(probeId);
     const probe = hydrateProbe(probeRow.get(probeId));
-    const rescheduled = probe ? relaySchedule(probe.projectId) : false;
+    // Compared with the course laid without placement seeds: a project holds one
+    // probe's seeds at a time (re-taking withdraws the last), so that is the plan
+    // before this probe, other head starts (transfer) kept.
+    const rescheduled = probe
+        ? relaySchedule(probe.projectId, layTopicDates(probe.projectId, undefined, undefined, { headStarts: 'transfer' }))
+        : false;
     return { probe, summary: { ...summariseProbe(probe), rescheduled } };
 }
 
 /**
  * Discard a probe and everything it seeded — the head starts (answered topics
- * included), the evidence rows, and, while nothing in the project has been
- * closed, the time the schedule had moved off the seeded topics. Once a topic is
- * closed the dates stay as they are (see `relaySchedule`), and the reply's
- * `rescheduled` says which happened. (Review-sized
+ * included) and the evidence rows; the time the plan had moved off the seeded
+ * topics goes back on the next read, and the reply's `rescheduled` says
+ * whether any date moved (`relaySchedule`). (Review-sized
  * lesson plans need nothing here: a plan written for a head start that no
  * longer exists is re-planned by the feed if its topic has not been started —
  * `planIsStale` in feedGen.js.)
  */
 export function discardProbe(projectId) {
+    const before = layTopicDates(projectId);
     const cleared = withdrawPlacement(projectId);
     db.prepare(`
         DELETE FROM mastery_evidence
@@ -623,7 +604,7 @@ export function discardProbe(projectId) {
           AND node_id IN (SELECT id FROM live_nodes nodes WHERE project_id = ?)
     `).run(projectId);
     db.prepare('DELETE FROM placement_probes WHERE project_id = ?').run(projectId);
-    const rescheduled = relaySchedule(projectId);
+    const rescheduled = relaySchedule(projectId, before);
     return { cleared, rescheduled };
 }
 
@@ -716,6 +697,7 @@ function normalizeProbeQuestion(raw, type, nodeId = null) {
 export async function authorProbeQuestion(target, { signal, lang = null, index = 0 } = {}) {
     const type = questionTypeFor(index);
     const context = buildNodeContext(target.node_id);
+    const source = questionSource(target.node_id);
     let priorFault = null;
 
     for (let attempt = 0; attempt < AUTHOR_ATTEMPTS; attempt++) {
@@ -743,10 +725,10 @@ export async function authorProbeQuestion(target, { signal, lang = null, index =
         if (!q) { priorFault = 'the question had no identifiable answer key'; continue; }
         if (q.rejected) { priorFault = q.rejected; continue; }
 
-        let verdict = await verifyQuestion(target.title, q, { signal });
+        let verdict = await verifyQuestion(target.title, q, { signal, source });
         // No verdict is not a pass: ask once more (a reasoning model that spent
         // its reply thinking often answers the second time), as the feed does.
-        if (verdict.available === false) verdict = await verifyQuestion(target.title, q, { signal });
+        if (verdict.available === false) verdict = await verifyQuestion(target.title, q, { signal, source });
         if (verdict.ok === false) { priorFault = verdict.reason; continue; }
         if (verdict.available === false) {
             // A probe answer SEEDS a prior — it decides how much of the course

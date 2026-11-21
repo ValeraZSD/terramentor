@@ -391,6 +391,331 @@ input[type="password"]::-ms-clear {
   }
 }
 
+/* SETTINGS → ACCESSIBILITY. The attributes on <html> are written by
+   src/utils/accessibility.ts (and replayed by public/theme-boot.js before the
+   first paint), already resolved against the system's own preference. */
+
+/* Reduce motion: every animation and transition ends at once, a library's
+   included. 0.01ms rather than none, so the animationend/transitionend a
+   component waits for still arrives. The drop flash is spared: it does not
+   move, and it is the only sign of where a dragged item landed
+   (drop-flash-gates.mjs). */
+html[data-motion="reduce"] *,
+html[data-motion="reduce"] *::before,
+html[data-motion="reduce"] *:not(.drop-flash)::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* Text spacing. The widest step is at least what WCAG 1.4.12 asks a page to
+   survive (letters 0.12em, words 0.16em, lines 1.5, paragraphs 2em); no gate
+   yet opens a screen at it to look for clipped text. On every
+   element, because a class that sets its own tracking or leading would
+   otherwise keep it. Formulas and drawings are left alone: KaTeX places the
+   parts of a fraction or a root by its own line height, and a diagram sizes
+   its label boxes to the text, so spacing there breaks them, not reads better. */
+html[data-letter-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.06em !important; }
+html[data-letter-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { letter-spacing: 0.12em !important; }
+html[data-word-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.08em !important; }
+html[data-word-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { word-spacing: 0.16em !important; }
+html[data-line-spacing="wider"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.5 !important; }
+html[data-line-spacing="widest"] body *:not(.katex, .katex *, svg, svg *) { line-height: 1.8 !important; }
+html[data-line-spacing] .prose p { margin-bottom: 2em !important; }
+
+/* Larger text and buttons. Two floors, one switch:
+   - TEXT: nothing under the body size (0.875rem, 14px at 100%). The three
+     small sizes read these variables (tailwind.config.js), so every variant of
+     them follows; in rem, so the interface size still scales it.
+   - TARGETS: every control at least 2.75rem each way, and never under 44px
+     however small the interface size (WCAG 2.5.5 counts CSS pixels). A link
+     inside running text is exempt, as 2.5.5 allows: growing it would tear
+     its line open; a chip drawn in an answer (`not-prose`) is not such a
+     link. A switch keeps its track; its target already spills to 44px round
+     it (ui/Switch.tsx). A native tickbox is pressed through its label.
+     A textarea is left out: every one is taller than the floor already.
+     Height and width are two rules so that a control which asks for MORE
+     than the floor (a card plate, a 64px settings row, a 10rem menu) keeps
+     its own size: the floor would otherwise replace it. */
+html[data-larger-ui] {
+  --text-xs: 0.875rem;
+  --text-xs-leading: 1.25rem;
+  --text-2xs: 0.875rem;
+  --text-3xs: 0.875rem;
+  --target-floor: max(2.75rem, 44px);
+}
+html[data-larger-ui] :is(
+  button, select, summary, a[href],
+  input:not([type="hidden"], [type="checkbox"], [type="radio"]),
+  [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"],
+  [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"]
+):not(.sr-only, [role="switch"], :is(p, blockquote, .prose) a:not(.not-prose *),
+  .min-h-12, .min-h-14, .min-h-16, .min-h-20, .min-h-24, .min-h-28, .min-h-32, [class*="min-h-["]) {
+  min-height: var(--target-floor);
+}
+/* 3rem is only 38.4px at an 80% interface size: a min-h-12 control (a drill's
+   answer, a roomy select option) keeps its 3rem and never drops under 44px. */
+html[data-larger-ui] .min-h-12:is(button, a[href], [role="button"], [role="option"], [role="radio"]) {
+  min-height: max(3rem, 44px);
+}
+html[data-larger-ui] :is(
+  button, select, summary, a[href],
+  input:not([type="hidden"], [type="checkbox"], [type="radio"]),
+  [role="button"], [role="tab"], [role="menuitem"], [role="menuitemradio"],
+  [role="menuitemcheckbox"], [role="option"], [role="radio"], [role="checkbox"]
+):not(.sr-only, [role="switch"], :is(p, blockquote, .prose) a:not(.not-prose *),
+  .min-w-64, [class*="min-w-[8rem]"], [class*="min-w-[9rem]"], [class*="min-w-[9.5rem]"], [class*="min-w-[10rem]"], [class*="min-w-[12rem]"],
+  [class*="min-w-[13rem]"], [class*="min-w-[14rem]"], [class*="min-w-[140px]"]) {
+  min-width: var(--target-floor);
+}
+/* A title in a narrow list (the course tree, the outline) wraps instead of
+   being cut short: the larger text would otherwise leave "The night ..." of
+   a title and nothing to tell two rows apart. The tree row keeps a little
+   padding so wrapped titles in neighbouring rows do not run together; a
+   topic's spacer takes the fold button's width, so it still sits under its
+   chapter; and the course tree is at least 17.5rem wide, since a 44px
+   column (and a chapter's badge) stands before every title. */
+html[data-larger-ui] [data-larger-wraps] {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+html[data-larger-ui] [data-sidebar-row] {
+  padding-block: 0.25rem;
+}
+html[data-larger-ui] [data-fold-spacer] {
+  width: var(--target-floor);
+}
+/* ...but never more than 30% of the row it shares with the page and the
+   details pane: at 160% text on an 800px window 17.5rem is 448px, and with
+   the details open the page between them had no width left. 30% is about
+   what the tree's own 256px default takes there with the setting off. */
+html[data-larger-ui] [data-course-sidebar] {
+  min-width: min(17.5rem, 30%);
+}
+/* So a tree that narrow (160% text on an 800px window) is shorter than a
+   chapter row: its 44px column, badge, 44px title and percentage ran the
+   title 13px out of the row. The percentage drops to a second line, at the
+   row's end, and only when the row has no room for it. */
+html[data-larger-ui] [data-sidebar-row] {
+  flex-wrap: wrap;
+}
+html[data-larger-ui] [data-sidebar-row] > [data-row-progress] {
+  margin-left: auto;
+}
+/* A phase's tick bar (dashboard/PhaseProgress.tsx) is one 12px row that hides
+   its overflow, so a long phase cannot widen the page. With the floor every
+   tick is 44px each way, and a 100-topic phase no longer fits one row: the
+   bar becomes a grid of floor-sized cells that wraps onto as many rows as it
+   needs. auto-fit stretches the cells across the row, so a short phase still
+   draws one full-width bar. */
+html[data-larger-ui] [data-tick-bar] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--target-floor), 1fr));
+  grid-auto-rows: var(--target-floor);
+  height: auto;
+}
+/* One level of the course tree and the outline: the row's first column
+   (fold chevron or status mark) and the gap after it at normal size, so a
+   sub-topic's column stands under its parent's title button. The same step
+   with the larger setting, where the column is 44px: a step that wide left
+   a third level one word per line. */
+:root {
+  --row-indent-tree: 1.5rem;
+  --row-indent-outline: 1.375rem;
+  /* A card's rows stand one level in from its header, as a tree topic does
+     under its chapter. */
+  --row-outline-start: var(--row-indent-outline);
+  /* The most a row's indent may take is its list's width less this reserve:
+     the column, the percentage, the ⋮, the row's own padding and margins,
+     and 5rem of title. Past it a deeper row stops stepping in, or a level 8
+     row ran its title out of a 280px tree. */
+  --row-tree-reserve: 9.75rem;
+  --row-outline-reserve: 13rem;
+}
+/* With the setting on, the 44px column is var(--target-floor), which stays
+   44px when an 80% interface size makes 2.75rem only 35px: a reserve in rem
+   alone let a level 6 row take 5px of its title back. */
+html[data-larger-ui] {
+  --row-tree-reserve: calc(8.75rem + var(--target-floor));
+  --row-outline-reserve: calc(12.75rem + var(--target-floor));
+}
+/* A block of a short phase is wide enough to carry its topic's name. Each
+   block is its own container, so the name shows by the block's real width
+   (the phase's length, the card's width, the text size), and only in a block
+   of at least 6rem: about ten letters before the ellipsis, below which a name
+   is a stub that says less than the tooltip. */
+html[data-larger-ui] [data-tick-bar] > [data-tick] {
+  container-type: inline-size;
+}
+[data-tick-name] {
+  display: none;
+  line-height: var(--target-floor);
+}
+@container (min-width: 6rem) {
+  html[data-larger-ui] [data-tick-name] {
+    display: block;
+  }
+}
+/* An ExpandableSection row (ui/Disclosure.tsx) lays out by its OWN width, not
+   the viewport's: the same row sits in a 1280px settings page and in a narrow
+   side panel on that same screen. Narrow, the aside drops to a full-width line
+   under the text, indented to the title; at 32rem and up it sits on the
+   title's line, and a marked card's body is indented to the title column. */
+[data-disclosure] {
+  container-type: inline-size;
+}
+[data-disclosure-aside] {
+  order: 9999;
+  flex-basis: 100%;
+  padding-left: 2rem;
+}
+@container (min-width: 32rem) {
+  [data-disclosure-aside] {
+    order: 0;
+    flex-basis: auto;
+    padding-left: 0;
+  }
+  [data-disclosure-aside][data-under-desc] {
+    margin-top: 0.125rem;
+  }
+  [data-disclosure-indent] {
+    padding-left: 3rem;
+  }
+}
+/* A password or key field keeps room for its show button, which is now 44px
+   wide and sits 4px in from the edge: typed text must not run under it. */
+html[data-larger-ui] [data-reveal-field] {
+  padding-right: calc(var(--target-floor) + 0.5rem);
+}
+/* The tickbox (Checkbox.tsx) keeps its 18px box; its invisible input spills
+   to the floor round it, as the switch's target does, so a row whose label is
+   one short line is still a 44px target. Sized and centred explicitly: an
+   input is a replaced element, and an engine may give it its own 13px size
+   rather than stretch it between the insets. Never smaller than the box. */
+html[data-larger-ui] [data-checkbox] > input {
+  inset: auto;
+  left: min(0px, calc((100% - var(--target-floor)) / 2));
+  top: min(0px, calc((100% - var(--target-floor)) / 2));
+  width: max(100%, var(--target-floor));
+  height: max(100%, var(--target-floor));
+}
+/* The switch keeps its 24px track; its target spills to the floor round it
+   (ui/Switch.tsx), so 80% text does not leave it 35px tall. */
+html[data-larger-ui] [data-switch-spill] {
+  inset-inline: min(-0.375rem, calc((100% - var(--target-floor)) / 2));
+  inset-block: min(-0.625rem, calc((100% - var(--target-floor)) / 2));
+}
+
+/* Forced colours (Windows High Contrast) drop every background, so a choice
+   marked only by a fill (the open section, the chosen segment, a switch that
+   is on) vanishes. Each gets an outline in the system's highlight colour. */
+@media (forced-colors: active) {
+  /* Tailwind's `outline-none` is a TRANSPARENT 2px outline 2px out, which
+     forced colours paint solid: at rest a bordered control wore a second
+     frame beside its border, and two segments 2px apart drew overlapping
+     ones. At rest it is 1px and flush with the edge: a quiet button keeps
+     the only frame it has in this mode, a bordered one reads as one solid
+     edge. Keyboard focus keeps the full outline (the ring is a box-shadow,
+     which forced colours drop). Segments sit in their row's frame and wear
+     none. First in the block, so the state outlines below still win. */
+  .outline-none:where(:not(:focus-visible)) {
+    outline-width: 1px;
+    outline-offset: 0;
+  }
+  /* A region that only takes focus from code (a dialog, the rating row) is
+     not a control: no frame at rest, or the rating buttons sat in a square box. */
+  .outline-none:where(:not(:focus-visible, button, a, summary, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="option"], [role="switch"], [role="checkbox"], [role="radio"], [role="slider"], [role="combobox"])) {
+    outline-style: none;
+  }
+  button[data-segment]:where(:not(:focus-visible)) {
+    outline-style: none;
+  }
+  /* A row's or card's title button is the keyboard's way into a row the
+     pointer opens anywhere: framed, it read as a separate box inside the
+     card. It is framed only when focused or when it is the open one. */
+  button[data-row="title"]:not([aria-current]):where(:not(:focus-visible)) {
+    outline-style: none;
+  }
+  /* The track's fill is dropped too, so a segmented row gets one frame
+     round it; wrapped into chips, each chip gets its own. */
+  [data-segmented="track"] {
+    border: 1px solid ButtonText;
+  }
+  [data-segmented="chips"] > button[data-segment] {
+    border: 1px solid ButtonText;
+  }
+  /* A rail scrolls sideways, and overflow-x clips its top and bottom too:
+     1px of room round the tabs keeps each tab's frame whole. `:where`, so a
+     rail's own px-* utility still wins. */
+  :where(.rail-scroll) {
+    padding: 1px;
+  }
+  /* A drawing keeps its own colours here, so the tree's grey chevrons stayed
+     faint, and a chapter's badge, a white folder on the course colour, lost
+     its fill and showed nothing. Both take the text colour; the badge gets a
+     frame, so a chapter still reads as one. `:root :is()` weighs more than
+     the dark theme's `.dark .dark:text-*` (two classes), which kept the
+     chevrons grey in dark. */
+  :root :is([data-row-chevron], [data-course-badge] > svg) {
+    color: CanvasText;
+  }
+  [data-course-badge] {
+    border: 1px solid CanvasText;
+  }
+  [aria-current="page"],
+  [aria-current="true"],
+  [aria-pressed="true"],
+  [role="tab"][aria-selected="true"],
+  [role="radio"][aria-checked="true"],
+  [role="option"][aria-selected="true"] {
+    /* Straddles the edge (1px out, 1px in), so its outer edge meets the
+       at-rest 1px frame of the controls beside it: same size, thicker line.
+       At -2px the current page's button drew a box 2px smaller. */
+    outline: 2px solid Highlight;
+    outline-offset: -1px;
+  }
+  /* A chosen segment or an armed rating is filled, not only outlined: a thin
+     outline beside the system's thick button borders read as the unchosen one.
+     Only those two, by their own markers: `forced-color-adjust` inherits, so on
+     anything that can hold content (a flipped card is aria-pressed too) the
+     author's white plate stays while the text turns HighlightText.
+     `button` lifts it over a `hover:bg-*` utility (two classes' weight, later
+     in the file), which kept the rating's pale fill under white text while
+     the pointer still rested on it after the first press. */
+  button[data-segment][aria-checked="true"],
+  button[data-rating][data-armed] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+  button[data-segment][aria-checked="true"] *,
+  button[data-rating][data-armed] * {
+    color: HighlightText;
+  }
+  [role="switch"] {
+    border: 1px solid ButtonText;
+  }
+  /* The target that spills round the track (ui/Switch.tsx) is placed from
+     inside the border, so the border's 1px is added back: still 44px. */
+  [role="switch"] > [data-switch-spill] {
+    inset: calc(-0.625rem - 1px) calc(-0.375rem - 1px);
+  }
+  [role="switch"] > span:last-child {
+    forced-color-adjust: none;
+    background: ButtonText;
+  }
+  [role="switch"][aria-checked="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  [role="switch"][aria-checked="true"] > span:last-child {
+    background: HighlightText;
+  }
+}
+
 @keyframes glow-breathe {
   0%, 100% {
     box-shadow: 0 0 4px 1px rgb(var(--accent-rgb) / 0.4), 0 0 8px 2px rgb(var(--accent-rgb) / 0.2);
@@ -415,10 +740,8 @@ input[type="password"]::-ms-clear {
   animation: toast-blip 0.4s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-toast-blip {
-    animation: none;
-  }
+html[data-motion="reduce"] .animate-toast-blip {
+  animation: none;
 }
 
 @keyframes scale-in {
@@ -457,10 +780,8 @@ input[type="password"]::-ms-clear {
   animation: confetti-fall 2s cubic-bezier(0.3, 0.1, 0.5, 1) forwards;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-confetti-fall {
-    display: none;
-  }
+html[data-motion="reduce"] .animate-confetti-fall {
+  display: none;
 }
 
 @keyframes slide-up {
@@ -502,10 +823,8 @@ details[open] > .details-reveal {
   animation: details-reveal 0.18s ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  details[open] > .details-reveal {
-    animation: none;
-  }
+html[data-motion="reduce"] details[open] > .details-reveal {
+  animation: none;
 }
 
 /* The notes "tap/click to edit" hint is a static strip under the content in
@@ -920,11 +1239,9 @@ pre:has(> .visual-block) {
     vb-part-arrive 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both,
     vb-edge-draw-back 560ms cubic-bezier(0.3, 0, 0.35, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vb-arrive,
-  .visual-block-stage.vb-arrive [data-vb-arrive] {
-    animation: none;
-  }
+html[data-motion="reduce"] .visual-block-stage.vb-arrive,
+html[data-motion="reduce"] .visual-block-stage.vb-arrive [data-vb-arrive] {
+  animation: none;
 }
 
 /* Settings → Visuals: a switched-off kind's sample is greyed and dimmed, and
@@ -1005,12 +1322,10 @@ pre:has(> .visual-block) {
 .visual-block-stage.vb-arrive.vk-flat > * {
   transition: none;
 }
-@media (prefers-reduced-motion: reduce) {
-  .visual-block-stage.vk-dissolve > * { animation: none; }
-  /* The mute is a state, not a motion: under reduced motion it arrives at once
-     rather than fading, which the dissolve above already does. */
-  .vk-sample > * { transition: none; }
-}
+html[data-motion="reduce"] .visual-block-stage.vk-dissolve > * { animation: none; }
+/* The mute is a state, not a motion: under reduced motion it arrives at once
+   rather than fading, which the dissolve above already does. */
+html[data-motion="reduce"] .vk-sample > * { transition: none; }
 
 /* A drill has no parts to arrive — its sample is a launcher button — so its
    card tips and rights itself instead. The class is taken off again when the
@@ -1024,9 +1339,7 @@ pre:has(> .visual-block) {
 .vk-tilt {
   animation: vk-tilt 760ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vk-tilt { animation: none; }
-}
+html[data-motion="reduce"] .vk-tilt { animation: none; }
 
 /*
  * While rendering, Mermaid appends a temporary, full-size <div id="dvisual-mermaid-N">

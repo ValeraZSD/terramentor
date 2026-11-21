@@ -78,7 +78,7 @@ process.env.AI_PROVIDER ||= 'openai';
 const B = new URL('../server/', import.meta.url).href;
 const { default: db } = await import(B + 'database.js');
 const { verifyQuestion, questionDefects } = await import(B + 'feedQuality.js');
-const { AI_PROMPTS, generateResponse, getAISettings } = await import(B + 'ai.js');
+const { AI_PROMPTS, generateResponse, getAISettings, questionSource } = await import(B + 'ai.js');
 const { parseJsonWithRepair, escapeLatexBackslashes, normalizeChoice, sanitizeExplanation } =
     await import(B + 'agentic.js');
 const { getProjectLanguage } = await import(B + 'language.js');
@@ -186,6 +186,8 @@ for (const row of quizRows) {
     if (!Array.isArray(questions)) continue;
 
     const lang = getProjectLanguage(row.project_id);
+    // The topic's text, as vetQuiz reads it: a question about it is answered from it.
+    const source = questionSource(row.node_id);
     const kept = [];
     let changed = false;
     // Verdicts on stamped questions, written after the row's own write.
@@ -205,7 +207,7 @@ for (const row of quizRows) {
 
         // Wait for the model's turn rather than skipping the question. Every
         // pass re-verifies the SAME item, so nothing is silently left unchecked.
-        let check = await verifyQuestion(row.title, q, {});
+        let check = await verifyQuestion(row.title, q, { source });
         let waitedMs = 0;
         for (let back = 0; check.available === false && WAIT_MINUTES > 0; back++) {
             if (back === 0) {
@@ -218,7 +220,7 @@ for (const row of quizRows) {
                 + ` (${Math.round(waitedMs / 60_000)}/${WAIT_MINUTES} min so far)`);
             await sleep(pause);
             waitedMs += pause;
-            check = await verifyQuestion(row.title, q, {});
+            check = await verifyQuestion(row.title, q, { source });
         }
         if (waitedMs && check.available !== false) {
             console.log(`     model answered after ${Math.round(waitedMs / 60_000)} min`);
@@ -293,7 +295,7 @@ for (const row of quizRows) {
             }
             if (!candidate) { fault = `${check.reason} (the previous rewrite was unusable or declared the question unfixable)`; continue; }
             // The rewrite has to clear the same bar the original failed.
-            const recheck = await verifyQuestion(row.title, candidate, {});
+            const recheck = await verifyQuestion(row.title, candidate, { source });
             if (recheck.ok) { fixed = candidate; break; }
             fault = recheck.reason;
         }

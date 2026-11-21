@@ -13,6 +13,7 @@ import type { AnkiPreview, AnkiImportResult } from '../types';
 import { useTranslation } from 'react-i18next';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useTapGuard } from '../hooks/useTapGuard';
 import { Button, IconButton } from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
 import { DIALOG_BODY, DIALOG_SHELL, DialogFooter, SHEET_OVERLAY, SHEET_PANEL } from './ui/Dialog';
@@ -96,7 +97,13 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
     const loadProjects = useStore(s => s.loadProjects);
     const openProject = useStore(s => s.openProject);
 
+    // Which upload the screen is waiting on. Closing while a deck is still being
+    // read moves it on, so that upload's late answer is dropped (and its staged
+    // parse released) instead of opening the next visit on a stale preview.
+    const upload = useRef(0);
+
     const reset = useCallback(() => {
+        upload.current++;
         setPhase('drop'); setPreview(null); setResult(null); setError(null);
         setProgress(0); setProjectName(''); setSwap(false); setKeepSchedule(true);
         setIncludeMedia(true); setSample(0);
@@ -109,10 +116,20 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
         onClose();
     }, [preview, phase, reset, onClose]);
 
+    // Escape, the X and the backdrop. The commit cannot be called back once it
+    // is sent, so while it runs they wait for it rather than close on a "done"
+    // screen nobody is looking at.
+    const dismiss = useCallback(() => { if (!busy) close(); }, [busy, close]);
+
     // `Modal`'s contract (focus in and back, Tab kept inside, topmost-only
     // Escape, the counted scroll lock) — it had only an Escape of its own.
     const dialogRef = useRef<HTMLDivElement>(null);
-    useDialogFocus(open, dialogRef, { onEscape: () => close() });
+    useDialogFocus(open, dialogRef, { onEscape: dismiss });
+
+    // A backdrop TAP closes, not a drag that ends there: selecting the project
+    // name or a sample's text and letting go over the dimmed area must not throw
+    // away a deck that took a minute to read (`Modal` does the same).
+    const backdrop = useTapGuard(dismiss, true);
 
     // A deck dropped on the create-project dropzone opens this already holding
     // the file: someone who has a deck goes to "new project" first, and being
@@ -132,14 +149,20 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             setError('That is not an Anki deck. Look for a file ending in .apkg.');
             return;
         }
+        const mine = ++upload.current;
         setError(null); setPhase('reading'); setProgress(0);
         try {
-            const p = await api.inspectAnkiDeck(file, setProgress);
+            const p = await api.inspectAnkiDeck(file, n => { if (upload.current === mine) setProgress(n); });
+            if (upload.current !== mine) {
+                api.cancelAnkiImport(p.stagingId).catch(() => { });
+                return;
+            }
             setPreview(p);
             setSample(0);
             setProjectName(p.suggestedName);
             setPhase('preview');
         } catch (err: any) {
+            if (upload.current !== mine) return;
             setError(err.message || 'That deck could not be read.');
             setPhase('drop');
         }
@@ -147,6 +170,8 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
 
     async function commit() {
         if (!preview) return;
+        // A failure shown by an earlier try must not outlive the one that worked.
+        setError(null);
         setBusy(true);
         try {
             const res = await api.commitAnkiImport({
@@ -158,20 +183,25 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
             });
             setResult(res);
             setPhase('done');
-            await loadProjects();
         } catch (err: any) {
             setError(err.message || 'The import could not be completed.');
-        } finally {
             setBusy(false);
+            return;
         }
+        // The import is done and the screen says so: closing is allowed again,
+        // and a project list that will not refresh does not turn it into a failure.
+        setBusy(false);
+        try { await loadProjects(); } catch { /* the list refreshes on the next visit */ }
     }
 
     async function undo() {
         if (!result) return;
+        setError(null);
         setBusy(true);
         try {
-            await api.deleteProject(result.projectId);
-            await loadProjects();
+            // A 404: the course was already deleted elsewhere, which is what Undo asked for.
+            await api.deleteProject(result.projectId).catch((err: any) => { if (err?.status !== 404) throw err; });
+            await loadProjects({ silent: true });
             addToast('success', t("Import undone — every card it added has been removed."));
             close();
         } catch (err: any) {
@@ -199,7 +229,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
 
     return (
         <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm ${SHEET_OVERLAY}`}
-            onClick={close}>
+            {...backdrop}>
             <div
                 ref={dialogRef}
                 tabIndex={-1}
@@ -217,7 +247,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                             {t("Your cards, plus everything this app adds on top.")}
                         </p>
                     </div>
-                    <IconButton size="sm" onClick={close} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
+                    <IconButton size="sm" onClick={dismiss} disabled={busy} label={t("Close")} tooltip={false} icon={<X size={18} />} className="-m-1" />
                 </header>
 
                 <div className={DIALOG_BODY}>
@@ -380,7 +410,10 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                     <li key={d.name} className="flex justify-between gap-3 text-xs text-slate-600 dark:text-slate-400">
                                         <span className="truncate">{d.name.replace(/::/g, ' › ')}</span>
                                         <span className="shrink-0 tabular-nums">
-                                            {d.count}
+                                            {num(d.count)}
+                                            {/* A JSX line break is no space: without this the
+                                                count and the dot read "1,100· 22 sections". */}
+                                            {(d.stages ?? 0) > 1 && ' '}
                                             {(d.stages ?? 0) > 1 && t("· {{stages}} sections", { count: d.stages ?? 0, stages: d.stages })}
                                         </span>
                                     </li>
@@ -433,6 +466,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                                             <><Volume2 size={12} aria-hidden="true" className="ml-1.5" />{num((stats.mediaSounds ?? 0))}</>
                                         )}
                                     </span>
+                                    {' '}
                                     {t("· {{bytes}} kept on this machine.", { bytes: formatBytes(stats.mediaBytes ?? 0) })}
                                 </OptionRow>
                             )}
@@ -499,7 +533,7 @@ export default function AnkiImportModal({ open, onClose }: { open: boolean; onCl
                         <Button onClick={undo} disabled={busy} icon={<Undo2 size={16} aria-hidden="true" />}>
                             {t("Undo")}
                         </Button>
-                        <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} icon={<ArrowRight size={16} aria-hidden="true" />}>
+                        <Button variant="primary" onClick={() => { openProject(result.projectId); close(); }} disabled={busy} icon={<ArrowRight size={16} aria-hidden="true" />}>
                             {t("Open it")}
                         </Button>
                     </DialogFooter>

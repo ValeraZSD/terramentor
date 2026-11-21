@@ -6,7 +6,8 @@ import SearchBar from './SearchBar';
 import { MenuItem, MenuPopover, menuTriggerKeys } from './ui/Popover';
 import { Button, IconButton } from './ui/Button';
 import { Chip } from './ui/Chip';
-import { fitHeader, type HeaderFit } from '../utils/headerFit';
+import { FOCUS_RING } from './ui/vocabulary';
+import { centresSearch, fitHeader, type HeaderFit } from '../utils/headerFit';
 import ToastContainer from './Toast';
 import ConfirmDialog from './ConfirmDialog';
 import TaskDock from './TaskDock';
@@ -17,6 +18,7 @@ import ExposedBanner from './ExposedBanner';
 import MasteryGateModal from './MasteryGateModal';
 import PlacementModal from './PlacementModal';
 import AnkiImportModal from './AnkiImportModal';
+import CourseUpdateModal from './CourseUpdateModal';
 import CompletionSummary from './completion/CompletionSummary';
 import AssistantDrawer, { DEFAULT_WIDTH, DOCK_QUERY, MIN_WIDTH } from './AssistantDrawer';
 import { useAICreationContext } from './aiCreationContext';
@@ -29,6 +31,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useElementWidth } from '../hooks/useElementWidth';
 import { useRootFontSize } from '../hooks/useRootFontSize';
 import { useTranslation } from 'react-i18next';
+import { ContentLang } from '../utils/contentLang';
 
 const ASSISTANT_WIDTH_KEY = 'assistant.width';
 
@@ -86,6 +89,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     // tree (the project dashboard's "ask about this project") open it with a
     // question already in the composer.
     const assistantOpen = useStore(s => s.assistantOpen);
+    // While a mock exam is answered the header, the notices and the assistant
+    // step aside: the exam draws its own bar (mockExam/ExamFrame). The header
+    // is hidden, not unmounted, so its measured fit survives the round trip.
+    const examFocus = useStore(s => s.examFocus);
     const openAssistant = useStore(s => s.openAssistant);
     const closeAssistant = useStore(s => s.closeAssistant);
     const [assistantWidth, setAssistantWidth] = useState(storedAssistantWidth);
@@ -96,7 +103,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     // ask about, and a modal that hides it makes you close the answer to look at
     // the question. Narrow screens have no room for two columns, so there it
     // stays an overlay.
-    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen;
+    // An exam hides the assistant, so nothing makes room for it then.
+    const assistantDocked = useMediaQuery(DOCK_QUERY) && assistantOpen && !examFocus;
 
     const resizeAssistant = (px: number) => {
         setAssistantWidth(px);
@@ -183,7 +191,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     }, [view]);
 
     // …and SAY that it scrolls. The rail hides its scrollbar (`.rail-scroll`),
-    // which on a 375px phone left "Calendar" sliced down the middle hard against
+    // which on a 375px phone left a tab sliced down the middle hard against
     // the search button — indistinguishable from the icons painting over the tab,
     // which is a bug this rail has actually had. A fade at whichever edge has
     // more behind it is the difference between "cut off" and "keeps going".
@@ -243,17 +251,47 @@ export default function Layout({ children }: { children: ReactNode }) {
     };
 
     // The global surfaces share a tab strip instead of a back arrow.
-    const isGlobalView =
-        view === 'today' || view === 'projects' || view === 'calendar'
-        || view === 'atlas';
-    // No Schedule tab: a project's dates are set and read on its Projects
-    // card, where the same projects already were.
+    const isGlobalView = view === 'today' || view === 'projects' || view === 'atlas';
+    // No Schedule or Calendar tab: a project's dates are set and read on its
+    // Projects card, and its plan is the verdict in the course's own header.
     const globalTabs = [
         { key: 'today' as const, label: t("Today") },
         { key: 'projects' as const, label: t("Projects") },
-        { key: 'calendar' as const, label: t("Calendar") },
         { key: 'atlas' as const, label: t("Atlas") },
     ];
+
+    // Where the learner is, in words: the window's title (read out on every
+    // move by a screen reader, and what a tab or a task switcher shows) and
+    // the page's h1 where no screen draws one of its own.
+    const place = view === 'workspace' ? currentProject?.name
+        : view === 'settings' ? t("Settings")
+            : globalTabs.find((g) => g.key === view)?.label;
+    const mainRef = useRef<HTMLElement | null>(null);
+    // A new page says where it is: the tab title, one polite announcement (a
+    // client-side route change is silent to a screen reader otherwise), and
+    // focus in the content when the control that was pressed went away with the
+    // old page. Focus that still lives somewhere (a tab, the tree, a dialog)
+    // stays where it is.
+    const [arrived, setArrived] = useState('');
+    useEffect(() => {
+        document.title = place ? `${place} · Terramentor` : 'Terramentor';
+    }, [place]);
+    // Announced and focused on a MOVE only: a renamed course or a new interface
+    // language changes the words, not where the learner is. A course's name
+    // arrives after its id, so the words are read when they are known.
+    const where = `${view}:${view === 'workspace' ? currentProjectId ?? '' : ''}`;
+    const announced = useRef('');
+    useEffect(() => {
+        if (!place || announced.current === where) return;
+        const first = !announced.current;
+        announced.current = where;
+        if (first) return;
+        setArrived(place);
+        const active = document.activeElement;
+        if ((!active || active === document.body) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+            mainRef.current?.focus({ preventScroll: true });
+        }
+    }, [place, where]);
 
     // What the bar shows at its OWN width (`fitHeader`): centred search, then
     // the icons' spare room to the rail, then the search as its icon, then a
@@ -321,6 +359,50 @@ export default function Layout({ children }: { children: ReactNode }) {
         // `barLabels` puts words beside the icons, which changes their width
         // without resizing anything observed.
     }, [isGlobalView, fitKey, activeTab, searchIcon, barLabels]);
+    // Off the global views the left side is the back arrow and, in a project,
+    // its title. The search is centred when both sides fit in half the row,
+    // measured at the bar's own width: Settings (no title) and a short project
+    // name centre on a phone; a name that would be cut keeps the room instead.
+    const leftRef = useRef<HTMLDivElement | null>(null);
+    const [sideCentred, setSideCentred] = useState(false);
+    const projectName = currentProject?.name;
+    useLayoutEffect(() => {
+        if (isGlobalView) return;
+        const measure = () => {
+            const header = headerRef.current, left = leftRef.current, right = rightRef.current, searchEl = searchWrapRef.current;
+            if (!header || !left || !right || !searchEl || !header.clientWidth) return;
+            const gapOf = (el: Element) => parseFloat(getComputedStyle(el).columnGap) || 0;
+            // The title at its full length: `scrollWidth` ignores the truncation.
+            const natural = (kids: Element[]) => {
+                const ws = kids.map(el => (el.tagName === 'H1' ? el.scrollWidth : el.getBoundingClientRect().width)).filter(w => w > 0);
+                return ws.reduce((s, w) => s + w, 0);
+            };
+            const sum = (el: HTMLElement) => {
+                const kids = [...el.children];
+                const n = kids.filter(k => k.getBoundingClientRect().width > 0 || k.tagName === 'H1').length;
+                return natural(kids) + gapOf(el) * Math.max(0, n - 1);
+            };
+            const hs = getComputedStyle(header);
+            const next = centresSearch({
+                inner: header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight),
+                gap: gapOf(header),
+                search: searchEl.getBoundingClientRect().width,
+                left: sum(left),
+                right: sum(right),
+            });
+            setSideCentred(next);
+        };
+        const ro = new ResizeObserver(measure);
+        const observe = () => {
+            ro.disconnect();
+            for (const el of [headerRef.current, searchWrapRef.current, ...(leftRef.current?.children ?? []), ...(rightRef.current?.children ?? [])]) if (el) ro.observe(el);
+        };
+        observe();
+        measure();
+        const mo = new MutationObserver(() => { observe(); measure(); });
+        if (rightRef.current) mo.observe(rightRef.current, { childList: true });
+        return () => { ro.disconnect(); mo.disconnect(); };
+    }, [isGlobalView, view, projectName, fitKey, barLabels]);
     const shownTabs = fit ? fit.shown.map(i => globalTabs[i]) : globalTabs;
     // No room for the tab you are on beside "More": the menu button takes its
     // name and the menu lists every tab, that one ticked.
@@ -339,6 +421,17 @@ export default function Layout({ children }: { children: ReactNode }) {
     return (
         <div className="h-full flex bg-slate-100 dark:bg-slate-900" style={accentStyle}>
         <div className="flex-1 min-w-0 flex flex-col">
+            {/* The first stop for Tab: past the header and its tab strip,
+                straight to the screen. Hidden until it has focus. */}
+            <a
+                data-skip-link
+                href="#main-content"
+                onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}
+                className={`sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[100] focus:rounded-lg focus:bg-white dark:focus:bg-slate-800 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-accent-fg focus:shadow-lg ${FOCUS_RING}`}
+            >
+                {t("Skip to content")}
+            </a>
+            <div className="sr-only" aria-live="polite" aria-atomic="true">{arrived}</div>
             {/* Three columns in normal flow — an absolutely centred search
                 would paint on top of the tab strip on a phone. Instead the
                 sides split the row with `basis-0`, so they take an equal half
@@ -359,8 +452,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* 3.5rem plus the top inset, padded by it: on a phone that draws the app
                 under its status bar the bar's colour runs up behind the clock and
                 its row starts below it, the same 56px as the assistant's header. */}
-            <header ref={headerRef} className="h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1 sm:gap-2 safe-px-2 sm:safe-px-4 shrink-0">
-                <div className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
+            <header ref={headerRef} className={`h-[calc(3.5rem+var(--safe-top))] safe-pt-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 ${examFocus ? 'hidden' : 'flex'} items-center gap-2 safe-px-2 sm:safe-px-4 shrink-0`}>
+                <div ref={leftRef} className="flex items-center gap-1 sm:gap-3 grow basis-0 min-w-0">
                     {!isGlobalView && (
                         <IconButton onClick={handleBack} label={t("Go back")} icon={<ArrowLeft className="w-4 h-4" aria-hidden="true" />} />
                     )}
@@ -436,15 +529,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                     another tab.
 
                     But `shrink-0` at every width would leave the search glued
-                    to the right-hand edge on a wide Settings page, where there
-                    is room for all three. The binding constraint is WIDTH, so
-                    that is what the rule is keyed on: from `md` up, half the
-                    row is comfortably wider than three icons at any UI scale,
-                    so both sides take their half and the search sits at the
-                    true centre. Below it, the title wins. */}
+                    to the right-hand edge wherever there is room for all
+                    three, a phone's Settings screen included. The binding constraint is the BAR's width, so
+                    the rule is measured there (`centresSearch`), never keyed
+                    on a viewport breakpoint: an `md:` rule left the search
+                    right of centre on every phone, Settings included, where
+                    there is no title to protect. */}
                 <div
                     ref={rightRef}
-                    className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${isGlobalView && fit ? (fit.centred ? 'grow basis-0' : '') : 'md:grow md:basis-0'}`}
+                    className={`flex items-center gap-2 min-w-0 justify-end shrink-0 ${(isGlobalView ? !!fit?.centred : sideCentred) ? 'grow basis-0' : ''}`}
                 >
                     {view === 'workspace' && isGenerating && currentProjectId != null && (
                         // A status the reader can open, so a pill, not a
@@ -454,7 +547,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                             tone="accent"
                             onClick={() => openGenerationModal(currentProjectId)}
                             aria-label={t("AI generation in progress")}
-                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
+                            icon={<Loader2 className="w-3.5 h-3.5 shrink-0 motion-on:animate-spin" aria-hidden="true" />}
                         >
                             <span className="hidden md:inline">{t("AI generation in progress")}</span>
                         </Chip>
@@ -510,11 +603,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                 reached from other devices and has no password. Below it, once,
                 that macOS is running a temporary copy of the app. */}
             <ExposedBanner />
-            <UpdateNotice />
-            <AppPlacementNotice />
+            {!examFocus && <UpdateNotice />}
+            {!examFocus && <AppPlacementNotice />}
 
-            <main className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0">
-                {children}
+            <main ref={mainRef} id="main-content" tabIndex={-1} className="flex-1 min-h-0 overflow-hidden safe-px-0 safe-pb-0 outline-none">
+                {/* Today and Projects have a tab strip where a title
+                    would be; Atlas and Settings draw their own h1. */}
+                {isGlobalView && view !== 'atlas' && place && <h1 className="sr-only">{place}</h1>}
+                {/* Inside a course, its text is in its own language. */}
+                <ContentLang projectId={view === 'workspace' ? currentProjectId : null}>{children}</ContentLang>
             </main>
 
             <ToastContainer />
@@ -565,6 +662,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {/* Reachable from Settings and from the projects grid, so it is
                 mounted at the root rather than inside either. */}
             <AnkiImportModal open={ankiImportOpen} onClose={closeAnkiImport} />
+            <CourseUpdateModal />
 
             {/* The finished-project screen, at the root for the same reason the
                 gate is: a course can be finished from the feed, from a review
@@ -572,8 +670,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             <CompletionSummary />
 
             {/* Global background-AI task bar (replaces the old single-purpose
-                floating creation card — creation is one chip among the rest). */}
-            <TaskDock />
+                floating creation card — creation is one chip among the rest).
+                Kept out of an exam; the tasks run on and show again after. */}
+            {!examFocus && <TaskDock />}
 
             {/* Every AI project creation's screen, and the reattach after a
                 reload — at the root, because a run is reached from the dock on
@@ -584,7 +683,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         {/* Outside the app column, so a docked assistant takes real layout space
             rather than painting over the page. */}
         <AssistantDrawer
-            open={assistantOpen}
+            open={assistantOpen && !examFocus}
             onClose={closeAssistant}
             docked={assistantDocked}
             width={assistantWidth}

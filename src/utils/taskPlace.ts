@@ -32,6 +32,20 @@ export interface TaskPlace {
 }
 
 /**
+ * The page a place IS, for the places that are pages: the one `openAiTask`
+ * navigates to, and the one a task's record compares with where the reader is.
+ * Null for the assistant and a creation run, which open over the current page.
+ */
+export function placeRoute(place: TaskPlace): string | null {
+    switch (place.go) {
+        case 'node': return `/project/${place.projectId}/tree/${place.nodeId}`;
+        case 'project': return `/project/${place.projectId}/dashboard`;
+        case 'route': return place.route ?? null;
+        default: return null;
+    }
+}
+
+/**
  * A task's TITLE in the interface language. The server writes it in English
  * for its logs, and where the title is the app's own sentence it also sends
  * the key (`labelKey`); a title that is the learner's own words (a topic, a

@@ -154,6 +154,21 @@ const refusals = [
     ['ro', 'Îmi pare rău, nu pot vedea imaginea pe care ați trimis-o acum.'],
     ['uk', 'Вибачте, я не можу побачити зображення, яке ви надіслали.'],
     ['ru', 'Извините, я не могу увидеть изображение, которое вы отправили.'],
+    // Naming the image is what makes the verb a refusal.
+    ['en', "I don't see any image attached to your message."],
+    ['uk', 'Я не бачу вашого зображення, надішліть його ще раз.'],
+    ['ru', 'Я не вижу вашего изображения, отправьте его ещё раз.'],
+    // ...and so is the verb with a few words between it and the image.
+    ['en', "I'm sorry, but I can't see anything in the image."],
+    ['en', "I can't see any content in the image you attached."],
+    ['en', 'I cannot see the text in this image'],
+    ['en', "I can't read the text in the image."],
+    ['en', "I'm unable to see the picture."],
+    ['en', "I can't see what is written on the page."],
+    ['uk', 'Я не бачу тут жодного зображення.'],
+    ['uk', 'Я не бачу нічого на зображенні.'],
+    ['ru', 'Я не могу прочитать текст на фото.'],
+    ['ru', 'Я не вижу ничего на изображении.'],
 ];
 for (const [code, text] of refusals) check(`${code}: refusal caught`, isUnreadable(text), true);
 
@@ -165,6 +180,15 @@ const realWork = [
     ['de', 'Schritt 1: Ich kann das Snelliussche Gesetz anwenden und erhalte 19,5°.'],
     ['ro', 'Pasul 1: pot vedea că unghiul de incidență este 30°, deci rezultă 19,5°.'],
     ['it', "Passo 1: posso vedere che l'angolo è di 30°, quindi ottengo 19,5°."],
+    // A worked answer can open with the same words a refusal does: the verb
+    // alone, with no image named, is the learner's own sentence.
+    ['ru', 'Я не могу сократить дробь сразу, поэтому раскладываю на множители и получаю 3/4.'],
+    ['ru', 'Я не вижу, как слагаемые сокращаются, поэтому раскрываю скобки и получаю x = 3.'],
+    ['uk', 'Я не можу скоротити дріб одразу, тому розкладаю на множники і отримую 3/4.'],
+    ['uk', 'Я не бачу, як доданки скорочуються, тому розкриваю дужки і отримую x = 3.'],
+    ['en', "I don't see why the terms cancel here, so I expand first and get x = 3."],
+    ['en', 'I cannot read the answer off the graph exactly, so I estimate it as 2.4.'],
+    ['en', 'I cannot read the page number on the sheet, but the answer is x = 3.'],
 ];
 for (const [code, text] of realWork) check(`${code}: real working kept`, isUnreadable(text), false);
 check('BLANK PAGE still caught', isUnreadable('BLANK PAGE'), true);
@@ -256,6 +280,7 @@ console.log('\n--- foreign words glossed, cards state the task ---');
         'lesson writer': AI_PROMPTS.feed_lesson('T', [{ title: 'P', focus: 'f' }], 1, 'ctx'),
         'explain an answer': AI_PROMPTS.explain_question('T', 'ctx', 'q', 'a', 'b'),
         'answer checker': AI_PROMPTS.answer_checker('q', 'a', 'b'),
+        'explain-back marker': AI_PROMPTS.explain_back('T', 'P', 'text', 'mine'),
     };
     for (const [name, p] of Object.entries(writers)) check(`${name}: glosses foreign words`, GLOSS.test(sys(p)), true);
     const cardWriters = {

@@ -1,7 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Play, Pause, Volume2, ImageOff } from 'lucide-react';
 import { onActivateKey } from '../utils/a11y';
+import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
+import { api } from '../api';
+import { storedInfo as keptInfo, forgetStoredInfo } from '../utils/mediaDescriptions';
+import type { MediaInfo } from '../types';
+import { imageAltText, needsStoredDescription } from './cardImageAlt';
 
 /**
  * The pictures and audio attached to one side of a flashcard.
@@ -78,6 +83,16 @@ export function parseCardMedia(raw: unknown): CardMediaSides {
 
 const srcFor = (hash: string) => `/api/media/${hash}`;
 
+// A file's stored description, looked up once per file per page load; what is
+// kept and what is asked again is `utils/mediaDescriptions.ts`.
+function storedInfo(hash: string): Promise<MediaInfo | null> {
+    return keptInfo(hash, api.mediaInfo);
+}
+/** Drop a file's cached description after it was edited, so the next card reads the new one. */
+export function forgetMediaInfo(hash: string) {
+    forgetStoredInfo(hash);
+}
+
 // ---- playback: one engine per card side --------------------------------------
 
 interface AudioEngine {
@@ -121,13 +136,16 @@ export function CardAudioProvider({ items, autoPlay = false, children }: {
         el.play().catch(() => setPlaying(null));
     };
 
+    // Settings → Accessibility can turn the opening sequence off: sound that
+    // starts by itself talks over a screen reader. Every clip keeps its button.
+    const autoAllowed = useStore(s => s.a11y.cardAudioAutoplay);
     useEffect(() => {
-        if (autoPlay && items.length) play(0, { chain: true });
+        if (autoPlay && autoAllowed && items.length) play(0, { chain: true });
         else stopAll();
         return stopAll;
         // Re-runs when the side changes (a new set of hashes), never on re-render.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key, autoPlay]);
+    }, [key, autoPlay, autoAllowed]);
 
     const engine = useMemo<AudioEngine>(() => ({
         items,
@@ -253,10 +271,16 @@ function MediaRegion({ media, size = 'feed', className = '' }: Props) {
 function CardImage({ item, size }: { item: CardMediaRef; size: 'feed' | 'review' | 'preview' }) {
     const { t } = useTranslation();
     const [failed, setFailed] = useState(false);
+    const [info, setInfo] = useState<MediaInfo | null>(null);
+    useEffect(() => {
+        if (!needsStoredDescription(item)) return;
+        let live = true;
+        void storedInfo(item.hash).then(found => { if (live) setInfo(found); });
+        return () => { live = false; };
+    }, [item.hash, item.alt]);
 
-    // No description: not `alt=""` (it is not decorative) but the author's
-    // filename, often the word itself.
-    const alt = item.alt || item.name || 'Card image';
+    // Never `alt=""`: a card picture is content. See imageAltText for the order.
+    const alt = imageAltText(item, info, description => t("AI description: {{description}}", { description }));
 
     if (failed) {
         return (

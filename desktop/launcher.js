@@ -29,15 +29,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import {
     APP_NAME, DEFAULT_PORT, PORT_ATTEMPTS, chooseDataDir, findBrowser, browserCommand,
-    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, prepareLogFile, startMenuShortcutScript,
+    defaultBrowserCommand, findRunningInstance, isOurInstance, portRange, launcherLogFile, startMenuShortcutScript,
     startMenuShortcutAction, START_MENU_FOLDER,
     DEFAULT_WINDOW_MODE, launchCommand, launchTargetEnv, shouldOpenWindow, DEFAULT_AUTOSTART_WINDOW, LIBRARY_POINTER,
     LAST_LIBRARY, libraryFallbackNotice, userDataDir, relaunchCommand, launcherInstanceKey,
-    whenStarted,
+    whenStarted, START_LOCK, settleStart, markStartLockUp, releaseStartLock,
 } from './lib.js';
 import { libraryId, resolveDataPaths } from '../server/paths.js';
 import { INSTANCE_KEY_FILE, newNonce, provesInstance } from '../server/instanceKey.js';
 import { appPlacement } from '../server/appPlacement.js';
+import { bootMark } from '../server/bootTimes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(here, '..');
@@ -109,6 +110,9 @@ process.env.TERRAMENTOR_DESKTOP = '1';
  * library in it. */
 const keyDir = resolveDataPaths({ env: process.env }).dataDir;
 const instanceKey = launcherInstanceKey(chosen);
+/** Held while this launch starts the server (desktop/lib.js `settleStart`). */
+const startLockFile = join(keyDir, START_LOCK);
+let startLockToken = null;
 
 // --- how this copy is started, for the server to offer back ---------------------
 // "Start when I sign in" writes a login item, and a login item is a COMMAND
@@ -152,9 +156,8 @@ const startPort = Number(process.env.PORT) || DEFAULT_PORT;
 // The console and a file, always both: a packaged launch has no console at all,
 // and a checkout's terminal is the natural place to watch. Set up before the
 // server is imported so its startup lines land in the file too.
-const logDir = chosen.dir || join(appRoot, 'server');
 let logFile = null;
-try { logFile = prepareLogFile(logDir); } catch { /* unwritable: console only */ }
+try { logFile = launcherLogFile(chosen, appRoot); } catch { /* unwritable: console only */ }
 const stamp = () => new Date().toISOString();
 for (const level of ['log', 'warn', 'error']) {
     const original = console[level].bind(console);
@@ -225,7 +228,8 @@ if (packaged && (chosen.why === 'user' || chosen.why === 'pointer')) {
  * window — started by a login item, or by the tray host, which reads this
  * stream. Printing it and exiting would be an app that does nothing and says
  * nothing; the tray host turns this line into a message box. Everything else
- * still reads it in logs/app.log. */
+ * still reads it in logs/app.log, except a missing library's stop, which opens
+ * no log (see `launcherLogFile`) and reaches only the console and this box. */
 function fatal(message, code = 2) {
     // A version on trial after an update (its swap journal is still there and
     // the updater is waiting for it) does not put up the tray's message box:
@@ -285,6 +289,9 @@ function openWindow(url, windowMode = DEFAULT_WINDOW_MODE) {
         // browserCommand), so the browser is an application macOS launched
         // rather than a child of this process.
         const { cmd, args, byExit } = browserCommand(browser, url, profileDir, windowMode);
+        // A Flatpak browser is granted this folder by path, and Flatpak skips a
+        // path that does not exist yet (the first start).
+        try { mkdirSync(profileDir, { recursive: true }); } catch { /* the browser makes it, or says why */ }
         // No windowsHide here. It puts SW_HIDE in the child's STARTUPINFO, and
         // Chromium honours that for its FIRST window whenever it boots a fresh
         // browser process — the app window exists, IsWindowVisible is False, and
@@ -420,7 +427,7 @@ function ensureStartMenuShortcut() {
 // never installs it. "Restart to update" hands over to this function, which
 // starts desktop/updater.js as a separate, detached process and lets this one
 // exit. The updater runs from a COPY under `.update/runner/` — the runtime, the
-// updater and the two modules it imports — because the folders it moves are
+// updater and the three modules it imports — because the folders it moves are
 // the ones this process runs from, and Windows refuses to rename a folder while
 // a program inside it is open. `request` is what the server's Restart handed
 // over; its `channels` are the release channels the copy follows.
@@ -491,29 +498,53 @@ async function finishInterruptedSwap() {
 // --- main --------------------------------------------------------------------------
 (async () => {
     if (packaged) await finishInterruptedSwap();
-    // 1. Someone already running on this library?
+    // 1. Someone already running on this library, or starting on it right now?
     if (!checkOnly) {
         if (!instanceKey) console.warn(`Could not read or create ${join(keyDir, INSTANCE_KEY_FILE)}; not looking for a running copy`);
-        const running = await findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir, key: instanceKey });
+        const settled = await settleStart({
+            lockFile: startLockFile,
+            find: () => findRunningInstance({ ports: portRange(startPort, PORT_ATTEMPTS), dataDir: chosen.dir, key: instanceKey }),
+            onWait: (lock) => console.log(`Another launch (pid ${lock.pid}) is starting ${APP_NAME} on this library; waiting for it instead of starting a second server`),
+        });
+        if (settled.token) {
+            startLockToken = settled.token;
+            process.on('exit', () => releaseStartLock(startLockFile, startLockToken));
+        }
+        if (settled.stuck) {
+            fatal(`Another launch is still starting ${APP_NAME} on this library and has not finished. `
+                + 'Wait a minute and open it again.');
+        }
+        const running = settled.running;
         if (running) {
             // Its own status carries both preferences; this process never reads
             // the database (the running one owns it), and its `trayHosted` is
             // the one that counts — the icon on screen belongs to THAT process.
-            const show = shouldOpenWindow({
+            // …and when this launch waited for that server's start, the start
+            // that opened a window already answered the click this one is.
+            const show = !settled.openedByHolder && shouldOpenWindow({
                 wantWindow,
                 autostart,
                 autostartWindow: running.status?.autostartWindow || DEFAULT_AUTOSTART_WINDOW,
                 trayHosted: running.status?.trayHosted === true,
             });
-            console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : ''}`);
+            console.log(`${APP_NAME} is already running on port ${running.port}${show ? ' — opening a window there' : settled.openedByHolder ? ' — its start opened the window' : ''}`);
             // Waited for: whenStarted hears `spawn`/`error` on process.nextTick,
             // and on macOS the answer is `open`'s exit, a moment later. Exiting
             // first logged nothing, and lost the fallback to the default
             // browser when the app window could not be opened. Bounded, so a
             // go-between that never answers cannot keep this run alive; the
             // timer is what keeps it alive until then (the child is unref'd).
-            if (show) await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => setTimeout(r, 15_000))]);
-            process.exit(0);
+            if (show) {
+                let bound;
+                await Promise.race([openWindow(running.url, running.status?.windowMode), new Promise((r) => { bound = setTimeout(r, 15_000); })]);
+                clearTimeout(bound);
+            }
+            // Ended by running out of work, not process.exit: on Windows an
+            // exit while the probe's sockets are still closing trips a libuv
+            // assertion (src\win\async.c) and every one of these launches died
+            // with 0xC0000409, a crash report each.
+            process.exitCode = 0;
+            return;
         }
     }
 
@@ -524,6 +555,9 @@ async function finishInterruptedSwap() {
     // scoped to it, and the reference below would throw at RUN time, in the one
     // configuration that reaches it.
     let ready, server;
+    // The launcher's own part of the start (and any wait for another launch's
+    // start); the server adds its phases and logs them all as one [Boot] line.
+    bootMark('launcher');
     try {
         server = await import(pathToFileURL(join(appRoot, 'server', 'index.js')).href);
         ready = await server.serverReady;
@@ -629,16 +663,18 @@ async function finishInterruptedSwap() {
     // for an update those stayed — the old window reloaded onto the new version
     // and the new version opened its own, so there were two.
     appProfile = profileDir;
+    let openedWindow = false;
     if (wantWindow) {
         let mode = DEFAULT_WINDOW_MODE;
         let autostartWindow = DEFAULT_AUTOSTART_WINDOW;
         try {
-            const status = await (await fetch(`${ready.url}/api/desktop/status`)).json();
+            const status = await (await fetch(`${ready.url}/api/desktop/status`, { signal: AbortSignal.timeout(10_000) })).json();
             if (status?.windowMode) mode = status.windowMode;
             if (status?.autostartWindow) autostartWindow = status.autostartWindow;
         } catch { /* a preference, not a requirement */ }
         if (shouldOpenWindow({ wantWindow, autostart, autostartWindow, trayHosted })) {
             openWindow(ready.url, mode);
+            openedWindow = true;
         } else {
             // The tray host watches this stream for exactly this line and says,
             // once and quietly, where the app went. An app that starts invisibly
@@ -646,5 +682,8 @@ async function finishInterruptedSwap() {
             console.log('TERRAMENTOR_TRAY_HINT background');
         }
     }
+    // Launches that waited for this start may go now; they open a window
+    // only if this one did not.
+    markStartLockUp(startLockFile, startLockToken, { window: openedWindow });
     ensureStartMenuShortcut();
 })();

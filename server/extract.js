@@ -23,18 +23,29 @@
 // Returns { text, kind, meta }. Throws on undecodable/binary input or parse
 // failure — the caller turns the thrown message into a per-file "declined".
 
-import mammoth from 'mammoth';
-import ExcelJS from 'exceljs';
-import { PDFParse } from 'pdf-parse';
 import { PDF_LOAD_OPTIONS } from './pdfOptions.js';
 import JSZip from 'jszip';
 import { inflateRaw } from 'node:zlib';
 import { promisify } from 'node:util';
+import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPdfStructure } from './sourceMap.js';
 import { runIsolated } from './isolatedProcess.js';
 
 const inflateRawAsync = promisify(inflateRaw);
+
+// The parsers load on first use. mammoth and ExcelJS run only in the office
+// child process, and the server reads a PDF only when one is added, yet loading
+// all three at every start cost about 0.5 s of CPU and 50 MB of memory.
+const loadParser = {
+    mammoth: async () => (await import('mammoth')).default,
+    ExcelJS: async () => (await import('exceljs')).default,
+    PDFParse: async () => (await import('pdf-parse')).PDFParse,
+};
+const parsers = {};
+function parser(name) {
+    return (parsers[name] ??= loadParser[name]().catch((err) => { delete parsers[name]; throw err; }));
+}
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB per file
 const MAX_TEXT_CHARS = 4_000_000;               // ~4 MB of extracted text
@@ -243,6 +254,33 @@ function looksBinary(buf) {
     return suspicious / n > 0.1;
 }
 
+// A UTF-16 text file (PowerShell's `>` redirect, Windows "Unicode" .txt/.csv/
+// .reg) carries a byte-order mark and a NUL in every other byte, so it would
+// be refused as binary and could not be read as UTF-8 anyway. The BOM is what
+// tells it apart from a real binary; returns the decoded text, or null when the
+// buffer has no UTF-16 BOM. (FF FE 00 00 is UTF-32LE, which we do not read.)
+function decodeUtf16Bom(buf) {
+    if (buf.length < 2) return null;
+    if (buf[0] === 0xFF && buf[1] === 0xFE) {
+        if (buf.length >= 4 && buf[2] === 0 && buf[3] === 0) return null;
+        return buf.toString('utf16le', 2);
+    }
+    if (buf[0] === 0xFE && buf[1] === 0xFF) {
+        // Big-endian: swap each pair into a copy (swap16 works in place and
+        // needs an even length).
+        const body = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1)));
+        return body.swap16().toString('utf16le');
+    }
+    return null;
+}
+
+// Two bytes are all a byte-order mark proves, so what they decode to is checked
+// too: a binary that merely starts FF FE decodes to lone surrogates and
+// replacement characters, and the control-character share the byte check uses.
+function garbledUtf16(text) {
+    return /[\p{Cs}�]/u.test(text) || looksBinary(Buffer.from(text.slice(0, 8000), 'utf8'));
+}
+
 function clamp(text) {
     if (text.length > MAX_TEXT_CHARS) {
         return text.slice(0, MAX_TEXT_CHARS) + '\n\n[...truncated: file exceeded extraction limit]';
@@ -265,6 +303,7 @@ function cellToString(v) {
 }
 
 async function extractXlsx(buffer) {
+    const ExcelJS = await parser('ExcelJS');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer);
     const parts = [];
@@ -286,6 +325,7 @@ async function extractXlsx(buffer) {
  *  only caller; everything else goes through `parseOfficeIsolated`. */
 export async function parseOffice(kind, buffer) {
     if (kind === 'docx') {
+        const mammoth = await parser('mammoth');
         const res = await mammoth.extractRawText({ buffer });
         return { text: res.value || '', meta: {} };
     }
@@ -319,15 +359,16 @@ export function parseOfficeIsolated(kind, buffer, { heapMb = OFFICE_PARSE_HEAP_M
 }
 
 async function extractPdf(buffer) {
-    const parser = new PDFParse({ ...PDF_LOAD_OPTIONS, data: buffer });
+    const PDFParse = await parser('PDFParse');
+    const pdf = new PDFParse({ ...PDF_LOAD_OPTIONS, data: buffer });
     try {
-        const result = await parser.getText();
+        const result = await pdf.getText();
         // The outline, title and page labels, read from the document getText
         // already loaded — what a source map is built from (sourceMap.js).
-        const structure = await readPdfStructure(parser);
+        const structure = await readPdfStructure(pdf);
         return { text: result.text || '', meta: { pageCount: result.total ?? null, structure } };
     } finally {
-        await parser.destroy();
+        await pdf.destroy();
     }
 }
 
@@ -374,21 +415,50 @@ async function extractPptx(zip) {
         return buf.toString('utf8');
     };
 
+    // File numbers are creation order, not slide order, and a notes page is tied
+    // to its slide by the slide's .rels, not by sharing a number. So the order
+    // is the deck's own slide list and the notes come through the relationship.
+    const relsOf = async (relsName, baseDir) => {
+        if (!zip.files[relsName]) return [];
+        return [...(await readPart(relsName)).matchAll(/<Relationship\b[^>]*>/g)].map((m) => {
+            const attr = (k) => new RegExp(`\\b${k}=(["'])(.*?)\\1`).exec(m[0])?.[2] ?? '';
+            const target = decodeXml(attr('Target'));
+            return {
+                id: attr('Id'),
+                type: attr('Type'),
+                external: /^external$/i.test(attr('TargetMode')),
+                path: target.startsWith('/') ? target.slice(1) : posix.normalize(`${baseDir}/${target}`),
+            };
+        });
+    };
+    const deckOrder = async () => {
+        if (!zip.files['ppt/presentation.xml']) return [];
+        const rels = new Map((await relsOf('ppt/_rels/presentation.xml.rels', 'ppt')).map((r) => [r.id, r]));
+        const xml = await readPart('ppt/presentation.xml');
+        const listed = [...xml.matchAll(/<(?:\w+:)?sldId\b[^>]*>/g)]
+            .map((m) => rels.get(/\b\w+:id=(["'])(.*?)\1/.exec(m[0])?.[2] ?? '')?.path);
+        // All or nothing: a list with one slide that cannot be found would read as
+        // a shorter deck with no error, so it falls back to the file numbers.
+        return listed.every((p) => p && zip.files[p]) ? listed : [];
+    };
+    const inDeckOrder = await deckOrder();
+    const slides = inDeckOrder.length ? inDeckOrder : slideFiles;
+
     const parts = [];
-    for (const name of slideFiles) {
-        const n = slideNo(name);
+    for (const [i, name] of slides.entries()) {
         const body = runsFrom(await readPart(name));
 
-        const notesName = `ppt/notesSlides/notesSlide${n}.xml`;
-        const notes = zip.files[notesName] ? runsFrom(await readPart(notesName)) : '';
+        const slideRels = await relsOf(name.replace(/([^/]+)$/, '_rels/$1.rels'), posix.dirname(name));
+        const notesRel = slideRels.find((r) => !r.external && /\/notesSlide$/.test(r.type) && zip.files[r.path]);
+        const notes = notesRel ? runsFrom(await readPart(notesRel.path)) : '';
 
-        parts.push(`## Slide ${n}`);
+        parts.push(`## Slide ${i + 1}`);
         if (body) parts.push(body);
         if (notes) parts.push(`Notes: ${notes}`);
         parts.push('');
     }
     // Reuse page_count to surface the slide count in the UI.
-    return { text: parts.join('\n'), meta: { pageCount: slideFiles.length } };
+    return { text: parts.join('\n'), meta: { pageCount: slides.length } };
 }
 
 // Main entry. `buffer` is the raw file; `filename` carries the extension used
@@ -434,11 +504,12 @@ export async function extractText(buffer, filename) {
         if (isZip(buffer)) {
             throw new Error('Looks like a binary archive (ZIP/Office/jar). Only text-based files and PDF/DOCX/XLSX/PPTX are supported.');
         }
-        if (looksBinary(buffer)) {
+        const utf16 = decodeUtf16Bom(buffer);
+        if (utf16 === null ? looksBinary(buffer) : garbledUtf16(utf16)) {
             throw new Error('File looks binary, not text — it can\'t be read as study material.');
         }
         kind = 'text';
-        text = buffer.toString('utf8');
+        text = utf16 ?? buffer.toString('utf8');
     }
 
     text = clamp(text.trim());

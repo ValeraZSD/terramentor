@@ -20,7 +20,9 @@ import { findResourcesForSubElement } from '../resourceSearch.js';
 import { routeTable } from './routeTable.js';
 import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
+import { refreshTopicDates } from '../topicDates.js';
 import { headStartsForProject } from '../headStart.js';
+import { markLearnerEdit } from '../courseUpdate.js';
 
 const app = routeTable('nodes');
 
@@ -69,6 +71,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
     // the learner's own answers on the node (a seeded prior has none), which
     // is what keeps a topic at mastery 0.98 from reading "Not started"
     // (`leafStatus`, src/utils/tree.ts; `LEAF_STATUS`, server/today.js).
+    refreshTopicDates();
     const nodes = db.prepare(`
         SELECT n.id, n.uuid, n.project_id, n.parent_id, n.title, n.description, n.notes, n.status,
                n.is_note, n.role, n.position, n.scheduled_start, n.scheduled_end, n.estimated_weight,
@@ -76,7 +79,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
                COALESCE(fc.cards, 0) AS cards, COALESCE(fc.seen, 0) AS seen,
                COALESCE(nm.total_attempts, 0) AS attempts,
                ${TAUGHT_SQL} AS taught
-        FROM live_nodes n
+        FROM plan_nodes n
         LEFT JOIN node_mastery nm ON nm.node_id = n.id
         LEFT JOIN (
             SELECT f.node_id,
@@ -109,7 +112,7 @@ app.get('/api/projects/:projectId/nodes', (req, res) => {
 
 let provableTopics = null;
 const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
-    SELECT n.id FROM live_nodes n
+    SELECT n.id FROM plan_nodes n
     WHERE n.project_id = ? AND ${OPEN_WORK_LEAF}
       AND n.scheduled_end IS NOT NULL AND n.scheduled_end <= ?
       AND n.id IN (SELECT node_id FROM mastery_evidence)
@@ -120,6 +123,8 @@ const provableTopicsStmt = () => (provableTopics ??= db.prepare(`
 const nodeProjectStmt = db.prepare('SELECT id, project_id FROM live_nodes nodes WHERE id = ?');
 const nodeRepositionStmt = db.prepare('UPDATE nodes SET position = ?, parent_id = ? WHERE id = ?');
 const nodePositionStmt = db.prepare('UPDATE nodes SET position = ? WHERE id = ?');
+const nodeParentStmt = db.prepare('SELECT parent_id, uuid FROM live_nodes nodes WHERE id = ?');
+const nodeAuthoredStmt = db.prepare('SELECT title, description, is_note FROM live_nodes nodes WHERE id = ?');
 const siblingGroupStmt = db.prepare('SELECT id, position FROM live_nodes nodes WHERE project_id = ? AND parent_id IS ? ORDER BY position, id');
 const projectNodesStmt = db.prepare('SELECT * FROM live_nodes nodes WHERE project_id = ? ORDER BY position');
 
@@ -159,6 +164,7 @@ app.put('/api/nodes/reorder', (req, res) => {
     if (nodeIds.length === 0) return res.json({ success: true });
     const projectId = rows[0].project_id;
     const listed = new Set(nodeIds);
+    const movedOut = nodeIds.map(id => nodeParentStmt.get(id)).filter(n => n.parent_id !== (parentId ?? null));
     db.transaction(() => {
         nodeIds.forEach((id, index) => nodeRepositionStmt.run(index, parentId, id));
         // A list that is not the whole group (a tab that loaded before another
@@ -169,6 +175,7 @@ app.put('/api/nodes/reorder', (req, res) => {
             .sort((a, b) => a.position - b.position || Number(!listed.has(a.id)) - Number(!listed.has(b.id)));
         group.forEach((n, index) => { if (n.position !== index) nodePositionStmt.run(index, n.id); });
     })();
+    for (const n of movedOut) markLearnerEdit('node', n.uuid, ['parent']);
     res.json({ success: true, nodes: projectNodesStmt.all(projectId) });
 });
 
@@ -381,8 +388,18 @@ app.put('/api/nodes/:id', (req, res) => {
     setClauses.push('updated_at = CURRENT_TIMESTAMP');
     values.push(req.params.id);
 
+    const before = nodeAuthoredStmt.get(req.params.id);
     db.prepare(`UPDATE nodes SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
     const node = db.prepare('SELECT * FROM live_nodes nodes WHERE id = ?').get(req.params.id);
+    // The editor is a person's hand: a course update that also changes one of
+    // these fields asks before it overwrites it (server/courseUpdate.js). Only
+    // a field this save CHANGED counts: an editor sends every field it shows.
+    const changed = (k) => (before[k] ?? null) !== (node[k] ?? null);
+    markLearnerEdit('node', node.uuid, [
+        title !== undefined && changed('title') && 'title', description !== undefined && changed('description') && 'description',
+        note !== undefined && changed('is_note') && 'is_note',
+        parent_id !== undefined && parent_id !== current.parent_id && 'parent',
+    ]);
     // Only the fields that make up a topic's embedded text are worth a sweep —
     // `parent_id` counts because the parent's title is part of it. A status
     // change is deliberately excluded: the feed writes those constantly and
@@ -451,6 +468,7 @@ app.put('/api/nodes/:id/move', (req, res) => {
         siblings.splice(position ?? siblings.length, 0, { id: node.id, position: -1 });
         siblings.forEach((s, idx) => { if (s.position !== idx) nodePositionStmt.run(idx, s.id); });
     })();
+    if (parent_id !== node.parent_id) markLearnerEdit('node', node.uuid, ['parent']);
     res.json(projectNodesStmt.all(node.project_id));
 });
 
@@ -513,9 +531,12 @@ app.put('/api/resources/:id', (req, res) => {
     // 'article', which under COALESCE would rewrite the stored type on a
     // title-only edit.
     const nextType = type === undefined || type === null ? type : sanitizeResourceType(type);
+    const before = db.prepare('SELECT title, url, type FROM live_resources resources WHERE id = ?').get(req.params.id);
     db.prepare('UPDATE resources SET title = COALESCE(?, title), url = COALESCE(?, url), type = COALESCE(?, type), completed = COALESCE(?, completed) WHERE id = ?')
         .run(title, nextUrl, nextType, completed == null ? null : RESOURCE_DONE.get(completed), req.params.id);
     const resource = db.prepare('SELECT * FROM live_resources resources WHERE id = ?').get(req.params.id);
+    // Only what this save changed: ticking a link done sends its title too.
+    markLearnerEdit('resource', resource.uuid, ['title', 'url', 'type'].filter(k => (before[k] ?? null) !== (resource[k] ?? null)));
     res.json(resource);
 });
 

@@ -122,6 +122,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     // is fetched when the panel is opened, never when Settings is.
     const [servingEndpoints, setServingEndpoints] = useState<ServingEndpoint[] | null>(null);
     const [endpointsLoading, setEndpointsLoading] = useState(false);
+    const [endpointsError, setEndpointsError] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState(() => {
         try {
             // No built-in default: `server/ai.js` deliberately has none either, and
@@ -249,26 +250,62 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
 
     // Ticking a provider APPENDS it, so the order on screen is the order the
     // request asks for and the learner built it by clicking in that order.
+    // The order is one saved list, but the machines on screen are this model's:
+    // a slug ticked for another model is not here to be seen or unticked, so
+    // the first change made on this model's list drops it, rather than counting
+    // it into "3." and the preferred-providers total.
     const toggleProvider = (slug: string) => {
-        const next = providerOrder.includes(slug)
-            ? providerOrder.filter(s => s !== slug)
-            : [...providerOrder, slug];
+        const offered = new Set((servingEndpoints ?? []).map(e => e.slug));
+        const here = offered.size ? providerOrder.filter(s => offered.has(s)) : providerOrder;
+        const next = here.includes(slug)
+            ? here.filter(s => s !== slug)
+            : [...here, slug];
         setProviderOrder(next);
         writeSetting('ai_provider_order', JSON.stringify(next)).catch(e => console.error('Saving ai_provider_order failed:', e));
     };
 
+    // The machines behind a router are listed per MODEL, so the list belongs to
+    // the model and connection it was asked for. `endpointsFor` is what the one
+    // on screen must be about; an answer for another is dropped, and a list that
+    // was open is asked again for the new one. A request that failed is no
+    // answer: the list stays unasked, so opening it again retries, rather than
+    // saying the endpoint has nothing to publish. The failure itself is said,
+    // with a button that asks again, so the section does not end in silence.
+    const endpointsKey = `${activeConnection?.id ?? ''}|${openaiModel}`;
+    const endpointsFor = useRef(endpointsKey);
+    const endpointsPending = useRef<string | null>(null);
+    const endpointsWanted = useRef(false);
     const loadServingEndpoints = async () => {
-        if (endpointsLoading) return;
+        endpointsWanted.current = true;
+        const asked = endpointsKey;
+        if (endpointsPending.current === asked) return;
+        endpointsPending.current = asked;
         setEndpointsLoading(true);
+        setEndpointsError(null);
         try {
-            const result = await api.getServingEndpoints();
-            setServingEndpoints(result.available ? result.endpoints : []);
-        } catch {
-            setServingEndpoints([]);   // an endpoint that will not say is the same as one with nothing to say
+            const result = await api.getServingEndpoints(openaiModel || undefined);
+            if (endpointsFor.current === asked) {
+                setServingEndpoints(result.available ? result.endpoints : []);
+                setEndpointsError(null);
+            }
+        } catch (e) {
+            if (endpointsFor.current === asked) {
+                setServingEndpoints(null);
+                setEndpointsError(e instanceof Error && e.message ? e.message : tr("Could not read it"));
+            }
         } finally {
-            setEndpointsLoading(false);
+            if (endpointsPending.current === asked) {
+                endpointsPending.current = null;
+                setEndpointsLoading(false);
+            }
         }
     };
+    useEffect(() => {
+        endpointsFor.current = endpointsKey;
+        setServingEndpoints(null);
+        setEndpointsError(null);
+        if (endpointsWanted.current && activeConnection?.kind === 'openrouter') void loadServingEndpoints();
+    }, [endpointsKey]);
 
     // The levels the thinking control may offer follow the MODEL (and so the
     // connection): asked whenever either changes, never on opening Settings
@@ -284,8 +321,9 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
     }, [currentModelForLevels, provider, activeConnection?.id]);
 
     // Validate selectedModel when models list changes
-    // Ensures selectedModel always points to an actually installed model.
-    // Handles :latest mismatches, deleted models, and auto-selection.
+    // Corrects a saved name to the installed tag (":latest" mismatches). A saved
+    // name that is not installed at all is left as it is: it is never swapped
+    // for another model, and removing the one in use clears it (handleDeleteModel).
     //
     // The one save that stays in an effect, because no press causes it: it
     // writes only a CORRECTION derived from loaded settings and the installed
@@ -371,7 +409,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         setConnectionStatus('checking');
         setConnectionError(null);
         try {
-            const status = await api.getAIStatus();
+            const status = await api.getAIStatus({ fresh: true });
             // A switch of connection changes the protocol and the model at once.
             setProvider(status.provider);
             if (status.provider === 'openai') setOpenaiModel(status.model || '');
@@ -476,8 +514,15 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
         try {
             await api.deleteModel(modelName);
             addToast('success', tr("Model \"{{modelName}}\" deleted", { modelName }));
-            // Refresh the models list; validation effect handles selecting
-            // a valid model if the deleted one was active.
+            // The saved name of a model that is gone is kept by the reconcile
+            // effect (it never invents a model), so the one in use is cleared
+            // here: the field then asks for a model, and no call goes out
+            // naming one the server no longer has.
+            const bare = (n: string) => n.replace(/:latest$/, '');
+            if (selectedModel && bare(selectedModel) === bare(modelName)) {
+                setSelectedModel('');
+                saveSelectedModel('');
+            }
             await loadModels();
         } catch (e: any) {
             addToast('error', tr("Failed to delete model"), e.message);
@@ -647,6 +692,7 @@ export default function AISettings({ active, snapshot }: { active: boolean; snap
                                 providerSort={providerSort}
                                 servingEndpoints={servingEndpoints}
                                 endpointsLoading={endpointsLoading}
+                                endpointsError={endpointsError}
                                 loadServingEndpoints={loadServingEndpoints}
                                 chooseProviderSort={chooseProviderSort}
                                 toggleProvider={toggleProvider}

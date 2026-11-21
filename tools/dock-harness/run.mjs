@@ -132,7 +132,8 @@ await require('esbuild').build({
             // reaches it from one directory down.
             build.onResolve({ filter: /^\.\.?\/api$/ }, () => ({ path: 'api-stub', namespace: 'stub' }));
             build.onLoad({ filter: /^api-stub$/, namespace: 'stub' }, () => ({
-                contents: `export const api = new Proxy({}, {
+                contents: `export const goToSiteSignIn = () => {};
+                export const api = new Proxy({}, {
                     get: (_t, k) => (globalThis.__api[k] || (async () => { throw new Error('no stub for api.' + String(k)); })),
                 });`,
                 loader: 'js',
@@ -209,6 +210,96 @@ await afterExit();
 check('...and comes back when the server says no', liveChips().length, 1);
 check('the server was asked', calls, [['dismiss', 't2']]);
 dismissFails = false;
+globalThis.__pushTasks([]);
+
+console.log('\n--- the ✕ on a running task asks first --------------------------------');
+// One slip on a 28px ✕ used to throw away a long job. Now it asks, the safe
+// answer has the focus, and only "Stop" reaches the server.
+calls.length = 0;
+const stopButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Stop '));
+const confirmBox = () => $$('[role=dialog]').find(d => (d.textContent || '').includes('Stop this task?'));
+const answer = (label) => click($$('[role=dialog] button').find(b => b.textContent === label));
+for (const status of ['running', 'queued']) {
+    globalThis.__pushTasks([task({ id: 't9', label: 'Preparing feed lessons', status, progress: { percent: 40, content: 0, thinking: 0, phase: '', message: '' } })]);
+    const stop = stopButton();
+    check(`a ${status} chip carries a Stop button`, !!stop, true);
+    await click(stop);
+    await settle();
+    check(`pressing it on a ${status} task asks first`, !!confirmBox(), true);
+    check('...naming the task', (confirmBox()?.textContent || '').includes('Preparing feed lessons'), true);
+    check('...with the focus on the answer that keeps it', window.document.activeElement?.textContent, 'Continue');
+    check('...and nothing has been stopped yet', calls, []);
+    await answer('Continue');
+    await settle();
+    check('"Continue" closes the question', !!confirmBox(), false);
+    check('...and stops nothing', calls, []);
+    check('...and the chip is still there', liveChips().length, 1);
+    await click(stopButton());
+    await settle();
+    await act(() => (window.document.activeElement ?? window.document.body).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await settle();
+    check('Escape closes it', !!confirmBox(), false);
+    check('...and stops nothing either', calls, []);
+    await click(stopButton());
+    await settle();
+    await answer('Stop');
+    await settle();
+    check(`"Stop" stops the ${status} task`, calls, [['cancel', 't9']]);
+    calls.length = 0;
+    globalThis.__pushTasks([]);
+}
+// The job can finish while the question is open: there is nothing left to
+// stop, so the question goes, and the finished task is not marked cancelled.
+globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+globalThis.__pushTasks([task({ id: 't11', label: 'Preparing feed lessons', status: 'done' })]);
+await settle();
+check('the question closes when the task ends under it', !!confirmBox(), false);
+check('...asks the server nothing', calls, []);
+check('...and the finished task is not marked cancelled', store.getState().aiTasks.find(t => t.id === 't11')?.status, 'done');
+globalThis.__pushTasks([]);
+// The task can leave the list altogether: the chip goes, and so does its question.
+globalThis.__pushTasks([task({ id: 't12', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+globalThis.__pushTasks([]);
+await settle();
+check('the question closes when its task leaves the list', !!confirmBox(), false);
+check('...and nothing was stopped', calls, []);
+// Another question asked over this one answers this one "no".
+globalThis.__pushTasks([task({ id: 't13', label: 'Preparing feed lessons', status: 'running' })]);
+await click(stopButton());
+await settle();
+let other;
+await act(async () => { other = store.getState().showConfirm({ title: 'Something else?', message: 'x', confirmLabel: 'Yes', cancelLabel: 'No' }); });
+await settle();
+check('a second question replaces this one', [!!confirmBox(), $$('[role=dialog]').some(d => d.textContent.includes('Something else?'))], [false, true]);
+await answer('Yes');
+await settle();
+check('...and its "yes" stops nothing here', calls, []);
+check('...which got its own answer', await Promise.race([other, Promise.resolve('pending')]), true);
+{
+    // In the store itself: the replaced caller hears "no" instead of waiting forever.
+    let first, second;
+    await act(async () => { first = store.getState().showConfirm({ title: 'A?', message: 'a' }); });
+    await act(async () => { second = store.getState().showConfirm({ title: 'B?', message: 'b' }); });
+    check('a question asked over another answers the first "no"', await Promise.race([first, Promise.resolve('pending')]), false);
+    await act(async () => { store.getState().hideConfirm(false); });
+    await second;
+}
+await click(stopButton());
+await settle();
+check('the ✕ asks again afterwards', !!confirmBox(), true);
+await answer('Continue');
+await settle();
+globalThis.__pushTasks([]);
+globalThis.__pushTasks([task({ id: 't10', status: 'done' })]);
+await click(dismissButton());
+await settle();
+check('a finished chip is still dismissed without a question', !!$$('[role=dialog]').length, false);
+await afterExit();
+calls.length = 0;
 globalThis.__pushTasks([]);
 
 console.log('\n--- three at a time, and the three are the newest -------------------');
@@ -432,13 +523,21 @@ console.log('\n--- a press on a chip is never nothing --------------------------
 // So: every kind the server can start, pressed, in both shapes it can arrive in
 // — carrying its project and node, and carrying neither, which is what a visual
 // repaired inside a feed card or a document indexed on upload actually looks
-// like. Each press must GO somewhere or OPEN the task's own record. Nothing may
-// do neither.
+// like. Each press must OPEN the task's own record, and the record's button
+// must go where the work is.
 const routes = [];
 act(() => { store.getState().setNavigate((to) => { routes.push(String(to)); }); });
+// Every way out runs through `openAiTask` (a creation run opens its screen
+// without a route, so counting routes alone would not see it leave).
+let openCalls = 0;
+const realOpenAiTask = store.getState().openAiTask;
+act(() => { store.setState({ openAiTask: (t) => { openCalls++; return realOpenAiTask(t); } }); });
+// Pressed from a page none of these tasks belongs to: jsdom starts on '/',
+// which IS the home feed, and the record offers no button to where you are.
+const ELSEWHERE = '/project/99/dashboard';
+window.history.pushState({}, '', ELSEWHERE);
 const escape = () => act(() => (window.document.activeElement ?? window.document.body).dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
 const openButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Open'));
-const detailButton = () => $$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Details of'));
 
 // A task as the dock really sees a running one: started a minute ago, four
 // tenths of the way through, no estimate of its own.
@@ -449,36 +548,50 @@ const runningTask = (over = {}) => task({
     ...over,
 });
 
-const press = async (over, which = openButton) => {
+// THE CHIP OPENS THE RECORD; THE RECORD GOES THERE. The dock floats over a
+// lesson half read or an answer half typed, and a chip that navigated on press
+// took the reader off that page for a glance at a number. So a press is two
+// steps, and both are pinned: the chip itself moves nothing (`jumped`), and the
+// record's own button (`data-task-go`) goes where the work is (`routes`).
+const press = async (over) => {
     globalThis.__pushTasks([]);
     act(() => { store.setState({ assistantOpen: false }); });
     globalThis.__pushTasks([runningTask(over)]);
     routes.length = 0;
-    const button = which();
-    if (!button) return { routes: [], assistant: false, dialog: false, missing: true };
+    openCalls = 0;
+    const button = openButton();
+    if (!button) return { routes: [], assistant: false, dialog: false, jumped: false, missing: true };
     await click(button);
+    const jumped = openCalls > 0 || routes.length > 0 || store.getState().assistantOpen === true;
     const dialog = $$('[role=dialog]')[0] || null;
+    const text = dialog ? dialog.textContent : '';
+    const go = dialog?.querySelector('[data-task-go]');
+    if (go) await click(go);
     const out = {
         routes: [...routes],
         assistant: store.getState().assistantOpen === true,
         dialog: !!dialog,
-        text: dialog ? dialog.textContent : '',
+        jumped,
+        text,
     };
-    if (dialog) escape();
+    if ($$('[role=dialog]').length) escape();
     return out;
 };
 
 const deadPresses = [];
+const jumps = [];
 for (const kind of [...serverKinds].sort()) {
     for (const [shape, ids] of [
         ['carrying its ids', { projectId: 7, nodeId: 42 }],
         ['carrying neither', { projectId: null, nodeId: null }],
     ]) {
         const r = await press({ kind, ...ids });
-        if (!r.routes.length && !r.assistant && !r.dialog) deadPresses.push(`${kind} ${shape}`);
+        if (!r.dialog) deadPresses.push(`${kind} ${shape}`);
+        if (r.jumped) jumps.push(`${kind} ${shape}`);
     }
 }
-check('every kind the server can start does something when pressed', deadPresses, []);
+check('every kind the server can start opens its record when pressed', deadPresses, []);
+check('no chip press leaves the page by itself', jumps, []);
 
 // And WHERE each one goes, pinned — a mapping that silently drifts to the wrong
 // screen is the same bug wearing a coat.
@@ -507,8 +620,8 @@ console.log('\n--- the record says when it started and how long is left --------
 // The two facts the chip has no room for. The estimate is derived here (this
 // task reports no etaMs of its own): a minute in at 40% has about another
 // minute and a half to go.
-const detail = await press({ kind: 'embed', projectId: null, nodeId: null }, detailButton);
-check('the progress badge opens the record', detail.dialog, true);
+const detail = await press({ kind: 'embed', projectId: null, nodeId: null });
+check('the chip opens the record', detail.dialog, true);
 check('it says when the task started', detail.text.includes('1 min ago'), true);
 check('it says how long is left', /about\s*2 min/.test(detail.text), true);
 check('it says what the job is doing now', detail.text.includes('topic 4 of 10'), true);
@@ -525,7 +638,7 @@ check('...and one with no screen says so', orphan.text.includes('no screen it ca
 globalThis.__pushTasks([]);
 globalThis.__pushTasks([runningTask({ kind: 'embed', projectId: null, nodeId: null })]);
 const dock2 = $$('div').find(d => d.style && d.style.transform && d.style.transform.includes('translateX'));
-await click(detailButton());
+await click(openButton());
 const record = $$('[role=dialog]')[0];
 check('the record opens', !!record, true);
 check('it is NOT inside the transformed dock', dock2.contains(record), false);
@@ -535,7 +648,7 @@ check('Escape closes it', $$('[role=dialog]').length, 0);
 // A finished task is a record too — and the control on it is Dismiss, not Stop.
 globalThis.__pushTasks([]);
 globalThis.__pushTasks([task({ id: 'p2', status: 'done', finishedAt: ago(1000), createdAt: ago(9000), startedAt: ago(8000) })]);
-await click(detailButton());
+await click(openButton());
 const settled = $$('[role=dialog]')[0];
 check('a finished task opens a record too', !!settled, true);
 check('...whose control is Dismiss, not Stop', [settled.textContent.includes('Dismiss'), settled.textContent.includes('Stop this task')], [true, false]);
@@ -621,7 +734,7 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     act(() => { store.setState({ assistantOpen: false }); });
     globalThis.__pushTasks([runningTask({ id: 'o1', kind: 'widget', label: 'Wavefront crowding = Doppler shift', projectId: null, nodeId: null, origin: { surface: 'assistant', messageId: 12 } })]);
     routes.length = 0;
-    await click(detailButton());
+    await click(openButton());
     await settleLabels();
     let dialog = $$('[role=dialog]')[0];
     check('a widget built under an assistant answer says so', dialog?.textContent.includes('Started from the assistant.'), true);
@@ -636,7 +749,7 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     globalThis.__pushTasks([]);
     globalThis.__pushTasks([runningTask({ id: 'o2', kind: 'feed', label: 'Preparing feed lessons', projectId: 7, nodeId: null, origin: { surface: 'app', job: 'feed', projectId: 7, nodeId: 42 } })]);
     routes.length = 0;
-    await click(detailButton());
+    await click(openButton());
     await settleLabels();
     dialog = $$('[role=dialog]')[0];
     const said = dialog?.querySelector('[data-task-origin]')?.textContent ?? '';
@@ -646,6 +759,110 @@ const settleLabels = async () => { await act(async () => { await new Promise(r =
     await click(studyBtn);
     check('…and opens that topic\'s own stream', routes, ['/project/7/study/42']);
     if ($$('[role=dialog]').length) escape();
+
+    // Pressed FROM that stream, the record offers no button to the page the
+    // reader is already on: it would do nothing when pressed.
+    window.history.pushState({}, '', '/project/7/study/42');
+    await click(openButton());
+    await settleLabels();
+    dialog = $$('[role=dialog]')[0];
+    check('…and offers no way to the page the reader is already on',
+        [!!dialog, !!dialog?.querySelector('[data-task-go]'), dialog?.textContent.includes('Stop this task')], [true, false, true]);
+    if ($$('[role=dialog]').length) escape();
+    window.history.pushState({}, '', ELSEWHERE);
+
+    // The same rule for every place that is a page, and for the drawer: does
+    // the record offer its button when pressed from `path`?
+    const offersGo = async (path, over, assistantOpen = false) => {
+        window.history.pushState({}, '', path);
+        globalThis.__pushTasks([]);
+        act(() => { store.setState({ assistantOpen }); });
+        globalThis.__pushTasks([runningTask(over)]);
+        await click(openButton());
+        const d = $$('[role=dialog]')[0];
+        const offered = !!d?.querySelector('[data-task-go]');
+        if ($$('[role=dialog]').length) escape();
+        window.history.pushState({}, '', ELSEWHERE);
+        act(() => { store.setState({ assistantOpen: false }); });
+        return offered;
+    };
+    const quizOn42 = { kind: 'quiz', projectId: 7, nodeId: 42 };
+    check('a topic\'s task pressed on that topic offers no button to it',
+        [await offersGo('/project/7/tree/42', quizOn42), await offersGo('/project/7/tree/42/', quizOn42), await offersGo('/project/7/tree/43', quizOn42)],
+        [false, false, true]);
+    const embed = { kind: 'embed', projectId: null, nodeId: null };
+    check('a settings panel counts only under its own section',
+        [await offersGo('/settings', embed, false), await offersGo('/settings#ai', embed), await offersGo('/settings#learning', embed)],
+        [true, false, true]);
+    const planner = { kind: 'today_chat', projectId: null, nodeId: null };
+    check('"Open the assistant" is offered only while the drawer is shut',
+        [await offersGo(ELSEWHERE, planner, false), await offersGo(ELSEWHERE, planner, true)], [true, false]);
+    const insights = { kind: 'insights', projectId: 7, nodeId: null };
+    check('a project\'s task counts on that project\'s dashboard only',
+        [await offersGo('/project/7/dashboard', insights), await offersGo('/project/7/tree/42', insights)], [false, true]);
+    const atlas = { kind: 'atlas', projectId: null, nodeId: null };
+    check('a page with no section counts on that page only',
+        [await offersGo('/atlas', atlas), await offersGo('/atlas#x', atlas), await offersGo(ELSEWHERE, atlas)], [false, false, true]);
+    check('a section\'s own sub-anchor still counts as that section',
+        [await offersGo('/settings#ai/models-jobs', embed), await offersGo('/settings#aix', embed)], [false, true]);
+    check('a creation run is offered even from the projects page',
+        await offersGo('/projects', { kind: 'create_project', projectId: null, nodeId: null }), true);
+
+    // Back or Forward while the record is open moves the reader without
+    // closing it; the button follows where they now are.
+    window.history.pushState({}, '', '/project/7/tree/43');
+    globalThis.__pushTasks([]);
+    globalThis.__pushTasks([runningTask(quizOn42)]);
+    await click(openButton());
+    const goShown = () => !!$$('[role=dialog]')[0]?.querySelector('[data-task-go]');
+    const before = goShown();
+    window.history.pushState({}, '', '/project/7/tree/42');
+    await act(() => window.dispatchEvent(new window.PopStateEvent('popstate')));
+    check('the record\'s button follows Back/Forward while it is open', [before, goShown()], [true, false]);
+    if ($$('[role=dialog]').length) escape();
+    window.history.pushState({}, '', ELSEWHERE);
+
+    // One address per page: where the record's button goes is the address its
+    // "already here" check compares, for every kind and both id shapes.
+    const { taskPlace: placeOf, placeRoute: routeOf } = globalThis.__place;
+    const drift = [];
+    for (const kind of [...serverKinds].sort()) {
+        for (const ids of [{ projectId: 7, nodeId: 42 }, { projectId: null, nodeId: null }]) {
+            const t = runningTask({ kind, ...ids });
+            const place = placeOf(t);
+            const want = place ? routeOf(place) : null;
+            if (!want) continue;
+            const got = (await press({ kind, ...ids })).routes;
+            if (JSON.stringify(got) !== JSON.stringify([want])) drift.push(`${kind} ${ids.projectId}: ${got} vs ${want}`);
+        }
+    }
+    check('every page place is reached by the address the record compares', drift, []);
+
+    // The chip is ONE control plus its ✕: the badge is inside the button, and
+    // the button says it opens a dialog.
+    globalThis.__pushTasks([]);
+    globalThis.__pushTasks([runningTask(quizOn42)]);
+    const chipEl = openButton()?.parentElement;
+    check('a chip holds exactly two buttons: open and ✕',
+        chipEl ? [...chipEl.querySelectorAll('button')].length : -1, 2);
+    check('the chip button announces a dialog', openButton()?.getAttribute('aria-haspopup'), 'dialog');
+
+    // A failure that came with no report opens the record, which carries the
+    // error text, rather than a press that opens nothing.
+    globalThis.__pushTasks([]);
+    const lostAt = ago(1000);
+    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: null, finishedAt: lostAt })]);
+    await click(openButton());
+    dialog = $$('[role=dialog]')[0];
+    check('a failure with no report opens the record with its error',
+        [!!dialog, !!dialog?.textContent.includes('the model went away')], [true, true]);
+    if ($$('[role=dialog]').length) escape();
+    // Its report can arrive on a later snapshot with nothing else changed; the
+    // chip must re-render, or the press keeps opening the record.
+    globalThis.__pushTasks([task({ id: 'o4', kind: 'quiz', label: 'Lost one', status: 'error', error: 'the model went away', failure: { stage: 'generate', summary: 'Gone', detail: '', fixes: [] }, finishedAt: lostAt })]);
+    check('a report arriving later turns the chip into "Why … failed"',
+        !!$$('button').find(b => (b.getAttribute('aria-label') || '').startsWith('Why')), true);
+    globalThis.__pushTasks([]);
 
     // A drawing repaired inside a topic's Overview goes back to the topic.
     check('an Overview repair opens its topic',

@@ -41,6 +41,7 @@ await esbuild.build({
             build.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
                 contents: `
                     export const THEME_IDS = ['light', 'warm', 'dark', 'black'];
+                    export const THEME_CHOICES = ['light', 'warm', 'dark', 'black', 'system'];
                     export const MIN_UI_SCALE = 80;
                     export const MAX_UI_SCALE = 160;
                 `,

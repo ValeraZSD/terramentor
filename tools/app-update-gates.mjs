@@ -70,8 +70,10 @@ const server = createServer((req, res) => {
     }
     res.statusCode = 200;
     res.setHeader('Content-Length', body.length);
-    if (behaviour.stall) {
+    if (behaviour.stall && !req.headers.range && /\.zip$/.test(decodeURIComponent(req.url))) {
         // Headers and a first piece, then nothing more: a connection that hangs.
+        // Only the whole-package download: a stalled manifest or range probe
+        // waits out its own longer limit and never reaches the download's.
         res.write(body.subarray(0, 1000));
         stalled.push(res);
         return;
@@ -584,11 +586,67 @@ const rangeRequests = served.requests.filter((r) => r.range).length;
 check(`a large read is split into pieces (${rangeRequests} range requests) and still staged and checked`, chunked.mode === 'delta' && rangeRequests > 8
     && await core.verifyTree(nextDir, core.parseFileList(readFileSync(join(srcB, 'files.json'), 'utf8'))) === null, `${rangeRequests}`);
 
+// A file host that answers one partial request with a 429 or a 503 is busy, not
+// range-less: the read is retried and the delta goes on, instead of the whole
+// package being downloaded for a hiccup. Only a 416 (or a 200 that ignores the
+// range, above) means there are no ranges.
+for (const status of [429, 503]) {
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    served.requests.length = 0;
+    let busy = true;
+    const busyOnce = (url, init) => {
+        if (busy && init?.headers?.Range === 'bytes=0-0') { busy = false; return Promise.resolve(new Response('', { status })); }
+        return fetch(url, init);
+    };
+    const afterBusy = await stage({ latest: B.latest, fetchImpl: busyOnce }).catch((e) => ({ mode: `threw ${e.kind || ''} ${e.message}` }));
+    const wholeZip = served.requests.filter((r) => !r.range && /\.zip$/.test(decodeURIComponent(r.url))).length;
+    check(`a ${status} on one partial request is retried and the delta goes on, not the whole package`, afterBusy.mode === 'delta' && wholeZip === 0, `${afterBusy.mode}, ${wholeZip} whole-zip requests`);
+}
+// An answer that will not change (416, or a 4xx or 501 the host keeps giving)
+// still means no ranges: the whole zip, as before.
+for (const status of [416, 403, 404, 501]) {
+    rmSync(join(appA, '.update'), { recursive: true, force: true });
+    const refusing = (url, init) => (init?.headers?.Range === 'bytes=0-0' ? Promise.resolve(new Response('', { status })) : fetch(url, init));
+    const afterRefusal = await stage({ latest: B.latest, fetchImpl: refusing }).catch((e) => ({ mode: `threw ${e.kind || ''} ${e.message}` }));
+    check(`a ${status} to a partial request still means no ranges: the whole zip`, afterRefusal.mode === 'full', afterRefusal.mode);
+}
+
+// One of the eight checking workers failing stops the others, and the step
+// fails only once all of them have: otherwise the rest keep linking files into
+// the staging folder while the panel shows "failed", and Try again races them.
+// The failure is the first unchanged file's staging path being a folder.
+{
+    const upd = join(appA, '.update');
+    rmSync(upd, { recursive: true, force: true });
+    mkdirSync(join(upd, 'next', 'app.js', 'keep'), { recursive: true });
+    writeFileSync(join(upd, 'next.version'), '1.4.1');
+    const linked = () => {
+        const dir = join(upd, 'next', 'node_modules');
+        return existsSync(dir) ? readdirSync(dir).filter((d) => existsSync(join(dir, d, 'index.js'))).length : 0;
+    };
+    const failure = await stage({ latest: B.latest }).then(() => null, (e) => e);
+    const atFailure = linked();
+    await new Promise((r) => setTimeout(r, 600));
+    const later = linked();
+    check('a failing checking worker ends the step with its error', !!failure, String(failure?.message));
+    check(`no worker keeps staging files after the step has failed (${atFailure} at the failure, ${later} after)`, later === atFailure && later < SHARED.length, `${atFailure} -> ${later}`);
+    rmSync(upd, { recursive: true, force: true });
+}
+
 // A connection that stops sending ends with a failure instead of hanging.
 rmSync(join(appA, '.update'), { recursive: true, force: true });
 behaviour.ranges = false;
 behaviour.stall = true;
-check('a stalled download ends as "stopped responding" instead of hanging', await throwsWith(() => stage({ latest: B.latest, idleMs: 400 }), /^network .*stopped responding/) === true);
+{
+    // Only the whole-package download stalls (the stub's `stall`), so it is the
+    // 400 ms idle limit that must end it: well inside 20 s, where the range
+    // probe's own limit (120 s) or a small file's (30 s) cannot have.
+    const t0 = Date.now();
+    const ended = await throwsWith(() => stage({ latest: B.latest, idleMs: 400 }), /^network .*stopped responding/);
+    const ms = Date.now() - t0;
+    check('a stalled download ends as "stopped responding" instead of hanging', ended === true, String(ended));
+    check(`…ended by the download's idle limit, not a longer one (${ms} ms)`, ms < 20_000, `${ms} ms`);
+}
 behaviour.stall = false;
 behaviour.ranges = true;
 for (const r of stalled) r.destroy();

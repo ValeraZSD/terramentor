@@ -33,7 +33,7 @@ import { useStore } from '../../store';
 import { Explain } from '../ui/Disclosure';
 import { RunStatus, RunSteps } from './CreationProgress';
 import { ACTIVE_ROW_ATTR, ActivityLog, LiveStructureTree, RUN_BODY_ATTR, stripMarkdown } from './CreationRunParts';
-import { activeLeaf } from './liveTree';
+import { openingLeaf } from './liveTree';
 import { retryMayHelp } from '../../utils/failureCause';
 import {
     COURSE_DIALOG_SIZE, canContinue, canRetry, cancelCreationRun, closeCreationView, continueCreationRun,
@@ -74,10 +74,15 @@ export default function CreationRunView() {
 
     const live = isRunLive(run);
     // The topic in hand — or, once a run has failed or been stopped, the one it
-    // stopped on (left "generating" in the tree; the outline draws it as
-    // stopped, not busy). The outline opens there: a failure opened at the
+    // stopped on (marked error or cancelled in the tree; the outline draws it
+    // as stopped, not busy). The outline opens there: a failure opened at the
     // top of the course showed every topic ticked and the stopped one out of sight.
-    const activeNodeKey = useMemo(() => (run ? activeLeaf(run.tree)?.key ?? null : null), [run?.tree]);
+    const activeNodeKey = useMemo(() => {
+        if (!run) return null;
+        // `settle` has already turned the node it stopped on into error or
+        // cancelled, so the search for the active one finds nothing once the run is over.
+        return openingLeaf(run.tree, live)?.key ?? null;
+    }, [run?.tree, live]);
 
     // Which view: the run's own choice until the reader picks one — the log
     // while there is no outline yet (the model is planning, and its notes are
@@ -184,7 +189,7 @@ export default function CreationRunView() {
         <Modal isOpen={!!viewing} onClose={closeCreationView} closeButton={!footCloses} title={run.name} {...COURSE_DIALOG_SIZE} fill>
             <div className="shrink-0 space-y-3 border-b border-slate-200 px-6 pb-3 pt-4 dark:border-slate-700">
                 <RunStatus run={run} />
-                <SegmentedControl<View> label={t("Show")} size="sm" value={view} options={views} onChange={setPicked} />
+                <SegmentedControl<View> label={t("Show")} size="sm" block="narrow" value={view} options={views} onChange={setPicked} />
             </div>
 
             <ScrollShade
