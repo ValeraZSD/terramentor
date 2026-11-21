@@ -161,6 +161,14 @@ const ALIASES: Record<string, string> = {
  */
 export const SELF_THEMING_KINDS: ReadonlySet<string> = new Set(['widget']);
 
+/**
+ * Kinds whose renderer never reads `ctx.width`: a widget's iframe is 100% of
+ * its card and lays itself out. VisualBlock leaves the measured width out of
+ * its render dependencies for these, or every resize of the pane would tear
+ * the frame down and lose what the learner was doing in it.
+ */
+export const WIDTH_FREE_KINDS: ReadonlySet<string> = new Set(['widget']);
+
 export const VISUAL_KIND_LABELS: Record<string, string> = {
     mermaid: 'Diagram',
     vega: 'Chart',
