@@ -1271,8 +1271,10 @@ export interface FeedDeadline {
     color: string;
     deadline: string;
     daysLeft: number;
-    paceStatus: string;
-    daysBehind: number;
+    /** The date's verdict against the learner's pace (server/paceModel.js). */
+    band: VerdictBand;
+    /** The band as three steps: what the chip's colour reads. */
+    paceStatus: 'critical' | 'falling_behind' | 'on_track';
 }
 
 /** One thing the learner actually did today (GET /api/today/activity). */
