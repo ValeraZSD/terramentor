@@ -148,6 +148,37 @@ section('a failed first status request is asked again');
     check('once it has answered it does not ask again', calls === 2, `${calls} call(s)`);
 }
 
+section("Start studying is offered once the course's first lesson is written");
+{
+    // The foot the screen draws for a run, given whether the topic the course's
+    // Study opens on has a written lesson (GET /api/feed/projects/:id/first-lesson).
+    // Expected feet are written out per state, not derived from the run helpers.
+    const run = (status, projectId) => ({ status, projectId, inputKnown: true });
+    const cases = [
+        ['live, the first lesson not written yet', run('live', 7), false, 'live'],
+        ['live, the first lesson written', run('live', 7), true, 'live-study'],
+        ['picked up after a reload, written', run('reattached', 7), true, 'live-study'],
+        ['continued, before its stream answered, written', run('starting', 7), true, 'live-study'],
+        ['still planning, no course yet', run('starting', null), true, 'live'],
+        ['finished, written', run('complete', 7), true, 'finished-study'],
+        ['finished, not written', run('complete', 7), false, 'finished'],
+        ['stopped with a course, written: carrying on comes first', run('cancelled', 7), true, 'continue'],
+        ['failed with a course, written', run('error', 7), true, 'continue'],
+        ['failed before it made a course', run('error', null), false, 'setup'],
+        ['stopped before it made a course', run('cancelled', null), false, 'close'],
+    ];
+    for (const [label, r, written, want] of cases) {
+        const got = client.runFoot?.(r, written);
+        check(`${label}: ${want}`, got === want, String(got));
+    }
+    const view = read('src/components/creation/CreationRunView.tsx');
+    check('the screen picks its foot with the first-lesson answer', /runFoot\(run, firstLesson\)/.test(view));
+    check('...and asks only while a foot could offer Study', /useFirstLessonWritten\(/.test(view));
+    check('Start studying is drawn in exactly the two feet that offer it', (view.match(/t\("Start studying"\)/g) || []).length === 2,
+        String((view.match(/t\("Start studying"\)/g) || []).length));
+    check("...and opens the course's Study", /studyProject\(/.test(view));
+}
+
 console.log(`\ncreation run screen gates: ${pass} passed, ${fail} failed${HEAD ? ' (against HEAD)' : ''}`);
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept later */ }
 process.exit(fail ? 1 : 0);

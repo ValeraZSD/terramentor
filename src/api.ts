@@ -2551,6 +2551,11 @@ export const api = {
     getReadLessonParts: (nodeId: number, before: number) =>
         request<{ parts: FeedReadPart[] }>(`/feed/nodes/${nodeId}/read-parts?before=${before}`),
 
+    // The topic a course's Study opens on, and whether its lesson is written
+    // (the creation screen's Start studying).
+    getFirstLesson: (projectId: number) =>
+        request<{ nodeId: number | null; written: boolean }>(`/feed/projects/${projectId}/first-lesson`),
+
     // Try again on a topic whose first lesson could not be written.
     retryLessonWrite: (nodeId: number) =>
         request<{ lessonWrite: LessonWrite | null }>(`/feed/nodes/${nodeId}/lesson/retry`, { method: 'POST' }),
