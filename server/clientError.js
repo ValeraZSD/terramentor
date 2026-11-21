@@ -140,6 +140,17 @@ export function ownWords(err) {
 }
 
 /**
+ * The key and values of an error thrown as one, for text kept and shown later
+ * (a task's failure record): `{ messageKey, params }`, or `{}` when its words
+ * were never a key. A key that quotes a path is no key here either (`ownWords`).
+ */
+export function keyOf(err) {
+    if (!err || typeof err !== 'object' || typeof err.messageKey !== 'string' || !err.messageKey || !err.message) return {};
+    const { messageKey, params } = ownWords(err);
+    return messageKey ? { messageKey, ...(params ? { params } : {}) } : {};
+}
+
+/**
  * An error whose message was written for the learner ("No model selected —
  * choose one in Settings"), so it keeps its words on a 5xx too. Thrown where
  * the code knows what the person should do next.
@@ -258,6 +269,17 @@ export function publicBody(err) {
         if (ai) return ai;
     }
     return ownWords(err);
+}
+
+/**
+ * `publicBody` for a reason kept and shown later (a file the vault could not
+ * read), cut to `max` characters; `fallback` when the error has no words. A
+ * cut sentence is no longer the key filled in, so it keeps no key.
+ */
+export function keptBody(err, fallback, max = 500) {
+    const body = err?.message ? publicBody(err) : fallback;
+    const error = String(body.error ?? '').slice(0, max);
+    return error === body.error ? body : { error };
 }
 
 /** `publicBody`'s English text, for a line inside a successful response. */

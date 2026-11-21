@@ -378,7 +378,7 @@ async function runJob(j) {
             j.handle?.cancelled();
         } else {
             j.status = 'failed';
-            j.handle?.fail(err.message);
+            j.handle?.fail(err.message, err);
         }
     } finally {
         j.current = null;

@@ -5,6 +5,7 @@ import { api } from '../api';
 import type { BulkCandidate, BulkJobStatus, BulkKind } from '../types';
 import { todayStr } from '../utils/tree';
 import { durationParts } from '../utils/taskPlace';
+import { serverText } from '../utils/serverText';
 import { useTapGuard } from '../hooks/useTapGuard';
 import {
     AlertTriangle, CheckCircle2, ChevronDown, Layers, Loader2, Pause, Search,
@@ -490,7 +491,7 @@ function RunPanel({ job, running, onCancel }: { job: BulkJobStatus; running: boo
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                     <span>
                         {t("{{count}} topics failed and were skipped", { count: job.failed })}
-                        {job.failures[0] ? ` — ${job.failures[0].title}: ${job.failures[0].error}` : ''}
+                        {job.failures[0] ? ` — ${job.failures[0].title}: ${serverText(job.failures[0])}` : ''}
                     </span>
                 </p>
             )}

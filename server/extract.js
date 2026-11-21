@@ -31,6 +31,7 @@ import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readPdfStructure } from './sourceMap.js';
 import { runIsolated } from './isolatedProcess.js';
+import { KeyedError } from './clientError.js';
 
 const inflateRawAsync = promisify(inflateRaw);
 
@@ -78,19 +79,23 @@ const PPTX_PART_CAP = 32 * 1024 * 1024;
 export function assertZipSafe(zip, limits = OFFICE_ZIP_LIMITS) {
     const names = Object.keys(zip.files);
     if (names.length > limits.maxEntries) {
-        throw new Error(`Archive has too many entries (${names.length} > ${limits.maxEntries}); refusing as a possible zip bomb.`);
+        throw new KeyedError('Archive has too many entries ({{entries}} > {{max}}); refusing as a possible zip bomb.', { entries: names.length, max: limits.maxEntries });
     }
     let total = 0;
     for (const name of names) {
         total += zip.files[name]?._data?.uncompressedSize || 0;
         if (total > limits.maxTotalBytes) {
-            throw new Error(`Archive expands too large (> ${Math.round(limits.maxTotalBytes / 1024 / 1024)} MB uncompressed); refusing as a possible zip bomb.`);
+            throw new KeyedError('Archive expands too large (> {{mb}} MB uncompressed); refusing as a possible zip bomb.', { mb: Math.round(limits.maxTotalBytes / 1024 / 1024) });
         }
     }
 }
 
 /** How a size reads in a refusal a learner sees. */
 const readableBytes = (n) => (n >= 1024 * 1024 ? `${Math.round(n / 1024 / 1024)} MB` : `${n} bytes`);
+
+/** An archive entry whose size is not the one its archive declares. */
+const damaged = (name, held, declared) => new KeyedError(
+    '"{{name}}" is damaged: it holds {{held}} bytes where the archive says {{declared}}.', { name, held, declared });
 
 /** A refusal the caller can tell apart from a corrupt file. Same flag as the
  *  one `zstd.js` raises, so one predicate covers both compressors. */
@@ -144,12 +149,12 @@ export async function readZipEntry(zip, name, { cap, what = 'This file' } = {}) 
         if (data.compression.magic === '\x00\x00') {
             if (raw.length > cap) throw refuse();
             if (Number.isFinite(data.uncompressedSize) && raw.length !== data.uncompressedSize) {
-                throw new Error(`"${name}" is damaged: it holds ${raw.length} bytes where the archive says ${data.uncompressedSize}.`);
+                throw damaged(name, raw.length, data.uncompressedSize);
             }
             return Buffer.from(raw);
         }
         if (data.compression.magic !== '\x08\x00') {
-            throw new Error(`"${name}" uses a compression method this app cannot read.`);
+            throw new KeyedError('"{{name}}" uses a compression method this app cannot read.', { name });
         }
         let out;
         try {
@@ -164,7 +169,7 @@ export async function readZipEntry(zip, name, { cap, what = 'This file' } = {}) 
         // the ceiling), but it is the behaviour every file that imports today
         // already satisfies, so it is kept.
         if (Number.isFinite(data.uncompressedSize) && out.length !== data.uncompressedSize) {
-            throw new Error(`"${name}" is damaged: it holds ${out.length} bytes where the archive says ${data.uncompressedSize}.`);
+            throw damaged(name, out.length, data.uncompressedSize);
         }
         return out;
     }
@@ -473,7 +478,7 @@ export async function extractText(buffer, filename) {
     let meta = {};
 
     if (structured === 'pdf' || (!structured && isPdf(buffer))) {
-        if (!isPdf(buffer)) throw new Error('File does not look like a valid PDF.');
+        if (!isPdf(buffer)) throw new KeyedError('File does not look like a valid PDF.');
         kind = 'pdf';
         ({ text, meta } = await extractPdf(buffer));
     } else if (!structured && (isJpeg(buffer) || isPng(buffer) || isWebp(buffer))) {
@@ -484,7 +489,7 @@ export async function extractText(buffer, filename) {
     } else if (structured) {
         // docx / xlsx / pptx — must actually be a ZIP-based Office document.
         if (!isZip(buffer)) {
-            throw new Error(`File does not look like a valid ${ext.toUpperCase()} (expected a ZIP-based Office document).`);
+            throw new KeyedError('File does not look like a valid {{type}} (expected a ZIP-based Office document).', { type: ext.toUpperCase() });
         }
         // Inspect the central directory and reject zip bombs before any parser
         // inflates the bytes. extractPptx reuses this same loaded zip.
@@ -502,17 +507,17 @@ export async function extractText(buffer, filename) {
         // Unknown extension: accept it iff it reads as text. A ZIP/archive or
         // any other binary is declined with a reason the user can see.
         if (isZip(buffer)) {
-            throw new Error('Looks like a binary archive (ZIP/Office/jar). Only text-based files and PDF/DOCX/XLSX/PPTX are supported.');
+            throw new KeyedError('Looks like a binary archive (ZIP/Office/jar). Only text-based files and PDF/DOCX/XLSX/PPTX are supported.');
         }
         const utf16 = decodeUtf16Bom(buffer);
         if (utf16 === null ? looksBinary(buffer) : garbledUtf16(utf16)) {
-            throw new Error('File looks binary, not text — it can\'t be read as study material.');
+            throw new KeyedError('File looks binary, not text — it can\'t be read as study material.');
         }
         kind = 'text';
         text = utf16 ?? buffer.toString('utf8');
     }
 
     text = clamp(text.trim());
-    if (!text) throw new Error('No extractable text found in file.');
+    if (!text) throw new KeyedError('No extractable text found in file.');
     return { text, kind, meta };
 }

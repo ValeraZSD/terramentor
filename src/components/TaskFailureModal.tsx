@@ -8,6 +8,7 @@ import type { AITaskFailure } from '../types';
 import { useTranslation } from 'react-i18next';
 import { plainCause } from '../utils/failureCause';
 import { uiLocale } from '../utils/locale';
+import { failureMessage } from '../utils/serverText';
 import { originPlace, originSentence, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
@@ -127,7 +128,7 @@ export default function TaskFailureModal({ failure, onClose, onOpenOrigin }: {
 
                 <div className="min-h-0 flex-1 overflow-y-auto p-4">
                     {/* What happened, in words. */}
-                    <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-100">{failure.message}</p>
+                    <p className="text-sm leading-relaxed text-slate-800 dark:text-slate-100">{failureMessage(failure)}</p>
                     {cause && (
                         <p className="mt-2 rounded-lg bg-slate-100 p-3 text-sm leading-relaxed text-slate-600 dark:bg-slate-700/50 dark:text-slate-300">
                             {t(cause.messageKey, cause.params)}

@@ -256,12 +256,14 @@ const isId = (v) => Number.isSafeInteger(v) && v > 0;
 // A topic's title is what every surface prints, and the column is NOT NULL: a
 // missing title was a 500, a blank one a nameless row in the tree, a number was
 // stored as "123.0" (a REAL bound to a TEXT column) and an object or null a
-// 500. Description and notes are text, or null for empty. Returns the refusal,
-// or null; `creating` makes the title required.
+// 500. Description and notes are text, or null for empty. Returns the
+// refusal's body, or null; `creating` makes the title required. A blank title
+// is the learner's (keyed); text sent as another type only a program sends
+// (apiError).
 function nodeTextError({ title, description, notes }, creating) {
-    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return k('A topic needs a title.');
-    if (description != null && typeof description !== 'string') return 'description must be text.';
-    if (notes != null && typeof notes !== 'string') return 'notes must be text.';
+    if ((creating || title !== undefined) && (typeof title !== 'string' || !title.trim())) return keyed('A topic needs a title.');
+    if (description != null && typeof description !== 'string') return apiError('description must be text.');
+    if (notes != null && typeof notes !== 'string') return apiError('notes must be text.');
     return null;
 }
 
@@ -276,7 +278,7 @@ class GateRefused extends Error {
 app.post('/api/nodes', (req, res) => {
     const { project_id, parent_id, title, description, notes, status, is_note } = req.body;
     const textError = nodeTextError(req.body, true);
-    if (textError) return res.status(400).json(keyed(textError));
+    if (textError) return res.status(400).json(textError);
     if (!isId(project_id)) return res.status(400).json(apiError('project_id must be a project id.'));
     if (parent_id && !isId(parent_id)) return res.status(400).json(apiError('parent_id must be a node id or null.'));
     if (status !== undefined && !VALID_NODE_STATUSES.includes(status)) {
@@ -326,7 +328,7 @@ app.put('/api/nodes/:id', (req, res) => {
     const current = nodeExistsStmt.get(req.params.id);
     if (!current) return res.status(404).json(keyed('Node not found'));
     const textError = nodeTextError(req.body, false);
-    if (textError) return res.status(400).json(keyed(textError));
+    if (textError) return res.status(400).json(textError);
     if (parent_id != null && !isId(parent_id)) return res.status(400).json(apiError('parent_id must be a node id or null.'));
     const note = is_note === undefined ? undefined : noteFlag(is_note);
     if (is_note !== undefined && note === undefined) return res.status(400).json(apiError('is_note must be 0 or 1.'));
@@ -517,7 +519,7 @@ app.post('/api/resources', (req, res) => {
     // A resource URL is rendered as an href, so the scheme is checked at every
     // write path, not just on import (see server/urlSafety.js).
     const checked = sanitizeUrl(url);
-    if (!checked.ok) return res.status(400).json(keyed('Invalid URL: {{reason}}', { reason: checked.reason }));
+    if (!checked.ok) return res.status(400).json(keyed(checked.messageKey, checked.params));
     const maxPos = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 as pos FROM resources WHERE node_id = ?').get(node_id);
     const result = db.prepare('INSERT INTO resources (node_id, title, url, type, position) VALUES (?, ?, ?, ?, ?)')
         .run(node_id, title, checked.url, sanitizeResourceType(type), maxPos.pos);
@@ -540,7 +542,7 @@ app.put('/api/resources/:id', (req, res) => {
     let nextUrl = url;
     if (url !== undefined && url !== null) {
         const checked = sanitizeUrl(url);
-        if (!checked.ok) return res.status(400).json(keyed('Invalid URL: {{reason}}', { reason: checked.reason }));
+        if (!checked.ok) return res.status(400).json(keyed(checked.messageKey, checked.params));
         nextUrl = checked.url;
     }
     // Same vocabulary gate the POST applies — the PUT wrote `type` straight

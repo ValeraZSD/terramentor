@@ -9,6 +9,7 @@ import ReportProblemDialog from '../ReportProblemDialog';
 import DesktopQuitScreen from '../DesktopQuitScreen';
 import { diagnosticsBlock } from '../../utils/report';
 import { uiLocale } from '../../utils/locale';
+import { storedError } from '../../utils/serverText';
 import { SectionHeader, Panel } from './SettingsParts';
 import { Select } from '../ui/Field';
 import UpdateDialog from '../update/UpdateDialog';
@@ -133,7 +134,7 @@ export default function AboutSection({ active, quitting, onStillRunning }: {
                                     {updateStatus?.error && (
                                         <span className="text-amber-600 dark:text-amber-400"> {isOfflineError(updateStatus.error)
                                             ? tr("The last check could not reach GitHub. Check the internet connection.")
-                                            : tr("The last check failed: {{error}}", { error: updateStatus.error })}</span>
+                                            : tr("The last check failed: {{error}}", { error: storedError(updateStatus) })}</span>
                                     )}
                                 </p>
                             </div>

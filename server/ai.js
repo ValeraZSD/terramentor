@@ -2577,7 +2577,7 @@ export async function fetchPageContent(url, maxLength = 3000) {
         // search results, never typed by the owner — so it is vetted (and every
         // redirect hop re-vetted) before a connection is opened. See netSafety.js.
         const response = await safeFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: controller.signal });
-        if (!response.ok) return { success: false, error: `Fetch failed: ${response.status}`, content: '' };
+        if (!response.ok) return { success: false, ...keyed('Fetch failed: {{status}}', { status: response.status }), content: '' };
         const text = await readCappedText(response, MAX_PAGE_BYTES);
         const content = text
             .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')

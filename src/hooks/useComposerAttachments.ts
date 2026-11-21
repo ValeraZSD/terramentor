@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { ChatAttachment } from '../types';
+import { serverText } from '../utils/serverText';
 import { isPicture, preflightFiles, isHeicFile, ATTACH_MAX_BYTES, type RefusalReason } from '../utils/attachments';
 import { prepareImage } from '../utils/attachImage';
 
@@ -108,7 +109,7 @@ export function useComposerAttachments() {
                 patch(key, { state: 'ready', progress: 1, server: res, kind: res.kind });
                 if (res.kind === 'image' && typeof res.modelSees === 'boolean') setBlind(!res.modelSees);
             } else {
-                patch(key, { state: 'failed', error: res.error });
+                patch(key, { state: 'failed', error: serverText(res) ?? res.error });
             }
         } catch (e: any) {
             if (e?.name === 'AbortError' || controller.signal.aborted) return;

@@ -349,6 +349,41 @@ for (const [file, src] of serverFiles) {
 }
 check('every error body a server route sends is built by keyed/apiError/errorFields/errorBody', bareErrorBodies);
 
+// Two shapes the scan above cannot see. A body built in a variable (`const body
+// = { error: 'Topic not found' }; res.json(body)`, or a module's `return { ok:
+// false, error: 'Unexpected response' }` that a route sends on or a screen shows
+// later) has its English where the object is written, not at the `.json(`, so
+// every `error:` property whose value is written out as text is read, wherever
+// it stands. And `res.status(400).send('Bad request')` answers in plain text,
+// which no client can render from a key.
+const BARE_ERROR_FIELD = /(?:[{,(]|^)\s*error\s*:\s*['"`]/gm;
+const TEXT_REFUSAL = /\.status\(\s*[45]\d\d\s*\)\s*(?:\.type\([^)]*\)\s*)?\.(?:send|end)\(\s*['"`]/g;
+const scanBuiltErrorBodies = (src) => [...src.matchAll(BARE_ERROR_FIELD), ...src.matchAll(TEXT_REFUSAL)];
+/**
+ * Bare English on purpose, each read before it was listed: server/version.js
+ * may import only Node built-ins (the release tool loads it alone), so its
+ * update-check results are keyed where they are read (updatePoll.js
+ * `updateErrorBody`, every one pinned by tools/server-text-gates.mjs).
+ */
+const ENGLISH_ERROR_BY_DESIGN = new Set(['server/version.js']);
+check('the body scan sees English built into a variable, a returned result and a plain-text refusal',
+    [
+        "const body = { error: 'Topic not found' };\nres.status(404).json(body);",
+        'return { ok: false, error: `GitHub responded ${res.status}` };',
+        "res.status(400).send('Bad request');",
+        'res.status(500).type("text").send("Something broke");',
+        "results.push({ ok: false, id, error: 'Extraction failed' });",
+    ].filter((sample) => scanBuiltErrorBodies(sample).length !== 1)
+        .concat(['res.json(keyed(\'Topic not found\'))', '{ error: why }', '{ ok: false, error: null }', "res.status(204).end()", "{ errorKey: 'x' }"]
+            .filter((sample) => scanBuiltErrorBodies(sample).length !== 0)));
+const builtErrorBodies = [];
+for (const [file, src] of serverFiles) {
+    const name = relative(root, file).replace(/\\/g, '/');
+    if (ENGLISH_ERROR_BY_DESIGN.has(name)) continue;
+    for (const m of scanBuiltErrorBodies(src)) builtErrorBodies.push(at(file, src, m.index));
+}
+check('no error text is written out as English outside a helper (a body kept in a variable, a returned result, res.send)', builtErrorBodies);
+
 // --- 8. every task labelKey the server sends is a key in en.json -------------
 // Same shape as 7, for the background-task dock: `tasks.createTask({ label,
 // labelKey })` and the chip renders t(task.labelKey). A key missing from

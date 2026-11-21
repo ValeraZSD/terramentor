@@ -518,7 +518,7 @@ async function runRecovery(documentId, { force }) {
         console.log(`[recover] "${doc.title}": recovered ${recoveredCount}/${total} page(s) via ${method}${cancelled ? ' (cancelled mid-run, partial)' : ''}`);
     } catch (err) {
         db.prepare('UPDATE documents SET recovery_status = ? WHERE id = ?').run('failed', documentId);
-        try { handle.fail(err.message); } catch { /* ignore */ }
+        try { handle.fail(err.message, err); } catch { /* ignore */ }
         console.warn(`[recover] "${doc.title}" failed: ${err.message}`);
     }
 }

@@ -23,3 +23,21 @@ export function serverText(body: unknown): string | undefined {
     }
     return typeof error === 'string' && error ? error : undefined;
 }
+
+/**
+ * A failure line the server kept and shows later, in the interface language:
+ * a task's line in the dock, a course creation's error line, the last update
+ * check. It is `error` with `errorKey` + `errorParams` beside it, named so
+ * because the same object already has a `messageKey` or `params` of its own
+ * (a creation's progress line, a task's label).
+ */
+export function storedError(row: { error?: unknown; errorKey?: unknown; errorParams?: unknown } | null | undefined): string | undefined {
+    if (!row) return undefined;
+    return serverText({ error: row.error, messageKey: row.errorKey, params: row.errorParams });
+}
+
+/** A failure record's sentence (`message`, `messageKey`, `params`; server/tasks.js describeFailure), in the interface language. */
+export function failureMessage(record: { message?: unknown; messageKey?: unknown; params?: unknown } | null | undefined): string | undefined {
+    if (!record) return undefined;
+    return serverText({ error: record.message, messageKey: record.messageKey, params: record.params });
+}

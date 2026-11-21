@@ -72,7 +72,7 @@ app.get('/api/projects/:id', (req, res) => {
 app.post('/api/projects', (req, res) => {
     const { name, description, color, icon, content_language } = req.body;
     const fieldError = projectFieldError({ name: name ?? null, description, color, icon });
-    if (fieldError) return res.status(400).json(keyed(fieldError));
+    if (fieldError) return res.status(400).json(fieldError);
     const lang = isSupportedLanguage(content_language) ? (content_language || '') : '';
     const result = db.prepare('INSERT INTO projects (name, description, color, icon, position, content_language) VALUES (?, ?, ?, ?, ?, ?)')
         .run(name, description || '', color || '#3B82F6', icon || 'folder', nextProjectPosition(), lang);
@@ -91,7 +91,7 @@ app.put('/api/projects/:id', (req, res) => {
     const before = db.prepare('SELECT name, description, content_language, start_date, deadline FROM projects WHERE id = ?').get(req.params.id);
     if (!before) return res.status(404).json(keyed('Project not found'));
     const fieldError = projectFieldError({ name, description, color, icon, position });
-    if (fieldError) return res.status(400).json(keyed(fieldError));
+    if (fieldError) return res.status(400).json(fieldError);
 
     // The learner's own search words (server/searchWords.js): '' is "none",
     // null hands the course back to the model. Checked before anything is

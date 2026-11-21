@@ -74,6 +74,9 @@ await esbuild.build({
     bundle: true, format: 'esm', platform: 'node', outfile: bundle, logLevel: 'silent',
     plugins: [{ name: 'client-stubs', setup(b) {
         b.onResolve({ filter: /^\.\.\/\.\.\/(api|store|i18n)$/ }, (a) => ({ path: join(stubDir, `${a.path.split('/').pop()}.js`) }));
+        // The real reader of a kept line (it imports i18next bare, which
+        // resolves from the repo's node_modules).
+        b.onResolve({ filter: /^\.\.\/\.\.\/utils\/serverText$/ }, () => ({ path: join(root, 'src', 'utils', 'serverText.ts') }));
     } }],
 });
 const client = await import(pathToFileURL(bundle).href);
@@ -128,6 +131,21 @@ section('a run that failed opens the outline on the topic it failed on');
     check('and on nothing while the run is still live and no topic is being written', client.openingLeaf?.(run.tree, true) === null);
     const view = read('src/components/creation/CreationRunView.tsx');
     check('the run screen asks for it with the live flag', /openingLeaf\(run\.tree, live\)/.test(view));
+}
+
+section('a failed run keeps the key its error line was filled from');
+{
+    const key = 'Model "{{model}}" is not installed. Available: {{available}}';
+    const params = { model: 'llama3', available: 'qwen3' };
+    const run = await play([...written, { phase: 'error', runId: 'r1', error: 'Model "llama3" is not installed. Available: qwen3', errorKey: key, errorParams: params }]);
+    check('the run ends failed with the English line', run?.status === 'error' && run?.error === 'Model "llama3" is not installed. Available: qwen3', run?.error);
+    check('…and keeps the key and its values beside it, for the screen to say in its language',
+        run?.errorKey === key && JSON.stringify(run?.errorParams) === JSON.stringify(params), JSON.stringify({ errorKey: run?.errorKey, errorParams: run?.errorParams }));
+    const plain = await play([...written, { phase: 'error', runId: 'r1', error: 'The model stopped answering' }]);
+    check('a line with no key keeps none (no key left over from an earlier run)', plain?.errorKey === null && plain?.errorParams === null,
+        JSON.stringify({ errorKey: plain?.errorKey, errorParams: plain?.errorParams }));
+    const view = read('src/components/creation/CreationProgress.tsx');
+    check('the run screen draws the line through storedError, never run.error raw', /storedError\(run\)/.test(view) && !/\{run\.error\}/.test(view));
 }
 
 section('a failed first status request is asked again');

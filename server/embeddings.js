@@ -408,7 +408,7 @@ async function runIndex(documentId) {
             console.warn(`[VEC] indexing doc ${documentId} skipped — no embedding model: ${err.message}`);
             handle.finish();
         }
-        else { console.error(`[VEC] indexing doc ${documentId} failed: ${err.message}`); handle.fail(err.message); }
+        else { console.error(`[VEC] indexing doc ${documentId} failed: ${err.message}`); handle.fail(err.message, err); }
     }
 }
 

@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import i18n, { k } from '../i18n';
 import { useAccentVars } from '../hooks/useAccentVars';
 import { motionReduced } from '../utils/accessibility';
+import { storedError } from '../utils/serverText';
 
 /**
  * A CHIP IS COLOURED BY ITS OWN PROJECT, never by the page it is floating over.
@@ -314,7 +315,7 @@ const TaskChip = memo(function TaskChip({ task, onHold, onDismiss }: TaskChipPro
     const tooltip = `${kindLabel}: ${title}` +
         (task.projectName ? ` · ${task.projectName}` : '') +
         (active && task.progress.message ? `\n${task.progress.message}` : '') +
-        (task.error ? ` — ${task.error}` : '') +
+        (task.error ? ` — ${storedError(task)}` : '') +
         `\n${tr("Tap for details")}`;
 
     return (

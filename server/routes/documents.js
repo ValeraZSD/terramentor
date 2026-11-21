@@ -15,7 +15,7 @@ import { getUiLanguage } from '../language.js';
 import { languageFromAcceptHeader } from '../creationLanguage.js';
 import { wrap } from './request.js';
 import { routeTable } from './routeTable.js';
-import { apiError, errorBody, errorFields, keyed, publicMessage } from '../clientError.js';
+import { apiError, errorBody, errorFields, keptBody, keyed } from '../clientError.js';
 import { citedDocumentReadings, inertTitle } from '../citations.js';
 
 const app = routeTable('documents');
@@ -138,13 +138,14 @@ app.post('/api/documents/upload', handleVaultUpload, wrap(async (req, res) => {
             results.push({ ok: true, id: docId, title, file_type: kind, file_hash: hash, file_size: size, page_count: meta.pageCount ?? null, status: 'ready', chunks: chunkCount });
         } catch (err) {
             // Shown in the vault beside the file, now and on every later visit,
-            // so the stored reason is the learner's version of it too.
-            const why = String(err?.message ? publicMessage(err) : 'Extraction failed').slice(0, 500);
+            // so the stored reason is the learner's version of it too, kept
+            // with its key to be said in their language (storedReason).
+            const why = keptBody(err, keyed('Extraction failed'));
             const r = db.prepare(`INSERT INTO documents
-                (node_id, project_id, title, content, file_type, original_filename, status, error)
-                VALUES (?, ?, ?, '', 'unknown', ?, 'failed', ?)`)
-                .run(nodeId, projectId, title, file.originalname, why);
-            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', error: why });
+                (node_id, project_id, title, content, file_type, original_filename, status, error, error_key, error_params)
+                VALUES (?, ?, ?, '', 'unknown', ?, 'failed', ?, ?, ?)`)
+                .run(nodeId, projectId, title, file.originalname, why.error, why.messageKey ?? null, why.params ? JSON.stringify(why.params) : null);
+            results.push({ ok: false, id: r.lastInsertRowid, title, status: 'failed', ...why });
         }
     }
     res.json({ documents: results });
@@ -181,12 +182,24 @@ app.delete('/api/documents/staged/:id', (req, res) => {
     res.json({ removed: discardStaged(req.params.id) });
 });
 
+/**
+ * A row with its could-not-read reason as a body `serverText` reads: the
+ * English `error`, and `messageKey` + `params` from the columns that keep them
+ * (a row from before them has the English only).
+ */
+function storedReason({ error_key: key, error_params: values, ...row }) {
+    if (!key) return row;
+    let params = null;
+    try { params = values ? JSON.parse(values) : null; } catch { params = null; }
+    return { ...row, messageKey: key, ...(params && typeof params === 'object' && !Array.isArray(params) ? { params } : {}) };
+}
+
 app.get('/api/documents', (req, res) => {
     const { nodeId, projectId } = req.query;
     // char_count exposes how much text was extracted per file (shown in the vault
     // list, e.g. "12,340 chars"). LENGTH() counts characters on a TEXT column.
     let sql = `SELECT id, node_id, project_id, title, file_type, original_filename,
-                      file_hash, file_size, status, error, page_count, embedding_status,
+                      file_hash, file_size, status, error, error_key, error_params, page_count, embedding_status,
                       recovery_status, recovery_meta, created_at,
                       LENGTH(content) as char_count
                FROM documents`;
@@ -199,7 +212,7 @@ app.get('/api/documents', (req, res) => {
     else if (projectId) { sql += ' WHERE project_id = ?'; params.push(projectId); }
     sql += ' ORDER BY created_at DESC';
     const documents = db.prepare(sql).all(...params);
-    res.json(documents);
+    res.json(documents.map(storedReason));
 });
 
 // Which documents the entries of an answer's Sources line name, so the line can
@@ -259,12 +272,15 @@ app.get('/api/documents/cited', (req, res) => {
 // Return the full extracted text of one document, for the "view extracted text"
 // preview in the vault. Capped so a huge file can't blow up the response.
 app.get('/api/documents/:id/text', (req, res) => {
-    const doc = db.prepare('SELECT title, content, status, error FROM documents WHERE id = ?').get(req.params.id);
+    const doc = db.prepare('SELECT title, content, status, error, error_key, error_params FROM documents WHERE id = ?').get(req.params.id);
     if (!doc) return res.status(404).json(keyed('Document not found'));
+    const { error, messageKey, params } = storedReason(doc);
     res.json({
         title: doc.title,
         status: doc.status,
-        error: doc.error,
+        error,
+        ...(messageKey ? { messageKey } : {}),
+        ...(params ? { params } : {}),
         char_count: doc.content ? doc.content.length : 0,
         content: doc.content || '',
     });

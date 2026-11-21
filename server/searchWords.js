@@ -36,6 +36,7 @@ import { cleanRegionLabel } from './curriculumLabel.js';
 import { TOPIC_NODE } from './nodeRole.js';
 import { userSearchWords } from './projectFields.js';
 import * as tasks from './tasks.js';
+import { keyed } from './clientError.js';
 
 /** `search_words_by` for words the learner typed. */
 export const USER_SOURCE = 'user';
@@ -96,8 +97,8 @@ export function readWordsReply(raw) {
             return null;
         } catch { /* a fragment: the key below */ }
     }
-    const keyed = text.match(/"words"\s*:\s*"([^"\n]{0,80})"/);
-    if (keyed) return keyed[1];
+    const quoted = text.match(/"words"\s*:\s*"([^"\n]{0,80})"/);
+    if (quoted) return quoted[1];
     // A small local model answering with the bare words on one line.
     if (!/[{}]/.test(text) && !text.includes('\n')) return text;
     return null;
@@ -307,7 +308,7 @@ export async function runSearchWordsSweep({ model = wordsModel() } = {}) {
             handle.update({ progress: percent, percent });
         }
         if (abort.signal.aborted) handle.cancelled();
-        else if (unreachable >= MAX_CONSECUTIVE_FAILURES) handle.fail('The AI endpoint could not be reached', lastError);
+        else if (unreachable >= MAX_CONSECUTIVE_FAILURES) handle.fail(keyed('The AI endpoint could not be reached'), lastError);
         else {
             handle.finish();
             // A full list may have left courses behind it.

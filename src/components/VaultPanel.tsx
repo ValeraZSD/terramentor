@@ -11,6 +11,7 @@ import { IconButton, IconLink } from './ui/Button';
 import DocumentTextDialog, { TextDocument } from './DocumentTextDialog';
 import i18n, { k } from '../i18n';
 import { num } from '../utils/numberFormat';
+import { serverText } from '../utils/serverText';
 import { useNumberFormat } from '../hooks/useNumberFormat';
 
 // Anything binary that the server can't read as text is rejected on upload and
@@ -253,7 +254,7 @@ export default function VaultPanel({
             const ok = documents.filter(d => d.ok).length;
             const failed = documents.filter(d => !d.ok);
             if (ok) addToast('success', tr("Added {{count}} files to the vault", { count: ok }));
-            failed.forEach(f => addToast('error', tr("Couldn't read \"{{title}}\"", { title: f.title }), f.error));
+            failed.forEach(f => addToast('error', tr("Couldn't read \"{{title}}\"", { title: f.title }), serverText(f) ?? f.error));
             await refresh();
         } catch (e: any) {
             addToast('error', tr("Upload failed"), e.message);
@@ -354,7 +355,7 @@ export default function VaultPanel({
                                         <div className="truncate text-sm text-slate-700 dark:text-slate-200">{doc.title}</div>
                                         <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                                             {doc.status === 'failed'
-                                                ? <span className="text-red-500">{tr("Failed: {{error}}", { error: doc.error })}</span>
+                                                ? <span className="text-red-500">{tr("Failed: {{error}}", { error: serverText(doc) })}</span>
                                                 : <>
                                                     {(doc.file_type === 'text'
                                                         ? (extOf(doc.original_filename || '') || 'text')

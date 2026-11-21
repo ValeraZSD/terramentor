@@ -8,6 +8,7 @@ import { useStore } from '../store';
 import { useTranslation } from 'react-i18next';
 import { k } from '../i18n';
 import { uiLocale } from '../utils/locale';
+import { storedError } from '../utils/serverText';
 import { taskPlace, placeRoute, taskEta, durationParts, originSentence, KIND_LABEL, taskTitle } from '../utils/taskPlace';
 import { useOriginTitle } from '../hooks/useOriginTitle';
 import { Button, IconButton } from './ui/Button';
@@ -263,7 +264,7 @@ export default function TaskDetailModal({ task, onClose, onDismiss }: {
                     {task.status === 'error' && task.error && (
                         <p className="mt-4 flex gap-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
                             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                            <span className="min-w-0 break-words">{task.error}</span>
+                            <span className="min-w-0 break-words">{storedError(task)}</span>
                         </p>
                     )}
 

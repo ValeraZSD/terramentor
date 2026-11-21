@@ -24,7 +24,7 @@
 
 import { AsyncResource } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { keyed } from './clientError.js';
+import { k, keyOf, keyed } from './clientError.js';
 
 /**
  * How many tasks may run at once, asked on every pump.
@@ -226,8 +226,12 @@ function describeFailure(err, task) {
     }
     const started = task.startedAt ? Date.parse(task.startedAt) : null;
     return {
-        // --- the sentence a person reads
+        // --- the sentence a person reads, and the key it was filled from: the
+        // record is shown long after, in whatever language the screen is in.
+        // A sentence cut to the cap is no longer the key filled in, so it
+        // keeps no key (and its values, which may be what made it long).
         message: String(e.message || 'Generation failed').slice(0, CAP.message),
+        ...(String(e.message || '').length <= CAP.message ? keyOf(e) : {}),
         name: e.name || 'Error',
         at: new Date().toISOString(),
 
@@ -284,6 +288,30 @@ function describeFailure(err, task) {
     };
 }
 
+/**
+ * The dock line's key, `{ errorKey, errorParams }`: the record's, when the line
+ * is the record's sentence. A summary already has `params` (the label's), so
+ * the line's own names say whose they are.
+ */
+function lineKey(task) {
+    if (task.errorLineKey) return task.errorLineKey;
+    const f = task.failure;
+    return f?.messageKey && f.message === task.errorMessage
+        ? { errorKey: f.messageKey, errorParams: f.params ?? null }
+        : { errorKey: null, errorParams: null };
+}
+
+/** The terminal error frame: the line with its key, as a body `serverText` reads. */
+function errorFrame(task, extra = {}) {
+    const { errorKey, errorParams } = lineKey(task);
+    return {
+        error: task.errorMessage,
+        ...(errorKey ? { messageKey: errorKey, ...(errorParams ? { params: errorParams } : {}) } : {}),
+        failure: task.failure,
+        ...extra,
+    };
+}
+
 function summarize(task, queuePos = null) {
     return {
         id: task.id,
@@ -302,6 +330,7 @@ function summarize(task, queuePos = null) {
         progress: { ...task.progress },
         queuePosition: task.status === 'queued' ? queuePos : null,
         error: task.status === 'error' ? (task.errorMessage || 'Failed') : null,
+        ...(task.status === 'error' ? lineKey(task) : { errorKey: null, errorParams: null }),
         // The full record behind that one line — see describeFailure.
         failure: task.failure ?? null,
         origin: task.origin ?? null,
@@ -465,11 +494,7 @@ function pump() {
                 } else {
                     task.errorMessage = err?.message || 'Generation failed';
                     task.failure = describeFailure(err, task);
-                    settle(task, 'error', {
-                        error: task.errorMessage,
-                        failure: task.failure,
-                        rawResponse: err?.rawResponse ?? null,
-                    });
+                    settle(task, 'error', errorFrame(task, { rawResponse: err?.rawResponse ?? null }));
                 }
             })
             .finally(() => {
@@ -601,7 +626,10 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
         },
         finish() { settle(task, 'done', { done: true }); },
         // `detail` lets an external task (embeddings, feedGen, pdf recovery)
-        // hand over the same shape an exception would have produced.
+        // hand over the same shape an exception would have produced: pass the
+        // error itself, and a key it was thrown with is kept for the screen.
+        // `message` is the line, or a keyed body (`keyed(…)`) for a line the
+        // caller writes itself.
         // Returns the record that stands, so a caller with a screen of its own
         // (a course creation) can show the same diagnosis the dock does.
         fail(message, detail = null) {
@@ -609,10 +637,15 @@ function registerExternal({ kind, label, labelKey = null, labelParams = null, pr
             // its real error and then again, generically, on its way out; the
             // second must not overwrite the first.
             if (!isActive(task)) return task.failure ?? null;
-            task.errorMessage = message || 'Failed';
+            const line = message && typeof message === 'object' ? message : { error: message };
+            task.errorMessage = line.error || 'Failed';
+            // A line of the caller's own keeps its key even when the record
+            // below is the error behind it, in that error's words.
+            task.errorLineKey = line.messageKey ? { errorKey: line.messageKey, errorParams: line.params ?? null } : null;
+            const own = line.messageKey ? { messageKey: line.messageKey, ...(line.params ? { params: line.params } : {}) } : {};
             task.failure = describeFailure(detail instanceof Error ? detail
-                : { message: task.errorMessage, ...(detail || {}) }, task);
-            settle(task, 'error', { error: task.errorMessage, failure: task.failure });
+                : { message: task.errorMessage, ...own, ...(detail && typeof detail === 'object' ? detail : {}) }, task);
+            settle(task, 'error', errorFrame(task));
             return task.failure;
         },
         cancelled() { settle(task, 'cancelled', { cancelled: true }); },
@@ -728,9 +761,9 @@ function resultUnusable(id) {
         return { ok: false, ...keyed('Not a finished visual repair') };
     }
     task.status = 'error';
-    task.errorMessage = "The AI's fix did not draw either.";
-    task.failure = describeFailure({ message: task.errorMessage }, task);
-    task.terminalEvent = { error: task.errorMessage, failure: task.failure };
+    task.errorMessage = k("The AI's fix did not draw either.");
+    task.failure = describeFailure({ message: task.errorMessage, messageKey: task.errorMessage }, task);
+    task.terminalEvent = errorFrame(task);
     // Its run was already logged as done; this says what became of it.
     observe(task, 'unusable', { ms: null });
     scheduleNotify();

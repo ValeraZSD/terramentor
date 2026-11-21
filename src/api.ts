@@ -455,6 +455,10 @@ export interface AIProjectProgress {
     done?: boolean;
     cancelled?: boolean;
     error?: string;
+    /** The key `error` was filled from, and its values (`messageKey` is the
+     *  progress line's): shown with storedError() (src/utils/serverText.ts). */
+    errorKey?: string | null;
+    errorParams?: Record<string, unknown> | null;
     /** On the `error` frame: the part of the task's failure record the screen
      *  reads (screenFailure in server/routes/createProject.js). */
     failure?: FailureFacts | null;
@@ -932,6 +936,8 @@ export const api = {
             currentElementIndex: number | null;
             currentSubElementIndex: number | null;
             error: string | null;
+            errorKey?: string | null;
+            errorParams?: Record<string, unknown> | null;
             failure?: FailureFacts | null;
             runId: string;
             taskId: string | null;
