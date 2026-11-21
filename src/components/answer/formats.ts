@@ -275,6 +275,15 @@ export function spellingSlipOf(question: Pick<QuizQuestion, 'type' | 'correct_an
     return null;
 }
 
+/**
+ * The headline over an answer marked right (a key for `t()`). Right only
+ * because a slip was forgiven, it says so: a bare "Correct" over a misspelling
+ * teaches the misspelling.
+ */
+export function correctVerdict(question: Pick<QuizQuestion, 'type' | 'correct_answer' | 'accept'>, answer: string): string {
+    return spellingSlipOf(question, answer) !== null ? k("Correct, with a spelling slip") : k("Correct");
+}
+
 /** "3.0 × 10^8", "3.0 x 10**8" — how a physics answer is written outside a programming language. */
 const SCIENTIFIC = /[×x*]\s*10\s*(?:\^|\*\*)?\s*([-+]?\d+)/i;
 

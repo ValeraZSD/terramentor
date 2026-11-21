@@ -1,4 +1,9 @@
 {
+  "Correct, with a spelling slip": "Правильно, з невеликою одруківкою",
+  "It is spelled:": "Правильно пишеться:",
+  "Only a letter or two off.": "Помилка лише в одній-двох літерах.",
+  "Forgive small spelling slips from now on": "Відтепер пробачати невеликі одруківки",
+  "Small spelling slips now count as right. You can turn this off in Settings, under Learning.": "Невеликі одруківки тепер зараховуються як правильні. Це можна вимкнути в Налаштуваннях, у розділі «Навчання».",
   " — stopped early, some pages were not re-read": "— зупинено достроково, деякі сторінки не були перечитані",
   " ({{answers}} answers)_few": " ({{answers}} відповіді)",
   " ({{answers}} answers)_many": " ({{answers}} відповідей)",

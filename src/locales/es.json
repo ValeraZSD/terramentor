@@ -1,4 +1,9 @@
 {
+  "Correct, with a spelling slip": "Correcto, con un pequeño error de ortografía",
+  "It is spelled:": "Se escribe:",
+  "Only a letter or two off.": "Solo una o dos letras de diferencia.",
+  "Forgive small spelling slips from now on": "Perdonar los pequeños errores de ortografía a partir de ahora",
+  "Small spelling slips now count as right. You can turn this off in Settings, under Learning.": "Los pequeños errores de ortografía ahora cuentan como correctos. Puedes desactivarlo en Ajustes, en Aprendizaje.",
   " — stopped early, some pages were not re-read": "— se detuvo antes de tiempo, algunas páginas no se volvieron a leer",
   " ({{answers}} answers)_many": " ({{answers}} respuestas)",
   " ({{answers}} answers)_one": " ({{answers}} respuesta)",

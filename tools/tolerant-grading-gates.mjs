@@ -182,6 +182,111 @@ check('every answer screen reads the hint through answerHint, never the plain on
 check('the feed verdict shows the spelling note', /result\.correct && <SpellingNote/.test(read('src/components/feed/InlineQuestion.tsx')));
 check('the quiz and check review show it too', /correct && answer && <SpellingNote/.test(read('src/components/answer/AnswerReviewItem.tsx')));
 
+section('the headline over a forgiven slip');
+check('a slip marked right is headed "Correct, with a spelling slip"',
+    clientFormats.correctVerdict(fill('photosynthesis'), 'photosynthsis') === 'Correct, with a spelling slip');
+check('...an exact answer plain "Correct"', clientFormats.correctVerdict(fill('photosynthesis'), 'Photosynthesis') === 'Correct');
+const feedQuestion = read('src/components/feed/InlineQuestion.tsx');
+check('the feed verdict and its spoken line both take that headline',
+    /const correctLine = t\(correctVerdict\(question, result\?\.answer/.test(feedQuestion)
+    && /result\.correct \? correctLine/.test(feedQuestion) && /shown === 'correct' \? correctLine/.test(feedQuestion));
+check('...and the note under it then gives only the spelling', /<SpellingNote [^>]*headed/.test(feedQuestion));
+
+// The real SpellingOffer and SpellingNote, mounted with React in jsdom; the
+// store is a stub holding the three things they read.
+section('the switch offered after a near miss');
+{
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+    for (const key of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'Text', 'MutationObserver', 'Event']) {
+        try { globalThis[key] = dom.window[key]; } catch { /* read-only in this Node */ }
+    }
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    const out = join(scratch, 'offer.cjs');
+    await esbuild.build({
+        stdin: {
+            contents: `import React, { createElement as h } from 'react';
+                import { createRoot } from 'react-dom/client';
+                import i18n from 'i18next';
+                import { initReactI18next } from 'react-i18next';
+                import SpellingOffer from './src/components/answer/SpellingOffer';
+                import SpellingNote from './src/components/answer/SpellingNote';
+                export async function boot() { await i18n.use(initReactI18next).init({ lng: 'en', resources: {}, returnEmptyString: false }); }
+                export function mount(el, which, props) {
+                    const r = createRoot(el);
+                    React.act(() => r.render(h(which === 'note' ? SpellingNote : SpellingOffer, props)));
+                    return { unmount: () => React.act(() => r.unmount()) };
+                }
+                export const act = (fn) => React.act(fn);`,
+            resolveDir: repoRoot, loader: 'js',
+        },
+        bundle: true, format: 'cjs', platform: 'node', outfile: out, jsx: 'automatic', logLevel: 'silent',
+        loader: { '.css': 'empty' },
+        plugins: [{
+            name: 'offer-under-test',
+            setup(b) {
+                b.onResolve({ filter: /^(\.\.\/)+store$/ }, () => ({ path: 'store', namespace: 'stub-store' }));
+                b.onLoad({ filter: /.*/, namespace: 'stub-store' }, () => ({ contents: 'export const useStore = (sel) => sel(globalThis.__offerState);', loader: 'js' }));
+                b.onResolve({ filter: /(^|\/)i18n$/ }, (a) => (a.importer.includes('src') ? { path: stub } : undefined));
+            },
+        }],
+    });
+    const { boot, mount, act } = createRequire(import.meta.url)(out);
+    await boot();
+    const doc = dom.window.document;
+    const turnedOn = [];
+    const state = (over = {}) => {
+        globalThis.__offerState = {
+            forgiveSpelling: false,
+            projects: [{ id: 1, learning_language: '' }, { id: 2, learning_language: 'nl' }],
+            setForgiveSpelling: async (on) => { turnedOn.push(on); },
+            ...over,
+        };
+    };
+    const render = (which, props) => {
+        const el = doc.createElement('div'); doc.body.appendChild(el);
+        const m = mount(el, which, props);
+        return { el, done: () => { m.unmount(); el.remove(); } };
+    };
+    const near = { question: fill('photosynthesis'), answer: 'photosynthsis', projectId: 1 };
+
+    state();
+    {
+        const { el, done } = render('offer', near);
+        const button = el.querySelector('[data-spelling-offer] button');
+        check('switch off, a letter off: the line and its button are offered',
+            !!button && /Only a letter or two off/.test(el.textContent) && /Forgive small spelling slips from now on/.test(button.textContent), el.innerHTML);
+        check('...in a live region, as the report line beside it', el.querySelector('[data-spelling-offer]')?.getAttribute('aria-live') === 'polite');
+        act(() => button.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true })));
+        check('pressing it turns the setting on', turnedOn.length === 1 && turnedOn[0] === true, JSON.stringify(turnedOn));
+        check('...and the line then says what changed and where to undo it',
+            el.querySelector('[data-spelling-offer="on"]') && /now count as right/.test(el.textContent) && /Settings, under Learning/.test(el.textContent) && !el.querySelector('button'), el.innerHTML);
+        done();
+    }
+    state({ forgiveSpelling: true });
+    { const { el, done } = render('offer', near); check('switch already on: nothing offered', el.innerHTML === '', el.innerHTML); done(); }
+    state();
+    { const { el, done } = render('offer', { ...near, answer: 'photosynthesys is a process' }); check('not a near miss: nothing offered', el.innerHTML === '', el.innerHTML); done(); }
+    { const { el, done } = render('offer', { question: fill('chlorine'), answer: 'chloride', projectId: 1 }); check('...nor for a changed letter (chlorine typed as chloride)', el.innerHTML === ''); done(); }
+    { const { el, done } = render('offer', { ...near, projectId: 2 }); check('a course that teaches a language: never offered, the spelling is the lesson', el.innerHTML === '', el.innerHTML); done(); }
+    { const { el, done } = render('offer', { ...near, projectId: null }); check('no course known: offered', !!el.querySelector('[data-spelling-offer] button')); done(); }
+    { const { el, done } = render('offer', { question: { type: 'short_answer', correct_answer: 'photosynthesis' }, answer: 'photosynthsis', projectId: 1 }); check('a short answer (the checker ignores spelling already): nothing', el.innerHTML === ''); done(); }
+    {
+        const { el, done } = render('note', { question: fill('photosynthesis'), answer: 'photosynthsis', headed: true });
+        check('under the headline the note gives only the spelling', /^It is spelled:\s*photosynthesis$/.test(el.textContent.trim()), el.textContent);
+        done();
+    }
+    {
+        const { el, done } = render('note', { question: fill('photosynthesis'), answer: 'photosynthsis' });
+        check('...and the full sentence where no headline says it (the review list)', /^Accepted with a spelling slip/.test(el.textContent.trim()), el.textContent);
+        done();
+    }
+    check('the feed offers it under a wrong verdict, not under "Not marked"',
+        /!result\.correct && !result\.unsure && <SpellingOffer question=\{question\} answer=\{result\.answer\} projectId=\{projectId\}/.test(feedQuestion));
+    check('the quiz and check review offer it under a wrong answer',
+        /!correct && answer && <SpellingOffer question=\{question\} answer=\{answer\} projectId=\{projectId\}/.test(read('src/components/answer/AnswerReviewItem.tsx')));
+}
+
 try { rmSync(scratch, { recursive: true, force: true }); } catch { /* swept by the OS */ }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
