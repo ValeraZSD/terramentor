@@ -262,6 +262,11 @@ ok('a row deleted with its parent names that parent', raw('nodes', gLeaf)?.delet
 ok('a row deleted on its own, before its course, keeps its own mark', raw('nodes', gAlone)?.deleted_by === null && !!raw('nodes', gAlone)?.deleted_at);
 ok('the reviews of a deleted card are kept', db.prepare('SELECT COUNT(*) FROM review_log WHERE card_id IN (?, ?)').pluck().get(gCard, gLeafCard) === 2);
 ok('a second delete of a deleted row is a 404', (await call('DELETE', `/api/projects/${ghost}`)).status === 404);
+const pause = await call('POST', `/api/projects/${keep}/pause-others`);
+ok('"pause the other courses" leaves a deleted course alone', pause.status === 200 && Array.isArray(pause.json?.paused)
+    && !pause.json.paused.includes(ghost) && !raw('projects', ghost)?.paused, `${pause.status} ${pause.text.slice(0, 80)}`);
+ok('…and pressed on a deleted course is a 404', (await call('POST', `/api/projects/${ghost}/pause-others`)).status === 404);
+db.prepare('UPDATE projects SET paused = 0').run();
 
 // ============================================================================
 console.log('\n--- no GET route of the app shows a deleted row ---');

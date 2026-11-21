@@ -18,6 +18,7 @@ import { clientError } from '../clientError.js';
 import { studyToday } from '../studyDay.js';
 import { refreshTopicDates } from '../topicDates.js';
 import { libraryPace, projectVerdict } from '../pace.js';
+import { libraryCapacity } from '../capacity.js';
 
 let openTopic = null;
 const openTopicStmt = () => (openTopic ??= db.prepare(`
@@ -96,6 +97,9 @@ app.get('/api/schedule/overview', (req, res) => {
 
         // The learner's record, read once for every dated row (server/pace.js).
         const library = projects.some(p => p.deadline) ? libraryPace() : null;
+        // The library's one week shared out (server/capacity.js), with each
+        // active course's verdict judged once on the same record.
+        const capacity = libraryCapacity({ ...(library ? { library } : {}), offers: true });
 
         const rows = projects.map(p => {
             const ext = extents.get(p.id) || {};
@@ -138,7 +142,15 @@ app.get('/api/schedule/overview', (req, res) => {
                 pace,
                 // The date judged against the learner's own pace: needed,
                 // recent and best, the band and the offers. Null without a date.
-                verdict: p.deadline ? projectVerdict(p.id, { library }) : null,
+                verdict: capacity.courses.get(p.id)?.verdict
+                    ?? (p.deadline ? projectVerdict(p.id, { library }) : null),
+                // Its place in the library's week: served (nearest date
+                // first), short, waiting behind a nearer date, paused, undated
+                // or done, with the weekly share it gets. Null when not active.
+                capacity: (() => {
+                    const c = capacity.courses.get(p.id);
+                    return c ? { status: c.status, share: c.share, rank: c.rank } : null;
+                })(),
             };
         });
         // The day the verdicts were judged on, even if midnight passed since.
